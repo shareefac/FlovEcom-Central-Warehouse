@@ -1,0 +1,20 @@
+# CW scheduled jobs on the STAGING server, against the staging app schema cw_staging.
+# Installed by deploy/staging/install_cron.sh as /etc/cron.d/cw-staging; code in /opt/cw-staging
+# (a copy, never a slot directory). Times are UTC (the server's zone). See docs/ops.md.
+# Each job logs one line per run to /var/log/cw/<job>.log (rotated weekly by
+# /etc/logrotate.d/cw-staging) and exits non-zero on a problem (0 ok, 1 problem, 2 usage, 3 cannot run).
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+# Expire unpaid holds past their TTL: lock-free select, then one transaction per hold (plan §3, §4).
+* * * * *  root  cd /opt/cw-staging && php bin/expire_reservations.php --db=cw_staging >> /var/log/cw/expire_reservations.log 2>&1
+
+# Keep 14 days of the change feed; the newest row of every item/listing/channel stays, so no version moves.
+17 3 * * *  root  cd /opt/cw-staging && php bin/prune_changes.php --db=cw_staging --days=14 >> /var/log/cw/prune_changes.log 2>&1
+
+# Nightly invariant check on one consistent snapshot; a mismatch is also written to syslog (tag cw-invariants).
+47 3 * * *  root  cd /opt/cw-staging && { php bin/invariants.php --db=cw_staging >> /var/log/cw/invariants.log 2>&1 || logger -p user.err -t cw-invariants "cw_staging invariant check failed (exit $?); see /var/log/cw/invariants.log"; }
+
+# Not scheduled yet: bin/health_alert.php is a stub that only prints (no alert webhook yet, plan §6.3).
+# */5 * * * *  root  cd /opt/cw-staging && php bin/health_alert.php --db=cw_staging >> /var/log/cw/health_alert.log 2>&1
