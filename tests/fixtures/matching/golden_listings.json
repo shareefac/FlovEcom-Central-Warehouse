@@ -1,0 +1,4119 @@
+{
+    "generated_from": {
+        "vapeandgo": {
+            "file": "vapeandgo_listings_20260926T094152Z.jsonl.gz",
+            "sha256": "aeaa0af84ac669ac59d79ba1a2cba0addba442bf6d055a4e36ddf18e223172f4"
+        },
+        "electrofag": {
+            "file": "electrofag_listings_20260926T094157Z.jsonl.gz",
+            "sha256": "a3d9f0f81476e4d9d24415185292eb1d8712dcce260ef031f011eb5103e731eb"
+        }
+    },
+    "ctx": {
+        "vapeandgo": {
+            "48": {
+                "published_siblings": 1
+            },
+            "51": {
+                "published_siblings": 1
+            },
+            "750": {
+                "published_siblings": 3
+            },
+            "847": {
+                "published_siblings": 3
+            },
+            "8553": {
+                "published_siblings": 3
+            },
+            "8554": {
+                "published_siblings": 3
+            },
+            "11714": {
+                "published_siblings": 6
+            },
+            "12937": {
+                "published_siblings": 4
+            },
+            "12938": {
+                "published_siblings": 4
+            },
+            "12939": {
+                "published_siblings": 4
+            },
+            "13420": {
+                "published_siblings": 3
+            },
+            "27424": {
+                "published_siblings": 3
+            },
+            "28198": {
+                "published_siblings": 3
+            },
+            "29380": {
+                "published_siblings": 3
+            },
+            "29794": {
+                "published_siblings": 10
+            },
+            "30201": {
+                "published_siblings": 0
+            },
+            "30477": {
+                "published_siblings": 4
+            },
+            "31162": {
+                "published_siblings": 13
+            },
+            "31810": {
+                "published_siblings": 11
+            },
+            "31811": {
+                "published_siblings": 11
+            },
+            "32108": {
+                "published_siblings": 61
+            },
+            "33157": {
+                "published_siblings": 3
+            },
+            "34922": {
+                "published_siblings": 9
+            },
+            "36279": {
+                "published_siblings": 50
+            },
+            "36285": {
+                "published_siblings": 50
+            },
+            "36530": {
+                "published_siblings": 55
+            },
+            "36531": {
+                "published_siblings": 55
+            },
+            "36645": {
+                "published_siblings": 51
+            },
+            "37053": {
+                "published_siblings": 15
+            },
+            "37097": {
+                "published_siblings": 64
+            },
+            "37353": {
+                "published_siblings": 43
+            },
+            "37640": {
+                "published_siblings": 3
+            },
+            "38228": {
+                "published_siblings": 3
+            },
+            "38563": {
+                "published_siblings": 36
+            },
+            "38578": {
+                "published_siblings": 36
+            },
+            "38916": {
+                "published_siblings": 21
+            },
+            "40078": {
+                "published_siblings": 46
+            },
+            "40079": {
+                "published_siblings": 46
+            },
+            "40378": {
+                "published_siblings": 46
+            },
+            "40391": {
+                "published_siblings": 46
+            },
+            "40543": {
+                "published_siblings": 20
+            },
+            "41615": {
+                "published_siblings": 6
+            },
+            "42870": {
+                "published_siblings": 16
+            },
+            "43435": {
+                "published_siblings": 61
+            },
+            "43443": {
+                "published_siblings": 64
+            },
+            "44970": {
+                "published_siblings": 61
+            },
+            "45513": {
+                "published_siblings": 3
+            },
+            "45768": {
+                "published_siblings": 116
+            }
+        },
+        "electrofag": {
+            "30": {
+                "published_siblings": 46
+            },
+            "461": {
+                "published_siblings": 4
+            },
+            "886": {
+                "published_siblings": 21
+            },
+            "1032": {
+                "published_siblings": 3
+            },
+            "1345": {
+                "published_siblings": 21
+            },
+            "1628": {
+                "published_siblings": 4
+            },
+            "2031": {
+                "published_siblings": 20
+            },
+            "2215": {
+                "published_siblings": 4
+            },
+            "2984": {
+                "published_siblings": 13
+            },
+            "3249": {
+                "published_siblings": 3
+            },
+            "3308": {
+                "published_siblings": 3
+            },
+            "3648": {
+                "published_siblings": 39
+            },
+            "4026": {
+                "published_siblings": 16
+            },
+            "4280": {
+                "published_siblings": 3
+            },
+            "4380": {
+                "published_siblings": 43
+            },
+            "4771": {
+                "published_siblings": 5
+            },
+            "4774": {
+                "published_siblings": 5
+            },
+            "4877": {
+                "published_siblings": 31
+            },
+            "5302": {
+                "published_siblings": 19
+            },
+            "5387": {
+                "published_siblings": 52
+            },
+            "5396": {
+                "published_siblings": 44
+            },
+            "6067": {
+                "published_siblings": 4
+            },
+            "6294": {
+                "published_siblings": 9
+            },
+            "6597": {
+                "published_siblings": 43
+            },
+            "6840": {
+                "published_siblings": 21
+            },
+            "7409": {
+                "published_siblings": 18
+            },
+            "7415": {
+                "published_siblings": 18
+            },
+            "7527": {
+                "published_siblings": 3
+            },
+            "7531": {
+                "published_siblings": 3
+            },
+            "8182": {
+                "published_siblings": 3
+            },
+            "9347": {
+                "published_siblings": 15
+            },
+            "9403": {
+                "published_siblings": 10
+            },
+            "9408": {
+                "published_siblings": 6
+            },
+            "9414": {
+                "published_siblings": 6
+            },
+            "9577": {
+                "published_siblings": 10
+            },
+            "10952": {
+                "published_siblings": 3
+            },
+            "11850": {
+                "published_siblings": 116
+            }
+        }
+    },
+    "rows": {
+        "vapeandgo": {
+            "48": {
+                "site": "vapeandgo",
+                "variant_id": 48,
+                "product_id": 48,
+                "product_title": "Nic Nic Nicotine Shots - 18mg/ml - 100% VG",
+                "variant_title": "Nic Nic Nicotine Shots - 18mg/ml - 100% VG",
+                "brand": "Nic Nic",
+                "brand_id": 70,
+                "product_type": "simple",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 1,
+                "stock_mode": "In-Stock",
+                "price": 0.79,
+                "sale_price": null,
+                "permalink": "nic-nic-nicotine-shots-18mg-ml-100-vg/",
+                "product_permalink": "nic-nic-nicotine-shots-18mg-ml-100-vg/",
+                "barcodes": [
+                    5056168819829,
+                    5060612502656
+                ],
+                "attributes": [],
+                "units_30d": 18028,
+                "units_365d": 127440
+            },
+            "51": {
+                "site": "vapeandgo",
+                "variant_id": 51,
+                "product_id": 51,
+                "product_title": "10 x 10ml Nic Nic Nicotine Shots - 18mg/ml - 100% VG",
+                "variant_title": "10 x 10ml Nic Nic Nicotine Shots - 18mg/ml - 100% VG",
+                "brand": "Nic Nic",
+                "brand_id": 70,
+                "product_type": "simple",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 1,
+                "stock_mode": "In-Stock",
+                "price": 5.99,
+                "sale_price": null,
+                "permalink": "10-x-10ml-nic-nic-nicotine-shots-18mg-ml-100-vg/",
+                "product_permalink": "10-x-10ml-nic-nic-nicotine-shots-18mg-ml-100-vg/",
+                "barcodes": [],
+                "attributes": [],
+                "units_30d": 54,
+                "units_365d": 259
+            },
+            "750": {
+                "site": "vapeandgo",
+                "variant_id": 750,
+                "product_id": 435,
+                "product_title": "Caramel Tobacco Nic Salt E-Liquid by Doozy Salts 10ml",
+                "variant_title": "Caramel Tobacco Nic Salt E-Liquid by Doozy Salts 10ml - 20mg",
+                "brand": "Doozy Vape",
+                "brand_id": 7,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "doozy-nic-salt-caramel-tobacco-10ml-20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056168823789
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour Profile",
+                        "value": "Tobacco",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 13,
+                "units_365d": 98
+            },
+            "847": {
+                "site": "vapeandgo",
+                "variant_id": 847,
+                "product_id": 493,
+                "product_title": "Innokin Prism T18E, T22E Replacement Coils",
+                "variant_title": "Innokin Prism T18E, T22E Replacement Coils - 1.5 ohm",
+                "brand": "Innokin",
+                "brand_id": 515,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 7.19,
+                "sale_price": null,
+                "permalink": "innokin-t18e-t22e-coils-1-5-ohm/",
+                "product_permalink": null,
+                "barcodes": [
+                    6921426601593
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 8,
+                        "name": "Resistance",
+                        "value": "1.5 ohm",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "5 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 52,
+                        "name": "Coil Resistance",
+                        "value": "1.5ohm",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 52,
+                        "name": "Coil Resistance",
+                        "value": "1.7ohm",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 7,
+                "units_365d": 113
+            },
+            "8553": {
+                "site": "vapeandgo",
+                "variant_id": 8553,
+                "product_id": 3865,
+                "product_title": "Frozen Apple Berry Nic Salt E-Liquid by Doozy Seriously Salty 10ml",
+                "variant_title": "Frozen Apple Berry Nic Salt E-Liquid by Doozy Seriously Salty 10ml - 10mg",
+                "brand": "Doozy Vape",
+                "brand_id": 7,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "seriously-salty-nic-salt-frozen-apple-berry-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056168878109
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour Profile",
+                        "value": "Fruity, Menthol",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 3,
+                "units_365d": 45
+            },
+            "8554": {
+                "site": "vapeandgo",
+                "variant_id": 8554,
+                "product_id": 3865,
+                "product_title": "Frozen Apple Berry Nic Salt E-Liquid by Doozy Seriously Salty 10ml",
+                "variant_title": "Frozen Apple Berry Nic Salt E-Liquid by Doozy Seriously Salty 10ml - 20mg",
+                "brand": "Doozy Vape",
+                "brand_id": 7,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "seriously-salty-nic-salt-frozen-apple-berry-10ml-20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056168878208
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour Profile",
+                        "value": "Fruity, Menthol",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 60,
+                "units_365d": 93
+            },
+            "11714": {
+                "site": "vapeandgo",
+                "variant_id": 11714,
+                "product_id": 5037,
+                "product_title": "VooPoo Argus P1 Vape Pod Kit",
+                "variant_title": "VooPoo Argus P1 Vape Pod Kit - Gun Metal",
+                "brand": "VooPoo",
+                "brand_id": 522,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 29.99,
+                "sale_price": 4.99,
+                "permalink": "voopoo-argus-p1-vape-pod-kit/gun-metal/",
+                "product_permalink": null,
+                "barcodes": [
+                    6941291534208
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 11,
+                        "name": "Colour",
+                        "value": "Gun Metal",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 11,
+                        "name": "Colour",
+                        "value": "Black",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 11,
+                        "name": "Colour",
+                        "value": "Green",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 11,
+                        "name": "Colour",
+                        "value": "Red",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 11,
+                        "name": "Colour",
+                        "value": "Silver",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 61
+            },
+            "12937": {
+                "site": "vapeandgo",
+                "variant_id": 12937,
+                "product_id": 5382,
+                "product_title": "Banana Kiwi Ice Nic Salt E-Liquid by Riot Squad bar Edition 10ml",
+                "variant_title": "Banana Kiwi Ice Nic Salt E-Liquid by Riot Squad bar Edition 10ml - 5mg",
+                "brand": "Riot Squad",
+                "brand_id": 25,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "riot-squad-nic-salt-bar-edition-banana-kiwi-ice-10ml-5mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056059549354
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour Profile",
+                        "value": "Fruity, Menthol",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 7,
+                "units_365d": 41
+            },
+            "12938": {
+                "site": "vapeandgo",
+                "variant_id": 12938,
+                "product_id": 5382,
+                "product_title": "Banana Kiwi Ice Nic Salt E-Liquid by Riot Squad bar Edition 10ml",
+                "variant_title": "Banana Kiwi Ice Nic Salt E-Liquid by Riot Squad bar Edition 10ml - 10mg",
+                "brand": "Riot Squad",
+                "brand_id": 25,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "riot-squad-nic-salt-bar-edition-banana-kiwi-ice-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056059549361,
+                    5056059553788
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour Profile",
+                        "value": "Fruity, Menthol",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 10,
+                "units_365d": 210
+            },
+            "12939": {
+                "site": "vapeandgo",
+                "variant_id": 12939,
+                "product_id": 5382,
+                "product_title": "Banana Kiwi Ice Nic Salt E-Liquid by Riot Squad bar Edition 10ml",
+                "variant_title": "Banana Kiwi Ice Nic Salt E-Liquid by Riot Squad bar Edition 10ml - 20mg",
+                "brand": "Riot Squad",
+                "brand_id": 25,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "riot-squad-nic-salt-bar-edition-banana-kiwi-ice-10ml-20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056059549378
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour Profile",
+                        "value": "Fruity, Menthol",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 15
+            },
+            "13420": {
+                "site": "vapeandgo",
+                "variant_id": 13420,
+                "product_id": 5501,
+                "product_title": "Cream Tobacco Nic Salt E-Liquid by Doozy Mix 10ml",
+                "variant_title": "Cream Tobacco Nic Salt E-Liquid by Doozy Mix 10ml - 20mg",
+                "brand": "Doozy Vape",
+                "brand_id": 7,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "doozy-mix-salts-cream-tobacco-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056168810741
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour Profile",
+                        "value": "Sweet, Tobacco",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 6,
+                "units_365d": 50
+            },
+            "27424": {
+                "site": "vapeandgo",
+                "variant_id": 27424,
+                "product_id": 5755,
+                "product_title": "Blue Razz Lemonade Nic Salt E-Liquid by SKE Crystal Original 10ml",
+                "variant_title": "Blue Razz Lemonade Nic Salt E-Liquid by SKE Crystal Original 10ml - 10mg",
+                "brand": "SKE Crystal Nic Salt E-Liquids ",
+                "brand_id": 5887,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "ske-crystal-original-nic-salts-blue-razz-lemonade-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060939118400,
+                    5061028341013,
+                    5061026751869,
+                    5061026752361
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 388,
+                "units_365d": 3969
+            },
+            "28198": {
+                "site": "vapeandgo",
+                "variant_id": 28198,
+                "product_id": 5956,
+                "product_title": "Banana Ice Nic Salt E-liquid by Hayati Pro Max 10ml",
+                "variant_title": "Banana Ice Nic Salt E-liquid by Hayati Pro Max 10ml - 20mg",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-nic-salts-banana-ice-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    6976133162318,
+                    6976133162714
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 71,
+                "units_365d": 729
+            },
+            "29380": {
+                "site": "vapeandgo",
+                "variant_id": 29380,
+                "product_id": 6220,
+                "product_title": "Bubblegum Ice Nic Salt E-Liquid by Hayati Pro Max 10ml",
+                "variant_title": "Bubblegum Ice Nic Salt E-Liquid by Hayati Pro Max 10ml - 20mg",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-nic-salts-bubblegum-ice-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    6976133166514,
+                    6976133166934
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 252,
+                "units_365d": 2484
+            },
+            "29794": {
+                "site": "vapeandgo",
+                "variant_id": 29794,
+                "product_id": 6295,
+                "product_title": "Vaporesso Xros Pro Pod Vape Kit",
+                "variant_title": "Vaporesso Xros Pro Pod Vape Kit | Red",
+                "brand": "Vaporesso Vape Kits & Accessories ",
+                "brand_id": 521,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 29.99,
+                "sale_price": 19.49,
+                "permalink": "vaporesso-xros-pro-red-pod-kit/",
+                "product_permalink": null,
+                "barcodes": [
+                    6943498653263,
+                    6943498698165
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 11,
+                        "name": "Colour",
+                        "value": "Red",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "1200mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Tank Capacity",
+                        "value": "2ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 26,
+                "units_365d": 221
+            },
+            "30201": {
+                "site": "vapeandgo",
+                "variant_id": 30201,
+                "product_id": 6408,
+                "product_title": "Hayati Pro Ultra",
+                "variant_title": "Hayati Pro Ultra Mr Blue",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Bin",
+                "product_status": "Bin",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "Out-Of-Stock",
+                "price": 14.99,
+                "sale_price": 8.99,
+                "permalink": "hayati-pro-ultra-mr-blue/",
+                "product_permalink": null,
+                "barcodes": [
+                    6976133163308
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Mr Blue",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "15000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "550mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "30477": {
+                "site": "vapeandgo",
+                "variant_id": 30477,
+                "product_id": 4719,
+                "product_title": "Cotton Candy Ice (P&B Cloud) Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml",
+                "variant_title": "Cotton Candy Ice (P&B Cloud) Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml - 5mg",
+                "brand": "Elf Bar",
+                "brand_id": 257,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elf-bar-elfliq-nic-salt-cotton-candy-ice-10ml/5mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    4895258300943,
+                    4895258301155
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 286,
+                "units_365d": 2836
+            },
+            "31162": {
+                "site": "vapeandgo",
+                "variant_id": 31162,
+                "product_id": 6671,
+                "product_title": "Gold Bar Reload Kit",
+                "variant_title": "Hawaiian Sunrise Gold Bar Reload Kit",
+                "brand": "Gold Bar",
+                "brand_id": 5883,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 5.99,
+                "sale_price": 4.99,
+                "permalink": "gold-bar-reload-disposable-pod-kit/hawaiian-sunrise/",
+                "product_permalink": null,
+                "barcodes": [
+                    5061021920413
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Hawaiian Sunrise",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Tank Capacity",
+                        "value": "2ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 11
+            },
+            "31810": {
+                "site": "vapeandgo",
+                "variant_id": 31810,
+                "product_id": 6855,
+                "product_title": "Vaporesso Xros Corex 2.0 Mesh Replacement Pod(Pack of 4)",
+                "variant_title": "Vaporesso Xros Corex 2.0 Mesh Replacement Pod(Pack of 4) - 0.4ohm",
+                "brand": "Vaporesso Vape Kits & Accessories ",
+                "brand_id": 521,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 10.99,
+                "sale_price": 8.69,
+                "permalink": "vaporesso-corex-20-mesh-replacement-pod-pack-of-4/0-4ohm/",
+                "product_permalink": null,
+                "barcodes": [
+                    "06943498697557"
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 8,
+                        "name": "Resistance",
+                        "value": "0.4ohm",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "4 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Tank Capacity",
+                        "value": "2ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 125,
+                "units_365d": 2096
+            },
+            "31811": {
+                "site": "vapeandgo",
+                "variant_id": 31811,
+                "product_id": 6855,
+                "product_title": "Vaporesso Xros Corex 2.0 Mesh Replacement Pod(Pack of 4)",
+                "variant_title": "Vaporesso Xros Corex 2.0 Mesh Replacement Pod(Pack of 4) - 0.6ohm",
+                "brand": "Vaporesso Vape Kits & Accessories ",
+                "brand_id": 521,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 10.99,
+                "sale_price": 8.69,
+                "permalink": "vaporesso-corex-20-mesh-replacement-pod-pack-of-4/0-6ohm/",
+                "product_permalink": null,
+                "barcodes": [
+                    6943498697533,
+                    "06943498697533"
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 8,
+                        "name": "Resistance",
+                        "value": "0.6ohm",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "4 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Tank Capacity",
+                        "value": "2ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 331,
+                "units_365d": 4611
+            },
+            "32108": {
+                "site": "vapeandgo",
+                "variant_id": 32108,
+                "product_id": 6932,
+                "product_title": "Lost Mary BM6000 Pod Kit",
+                "variant_title": "Lost Mary BM6000 Pod Kit - Blueberry Sour Raspberry | 20mg",
+                "brand": "Lost Mary",
+                "brand_id": 5890,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 11.99,
+                "sale_price": 7.99,
+                "permalink": "lost-mary-bm6000/blueberry-sour-raspberry/",
+                "product_permalink": null,
+                "barcodes": [
+                    6937080564730,
+                    6932570153814,
+                    6932570154170
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blueberry Sour Raspberry",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "650mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 111,
+                "units_365d": 1733
+            },
+            "33157": {
+                "site": "vapeandgo",
+                "variant_id": 33157,
+                "product_id": 7176,
+                "product_title": "Mr Pink Nic Salt E-Liquid by Hayati Pro Max 10ml",
+                "variant_title": "Mr Pink Nic Salt E-Liquid by Hayati Pro Max 10ml | 10mg",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-nic-salt-mr-pink-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    6977119133308,
+                    6977119133469
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 43,
+                "units_365d": 867
+            },
+            "34922": {
+                "site": "vapeandgo",
+                "variant_id": 34922,
+                "product_id": 7547,
+                "product_title": "OXVA VPrime Pod Kit",
+                "variant_title": "Blue Leather OXVA VPrime Pod Kit",
+                "brand": "OXVA Brand",
+                "brand_id": 536,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 24.99,
+                "sale_price": 23.99,
+                "permalink": "oxva-vprime-pod-kit/blue-leather/",
+                "product_permalink": null,
+                "barcodes": [
+                    6932467605792
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 11,
+                        "name": "Colour",
+                        "value": "Blue Leather",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "2600 mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 52,
+                        "name": "Coil Resistance",
+                        "value": "0.2ohm",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 52,
+                        "name": "Coil Resistance",
+                        "value": "0.4ohm",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 52,
+                        "name": "Coil Resistance",
+                        "value": "0.6ohm",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 2,
+                "units_365d": 28
+            },
+            "36279": {
+                "site": "vapeandgo",
+                "variant_id": 36279,
+                "product_id": 7732,
+                "product_title": "SKE Crystal 600 Pro Prefilled Pods",
+                "variant_title": "Kiwi Passionfruit Guava SKE 600 Pro Prefilled Pods",
+                "brand": "SKE Crystal Bar",
+                "brand_id": 353,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 4.99,
+                "sale_price": 3.49,
+                "permalink": "ske-600-pro-prefilled-pods/kiwi-passionfruit-guava/",
+                "product_permalink": null,
+                "barcodes": [
+                    6942417238567,
+                    6942417238697
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Kiwi Passionfruit Guava",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "2 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "1200",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 59,
+                "units_365d": 672
+            },
+            "36285": {
+                "site": "vapeandgo",
+                "variant_id": 36285,
+                "product_id": 7732,
+                "product_title": "SKE Crystal 600 Pro Prefilled Pods",
+                "variant_title": "VMT Ice SKE 600 Pro Prefilled Pods",
+                "brand": "SKE Crystal Bar",
+                "brand_id": 353,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 4.99,
+                "sale_price": 3.49,
+                "permalink": "ske-600-pro-prefilled-pods/vmt-ice/",
+                "product_permalink": null,
+                "barcodes": [
+                    6942417238680,
+                    6942417238819
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "VMT Ice",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "2 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "1200",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 102,
+                "units_365d": 888
+            },
+            "36530": {
+                "site": "vapeandgo",
+                "variant_id": 36530,
+                "product_id": 7746,
+                "product_title": "Pyne Pod Click Pods",
+                "variant_title": "Blueberry Raspberry Lemonade Pyne Pod Click Pods ",
+                "brand": "Pyne Pod",
+                "brand_id": 5961,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 5.99,
+                "sale_price": 3.99,
+                "permalink": "pyne-pod-click-10k-replacement-pods/blueberry-raspberry-lemonade/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056598178275
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blueberry Raspberry Lemonade",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 37,
+                        "name": "E-Liquid Capacity",
+                        "value": "12ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "10000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 21,
+                "units_365d": 411
+            },
+            "36531": {
+                "site": "vapeandgo",
+                "variant_id": 36531,
+                "product_id": 7746,
+                "product_title": "Pyne Pod Click Pods",
+                "variant_title": "Blueberry Raspberry Pyne Pod Click Pods ",
+                "brand": "Pyne Pod",
+                "brand_id": 5961,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 5.99,
+                "sale_price": 3.99,
+                "permalink": "pyne-pod-click-10k-replacement-pods/blueberry-raspberry/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056598179937
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blueberry Raspberry",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 37,
+                        "name": "E-Liquid Capacity",
+                        "value": "12ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "10000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 29,
+                "units_365d": 380
+            },
+            "36645": {
+                "site": "vapeandgo",
+                "variant_id": 36645,
+                "product_id": 7764,
+                "product_title": "Hayati Pro Ultra Plus 25K",
+                "variant_title": "Hayati Pro Ultra Plus Mr Blue",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 14.99,
+                "sale_price": 10.99,
+                "permalink": "hayati-pro-ultra-plus-mr-blue/",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329006192
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Mr Blue",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "25000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "850mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 63,
+                "units_365d": 1176
+            },
+            "37053": {
+                "site": "vapeandgo",
+                "variant_id": 37053,
+                "product_id": 7829,
+                "product_title": "Vaporesso Xros 5 Vape Kit",
+                "variant_title": "Vaporesso Xros 5 Vape Kit | Blue Silk",
+                "brand": "Vaporesso Vape Kits & Accessories ",
+                "brand_id": 521,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 28.99,
+                "sale_price": 22.99,
+                "permalink": "vaporesso-xros-5-vape-kit/blue-silk/",
+                "product_permalink": null,
+                "barcodes": [
+                    6943498615841
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 11,
+                        "name": "Colour",
+                        "value": "Blue Silk",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 52,
+                        "name": "Coil Resistance",
+                        "value": "0.4ohm",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 52,
+                        "name": "Coil Resistance",
+                        "value": "0.6ohm",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Tank Capacity",
+                        "value": "2ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "1500mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 2,
+                "units_365d": 46
+            },
+            "37097": {
+                "site": "vapeandgo",
+                "variant_id": 37097,
+                "product_id": 7833,
+                "product_title": "Lost Mary BM6000 Pods",
+                "variant_title": "Banana Volcano Lost Mary BM6000 Refill Pack",
+                "brand": "Lost Mary",
+                "brand_id": 5890,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 7.99,
+                "sale_price": 5.25,
+                "permalink": "lost-mary-bm6000-prefilled-pods-20mg/banana-volcano/",
+                "product_permalink": null,
+                "barcodes": [
+                    71843338630790508,
+                    6932570147141
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Banana Volcano",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 50,
+                "units_365d": 642
+            },
+            "37353": {
+                "site": "vapeandgo",
+                "variant_id": 37353,
+                "product_id": 7844,
+                "product_title": "PIXL 8000 Prefilled Pod Kit",
+                "variant_title": "Blueberry Raspberry PIXL 8000 Prefilled Pod Kit",
+                "brand": "PIXL",
+                "brand_id": 5970,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 12.99,
+                "sale_price": 7.99,
+                "permalink": "pixl-8000-prefilled-pod-kit/blueberry-raspberry/",
+                "product_permalink": null,
+                "barcodes": [
+                    5061064441746
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blueberry Raspberry",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "650 mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "8000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 17,
+                "units_365d": 123
+            },
+            "37640": {
+                "site": "vapeandgo",
+                "variant_id": 37640,
+                "product_id": 7878,
+                "product_title": "Riberry Lemonade Nic Salt E-Liquid by IVG Intense 10ml",
+                "variant_title": "Riberry Lemonade Nic Salt E-Liquid by IVG Intense 10ml | 20mg",
+                "brand": "IVG Nic Salts",
+                "brand_id": 402,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "Out-Of-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "ivg-intense-nic-salts-riberry-lemonade-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056841912236
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 11,
+                "units_365d": 179
+            },
+            "38228": {
+                "site": "vapeandgo",
+                "variant_id": 38228,
+                "product_id": 7942,
+                "product_title": "Blueberry Cherry Cranberry Nic Salt E-Liquid by SKE Crystal Original 10ml",
+                "variant_title": "Blueberry Cherry Cranberry Nic Salt E-Liquid by SKE Crystal Original 10ml | 20mg",
+                "brand": "SKE Crystal Nic Salt E-Liquids ",
+                "brand_id": 5887,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "blueberry-cherry-cranberry-nic-salt-e-liquid-by-ske-crystal-original-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5061026753764,
+                    5061026753924
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 119,
+                "units_365d": 953
+            },
+            "38563": {
+                "site": "vapeandgo",
+                "variant_id": 38563,
+                "product_id": 8001,
+                "product_title": "SKE Crystal Bar 600 Prefilled Pods",
+                "variant_title": "Kiwi Passion Fruit Guava SKE Crystal Bar 600 Prefilled Pods",
+                "brand": "SKE Crystal Bar",
+                "brand_id": 353,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3.99,
+                "sale_price": 2.49,
+                "permalink": "ske-crystal-bar-600-prefilled-pods-kiwi-passion-fruit-guava/",
+                "product_permalink": null,
+                "barcodes": [
+                    6942417285684
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Kiwi Passion Fruit Guava",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "1 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 9,
+                "units_365d": 114
+            },
+            "38578": {
+                "site": "vapeandgo",
+                "variant_id": 38578,
+                "product_id": 8001,
+                "product_title": "SKE Crystal Bar 600 Prefilled Pods",
+                "variant_title": "VMT Ice SKE Crystal Bar 600 Prefilled Pods",
+                "brand": "SKE Crystal Bar",
+                "brand_id": 353,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3.99,
+                "sale_price": 2.49,
+                "permalink": "ske-crystal-bar-600-prefilled-pods-vmt-ice/",
+                "product_permalink": null,
+                "barcodes": [
+                    6942417285776,
+                    6942417286124
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "VMT Ice",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "1 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 39,
+                "units_365d": 440
+            },
+            "38916": {
+                "site": "vapeandgo",
+                "variant_id": 38916,
+                "product_id": 8028,
+                "product_title": "Bloody Bar Crystal 10K Prefilled Pods",
+                "variant_title": "Blue Razz Bear Bloody Bar Crystal 10K Prefilled Pods",
+                "brand": "Bloody Bar",
+                "brand_id": 5955,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 4.99,
+                "sale_price": 3.99,
+                "permalink": "bloody-bar-crystal-10k-prefilled-pods/blue-razz-bear/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060949056853
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blue Razz Bear",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "10000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 22,
+                "units_365d": 140
+            },
+            "40078": {
+                "site": "vapeandgo",
+                "variant_id": 40078,
+                "product_id": 8239,
+                "product_title": "Crystal Pro CP 10K Pods",
+                "variant_title": "Juicy Peach Crystal Pro CP 10K Pods",
+                "brand": "Crystal Pro CP",
+                "brand_id": 6003,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 6.49,
+                "sale_price": 4.49,
+                "permalink": "crystal-pro-cp-10k-prefilled-pods-juicy-peach/",
+                "product_permalink": null,
+                "barcodes": [
+                    6975914657234,
+                    6975914655964
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Juicy Peach",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "10000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 70,
+                "units_365d": 438
+            },
+            "40079": {
+                "site": "vapeandgo",
+                "variant_id": 40079,
+                "product_id": 8239,
+                "product_title": "Crystal Pro CP 10K Pods",
+                "variant_title": "Juicy Raspberries Crystal Pro CP 10K Pods",
+                "brand": "Crystal Pro CP",
+                "brand_id": 6003,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 6.49,
+                "sale_price": 4.49,
+                "permalink": "crystal-pro-cp-10k-prefilled-pods-juicy-raspberries/",
+                "product_permalink": null,
+                "barcodes": [
+                    6975914657159,
+                    6975914655889
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Juicy Raspberries",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "10000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 11,
+                "units_365d": 128
+            },
+            "40378": {
+                "site": "vapeandgo",
+                "variant_id": 40378,
+                "product_id": 8261,
+                "product_title": "Al Fakher 30k Hypermax Prefilled Pods",
+                "variant_title": "Hubba Al Fakher 30k Hypermax Prefilled Pods",
+                "brand": "Al Fakher ",
+                "brand_id": 5949,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 6.99,
+                "sale_price": 5.99,
+                "permalink": "al-fakher-30k-hypermax-prefilled-pods-hubba/",
+                "product_permalink": null,
+                "barcodes": [
+                    5061099953184
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Hubba",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 54,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "30000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Tank Capacity",
+                        "value": "2ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 24
+            },
+            "40391": {
+                "site": "vapeandgo",
+                "variant_id": 40391,
+                "product_id": 8261,
+                "product_title": "Al Fakher 30k Hypermax Prefilled Pods",
+                "variant_title": "Al Fakher 30k Hypermax Pods",
+                "brand": "Al Fakher ",
+                "brand_id": 5949,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 1,
+                "is_default": 1,
+                "stock_mode": "In-Stock",
+                "price": 6.99,
+                "sale_price": 5.99,
+                "permalink": "al-fakher-30k-hypermax-prefilled-pods/",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 54,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "30000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Tank Capacity",
+                        "value": "2ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "40543": {
+                "site": "vapeandgo",
+                "variant_id": 40543,
+                "product_id": 8303,
+                "product_title": "HQD Glow Air 35K Prefilled Pods",
+                "variant_title": "Juicy Peach/Peach Mango Ice HQD Glow Air 35K Prefilled Pods",
+                "brand": "HQD",
+                "brand_id": 6011,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 9.99,
+                "sale_price": 6.99,
+                "permalink": "hqd-glow-air-35k-prefilled-pods-juicy-peach/peach-mango-ice/",
+                "product_permalink": null,
+                "barcodes": [
+                    6923742023219
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Juicy Peach/Peach Mango Ice",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 37,
+                        "name": "E-Liquid Capacity",
+                        "value": "22ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "35000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 24,
+                "units_365d": 238
+            },
+            "41615": {
+                "site": "vapeandgo",
+                "variant_id": 41615,
+                "product_id": 8501,
+                "product_title": "Vaporesso Xros Corex 3.0 Pods (Pack of 4)",
+                "variant_title": "Vaporesso Xros Corex 3.0 Pods (Pack of 4) - 0.4 ohm",
+                "brand": "Vaporesso Vape Kits & Accessories ",
+                "brand_id": 521,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 9.99,
+                "sale_price": 8.69,
+                "permalink": "vaporesso-xros-corex-30-replacement-podpack-of-4-04-ohm/",
+                "product_permalink": null,
+                "barcodes": [
+                    6943498697557,
+                    6943498698189,
+                    6943498686179
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 8,
+                        "name": "Resistance",
+                        "value": "0.4 ohm",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "4 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Tank Capacity",
+                        "value": "2ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 8,
+                        "name": "Resistance",
+                        "value": "0.6 ohm",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 8,
+                        "name": "Resistance",
+                        "value": "0.8 ohm",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 8,
+                        "name": "Resistance",
+                        "value": "1.0 ohm",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 8,
+                        "name": "Resistance",
+                        "value": "1.2 ohm",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 338,
+                "units_365d": 1923
+            },
+            "42870": {
+                "site": "vapeandgo",
+                "variant_id": 42870,
+                "product_id": 8745,
+                "product_title": "Elf Bar Plus 15 Prefilled Pod Kit",
+                "variant_title": "Blueberry Elf Bar Plus 15 Prefilled Pod Kit",
+                "brand": "Elf Bar",
+                "brand_id": 257,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Coming-Soon",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 8.99,
+                "sale_price": null,
+                "permalink": "elf-bar-plus-15-prefilled-pod-kit-blueberry/",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blueberry",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "Asia",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "800mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "15000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "43435": {
+                "site": "vapeandgo",
+                "variant_id": 43435,
+                "product_id": 6932,
+                "product_title": "Lost Mary BM6000 Pod Kit",
+                "variant_title": "Lost Mary BM6000 Pod Kit - Pineapple Passionfruit | 20mg",
+                "brand": "Lost Mary",
+                "brand_id": 5890,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 11.99,
+                "sale_price": 7.99,
+                "permalink": "lost-mary-bm6000-pod-kit-20mg-pineapple-passionfruit/",
+                "product_permalink": null,
+                "barcodes": [
+                    6941976280185
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Pineapple Passionfruit",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "650mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 21,
+                "units_365d": 278
+            },
+            "43443": {
+                "site": "vapeandgo",
+                "variant_id": 43443,
+                "product_id": 7833,
+                "product_title": "Lost Mary BM6000 Pods",
+                "variant_title": "Pineapple Passionfruit Lost Mary BM6000 Refill Pack",
+                "brand": "Lost Mary",
+                "brand_id": 5890,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 7.99,
+                "sale_price": 5.25,
+                "permalink": "lost-mary-bm6000-pods-pineapple-passionfruit/",
+                "product_permalink": null,
+                "barcodes": [
+                    6941976279844
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Pineapple Passionfruit",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 98,
+                "units_365d": 763
+            },
+            "44970": {
+                "site": "vapeandgo",
+                "variant_id": 44970,
+                "product_id": 8925,
+                "product_title": "IVG Smart Max Refill Pods",
+                "variant_title": "Banana Ice IVG Smart Max Refill Pods ",
+                "brand": "IVG",
+                "brand_id": 5,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 8.99,
+                "sale_price": 4.99,
+                "permalink": "ivg-smart-max-pods-banana-ice/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056796897879
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Banana Ice",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "2 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Tank Capacity",
+                        "value": "2ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 55,
+                "units_365d": 160
+            },
+            "45513": {
+                "site": "vapeandgo",
+                "variant_id": 45513,
+                "product_id": 8990,
+                "product_title": "Blue Razz Bubblegum Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Blue Razz Bubblegum Nic Salt E-Liquid by Elux Legend 10ml - 10mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "blue-razz-bubblegum-nic-salt-e-liquid-by-elux-legend-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5061026756154,
+                    5061026756215
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 681,
+                "units_365d": 2699
+            },
+            "45768": {
+                "site": "vapeandgo",
+                "variant_id": 45768,
+                "product_id": 9017,
+                "product_title": "Hayati Pro Max Plus 6000",
+                "variant_title": "Hayati Pro Max Plus Red Apple Ice",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 9.99,
+                "sale_price": 7.99,
+                "permalink": "hayati-pro-max-plus-red-apple-ice/",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329003801
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Red Apple Ice",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 37,
+                        "name": "E-Liquid Capacity",
+                        "value": "12ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "850mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 30,
+                "units_365d": 89
+            }
+        },
+        "electrofag": {
+            "30": {
+                "site": "electrofag",
+                "variant_id": 30,
+                "product_id": 4,
+                "product_title": "Al Fakher 30k Hypermax Prefilled Pods",
+                "variant_title": "Al Fakher 30k Hypermax Prefilled Pods - Hubba",
+                "brand": "Al Fakher",
+                "brand_id": 1872,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 7.99,
+                "sale_price": 5.99,
+                "permalink": "al-fakher-30k-hypermax-prefilled-pods/hubba",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Hubba",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "461": {
+                "site": "electrofag",
+                "variant_id": 461,
+                "product_id": 71,
+                "product_title": "Banana Kiwi Ice Riot Squad BAR EDTN 10ml Nic Salt E Liquid",
+                "variant_title": "Banana Kiwi Ice Riot Squad BAR EDTN 10ml Nic Salt E Liquid",
+                "brand": "Riot Squad",
+                "brand_id": 2028,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 1,
+                "is_default": 1,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": null,
+                "permalink": "banana-kiwi-ice-riot-squad-bar-edtn-10ml-nic-salt-e-liquid",
+                "product_permalink": "banana-kiwi-ice-riot-squad-bar-edtn-10ml-nic-salt-e-liquid",
+                "barcodes": [],
+                "attributes": [],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "886": {
+                "site": "electrofag",
+                "variant_id": 886,
+                "product_id": 193,
+                "product_title": "Bloody Bar Crystal 10K Prefilled Pods",
+                "variant_title": "Bloody Bar Crystal 10K Prefilled Pods - Blue Razz Bear",
+                "brand": "Bloody Bar",
+                "brand_id": 2043,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3.99,
+                "sale_price": null,
+                "permalink": "bloody-bar-crystal-10k-prefilled-pods/blue-razz-bear",
+                "product_permalink": null,
+                "barcodes": [
+                    5060949056853
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Blue Razz Bear",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 1
+            },
+            "1032": {
+                "site": "electrofag",
+                "variant_id": 1032,
+                "product_id": 243,
+                "product_title": "Caramel Tobacco 10ml Nicotine Salt E-Liquid by Doozy Vape Co",
+                "variant_title": "Caramel Tobacco 10ml Nicotine Salt E-Liquid by Doozy Vape Co - 20mg",
+                "brand": "Doozy Vape Co",
+                "brand_id": 2027,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "caramel-tobacco-10ml-20mg-nicotine-salt-by-doozy-vape-co/20mg",
+                "product_permalink": "caramel-tobacco-10ml-20mg-nicotine-salt-by-doozy-vape-co",
+                "barcodes": [
+                    5056168810741,
+                    5056168823789
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 8,
+                "units_365d": 15
+            },
+            "1345": {
+                "site": "electrofag",
+                "variant_id": 1345,
+                "product_id": 275,
+                "product_title": "Crystal Pro CP 10K Prefilled Pods",
+                "variant_title": "Crystal Pro CP 10K Prefilled Pods - Juicy Raspberries",
+                "brand": "Crystal Bar",
+                "brand_id": 2047,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 6.99,
+                "sale_price": 4.49,
+                "permalink": "crystal-pro-cp-10k-prefilled-pods/juicy-raspberries",
+                "product_permalink": null,
+                "barcodes": [
+                    6975914655889,
+                    6975914655964,
+                    6975914657159
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Juicy Raspberries",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 11
+            },
+            "1628": {
+                "site": "electrofag",
+                "variant_id": 1628,
+                "product_id": 342,
+                "product_title": "Doozy Vape Seriously Salty Frozen Apple Berry 10ml Nicsalt E Liquid",
+                "variant_title": "Doozy Vape Seriously Salty Frozen Apple Berry 10ml Nicsalt E Liquid - 10mg",
+                "brand": "Doozy Vape Co",
+                "brand_id": 2027,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "doozy-vape-seriously-salty-frozen-apple-berry-10ml-nicsalt-e-liquid/10mg",
+                "product_permalink": "doozy-vape-seriously-salty-frozen-apple-berry-10ml-nicsalt-e-liquid",
+                "barcodes": [
+                    5056168878109,
+                    5056168878208
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 6,
+                "units_365d": 18
+            },
+            "2031": {
+                "site": "electrofag",
+                "variant_id": 2031,
+                "product_id": 408,
+                "product_title": "Elf Bar JoinOne 15 Classic Prefilled Pod Kit",
+                "variant_title": "Elf Bar JoinOne 15 Classic Prefilled Pod Kit - Blueberry",
+                "brand": "Elf Bar",
+                "brand_id": 2055,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 11.99,
+                "sale_price": 7.99,
+                "permalink": "elf-bar-joinone-15-classic-prefilled-pod-kit/blueberry",
+                "product_permalink": null,
+                "barcodes": [
+                    6932570198440
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Blueberry",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 4
+            },
+            "2215": {
+                "site": "electrofag",
+                "variant_id": 2215,
+                "product_id": 437,
+                "product_title": "ELFLIQ P&B Cloud 10ml Nic Salt E Liquid",
+                "variant_title": "ELFLIQ P&B Cloud 10ml Nic Salt E Liquid - 5mg",
+                "brand": "Elf Bar",
+                "brand_id": 2055,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elfliq-p-b-cloud-10ml-nic-salt-e-liquid/5mg",
+                "product_permalink": "elfliq-p-b-cloud-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    4895258300943,
+                    4895258301155
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "2984": {
+                "site": "electrofag",
+                "variant_id": 2984,
+                "product_id": 538,
+                "product_title": "Gold Bar Reload Prefilled Vape Pods",
+                "variant_title": "Gold Bar Reload Prefilled Vape Pods - Hawaiian Sunrise",
+                "brand": "Gold Bar",
+                "brand_id": 2060,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 3.49,
+                "sale_price": null,
+                "permalink": "gold-bar-reload-prefilled-vape-pods/hawaiian-sunrise",
+                "product_permalink": null,
+                "barcodes": [
+                    5061021920413
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Hawaiian Sunrise",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 2
+            },
+            "3249": {
+                "site": "electrofag",
+                "variant_id": 3249,
+                "product_id": 583,
+                "product_title": "Hayati Pro Max Bubble Gum Ice 10ml Nic Salt E Liquid",
+                "variant_title": "Hayati Pro Max Bubble Gum Ice 10ml Nic Salt E Liquid - 20mg",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-bubble-gum-ice-10ml-nic-salt-e-liquid/20mg",
+                "product_permalink": "hayati-pro-max-bubble-gum-ice-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    6976133166514
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 11
+            },
+            "3308": {
+                "site": "electrofag",
+                "variant_id": 3308,
+                "product_id": 603,
+                "product_title": "Hayati Pro Max Mr Pink 10ml Nic Salt E Liquid",
+                "variant_title": "Hayati Pro Max Mr Pink 10ml Nic Salt E Liquid - 10mg",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-mr-pink-10ml-nic-salt-e-liquid/10mg",
+                "product_permalink": "hayati-pro-max-mr-pink-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    6977119133308
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "3648": {
+                "site": "electrofag",
+                "variant_id": 3648,
+                "product_id": 675,
+                "product_title": "Hayati Pro Ultra Plus Prefilled Pod Kit",
+                "variant_title": "Hayati Pro Ultra Plus Prefilled Pod Kit - Mr Blue",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 14.99,
+                "sale_price": 10.99,
+                "permalink": "hayati-pro-ultra-mr-blue",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329006192,
+                    6936329084367
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Mr Blue",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 30,
+                        "name": "Battery Capacity",
+                        "value": "850mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 27,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Puff Count",
+                        "value": "25000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 4,
+                "units_365d": 27
+            },
+            "4026": {
+                "site": "electrofag",
+                "variant_id": 4026,
+                "product_id": 730,
+                "product_title": "HQD Glow Air 35K 2-in-1 Prefilled Pods",
+                "variant_title": "HQD Glow Air 35K 2-in-1 Prefilled Pods - Juicy Peach / Peach Mango",
+                "brand": "HQD",
+                "brand_id": 2065,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 8.99,
+                "sale_price": 6.99,
+                "permalink": "hqd-glow-air-35k-2-in-1-prefilled-pods/juicy-peach-/-peach-mango",
+                "product_permalink": null,
+                "barcodes": [
+                    6923742023219
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Juicy Peach / Peach Mango",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "4280": {
+                "site": "electrofag",
+                "variant_id": 4280,
+                "product_id": 758,
+                "product_title": "Innokin T18E Coils (5/pack)",
+                "variant_title": "Innokin T18E Coils (5/pack) - 1.5 Ohm",
+                "brand": "Innokin",
+                "brand_id": 2069,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 7.99,
+                "sale_price": 9.99,
+                "permalink": "innokin-t18e-coils-5-pack-1/15-ohm",
+                "product_permalink": "innokin-t18e-coils-5-pack-1",
+                "barcodes": [
+                    6921426601593
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "1.5 Ohm",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 2
+            },
+            "4380": {
+                "site": "electrofag",
+                "variant_id": 4380,
+                "product_id": 771,
+                "product_title": "IVG 2400 4 in 1 Rechargeable Prefilled Pod Kit",
+                "variant_title": "IVG 2400 4 in 1 Rechargeable Prefilled Pod Kit - Pomegranate Edition",
+                "brand": "IVG",
+                "brand_id": 2026,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 11.99,
+                "sale_price": 7.49,
+                "permalink": "ivg-2400-4-in-1-rechargeable-prefilled-pod-kit/pomegranate-edition",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Pomegranate Edition",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "4771": {
+                "site": "electrofag",
+                "variant_id": 4771,
+                "product_id": 841,
+                "product_title": "IVG Riberry Lemonade 10ml E Liquid",
+                "variant_title": "IVG Riberry Lemonade 10ml E Liquid - 3mg",
+                "brand": "IVG",
+                "brand_id": 2026,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3,
+                "sale_price": 3.99,
+                "permalink": "ivg-riberry-lemonade-10ml-e-liquid/3mg",
+                "product_permalink": "ivg-riberry-lemonade-10ml-e-liquid",
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "3mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
+            "4774": {
+                "site": "electrofag",
+                "variant_id": 4774,
+                "product_id": 841,
+                "product_title": "IVG Riberry Lemonade 10ml E Liquid",
+                "variant_title": "IVG Riberry Lemonade 10ml E Liquid - 18mg",
+                "brand": "IVG",
+                "brand_id": 2026,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3,
+                "sale_price": 3.99,
+                "permalink": "ivg-riberry-lemonade-10ml-e-liquid/18mg",
+                "product_permalink": "ivg-riberry-lemonade-10ml-e-liquid",
+                "barcodes": [
+                    5056841912236
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "18mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 1
+            },
+            "4877": {
+                "site": "electrofag",
+                "variant_id": 4877,
+                "product_id": 846,
+                "product_title": "IVG Smart Max 10K Prefilled Pods",
+                "variant_title": "IVG Smart Max 10K Prefilled Pods - Banana Ice",
+                "brand": "IVG",
+                "brand_id": 2026,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 4.99,
+                "sale_price": null,
+                "permalink": "ivg-smart-max-10k-prefilled-pods/banana-ice",
+                "product_permalink": null,
+                "barcodes": [
+                    5056796897879
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Banana Ice",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 6
+            },
+            "5302": {
+                "site": "electrofag",
+                "variant_id": 5302,
+                "product_id": 961,
+                "product_title": "Lost Mary BM600 Prefilled Pod Kit",
+                "variant_title": "Lost Mary BM600 Prefilled Pod Kit - Blueberry Sour Raspberry",
+                "brand": "Lost Mary",
+                "brand_id": 2062,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 4.99,
+                "sale_price": 3.49,
+                "permalink": "lost-mary-bm600-prefilled-pod-kit/blueberry-sour-raspberry",
+                "product_permalink": null,
+                "barcodes": [
+                    6932570128126
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Blueberry Sour Raspberry",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 3
+            },
+            "5387": {
+                "site": "electrofag",
+                "variant_id": 5387,
+                "product_id": 963,
+                "product_title": "Lost Mary BM6000 Prefilled Pod Kit",
+                "variant_title": "Lost Mary BM6000 Prefilled Pod Kit - Pineapple Passion Fruit",
+                "brand": "Lost Mary",
+                "brand_id": 2062,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 11.99,
+                "sale_price": 7.99,
+                "permalink": "lost-mary-bm6000-refillable-pod-kit/pineapple-passion-fruit",
+                "product_permalink": null,
+                "barcodes": [
+                    6941976279844,
+                    6941976280185
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Pineapple Passion Fruit",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 7
+            },
+            "5396": {
+                "site": "electrofag",
+                "variant_id": 5396,
+                "product_id": 964,
+                "product_title": "Lost Mary BM6000 Refillable Pod",
+                "variant_title": "Lost Mary BM6000 Refillable Pod - Banana Volcano",
+                "brand": "Lost Mary",
+                "brand_id": 2062,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 7.99,
+                "sale_price": 5.25,
+                "permalink": "lost-mary-bm6000-refillable-pod/banana-volcano",
+                "product_permalink": null,
+                "barcodes": [
+                    6932570147141
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Banana Volcano",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 6
+            },
+            "6067": {
+                "site": "electrofag",
+                "variant_id": 6067,
+                "product_id": 1066,
+                "product_title": "Nicotine Shot 10ml By Nic Nic",
+                "variant_title": "Nicotine Shot 10ml By Nic Nic - 18mg (100VG)",
+                "brand": "Nic Nic",
+                "brand_id": 2068,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 1.99,
+                "sale_price": null,
+                "permalink": "nicotine-shot-10ml-by-nic-nic/18mg-100vg",
+                "product_permalink": "nicotine-shot-10ml-by-nic-nic",
+                "barcodes": [
+                    5056168819829
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "18mg (100VG)",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 88,
+                "units_365d": 222
+            },
+            "6294": {
+                "site": "electrofag",
+                "variant_id": 6294,
+                "product_id": 1094,
+                "product_title": "OXVA V Prime 60W Pod Vape Kit",
+                "variant_title": "OXVA V Prime 60W Pod Vape Kit - Blue Leather",
+                "brand": "OXVA",
+                "brand_id": 2084,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 24.99,
+                "sale_price": 23.99,
+                "permalink": "oxva-v-prime-60w-pod-vape-kit/blue-leather",
+                "product_permalink": null,
+                "barcodes": [
+                    6932467605792
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 1,
+                        "name": "colour",
+                        "value": "Blue Leather",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 2
+            },
+            "6597": {
+                "site": "electrofag",
+                "variant_id": 6597,
+                "product_id": 1142,
+                "product_title": "PIXL 8000 Prefilled Pod Kit",
+                "variant_title": "PIXL 8000 Prefilled Pod Kit - Blueberry Raspberry",
+                "brand": "Vapes Bars",
+                "brand_id": 2023,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 7.99,
+                "sale_price": null,
+                "permalink": "pixl-8000-prefilled-pod-kit/blueberry-raspberry",
+                "product_permalink": null,
+                "barcodes": [
+                    1746,
+                    5061064441746
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Blueberry Raspberry",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 2,
+                "units_365d": 2
+            },
+            "6840": {
+                "site": "electrofag",
+                "variant_id": 6840,
+                "product_id": 1182,
+                "product_title": "Pyne Pod Click Prefilled Pods",
+                "variant_title": "Pyne Pod Click Prefilled Pods - Blueberry Raspberry",
+                "brand": "PYNE POD",
+                "brand_id": 2089,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3.99,
+                "sale_price": null,
+                "permalink": "pyne-pod-click-prefilled-pods/blueberry-raspberry",
+                "product_permalink": null,
+                "barcodes": [
+                    5056598179937
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Blueberry Raspberry",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 10
+            },
+            "7409": {
+                "site": "electrofag",
+                "variant_id": 7409,
+                "product_id": 1274,
+                "product_title": "SKE Crystal Bar Pro 600 Replacement Pod",
+                "variant_title": "SKE Crystal Bar Pro 600 Replacement Pod - Kiwi Passion Fruit Guava",
+                "brand": "Crystal Bar",
+                "brand_id": 2047,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3.49,
+                "sale_price": null,
+                "permalink": "ske-crystal-bar-pro-600-replacement-pod/kiwi-passion-fruit-guava",
+                "product_permalink": null,
+                "barcodes": [
+                    6942417285684,
+                    6942417238567
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Kiwi Passion Fruit Guava",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 3
+            },
+            "7415": {
+                "site": "electrofag",
+                "variant_id": 7415,
+                "product_id": 1274,
+                "product_title": "SKE Crystal Bar Pro 600 Replacement Pod",
+                "variant_title": "SKE Crystal Bar Pro 600 Replacement Pod - VMT Ice",
+                "brand": "Crystal Bar",
+                "brand_id": 2047,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3.49,
+                "sale_price": null,
+                "permalink": "ske-crystal-bar-pro-600-replacement-pod/vmt-ice",
+                "product_permalink": null,
+                "barcodes": [
+                    6942417285776,
+                    6942417238680
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "VMT Ice",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 6
+            },
+            "7527": {
+                "site": "electrofag",
+                "variant_id": 7527,
+                "product_id": 1283,
+                "product_title": "SKE Crystal Original Blue Razz Lemonade 10ml Nic Salt E Liquid",
+                "variant_title": "SKE Crystal Original Blue Razz Lemonade 10ml Nic Salt E Liquid - 10mg",
+                "brand": "Crystal Bar",
+                "brand_id": 2047,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "ske-crystal-original-blue-razz-lemonade-10ml-nic-salt-e-liquid/10mg",
+                "product_permalink": "ske-crystal-original-blue-razz-lemonade-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    5061026751869,
+                    5061026752361
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 13
+            },
+            "7531": {
+                "site": "electrofag",
+                "variant_id": 7531,
+                "product_id": 1284,
+                "product_title": "SKE Crystal Original Blueberry Cherry Cranberry 10ml Nic Salt E Liquid",
+                "variant_title": "SKE Crystal Original Blueberry Cherry Cranberry 10ml Nic Salt E Liquid - 20mg",
+                "brand": "Crystal Bar",
+                "brand_id": 2047,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "ske-crystal-original-blueberry-cherry-cranberry-10ml-nic-salt-e-liquid/20mg",
+                "product_permalink": "ske-crystal-original-blueberry-cherry-cranberry-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    5061026753764,
+                    5061026753924
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 5
+            },
+            "8182": {
+                "site": "electrofag",
+                "variant_id": 8182,
+                "product_id": 1437,
+                "product_title": "The Crystal Pro Max Banana Ice 10ml Nic Salt E Liquid",
+                "variant_title": "The Crystal Pro Max Banana Ice 10ml Nic Salt E Liquid - 20mg",
+                "brand": "Crystal Pro Max",
+                "brand_id": 2098,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "the-crystal-pro-max-banana-ice-10ml-nic-salt-e-liquid/20mg",
+                "product_permalink": "the-crystal-pro-max-banana-ice-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    6976133162318
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 5
+            },
+            "9347": {
+                "site": "electrofag",
+                "variant_id": 9347,
+                "product_id": 1648,
+                "product_title": "Vaporesso XROS 5 Pod Vape Kit",
+                "variant_title": "Vaporesso XROS 5 Pod Vape Kit - Blue Slik",
+                "brand": "Vaporesso",
+                "brand_id": 2050,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 26.99,
+                "sale_price": 22.99,
+                "permalink": "vaporesso-xros-5-pod-kit/blue-slik",
+                "product_permalink": null,
+                "barcodes": [
+                    6943498615841
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 1,
+                        "name": "colour",
+                        "value": "Blue Slik",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 3
+            },
+            "9403": {
+                "site": "electrofag",
+                "variant_id": 9403,
+                "product_id": 1652,
+                "product_title": "Vaporesso Xros Pro Pod Kit",
+                "variant_title": "Vaporesso Xros Pro Pod Kit - Red",
+                "brand": "Vaporesso",
+                "brand_id": 2050,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 29.99,
+                "sale_price": 19.49,
+                "permalink": "vaporesso-xros-pro-pod-kit/red",
+                "product_permalink": null,
+                "barcodes": [
+                    6943498698165
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 1,
+                        "name": "colour",
+                        "value": "Red",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 3,
+                "units_365d": 8
+            },
+            "9408": {
+                "site": "electrofag",
+                "variant_id": 9408,
+                "product_id": 1653,
+                "product_title": "Vaporesso Xros Series Corex 2.0 Version Replacement Pods (Pack Of 4)",
+                "variant_title": "Vaporesso Xros Series Corex 2.0 Version Replacement Pods (Pack Of 4) - 0.4 Ohm",
+                "brand": "Vaporesso",
+                "brand_id": 2050,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "Out-Of-Stock",
+                "price": 8.99,
+                "sale_price": null,
+                "permalink": "vaporesso-xros-series-corex-2-0-version-replacement-pods-pack-of-4/04-ohm",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 5,
+                        "name": "Ohm",
+                        "value": "0.4 Ohm",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 11
+            },
+            "9414": {
+                "site": "electrofag",
+                "variant_id": 9414,
+                "product_id": 1654,
+                "product_title": "Vaporesso Xros Series Corex 3.0 Version Replacement Pods (Pack Of 4)",
+                "variant_title": "Vaporesso Xros Series Corex 3.0 Version Replacement Pods (Pack Of 4) - 0.4 Ohm",
+                "brand": "Vaporesso",
+                "brand_id": 2050,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 9.99,
+                "sale_price": null,
+                "permalink": "vaporesso-corex-3-0-replacement-pods-pack-of-3/04-ohm",
+                "product_permalink": null,
+                "barcodes": [
+                    6943498686179
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 5,
+                        "name": "Ohm",
+                        "value": "0.4 Ohm",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 13,
+                "units_365d": 46
+            },
+            "9577": {
+                "site": "electrofag",
+                "variant_id": 9577,
+                "product_id": 1677,
+                "product_title": "Voopoo Argus P1 Vape Kit",
+                "variant_title": "Voopoo Argus P1 Vape Kit - Gunmetal",
+                "brand": "VOOPOO",
+                "brand_id": 2105,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "Out-Of-Stock",
+                "price": 25.99,
+                "sale_price": 4.99,
+                "permalink": "voopoo-argus-p1-20w-pod-kit/gunmetal",
+                "product_permalink": null,
+                "barcodes": [
+                    6941291534208
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 1,
+                        "name": "colour",
+                        "value": "Gunmetal",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 2
+            },
+            "10952": {
+                "site": "electrofag",
+                "variant_id": 10952,
+                "product_id": 1937,
+                "product_title": "Blue Razz Bubblegum Elux Legend Nic Salt 10ml",
+                "variant_title": "Blue Razz Bubblegum Elux Legend Nic Salt 10ml - 10mg",
+                "brand": "Elux Vapes, Pods and E-Liquids",
+                "brand_id": 2030,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.49,
+                "sale_price": null,
+                "permalink": "blue-razz-bubblegum-elux-legend-nic-salt-10ml-10mg",
+                "product_permalink": null,
+                "barcodes": [
+                    5061026756154
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 27,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 34,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 15,
+                        "name": "VG/PG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 6,
+                "units_365d": 81
+            },
+            "11850": {
+                "site": "electrofag",
+                "variant_id": 11850,
+                "product_id": 2036,
+                "product_title": "Hayati Pro Max Plus 6000 Prefilled Pod Kit",
+                "variant_title": "Hayati Pro Max Plus 6000 Prefilled Pod Kit - 20mg | Red Apple Ice",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 9.99,
+                "sale_price": 7.99,
+                "permalink": "hayati-pro-max-plus-6000-prefilled-pod-kit-20mg-red-apple-ice",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329003801
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 27,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Red Apple Ice",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 34,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 30,
+                        "name": "Battery Capacity",
+                        "value": "850mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Puff Count",
+                        "value": "600",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 26,
+                        "name": "E-Liquid Capacity",
+                        "value": "12ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 1
+            }
+        }
+    }
+}
