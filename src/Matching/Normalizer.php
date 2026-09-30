@@ -23,7 +23,7 @@ namespace CW\Matching;
  */
 final class Normalizer
 {
-    public const VERSION = 'n1.0';
+    public const VERSION = 'n2.0';
 
     public const FORMS = [
         'disposable', 'prefilled_pod', 'pod_kit', 'refill_pod_cartridge', 'e_liquid', 'nic_salt', 'shortfill',
@@ -141,6 +141,14 @@ final class Normalizer
             $ratioInTitle = true;
             return ' ';
         }, $w) ?? $w;
+        // "50-50" / "70-30" VG/PG ratios written with a dash (n2.0; they became model number "50")
+        $w = preg_replace_callback('/\b(\d{2})\s*-\s*(\d{2})\b(?!\s*(?:mg|ml|%|k\b))/u', function ($m) use (&$ratioInTitle) {
+            if ((int) $m[1] + (int) $m[2] !== 100) {
+                return $m[0];
+            }
+            $ratioInTitle = true;
+            return ' ';
+        }, $w) ?? $w;
 
         $multiN = null;
         if (preg_match('/\b(\d)\s*-?\s*in\s*-?\s*1\b/u', $w, $m)) {
@@ -203,6 +211,7 @@ final class Normalizer
         // pack
         foreach ([
             '/\bpack\s*of\s*(\d{1,3})\b/u',
+            '/\bpack\s+(\d{1,3})\b(?!\s*(?:ml|mg|x\b|k\b|\.\d))/u',   // "(Pack 2)" (n2.0)
             '/\b(\d{1,3})\s*\/\s*pack\b/u',
             '/\b(\d{1,3})\s*-?\s*(?:packs?|pk|pcs|pieces|pce|count)\b/u',
             '/\bbox\s*of\s*(\d{1,3})\b/u',
@@ -215,7 +224,7 @@ final class Normalizer
             while (preg_match($re, $w, $m)) {
                 $q = (int) $m[1];
                 // "N x" forms need N >= 2 ("Kit + 1 x Pod" is a bundle line, not a pack of one)
-                if ($q >= ($i >= 5 ? 2 : 1) && $q <= 200) {
+                if ($q >= ($i >= 6 ? 2 : 1) && $q <= 200) {
                     $titlePack[] = $q;
                 }
                 $w = self::cut($w, $m[0]);
@@ -257,7 +266,7 @@ final class Normalizer
             $lineNums[Text::num($n)] = true;
         }
         $bareNums = [];
-        if (preg_match_all('/(?<![a-z0-9.])([a-z]{0,6})(\d+(?:\.\d+)?)(?![0-9.])/u', $w, $mm, PREG_SET_ORDER)) {
+        if (preg_match_all('/(?<![a-z0-9.])([a-z]{0,10})(\d+(?:\.\d+)?)(?![0-9.])/u', $w, $mm, PREG_SET_ORDER)) {
             foreach ($mm as $m) {
                 $n = (float) $m[2];
                 if ($n <= 0 || $n > 200000) {
@@ -419,7 +428,8 @@ final class Normalizer
         $family = self::familyTokens($brandTokens);
 
         // ── flavour and line text ────────────────────────────────────────────
-        [$flavour, $flavourSrc, $lineText, $flavConflict] = self::flavour($pt, $vt, $full, $residue, $A, $brandTokens);
+        [$flavour, $flavourSrc, $lineText, $flavConflict] = self::flavour($pt, $vt, $full, $residue, $A, $brandTokens,
+            $brandRaw, $form, $formSub, (array) ($ctx['line_lexicon'] ?? []));
         if ($flavConflict) {
             $conflicts[] = 'flavour:attr_vs_title';
         }
@@ -442,6 +452,15 @@ final class Normalizer
         // identity tokens (everything but quantities, form/stop words)
         $idTokens = self::contentTokens($w);
         $lineTokens = $lineText !== null ? self::contentTokens(self::stripQuantities(Text::lower($lineText))) : [];
+        // alphanumeric model words of the line ("bm600", "rpm80"): their letters identify the line too
+        $lineModels = [];
+        if ($lineText !== null) {
+            foreach (Text::tokens(self::stripQuantities(Text::lower($lineText))) as $t) {
+                if (preg_match('/^[a-z]{2,6}\d+[a-z]{0,2}$/', $t) && !preg_match('/^(?:ml|mg|mah|ohm|ohms|pack|pk|pcs|x)\d/', $t)) {
+                    $lineModels[$t] = true;
+                }
+            }
+        }
         $flavSet = $flavour !== null ? array_flip($flavour) : [];
         $mods = [];
         foreach (Text::tokens(self::stripQuantities($full)) as $t) {
@@ -528,6 +547,7 @@ final class Normalizer
             'line_numbers' => $lineNums,
             'line_modifiers' => $mods,
             'line_tokens' => $lineTokens,
+            'line_models' => array_map('strval', array_keys($lineModels)),
             'flavour_tokens' => $flavour,
             'flavour_src' => $flavourSrc,
             'id_tokens' => $idTokens,
@@ -599,10 +619,12 @@ final class Normalizer
     {
         $s = ' ' . $s . ' ';
         $s = preg_replace('/\b\d{1,3}\s*%?\s*(?:vg|pg)\b|\b\d{2}\s*\/\s*\d{2}\b/u', ' ', $s) ?? $s;
+        $s = preg_replace_callback('/\b(\d{2})\s*-\s*(\d{2})\b(?!\s*(?:mg|ml|%|k\b))/u',
+            fn ($m) => (int) $m[1] + (int) $m[2] === 100 ? ' ' : $m[0], $s) ?? $s;
         $s = preg_replace('/\b\d\s*-?\s*in\s*-?\s*1\b/u', ' ', $s) ?? $s;
         $s = self::stripStrength($s);
         $s = preg_replace('/(\d+(?:\.\d+)?)\s*(?:ml|ohms?|mah|w|k|puffs?)\b/u', ' ', $s) ?? $s;
-        $s = preg_replace('/\bpack\s*of\s*\d+|\b\d+\s*\/\s*pack\b|\b\d+\s*-?\s*packs?\b|\b\d+\s*x\b|\bx\s*\d+\b/u', ' ', $s) ?? $s;
+        $s = preg_replace('/\bpack\s*of\s*\d+|\bpack\s+\d+\b|\b\d+\s*\/\s*pack\b|\b\d+\s*-?\s*packs?\b|\b\d+\s*x\b|\bx\s*\d+\b/u', ' ', $s) ?? $s;
         return $s;
     }
 
@@ -969,11 +991,23 @@ final class Normalizer
 
     /**
      * Flavour tokens with a source, the line text they were separated from, and an attr-vs-title conflict flag.
-     * Sources in order of trust: attr > variant_residue > title_by_pattern > title_suffix.
+     * Sources in order of trust: attr > variant_residue > title_by_pattern > title_segment > title_pattern; among the
+     * middle three, one whose words hold no seed flavour word (Flavour::WORDS) yields to a later one that does.
      *
+     * title_by_pattern  "<Flavour> Nic Salt E-Liquid by <Line> 10ml | 20mg" (Vape and Go)
+     * title_segment     the last " - " / " | " segment that still holds words once quantities are removed:
+     *                   "<Line> - <Flavour>", and "<Line> Nic Salts - <Flavour> - 10ml - 10mg" (n2.0: the old rule
+     *                   only looked at the very last segment, so the flavour of such titles was lost and the
+     *                   residual produced words like "crystal"). It beats the by-pattern only when the by-pattern's
+     *                   words hold no seed flavour word ("Elfliq Nic Salt by Elf Bar - Strawberry Ice Cream - 10ml").
+     * title_pattern     no separator at all: TitlePattern::split() (Electrofag "<Line> <Flavour> 10ml Nic Salt E
+     *                   Liquid" and "<Flavour> <Line> Nic Salt 10ml"), flavoured forms only.
+     *
+     * @param list<string> $lexicon line lexicon of this listing's brand on its site
      * @return array{0:?list<string>,1:?string,2:?string,3:bool}
      */
-    private static function flavour(string $pt, string $vt, string $full, string $residue, array $A, array $brandTokens): array
+    private static function flavour(string $pt, string $vt, string $full, string $residue, array $A, array $brandTokens,
+        string $brandRaw = '', ?string $form = null, ?string $formSub = null, array $lexicon = []): array
     {
         $clean = function (string $s) use ($brandTokens): array {
             $s = preg_replace('/\([^)]*\)/u', ' ', $s) ?? $s;          // parenthetical descriptors
@@ -986,6 +1020,14 @@ final class Normalizer
                 $out[] = $t;
             }
             return $out;
+        };
+        $hasSeedWord = function (array $toks): bool {
+            foreach ($toks as $t) {
+                if (Flavour::isConstWord((string) $t)) {
+                    return true;
+                }
+            }
+            return false;
         };
 
         $attr = null;
@@ -1006,15 +1048,15 @@ final class Normalizer
                 $byLine = $m[2];
             }
         }
-        $suffix = null;
-        $suffixLine = null;
+        $seg = null;
+        $segLine = null;
         $parts = preg_split('/\s[|\-]\s|\s\|/u', $full) ?: [];
-        if (count($parts) > 1) {
-            $last = (string) end($parts);
-            $f = $clean($last);
+        for ($i = count($parts) - 1; $i >= 1; $i--) {
+            $f = $clean((string) $parts[$i]);
             if ($f !== []) {
-                $suffix = $f;
-                $suffixLine = implode(' ', array_slice($parts, 0, -1));
+                $seg = $f;
+                $segLine = implode(' ', array_slice($parts, 0, $i));
+                break;
             }
         }
 
@@ -1025,14 +1067,44 @@ final class Normalizer
             }
             return [$attr, 'attr', $pt, false];
         }
+        // residue > by-pattern > segment, except that a source whose words hold no seed flavour word yields to a
+        // later one that does ("Hayati Crystal Pro Max Nic Salts - Fresh Menthol Mojito" under the product title
+        // "Fresh Menthol Mojito Nic Salt E-liquid by Hayati Pro Max": the residue is "crystal", a line word)
+        if ($byFlav !== null && $seg !== null && !$hasSeedWord($byFlav) && $hasSeedWord($seg)) {
+            $byFlav = null;
+        }
+        $ordered = [];
         if ($res !== []) {
-            return [$res, 'variant_residue', $pt, false];
+            $ordered[] = [$res, 'variant_residue', $pt];
         }
         if ($byFlav !== null) {
-            return [$byFlav, 'title_by_pattern', $byLine, false];
+            $ordered[] = [$byFlav, 'title_by_pattern', $byLine];
         }
-        if ($suffix !== null) {
-            return [$suffix, 'title_suffix', $suffixLine, false];
+        if ($seg !== null) {
+            $ordered[] = [$seg, 'title_segment', $segLine];
+        }
+        if ($ordered !== []) {
+            $pick = $ordered[0];
+            if (!$hasSeedWord($pick[0])) {
+                foreach ($ordered as $o) {
+                    if ($hasSeedWord($o[0])) {
+                        $pick = $o;
+                        break;
+                    }
+                }
+            }
+            return [$pick[0], $pick[1], $pick[2], false];
+        }
+        $flavoured = in_array($form, ['e_liquid', 'nic_salt', 'shortfill', 'nic_shot', 'disposable', 'prefilled_pod'], true)
+            || ($form === 'pod_kit' && $formSub === 'prefilled');
+        if ($flavoured) {
+            $sp = TitlePattern::split(TitlePattern::headTokens($full), TitlePattern::anchorTokens($brandRaw), $lexicon);
+            if ($sp !== null) {
+                $f = $clean(implode(' ', $sp['flavour']));
+                if ($f !== []) {
+                    return [$f, 'title_pattern', implode(' ', $sp['line']), false];
+                }
+            }
         }
         return [null, null, null, false];
     }

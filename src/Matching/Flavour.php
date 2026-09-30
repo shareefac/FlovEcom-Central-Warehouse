@@ -10,9 +10,36 @@ namespace CW\Matching;
  * Seed lists below are PROPOSALS pending mapping-lead confirmation; they are deliberately small.
  * A difference only vetoes when both sides positively state a flavour (at least one known flavour
  * word) — a listing that simply does not name its flavour is "unknown", never a superset.
+ *
+ * v2 (pilot-1 fixes): a flavour word is one of WORDS, or of the vocabulary built from the Vape and Go
+ * seed (FlavourVocab: names like Oasis, Rinbo, Gami, Tiger count as stated flavours), or one edit away
+ * from either for words of 6+ letters ("Raspberrry").
  */
 final class Flavour
 {
+    public const VERSION = 'f2.0';
+
+    /** Fuzzy flavour-word classification: one edit (OSA) for words of at least this many letters. */
+    public const FUZZY_MIN_LEN = 6;
+
+    /** Words never taken into the seed vocabulary: hardware, retail and packaging words. */
+    public const VOCAB_EXCLUDE = [
+        'mesh', 'meshed', 'coil', 'coils', 'rpm', 'mtl', 'dtl', 'rdl', 'empty', 'fill', 'starter', 'pouch', 'pouche',
+        'cartridge', 'tank', 'battery', 'charger', 'replacment', 'shorfill', 'shortfil', 'eliquid', 'range',
+        'colour', 'color', 'size', 'type', 'style', 'mode', 'option', 'default', 'standard', 'regular', 'strong',
+        'extra', 'medium', 'mild', 'light', 'normal', 'single', 'double', 'box', 'bundle', 'offer', 'sale', 'deal',
+        'multi', 'multipack', 'mix', 'mixed', 'assorted', 'random', 'various', 'sample', 'tester', 'test', 'ohm',
+        // plain English words seen inside flavour names that do not name a flavour on their own
+        'all', 'one', 'two', 'three', 'ten', 'day', 'end', 'over', 'top', 'very', 'long', 'hand', 'stay', 'true',
+        'pure', 'hey', 'man', 'fab', 'fat', 'god', 'hit', 'key', 'mind', 'word', 'york', 'usa', 'town', 'city',
+        'union', 'san', 'pan', 'mil', 'lil', 'art', 'bat', 'ape', 'dart', 'hour', 'letter', 'final', 'proper',
+        'simply', 'totally', 'curiously', 'special', 'super', 'boys', 'girl', 'party', 'happy', 'lucky', 'street',
+        'round', 'square', 'slim', 'soft', 'over', 'wall', 'track', 'trail', 'tune', 'tuned', 'loop', 'looper',
+        'speed', 'motor', 'race', 'racing', 'digital', 'cyber', 'quantum', 'glass', 'mask', 'frame', 'mirror',
+    ];
+
+    /** @var array<string,bool> */
+    private static array $wordCache = [];
     /** Single-token synonyms. */
     public const SYNONYMS = [
         'gb' => ['gummy', 'bear'],
@@ -23,6 +50,7 @@ final class Flavour
         'iced' => ['ice'],
         'mixed' => ['mix'],
         'bubbly' => ['bubble'],
+        'hubba' => ['hubba', 'bubba'],   // "Hubba" alone is written for "Hubba Bubba" ("H Bubba")
     ];
 
     /** Two-token abbreviations seen in GTIN-pair diffs ("Cotton K" = Cotton Candy, "R Berry" = Raspberry). */
@@ -94,11 +122,130 @@ final class Flavour
     public static function stated(array $t): bool
     {
         foreach ($t as $x) {
-            if (in_array($x, self::WORDS, true)) {
+            if (self::isWord((string) $x)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** In the hand-kept seed list only (no seed vocabulary, no fuzzy match). */
+    public static function isConstWord(string $t): bool
+    {
+        static $flip = null;
+        $flip ??= array_flip(self::WORDS);
+        return isset($flip[$t]) || isset($flip[Text::stem($t)]);
+    }
+
+    /**
+     * Is this canonical token a flavour word? WORDS, the Vape and Go seed vocabulary (FlavourVocab), or one
+     * edit away from either for words of FUZZY_MIN_LEN+ letters ("raspberrry" = "raspberry").
+     */
+    public static function isWord(string $t): bool
+    {
+        if (isset(self::$wordCache[$t])) {
+            return self::$wordCache[$t];
+        }
+        static $all = null;
+        static $long = null;
+        if ($all === null) {
+            $all = array_flip(array_merge(self::WORDS, FlavourVocab::WORDS));
+            $long = array_values(array_filter(array_keys($all), fn ($w) => strlen((string) $w) >= self::FUZZY_MIN_LEN));
+        }
+        $st = Text::stem($t);
+        $hit = isset($all[$t]) || isset($all[$st]);
+        if (!$hit && strlen($st) >= self::FUZZY_MIN_LEN && ctype_alpha($st)
+            && !in_array($st, Normalizer::FLAVOUR_NOISE, true) && !in_array($st, Normalizer::STOPWORDS, true)) {
+            foreach ($long as $w) {
+                $w = (string) $w;
+                if (abs(strlen($w) - strlen($st)) <= 1 && Text::osa($st, $w, 1) <= 1) {
+                    $hit = true;
+                    break;
+                }
+            }
+        }
+        if (count(self::$wordCache) > 50000) {
+            self::$wordCache = [];
+        }
+        return self::$wordCache[$t] = $hit;
+    }
+
+    /**
+     * Build the seed flavour vocabulary from Vape and Go seed features (Normalizer output, one per seed item).
+     *
+     * A token enters when it is a separated flavour token of a flavoured seed item (liquids, prefilled
+     * pods/devices, nic shots, pouches) whose flavour came from a reliable source (attribute, the
+     * "<Flavour> Nic Salt by <Line>" pattern, the variant residue or a title segment), AND it names a
+     * flavour on more distinct products than it names a line or brand (so "original", "crystal", "blood",
+     * "bar" stay out: they are mostly line words), AND it is not a stop/noise/modifier/colour/hardware word.
+     *
+     * @param iterable<array<string,mixed>> $seed
+     * @return array{words:list<string>,stats:array<string,array{flavour_products:int,line_products:int}>}
+     */
+    public static function vocabularyFromSeed(iterable $seed): array
+    {
+        $flav = [];
+        $line = [];
+        $reliable = ['attr', 'title_by_pattern', 'variant_residue', 'title_suffix', 'title_segment'];
+        foreach ($seed as $f) {
+            $pid = (int) ($f['product_id'] ?? 0);
+            foreach (Text::tokens((string) ($f['brand_raw'] ?? '')) as $t) {
+                $line[Text::stem($t)][$pid] = true;
+            }
+            if (in_array($f['flavour_src'] ?? null, ['title_by_pattern', 'title_segment'], true)) {
+                foreach ($f['line_tokens'] ?? [] as $t) {
+                    $line[Text::stem((string) $t)][$pid] = true;
+                }
+            }
+            $flavoured = in_array($f['form'] ?? null, ['e_liquid', 'nic_salt', 'shortfill', 'nic_shot', 'disposable', 'prefilled_pod'], true)
+                || (($f['form'] ?? null) === 'pod_kit' && ($f['form_sub'] ?? null) === 'prefilled')
+                || ($f['form_sub'] ?? null) === 'nicotine_pouch';
+            if (!$flavoured || ($f['flavour_tokens'] ?? null) === null || !in_array($f['flavour_src'] ?? null, $reliable, true)) {
+                continue;
+            }
+            foreach (array_unique(self::clean($f['flavour_tokens'])) as $t) {
+                $flav[$t][$pid] = true;
+            }
+        }
+        $blocked = array_flip(array_merge(
+            Normalizer::STOPWORDS, Normalizer::FLAVOUR_NOISE, Normalizer::LINE_MODIFIERS, Normalizer::BRAND_WEAK,
+            Normalizer::BRAND_GENERIC, Normalizer::COLOURS, Normalizer::COLOUR_QUALIFIERS, self::VOCAB_EXCLUDE
+        ));
+        $noiseLong = array_values(array_filter(array_keys($blocked), fn ($w) => strlen((string) $w) >= 5));
+        $words = [];
+        $stats = [];
+        foreach ($flav as $t => $pids) {
+            $t = (string) $t;
+            $nf = count($pids);
+            $nl = count($line[$t] ?? []);
+            if (!preg_match('/^[a-z]+$/', $t) || isset($blocked[$t]) || self::isConstWord($t)) {
+                continue;
+            }
+            // short words need more evidence: 2 letters on 5+ products, 3-4 letters on 2+ products
+            if (strlen($t) < 2 || (strlen($t) === 2 && $nf < 5) || (strlen($t) <= 4 && $nf < 2)) {
+                continue;
+            }
+            if ($nf <= $nl) {
+                continue;
+            }
+            $nearNoise = false;
+            if (strlen($t) >= 5) {
+                foreach ($noiseLong as $w) {
+                    if (Text::osa($t, (string) $w, 1) <= 1) {
+                        $nearNoise = true;
+                        break;
+                    }
+                }
+            }
+            if ($nearNoise) {
+                continue;
+            }
+            $words[] = $t;
+            $stats[$t] = ['flavour_products' => $nf, 'line_products' => $nl];
+        }
+        sort($words, SORT_STRING);
+        ksort($stats, SORT_STRING);
+        return ['words' => $words, 'stats' => $stats];
     }
 
     /** Fuzzy presence, plus substring presence for non-flavour words ("mate" inside "podmate"). */
@@ -107,7 +254,7 @@ final class Flavour
         if (Text::fuzzyIn($t, $full)) {
             return true;
         }
-        if (strlen($t) >= 4 && !in_array($t, self::WORDS, true)) {
+        if (strlen($t) >= 4 && !self::isConstWord($t)) {
             foreach ($full as $f) {
                 if (strlen($f) > strlen($t) && str_contains($f, $t)) {
                     return true;
@@ -179,7 +326,7 @@ final class Flavour
         if (($sp !== [] && self::extras($fl, $sp, $sp) === []) || ($lp !== [] && self::extras($fs, $lp, $lp) === [])) {
             return ['state' => 'agree', 'veto' => null, 'flag' => null, 'detail' => 'matched via bracketed alias'];
         }
-        $isFlav = fn (array $x) => array_values(array_filter($x, fn ($t) => in_array($t, self::WORDS, true)));
+        $isFlav = fn (array $x) => array_values(array_filter($x, fn ($t) => self::isWord((string) $t)));
         $detail = 'listing +' . implode('+', $xl) . ' / item +' . implode('+', $xs);
         $statedL = self::stated($fl);
         $statedS = self::stated($fs);

@@ -130,7 +130,7 @@ final class Text
     }
 
     /**
-     * Is $t present in token list $seq, allowing: exact, plural stem, OSA<=1 for tokens of 6+ letters,
+     * Is $t present in token list $seq, allowing: exact, plural stem, OSA<=1 between tokens of 5+ letters when one has 6+,
      * and a compound join on the other side ("bubblegum" vs "bubble gum").
      *
      * @param list<string> $seq ordered token sequence of the other side
@@ -149,7 +149,9 @@ final class Text
             if ($ss === $st) {
                 return true;
             }
-            if (strlen($st) >= 6 && strlen($ss) >= 6 && !ctype_digit($st) && self::osa($st, $ss, 1) <= 1) {
+            // one edit between words of 5+ letters when either has 6+ ("cloudd" = "cloud", "raspberrry" = "raspberry")
+            if (min(strlen($st), strlen($ss)) >= 5 && max(strlen($st), strlen($ss)) >= 6 && !ctype_digit($st)
+                && self::osa($st, $ss, 1) <= 1) {
                 return true;
             }
             // compound on the other side: "bubble"+"gum" vs "bubblegum"

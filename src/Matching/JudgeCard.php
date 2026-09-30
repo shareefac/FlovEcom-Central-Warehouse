@@ -14,14 +14,22 @@ namespace CW\Matching;
  */
 final class JudgeCard
 {
-    public const FIELDS = ['ref', 'product_title', 'variant_title', 'brand', 'attributes', 'unit_price_gbp', 'extracted'];
+    /** Keys every card carries. */
+    public const CORE_FIELDS = ['ref', 'product_title', 'variant_title', 'brand', 'attributes', 'unit_price_gbp', 'extracted'];
+
+    /**
+     * Allowlist. product_strengths_mg (candidate cards only, judge v2): the nicotine strengths the candidate's product
+     * is sold in on its site, so the judge can apply the strength-missing rule the same way every time.
+     */
+    public const FIELDS = ['ref', 'product_title', 'variant_title', 'brand', 'attributes', 'unit_price_gbp', 'extracted', 'product_strengths_mg'];
 
     /**
      * @param array<string,mixed> $row raw export row
      * @param array<string,mixed> $f Normalizer features of the same row
+     * @param ?list<float|int> $productStrengths strengths (mg) of the card's product, candidates only
      * @return array<string,mixed>
      */
-    public static function card(string $ref, array $row, array $f): array
+    public static function card(string $ref, array $row, array $f, ?array $productStrengths = null): array
     {
         $attrs = [];
         $counts = [];
@@ -76,7 +84,7 @@ final class JudgeCard
             )));
         }
 
-        return [
+        $card = [
             'ref' => $ref,
             'product_title' => self::mask(Text::clean((string) ($row['product_title'] ?? ''))),
             'variant_title' => self::mask(Text::clean((string) ($row['variant_title'] ?? ''))),
@@ -85,6 +93,12 @@ final class JudgeCard
             'unit_price_gbp' => $f['unit_price'] !== null ? round((float) $f['unit_price'], 2) : null,
             'extracted' => $ex,
         ];
+        if ($productStrengths !== null) {
+            $st = array_values(array_unique(array_map(fn ($x) => (float) $x, $productStrengths)));
+            sort($st);
+            $card['product_strengths_mg'] = array_map(fn ($x) => floor($x) === $x ? (int) $x : $x, $st);
+        }
+        return $card;
     }
 
     public static function mask(string $s): string

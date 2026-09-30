@@ -17,20 +17,56 @@ namespace CW\Matching;
  */
 final class Veto
 {
-    public const VERSION = 'v1.0';
+    /**
+     * v2.0 (pilot-1 fixes): residual keeps the other side's line words that are flavour words; generic and
+     * umbrella words ("salt", "pod", "bar") no longer make two brands/lines agree; a model number on one side
+     * only is flagged; new vetoes line_word (each side has a line word the other lacks) and multipack
+     * ("10 x 10ml" against a single unit); volume is n_a on pods/devices like nic_type.
+     */
+    public const VERSION = 'v2.0';
 
     public const CODES = [
-        'strength', 'nic_type', 'form', 'line_number', 'line_modifier', 'flavour_superset', 'flavour_diff',
-        'liquid_ml', 'puffs', 'colour', 'ohm', 'pack', 'placeholder', 'sku_state',
+        'strength', 'nic_type', 'form', 'line_number', 'line_modifier', 'line_word', 'flavour_superset', 'flavour_diff',
+        'liquid_ml', 'puffs', 'colour', 'ohm', 'pack', 'multipack', 'placeholder', 'sku_state',
     ];
 
     public const SOFT_FLAGS = [
         'price_outlier', 'target_not_published', 'internal_conflict', 'relabelled_line_unconfirmed',
-        'strength_missing', 'modifier_extra', 'flavour_extra', 'line_number_extra', 'colour_extra',
-        'volume_diff_attr', 'pack_one_side', 'listing_multiplier',
+        'strength_missing', 'modifier_extra', 'flavour_extra', 'line_number_extra', 'line_number_one_side',
+        'line_alias_pending', 'colour_extra', 'volume_diff_attr', 'pack_one_side', 'listing_multiplier',
         // lane-level soft flags added by the first-match tool
         'same_channel_target_shared', 'gtin_also_on_inactive_item',
     ];
+
+    /** Retail/form words that never identify a brand or line (VPG "Pod Salt Nic Salts" must not match every salt). */
+    public const GENERIC_LINE_WORDS = ['salt', 'salts', 'pod', 'pods', 'nic', 'nicotine', 'e', 'liquid', 'liquids', 'eliquid', 'eliquids', 'vape', 'vapes'];
+
+    /** Umbrella words shared by unrelated lines ("Bar Juice 5000", "Bar Salts", "Vapes Bar Ghost", "Vapes Bars"). */
+    public const UMBRELLA_LINE_WORDS = ['bar', 'bars'];
+
+    /** Descriptive words in line text that do not name a line (for the line_word veto). */
+    public const LINE_DESCRIPTORS = [
+        'series', 'version', 'edition', 'edtn', 'limited', 'special', 'mesh', 'meshed', 'cartridge', 'cartridges', 'empty',
+        'top', 'fill', 'refillable', 'replacement', 'starter', 'set', 'box', 'mod', 'tank', 'coil', 'coils', 'device', 'kit',
+        'kits', 'bottle', 'shot', 'shots', 'shortfills', 'longfill', 'fills', 'range', 'collection', 'official',
+        'uk', 'tpd', 'compliant', 'ready', 'to', 'go', 'flavours', 'flavors', 'bundle', 'deal', 'offer',
+        'multipack', 'pouches', 'pouch', 'strips', 'sticks', 'co', 'company', 'ltd', 'brand', 'labs', 'lab',
+    ];
+
+    /**
+     * Line aliases proposed from barcode pairs, awaiting the mapping lead (pilot-1 recommendation 8). A line_word
+     * mismatch fully explained by one of these is flagged line_alias_pending (never Key, routed to Can't tell)
+     * instead of vetoed. Once confirmed, pass ctx confirmed_alias => true.
+     */
+    public const PENDING_LINE_ALIASES = [
+        ['a' => ['crystal'], 'b' => ['hayati'], 'note' => 'Electrofag "Crystal Pro Max" = Vape and Go "Hayati Pro Max"'],
+        ['a' => ['oxbar'], 'b' => ['oxva'], 'note' => 'Oxbar = Oxva'],
+        ['a' => ['original'], 'b' => ['bar'], 'note' => 'SKE Crystal Original = SKE Crystal Bar'],
+        ['a' => ['echo'], 'b' => ['eco'], 'note' => 'Bash Echo = Bash Eco'],
+    ];
+
+    /** Switch for the line_word veto (kept only while its false-veto rate on barcode pairs is <= 0.5%). */
+    public const LINE_WORD_VETO = true;
 
     /**
      * @param array<string,mixed> $l listing features
@@ -131,6 +167,13 @@ final class Veto
             } elseif ($xa !== [] || $xb !== []) {
                 $flag('line_number_extra');
             }
+        } else {
+            // "Bar Juice 5000" vs "Bar Salts", "BM600" vs "Tappo": a model number on one side only. A number that is
+            // only that side's puff count ("Finebar 1000 Puffs") is left to the puffs field.
+            $own = fn (array $nums, array $x) => array_values(array_diff($nums, $x['puffs'] !== null ? [Text::num($x['puffs'])] : []));
+            if (($ln === [] && $own($sn, $s) !== []) || ($sn === [] && $own($ln, $l) !== [])) {
+                $flag('line_number_one_side');
+            }
         }
         if ($l['multi_n'] !== null && $s['multi_n'] !== null && $l['multi_n'] !== $s['multi_n']) {
             $veto('line_number', $l['multi_n'] . '-in-1 vs ' . $s['multi_n'] . '-in-1');
@@ -158,10 +201,10 @@ final class Veto
         }
 
         // one-sided line words outside the modifier list (soft)
-        $lFull = Flavour::canon(self::fullTokens($l));
-        $sFull = Flavour::canon(self::fullTokens($s));
+        $lFull = Flavour::canon(self::joinInitials(self::fullTokens($l)));
+        $sFull = Flavour::canon(self::joinInitials(self::fullTokens($s)));
         if (($l['line_tokens'] ?? []) !== [] && ($s['line_tokens'] ?? []) !== []) {
-            foreach ([[$l['line_tokens'], $sFull], [$s['line_tokens'], $lFull]] as [$toks, $other]) {
+            foreach ([[Flavour::canon($l['line_tokens']), $sFull], [Flavour::canon($s['line_tokens']), $lFull]] as [$toks, $other]) {
                 foreach ($toks as $t) {
                     if (strlen($t) >= 3 && !in_array($t, Normalizer::STOPWORDS, true) && !Text::fuzzyIn($t, $other)
                         && !in_array($t, $l['brand_family'] ?? [], true) && !in_array($t, $s['brand_family'] ?? [], true)) {
@@ -172,34 +215,54 @@ final class Veto
             }
         }
 
-        // brand / line family
-        $lfam = $l['brand_family'] ?? [];
-        $sfam = $s['brand_family'] ?? [];
+        // line words: each side names a line word the other side's text lacks ("IVG Original Salts" vs "IVG Intense",
+        // "ELFLIQ" vs "Pod Salt Core", "Bar Juice 5000" vs "Vapes Bar Ghost"); consumables only
+        if (self::consumable($l) && self::consumable($s)) {
+            $lw = self::lineWords($l);
+            $sw = self::lineWords($s);
+            if ($lw !== [] && $sw !== []) {
+                $lPres = self::presenceTokens($l);
+                $sPres = self::presenceTokens($s);
+                $xa = array_values(array_filter($lw, fn ($t) => !Text::fuzzyIn($t, $sPres)));
+                $xb = array_values(array_filter($sw, fn ($t) => !Text::fuzzyIn($t, $lPres)));
+                if ($xa !== [] && $xb !== [] && empty($ctx['confirmed_alias'])) {
+                    if (self::aliasPending($xa, $xb) !== null) {
+                        $flag('line_alias_pending');
+                    } elseif (self::LINE_WORD_VETO) {
+                        $veto('line_word', 'listing +' . implode('+', $xa) . ', item +' . implode('+', $xb));
+                        $brandLine = 'conflict';
+                    }
+                }
+            }
+        }
+
+        // brand / line family (generic and umbrella words never make two brands or lines agree)
+        $exclude = array_merge(self::GENERIC_LINE_WORDS, self::UMBRELLA_LINE_WORDS);
+        $lfam = array_values(array_diff($l['brand_family'] ?? [], $exclude));
+        $sfam = array_values(array_diff($s['brand_family'] ?? [], $exclude));
         if ($brandLine !== 'conflict') {
-            if ($lfam === [] || $sfam === []) {
+            $cross = false;
+            foreach ($sfam as $t) {
+                if (in_array($t, $l['full_tokens'] ?? [], true)) {
+                    $cross = true;
+                }
+            }
+            foreach ($lfam as $t) {
+                if (in_array($t, $s['full_tokens'] ?? [], true)) {
+                    $cross = true;
+                }
+            }
+            if ($lfam !== [] && $sfam !== [] && array_intersect($lfam, $sfam) !== []) {
+                $brandLine = 'agree';
+            } elseif ($cross) {
+                $brandLine = 'agree';
+            } elseif ($lfam === [] || $sfam === []) {
                 $brandLine = 'unknown';
-            } elseif (array_intersect($lfam, $sfam) !== []) {
+            } elseif (!empty($ctx['confirmed_alias'])) {
                 $brandLine = 'agree';
             } else {
-                $cross = false;
-                foreach ($sfam as $t) {
-                    if (in_array($t, $l['full_tokens'] ?? [], true)) {
-                        $cross = true;
-                    }
-                }
-                foreach ($lfam as $t) {
-                    if (in_array($t, $s['full_tokens'] ?? [], true)) {
-                        $cross = true;
-                    }
-                }
-                if ($cross) {
-                    $brandLine = 'agree';
-                } elseif (!empty($ctx['confirmed_alias'])) {
-                    $brandLine = 'agree';
-                } else {
-                    $flag('relabelled_line_unconfirmed');
-                    $brandLine = 'conflict';
-                }
+                $flag('relabelled_line_unconfirmed');
+                $brandLine = 'conflict';
             }
         }
         $fields['brand_line'] = $brandLine;
@@ -235,7 +298,7 @@ final class Veto
                 $fields['volume'] = 'agree';
             }
         } else {
-            $fields['volume'] = 'unknown';
+            $fields['volume'] = self::na($l, $s, ['liquid', 'nic_shot']) ? 'n_a' : 'unknown';
             $hidden('volume', $lv, $sv);
         }
 
@@ -313,6 +376,17 @@ final class Veto
         if (!empty($l['listing_multiplier']) || !empty($s['listing_multiplier'])) {
             $flag('listing_multiplier');
         }
+        // multipack direction: "10 x 10ml" against a single unit is never the same retail unit. A listing multiple
+        // of a single item is only acceptable with a units_per_item proposal ($units = the multiplier), when the
+        // pack arithmetic above decides; an item multiple against a single listing never is.
+        $single = fn (array $x): bool => empty($x['listing_multiplier']) && (($x['pack_units'] ?? null) === null || (int) $x['pack_units'] === 1);
+        if (!empty($s['listing_multiplier']) && $single($l)) {
+            $veto('multipack', 'item ' . $s['listing_multiplier'] . ' x unit vs single listing');
+            $fields['pack'] = 'conflict';
+        } elseif (!empty($l['listing_multiplier']) && $single($s) && $units !== (int) $l['listing_multiplier']) {
+            $veto('multipack', 'listing ' . $l['listing_multiplier'] . ' x unit vs single item (u=' . $units . ')');
+            $fields['pack'] = 'conflict';
+        }
 
         // price per consumed unit
         $lpz = $l['unit_price'];
@@ -353,6 +427,96 @@ final class Veto
         return false;
     }
 
+    /** A flavoured consumable (liquid, nic shot, disposable, prefilled pod or prefilled pod kit). */
+    public static function consumable(array $x): bool
+    {
+        return in_array($x['form'] ?? null, ['e_liquid', 'nic_salt', 'shortfill', 'nic_shot', 'disposable', 'prefilled_pod'], true)
+            || (($x['form'] ?? null) === 'pod_kit' && ($x['form_sub'] ?? null) === 'prefilled');
+    }
+
+    /**
+     * Line words of one side: its line text's words plus the letters of its model words ("bm" of "bm600"),
+     * without stop/generic/descriptor/modifier/colour words, and without flavour words unless the brand itself
+     * carries them ("Bar Juice 5000" keeps "juice").
+     *
+     * @return list<string>
+     */
+    public static function lineWords(array $x): array
+    {
+        $brand = array_flip(Text::tokens(Text::lower((string) ($x['brand_raw'] ?? ''))));
+        $cands = $x['line_tokens'] ?? [];
+        foreach ($x['line_models'] ?? [] as $m) {
+            if (preg_match('/^([a-z]{2,6})\d/', (string) $m, $mm)) {
+                $cands[] = $mm[1];
+            }
+        }
+        static $skip = null;
+        $skip ??= array_flip(array_merge(Normalizer::STOPWORDS, Normalizer::FLAVOUR_NOISE, Normalizer::LINE_MODIFIERS,
+            self::GENERIC_LINE_WORDS, self::LINE_DESCRIPTORS, Normalizer::COLOURS, Normalizer::COLOUR_QUALIFIERS));
+        $paren = array_flip($x['paren_tokens'] ?? []);
+        $out = [];
+        foreach ($cands as $t) {
+            $t = (string) $t;
+            if (strlen($t) < 2 || preg_match('/\d/', $t) || isset($skip[$t]) || isset($paren[$t])) {
+                continue;
+            }
+            if (Flavour::isWord(Text::stem($t)) && !isset($brand[$t])) {
+                continue;
+            }
+            $out[$t] = true;
+        }
+        return array_map('strval', array_keys($out));
+    }
+
+    /**
+     * Adds the joined form of initials written apart ("R and M" / "R&M" -> "randm", "P&B" -> "pandb").
+     *
+     * @param list<string> $t
+     * @return list<string>
+     */
+    public static function joinInitials(array $t): array
+    {
+        $n = count($t);
+        for ($i = 0; $i + 2 < $n; $i++) {
+            if (strlen((string) $t[$i]) === 1 && in_array($t[$i + 1], ['and', 'n'], true) && strlen((string) $t[$i + 2]) === 1
+                && ctype_alpha($t[$i] . $t[$i + 2])) {
+                $t[] = $t[$i] . 'and' . $t[$i + 2];
+                $t[] = $t[$i] . 'n' . $t[$i + 2];
+            }
+        }
+        return $t;
+    }
+
+    /** Everything one side says, for presence checks: text, brand, brackets, and model words split ("bm600" -> bm, 600). @return list<string> */
+    private static function presenceTokens(array $y): array
+    {
+        $t = self::joinInitials(array_merge($y['full_tokens'] ?? [], Text::tokens((string) ($y['brand_raw'] ?? '')), $y['paren_tokens'] ?? []));
+        foreach ($t as $x) {
+            if (preg_match('/^([a-z]+)(\d+(?:\.\d+)?)([a-z]*)$/', (string) $x, $m)) {
+                $t[] = $m[1];
+                $t[] = $m[2];
+            }
+        }
+        return array_map('strval', $t);
+    }
+
+    /**
+     * The pending alias that explains a line_word mismatch, if any.
+     *
+     * @param list<string> $xa listing-only line words
+     * @param list<string> $xb item-only line words
+     */
+    public static function aliasPending(array $xa, array $xb): ?string
+    {
+        foreach (self::PENDING_LINE_ALIASES as $al) {
+            if ((array_diff($xa, $al['a']) === [] && array_diff($xb, $al['b']) === [])
+                || (array_diff($xa, $al['b']) === [] && array_diff($xb, $al['a']) === [])) {
+                return $al['note'];
+            }
+        }
+        return null;
+    }
+
     /** Full text + attribute + brand tokens of one side, for cross-checks. @return list<string> */
     private static function fullTokens(array $x): array
     {
@@ -378,11 +542,22 @@ final class Veto
         return Flavour::compare($fl, $fs, self::fullTokens($l), self::fullTokens($s), $l['paren_tokens'] ?? [], $s['paren_tokens'] ?? []);
     }
 
-    /** @return list<string> */
+    /**
+     * Identity words of a side with no separable flavour, minus line/brand words. v2.0: the OTHER side's line words
+     * are dropped only when they are not flavour words (its line text can hold a flavour: "Elfliq Nic Salt by Elf
+     * Bar - Strawberry Ice Cream" once gave the line "strawberry ice cream" and erased the flavour here).
+     *
+     * @return list<string>
+     */
     private static function residual(array $x, array $other): array
     {
         $drop = [];
-        foreach (array_merge($other['line_tokens'] ?? [], $x['line_tokens'] ?? [],
+        foreach ($other['line_tokens'] ?? [] as $t) {
+            if (!Flavour::isWord(Text::stem((string) $t))) {
+                $drop[$t] = true;
+            }
+        }
+        foreach (array_merge($x['line_tokens'] ?? [],
             Text::tokens((string) ($x['brand_raw'] ?? '')), Text::tokens((string) ($other['brand_raw'] ?? '')),
             $x['brand_family'] ?? [], $other['brand_family'] ?? [], Normalizer::LINE_MODIFIERS, $x['paren_tokens'] ?? []) as $t) {
             $drop[$t] = true;

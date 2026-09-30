@@ -18,7 +18,13 @@ namespace CW\Matching;
  */
 final class Band
 {
-    public const VERSION = 'b1.0';
+    /** b2.0: Key needs the judge to pick the barcode/transfer target at confidence >= 90 (pilot-1 rec. 9); a pending line alias routes to Can't tell. */
+    public const VERSION = 'b2.0';
+
+    public const KEY_MIN_CONFIDENCE = 90;
+
+    /** Soft flags meaning "same item only if a pending line alias is confirmed" (never Key, Can't tell until then). */
+    public const ALIAS_PENDING_FLAGS = ['line_alias_pending', 'relabelled_line_unconfirmed'];
 
     public const KEY = 'Key';
     public const CHECK = 'Check';
@@ -59,6 +65,10 @@ final class Band
                     'reasons' => array_map(fn ($v) => 'veto_on_key:' . $v['code'], $tv)];
             }
             $soft = $ev['target_flags'] ?? [];
+            $alias = array_values(array_intersect($soft, self::ALIAS_PENDING_FLAGS));
+            if ($alias !== []) {
+                return ['band' => null, 'ceiling' => self::CANT_TELL, 'reasons' => array_map(fn ($x) => 'alias_pending:' . $x, $alias)];
+            }
             if ($soft !== []) {
                 return ['band' => null, 'ceiling' => self::CHECK, 'reasons' => array_map(fn ($x) => 'soft:' . $x, $soft)];
             }
@@ -123,7 +133,9 @@ final class Band
             return ['band' => self::CANT_TELL, 'reasons' => ['no_match_fails_new_item']];
         }
         // 4 Can't tell
-        if (in_array($out, ['cannot_tell', 'multiple_plausible'], true) || $conf < 70 || !empty($ev['pending_alias'])) {
+        $pendingAlias = !empty($ev['pending_alias'])
+            || ($keyLane && array_intersect($ev['target_flags'] ?? [], self::ALIAS_PENDING_FLAGS) !== []);
+        if (in_array($out, ['cannot_tell', 'multiple_plausible'], true) || $conf < 70 || $pendingAlias) {
             return ['band' => self::CANT_TELL, 'reasons' => [$out . '_' . $conf]];
         }
         // 5 Check / 6 Key
@@ -131,7 +143,7 @@ final class Band
             $units1 = $units === 1;
             if ($keyLane && $chosen === $ev['target']) {
                 $clean = ($ev['target_vetoes'] ?? []) === [] && ($ev['target_flags'] ?? []) === [];
-                if ($conf >= 85 && $clean && $units1) {
+                if ($conf >= self::KEY_MIN_CONFIDENCE && $clean && $units1) {
                     return ['band' => self::KEY, 'reasons' => [$ev['lane'] . '_key+ai_' . $conf]];
                 }
                 return ['band' => self::CHECK, 'reasons' => ['key_with_flags_or_low_conf_' . $conf]];

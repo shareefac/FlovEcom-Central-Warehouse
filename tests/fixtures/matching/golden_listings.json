@@ -12,261 +12,1501 @@
     "ctx": {
         "vapeandgo": {
             "48": {
-                "published_siblings": 1
+                "published_siblings": 1,
+                "line_lexicon": []
             },
             "51": {
-                "published_siblings": 1
+                "published_siblings": 1,
+                "line_lexicon": []
             },
             "750": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "doozy",
+                    "fill",
+                    "fruity",
+                    "infinity",
+                    "nice",
+                    "salty",
+                    "seriously",
+                    "slushy",
+                    "temptations"
+                ]
             },
             "847": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "coils",
+                    "innokin",
+                    "prism"
+                ]
             },
             "8553": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "doozy",
+                    "fill",
+                    "fruity",
+                    "infinity",
+                    "nice",
+                    "salty",
+                    "seriously",
+                    "slushy",
+                    "temptations"
+                ]
             },
             "8554": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "doozy",
+                    "fill",
+                    "fruity",
+                    "infinity",
+                    "nice",
+                    "salty",
+                    "seriously",
+                    "slushy",
+                    "temptations"
+                ]
+            },
+            "9700": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar"
+                ]
+            },
+            "10740": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "mate",
+                    "plus",
+                    "pouches",
+                    "pro"
+                ]
+            },
+            "10851": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar"
+                ]
+            },
+            "11706": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "mate",
+                    "plus",
+                    "pouches",
+                    "pro"
+                ]
+            },
+            "11708": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "mate",
+                    "plus",
+                    "pouches",
+                    "pro"
+                ]
             },
             "11714": {
-                "published_siblings": 6
+                "published_siblings": 6,
+                "line_lexicon": [
+                    "argus",
+                    "coils",
+                    "doric",
+                    "ito",
+                    "mini",
+                    "pnp",
+                    "tank",
+                    "tpp",
+                    "uforce",
+                    "vinci"
+                ]
+            },
+            "12721": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
+            },
+            "12724": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
+            },
+            "12730": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
+            },
+            "12773": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar"
+                ]
             },
             "12937": {
-                "published_siblings": 4
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "connex",
+                    "punx",
+                    "pure",
+                    "riot",
+                    "squad"
+                ]
             },
             "12938": {
-                "published_siblings": 4
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "connex",
+                    "punx",
+                    "pure",
+                    "riot",
+                    "squad"
+                ]
             },
             "12939": {
-                "published_siblings": 4
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "connex",
+                    "punx",
+                    "pure",
+                    "riot",
+                    "squad"
+                ]
             },
             "13420": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "doozy",
+                    "fill",
+                    "fruity",
+                    "infinity",
+                    "nice",
+                    "salty",
+                    "seriously",
+                    "slushy",
+                    "temptations"
+                ]
+            },
+            "26525": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar"
+                ]
+            },
+            "26646": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
             },
             "27424": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "crystal",
+                    "original",
+                    "ske"
+                ]
+            },
+            "27583": {
+                "published_siblings": 1,
+                "line_lexicon": []
+            },
+            "28034": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar"
+                ]
+            },
+            "28173": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "28194": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
             },
             "28198": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "28215": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "28223": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "diamond",
+                    "ghost"
+                ]
+            },
+            "28262": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "diamond",
+                    "ghost"
+                ]
+            },
+            "28673": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
+            },
+            "29364": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
             },
             "29380": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "29515": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar"
+                ]
             },
             "29794": {
-                "published_siblings": 10
+                "published_siblings": 10,
+                "line_lexicon": [
+                    "coils",
+                    "corex",
+                    "dojo",
+                    "eco",
+                    "liq",
+                    "luxe",
+                    "mesh",
+                    "mini",
+                    "nano",
+                    "pro",
+                    "vaporesso",
+                    "vibe",
+                    "xr",
+                    "xros"
+                ]
             },
             "30201": {
-                "published_siblings": 0
+                "published_siblings": 0,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "30464": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "mate",
+                    "plus",
+                    "pouches",
+                    "pro"
+                ]
             },
             "30477": {
-                "published_siblings": 4
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "mate",
+                    "plus",
+                    "pouches",
+                    "pro"
+                ]
+            },
+            "30514": {
+                "published_siblings": 22,
+                "line_lexicon": [
+                    "airplane",
+                    "film",
+                    "hawcos",
+                    "lost",
+                    "mary",
+                    "maryliq",
+                    "max",
+                    "mode",
+                    "nera",
+                    "pouches",
+                    "pro",
+                    "strips"
+                ]
             },
             "31162": {
-                "published_siblings": 13
+                "published_siblings": 13,
+                "line_lexicon": [
+                    "bar",
+                    "pouches"
+                ]
             },
             "31810": {
-                "published_siblings": 11
+                "published_siblings": 11,
+                "line_lexicon": [
+                    "coils",
+                    "corex",
+                    "dojo",
+                    "eco",
+                    "liq",
+                    "luxe",
+                    "mesh",
+                    "mini",
+                    "nano",
+                    "pro",
+                    "vaporesso",
+                    "vibe",
+                    "xr",
+                    "xros"
+                ]
             },
             "31811": {
-                "published_siblings": 11
+                "published_siblings": 11,
+                "line_lexicon": [
+                    "coils",
+                    "corex",
+                    "dojo",
+                    "eco",
+                    "liq",
+                    "luxe",
+                    "mesh",
+                    "mini",
+                    "nano",
+                    "pro",
+                    "vaporesso",
+                    "vibe",
+                    "xr",
+                    "xros"
+                ]
             },
             "32108": {
-                "published_siblings": 61
+                "published_siblings": 61,
+                "line_lexicon": [
+                    "airplane",
+                    "film",
+                    "hawcos",
+                    "lost",
+                    "mary",
+                    "maryliq",
+                    "max",
+                    "mode",
+                    "nera",
+                    "pouches",
+                    "pro",
+                    "strips"
+                ]
+            },
+            "33145": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
             },
             "33157": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
             },
             "34922": {
-                "published_siblings": 9
+                "published_siblings": 9,
+                "line_lexicon": [
+                    "cartridge",
+                    "go",
+                    "nexlim",
+                    "origin",
+                    "oxva",
+                    "pro",
+                    "sq",
+                    "unicoil",
+                    "vprime",
+                    "xlim"
+                ]
+            },
+            "35274": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
             },
             "36279": {
-                "published_siblings": 50
+                "published_siblings": 50,
+                "line_lexicon": [
+                    "bar",
+                    "crystal",
+                    "max",
+                    "plus",
+                    "pro",
+                    "ske"
+                ]
             },
             "36285": {
-                "published_siblings": 50
+                "published_siblings": 50,
+                "line_lexicon": [
+                    "bar",
+                    "crystal",
+                    "max",
+                    "plus",
+                    "pro",
+                    "ske"
+                ]
+            },
+            "36306": {
+                "published_siblings": 34,
+                "line_lexicon": [
+                    "airplane",
+                    "film",
+                    "hawcos",
+                    "lost",
+                    "mary",
+                    "maryliq",
+                    "max",
+                    "mode",
+                    "nera",
+                    "pouches",
+                    "pro",
+                    "strips"
+                ]
+            },
+            "36307": {
+                "published_siblings": 34,
+                "line_lexicon": [
+                    "airplane",
+                    "film",
+                    "hawcos",
+                    "lost",
+                    "mary",
+                    "maryliq",
+                    "max",
+                    "mode",
+                    "nera",
+                    "pouches",
+                    "pro",
+                    "strips"
+                ]
+            },
+            "36318": {
+                "published_siblings": 34,
+                "line_lexicon": [
+                    "airplane",
+                    "film",
+                    "hawcos",
+                    "lost",
+                    "mary",
+                    "maryliq",
+                    "max",
+                    "mode",
+                    "nera",
+                    "pouches",
+                    "pro",
+                    "strips"
+                ]
             },
             "36530": {
-                "published_siblings": 55
+                "published_siblings": 55,
+                "line_lexicon": [
+                    "click",
+                    "pyne"
+                ]
             },
             "36531": {
-                "published_siblings": 55
+                "published_siblings": 55,
+                "line_lexicon": [
+                    "click",
+                    "pyne"
+                ]
+            },
+            "36572": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "mate",
+                    "plus",
+                    "pouches",
+                    "pro"
+                ]
             },
             "36645": {
-                "published_siblings": 51
+                "published_siblings": 51,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "36999": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "core",
+                    "nexus",
+                    "origin"
+                ]
             },
             "37053": {
-                "published_siblings": 15
+                "published_siblings": 15,
+                "line_lexicon": [
+                    "coils",
+                    "corex",
+                    "dojo",
+                    "eco",
+                    "liq",
+                    "luxe",
+                    "mesh",
+                    "mini",
+                    "nano",
+                    "pro",
+                    "vaporesso",
+                    "vibe",
+                    "xr",
+                    "xros"
+                ]
             },
             "37097": {
-                "published_siblings": 64
+                "published_siblings": 64,
+                "line_lexicon": [
+                    "airplane",
+                    "film",
+                    "hawcos",
+                    "lost",
+                    "mary",
+                    "maryliq",
+                    "max",
+                    "mode",
+                    "nera",
+                    "pouches",
+                    "pro",
+                    "strips"
+                ]
             },
             "37353": {
-                "published_siblings": 43
+                "published_siblings": 43,
+                "line_lexicon": [
+                    "pixl"
+                ]
             },
             "37640": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "favourites",
+                    "intense",
+                    "ivg",
+                    "original",
+                    "pro"
+                ]
+            },
+            "37702": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "favourites",
+                    "intense",
+                    "ivg",
+                    "original",
+                    "pro"
+                ]
             },
             "38228": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "crystal",
+                    "original",
+                    "ske"
+                ]
             },
             "38563": {
-                "published_siblings": 36
+                "published_siblings": 36,
+                "line_lexicon": [
+                    "bar",
+                    "crystal",
+                    "max",
+                    "plus",
+                    "pro",
+                    "ske"
+                ]
             },
             "38578": {
-                "published_siblings": 36
+                "published_siblings": 36,
+                "line_lexicon": [
+                    "bar",
+                    "crystal",
+                    "max",
+                    "plus",
+                    "pro",
+                    "ske"
+                ]
             },
             "38916": {
-                "published_siblings": 21
+                "published_siblings": 21,
+                "line_lexicon": [
+                    "bar",
+                    "bloody"
+                ]
             },
             "40078": {
-                "published_siblings": 46
+                "published_siblings": 46,
+                "line_lexicon": [
+                    "cp",
+                    "pro"
+                ]
             },
             "40079": {
-                "published_siblings": 46
+                "published_siblings": 46,
+                "line_lexicon": [
+                    "cp",
+                    "pro"
+                ]
             },
             "40378": {
-                "published_siblings": 46
+                "published_siblings": 46,
+                "line_lexicon": [
+                    "al",
+                    "bar",
+                    "crown",
+                    "fakher",
+                    "hypermax",
+                    "max",
+                    "pro"
+                ]
             },
             "40391": {
-                "published_siblings": 46
+                "published_siblings": 46,
+                "line_lexicon": [
+                    "al",
+                    "bar",
+                    "crown",
+                    "fakher",
+                    "hypermax",
+                    "max",
+                    "pro"
+                ]
             },
             "40543": {
-                "published_siblings": 20
+                "published_siblings": 20,
+                "line_lexicon": [
+                    "glow",
+                    "hqd"
+                ]
             },
             "41615": {
-                "published_siblings": 6
+                "published_siblings": 6,
+                "line_lexicon": [
+                    "coils",
+                    "corex",
+                    "dojo",
+                    "eco",
+                    "liq",
+                    "luxe",
+                    "mesh",
+                    "mini",
+                    "nano",
+                    "pro",
+                    "vaporesso",
+                    "vibe",
+                    "xr",
+                    "xros"
+                ]
+            },
+            "42419": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
+            },
+            "42424": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
+            },
+            "42426": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
             },
             "42870": {
-                "published_siblings": 16
+                "published_siblings": 16,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "mate",
+                    "plus",
+                    "pouches",
+                    "pro"
+                ]
             },
             "43435": {
-                "published_siblings": 61
+                "published_siblings": 61,
+                "line_lexicon": [
+                    "airplane",
+                    "film",
+                    "hawcos",
+                    "lost",
+                    "mary",
+                    "maryliq",
+                    "max",
+                    "mode",
+                    "nera",
+                    "pouches",
+                    "pro",
+                    "strips"
+                ]
             },
             "43443": {
-                "published_siblings": 64
+                "published_siblings": 64,
+                "line_lexicon": [
+                    "airplane",
+                    "film",
+                    "hawcos",
+                    "lost",
+                    "mary",
+                    "maryliq",
+                    "max",
+                    "mode",
+                    "nera",
+                    "pouches",
+                    "pro",
+                    "strips"
+                ]
             },
             "44970": {
-                "published_siblings": 61
+                "published_siblings": 61,
+                "line_lexicon": [
+                    "air",
+                    "ivg",
+                    "max",
+                    "pouches",
+                    "pro",
+                    "reload",
+                    "smart"
+                ]
             },
             "45513": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
             },
             "45768": {
-                "published_siblings": 116
+                "published_siblings": 116,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "46992": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "favourites",
+                    "intense",
+                    "ivg",
+                    "original",
+                    "pro"
+                ]
             }
         },
         "electrofag": {
             "30": {
-                "published_siblings": 46
+                "published_siblings": 46,
+                "line_lexicon": [
+                    "al",
+                    "bar",
+                    "crown",
+                    "fakher",
+                    "hypermax",
+                    "max",
+                    "pro"
+                ]
             },
             "461": {
-                "published_siblings": 4
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "edtn",
+                    "riot",
+                    "squad",
+                    "xl"
+                ]
+            },
+            "536": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar"
+                ]
+            },
+            "551": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar"
+                ]
+            },
+            "613": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar"
+                ]
             },
             "886": {
-                "published_siblings": 21
+                "published_siblings": 21,
+                "line_lexicon": [
+                    "bar",
+                    "bloody"
+                ]
             },
             "1032": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "co",
+                    "doozy",
+                    "fill",
+                    "fruity",
+                    "infinity",
+                    "legends",
+                    "nice",
+                    "salty",
+                    "seriously",
+                    "shisha",
+                    "slushy",
+                    "temptations",
+                    "treats"
+                ]
             },
             "1345": {
-                "published_siblings": 21
+                "published_siblings": 21,
+                "line_lexicon": [
+                    "bar",
+                    "cp",
+                    "crystal",
+                    "max",
+                    "original",
+                    "pro",
+                    "ske"
+                ]
             },
             "1628": {
-                "published_siblings": 4
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "co",
+                    "doozy",
+                    "fill",
+                    "fruity",
+                    "infinity",
+                    "legends",
+                    "nice",
+                    "salty",
+                    "seriously",
+                    "shisha",
+                    "slushy",
+                    "temptations",
+                    "treats"
+                ]
             },
             "2031": {
-                "published_siblings": 20
+                "published_siblings": 20,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "plus"
+                ]
             },
             "2215": {
-                "published_siblings": 4
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "plus"
+                ]
+            },
+            "2261": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "plus"
+                ]
+            },
+            "2265": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "elf",
+                    "elfa",
+                    "elfliq",
+                    "elfx",
+                    "plus"
+                ]
             },
             "2984": {
-                "published_siblings": 13
+                "published_siblings": 13,
+                "line_lexicon": [
+                    "bar"
+                ]
             },
             "3249": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "3296": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "3302": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
             },
             "3308": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
             },
             "3648": {
-                "published_siblings": 39
+                "published_siblings": 39,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
             },
             "4026": {
-                "published_siblings": 16
+                "published_siblings": 16,
+                "line_lexicon": [
+                    "glow",
+                    "hqd"
+                ]
             },
             "4280": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "coils",
+                    "innokin"
+                ]
             },
             "4380": {
-                "published_siblings": 43
+                "published_siblings": 43,
+                "line_lexicon": [
+                    "intense",
+                    "ivg",
+                    "original",
+                    "pro",
+                    "reload"
+                ]
             },
             "4771": {
-                "published_siblings": 5
+                "published_siblings": 5,
+                "line_lexicon": [
+                    "intense",
+                    "ivg",
+                    "original",
+                    "pro",
+                    "reload"
+                ]
             },
             "4774": {
-                "published_siblings": 5
+                "published_siblings": 5,
+                "line_lexicon": [
+                    "intense",
+                    "ivg",
+                    "original",
+                    "pro",
+                    "reload"
+                ]
             },
             "4877": {
-                "published_siblings": 31
+                "published_siblings": 31,
+                "line_lexicon": [
+                    "intense",
+                    "ivg",
+                    "original",
+                    "pro",
+                    "reload"
+                ]
             },
             "5302": {
-                "published_siblings": 19
+                "published_siblings": 19,
+                "line_lexicon": [
+                    "lost",
+                    "mary",
+                    "nera"
+                ]
+            },
+            "5320": {
+                "published_siblings": 21,
+                "line_lexicon": [
+                    "lost",
+                    "mary",
+                    "nera"
+                ]
+            },
+            "5326": {
+                "published_siblings": 21,
+                "line_lexicon": [
+                    "lost",
+                    "mary",
+                    "nera"
+                ]
             },
             "5387": {
-                "published_siblings": 52
+                "published_siblings": 52,
+                "line_lexicon": [
+                    "lost",
+                    "mary",
+                    "nera"
+                ]
             },
             "5396": {
-                "published_siblings": 44
+                "published_siblings": 44,
+                "line_lexicon": [
+                    "lost",
+                    "mary",
+                    "nera"
+                ]
+            },
+            "5879": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
             },
             "6067": {
-                "published_siblings": 4
+                "published_siblings": 4,
+                "line_lexicon": []
+            },
+            "6072": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
+            },
+            "6073": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
             },
             "6294": {
-                "published_siblings": 9
+                "published_siblings": 9,
+                "line_lexicon": [
+                    "go",
+                    "nexlim",
+                    "oxva",
+                    "pro",
+                    "xlim"
+                ]
             },
             "6597": {
-                "published_siblings": 43
+                "published_siblings": 43,
+                "line_lexicon": [
+                    "angel",
+                    "bar",
+                    "diamond",
+                    "pro"
+                ]
             },
             "6840": {
-                "published_siblings": 21
+                "published_siblings": 21,
+                "line_lexicon": [
+                    "click",
+                    "pyne"
+                ]
             },
             "7409": {
-                "published_siblings": 18
+                "published_siblings": 18,
+                "line_lexicon": [
+                    "bar",
+                    "cp",
+                    "crystal",
+                    "max",
+                    "original",
+                    "pro",
+                    "ske"
+                ]
             },
             "7415": {
-                "published_siblings": 18
+                "published_siblings": 18,
+                "line_lexicon": [
+                    "bar",
+                    "cp",
+                    "crystal",
+                    "max",
+                    "original",
+                    "pro",
+                    "ske"
+                ]
             },
             "7527": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "cp",
+                    "crystal",
+                    "max",
+                    "original",
+                    "pro",
+                    "ske"
+                ]
             },
             "7531": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "bar",
+                    "cp",
+                    "crystal",
+                    "max",
+                    "original",
+                    "pro",
+                    "ske"
+                ]
             },
             "8182": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "crystal",
+                    "max",
+                    "pro"
+                ]
+            },
+            "8334": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
             },
             "9347": {
-                "published_siblings": 15
+                "published_siblings": 15,
+                "line_lexicon": [
+                    "coils",
+                    "eco",
+                    "luxe",
+                    "mini",
+                    "vaporesso",
+                    "xros"
+                ]
             },
             "9403": {
-                "published_siblings": 10
+                "published_siblings": 10,
+                "line_lexicon": [
+                    "coils",
+                    "eco",
+                    "luxe",
+                    "mini",
+                    "vaporesso",
+                    "xros"
+                ]
             },
             "9408": {
-                "published_siblings": 6
+                "published_siblings": 6,
+                "line_lexicon": [
+                    "coils",
+                    "eco",
+                    "luxe",
+                    "mini",
+                    "vaporesso",
+                    "xros"
+                ]
             },
             "9414": {
-                "published_siblings": 6
+                "published_siblings": 6,
+                "line_lexicon": [
+                    "coils",
+                    "eco",
+                    "luxe",
+                    "mini",
+                    "vaporesso",
+                    "xros"
+                ]
             },
             "9577": {
-                "published_siblings": 10
+                "published_siblings": 10,
+                "line_lexicon": [
+                    "argus",
+                    "cartridge",
+                    "coils",
+                    "ito",
+                    "pnp",
+                    "uforce",
+                    "vinci"
+                ]
             },
             "10952": {
-                "published_siblings": 3
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "elux",
+                    "legend"
+                ]
             },
             "11850": {
-                "published_siblings": 116
+                "published_siblings": 116,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "13130": {
+                "published_siblings": 3,
+                "line_lexicon": [
+                    "intense",
+                    "ivg",
+                    "original",
+                    "pro",
+                    "reload"
+                ]
             }
         }
     },
@@ -545,6 +1785,292 @@
                 "units_30d": 60,
                 "units_365d": 93
             },
+            "9700": {
+                "site": "vapeandgo",
+                "variant_id": 9700,
+                "product_id": 4279,
+                "product_title": "Strawberry Ice Nic Salt E-Liquid by Bar Salts 10ml",
+                "variant_title": "Strawberry Ice Nic Salt E-Liquid by Bar Salts 10ml - 10mg",
+                "brand": "Bar Salts",
+                "brand_id": 357,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.25,
+                "permalink": "bar-salts-strawberry-ice-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060966550266
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour Profile",
+                        "value": "Fruity, Menthol",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 22
+            },
+            "10740": {
+                "site": "vapeandgo",
+                "variant_id": 10740,
+                "product_id": 4725,
+                "product_title": "Spearmint Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml",
+                "variant_title": "Spearmint Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml - 20mg",
+                "brand": "Elf Bar",
+                "brand_id": 257,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elf-bar-elfliq-10ml-nic-salt-e-liquid-spearmint-20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    4895254000588,
+                    6971492203085,
+                    4895254000793
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 500,
+                "units_365d": 5717
+            },
+            "10851": {
+                "site": "vapeandgo",
+                "variant_id": 10851,
+                "product_id": 4776,
+                "product_title": "Fresh Mint Nic Salt E-Liquid by Bar Juice 5000 ",
+                "variant_title": "Fresh Mint Nic Salt E-Liquid by Bar Juice 5000  | 10mg",
+                "brand": "Bar Juice 5000",
+                "brand_id": 361,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "bar-juice-5000-salts-fresh-mint-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060769490745,
+                    5060769490943,
+                    "https://hxyj.ccn.ren/?68019332602148135E63CD4"
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "60/40",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 1658,
+                "units_365d": 15368
+            },
+            "11706": {
+                "site": "vapeandgo",
+                "variant_id": 11706,
+                "product_id": 5034,
+                "product_title": "Strawberry Ice Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml",
+                "variant_title": "Strawberry Ice Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml - 20mg",
+                "brand": "Elf Bar",
+                "brand_id": 257,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elfliq-nic-salt-by-elf-bar-strawberry-ice-10ml-20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    4895254000595,
+                    4895254000809
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 492,
+                "units_365d": 4026
+            },
+            "11708": {
+                "site": "vapeandgo",
+                "variant_id": 11708,
+                "product_id": 5035,
+                "product_title": "Strawberry Ice Cream (Snoow) Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml",
+                "variant_title": "Elfliq Nic Salt by Elf Bar - Strawberry Ice Cream(Snoow) - 10ml - 20mg",
+                "brand": "Elf Bar",
+                "brand_id": 257,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elfliq-nic-salt-by-elf-bar-strawberry-ice-cream-10ml-20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    4895254000601,
+                    4895254000816
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour Profile",
+                        "value": "Dessert, Fruity",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 49,
+                "units_365d": 636
+            },
             "11714": {
                 "site": "vapeandgo",
                 "variant_id": 11714,
@@ -600,6 +2126,246 @@
                 ],
                 "units_30d": 0,
                 "units_365d": 61
+            },
+            "12721": {
+                "site": "vapeandgo",
+                "variant_id": 12721,
+                "product_id": 5350,
+                "product_title": "Menthol Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Menthol Nic Salt E-Liquid by Elux Legend 10ml - 10mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elux-legend-nic-salts-menthol-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060656827623,
+                    5060656827821
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 6222,
+                "units_365d": 51357
+            },
+            "12724": {
+                "site": "vapeandgo",
+                "variant_id": 12724,
+                "product_id": 5351,
+                "product_title": "Mr Blue Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Mr Blue Nic Salt E-Liquid by Elux Legend 10ml - 20mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elux-legend-nic-salts-mr-blue-10ml-20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060656828033,
+                    5060656828231
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 6028,
+                "units_365d": 53538
+            },
+            "12730": {
+                "site": "vapeandgo",
+                "variant_id": 12730,
+                "product_id": 5354,
+                "product_title": "Tiger Blood Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Tiger Blood Nic Salt E-Liquid by Elux Legend 10ml - 20mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elux-legend-nic-salts-tiger-blood-10ml-20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060656828071,
+                    5060656828279
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 1300,
+                "units_365d": 12846
+            },
+            "12773": {
+                "site": "vapeandgo",
+                "variant_id": 12773,
+                "product_id": 5358,
+                "product_title": "Gummy Bear Nic Salt E-Liquid by Bar Juice 5000",
+                "variant_title": "Gummy Bear Nic Salt E-Liquid by Bar Juice 5000 | 10mg",
+                "brand": "Bar Juice 5000",
+                "brand_id": 361,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "bar-juice-5000-salts-gummy-bear-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060769491117,
+                    5060769491339
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "60/40",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 631,
+                "units_365d": 6310
             },
             "12937": {
                 "site": "vapeandgo",
@@ -802,6 +2568,114 @@
                 "units_30d": 6,
                 "units_365d": 50
             },
+            "26525": {
+                "site": "vapeandgo",
+                "variant_id": 26525,
+                "product_id": 5570,
+                "product_title": "Strawberry Ice Nic Salt E-Liquid by Bar Juice 5000",
+                "variant_title": "Strawberry Ice Nic Salt E-Liquid by Bar Juice 5000 | 10mg",
+                "brand": "Bar Juice 5000",
+                "brand_id": 361,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "bar-juice-5000-salts-strawberry-ice-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060769491193,
+                    5060769491414
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "60/40",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 2081,
+                "units_365d": 14688
+            },
+            "26646": {
+                "site": "vapeandgo",
+                "variant_id": 26646,
+                "product_id": 5605,
+                "product_title": "Cola Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Cola Nic Salt E-Liquid by Elux Legend 10ml - 20mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elux-legend-nic-salts-cola-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060656827975,
+                    5060656828170
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 1671,
+                "units_365d": 12230
+            },
             "27424": {
                 "site": "vapeandgo",
                 "variant_id": 27424,
@@ -855,6 +2729,187 @@
                 "units_30d": 388,
                 "units_365d": 3969
             },
+            "27583": {
+                "site": "vapeandgo",
+                "variant_id": 27583,
+                "product_id": 5785,
+                "product_title": "20 x 10ml Nic Nic Nicotine Shots - 18mg/ml - 100% VG",
+                "variant_title": "20 x 10ml Nic Nic Nicotine Shots - 18mg/ml - 100% VG",
+                "brand": "Nic Nic",
+                "brand_id": 70,
+                "product_type": "simple",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 1,
+                "stock_mode": "In-Stock",
+                "price": 12.99,
+                "sale_price": 9.99,
+                "permalink": "20-x-10ml-nic-nic-nicotine-shots-18mg-ml-100-vg/",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [],
+                "units_30d": 117,
+                "units_365d": 327
+            },
+            "28034": {
+                "site": "vapeandgo",
+                "variant_id": 28034,
+                "product_id": 5907,
+                "product_title": "Gummy Bear Nic Salt E-liquid by Bar Salts 10ml",
+                "variant_title": "Gummy Bear Nic Salt E-liquid by Bar Salts 10ml - 10mg",
+                "brand": "Bar Salts",
+                "brand_id": 357,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.25,
+                "permalink": "bar-salts-gummy-bear-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060966550969
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 20
+            },
+            "28173": {
+                "site": "vapeandgo",
+                "variant_id": 28173,
+                "product_id": 5948,
+                "product_title": "Mad Blue Nic Salt E-liquid by Hayati Pro Max 10ml",
+                "variant_title": "Mad Blue Nic Salt E-liquid by Hayati Pro Max 10ml - 10mg",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-nic-salts-mad-blue-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    6976133162523,
+                    6976133162929
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 113,
+                "units_365d": 1375
+            },
+            "28194": {
+                "site": "vapeandgo",
+                "variant_id": 28194,
+                "product_id": 5955,
+                "product_title": "Blue Fusion Nic Salt E-liquid by Hayati Pro Max 10ml",
+                "variant_title": "Blue Fusion Nic Salt E-liquid by Hayati Pro Max 10ml | 10mg",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "blue-fusion-nic-salt-e-liquid-by-hayati-pro-max-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    6976133162349,
+                    6976133162745
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 11,
+                "units_365d": 470
+            },
             "28198": {
                 "site": "vapeandgo",
                 "variant_id": 28198,
@@ -905,6 +2960,277 @@
                 ],
                 "units_30d": 71,
                 "units_365d": 729
+            },
+            "28215": {
+                "site": "vapeandgo",
+                "variant_id": 28215,
+                "product_id": 5962,
+                "product_title": "Fresh Menthol Mojito Nic Salt E-liquid by Hayati Pro Max 10ml",
+                "variant_title": "Hayati Crystal Pro Max Nic Salts – Fresh Menthol Mojito – 10ml - 10mg",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-nic-salts-fresh-menthol-mojito-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    6976133162660
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 7,
+                "units_365d": 73
+            },
+            "28223": {
+                "site": "vapeandgo",
+                "variant_id": 28223,
+                "product_id": 5963,
+                "product_title": "Fresh Mint Nic Salt E-liquid by Vapes Bar Ghost Salts 10ml",
+                "variant_title": "Fresh Mint Nic Salt E-liquid by Vapes Bar Ghost Salts 10ml - 10mg",
+                "brand": "Vapes Bar Salts",
+                "brand_id": 431,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "vapes-bar-ghost-salts-fresh-mint-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    9504459848363,
+                    9505298649456
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 20,
+                "units_365d": 98
+            },
+            "28262": {
+                "site": "vapeandgo",
+                "variant_id": 28262,
+                "product_id": 5976,
+                "product_title": "Gummy Bear Nic Salt E-liquid by Vapes Bar Ghost Salts 10ml",
+                "variant_title": "Gummy Bear Nic Salt E-liquid by Vapes Bar Ghost Salts 10ml - 10mg",
+                "brand": "Vapes Bar Salts",
+                "brand_id": 431,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "vapes-bar-ghost-salts-gummy-bear-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    9503589291773
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 41
+            },
+            "28673": {
+                "site": "vapeandgo",
+                "variant_id": 28673,
+                "product_id": 6088,
+                "product_title": "Rainbow Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Rainbow Nic Salt E-Liquid by Elux Legend 10ml - 10mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elux-legend-nic-salts-rainbow-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060656829054,
+                    5060656829214
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 765,
+                "units_365d": 6937
+            },
+            "29364": {
+                "site": "vapeandgo",
+                "variant_id": 29364,
+                "product_id": 6215,
+                "product_title": "Mr Blue Nic Salt E-Liquid by Hayati Pro Max 10ml",
+                "variant_title": "Mr Blue Nic Salt E-Liquid by Hayati Pro Max 10ml - 10mg",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-nic-salts-mr-blue-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    6976133167276,
+                    6976133167481
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 64,
+                "units_365d": 1568
             },
             "29380": {
                 "site": "vapeandgo",
@@ -962,6 +3288,62 @@
                 ],
                 "units_30d": 252,
                 "units_365d": 2484
+            },
+            "29515": {
+                "site": "vapeandgo",
+                "variant_id": 29515,
+                "product_id": 6242,
+                "product_title": "Fresh Mint Nic Salt E-Liquid by Bar Salts 10ml",
+                "variant_title": "Fresh Mint Nic Salt E-Liquid by Bar Salts 10ml - 10mg",
+                "brand": "Bar Salts",
+                "brand_id": 357,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.25,
+                "permalink": "bar-salts-nic-salt-fresh-mint-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060966550785
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
             },
             "29794": {
                 "site": "vapeandgo",
@@ -1076,6 +3458,69 @@
                 "units_30d": 0,
                 "units_365d": 0
             },
+            "30464": {
+                "site": "vapeandgo",
+                "variant_id": 30464,
+                "product_id": 6518,
+                "product_title": "Rinbo Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml",
+                "variant_title": "Rinbo Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml | 20mg",
+                "brand": "Elf Bar",
+                "brand_id": 257,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elfliq-nic-salt-by-elf-bar-rinbo-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    4895261100332,
+                    4895261100400
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 74,
+                "units_365d": 1120
+            },
             "30477": {
                 "site": "vapeandgo",
                 "variant_id": 30477,
@@ -1126,6 +3571,56 @@
                 ],
                 "units_30d": 286,
                 "units_365d": 2836
+            },
+            "30514": {
+                "site": "vapeandgo",
+                "variant_id": 30514,
+                "product_id": 6146,
+                "product_title": "Lost Mary Tappo Prefilled Pod",
+                "variant_title": "Triple Mango Lost Mary Tappo Prefilled Pods",
+                "brand": "Lost Mary",
+                "brand_id": 5890,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 5.99,
+                "sale_price": 4.49,
+                "permalink": "lost-mary-tappo-prefilled-pod/triple-mango/",
+                "product_permalink": null,
+                "barcodes": [
+                    6941976232924
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Triple Mango",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "600",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 2,
+                "units_365d": 46
             },
             "31162": {
                 "site": "vapeandgo",
@@ -1354,6 +3849,63 @@
                 "units_30d": 111,
                 "units_365d": 1733
             },
+            "33145": {
+                "site": "vapeandgo",
+                "variant_id": 33145,
+                "product_id": 7172,
+                "product_title": "Menthol Nic Salt E-Liquid by Hayati Pro Max 10ml",
+                "variant_title": "Menthol Nic Salt E-Liquid by Hayati Pro Max 10ml | 10mg",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-nic-salt-menthol-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    6977119133452,
+                    6977119133612
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 141,
+                "units_365d": 855
+            },
             "33157": {
                 "site": "vapeandgo",
                 "variant_id": 33157,
@@ -1479,6 +4031,69 @@
                 "units_30d": 2,
                 "units_365d": 28
             },
+            "35274": {
+                "site": "vapeandgo",
+                "variant_id": 35274,
+                "product_id": 7598,
+                "product_title": "Oasis Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Oasis Nic Salt E-Liquid by Elux Legend 10ml | 10mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elux-legend-nic-salts-oasis-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5061026753405,
+                    5061026753566
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 1203,
+                "units_365d": 11080
+            },
             "36279": {
                 "site": "vapeandgo",
                 "variant_id": 36279,
@@ -1593,6 +4208,157 @@
                 "units_30d": 102,
                 "units_365d": 888
             },
+            "36306": {
+                "site": "vapeandgo",
+                "variant_id": 36306,
+                "product_id": 7734,
+                "product_title": "Lost Mary BM600 Prefilled Pods",
+                "variant_title": "Blueberry Lost Mary BM600 Prefilled Pods",
+                "brand": "Lost Mary",
+                "brand_id": 5890,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 4.99,
+                "sale_price": 3.89,
+                "permalink": "lost-mary-bm600-prefilled-pods-blueberry/",
+                "product_permalink": null,
+                "barcodes": [
+                    6932570129840
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blueberry",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "2 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 37,
+                "units_365d": 561
+            },
+            "36307": {
+                "site": "vapeandgo",
+                "variant_id": 36307,
+                "product_id": 7734,
+                "product_title": "Lost Mary BM600 Prefilled Pods",
+                "variant_title": "Blueberry Sour Raspberry Lost Mary BM600 Prefilled Pods",
+                "brand": "Lost Mary",
+                "brand_id": 5890,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 4.99,
+                "sale_price": 3.89,
+                "permalink": "lost-mary-bm600-prefilled-pods-blueberry-sour-raspberry/",
+                "product_permalink": null,
+                "barcodes": [
+                    6932570129857,
+                    6932570130044
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blueberry Sour Raspberry",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "2 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 357,
+                "units_365d": 3593
+            },
+            "36318": {
+                "site": "vapeandgo",
+                "variant_id": 36318,
+                "product_id": 7734,
+                "product_title": "Lost Mary BM600 Prefilled Pods",
+                "variant_title": "Triple Mango Lost Mary BM600 Pods",
+                "brand": "Lost Mary",
+                "brand_id": 5890,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 4.99,
+                "sale_price": 3.89,
+                "permalink": "lost-mary-bm600-prefilled-pods-triple-mango/",
+                "product_permalink": null,
+                "barcodes": [
+                    6932570129994
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Triple Mango",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 19,
+                        "name": "Pack Size",
+                        "value": "2 Pack",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 109,
+                "units_365d": 1256
+            },
             "36530": {
                 "site": "vapeandgo",
                 "variant_id": 36530,
@@ -1693,6 +4459,68 @@
                 "units_30d": 29,
                 "units_365d": 380
             },
+            "36572": {
+                "site": "vapeandgo",
+                "variant_id": 36572,
+                "product_id": 7753,
+                "product_title": "Gami Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml",
+                "variant_title": "Gami Nic Salt E-Liquid by Elf Bar Elfliq Salts 10ml | 20mg",
+                "brand": "Elf Bar",
+                "brand_id": 257,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elfliq-nic-salt-by-elf-bar-gami-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    4895261115138
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 24,
+                "units_365d": 277
+            },
             "36645": {
                 "site": "vapeandgo",
                 "variant_id": 36645,
@@ -1754,6 +4582,68 @@
                 ],
                 "units_30d": 63,
                 "units_365d": 1176
+            },
+            "36999": {
+                "site": "vapeandgo",
+                "variant_id": 36999,
+                "product_id": 7826,
+                "product_title": "Spearmint Nic Salt E-Liquid by Pod Salt Core 10ml",
+                "variant_title": "Spearmint Nic Salt E-Liquid by Pod Salt Core 10ml | 20mg",
+                "brand": "Pod Salt Nic Salts",
+                "brand_id": 69,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.25,
+                "permalink": "spearmint-nic-salt-e-liquid-by-pod-salt-core-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056598124418
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "11mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 12,
+                "units_365d": 103
             },
             "37053": {
                 "site": "vapeandgo",
@@ -1997,6 +4887,62 @@
                 ],
                 "units_30d": 11,
                 "units_365d": 179
+            },
+            "37702": {
+                "site": "vapeandgo",
+                "variant_id": 37702,
+                "product_id": 7899,
+                "product_title": "Vanilla Biscuit Nic Salt E-Liquid by IVG Intense 10ml",
+                "variant_title": "Vanilla Biscuit Nic Salt E-Liquid by IVG Intense 10ml | 10mg",
+                "brand": "IVG Nic Salts",
+                "brand_id": 402,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "Out-Of-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "ivg-intense-nic-salts-vanilla-biscuit-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056841911994
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 6,
+                "units_365d": 322
             },
             "38228": {
                 "site": "vapeandgo",
@@ -2520,6 +5466,195 @@
                 "units_30d": 338,
                 "units_365d": 1923
             },
+            "42419": {
+                "site": "vapeandgo",
+                "variant_id": 42419,
+                "product_id": 6929,
+                "product_title": "Cherry Sour Raspberry Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Cherry Sour Raspberry Nic Salt E-Liquid by Elux Legend 10ml | 5mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "cherry-sour-raspberry-nic-salt-e-liquid-by-elux-legend-10ml-5mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5061026755034,
+                    5061026755232
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 1485,
+                "units_365d": 10873
+            },
+            "42424": {
+                "site": "vapeandgo",
+                "variant_id": 42424,
+                "product_id": 5350,
+                "product_title": "Menthol Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Menthol Nic Salt E-Liquid by Elux Legend 10ml - 5mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "menthol-nic-salt-e-liquid-by-elux-legend-10ml-5mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5061026755089,
+                    5061026755287
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 3497,
+                "units_365d": 21390
+            },
+            "42426": {
+                "site": "vapeandgo",
+                "variant_id": 42426,
+                "product_id": 7598,
+                "product_title": "Oasis Nic Salt E-Liquid by Elux Legend 10ml",
+                "variant_title": "Oasis Nic Salt E-Liquid by Elux Legend 10ml | 5mg",
+                "brand": "Elux Nic Salt (Legend Salts) E-Liquids",
+                "brand_id": 5858,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "oasis-nic-salt-e-liquid-by-elux-legend-10ml-5mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5061026755102,
+                    5061026755300
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 700,
+                "units_365d": 4376
+            },
             "42870": {
                 "site": "vapeandgo",
                 "variant_id": 42870,
@@ -2866,6 +6001,56 @@
                 ],
                 "units_30d": 30,
                 "units_365d": 89
+            },
+            "46992": {
+                "site": "vapeandgo",
+                "variant_id": 46992,
+                "product_id": 9113,
+                "product_title": "Vanilla Biscuit Nic Salt E-Liquid by IVG Original Salts 10ml",
+                "variant_title": "Vanilla Biscuit Nic Salt E-Liquid by IVG Original Salts 10ml - 10mg",
+                "brand": "IVG Nic Salts",
+                "brand_id": 402,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "vanilla-biscuit-nic-salt-e-liquid-by-ivg-original-salts-10ml-10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056841996212
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 30,
+                "units_365d": 34
             }
         },
         "electrofag": {
@@ -2921,6 +6106,105 @@
                 "attributes": [],
                 "units_30d": 0,
                 "units_365d": 0
+            },
+            "536": {
+                "site": "electrofag",
+                "variant_id": 536,
+                "product_id": 93,
+                "product_title": "Bar Juice 5000 Fresh Mint 10ml Nic Salt E liquid",
+                "variant_title": "Bar Juice 5000 Fresh Mint 10ml Nic Salt E liquid - 10mg",
+                "brand": "Bar Juice 5000",
+                "brand_id": 2036,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 4.99,
+                "sale_price": 2.49,
+                "permalink": "bar-juice-5000-fresh-mint-10ml-nic-salt-e-liquid/10mg",
+                "product_permalink": "bar-juice-5000-fresh-mint-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    5060769490745,
+                    5060769490943
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 16,
+                "units_365d": 100
+            },
+            "551": {
+                "site": "electrofag",
+                "variant_id": 551,
+                "product_id": 97,
+                "product_title": "Bar Juice 5000 Gummy Bear 10ml Nic Salt E liquid",
+                "variant_title": "Bar Juice 5000 Gummy Bear 10ml Nic Salt E liquid - 10mg",
+                "brand": "Bar Juice 5000",
+                "brand_id": 2036,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 4.99,
+                "sale_price": 2.49,
+                "permalink": "bar-juice-5000-gummy-bear-10ml-nic-salt-e-liquid/10mg",
+                "product_permalink": "bar-juice-5000-gummy-bear-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    5060769491117,
+                    5060769491339
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 15,
+                "units_365d": 105
+            },
+            "613": {
+                "site": "electrofag",
+                "variant_id": 613,
+                "product_id": 114,
+                "product_title": "Bar Juice 5000 Strawberry Ice 10ml Nic Salt E liquid",
+                "variant_title": "Bar Juice 5000 Strawberry Ice 10ml Nic Salt E liquid - 10mg",
+                "brand": "Bar Juice 5000",
+                "brand_id": 2036,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 4.99,
+                "sale_price": 2.49,
+                "permalink": "bar-juice-5000-strawberry-ice-10ml-nic-salt-e-liquid/10mg",
+                "product_permalink": "bar-juice-5000-strawberry-ice-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    5060769491193,
+                    5060769491414
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 10,
+                "units_365d": 114
             },
             "886": {
                 "site": "electrofag",
@@ -3119,6 +6403,72 @@
                 "units_30d": 0,
                 "units_365d": 0
             },
+            "2261": {
+                "site": "electrofag",
+                "variant_id": 2261,
+                "product_id": 449,
+                "product_title": "ELFLIQ Spearmint 10ml Nic Salt E Liquid",
+                "variant_title": "ELFLIQ Spearmint 10ml Nic Salt E Liquid - 20mg",
+                "brand": "Elf Bar",
+                "brand_id": 2055,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elfliq-spearmint-10ml-nic-salt-e-liquid/20mg",
+                "product_permalink": "elfliq-spearmint-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    4895254000588,
+                    4895254000793
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 20,
+                "units_365d": 103
+            },
+            "2265": {
+                "site": "electrofag",
+                "variant_id": 2265,
+                "product_id": 450,
+                "product_title": "ELFLIQ Strawberry Ice 10ml Nic Salt E Liquid",
+                "variant_title": "ELFLIQ Strawberry Ice 10ml Nic Salt E Liquid - 20mg",
+                "brand": "Elf Bar",
+                "brand_id": 2055,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "elfliq-strawberry-ice-10ml-nic-salt-e-liquid/20mg",
+                "product_permalink": "elfliq-strawberry-ice-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    4895254000595,
+                    4895254000809
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 2,
+                "units_365d": 113
+            },
             "2984": {
                 "site": "electrofag",
                 "variant_id": 2984,
@@ -3182,6 +6532,71 @@
                 ],
                 "units_30d": 0,
                 "units_365d": 11
+            },
+            "3296": {
+                "site": "electrofag",
+                "variant_id": 3296,
+                "product_id": 599,
+                "product_title": "Hayati Pro Max Mad Blue 10ml Nic Salt E Liquid",
+                "variant_title": "Hayati Pro Max Mad Blue 10ml Nic Salt E Liquid - 10mg",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-mad-blue-10ml-nic-salt-e-liquid/10mg",
+                "product_permalink": "hayati-pro-max-mad-blue-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    6976133162523
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 180
+            },
+            "3302": {
+                "site": "electrofag",
+                "variant_id": 3302,
+                "product_id": 601,
+                "product_title": "Hayati Pro Max Menthol 10ml Nic Salt E Liquid",
+                "variant_title": "Hayati Pro Max Menthol 10ml Nic Salt E Liquid - 10mg",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "hayati-pro-max-menthol-10ml-nic-salt-e-liquid/10mg",
+                "product_permalink": "hayati-pro-max-menthol-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    6977119133452,
+                    6977119133612
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 20,
+                "units_365d": 137
             },
             "3308": {
                 "site": "electrofag",
@@ -3486,6 +6901,71 @@
                 "units_30d": 0,
                 "units_365d": 3
             },
+            "5320": {
+                "site": "electrofag",
+                "variant_id": 5320,
+                "product_id": 962,
+                "product_title": "Lost Mary BM600 Prefilled Pods (Pack of 2)",
+                "variant_title": "Lost Mary BM600 Prefilled Pods (Pack of 2) - Blueberry Sour Raspberrry",
+                "brand": "Lost Mary",
+                "brand_id": 2062,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3.49,
+                "sale_price": null,
+                "permalink": "lost-mary-bm600-prefilled-pods-pack-of-2/blueberry-sour-raspberrry",
+                "product_permalink": null,
+                "barcodes": [
+                    6932570129857,
+                    6932570130044
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Blueberry Sour Raspberrry",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 40,
+                "units_365d": 246
+            },
+            "5326": {
+                "site": "electrofag",
+                "variant_id": 5326,
+                "product_id": 962,
+                "product_title": "Lost Mary BM600 Prefilled Pods (Pack of 2)",
+                "variant_title": "Lost Mary BM600 Prefilled Pods (Pack of 2) - Triple Mango",
+                "brand": "Lost Mary",
+                "brand_id": 2062,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 3.49,
+                "sale_price": null,
+                "permalink": "lost-mary-bm600-prefilled-pods-pack-of-2/triple-mango",
+                "product_permalink": null,
+                "barcodes": [
+                    6932570129994
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Triple Mango",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 41,
+                "units_365d": 130
+            },
             "5387": {
                 "site": "electrofag",
                 "variant_id": 5387,
@@ -3551,6 +7031,51 @@
                 "units_30d": 0,
                 "units_365d": 6
             },
+            "5879": {
+                "site": "electrofag",
+                "variant_id": 5879,
+                "product_id": 1036,
+                "product_title": "Menthol Elux Legend Nic Salt 10ml",
+                "variant_title": "Menthol Elux Legend Nic Salt 10ml - 5mg",
+                "brand": "Elux Vapes, Pods and E-Liquids",
+                "brand_id": 2030,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.49,
+                "sale_price": null,
+                "permalink": "elux-legend-nic-salt-menthol-10ml/5mg",
+                "product_permalink": "elux-legend-nic-salt-menthol-10ml",
+                "barcodes": [
+                    5061026755089,
+                    5061026755287
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 15,
+                        "name": "VG/PG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 22,
+                "units_365d": 167
+            },
             "6067": {
                 "site": "electrofag",
                 "variant_id": 6067,
@@ -3582,6 +7107,96 @@
                 ],
                 "units_30d": 88,
                 "units_365d": 222
+            },
+            "6072": {
+                "site": "electrofag",
+                "variant_id": 6072,
+                "product_id": 1069,
+                "product_title": "Oasis Elux Legend Nic Salt 10ml",
+                "variant_title": "Oasis Elux Legend Nic Salt 10ml - 5mg",
+                "brand": "Elux Vapes, Pods and E-Liquids",
+                "brand_id": 2030,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.49,
+                "sale_price": null,
+                "permalink": "oasis-elux-legend-nic-salt-10ml/5mg",
+                "product_permalink": "oasis-elux-legend-nic-salt-10ml",
+                "barcodes": [
+                    5061026755102,
+                    5061026755300
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 15,
+                        "name": "VG/PG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 27,
+                "units_365d": 117
+            },
+            "6073": {
+                "site": "electrofag",
+                "variant_id": 6073,
+                "product_id": 1069,
+                "product_title": "Oasis Elux Legend Nic Salt 10ml",
+                "variant_title": "Oasis Elux Legend Nic Salt 10ml - 10mg",
+                "brand": "Elux Vapes, Pods and E-Liquids",
+                "brand_id": 2030,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.49,
+                "sale_price": null,
+                "permalink": "oasis-elux-legend-nic-salt-10ml/10mg",
+                "product_permalink": "oasis-elux-legend-nic-salt-10ml",
+                "barcodes": [
+                    5061026753405,
+                    5061026753566
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 15,
+                        "name": "VG/PG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 32,
+                "units_365d": 190
             },
             "6294": {
                 "site": "electrofag",
@@ -3843,6 +7458,51 @@
                 ],
                 "units_30d": 0,
                 "units_365d": 5
+            },
+            "8334": {
+                "site": "electrofag",
+                "variant_id": 8334,
+                "product_id": 1496,
+                "product_title": "Tiger Blood Elux Legend Nic Salt 10ml",
+                "variant_title": "Tiger Blood Elux Legend Nic Salt 10ml - 20mg",
+                "brand": "Elux Vapes, Pods and E-Liquids",
+                "brand_id": 2030,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.49,
+                "sale_price": null,
+                "permalink": "elux-legend-nic-salt-tiger-blood-10ml/20mg",
+                "product_permalink": "elux-legend-nic-salt-tiger-blood-10ml",
+                "barcodes": [
+                    5060656828071,
+                    5060656828279
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 15,
+                        "name": "VG/PG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 57,
+                "units_365d": 164
             },
             "9347": {
                 "site": "electrofag",
@@ -4113,6 +7773,56 @@
                 ],
                 "units_30d": 0,
                 "units_365d": 1
+            },
+            "13130": {
+                "site": "electrofag",
+                "variant_id": 13130,
+                "product_id": 2102,
+                "product_title": "Vanilla Biscuit Nic Salt E-Liquid by IVG Original Salts 10ml",
+                "variant_title": "Vanilla Biscuit Nic Salt E-Liquid by IVG Original Salts 10ml - 10mg",
+                "brand": "IVG",
+                "brand_id": 2026,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "vanilla-biscuit-nic-salt-e-liquid-by-ivg-original-salts-10ml-10mg",
+                "product_permalink": null,
+                "barcodes": [
+                    5056841996212
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 27,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 33,
+                        "name": "PG/VG",
+                        "value": "50/50",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 34,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 94,
+                "units_365d": 94
             }
         }
     }
