@@ -125,6 +125,65 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -H '
 - Channel keys: `bin/create_channel.php` / `bin/rotate_key.php` print a new key once on stdout
   (sha256 stored, never the key). Changing a channel's allowlist or mode is SQL for now.
 
+## The staff UI on staging (slot `ui`)
+
+`http://127.0.0.1:8080/ui/...` **on the staging box only**, with `Host: cw-ui.staging.invalid`. It is a
+second, name-based vhost on the loopback listener the API vhost opened (every other `Host` still gets the
+api slot). Requests go to the php-fpm pool `cw-ui` (www-data, `cw_app`), which serves `/opt/cw-ui/public`
+against **`cw_test_ui`**, the ui slot's test schema (`CW_DB_NAME` in the pool). The same front controller
+(`public/index.php`) answers `/v1/*` (API kernel) and `/ui/*` (UI kernel).
+
+```bash
+scripts/remote.sh ui bash deploy/staging/install_ui.sh                              # (re)install pool + vhost; idempotent, self-checks
+scripts/remote.sh ui vendor/bin/phpunit --filter 'UiAuthTest|UiSecurityTest|UiReviewFlowTest'   # the HTTP tests
+scripts/remote.sh ui vendor/bin/phpunit                                               # everything (API tests skip here)
+scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0.1:8080/ui/login | head -20'
+```
+
+- `install_ui.sh` needs the api slot's vhost first (`install_api.sh`): it adds a name to that listener and
+  never a second `Listen`. It fixes the `/etc/cw` modes, checks `ui_secret_key` in `app.env`, converges
+  `cw_app`'s grants on `cw_test_ui`, installs the pool, the vhost and the hourly log rotation, then checks
+  `/ui/assets/app.css` (200), `/ui/login` (200) and `/ui/` without a session (303).
+- `tests/Integration/Ui*Test.php` (base `tests/Support/UiTestCase`, client `UiClient`, parser `UiResponse`)
+  log in over real HTTP: TOTP codes come from `Totp::code`, staff rows are written with the admin connection,
+  the web process runs as `cw_app`. They are **skipped in every other slot** (the vhost serves `cw_test_ui`
+  only). A run takes about a minute; `tests/bootstrap.php` re-creates the schema every time.
+- Logs: `/var/log/cw-ui/php-error.log` (one line per failure, with the request id shown on the error page) and
+  `/var/log/apache2/cw-ui.{access,error}.log`.
+- The HTTPS vhost for `warehouse-staging.floverfy.com` is **written but not installed or enabled**
+  (`deploy/staging/apache-cw-https.conf`, `apache-cw-acme.conf`, `enable_https.sh`); see `docs/ops.md`.
+- In-process screen tests run in **every** slot: `tests/Integration/UiKernel/`, `tests/Integration/Auth/`,
+  `tests/Integration/Staff/` extend `tests/Support/KernelUiTestCase`, whose `KernelBrowser` drives the real `CW\Ui\Kernel`
+  (routing, sessions, CSRF, roles, controllers, templates) as `cw_app` against the slot's schema, with the same cookie rules
+  as `UiClient`. Use them for what the screens show and for auth logic; keep `Ui*Test` for what only Apache + php-fpm prove
+  (headers on the wire, the vhost, assets). `LoginLimiterRaceTest` starts parallel sign-ins with `tests/Support/login_race_worker.php`
+  (one `cw_app` connection each, at most 10).
+- `tests/Unit/UiTemplatesTest` fails the build when a template prints anything that did not go through
+  `$e/$n/$dec/$dt/$u/$pct/$partial`, or uses an inline script, style or event handler, or a POST form lacks
+  the CSRF field. Templates get no other helpers: add a helper in `View::render` and to that test together.
+
+## Staff accounts, signing in, the public HTTPS vhost
+
+- **Create a person** (on the staging box, in `/opt/cw-staging`, as root; `--db=cw_test_ui --admin` for the test copy):
+  `php bin/create_staff.php --email=<address> --role=<mapper|mapping_lead|viewer|warehouse|manager|admin> --name="Name"`.
+  It prints `password=` (one-time) and `otpauth=` (the TOTP seed as a URI) ONCE on stdout; hand them over on different
+  channels. Stored: argon2id hash, `password_must_change = 1`, the seed sealed with `ui_secret_key` (app.env).
+- **Recover a person**: `php bin/reset_staff.php --email=<address> [--new-password] [--new-totp] [--deactivate | --activate]`
+  (never re-create or delete an account; decisions name it). New secrets are printed once; every reset ends the person's sessions.
+- **Sign in**: `/ui/login` takes e-mail, password and the current 6-digit code together; the first sign-in forces
+  `/ui/password`. Test copy (slot `ui`, schema `cw_test_ui`): `http://127.0.0.1:8080/ui/login` with
+  `Host: cw-ui.staging.invalid`, on the staging box only (e.g. through an SSH tunnel: `ssh -L 8080:127.0.0.1:8080 ...` and a
+  browser extension or `curl -H 'Host: cw-ui.staging.invalid'`). Real staging data (`cw_staging`) is served only by the public vhost.
+- **Enable the public HTTPS vhost once the DNS record exists** (`docs/ops.md`, "Switching on the public HTTPS vhost"):
+  1. DNS: `warehouse-staging.floverfy.com A 46.101.55.135`, DNS only (not proxied).
+  2. `scripts/remote.sh <slot> bash deploy/staging/install_cron.sh` (code into `/opt/cw-staging`) and `install_ui.sh` once.
+  3. Shred `/etc/cw/initial_staff.txt` after handing the credentials over, and deactivate the placeholder mapping_lead
+     (`bin/reset_staff.php --deactivate`); create real staff (at least two who can approve).
+  4. `scripts/remote.sh <slot> bash deploy/staging/enable_https.sh --check`, then `... enable_https.sh --email <address>`.
+     It refuses, changing nothing, until the name resolves only to this box, the code and `cw-ui` are there, `app.env` names
+     `cw_staging`, the credentials file is gone and no `.invalid` account is active.
+  5. Open TCP 80/443 in the cloud firewall if one is attached; staff then sign in at `https://warehouse-staging.floverfy.com/ui/login`.
+
 ## Where things are
 
 | Path | What |
@@ -144,8 +203,22 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -H '
 | `tests/Integration/Stock/` | stock-core tests (§14 CW automated, minus HTTP); `HammerTest` uses `tests/Support/WorkerPool` (≤ 12 connections); `LockOrderTest` / `LinkAdoptionTest` force interleavings with `tests/Support/OpWorkers` + `op_worker.php` (waits on `performance_schema.data_locks`) |
 | `bin/migrate.php`, `bin/setup_staging.php` | CLI |
 | `public/index.php`, `src/Api/` | the /v1 HTTP API: `Kernel` (pipeline + error mapping), `Router`, `Auth` + `IpAllowlist` + `ApiKey`, `Request`/`Response` (envelope), `Context`, `Input`, `Controller/*` (one per resource) |
-| `src/ListingProfiles.php`, `src/Heartbeat.php`, `src/Purchasing.php`, `src/ChannelAdmin.php` | `PUT /v1/listings`, `POST /v1/heartbeat`, `GET /v1/purchasing`, channel creation / key rotation |
+| `src/Heartbeat.php`, `src/Purchasing.php`, `src/ChannelAdmin.php` | `POST /v1/heartbeat`, `GET /v1/purchasing`, channel creation / key rotation |
+| `migrations/0004_matching.sql` | matching runs/proposals/decisions, link history, rejects, aliases, staff roles, sessions, login attempts (M1, M2) |
+| `src/Mapping/DecisionService.php` | the only writer of a listing's link: link / unlink / new_item / ignore / reject / suggest / merge_skus, two-person approve / withdraw, the seed `mintAndLink`, the listing-row insert helper (M3–M10) |
+| `src/Mapping/ListingIngestService.php`, `src/Mapping/Proposals.php` | `PUT /v1/listings` + the import tool (M11); match runs and proposals (M13) |
+| `src/Staff/` | `StaffAdmin` (create, reset), `Totp`, `SecretBox` (TOTP secret at rest, `ui_secret_key`), `AppEnvFile` (M2, M15, U23) |
+| `src/Mapping/BarcodeSeeder.php`, `bin/seed_barcodes.php` | `sku_barcode` from the listings the items were minted from (M25) |
+| `migrations/0005_listing_barcodes_index.sql` | multi-valued index on `listing_profile.barcodes` (where else a barcode is, M25) |
+| `bin/import_listings.php`, `bin/mint_vpg.php`, `bin/import_proposals.php`, `bin/create_staff.php`, `bin/reset_staff.php` | first-match load and staff accounts (`docs/ops.md`, M14, M15, U23) |
+| `tests/Integration/Mapping/`, `tests/Support/MappingTestCase.php`, `tests/fixtures/mapping/` | DecisionService rules, listing intake, the tools end to end on small fixtures |
 | `bin/create_channel.php`, `bin/rotate_key.php` | channel + key tools (connect as `cw_app`) |
+| `src/Auth/` | staff sign-in for the UI: `Login` (password + TOTP), `LoginLimiter`, `Sessions` (`staff_session`, hashed ids), `Csrf`, `StaffIdentity` (M2, U1-U4) |
+| `src/Ui/` | the staff screens: `Kernel` (route, session, role, same-origin + CSRF, hardened headers), `Router`/`Route`, `Context`, `UiRequest`, `HtmlResponse`, `Html` (escaping), `View` (templates), `Queries` (read side), `QueueContext`, `Compare`, `Assets`; `Controller/{Auth,Dashboard,Review,Item,Search}Controller`; templates in `src/Ui/views/`; the two static files in `public/ui/assets/` |
+| `tests/Integration/Ui*Test.php`, `tests/Support/Ui{TestCase,Client,Response}.php` | the UI over HTTP (slot `ui` only); `tests/Unit/Ui{Unit,Templates}Test.php` need no server |
+| `tests/Integration/{UiKernel,Auth,Staff}/`, `tests/Support/{KernelUiTestCase,KernelBrowser}.php`, `login_race_worker.php` | the UI and sign-in in-process as `cw_app` (every slot): approval screens, review evidence, password change, limiter race, staff reset |
+| `deploy/staging/*-ui.conf`, `install_ui.sh` | the loopback UI vhost + pool for slot `ui` |
+| `deploy/staging/apache-cw-https.conf`, `apache-cw-acme.conf`, `apache-cw-hardening.conf`, `php-fpm-cw-web.conf`, `logrotate-cw-web.conf`, `enable_https.sh` | the public HTTPS vhost (UI + API) for `warehouse-staging.floverfy.com`: NOT enabled (`docs/ops.md`) |
 | `deploy/staging/` | php-fpm pool, Apache vhost, `install_api.sh` |
 | `tests/Integration/Api*Test.php`, `tests/Support/ApiTestCase.php` | HTTP tests (slot `api` only) |
 | `tests/concurrency/hammer.php` | the §14 concurrency hammer: forked workers (≤ 30 connections), 4 scenarios, PASS/FAIL table (`docs/ops.md`) |

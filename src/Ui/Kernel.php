@@ -1,0 +1,239 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Ui;
+
+use CW\Auth\Csrf;
+use CW\Auth\Sessions;
+use CW\Config;
+use CW\ConfigException;
+use CW\CwException;
+use CW\Db;
+use CW\Ui\Controller\AuthController;
+use CW\Ui\Controller\DashboardController;
+use CW\Ui\Controller\ItemController;
+use CW\Ui\Controller\ReviewController;
+use CW\Ui\Controller\SearchController;
+
+/**
+ * The /ui staff screens (plan §7.1, §11): one request in, one HTML page out.
+ *
+ *   1. route (404 / 405; no database work for a path that does not exist)
+ *   2. connect as the app login (cw_app) and load `ui_secret_key` (CSRF); 503 page when either fails
+ *   3. resolve the session cookie: live session (not revoked, MFA done, idle < 30 min, age < 12 h) or nobody
+ *   4. access: public routes; otherwise sign-in (303 to /ui/login), forced password change,
+ *      then the route's role (`decide` = mapper / mapping_lead, `lead` = mapping_lead)
+ *   5. every POST: same-origin check (Origin / Sec-Fetch-Site when sent) and the CSRF token
+ *   6. the controller
+ * Every answer carries the security headers (CSP `default-src 'self'`: no inline script or style,
+ * no third-party anything; frame-ancestors 'none'; no-store). Unexpected failures are a plain
+ * 500 page with a request id (503 when the database is unavailable or busy); details go to the
+ * error log only.
+ */
+final class Kernel
+{
+    public const CSP = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+    public const SESSION_COOKIE = 'cw_session';
+    public const PRE_COOKIE = 'cw_pre';
+
+    private const BUSY_CODES = [1205, 1213];
+    private const UNAVAILABLE_CODES = [1040, 1044, 1045, 1049, 1203, 2002, 2003, 2005, 2006, 2013];
+
+    private ?Router $router = null;
+
+    /**
+     * @param \Closure(): Db $connect
+     * @param \Closure(): ?string $secretKey base64 ui_secret_key
+     * @param \Closure(string): void $log
+     */
+    public function __construct(private readonly \Closure $connect, private readonly \Closure $secretKey, private readonly \Closure $log)
+    {
+    }
+
+    /** The front controller's kernel: app.env only (like the API), CW_* overrides from the process env. */
+    public static function fromEnvironment(): self
+    {
+        return new self(
+            static fn (): Db => Db::connect(Config::loadApp()->dbApp()),
+            static fn (): ?string => Config::loadApp()->get('ui_secret_key'),
+            static function (string $message): void {
+                error_log('[cw-ui] ' . $message);
+            },
+        );
+    }
+
+    public function handle(UiRequest $req): HtmlResponse
+    {
+        $rid = bin2hex(random_bytes(8));
+        try {
+            $response = $this->dispatch($req, $rid);
+        } catch (CwException $e) {
+            $response = $this->bare($e->httpStatus, $e->errorCode, $e->getMessage(), $rid);
+            if ($e->errorCode === 'method_not_allowed' && is_array($e->detail['allow'] ?? null)) {
+                $response->withHeader('Allow', implode(', ', $e->detail['allow']));
+            }
+        } catch (\Throwable $e) {
+            $response = $this->failure($e, $req, $rid);
+        }
+        return self::secure($response, $req->secure)->withHeader('X-Request-Id', $rid);
+    }
+
+    public static function secure(HtmlResponse $r, bool $https): HtmlResponse
+    {
+        $r->withHeader('Content-Security-Policy', self::CSP)
+            ->withHeader('X-Content-Type-Options', 'nosniff')
+            ->withHeader('X-Frame-Options', 'DENY')
+            ->withHeader('Referrer-Policy', 'no-referrer')
+            ->withHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+            ->withHeader('Cross-Origin-Opener-Policy', 'same-origin')
+            ->withHeader('Cross-Origin-Resource-Policy', 'same-origin');
+        if ($r->header('Cache-Control') === null) {
+            $r->withHeader('Cache-Control', 'no-store')->withHeader('Pragma', 'no-cache');
+        }
+        if ($https) {
+            $r->withHeader('Strict-Transport-Security', 'max-age=31536000');
+        }
+        return $r;
+    }
+
+    private function dispatch(UiRequest $req, string $rid): HtmlResponse
+    {
+        [$route, $params] = $this->router()->match($req->method, $req->path);
+        try {
+            $db = ($this->connect)();
+            $key = ($this->secretKey)();
+            if ($key === null || $key === '') {
+                ($this->log)("{$rid} ui_secret_key is not set in app.env (run bin/create_staff.php or deploy/staging/install_ui.sh)");
+                return $this->bare(503, 'unavailable', 'the staff screens are not configured yet', $rid);
+            }
+            $csrf = Csrf::fromSecretKey($key);
+        } catch (ConfigException | \PDOException $e) {
+            ($this->log)("{$rid} unavailable: " . self::describe($e));
+            return $this->bare(503, 'unavailable', 'the staff screens are temporarily unavailable; retry shortly', $rid)->withHeader('Retry-After', '5');
+        }
+
+        $who = (new Sessions($db))->resolve($req->cookie(self::SESSION_COOKIE));
+        $pre = $req->cookie(self::PRE_COOKIE);
+        $pre = $pre !== null && preg_match('/^[A-Za-z0-9_-]{43}$/D', $pre) === 1 ? $pre : null;
+        $ctx = new Context($req, $db, $who, $csrf, $params, $rid, $pre, $key);
+        try {
+            return $this->guarded($route, $ctx);
+        } catch (CwException $e) {
+            return $ctx->error($e->httpStatus, $e->errorCode, $e->getMessage());
+        }
+    }
+
+    private function guarded(Route $route, Context $ctx): HtmlResponse
+    {
+        $req = $ctx->req;
+        $who = $ctx->who;
+        if ($route->access === Route::PUBLIC) {
+            if ($who !== null && $req->method !== 'POST') {
+                return HtmlResponse::redirect('/ui/');
+            }
+        } else {
+            if ($who === null) {
+                $to = HtmlResponse::redirect('/ui/login');
+                return $req->cookie(self::SESSION_COOKIE) !== null ? $to->withoutCookie(self::SESSION_COOKIE, $req->secure) : $to;
+            }
+            if ($who->mustChangePassword && !in_array($req->path, ['/ui/password', '/ui/logout'], true)) {
+                return HtmlResponse::redirect('/ui/password');
+            }
+            if ($route->access === Route::DECIDE && !$who->canDecide()) {
+                throw new CwException('role_not_allowed', "your role ({$who->role}) cannot make mapping decisions", 403);
+            }
+            if ($route->access === Route::LEAD && !$who->isLead()) {
+                throw new CwException('lead_required', 'only a mapping lead can do this', 403);
+            }
+        }
+        if ($req->method === 'POST') {
+            $this->checkOrigin($req);
+            $token = $req->field('csrf');
+            // A public form (the sign-in) always carries the pre-login token, even when the browser holds a
+            // session by now (a second tab): that POST replaces the session. Every other form is bound to the session.
+            $ok = $route->access !== Route::PUBLIC && $who !== null
+                ? $ctx->csrf->validForSession($who->sessionId, $token)
+                : $ctx->csrf->validForPre($ctx->pre, $token);
+            if (!$ok) {
+                throw new CwException('csrf', 'this form has expired or did not come from this site: go back, reload the page and try again', 403);
+            }
+        }
+        return ($route->handler)($ctx);
+    }
+
+    /** A browser that says where the POST came from must say "here". (Absent headers: the token and SameSite=Strict decide.) */
+    private function checkOrigin(UiRequest $req): void
+    {
+        $site = $req->header('sec-fetch-site');
+        if ($site !== null && !in_array($site, ['same-origin', 'none'], true)) {
+            throw new CwException('csrf', 'cross-site form posts are refused', 403);
+        }
+        $origin = $req->header('origin');
+        if ($origin !== null) {
+            $host = $req->header('host');
+            $originHost = parse_url($origin, PHP_URL_HOST);
+            $originPort = parse_url($origin, PHP_URL_PORT);
+            $given = is_string($originHost) ? $originHost . (is_int($originPort) ? ':' . $originPort : '') : null;
+            if ($host === null || $given === null || strcasecmp($given, $host) !== 0) {
+                throw new CwException('csrf', 'cross-site form posts are refused', 403);
+            }
+        }
+    }
+
+    public function router(): Router
+    {
+        if ($this->router !== null) {
+            return $this->router;
+        }
+        $auth = new AuthController();
+        $dash = new DashboardController();
+        $review = new ReviewController();
+        $items = new ItemController();
+        $search = new SearchController();
+        $r = new Router();
+        $r->add('GET', '/ui/login', Route::PUBLIC, $auth->loginForm(...));
+        $r->add('POST', '/ui/login', Route::PUBLIC, $auth->login(...));
+        $r->add('POST', '/ui/logout', Route::ANY, $auth->logout(...));
+        $r->add('GET', '/ui/password', Route::ANY, $auth->passwordForm(...));
+        $r->add('POST', '/ui/password', Route::ANY, $auth->password(...));
+        $r->add('GET', '/ui', Route::ANY, $dash->index(...));
+        $r->add('GET', '/ui/', Route::ANY, $dash->index(...));
+        $r->add('GET', '/ui/review', Route::ANY, $review->queue(...));
+        $r->add('GET', '/ui/review/listing/{id}', Route::ANY, $review->listing(...));
+        $r->add('POST', '/ui/review/listing/{id}/decide', Route::DECIDE, $review->decide(...));
+        $r->add('POST', '/ui/review/decision/{id}/approve', Route::LEAD, $review->approve(...));
+        $r->add('POST', '/ui/review/decision/{id}/withdraw', Route::DECIDE, $review->withdraw(...));
+        $r->add('GET', '/ui/items/{id}', Route::ANY, $items->show(...));
+        $r->add('GET', '/ui/search', Route::ANY, $search->index(...));
+        return $this->router = $r;
+    }
+
+    /** A page for a failure before the person is known (no navigation). */
+    private function bare(int $status, string $code, string $message, string $rid): HtmlResponse
+    {
+        $view = new View(View::defaultDir(), ['csrf' => '', 'who' => null]);
+        $html = $view->page('error', ['status' => $status, 'code' => $code, 'message' => $message, 'rid' => $rid],
+            ['title' => 'Error ' . $status, 'active' => '', 'notice' => null, 'pendingCount' => null]);
+        return new HtmlResponse($status, $html);
+    }
+
+    private function failure(\Throwable $e, UiRequest $req, string $rid): HtmlResponse
+    {
+        ($this->log)("{$rid} {$req->method} {$req->path} failed: " . self::describe($e));
+        $code = Db::driverCode($e) ?? ($e->getPrevious() !== null ? Db::driverCode($e->getPrevious()) : null);
+        if ($code !== null && in_array($code, self::BUSY_CODES, true)) {
+            return $this->bare(503, 'busy', 'CW is busy; retry shortly', $rid)->withHeader('Retry-After', '1');
+        }
+        if ($code !== null && in_array($code, self::UNAVAILABLE_CODES, true)) {
+            return $this->bare(503, 'unavailable', 'the staff screens are temporarily unavailable; retry shortly', $rid)->withHeader('Retry-After', '5');
+        }
+        return $this->bare(500, 'internal', 'internal error', $rid);
+    }
+
+    private static function describe(\Throwable $e): string
+    {
+        $s = get_class($e) . ': ' . $e->getMessage() . ' at ' . basename($e->getFile()) . ':' . $e->getLine();
+        return $e->getPrevious() !== null ? $s . ' <- ' . self::describe($e->getPrevious()) : $s;
+    }
+}

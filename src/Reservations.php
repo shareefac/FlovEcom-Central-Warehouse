@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW;
 
+use CW\Mapping\DecisionService;
 use DateTimeImmutable;
 
 /**
@@ -1200,23 +1201,14 @@ final class Reservations
     }
 
     /**
-     * Unknown variants get an `unmapped` listing row (D13) — the DecisionService's job once it
-     * exists; until then this is the only place that creates listing rows from sales.
+     * Unknown variants get an `unmapped` listing row (D13) from the DecisionService's insert
+     * helper, the one place that creates listing rows.
      *
      * @param list<string> $variantIds
      */
     private function ensureListings(int $channelId, array $variantIds): void
     {
-        foreach (array_chunk(array_values(array_unique($variantIds)), 1000) as $chunk) {
-            $have = $this->db->column(
-                'SELECT external_variant_id FROM channel_listing WHERE channel_id = ? AND external_variant_id IN ('
-                . implode(',', array_fill(0, count($chunk), '?')) . ')',
-                [$channelId, ...$chunk],
-            );
-            foreach (array_diff($chunk, array_map('strval', $have)) as $v) {
-                $this->db->exec('INSERT IGNORE INTO channel_listing (channel_id, external_variant_id) VALUES (?, ?)', [$channelId, $v]);
-            }
-        }
+        DecisionService::createUnmappedListings($this->db, $channelId, $variantIds);
     }
 
     /**

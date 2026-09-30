@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\Stock;
 
 use CW\CwException;
-use CW\ListingProfiles;
+use CW\Mapping\ListingIngestService;
 use CW\Tests\Support\StockTestCase;
 
 /**
@@ -60,7 +60,7 @@ final class InputRangeTest extends StockTestCase
     public function testAPriceThatRoundsBeyondTheColumnIsRefusedAndOneThatFitsIsKept(): void
     {
         $site = $this->site();
-        $p = new ListingProfiles(self::$db);
+        $p = new ListingIngestService(self::$db);
         self::refusedWith(400, 'bad_listings', fn () => $p->push($site, [['variant_id' => 'A', 'price' => 99_999_999.999]]));
         $r = $p->push($site, [['variant_id' => 'A', 'price' => 99_999_999.994], ['variant_id' => 'B', 'price' => '0.005']]);
         self::assertSame(2, $r['created']);

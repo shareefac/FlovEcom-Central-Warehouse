@@ -132,7 +132,7 @@ for the shadow acceptance metrics (§14). The latest row is found via `(channel_
 
 **D19. `staff_user`.** `totp_secret` is stored encrypted (VARBINARY), and a NULL secret means login
 is refused. `totp_last_step` guards against replay. `roles` is a JSON array (CHECK); role names are
-settled with the UI work.
+settled with the UI work. *Superseded by M2 (0004): one `role` ENUM, `totp_secret_enc`.*
 
 ## Database access
 
@@ -848,10 +848,436 @@ Open after the review fixes:
   (`/opt/cw-staging`) still runs the 0002 code. Apply both together with
   `scripts/remote.sh hammer bash deploy/staging/install_cron.sh --migrate` once this change is
   accepted. Another workstream adding a migration must use `0004_*` or later.
-- The DecisionService (not built) must call `adoptUnlinkedUnits` inside every link transaction
-  (R4); a periodic sweep calling it for linked listings with unlinked held/allocated units would be
+- ~~The DecisionService (not built) must call `adoptUnlinkedUnits` inside every link transaction
+  (R4).~~ Done: `src/Mapping/DecisionService.php` calls it in every link transaction (M3, M4). A
+  periodic sweep calling it for linked listings with unlinked held/allocated units would still be
   a cheap safety net.
 - The connector contract changes: final opening batch after all others answered 200 and with `t0`
   (R1, R12); release always with its attempt (R9); unship with `at` (R10); the ERP-relaying site
   gets `--movement-types` (R17).
 
+## Linking backend (slot `dec`, 30 Sep 2026)
+
+Code: `src/Mapping/{DecisionService,ListingIngestService,Proposals}.php`, `src/Staff/*`,
+`bin/{import_listings,mint_vpg,import_proposals,create_staff}.php`; schema
+`migrations/0004_matching.sql`; tests `tests/Integration/Mapping/`, `tests/Unit/StaffSecretsTest.php`,
+new cases in `GrantsTest`. Sources: plan §7.1 (which wins), §2.2, §11; the matching design record
+(workflow `wf_761ea40a-40e`, finalize+critic: A.1, A.4, A.9), adapted to v1 as below.
+
+**M1. Tables, and append-only without triggers.** `match_run`, `match_proposal`, `match_decision`,
+`listing_map_history`, `match_reject`, `alias`, `staff_session`, `login_attempt`, plus columns on
+`staff_user`, `sku` (`origin`, `origin_listing_id`, `merged_into_sku_id`) and `listing_profile`
+(`features`, `features_version`). The design's triggers (A.4) are not used (D25: no DELIMITER, and the
+plan says no triggers); the guards are the grant model (M16), the code (only DecisionService writes a
+link: `grep` finds no other writer of `channel_listing` in `src/` or `bin/`) and constraints:
+- stored generated columns with UNIQUE keys: at most one `open` proposal per listing
+  (`match_proposal.open_listing_id`), one `pending_second` decision per listing
+  (`match_decision.pending_listing_id`) and one open link period per listing
+  (`listing_map_history.open_listing_id`);
+- CHECKs: a decision other than `suggest` names its decider; `applied` ⇔ `applied_at`; an applied
+  decision's `second_by` differs from `decided_by`; a `link` names item and u; a merge names two
+  different items; a closed period names the decision that closed it.
+
+**M2. Staff (design A.9, one role each).** `staff_user.roles` (JSON) became `role` ENUM
+`viewer | mapper | mapping_lead | warehouse | manager | admin` (nothing used `roles`).
+`totp_secret` became `totp_secret_enc`: the base32 secret sealed with libsodium secretbox
+(XSalsa20-Poly1305, nonce ‖ box) under `ui_secret_key` (32 random bytes, base64) in
+`/etc/cw/app.env` — outside the web root and git (§11), readable by php-fpm (it must check codes), never
+printed. Passwords: `password_hash(PASSWORD_ARGON2ID)`, `password_must_change = 1` for the one-time
+password. `staff_session` keeps sha256 of the session token (the cookie holds the token), `mfa_at`
+(TOTP passed), ip, sha256 of the User-Agent and `revoked`. `login_attempt` (no FKs, like `audit_log`)
+is for per-ip and per-login rate limiting. The login screens themselves are not built yet (`CW\Staff\Totp`
+already verifies codes with a ±1 step window and a used-step guard).
+
+**M3. Decision actions.** One transaction each (`DecisionService::decide`), every one audited
+(`mapping.<action>`, plus `mapping.approve` / `mapping.withdraw` / `mapping.propose`):
+
+| Action | Listing afterwards | Also |
+|---|---|---|
+| `link` (sku, u) | `mapped`, sku, u, map_version + 1 | closes the open history period and opens one; settles the open proposal (`decided`); `adoptUnlinkedUnits` (R4); feed row `link` |
+| `new_item` (u, card) | as link, to an item minted from the listing (M9) | the same |
+| `unlink` | sku NULL, u 1, `suggested` if an open proposal exists, else `unmapped` | closes the period; feed row `link` |
+| `ignore` | `ignored`, sku NULL | closes the period if linked; settles the proposal; feed row |
+| `reject` (sku) | unchanged | `match_reject` (M8); the proposal stays open |
+| `suggest` | `unmapped` → `suggested` (needs an open proposal) | feed row `status` (the view's `link` field changes) |
+| `merge_skus` | M10 | |
+
+`mintAndLink` (the Vape and Go seed, M14) mints an item and records an applied `link` decision in the
+same transaction. A no-op (`link` to the current item and u, `ignore` of an ignored listing, `suggest`
+of a non-unmapped one) is 409 `no_change` and records nothing. Results carry the decision id, state,
+the listing's new status/sku/u/map_version, `needs_second` and the units adopted.
+
+**M4. Lock order of a decision:** reservation rows (link outcomes only: the reservations of the
+listing's unlinked held/allocated units, sorted by order_ref, read before the listing lock) →
+`channel_listing` X → `sku` rows S in id order (X for the item a merge folds away) → `stock_balance`
+(adoption) → feed clock. The sale path takes its reservation, then the listing FOR SHARE (R4), so a
+link transaction must not hold the listing while waiting for a reservation: pre-locking removes the
+R4 deadlock between a link and a sale re-attempting an order with unlinked units of that listing. The
+item rows are read FOR SHARE so a concurrent `setPolicy` (balances → sku X) cannot slip a legacy →
+strict change under a one-person link; that pair can deadlock (sku S before balances here) and is
+retried by `Db::transaction` (rare: policy changes are staff actions). A merge locks every listing of
+the folded item (id order) before the item rows. Every decision, history, proposal and audit row is
+written before the feed clock (adoption's `flush`, then `Stock::listingChanged`), so nothing waits on a
+`staff_user` FK while holding the clock.
+
+**M5. Optimistic concurrency (design I7).** Every decision carries `expected_map_version`; a
+mismatch is 409 `map_version_conflict` (detail: current version, status, sku) and nothing is written.
+Two people confirming the same listing: one commits, the other waits on the row lock and gets 409
+(`DecisionServiceTest`, forced and truly simultaneous). While a decision is `pending_second` no other
+decision on that listing is taken (409 `pending_second_exists`); approving it re-checks that the
+listing is still at the version the decider saw (else 409: withdraw and decide again). Round 2 adds the proposal (M19) and the
+identity (M20) the person saw.
+
+**M6. Two-person rule (plan §7.1; design A.9 rule 4 reduced to the plan's list).** Stored
+`pending_second` with the reasons in `needs_second`: `protected_sku` (a link to, or a link/unlink/
+ignore/new_item away from, an item whose `sell_policy` <> legacy), `units_per_item` (u <> 1),
+`merge` (every merge_skus) and `previously_rejected` (M8). A **different** `mapping_lead` approves
+(`approve`: applies it, `second_by`, `applied_at`) or withdraws it; the decider may withdraw their own.
+`second_by` records whoever settled it; the withdrawal time is in `audit_log` (the only mutable columns
+are `state`, `applied_at`, `second_by`). A pending `new_item` mints its item only on approval, so its
+decision row keeps `sku_id` NULL; the item is in `listing_map_history` and the audit row. Not built:
+veto overrides and quarantine decisions (the vetoes and quarantine flows are not part of this slice). Round 2 adds changes of a
+listing linked with u <> 1 (M21) and rejects across merges (M22).
+
+**M7. Roles.** `mapper` and `mapping_lead` decide; `viewer`, `warehouse`, `manager` and `admin` get
+403 `role_not_allowed`. A listing whose open proposal is in the Conflict band — named in the request
+or not — is decided (link, new item, ignore, reject, unlink, merge) by a `mapping_lead` only. Bulk
+decisions (`bulk_batch_id`, `mintAndLink`) are `mapping_lead` only (the design gives bulk rights to
+managers; v1 keeps mapping in mapping roles). A system caller (`Caller::system`) may only `suggest`;
+a site caller never decides. Inactive or unknown staff: 403 `staff_not_allowed`.
+
+**M8. Reject.** `match_reject(listing, sku)` is append-only and unique; a second reject of the pair
+adds a decision row, not a second reject row. The proposal stays open for another choice. Rejecting
+the item the listing is linked to is 409 `reject_current_link` (unlink instead). There is no
+"un-reject" (append-only): a later link to a rejected item is allowed but needs a second person
+(`previously_rejected`).
+
+**M9. The new item's identity card** (`DecisionService::card`, `cardFrom`): name = the listing's
+variant title, else product title, else the features' title; brand = profile brand, else features'
+`brand_raw`; strength, nic type, form, ml, puffs, pack from `listing_profile.features` (the rules-only
+Normalizer output); `line` = the distinct line tokens, numbers and modifiers; `flavour` = the flavour
+tokens. The reviewer's typed values (`card`) override any field (null clears it); values outside the
+column ranges are 400 `bad_card`; no name is 422. `sku.origin` = `new_item` (or `vpg_mint`),
+`origin_listing_id` = the listing. The count gate confirms the card later (plan §2.1).
+
+**M10. merge_skus (v1).** The request names a listing linked to the item being folded away (the
+anchor; the VPG duplicate proposal's listing), the item kept and the item merged. Both items must be
+`legacy` — a protected item's counted stock would have to move with it, which needs the recount
+flow (409 `protected_merge` until then). On approval every listing linked to the merged item moves to
+the kept one (same u and status; one history period and one feed row each), the proposal is settled
+and `sku.merged_into_sku_id` is set; a merged item can never be linked again (409 `sku_merged`).
+Units sold before keep their sale-time item, like any relink; the merged item's buckets stay where
+they are (legacy estimates, settled by the kept item's count). Items are never deleted.
+
+**M11. `ListingIngestService`** replaces `CW\ListingProfiles` (same code path for `PUT /v1/listings`
+and `bin/import_listings.php`; the API answers are unchanged — its HTTP tests' listing cases also run
+in process in `ListingIngestTest`). New listing rows come only from
+`DecisionService::createUnmappedListings` (INSERT IGNORE of the missing variants), which
+`Reservations` now also uses for sales of unknown variants (same statements as before). A push that
+changes a listing's identity clears its stored `features` (they described the old titles). An export's
+attribute list `[{attr_id, name, value, is_variable}]` is stored as `{"items": [...]}`: exactly what
+the Normalizer reads (is_variable decides between values); the connector should send the same shape.
+
+**M12. Features.** `listing_profile.features` holds the rules-only Normalizer output of a listing
+(`features_version` = normalizer version). The bootstrap tools copy it from the run files
+(`listings_features.jsonl`, minus the run bookkeeping `cw_id` / `in_seed` / `in_scope`): mint_vpg for
+every Vape and Go line, import_proposals for the listings it proposes for. After go-live the matcher
+writes them.
+
+**M13. Proposals** (`CW\Mapping\Proposals`). `match_run` is unique on (run_id, source) and
+append-only. One proposal per (run, listing); recording it for a listing with an open proposal of
+another run supersedes that one; recording it again is `exists` (the tools are re-runnable). All of it
+runs under the listing's row lock, then `suggest` moves an unmapped listing without a pending decision
+to `suggested`. The run's band `Manual (relabel)` is stored as `Manual` (the ENUM of the task) with the
+original in `evidence.band`. `CWP-<vpg id>` becomes the item minted for that Vape and Go listing; the
+private ref maps add every candidate the judge saw (item, role, prescore, rank, vetoes, soft flags) to
+`evidence.candidates`, so the review screen can offer alternatives without the run files. `flags` is
+the sorted list of lane flags, target soft flags and vetoes, key blockers, `relabel_pending`,
+`two_person_confirm` and `target_not_minted`.
+
+**M14. The Vape and Go seed (`bin/mint_vpg.php`).** Seed = features lines of `vapeandgo` with
+`in_seed = true`, `variant_status = Published` and not a placeholder (14,856 in run2 = the export's
+published non-landing count). One transaction per listing (`mintAndLink`): the feed clock is held
+per listing, not per batch. `bulk_batch_id` defaults to `vpg_mint:<run dir>`; `--staff` must be an
+active mapping_lead; `--dry-run` writes nothing (no features, no run row). Linked listings are skipped,
+so a re-run mints nothing twice. Duplicate groups (`vpg_duplicates.jsonl`): the member with the most
+30-day units (then the lowest id) is the keeper; every other member's listing gets an open proposal
+(run `<run dir>-vpg-duplicates`, source `vpg_duplicates`, band Manual, lane `vpg_duplicate`, proposed
+item = the keeper's) — a merge suggestion for two people (M10); nothing is merged. Run2's first group
+(Nic Nic 100% VG vs 70VG/30PG) shows why a person must look.
+
+**M15. `bin/create_staff.php`** prints `password=` and `otpauth=` lines on stdout once (messages on
+stderr), stores username = e-mail (lower-cased), the argon2id hash with `password_must_change = 1` and
+the sealed TOTP secret, and audits `staff.create` with e-mail and role only. When app.env has no
+`ui_secret_key` it generates one and adds it in place (other lines kept, file mode/group kept, atomic
+rename; `CW\Staff\AppEnvFile`). An existing e-mail is refused; an existing account is recovered with `bin/reset_staff.php` (U23).
+
+**M16. Column-level grants.** `CW\Schema\Grants` now also converges `mysql.columns_priv`: the app
+login gets SELECT, INSERT on `match_run`, `match_reject` (APPEND_ONLY) and on `match_proposal`,
+`match_decision`, `listing_map_history` plus UPDATE of exactly `status`; `state`, `applied_at`,
+`second_by`; `valid_to`, `closed_by_decision_id` (UPDATE_COLUMNS). A table-level `REVOKE UPDATE` also
+drops that table's column grants, so column grants are read after the table-level pass. Checked with a
+throwaway login in `GrantsTest`, which also runs the whole linking flow (intake, proposal, suggest,
+reject, adoption, pending + approval, withdrawal, new item, mint, merge, unlink, ignore) with exactly
+those rights.
+
+**M17. `import_listings` drops an unusable barcode, not the listing.** The real Vape and Go export
+(29,105 variants) has 5 listings whose barcode field holds text, not a code (`Black Grey`, `85104 - 1`,
+`85180 - 1`, `85186 - 1`, `85190 - 1`). `PUT /v1/listings` refuses any barcode that is not a printable
+code without spaces of at most 64 characters, so the whole listing was skipped and the import exited 1.
+The importer now removes exactly the barcodes those checks would refuse, ingests the listing with the rest,
+counts them (`barcodes_dropped`, `listings_with_dropped` in the summary line) and lists the first 20 on
+stderr. The API is unchanged: it still answers 422 for such a barcode. The first-match features file has
+no barcodes for these 5 variants either, so the matching run never used them. A later connector that feeds
+`PUT /v1/listings` from the same source must clean barcodes the same way (or accept the 422 per listing).
+Covered by `ImportToolsTest::testImportListingsDropsUnusableBarcodesButKeepsTheListing`.
+
+Open after the linking backend:
+- `0004_matching.sql` is applied to `cw_staging` and `/opt/cw-staging` runs the matching code (30 Sep 2026);
+  `ui_secret_key` is in staging's `/etc/cw/app.env`. The first-match data is loaded (docs/ops.md, "First-match
+  data on `cw_staging`").
+- The load ran under a placeholder `mapping_lead` (`mapping-lead-placeholder@cw-staging.invalid`, staff id 2),
+  because `mint_vpg` needs a mapping_lead (M7) and the admin gets 403 for mapping decisions. Replace or
+  deactivate it before real people use the review UI; the 14,856 link decisions carry its id.
+- Channels have no allowed IPs, so every API call is refused until `bin/create_channel.php --ips` is run.
+- Not built here (the review/login UI and its HTTP routes were built afterwards: next section): quarantine and veto-override decisions, the count gate, `sku_barcode` seeding from the
+  minted listings' barcodes (design S3; `listing_profile.barcodes` has them), `sku_erp_item` seeding,
+  the StrictReadiness check before a policy change. Both tables are still empty on staging.
+
+## Staff UI (slot `ui`, 30 Sep 2026)
+
+Code: `src/Auth/`, `src/Ui/` (controllers, templates in `src/Ui/views/`), `public/index.php`,
+`public/ui/assets/{app.css,app.js}`, `deploy/staging/{install_ui.sh,*-ui.conf,*-https.conf,*-acme.conf,
+*-hardening.conf,php-fpm-cw-web.conf,logrotate-cw-{ui,web}.conf,enable_https.sh}`; tests
+`tests/Integration/Ui{Auth,Security,ReviewFlow}Test.php` (slot `ui`, over HTTP), `tests/Unit/Ui{Unit,Templates}Test.php`,
+`tests/Unit/{StaffSecrets,Deploy}Test.php`. Sources: plan §7.1 (wins: one person at a time, preselection; two people only
+for a protected item, units per item other than 1, merges), §2.2, §11; the matching design record (A.1, A.4, A.9).
+`DecisionService` semantics are unchanged: every rule below is about what the screens do with its answers.
+
+**U1. Sign-in and the limiter.** One form: e-mail, password, 6-digit code (`CW\Auth\Login`). An unknown account, a wrong
+password and a wrong code give the same answer and cost the same (a dummy argon2id verify). `LoginLimiter` is a rolling
+window over `login_attempt`: 10 failures for one e-mail or 30 for one address in 15 minutes refuse sign-in (plan §11: 10
+failures, 15 minutes; the address limit is higher because an office shares one). Refused attempts are not recorded, so
+hammering cannot extend a lock; a successful sign-in resets the account's count. Tradeoff: anyone who knows a staff e-mail can
+lock that account for 15 minutes (accepted for v1; the address limit and `audit_log` show it). `staff_session.ip` and
+`user_agent_hash` are stored but not enforced (a phone moving between networks would be signed out). The count and the charge are
+one step under named locks since round 2 (U21).
+
+**U2. Sessions.** `staff_session.id` is the sha256 of a random 256-bit token; the cookie holds the token only
+(`HttpOnly; SameSite=Strict; Path=/ui`, `Secure` when the request is HTTPS). Live while idle < 30 min and age < 12 h, not
+revoked, MFA done. Every sign-in creates a new session and revokes the one the browser presented. Logout is POST-only and
+revokes. A code is used once (`staff_user.totp_last_step`). `audit_log`: `login.ok`, `login.fail`, `logout`. The password
+change is forced while `password_must_change` is set (the only reachable routes are `/ui/password` and `/ui/logout`); a change
+rotates the session (U22).
+
+**U3. CSRF.** Every POST needs a token (HMAC-SHA256 under a key derived from `ui_secret_key`, never the key itself). A
+signed-in form's token is bound to the session id (stable within a session, worthless in any other, dead after logout or
+rotation). Public forms (the sign-in) always use the pre-login token bound to the `cw_pre` cookie, even when the browser already
+holds a session (a second tab): that POST replaces the session. Before the token, a POST that says it came from another site
+(`Sec-Fetch-Site`, `Origin`) is refused; absent headers fall back to the token and SameSite=Strict. A refused form answers 403
+`csrf` with a plain "reload the page" message.
+
+**U4. TOTP.** The task named `src/Auth/Totp.php`; `src/Staff/Totp.php` (M2: RFC 6238, SHA-1, 6 digits, ±1 step, used-step
+guard, constant-time compare) already existed and is used instead. Vectors (RFC 6238 appendix B incl. T=20000000000) and the
+window edges are in `StaffSecretsTest`.
+
+**U5. Headers on every answer, assets included.** CSP `default-src 'self'; base-uri 'none'; form-action 'self';
+frame-ancestors 'none'` (the last two additions close base-tag and form-target tricks that `default-src` does not cover),
+`nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy`, COOP/CORP `same-origin`,
+`Cache-Control: no-store` (assets: `no-cache` + ETag, so a deploy shows at once), HSTS only over HTTPS. `Assets::serve` wraps the
+asset answer in `Kernel::secure`, so a 404 or 304 for an asset carries them too. Error pages (403, 404, 405, 500, 503) are
+hardened the same way and never show an exception message, a host name or a path (the request id finds the log line).
+
+**U6. What the queue lists.** Open proposals whose listing is `unmapped` or `suggested` and has no `pending_second` decision
+(those are in the second-approval queue). Order: units in 30 days, then 365 days, then id (best-sellers first), 50 per page
+(changed by U19: 365 days first).
+Filters: channel, lane, minimum 30-day units, free text (title, variant title, brand, variant id, barcode). The filters travel
+in the URL and in hidden fields, so the page after a decision is the next item of the same filtered queue. Listings with no
+proposal are counted on the dashboard ("No proposal yet") but not queued: there is nothing to confirm.
+
+**U7. Dashboard coverage.** Per site: listings, linked, units in 30 and 365 days and the linked share. The denominator is ALL
+units sold (ignored listings included) so the percentage answers "how much of what we sell is linked"; ignored units are
+shown in their own column. A site with no sales shows `-`, not 0%.
+
+**U8. One decision form.** Radios: Confirm link, Mark as a new item, Ignore (a reason is required), Reject this proposal; one
+"Save decision". Band Key preselects Confirm link; every other band preselects nothing and needs a choice. "Choose other
+item" is search plus the candidate links, which set `?pick=<sku>`: the page re-renders with that item as the target. A pick
+that does not exist, is merged away or is not usable falls back to the proposal and says so; the heading then reads "Proposed
+item", never "Item you picked" (`ReviewController`, `target_is_pick`). Units per item other than 1 shows the two-person note
+(the note is in the page, hidden while the value is 1; `app.js` only toggles it as the value is typed).
+
+**U9. Reject.** Applies to the item shown as target, writes `match_reject` and leaves the proposal open (DecisionService).
+After a reject the page stays on the same listing when it is the only item left in the queue (otherwise it would redirect to
+itself); otherwise it goes to the next. Any later link of a rejected pair needs two people (`previously_rejected`).
+
+**U10. After an action.** Go to the next listing of the queue (after the current one in order, else the first other one), with
+a one-line notice naming what happened. Last in the queue: "queue done", except that a decision that became
+`pending_second` shows the pending notice instead. (A last-in-queue ignore or new item shows "queue done", not its own notice.)
+
+**U11. Two people.** Links touching a protected (non-legacy) item, units per item other than 1 and merges wait for a second
+person. The waiting list (`queue=pending`) shows who decided and why it waits. Approve: `mapping_lead` only and never the
+decider (the decider sees "Waiting for another mapping lead."; a mapper sees "Waiting for a mapping lead."); the approval
+takes an optional note. Withdraw: the decider or a lead. Roles without `canDecide` (viewer, warehouse, manager, admin) see
+listings but get no form ("Your role (...) can look at listings but not decide them."); a Conflict proposal shows a mapper no
+form either ("only a mapping lead"): that rule is `DecisionService`'s (403 `lead_required`), the screen only hides the form,
+and the POST route itself needs `mapper` or `mapping_lead` (`Route::DECIDE`).
+
+**U12. Unlink is not in the UI.** `DecisionService` supports it, but the screens in the brief have no unlink action, so it is
+not offered (it stays a backend action; the tests call it directly).
+
+**U13. The pending badge** in the navigation shows the waiting count to every signed-in user (everyone sees that work is
+waiting; only the roles that may act get buttons, U11).
+
+**U14. Stale forms.** The form carries `expected_map_version`. If the listing changed meanwhile (someone else linked it), the
+decision is refused, the page is re-rendered with the new state and the person's choices kept, with the `CwException`'s HTTP
+status, never a silent overwrite.
+
+**U15. Search.** `/ui/search` and the listing page's box: one character runs no query; a CW code (`CW-000123`, `123`), a
+barcode (6-64 digits) or up to six words (title, brand, flavour) find items; listings are found by variant id, title or brand.
+Result lists are capped (`Queries` limits).
+
+**U16. Templates never print raw.** Templates get only `$e $n $dec $dt $u $pct $partial` (and `$body` in the layout) and
+`UiTemplatesTest` fails the build otherwise, for inline script, style, event handlers, third-party references and POST forms
+without the CSRF field. Found while testing: `preg_match('/^...$/')` accepts a trailing newline (`UiRequest::id("1\n")` was
+1); every anchored pattern in `src/Ui` and `src/Auth` now has the `D` modifier.
+
+**U17. Deployment.** The UI test copy is a second name-based vhost on the API's loopback listener (`Host:
+cw-ui.staging.invalid`, pool `cw-ui`, schema `cw_test_ui`), so the API tests in slot `api` are unaffected and no second `Listen`
+is added. The public HTTPS vhost for `warehouse-staging.floverfy.com` (UI + API, pool `cw-web`, `/opt/cw-staging`, real schema)
+and its port-80 ACME vhost are in the repo and OFF: only `enable_https.sh`, run by a person, installs them, and it refuses
+until DNS resolves to this box only, the code and `cw-ui` exist and `app.env` names `cw_staging`. The record must be DNS-only
+(not proxied): `REMOTE_ADDR` is the only client address the app trusts (`mod_remoteip` stays off).
+
+Open after the UI:
+- Nothing serves `cw_staging` over HTTP until `enable_https.sh` is run (needs the DNS record and TCP 80/443 open); the UI
+  has only been exercised against `cw_test_ui`. `app.js` was reviewed by eye only (no JavaScript runtime on either machine);
+  the forms work without it.
+- Staff accounts for real people do not exist yet (`docs/ops.md`, "Staff accounts"); the placeholder `mapping_lead`
+  (staff id 2) still carries the 14,856 seed decisions.
+- Not built: unlink and merge screens (U12), quarantine and veto-override decisions, a screen to manage staff (use
+  `bin/create_staff.php` and `bin/reset_staff.php`, U23), per-session device list. (The recovery "an admin re-creates the
+  account" never worked for anyone who had decided something; `bin/reset_staff.php` replaced it, U23.)
+
+## Review fixes, round 2 (slot `fix2`, 30 Sep 2026)
+
+A review of the linking backend and the staff UI (lenses: security, linking rules, data) found the defects below. Each fix
+has a regression test; the review's probes (`tests/Review/`) were moved into the suites and the directory deleted:
+`DecisionServiceTest` (linking), `GrantsTest`, `tests/Integration/UiKernel/{ApprovalScreens,PasswordChange,ReviewEvidence}Test`,
+`tests/Integration/Auth/LoginLimiterRaceTest`, `tests/Integration/Staff/StaffResetTest`, `tests/Integration/Mapping/BarcodeSeederTest`,
+`UiUnitTest::testBrandsSpeltDifferentlyAreNotConflicts`. The `UiKernel`, `Auth` and `Staff` tests drive the real `/ui` kernel
+in-process as `cw_app` (`tests/Support/{KernelBrowser,KernelUiTestCase}.php`), so they run in every slot, not only in slot `ui`.
+Schema: `migrations/0005_listing_barcodes_index.sql` (applied to `cw_staging`, M25).
+
+**M18. What the second person approves is what the screens show (amends U11).** While a decision waits, the listing page's item
+card, side-by-side comparison, barcodes and heading ("Item this decision links to") are those of the item the DECISION links to
+(`?pick` is ignored), never the proposal's. A waiting `new_item` shows the identity card it will mint (`match_decision.detail.card`,
+field by field) on the listing page ("New item this decision creates") and in the second-approval list (partial `pending_decision`);
+a waiting merge names both items. Both screens flag a stale decision (M19, M20) and approving it is refused.
+
+**M19. The proposal a person saw (design I7; amends M5).** A decision on a listing that has an open proposal must name it: 409
+`proposal_changed` (detail `open_proposal_id`) otherwise, checked after the Conflict gate. The system `suggest` names it anyway
+(`Proposals::add`). `approve()` refuses (409 `proposal_changed`) when the listing's open proposal is no longer the one the decision
+named (a later run superseded it, or one opened on a listing that had none; `Proposals::add` does not change `map_version`), so a
+superseded decision is never applied and the new proposal (e.g. a Conflict) is never settled unseen. A decision settles only the
+proposal it named (`settleProposal(id)`), never "whatever is open".
+
+**M20. The identity a person saw (design I7): option A.** `ListingIngestService` moves `channel_listing.map_version` on (through
+`DecisionService::identityChanged`, keeping the single writer of `channel_listing`) for every listing whose `identity_hash`
+changed (titles, brand, attributes, barcodes), or which gets its first profile, and which existed before the push. The existing
+`map_version` checks then refuse a form drawn before the change and the approval of a `pending_second` decision taken on the old
+titles (a u = 10 link approved after the site renamed the variant to a 5-pack). A price or sales change is not an identity change.
+Rows created by the same push start at 0 (nobody has seen them). Option B (store `expected_identity_hash` on `match_decision` and
+compare it) was not taken: it needs a new column and a new field in every caller, and gives no more than A, whose version is not
+exposed to the sites (the feed carries its own versions, D38). The ingest audit row counts them (`identity_changed`).
+
+**M21. Two people for multiples, both ways (amends M6).** Besides a target u <> 1, any decision on a listing linked with u <> 1
+(verified by two people) needs `units_per_item` in `needs_second`: a relink (to u = 1 or to another item), `new_item`, `unlink`,
+`ignore`. A merge moves listings with their u and already needs two people.
+
+**M22. Rejects survive merges (amends M8, M10).** `match_reject` counts for an item's family (the item and every item merged into
+it, recursively): a link of a listing to an item it rejected, or to an item such an item was merged into, needs
+`previously_rejected`. A merge that would contradict a reject is refused, 409 `rejected_pair` (detail `listing_ids`): a listing
+of the merged item that rejected the kept item's family, or a listing of the kept item that rejected the merged item's family.
+Checked at the decision and again at the approval; a person relinks or unlinks those listings first. The screen's "rejected
+before" note uses the same family (`Queries::rejectedOf`).
+
+**M23. The app login deletes no listing, item, profile or staff account (design A.1 I1; amends D23, M16).** `Grants::NO_DELETE`
+(`channel_listing`, `listing_profile`, `sku`, `staff_user`): SELECT, INSERT, UPDATE. Nothing in `src/` or `bin/` deleted them;
+`reservation_unit.listing_id` has no FK, so a listing that only ever sold while unlinked could have been deleted from under its
+holding-ledger units. `bin/setup_staging.php` probes the DELETE refusal; converged on `cw_staging` by the 0005 migration run.
+
+**M24. A relink with units in flight queues a recount (design A.9 rule 5, A.12 "Reversal").** When a link changes (another
+item, another u, unlink, ignore, new item) and units of the listing are held or allocated on the old item, or were shipped
+from it under the closing link (sold since the period's `valid_from`, or dispatched since), and either item is counted
+(`sell_policy` <> legacy), `count_review` rows are opened on both items (source `remap_correction`, per warehouse of the units,
+dedupe key `remap:<decision>:<sku>:<warehouse>`, detail: decision, history period, unit ids and states, central units) through
+`Stock::openCountReview`, before the feed clock (M4). The units keep their sale-time item (I14). Legacy -> legacy queues nothing
+(uncounted estimates). Merges are legacy-only (M10), so they never queue one. Not built: the paired `remap_correction`
+movement (-q on A, +q on B) after the recount: that is the count gate's (plan: later).
+
+**M25. `sku_barcode` is seeded from the listing each item was minted from (design S3).** `CW\Mapping\BarcodeSeeder`
+(`bin/seed_barcodes.php`; `bin/mint_vpg.php` runs it for what it mints): the usable GTINs of the origin listing's profile
+(`CW\Matching\Gtin::classify`: 8-14 digits, valid check digit; so "Black Grey", short shop codes and URLs never enter), stored as
+the GTIN key (no leading zeros; search accepts a scanned code with them). Idempotent; a key already on another item is not
+added and the existing row is marked unusable (`is_usable = 0`, note "also on CW-..."), never moved. Until an item is seeded
+the screens fall back to its origin listing's usable GTINs (`Queries::barcodesOfMany`; item page source "listing it was minted
+from"). On `cw_staging` (30 Sep 2026): 14,856 items, 11,299 with a usable GTIN, 13,082 rows added (3 keys on two items, marked
+unusable), 472 unusable codes skipped; afterwards 873 of the 936 Key proposals show "Barcodes: same". `0005` adds a
+multi-valued index on `listing_profile.barcodes` (`CAST(barcodes AS CHAR(64) ARRAY)`), which `Queries::barcodeElsewhere` uses
+(`JSON_OVERLAPS`, ~3 ms instead of a 2.3 s scan).
+
+**U18. The evidence on the review screen (review findings, data lens).**
+- The candidates table lists EVERY candidate the judge saw (up to 15, not 10), in judge order, with its ref (C1..C15, from
+  `evidence.candidates[].ref`), which the AI's reason and the band reasons cite; vetoes are red "veto: ..." tags, soft flags amber.
+- The AI's pick (`evidence.ai.chosen`) is always shown: an "AI picked" line (with "use this item") and a marked table row, added
+  as its own row when the candidate list does not carry it (Conflict, Can't tell and Manual proposals name no item).
+- "Fields that do not agree" shows `field: state` pairs (the run stores a dict), conflicts first and in red; an old list still reads.
+- Flags are grouped by weight: "Blocks a link" (the target's vetoes and the AI pick's, `veto:`/`chosen_veto:` in proposals.csv),
+  "Check" (soft flags, `soft:`/`chosen_soft:`), "Other flags" (lane flags, key blockers, relabel_pending, ...); AI warnings apart.
+- The Manual band is named "Relabel (alias)" everywhere (`Queries::BAND_LABELS`; the URL keeps `queue=Manual`), with the run's
+  own band text ("Manual (relabel)"), the rename (`relabel_pending`) and the paired items (`relabel_partners`, each with "use this
+  item"). The queue tab says that aliases are not recorded on these screens (a mapping lead confirms them separately) and what to
+  do with each listing. No alias decision is built (the `alias` table stays empty).
+- The queue shows the AI's confidence only next to a proposal (a "85%" beside "Proposal: none" read as a match).
+- Brands are compared on their distinctive words (`Compare::brandWords`: case, punctuation, shop words such as vapes, e-liquids,
+  nic salts, brand, co, puff counts like 10K dropped; confirmed brand aliases applied): equal -> `same`; one within the other, a
+  prefix, or the same first word -> `alike`, shown "spelt differently", not highlighted; else `differs`. On staging's Key
+  proposals the brand-only "differs" fell from 305 to 40 (Check: 185 to 15). Barcodes compare on GTIN keys.
+- Items minted from Vape and Go show their first-match id (`CWP-<vpg variant id>`, the id proposals.csv uses) next to the CW code,
+  on the review screen, in searches and on the item page.
+- "This listing's barcode is also on": other listings (any site, linked or not, with the site's variant status from the
+  features, e.g. "Bin") and items holding one of the listing's barcodes (60 of the 65 New item proposals with a barcode on staging).
+
+**U19. Queue order and lanes (amends U6).** Units in 365 days, then 30 days, then id (September's 30-day figure is inflated
+by stockpiling and a promotion); the 365-day column comes first. The `vpg_duplicate` lane is no longer offered as a filter: those
+165 merge suggestions sit on mapped listings, which no queue lists, and merges have no screen (U12). The dashboard counts them
+("not in these queues ... nothing merges them on its own"); `docs/ops.md` says the same.
+
+**U20. Preselection and the quick confirm (amends U8).** Key preselects "Confirm link" as before, and a "Confirm link to CW-... and
+open the next listing" button (a second POST form, same fields and checks) sits above the evidence, so a Key item that checks out
+needs one click. "New item" preselects "Mark as a new item" unless its barcode is on another listing or item. Rejected: a bulk
+confirm of Key items (plan §7.1: one-at-a-time confirmation with preselection; bulk decisions stay mapping_lead tools). Not done:
+revising the plan's "a few seconds each" (plan.md is the spec; no measured figure exists yet).
+
+**U21. The limiter's check and charge are one step (amends U1).** `Login::attempt` (and the password change's check of the current
+password) runs count -> verify -> record under named locks of the account and of the address (`LoginLimiter::exclusive`,
+`GET_LOCK`, schema-qualified names, account before address, 10 s wait; an attempt that cannot get them is refused like a locked
+one and not recorded). Ten simultaneous wrong passwords against an account with 9 failures: one is checked, nine refused (was:
+all ten checked, 19 failures). Cost: attempts for one account or from one address queue behind each other's argon2id (~330 ms).
+
+**U22. A password change rotates the session (amends U2).** Every session of the person ends, the current one too; the browser
+that changed it gets a new session cookie on the 303 (CSRF follows the new session id). A copied cookie dies with the change,
+and the session opened with a one-time password never becomes the long-lived one. Audit `password.change` with `rotated: true`
+and `sessions_ended`.
+
+**U23. Staff recovery: `bin/reset_staff.php` (amends M15).** `--new-password` (a new one-time password, `password_must_change = 1`),
+`--new-totp` (a new sealed seed, `totp_last_step` NULL: the old codes stop), `--deactivate` / `--activate`; every reset revokes all
+of the person's sessions and is audited (`staff.reset`, `staff.deactivate`, `staff.activate`; never a secret). Secrets are printed
+once on stdout, as `create_staff` does. `enable_https.sh` now refuses while `/etc/cw/initial_staff.txt` exists (one-time passwords
+and TOTP seeds of staff 1 and 2 in clear) or any account with an e-mail under `.invalid` (the placeholder mapping_lead, staff 2) is
+active: public, either would be a working second identity that defeats the two-person rule.
+
+Open after round 2:
+- `/etc/cw/initial_staff.txt` still exists on staging and staff 2 (placeholder mapping_lead) is still active: a person hands the
+  credentials over, shreds the file and deactivates staff 2 (`docs/ops.md`, "Staff accounts"); `enable_https.sh` refuses until then.
+- Not built: the alias decision (U18), merge and unlink screens (U12), the remap correction movement (M24), bulk confirm (U20, rejected).

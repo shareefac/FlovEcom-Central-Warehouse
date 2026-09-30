@@ -1,0 +1,30 @@
+{
+  "run": "run3",
+  "scope": "sold",
+  "chunks": {
+    "run3_c001": {
+      "lane": "barcode_transfer",
+      "n_listings": 5,
+      "items": {
+        "L1": {
+          "kind": "main",
+          "vetoed_refs": {
+            "C2": [
+              "flavour_diff"
+            ]
+          },
+          "soft_flagged_refs": {}
+        },
+        "L2": {
+          "kind": "main",
+          "vetoed_refs": {},
+          "soft_flagged_refs": {
+            "C2": [
+              "price_outlier"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

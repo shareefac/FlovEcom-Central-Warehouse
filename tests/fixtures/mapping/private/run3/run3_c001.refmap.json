@@ -1,0 +1,52 @@
+{
+  "chunk": "run3_c001",
+  "prompt_version": "0000000000000000000000000000000000000000000000000000000000000000",
+  "refs": {
+    "L1": {
+      "listing": {
+        "site": "electrofag",
+        "variant_id": 5894
+      },
+      "kind": "main",
+      "candidates": {
+        "C1": {
+          "cw_id": "CWP-12723",
+          "vpg_variant_id": 12723,
+          "role": "lane_target",
+          "prescore": 98,
+          "search_rank": 1
+        },
+        "C2": {
+          "cw_id": "CWP-26627",
+          "vpg_variant_id": 26627,
+          "role": "search",
+          "prescore": 70,
+          "search_rank": 2
+        }
+      }
+    },
+    "L2": {
+      "listing": {
+        "site": "electrofag",
+        "variant_id": 2387
+      },
+      "kind": "main",
+      "candidates": {
+        "C1": {
+          "cw_id": "CWP-12723",
+          "vpg_variant_id": 12723,
+          "role": "search",
+          "prescore": 60,
+          "search_rank": 2
+        },
+        "C2": {
+          "cw_id": "CWP-26627",
+          "vpg_variant_id": 26627,
+          "role": "search",
+          "prescore": 88,
+          "search_rank": 1
+        }
+      }
+    }
+  }
+}

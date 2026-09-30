@@ -3,8 +3,9 @@
 declare(strict_types=1);
 
 /**
- * CW /v1 API front controller. Every request is routed here by the web server (see
- * deploy/staging/apache-cw-api.conf); nothing else under public/ is served.
+ * CW front controller: the /v1 API and the /ui staff screens. Every request is routed here by the
+ * web server (see deploy/staging/apache-cw-api.conf, apache-cw-ui.conf); nothing else under
+ * public/ is served (the two UI assets go through \CW\Ui\Assets).
  */
 
 ini_set('display_errors', '0');
@@ -22,6 +23,14 @@ set_error_handler(static function (int $severity, string $message, string $file,
     throw new \ErrorException($message, 0, $severity, $file, $line);
 });
 
-$response = \CW\Api\Kernel::fromEnvironment()->handle(\CW\Api\Request::fromGlobals());
+$path = parse_url(is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '/', PHP_URL_PATH);
+if (is_string($path) && ($path === '/ui' || str_starts_with($path, '/ui/'))) {
+    $ui = \CW\Ui\UiRequest::fromGlobals();
+    $response = str_starts_with($ui->path, '/ui/assets/')
+        ? \CW\Ui\Assets::serve($ui)
+        : \CW\Ui\Kernel::fromEnvironment()->handle($ui);
+} else {
+    $response = \CW\Api\Kernel::fromEnvironment()->handle(\CW\Api\Request::fromGlobals());
+}
 ob_end_clean();
 $response->send();

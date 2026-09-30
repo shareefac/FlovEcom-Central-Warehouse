@@ -36,7 +36,7 @@ Examples of a log line:
 | Code the jobs run | `/opt/cw-staging`: a copy of the repo without `tests/` and `tools/`, with `composer --no-dev`. Never a slot directory, because `/opt/cw-<slot>` is re-synced with `--delete`. |
 | Schedule | `/etc/cron.d/cw-staging` (source: `deploy/staging/cw-staging.cron`). Runs as root, because `/etc/cw/app.env` is not world-readable. |
 | Logs | `/var/log/cw/<job>.log`, rotated weekly with 8 kept (`/etc/logrotate.d/cw-staging`, source `deploy/staging/logrotate-cw.conf`). An invariant failure also goes to syslog: `journalctl -t cw-invariants`. |
-| Schema | `cw_staging`, migrated to `0002_stock_core.sql` on 26 Sep 2026 18:02 UTC. |
+| Schema | `cw_staging`, migrated to `0005_listing_barcodes_index.sql` on 30 Sep 2026 (`install_cron.sh --migrate`). |
 
 Install or update (idempotent; run from this machine):
 
@@ -59,10 +59,8 @@ ssh -i /root/.ssh/cw_staging root@46.101.55.135 'tail -n 20 /var/log/cw/expire_r
 
 To stop the jobs: `rm /etc/cron.d/cw-staging` (cron notices within a minute).
 
-**Pending:** `migrations/0003_review_fixes.sql` (review fixes R1–R18, `docs/decisions.md`) is not yet
-applied to `cw_staging`, and `/opt/cw-staging` still holds the 0002 code. Apply both together
-(`install_cron.sh --migrate`) when the change is accepted; the jobs refuse to run while code and
-schema disagree.
+**Pending:** nothing. `0003`, `0004` and `0005` are applied to `cw_staging`, and `/opt/cw-staging` holds the code
+that matches them (installed 30 Sep 2026 from slot `fix2`). Re-run `install_cron.sh` after every change to `bin/`, `src/` or `migrations/`.
 
 ### API log rotation (staging)
 
@@ -123,3 +121,168 @@ Last results (26 Sep 2026, staging, 24 workers):
   - 0 deadlocks surfaced, and 0 retried inside CW, in every scenario.
   - Scenario 4 ran about 2,000–3,000 operations in 30 s (70–100/s, limited by the feed clock,
     D39) and checked about 60 live snapshots.
+
+## Loading the first match (linking backend, `docs/decisions.md` M11–M15)
+
+All four tools share the job frame (`CW\Ops\Cli`): `--db=<schema>` (default app.env `db_name`),
+`--admin` for test schemas, exit 3 when the schema is not at the code's migration, one run at a time
+per tool and schema. They print one summary line; problems go to stderr (at most 20 per kind). Run
+them on staging from a copy that holds the input files (the export and run files are on the web
+server: copy `/root/cw_work/first_match/{*.jsonl.gz,run2,run3,private/run3}` over first).
+
+```bash
+php bin/create_channel.php --code=vapeandgo --name="Vape and Go" ...   # once per site (electrofag, vapebig)
+php bin/create_staff.php --email=lead@example --role=mapping_lead      # prints password= and otpauth= ONCE
+php bin/import_listings.php --channel=vapeandgo --file=vapeandgo_listings_<ts>.jsonl.gz
+php bin/import_listings.php --channel=electrofag --file=electrofag_listings_<ts>.jsonl.gz
+php bin/mint_vpg.php --features=run2/listings_features.jsonl --staff=lead@example --channel=vapeandgo --dry-run   # counts + duplicate report
+php bin/mint_vpg.php --features=run2/listings_features.jsonl --staff=lead@example --channel=vapeandgo
+php bin/import_proposals.php --run-dir=run3 --private=private/run3 --channel=electrofag --vpg-channel=vapeandgo [--dry-run]
+php bin/seed_barcodes.php [--dry-run]                                  # sku_barcode from the minted listings (mint_vpg does it for what it mints)
+```
+
+`mint_vpg` and its bulk decisions need a `mapping_lead` (M7): an `admin` gets 403 for mapping decisions.
+The `--channel` defaults of `mint_vpg` and `import_proposals` are `vpg` and `alt`; pass the real codes.
+
+| Tool | Does | Re-run | Exit 1 when |
+|---|---|---|---|
+| `import_listings` | export lines → `listing_profile` (+ `unmapped` listing rows), batches of `--batch` (500) per transaction; a barcode the checks refuse is dropped and counted, the listing is kept (M17) | every profile `unchanged` | a line fails the `PUT /v1/listings` checks (skipped) |
+| `mint_vpg` | features → `listing_profile.features`; one item + applied `link` per seed listing (`bulk_batch_id vpg_mint:<run>`); duplicate groups → merge-suggestion proposals | linked listings skipped, proposals `exists` | a seed listing has no row (import first) or a mint failed |
+| `import_proposals` | one `match_run`, one proposal per Electrofag listing (CWP ids → minted items, candidates from the private ref maps), unmapped → suggested | proposals `exists` | a proposal's listing was not imported |
+| `seed_barcodes` | usable GTINs of each item's origin listing -> `sku_barcode` (GTIN key); a key already on another item is marked unusable, not moved (M25) | rows already there are `already` | never (clashes are counted) |
+| `create_staff` | a staff user; adds `ui_secret_key` to app.env if missing (never printed) | refuses an existing e-mail | refused |
+| `reset_staff` | an existing account: `--new-password`, `--new-totp`, `--deactivate`, `--activate`; ends its sessions (U23) | each run issues new secrets | unknown account |
+
+Measured on `cw_staging` (30 Sep 2026): `mint_vpg` 14,856 mints (one transaction each) in 7 min 9 s (about
+2,300 per minute, one connection); `import_proposals` run3, 2,623 proposals, in 59 s; the idempotent re-run
+of `import_listings` (every profile `unchanged`) takes 40 s for 29,105 lines and 12 s for 9,014.
+`mint_vpg --limit=N` mints only N (a trial). Nothing here moves stock: adoption
+of units sold while unlinked happens only for listings that already sold through CW.
+
+### First-match data on `cw_staging` (loaded 30 Sep 2026)
+
+Catalogue text only, no customer data. Loaded by the four tools above; the input files sit in
+`/srv/cw-import/` (0700), the one-time channel keys in `/etc/cw/channel_keys.env` and the staff
+credentials in `/etc/cw/initial_staff.txt` (both 0600; shred the staff file once the credentials are handed over, see
+"Staff accounts").
+
+| What | Figure |
+|---|---|
+| Channels | `vapeandgo`, `electrofag`, `vapebig`: mode `off`, warehouse MAIN, key set, no allowed IPs (every API call is refused until `--ips` is set) |
+| Vape and Go listings | 29,105: 14,856 `mapped` (the seed, one minted item each, `u = 1`), 14,249 `unmapped` (not seed) |
+| Electrofag listings | 9,014: 2,623 `suggested` (run3 proposals), 6,391 `unmapped` (6,373 without a sale in 365 days, 18 ignored-but-sold by run3) |
+| Items | 14,856, all `sell_policy = legacy`, code = `CW-` + zero-padded id |
+| Decisions | 14,856 applied `link` (`bulk_batch_id vpg_mint:run2`, decided by the mapping_lead placeholder) + 2,623 applied `suggest` (system) |
+| Proposals | run3 2,623 (Key 936, Check 1,028, New item 119, Can't tell 420, Conflict 73, Manual 47) + 165 VPG duplicate proposals (145 groups, 165 non-keeper listings, all open, band Manual) |
+| Stock | `stock_balance` and `stock_ledger` empty; `stock_change` holds 14,856 `link` + 2,623 `status` feed rows |
+| Barcodes (`sku_barcode`, seeded 30 Sep 2026, M25) | 13,082 rows on 11,297 items (13,079 usable; 3 GTINs sit on two items and are marked unusable); 472 unusable codes (short, bad check digit, text) not seeded; 11,299 of the 14,856 origin listings carry a usable GTIN |
+| Coverage (units on linked listings) | Vape and Go 99.53% of 30-day and 95.36% of 365-day units; Electrofag 0% (proposals only); protected share 0% (all items `legacy`) |
+
+The Vape and Go units on unlinked listings are almost all variants the site has binned (970 of the 1,059
+unlinked listings with a sale, 244,836 of the 250,798 unlinked 365-day units).
+
+Reconciling with the files (re-verified after `0005`, 30 Sep 2026: every figure above unchanged; only `sku_barcode` and the
+DELETE grants changed):
+- The Electrofag export manifest says `variants_with_sales_365d: 2673`, but the file and `cw_staging` hold 2,641 sold listings:
+  `tools/first_match/export.php` counts every variant id with sales in the order data, including 32 ids that are no longer in
+  the variants table (deleted variants, so not exported).
+- The Vape and Go barcode count is 1 lower in `cw_staging` than in the export: the junk code "Black Grey" is dropped on import (M17).
+- `proposals.csv` names items `CWP-<vpg variant id>`; the screens show that id next to the CW code (`CW-<zero-padded sku id>`) of
+  every item minted from Vape and Go (review screen, search, item page), so a CSV row and a screen can be matched.
+- The 165 VPG duplicate proposals (merge suggestions, lane `vpg_duplicate`, 145 groups) are **not reviewable on the screens**:
+  they sit on mapped listings, which no queue lists, and there is no merge screen (U12, U19). Many are not the same product (in 85
+  of the 145 groups the titles differ in strength, size or flavour). Do not merge them in bulk: each needs two people through
+  `DecisionService::decide(merge_skus)` and approve, and a merge that contradicts a reject is refused (M22).
+- Un-minted Vape and Go variants (`Bin`, `Discontinued`) can hold a barcode that a "New item" of Electrofag would duplicate: 60 of
+  the 65 New item proposals with a barcode are in that case; the review screen lists them under "This listing's barcode is also on"
+  and does not preselect "Mark as a new item" there (U18, U20).
+
+## The staff UI (`/ui`, linking backend front end; `docs/decisions.md` U1-U17)
+
+Server-rendered PHP, no JavaScript framework and nothing from a third party: two static files
+(`/ui/assets/app.css`, `app.js`) served by the front controller under the CSP
+`default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`.
+
+| Screen | Who |
+|---|---|
+| `/ui/login`, `/ui/password`, `POST /ui/logout` | everyone (password change is forced at first sign-in) |
+| `/ui/` dashboard: queue counts per band and channel, coverage per site | any signed-in role |
+| `/ui/review?queue=<band>&channel=<code>` and `queue=pending` (second approval) | any signed-in role can look |
+| `/ui/review/listing/{id}`: compare, AI evidence, candidates, search, the decision form | look: any role; decide: `mapper`, `mapping_lead` |
+| approve a waiting decision | `mapping_lead`, never the person who decided |
+| `/ui/items/{id}`, `/ui/search` | any signed-in role |
+
+### Where it runs today
+
+- **Test copy (slot `ui`):** `http://127.0.0.1:8080/ui/` with `Host: cw-ui.staging.invalid`, schema `cw_test_ui`
+  (`scripts/remote.sh ui bash deploy/staging/install_ui.sh`; `docs/dev.md`). Loopback only.
+- **Real staging data (`cw_staging`): not served by anything yet.** The public vhost below is what serves it.
+
+### Staff accounts
+
+On the staging box, in `/opt/cw-staging`, as root (prints the one-time password and the `otpauth://` URI ONCE
+on stdout, messages on stderr; add `ui_secret_key` to `app.env` if it is missing, never printing it):
+
+```bash
+cd /opt/cw-staging && php bin/create_staff.php --email=<address> --role=<mapper|mapping_lead|viewer|...> --name="Display Name"
+```
+
+Give the person the password and the URI over different channels; they scan the URI into an authenticator app
+(SHA-1, 6 digits, 30 s) and must choose a new password (12-200 characters) at the first sign-in. The load ran
+under a placeholder `mapping_lead` (docs/decisions.md, "Open after the linking backend"): create real people
+first, then deactivate the placeholder. Two people are needed for links that touch a protected item, units per
+item other than 1 and merges, so create at least two `mapping_lead`/`mapper` accounts.
+
+Recovery (never re-create or delete an account: decisions name it), in `/opt/cw-staging` as root:
+
+```bash
+php bin/reset_staff.php --email=<address> --new-totp        # lost phone / leaked seed: prints a new otpauth:// URI once
+php bin/reset_staff.php --email=<address> --new-password    # forgotten password: prints a one-time password once
+php bin/reset_staff.php --email=<address> --deactivate      # someone leaves (or the placeholder); --activate undoes it
+```
+
+Every reset signs the person out everywhere and is audited (`staff.reset`, `staff.deactivate`, `staff.activate`).
+A person changes their own password on `/ui/password`; that also ends every other session and gives the browser a new one.
+
+**Before the public vhost is switched on** (`enable_https.sh` refuses until both are done):
+1. Hand the initial credentials over, then destroy the file that holds them in clear: `shred -u /etc/cw/initial_staff.txt`
+   (it holds the one-time passwords and TOTP seeds of staff 1 and 2).
+2. Deactivate the placeholder mapping_lead (staff 2): `php bin/reset_staff.php --email=mapping-lead-placeholder@cw-staging.invalid --deactivate`
+   (or reset it for a real person). The 14,856 seed decisions keep naming it.
+
+How staff sign in: `https://warehouse-staging.floverfy.com/ui/login` (once the vhost is on): e-mail, password and the current
+6-digit code in one form; at the first sign-in the one-time password must be changed.
+
+Sign-in limits (`LoginLimiter`): 10 failures for one e-mail or 30 for one address in 15 minutes refuse further
+attempts (the answer never says which), also for attempts made at the same moment (they queue on a named lock, U21). Wait 15 minutes; `login_attempt` and `audit_log` (`login.ok`, `login.fail`,
+`logout`) show who tried. Sessions: idle 30 min, absolute 12 h, a new one (and a new id) at every sign-in.
+
+### Switching on the public HTTPS vhost (NOT done; needs the DNS record)
+
+`warehouse-staging.floverfy.com` (UI + API, same front controller, `/opt/cw-staging`, schema `cw_staging`) is
+prepared and **off**. Nothing in `deploy/staging` installs or enables it except `enable_https.sh`, which a person runs.
+
+1. Create the DNS record `warehouse-staging.floverfy.com A 46.101.55.135`, **DNS only** (not proxied: the app
+   trusts `REMOTE_ADDR`, and `mod_remoteip` stays disabled).
+2. Copy the current code to the live staging copy: `scripts/remote.sh <slot> bash deploy/staging/install_cron.sh`
+   (the UI files must be in `/opt/cw-staging`), and run `install_ui.sh` once so the loopback vhost exists.
+3. Dry run: `scripts/remote.sh <slot> bash deploy/staging/enable_https.sh --check`. It refuses (changing nothing)
+   unless the name resolves to that address and nothing else, the box owns the address, `/opt/cw-staging` holds the
+   UI, `cw-ui` is installed, `app.env` `db_name` is `cw_staging`, `/etc/cw/initial_staff.txt` is gone and no placeholder
+   account (e-mail under `.invalid`) is active ("Staff accounts" above). It must be run from a slot copy, never from `/opt/cw-staging`.
+4. `scripts/remote.sh <slot> bash deploy/staging/enable_https.sh --email <address>`: installs certbot, the pool
+   `cw-web` (+ hourly log rotation), the port-80 challenge/redirect vhost, gets the certificate, then installs the
+   HTTPS vhost and checks `/ui/login` (200), `/v1/health` without a key (401) and the 301 from port 80.
+5. Open TCP 80 and 443 in the DigitalOcean cloud firewall if one is attached (ufw is inactive on this box), set
+   channel `--ips` for the API (`bin/create_channel.php`), and create the staff accounts above.
+
+Renewal is certbot's systemd timer (deploy hook reloads Apache). Logs: `/var/log/cw-web/php-error.log` (rotated
+hourly at 20 MB) and `/var/log/apache2/cw-https.{access,error}.log`. To switch it off again:
+`a2dissite cw-https cw-acme && systemctl reload apache2`.
+
+### UI log rotation and failures
+
+`install_ui.sh` installs `/etc/cw/logrotate-cw-ui.conf` and `/etc/cron.d/cw-ui-logrotate` (hourly, own state file
+`/var/lib/logrotate/cw-ui.status`): `/var/log/cw-ui/*.log` at 20 MB, 10 kept, compressed, copytruncate. A browser error
+page shows a request id; `grep <id> /var/log/cw-ui/php-error.log` (or `cw-web`) finds the cause. 503 means the database
+refused or was busy (`Retry-After` is sent) or `ui_secret_key` is missing from `app.env`.

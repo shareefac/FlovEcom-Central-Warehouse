@@ -2,22 +2,32 @@
 
 declare(strict_types=1);
 
-namespace CW;
+namespace CW\Mapping;
+
+use CW\Audit;
+use CW\Caller;
+use CW\CwException;
+use CW\Db;
+use CW\Idempotency;
 
 /**
- * PUT /v1/listings (plan §3, D6): a site pushes what it knows about its listings (titles,
- * brand, attributes, every barcode, price, perma_link, units sold). This writes
- * `listing_profile` ONLY — the matching inputs. It never touches a link (sku, status, u):
- * that is the DecisionService's job. A variant CW has never seen gets its `unmapped`
- * `channel_listing` row first (the profile's FK needs it; the same thing a sale of an unknown
- * variant does, D32).
+ * Listing intake, shared by PUT /v1/listings (plan §3, D6, A8) and bin/import_listings.php (the
+ * first-match exports): a site's listings (titles, brand, attributes, every barcode, price,
+ * perma_link, units sold) become `listing_profile` rows — the matching inputs. It never touches a
+ * link (sku, status, u): a variant CW has never seen gets its `unmapped` `channel_listing` row
+ * from the DecisionService's insert helper (DecisionService::createUnmappedListings), the only
+ * place that creates listing rows.
  *
  * Per listing: `created` (new profile), `updated` (profile_hash changed) or `unchanged`
  * (only pushed_at moves). `identity_changed` says the matching-relevant fields changed
- * (titles, brand, attributes, barcodes: identity_hash), which the matcher flags (§7.3).
+ * (titles, brand, attributes, barcodes: identity_hash), which the matcher flags (§7.3); the
+ * stored rules features of that listing are then stale and are cleared, and so is whatever people
+ * saw or decided on the old identity: DecisionService::identityChanged moves the map_version of a
+ * listing that existed before the call on (design I7), so a stale form or a pending_second
+ * decision of that listing is refused with 409 instead of being applied to another product.
  * One transaction per call; at most MAX_LISTINGS listings.
  */
-final class ListingProfiles
+final class ListingIngestService
 {
     public const MAX_LISTINGS = 1000;
     public const MAX_BARCODES = 100;
@@ -38,6 +48,16 @@ final class ListingProfiles
         if (!$caller->isChannel()) {
             throw new CwException('channel_required', 'listings are pushed by a site', 403);
         }
+        return $this->ingest($caller, (int) $caller->channelId, $listings);
+    }
+
+    /**
+     * The same for any caller (a site for its own channel, or a system import naming the channel).
+     *
+     * @return array{received: int, created: int, updated: int, unchanged: int, listings: list<array<string, mixed>>}
+     */
+    public function ingest(Caller $caller, int $channelId, mixed $listings): array
+    {
         if (!is_array($listings) || $listings === [] || !array_is_list($listings)) {
             throw new CwException('bad_listings', 'listings must be a non-empty list', 400);
         }
@@ -55,10 +75,9 @@ final class ListingProfiles
         }
         $variants = array_map('strval', array_keys($profiles));
         sort($variants, SORT_STRING);
-        $channelId = (int) $caller->channelId;
 
         return $this->db->transaction(function (Db $db) use ($caller, $channelId, $profiles, $variants): array {
-            [$ids, $created] = $this->listingIds($db, $channelId, $variants);
+            [$ids, $created, $preexisting] = $this->listingIds($db, $channelId, $variants);
             $seen = [];
             foreach ($ids as $v => $id) {
                 if (isset($seen[$id])) {
@@ -80,6 +99,7 @@ final class ListingProfiles
             }
             $counts = ['created' => 0, 'updated' => 0, 'unchanged' => 0];
             $out = [];
+            $stale = [];
             foreach ($variants as $v) {
                 $p = $profiles[$v];
                 $id = $ids[$v];
@@ -93,14 +113,15 @@ final class ListingProfiles
                     $result = 'created';
                     $identityChanged = true;
                 } elseif ($old['profile_hash'] !== $p['profile_hash']) {
+                    $identityChanged = $old['identity_hash'] !== $p['identity_hash'];
+                    // Features were extracted from the old titles/attributes: stale once the identity changes.
                     $db->exec(
                         'UPDATE listing_profile SET product_title = ?, variant_title = ?, brand = ?, attributes = ?, barcodes = ?, price = ?, '
-                        . 'perma_link = ?, units_30d = ?, units_365d = ?, profile_hash = ?, identity_hash = ?, pushed_at = UTC_TIMESTAMP(6) '
-                        . 'WHERE listing_id = ?',
+                        . 'perma_link = ?, units_30d = ?, units_365d = ?, profile_hash = ?, identity_hash = ?, pushed_at = UTC_TIMESTAMP(6)'
+                        . ($identityChanged ? ', features = NULL, features_version = NULL' : '') . ' WHERE listing_id = ?',
                         [...self::columns($p), $id],
                     );
                     $result = 'updated';
-                    $identityChanged = $old['identity_hash'] !== $p['identity_hash'];
                 } else {
                     $db->exec('UPDATE listing_profile SET pushed_at = UTC_TIMESTAMP(6) WHERE listing_id = ?', [$id]);
                     $result = 'unchanged';
@@ -108,50 +129,97 @@ final class ListingProfiles
                 }
                 $counts[$result]++;
                 $out[] = ['variant_id' => $v, 'listing_id' => $id, 'result' => $result, 'identity_changed' => $identityChanged];
+                if ($identityChanged && isset($preexisting[$id])) {
+                    $stale[] = $id; // a listing people may have looked at or decided on (a row created now: nobody has)
+                }
             }
+            // Design I7: decisions and screens taken on the old identity are stale (DecisionService, the only
+            // writer of channel_listing, moves their map_version on).
+            $bumped = $stale === [] ? 0 : DecisionService::identityChanged($db, $stale);
             Audit::write($db, $caller, 'listing.profiles', 'channel', (string) $channelId, null,
-                $counts + ['received' => count($variants), 'new_listings' => $created]);
+                $counts + ['received' => count($variants), 'new_listings' => $created, 'identity_changed' => $bumped]);
             return ['received' => count($variants)] + $counts + ['listings' => $out];
         });
     }
 
     /**
-     * Listing ids by requested variant, creating the `unmapped` row of a variant CW has never
-     * seen. What counts as "the same variant" is the column's collation (today _ai_ci: 'ABC' is
-     * the row 'abc'), so a variant without an exact match is resolved by the database itself:
-     * INSERT ... ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id) returns the existing row's id
-     * or the new one (affected rows 1 = created).
+     * Listing ids by requested variant. A variant CW has never seen gets its `unmapped` row from
+     * DecisionService::createUnmappedListings. What counts as "the same variant" is the column's
+     * collation (today _ai_ci: 'ABC' is the row 'abc'), so a variant without an exact match is
+     * looked up by the database itself, one by one.
      *
      * @param list<string> $variants
-     * @return array{0: array<string, int>, 1: int} variant => listing id, number of rows created
+     * @return array{0: array<string, int>, 1: int, 2: array<int, true>} variant => listing id, number of rows created,
+     *         the ids of the rows that existed before this call
      */
     private function listingIds(Db $db, int $channelId, array $variants): array
     {
-        $stored = [];
-        foreach (array_chunk($variants, 500) as $chunk) {
-            foreach ($db->all(
-                'SELECT id, external_variant_id FROM channel_listing WHERE channel_id = ? AND external_variant_id IN ('
-                . implode(',', array_fill(0, count($chunk), '?')) . ')',
-                [$channelId, ...$chunk],
-            ) as $r) {
-                $stored[(string) $r['external_variant_id']] = (int) $r['id'];
+        $read = static function () use ($db, $channelId, $variants): array {
+            $stored = [];
+            foreach (array_chunk($variants, 500) as $chunk) {
+                foreach ($db->all(
+                    'SELECT id, external_variant_id FROM channel_listing WHERE channel_id = ? AND external_variant_id IN ('
+                    . implode(',', array_fill(0, count($chunk), '?')) . ')',
+                    [$channelId, ...$chunk],
+                ) as $r) {
+                    $stored[(string) $r['external_variant_id']] = (int) $r['id'];
+                }
             }
-        }
+            return $stored;
+        };
+        $before = $read();
+        $preexisting = array_fill_keys(array_values($before), true);
+        $created = DecisionService::createUnmappedListings($db, $channelId, $variants);
+        $stored = $created === 0 ? $before : $read();
         $out = [];
-        $created = 0;
         foreach ($variants as $v) {
-            if (isset($stored[$v])) {
-                $out[$v] = $stored[$v];
-                continue;
+            $id = $stored[$v] ?? $db->value('SELECT id FROM channel_listing WHERE channel_id = ? AND external_variant_id = ?', [$channelId, $v]);
+            if ($id === null) {
+                throw new \RuntimeException("listing row for variant {$v} could not be created");
             }
-            $st = $db->run(
-                'INSERT INTO channel_listing (channel_id, external_variant_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)',
-                [$channelId, $v],
-            );
-            $created += $st->rowCount() === 1 ? 1 : 0;
-            $out[$v] = (int) $db->pdo()->lastInsertId();
+            $out[$v] = (int) $id;
         }
-        return [$out, $created];
+        return [$out, $created, $preexisting];
+    }
+
+    /**
+     * One line of a first-match export (tools/first_match/export.php) in the PUT /v1/listings shape.
+     * The export's attribute list [{attr_id, name, value, is_variable}] is kept whole, as
+     * {"items": [...]}: the Normalizer reads exactly that list (is_variable decides between values).
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    public static function fromExport(array $row): array
+    {
+        $attrs = $row['attributes'] ?? null;
+        return [
+            'variant_id' => $row['variant_id'] ?? null,
+            'product_title' => $row['product_title'] ?? null,
+            'variant_title' => $row['variant_title'] ?? null,
+            'brand' => $row['brand'] ?? null,
+            'attributes' => is_array($attrs) && $attrs !== [] ? ['items' => array_values($attrs)] : null,
+            'barcodes' => $row['barcodes'] ?? null,
+            'price' => $row['price'] ?? null,
+            'perma_link' => $row['permalink'] ?? $row['perma_link'] ?? null,
+            'units_30d' => $row['units_30d'] ?? null,
+            'units_365d' => $row['units_365d'] ?? null,
+        ];
+    }
+
+    /**
+     * Validates one listing (as profile() does inside a push) and returns null or the error.
+     *
+     * @return array{error: string, message: string}|null
+     */
+    public static function check(mixed $listing, int $index = 0): ?array
+    {
+        try {
+            self::profile($listing, $index);
+            return null;
+        } catch (CwException $e) {
+            return ['error' => $e->errorCode, 'message' => $e->getMessage()];
+        }
     }
 
     /** @return array<string, mixed> the normalised profile + its two hashes */

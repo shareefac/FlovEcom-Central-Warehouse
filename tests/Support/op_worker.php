@@ -10,14 +10,15 @@ declare(strict_types=1);
  * listing pushes, staff movements, and can wait for a row lock to appear (orchestration).
  *
  * job = {now?: CW's clock (default StockTestCase::NOW), ops: [{op, channel_id?, channel_code?, key?, ...}]}
- * op  = reserve | commit | release | ship | opening | listings | move | wait_lock
+ * op  = reserve | commit | release | ship | opening | listings | move | decide (staff_id, request) | wait_lock
  */
 
 use CW\Caller;
 use CW\Clock;
 use CW\CwException;
 use CW\Db;
-use CW\ListingProfiles;
+use CW\Mapping\DecisionService;
+use CW\Mapping\ListingIngestService;
 use CW\Movements;
 use CW\Reservations;
 use CW\Tests\Support\StockTestCase;
@@ -63,13 +64,16 @@ foreach ($job['ops'] as $op) {
             'release' => $res->release($caller, (string) $op['order_ref'], $op['attempt'] ?? null, (string) $op['key']),
             'ship' => $res->ship($caller, (string) $op['order_ref'], $op['unit_ids'], (string) $op['dispatched_at'], (string) $op['key']),
             'opening' => $res->openingOrders($caller, $op['orders'], (bool) $op['final'], (string) $op['key'], $op['t0'] ?? null),
-            'listings' => (new ListingProfiles($db))->push($caller, $op['listings']),
+            'listings' => (new ListingIngestService($db))->push($caller, $op['listings']),
+            'decide' => (new DecisionService($db, null, $res))->decide(Caller::staff((int) $op['staff_id']), $op['request']),
             'move' => $moves->record($caller, $op['request'], (string) $op['key']),
             'wait_lock' => waitLock($db, (string) $op['table'], (string) $op['status'], (float) ($op['timeout'] ?? 30.0), (int) ($op['interval_ms'] ?? 2)),
             default => throw new \InvalidArgumentException('unknown op'),
         };
         if (is_array($r) && isset($r['found'])) {
             $row += ['status' => 200, 'result' => 'lock_seen'];
+        } elseif (is_array($r) && isset($r['decision_id'])) {
+            $row += ['status' => 200, 'result' => $r['state'], 'body' => $r];
         } elseif (is_array($r)) {
             $row += ['status' => 200, 'result' => 'pushed', 'body' => ['received' => $r['received'], 'created' => $r['created']]];
         } else {

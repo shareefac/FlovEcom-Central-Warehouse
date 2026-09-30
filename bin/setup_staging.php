@@ -121,6 +121,17 @@ try {
             }
         }
     }
+    foreach (Grants::NO_DELETE as $table) { // UPDATE is allowed here: only DELETE is probed
+        try {
+            $app->exec('DELETE FROM ' . Db::ident($table) . ' WHERE 1 = 0');
+            throw new RuntimeException("{$appUser} can run a write it must not have: DELETE {$table}");
+        } catch (PDOException $e) {
+            if (Db::driverCode($e) !== 1142) {
+                throw $e;
+            }
+            $denied[] = "DELETE {$table}";
+        }
+    }
     $say("verified as {$appUser}: TLS on, {$warehouses} warehouses readable, denied: " . implode(', ', $denied));
     $say('done');
     exit(0);

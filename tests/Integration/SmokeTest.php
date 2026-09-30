@@ -13,10 +13,11 @@ use CW\Tests\Support\TestDb;
 final class SmokeTest extends IntegrationTestCase
 {
     public const CORE_TABLES = [
-        'audit_log', 'channel', 'channel_health', 'channel_listing', 'channel_warehouse', 'count_review',
-        'goods_in_suspense', 'idempotency', 'listing_profile', 'oversell_event', 'policy_review',
+        'alias', 'audit_log', 'channel', 'channel_health', 'channel_listing', 'channel_warehouse', 'count_review',
+        'goods_in_suspense', 'idempotency', 'listing_map_history', 'listing_profile', 'login_attempt', 'match_decision',
+        'match_proposal', 'match_reject', 'match_run', 'oversell_event', 'policy_review',
         'reservation', 'reservation_unit', 'schema_migrations', 'sku', 'sku_barcode', 'sku_erp_item',
-        'staff_user', 'stock_balance', 'stock_change', 'stock_ledger', 'warehouse',
+        'staff_session', 'staff_user', 'stock_balance', 'stock_change', 'stock_ledger', 'warehouse',
     ];
 
     public function testConnectionIsEncryptedUtcReadCommitted(): void
