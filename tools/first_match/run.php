@@ -7,7 +7,10 @@ declare(strict_types=1);
  *
  *   nice -n 19 php -d memory_limit=2G tools/first_match/run.php \
  *       [--vpg=<vapeandgo_listings_*.jsonl.gz>] [--alt=<electrofag_listings_*.jsonl.gz>] [--out=<dir>] \
- *       [--private=<dir>] [--prompt=<judge prompt .md>] [--pilot1=<run1 dir>] [--no-judge]
+ *       [--private=<dir>] [--prompt=<judge prompt .md>] [--pilot1=<run1 dir>] [--no-judge] [--judge=pilot2|sold]
+ *
+ * --judge=sold builds the full judge run for the sold scope instead of the pilot-2 chunks (section 11,
+ * tools/first_match/judge_full.php), e.g. --out=/root/cw_work/first_match/run3 --judge=sold.
  *
  * Reads the two catalogue exports (read-only files; no database, no network) and writes under --out:
  *   listings_features.jsonl   normalised features of every listing of both sites
@@ -43,7 +46,11 @@ use CW\Matching\Veto;
 
 ini_set('memory_limit', '2G');
 $t0 = microtime(true);
-$opt = getopt('', ['vpg:', 'alt:', 'out:', 'prompt:', 'private:', 'pilot1:', 'no-judge']);
+$opt = getopt('', ['vpg:', 'alt:', 'out:', 'prompt:', 'private:', 'pilot1:', 'no-judge', 'judge:']);
+if (!in_array($opt['judge'] ?? 'pilot2', ['pilot2', 'sold'], true)) {
+    fwrite(STDERR, "--judge must be pilot2 (default) or sold\n");
+    exit(2);
+}
 $base = '/root/cw_work/first_match';
 $latest = function (string $pattern): string {
     $f = glob($pattern) ?: [];
@@ -1144,6 +1151,14 @@ $buildItem = function (int $id, bool $loo, ?callable $hard) use ($records, $seed
     return ['id' => $id, 'target' => $tgt, 'loo' => $loo, 'set' => $set, 'hard' => $hardIds, 'hard_inserted_from_rank' => $inserted,
         'indistinguishable_excluded' => $dropped];
 };
+
+// ───────────────────────────── 11 full judge run (--judge=sold) ─────────────────────────────
+// Reuses the pilot-2 helpers above unchanged ($context, $forbiddenFor, $strengthSet, $negatives, $buildItem for the
+// canaries); the pilot-2 selection below is skipped.
+if (($opt['judge'] ?? 'pilot2') !== 'pilot2') {
+    require __DIR__ . '/judge_full.php';
+    exit(0);
+}
 
 $select = function (string $stratum, int $want, bool $loo) use (&$used, &$usedTargets, $truth, $strata, $FA, $seed, $records, $A, $buildItem): array {
     [$is, $hard] = $strata[$stratum];
