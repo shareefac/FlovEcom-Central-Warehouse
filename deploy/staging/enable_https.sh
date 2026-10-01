@@ -3,7 +3,10 @@
 # server, and gets its Let's Encrypt certificate. NOT run by anything automatically: a person runs
 # it once the DNS record exists.
 #
-#   scripts/remote.sh <slot> bash deploy/staging/enable_https.sh --email you@example.com [--check]
+#   scripts/remote.sh <slot> bash deploy/staging/enable_https.sh [--email you@example.com] [--check]
+#
+# --email is optional: Let's Encrypt stopped sending expiry e-mails in 2025 and renewal is automatic,
+# so without it the account is registered with no address (no personal address leaves the box).
 #
 # It refuses (changing nothing) unless ALL of these hold:
 #   * the name warehouse-staging.floverfy.com resolves to 46.101.55.135 and to nothing else,
@@ -32,7 +35,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --email) email=${2:-}; shift 2 || { echo "enable_https: --email needs a value" >&2; exit 2; } ;;
         --check) check=1; shift ;;
-        *) echo "usage: enable_https.sh --email <address> [--check]" >&2; exit 2 ;;
+        *) echo "usage: enable_https.sh [--email <address>] [--check]" >&2; exit 2 ;;
     esac
 done
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -40,8 +43,8 @@ if [[ $repo != /opt/cw-* || $repo == /opt/cw-staging ]]; then
     echo "enable_https: run from a slot copy /opt/cw-<slot> (scripts/remote.sh <slot> ...), not $repo" >&2
     exit 2
 fi
-if [[ $check == 0 && ! $email =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
-    echo "enable_https: --email <address> is required (Let's Encrypt expiry notices)" >&2
+if [[ -n $email && ! $email =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
+    echo "enable_https: --email must be an e-mail address" >&2
     exit 2
 fi
 say() { echo "[enable_https] $*"; }
@@ -101,7 +104,9 @@ install -o root -g root -m 0644 "$repo/deploy/staging/apache-cw-acme.conf" /etc/
 a2ensite -q cw-acme >/dev/null
 apache2ctl configtest 2>&1 | tail -1
 systemctl reload apache2
-certbot certonly --webroot -w "$WEBROOT" -d "$NAME" --email "$email" --agree-tos --no-eff-email \
+account=(--register-unsafely-without-email)
+[[ -n $email ]] && account=(--email "$email" --no-eff-email)
+certbot certonly --webroot -w "$WEBROOT" -d "$NAME" "${account[@]}" --agree-tos \
     --non-interactive --keep-until-expiring --deploy-hook 'systemctl reload apache2'
 [[ -s /etc/letsencrypt/live/$NAME/fullchain.pem ]] || { echo "enable_https: no certificate was issued" >&2; exit 1; }
 say "certificate for $NAME in place (renewal: certbot's systemd timer)"

@@ -270,7 +270,8 @@ prepared and **off**. Nothing in `deploy/staging` installs or enables it except 
    unless the name resolves to that address and nothing else, the box owns the address, `/opt/cw-staging` holds the
    UI, `cw-ui` is installed, `app.env` `db_name` is `cw_staging`, `/etc/cw/initial_staff.txt` is gone and no placeholder
    account (e-mail under `.invalid`) is active ("Staff accounts" above). It must be run from a slot copy, never from `/opt/cw-staging`.
-4. `scripts/remote.sh <slot> bash deploy/staging/enable_https.sh --email <address>`: installs certbot, the pool
+4. `scripts/remote.sh <slot> bash deploy/staging/enable_https.sh [--email <address>]` (the address is optional:
+   Let's Encrypt no longer sends expiry e-mails and renewal is automatic): installs certbot, the pool
    `cw-web` (+ hourly log rotation), the port-80 challenge/redirect vhost, gets the certificate, then installs the
    HTTPS vhost and checks `/ui/login` (200), `/v1/health` without a key (401) and the 301 from port 80.
 5. Open TCP 80 and 443 in the DigitalOcean cloud firewall if one is attached (ufw is inactive on this box), set
