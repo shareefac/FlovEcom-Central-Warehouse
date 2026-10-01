@@ -84,7 +84,9 @@ final class Kernel
         $r->withHeader('Content-Security-Policy', self::CSP)
             ->withHeader('X-Content-Type-Options', 'nosniff')
             ->withHeader('X-Frame-Options', 'DENY')
-            ->withHeader('Referrer-Policy', 'no-referrer')
+            // Not 'no-referrer': under it a browser sends `Origin: null` on the page's own form posts (Fetch
+            // spec), so checkOrigin() refused every sign-in from a real browser (U24).
+            ->withHeader('Referrer-Policy', 'same-origin')
             ->withHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
             ->withHeader('Cross-Origin-Opener-Policy', 'same-origin')
             ->withHeader('Cross-Origin-Resource-Policy', 'same-origin');

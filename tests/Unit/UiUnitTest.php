@@ -166,7 +166,7 @@ final class UiUnitTest extends TestCase
         self::assertSame(Kernel::CSP, $r->header('Content-Security-Policy'));
         self::assertSame('nosniff', $r->header('X-Content-Type-Options'));
         self::assertSame('DENY', $r->header('X-Frame-Options'));
-        self::assertSame('no-referrer', $r->header('Referrer-Policy'));
+        self::assertSame('same-origin', $r->header('Referrer-Policy'), "'no-referrer' makes browsers post Origin: null (U24)");
         self::assertSame('same-origin', $r->header('Cross-Origin-Opener-Policy'));
         self::assertSame('same-origin', $r->header('Cross-Origin-Resource-Policy'));
         self::assertStringContainsString('camera=()', (string) $r->header('Permissions-Policy'));

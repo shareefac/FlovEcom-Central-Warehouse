@@ -217,7 +217,7 @@ abstract class UiTestCase extends MappingTestCase
         self::assertSame('nosniff', $r->header('x-content-type-options'), "{$what}: nosniff");
         if ($r->status !== 304) {
             self::assertSame('DENY', $r->header('x-frame-options'), "{$what}: X-Frame-Options");
-            self::assertSame('no-referrer', $r->header('referrer-policy'), "{$what}: Referrer-Policy");
+            self::assertSame('same-origin', $r->header('referrer-policy'), "{$what}: Referrer-Policy");
         }
         self::assertNull($r->header('strict-transport-security'), "{$what}: no HSTS over plain HTTP");
         self::assertNull($r->header('x-powered-by'), "{$what}: no X-Powered-By");

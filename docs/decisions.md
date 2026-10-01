@@ -1083,7 +1083,7 @@ window edges are in `StaffSecretsTest`.
 
 **U5. Headers on every answer, assets included.** CSP `default-src 'self'; base-uri 'none'; form-action 'self';
 frame-ancestors 'none'` (the last two additions close base-tag and form-target tricks that `default-src` does not cover),
-`nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy`, COOP/CORP `same-origin`,
+`nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` (was `no-referrer`, U24), a restrictive `Permissions-Policy`, COOP/CORP `same-origin`,
 `Cache-Control: no-store` (assets: `no-cache` + ETag, so a deploy shows at once), HSTS only over HTTPS. `Assets::serve` wraps the
 asset answer in `Kernel::secure`, so a 404 or 304 for an asset carries them too. Error pages (403, 404, 405, 500, 503) are
 hardened the same way and never show an exception message, a host name or a path (the request id finds the log line).
@@ -1277,7 +1277,13 @@ once on stdout, as `create_staff` does. `enable_https.sh` now refuses while `/et
 and TOTP seeds of staff 1 and 2 in clear) or any account with an e-mail under `.invalid` (the placeholder mapping_lead, staff 2) is
 active: public, either would be a working second identity that defeats the two-person rule.
 
+**U24. `Referrer-Policy: same-origin`, not `no-referrer` (amends U5; found 1 Oct 2026 at the first real sign-in).** Under
+`no-referrer` the Fetch spec makes a browser serialise the request origin as `null` on a non-GET, non-CORS request, so Chrome
+posted the sign-in form with `Origin: null` and `checkOrigin()` refused it ("cross-site form posts are refused") for every real
+browser. The tests and the curl checks never saw it: neither applies a referrer policy. `same-origin` still sends no referrer
+to any other site, and lets the browser send the real `Origin` to this one. `checkOrigin()` is unchanged (a sandboxed frame
+still posts `Origin: null` with `Sec-Fetch-Site: cross-site` and is still refused).
+
 Open after round 2:
-- `/etc/cw/initial_staff.txt` still exists on staging and staff 2 (placeholder mapping_lead) is still active: a person hands the
-  credentials over, shreds the file and deactivates staff 2 (`docs/ops.md`, "Staff accounts"); `enable_https.sh` refuses until then.
+- Done 1 Oct 2026: `/etc/cw/initial_staff.txt` shredded, staff 2 deactivated (and its secrets reset), the public HTTPS vhost on.
 - Not built: the alias decision (U18), merge and unlink screens (U12), the remap correction movement (M24), bulk confirm (U20, rejected).
