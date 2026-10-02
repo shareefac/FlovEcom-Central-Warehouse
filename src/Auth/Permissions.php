@@ -95,6 +95,7 @@ final class Permissions
             ['label' => 'Review', 'perm' => 'linking.view', 'key' => 'review', 'path' => '/ui/review', 'query' => ['queue' => 'Key']],
             ['label' => 'Second approval', 'perm' => 'linking.view', 'key' => 'pending', 'path' => '/ui/review', 'query' => ['queue' => 'pending'],
                 'badge' => 'linking_pending'],
+            ['label' => 'Key spot-check', 'perm' => 'linking.view', 'key' => 'samples', 'path' => '/ui/review/samples'],
         ]],
         ['section' => 'Items', 'items' => [
             ['label' => 'Search', 'perm' => 'catalogue.view', 'key' => 'search', 'path' => '/ui/search'],

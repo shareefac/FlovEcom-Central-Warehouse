@@ -29,9 +29,11 @@ final class Grants
      * (the file store keeps every document at least 7 years, I23).
      * document_posting: the write-once record of each posting (posted_hash and the content it covers), which the app login
      * can add but never rewrite, so a posted document changed afterwards is found even when its own columns were (I33).
+     * match_proposal_basis / key_sample / key_sample_member: what a proposal was made against, and a spot-check sample with
+     * the population it was drawn from: the bulk confirm trusts them, so the app login can add them but never rewrite them (M27, M28).
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
-        'stored_file', 'document_file', 'document_posting'];
+        'stored_file', 'document_file', 'document_posting', 'match_proposal_basis', 'key_sample', 'key_sample_member'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value

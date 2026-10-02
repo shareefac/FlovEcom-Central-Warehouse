@@ -128,3 +128,8 @@ table.candidates th[scope="row"] { width: 3.5rem; font-variant-numeric: tabular-
 form.quick { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: 1rem 0; }
 .minicard .sep { color: var(--muted); }
 .elsewhere { margin-top: 1rem; border-color: var(--warn-ink); }
+
+/* Key spot-check (M28) */
+.progress { font-size: 1.05rem; margin: .25rem 0 .5rem; }
+.state-confirmed { color: var(--ok-ink); font-weight: 600; }
+.state-open { color: var(--muted); }

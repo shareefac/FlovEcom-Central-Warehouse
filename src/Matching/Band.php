@@ -18,10 +18,24 @@ namespace CW\Matching;
  */
 final class Band
 {
-    /** b2.0: Key needs the judge to pick the barcode/transfer target at confidence >= 90 (pilot-1 rec. 9); a pending line alias routes to Can't tell. */
-    public const VERSION = 'b2.0';
+    /**
+     * b2.1 (docs/decisions.md M26, the owner, 2 Oct 2026): Key from judge confidence 85 (b2.0: 90, pilot-1 rec. 9). Every other
+     * Key condition is unchanged: barcode/transfer lane, the judge picks that target, units per item 1, no veto or soft flag on
+     * the target, no pending line alias, no Conflict. A pending line alias routes to Can't tell.
+     *
+     * Reasons only (no band moves, M29): a key-lane no_match_in_list below 80 is labelled ai_no_match_on_key_below_80_<conf>
+     * (b2.0 fell through to unrecognised_outcome for 70-79, which assemble.php relabelled, and said no_match_in_list_<conf>
+     * below 70); unrecognised_outcome now means an outcome outside OUTCOMES.
+     */
+    public const VERSION = 'b2.1';
 
-    public const KEY_MIN_CONFIDENCE = 90;
+    public const KEY_MIN_CONFIDENCE = 85;
+
+    /**
+     * Key's minimum judge confidence per band version: the only rule that differs between the versions, so a stored
+     * proposal can be re-banded (bin/reband_proposals.php) and its stored band checked against the version it was made with.
+     */
+    public const KEY_MIN_BY_VERSION = ['b2.0' => 90, 'b2.1' => 85];
 
     /** Soft flags meaning "same item only if a pending line alias is confirmed" (never Key, Can't tell until then). */
     public const ALIAS_PENDING_FLAGS = ['line_alias_pending', 'relabelled_line_unconfirmed'];
@@ -39,6 +53,9 @@ final class Band
     ];
 
     public const NEW_ITEM_MAX_PRESCORE = 60;
+
+    /** The judge's outcomes (judge_v2.md). Anything else is Can't tell, reason `unrecognised_outcome`. */
+    public const OUTCOMES = ['match', 'no_match_in_list', 'cannot_tell', 'multiple_plausible', 'not_a_product'];
 
     /**
      * @param array{lane:string,is_placeholder?:bool,flags?:list<string>,target?:?int,
@@ -90,12 +107,32 @@ final class Band
     }
 
     /**
+     * The band version named by an engine string ('n2.0/c1.0/v2.0/b2.0', 'reband/b2.1') or a bare version, if this class
+     * knows it (KEY_MIN_BY_VERSION); null otherwise.
+     */
+    public static function versionOf(?string $engineOrVersion): ?string
+    {
+        if ($engineOrVersion === null) {
+            return null;
+        }
+        foreach (explode('/', $engineOrVersion) as $part) {
+            if (isset(self::KEY_MIN_BY_VERSION[$part])) {
+                return $part;
+            }
+        }
+        return null;
+    }
+
+    /**
      * @param array<string,mixed> $ev as provisional(), plus 'pending_alias' => bool
      * @param array{outcome:string,chosen_id:?int,confidence:int,units_per_item:?int} $judge validated, ids resolved
+     * @param int|null $keyMinConfidence Key's minimum confidence; null = this version's (KEY_MIN_CONFIDENCE). Another value
+     *        only replays an older version's rule (KEY_MIN_BY_VERSION) on stored evidence.
      * @return array{band:string,reasons:list<string>}
      */
-    public static function final(array $ev, array $judge): array
+    public static function final(array $ev, array $judge, ?int $keyMinConfidence = null): array
     {
+        $keyMin = $keyMinConfidence ?? self::KEY_MIN_CONFIDENCE;
         $p = self::provisional($ev);
         if ($p['band'] === self::CONFLICT) {
             return ['band' => self::CONFLICT, 'reasons' => $p['reasons']];
@@ -133,6 +170,14 @@ final class Band
             return ['band' => self::CANT_TELL, 'reasons' => ['no_match_fails_new_item']];
         }
         // 4 Can't tell
+        if (!in_array($out, self::OUTCOMES, true)) {
+            return ['band' => self::CANT_TELL, 'reasons' => ['unrecognised_outcome']];
+        }
+        if ($keyLane && $out === 'no_match_in_list') {
+            // the judge doubts the key, below 80 (80+ is a Conflict, step 1). b2.0 had no label of its own here and fell through
+            // to `unrecognised_outcome` for 70-79 (assemble.php relabelled it); run3 follow-up (e)
+            return ['band' => self::CANT_TELL, 'reasons' => ['ai_no_match_on_key_below_80_' . $conf]];
+        }
         $pendingAlias = !empty($ev['pending_alias'])
             || ($keyLane && array_intersect($ev['target_flags'] ?? [], self::ALIAS_PENDING_FLAGS) !== []);
         if (in_array($out, ['cannot_tell', 'multiple_plausible'], true) || $conf < 70 || $pendingAlias) {
@@ -143,7 +188,7 @@ final class Band
             $units1 = $units === 1;
             if ($keyLane && $chosen === $ev['target']) {
                 $clean = ($ev['target_vetoes'] ?? []) === [] && ($ev['target_flags'] ?? []) === [];
-                if ($conf >= self::KEY_MIN_CONFIDENCE && $clean && $units1) {
+                if ($conf >= $keyMin && $clean && $units1) {
                     return ['band' => self::KEY, 'reasons' => [$ev['lane'] . '_key+ai_' . $conf]];
                 }
                 return ['band' => self::CHECK, 'reasons' => ['key_with_flags_or_low_conf_' . $conf]];
@@ -153,6 +198,7 @@ final class Band
             }
             return ['band' => self::CANT_TELL, 'reasons' => ['ai_only_low_conf_' . $conf]];
         }
+        // not reached: every outcome of OUTCOMES returned above
         return ['band' => self::CANT_TELL, 'reasons' => ['unrecognised_outcome']];
     }
 }

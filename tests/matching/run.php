@@ -13,6 +13,8 @@ declare(strict_types=1);
  * 4. True pairs that must NOT be vetoed (a false veto costs recall).
  * 5. Regression cases for every pilot-1 miss (run1 pilot_eval): each trap is vetoed or soft-flagged so it can
  *    never reach Key, and each true counterpart stays clean.
+ * 6. The run3 follow-ups (docs/decisions.md M29): (a) Riot Squad "BAR EDTN" XL false line_modifier veto, (b) "B Gum" =
+ *    Bubblegum, (c) one scratch directory per judge, (d) one form enum, (e) Band's key-lane no-match label.
  */
 
 require __DIR__ . '/../../src/Matching/autoload.php';
@@ -20,9 +22,12 @@ require __DIR__ . '/../../src/Matching/autoload.php';
 use CW\Matching\Band;
 use CW\Matching\Candidates;
 use CW\Matching\Flavour;
+use CW\Matching\Form;
 use CW\Matching\Gtin;
 use CW\Matching\JudgeCard;
+use CW\Matching\JudgeScratch;
 use CW\Matching\Normalizer;
+use CW\Matching\StoredBand;
 use CW\Matching\Text;
 use CW\Matching\TitlePattern;
 use CW\Matching\Veto;
@@ -571,16 +576,202 @@ t('line_word: a mismatch explained by a pending alias is flagged, not vetoed, an
     eq(Veto::aliasPending(['original'], ['bar']), 'SKE Crystal Original = SKE Crystal Bar');
     eq(Veto::aliasPending(['original'], ['intense']), null);
 });
-t('Key needs the judge to pick the target at confidence >= 90 (pilot-1 recommendation 9)', function () {
+t('Key needs the judge to pick the target at confidence >= 85 (b2.1, M26; b2.0: 90, pilot-1 recommendation 9)', function () {
     $key = ['lane' => 'barcode', 'target' => 7, 'target_vetoes' => [], 'target_flags' => [], 'candidates' => [['id' => 7, 'prescore' => 90, 'vetoes' => []]]];
-    eq(Band::final($key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 89, 'units_per_item' => 1])['band'], Band::CHECK);
-    eq(Band::final($key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 90, 'units_per_item' => 1])['band'], Band::KEY);
-    eq(Band::final(['lane' => 'transfer'] + $key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 85, 'units_per_item' => 1])['band'], Band::CHECK);
+    eq(Band::KEY_MIN_CONFIDENCE, 85);
+    eq(Band::final($key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 84, 'units_per_item' => 1])['band'], Band::CHECK);
+    eq(Band::final($key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 85, 'units_per_item' => 1])['band'], Band::KEY);
+    eq(Band::final($key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 89, 'units_per_item' => 1])['band'], Band::KEY);
+    eq(Band::final(['lane' => 'transfer'] + $key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 85, 'units_per_item' => 1])['band'], Band::KEY);
+    // b2.0 replayed (Reband's check of a stored band): 89 was Check
+    eq(Band::final($key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 89, 'units_per_item' => 1], Band::KEY_MIN_BY_VERSION['b2.0'])['band'], Band::CHECK);
+    // 85-89 without a key (candidates lane) stays Check; a vetoed or soft-flagged target is never Key
+    eq(Band::final(['lane' => 'candidates', 'candidates' => [['id' => 7, 'prescore' => 90, 'vetoes' => []]]], ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 88, 'units_per_item' => 1])['band'], Band::CHECK);
+    eq(Band::final(['target_vetoes' => [['code' => 'strength']]] + $key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 99, 'units_per_item' => 1])['band'], Band::CONFLICT);
+    eq(Band::final(['target_flags' => ['price_outlier']] + $key, ['outcome' => 'match', 'chosen_id' => 7, 'confidence' => 88, 'units_per_item' => 1])['band'], Band::CHECK);
 });
 t('judge card: candidate strength set is allow-listed and blind', function () {
     $c = JudgeCard::card('C1', R('vapeandgo', 10740), V(10740), [20, 10.0, 5]);
     eq($c['product_strengths_mg'], [5, 10, 20]);
     JudgeCard::assertBlind(['items' => [['ref' => 'L1', 'candidates' => [$c]]]], array_map('strval', R('vapeandgo', 10740)['barcodes']));
+});
+
+// ═════════════════════════════ 6 run3 follow-ups (M29) ═════════════════════════════
+t('run3 (a): Riot Squad "<Flavour> XL ... BAR EDTN" keeps XL in the flavour with the real line lexicon (false line_modifier veto)', function () {
+    global $fx;
+    // the condition behind the bug: "xl" is a line-lexicon word of Riot Squad on Electrofag (3+ products)
+    ok(in_array('xl', $fx['ctx']['electrofag']['5820']['line_lexicon'], true), 'the fixture carries the real lexicon');
+    foreach ([5820 => ['mango', 'xl'], 1077 => ['cherry', 'xl'], 6484 => ['peach', 'xl'], 280 => ['apple', 'xl']] as $aid => $flav) {
+        eq(A($aid)['flavour_tokens'], $flav, "A#$aid flavour");
+        eq(A($aid)['line_modifiers'], [], "A#$aid has no line modifier");
+        eq(A($aid)['line_tokens'], ['riot', 'squad', 'bar', 'edtn'], "A#$aid line");
+    }
+    // run3: these four true pairs were "ai_match_on_vetoed_pair" Conflicts (line_modifier "listing +xl")
+    foreach ([[5820, 34603], [1077, 34596], [6484, 30781], [280, 34599]] as [$a, $v]) {
+        keyPair($a, $v);
+        eq(pair($a, $v)['fields']['brand_line'], 'agree', "A#$a vs V#$v brand/line");
+    }
+    trap(280, 34601, 'strength');                                    // Apple XL 5mg vs Apple XL 20mg
+    keyPair(7966, 34556);                                            // Sour Cherry Apple (no XL) stays clean
+    // the split itself, with the lexicon holding the modifier
+    $lex = ['bar', 'edtn', 'riot', 'squad', 'xl'];
+    $sp = TitlePattern::split(TitlePattern::headTokens('melon xl riot squad bar edtn 10ml nic salt e liquid'), ['riot', 'squad'], $lex);
+    eq([$sp['flavour'], $sp['line'], $sp['pattern']], [['melon', 'xl'], ['riot', 'squad', 'bar', 'edtn'], 'flavour_first']);
+    // line first: modifiers stay in the line ("Hayati Pro Max Cherry Ice")
+    $sp = TitlePattern::split(TitlePattern::headTokens('hayati pro max cherry ice 10ml nic salt e liquid'), ['hayati'], ['max', 'pro']);
+    eq([$sp['flavour'], $sp['line'], $sp['pattern']], [['cherry', 'ice'], ['hayati', 'pro', 'max'], 'line_first']);
+    // a flavour-first line of a modifier and glue only keeps the modifier (no brand/lexicon word left to be the line)
+    $sp = TitlePattern::split(['mango', 'xl', 'bar'], ['zzz'], ['xl']);
+    eq([$sp['flavour'], $sp['line']], [['mango'], ['xl', 'bar']]);
+    eq(TitlePattern::VERSION, 'tp1.1');
+    // XL on one side only is never Key (a flavour word on one side: flavour_extra)
+    $plain = N(['variant_title' => 'Mango Nic Salt E-Liquid by Riot Squad Bar Edition 10ml | 5mg', 'brand' => 'Riot Squad Nic Salts']);
+    $res = Veto::check(A(5820), $plain);
+    ok($res['vetoes'] !== [] || $res['flags'] !== [], 'Mango XL vs Mango is vetoed or flagged: ' . json_encode($res));
+    $ev = ['lane' => 'barcode', 'target' => 1, 'target_vetoes' => $res['vetoes'], 'target_flags' => $res['flags'], 'candidates' => []];
+    ok(Band::final($ev, ['outcome' => 'match', 'chosen_id' => 1, 'confidence' => 100, 'units_per_item' => 1])['band'] !== Band::KEY, 'never Key');
+});
+t('run3 (b): "B Gum" / "BGum" is Bubblegum', function () {
+    eq(Flavour::canon(['blueberry', 'b', 'gum']), ['blueberry', 'bubblegum']);
+    eq(Flavour::canon(['strawberry', 'watermelon', 'bgum']), ['strawberry', 'watermelon', 'bubblegum']);
+    ok(Flavour::same(['blueberry', 'b', 'gum'], ['blueberry', 'bubblegum']));
+    ok(Flavour::same(['watermelon', 'b', 'gum'], ['watermelon', 'bubble', 'gum']), '"Bubble Gum" written apart');
+    eq(Flavour::VERSION, 'f2.1');
+    // run3: Hayati Pro Max Plus "Blueberry Bubblegum" vs "Blueberry B Gum" were flavour_diff Conflicts
+    keyPair(3398, 46162);
+    keyPair(3352, 45730);
+    truePair(12256, 46162);                                           // "Blueberry B Gum" on both sides stays clean
+    truePair(878, 36968);                                             // Bloody Bar "Strawberry Watermelon Bubblegum" vs "... Bgum"
+    truePair(9867, 43180);                                            // VYLO Duo "Straw Bubblegum / Green Apple Bubblegum" vs "B Gum"
+    // a stated B Gum is a flavour: "Strawberry Watermelon" vs "Watermelon B Gum / Strawberry B Gum" is now a hard veto
+    trap(3652, 36925, 'flavour_superset');
+    $a = N(['variant_title' => 'Hayati Pro Max Plus 6000 Prefilled Pod Kit - Blueberry B Gum', 'brand' => 'Hayati']);
+    $b = N(['variant_title' => 'Hayati Pro Max Plus 6000 Prefilled Pod Kit - Blueberry', 'brand' => 'Hayati']);
+    $c = N(['variant_title' => 'Hayati Pro Max Plus 6000 Prefilled Pod Kit - Blueberry Bubblegum Ice', 'brand' => 'Hayati']);
+    ok(in_array('flavour_superset', codes(Veto::check($a, $b)), true), 'B Gum vs none');
+    ok(in_array('flavour_superset', codes(Veto::check($a, $c)), true), 'B Gum vs Bubblegum Ice');
+});
+t('run3 (c): one empty scratch directory per judge chunk, apart from the run and private folders', function () {
+    $base = sys_get_temp_dir() . '/cw_judge_scratch_' . getmypid() . '_' . bin2hex(random_bytes(4));
+    $run = "$base/fm/run9";
+    $private = "$base/fm/private/run9";
+    mkdir($run . '/judge', 0700, true);
+    mkdir($private, 0700, true);
+    $rm = function (string $d) use (&$rm): void {
+        foreach (array_diff(scandir($d) ?: [], ['.', '..']) as $f) {
+            is_dir("$d/$f") && !is_link("$d/$f") ? $rm("$d/$f") : unlink("$d/$f");
+        }
+        rmdir($d);
+    };
+    try {
+        $root = JudgeScratch::defaultRoot($run);
+        eq($root, "$base/fm/judge_scratch/run9");
+        $dirs = JudgeScratch::prepare($root, ['run9_c001', 'run9_c002', 'run9_c003'], [$run, $private]);
+        eq(array_keys($dirs), ['run9_c001', 'run9_c002', 'run9_c003']);
+        eq(count(array_unique($dirs)), 3, 'every judge has its own directory');
+        foreach ($dirs as $c => $d) {
+            ok(is_dir($d) && str_ends_with($d, "/$c"), "$c directory");
+            eq(fileperms($d) & 0777, 0700, "$c mode");
+            eq(array_values(array_diff(scandir($d) ?: [], ['.', '..'])), [], "$c empty");
+        }
+        eq(JudgeScratch::prepare($root, ['run9_c001'], [$run, $private]), ['run9_c001' => $dirs['run9_c001']], 'an empty directory is reused');
+        file_put_contents($dirs['run9_c002'] . '/view.txt', 'a judge note');
+        $refused = function (callable $f, string $why) {
+            try {
+                $f();
+            } catch (RuntimeException) {
+                return;
+            }
+            throw new RuntimeException("not refused: $why");
+        };
+        $refused(fn () => JudgeScratch::prepare($root, ['run9_c002'], [$run, $private]), 'a directory holding a previous attempt\'s files');
+        $refused(fn () => JudgeScratch::prepare("$run/scratch", ['run9_c004'], [$run, $private]), 'a root inside the run folder');
+        $refused(fn () => JudgeScratch::prepare("$private/x", ['run9_c004'], [$run, $private]), 'a root inside the private folder');
+        $refused(fn () => JudgeScratch::prepare("$base/fm", ['run9_c004'], [$run, $private]), 'a root that holds the run folder');
+        $refused(fn () => JudgeScratch::prepare($root, ['run9_c004', 'run9_c004'], [$run, $private]), 'one chunk named twice');
+        $refused(fn () => JudgeScratch::prepare($root, ['../run9_c004'], [$run, $private]), 'a chunk name that is a path');
+        $refused(fn () => JudgeScratch::prepare('relative/root', ['run9_c004'], [$run, $private]), 'a relative root');
+        ok(!is_dir("$root/run9_c004"), 'a refused call creates nothing');
+        ok(str_contains(JudgeScratch::INSTRUCTION, 'scratch_dir'), 'the chunk file tells the judge where');
+    } finally {
+        $rm($base);
+    }
+});
+t('run3 (d): one form enum for Normalizer, Veto and JudgeCard; free-text forms map onto it', function () {
+    global $fx;
+    eq(Normalizer::FORMS, Form::ALL);
+    eq(Normalizer::FORM_CLASS, Form::CLASS_OF);
+    $forms = Form::ALL;
+    $classed = array_keys(Form::CLASS_OF);
+    sort($forms);
+    sort($classed);
+    eq($classed, $forms, 'every form has a class, and only forms do');
+    foreach (['electrofag' => 'A', 'vapeandgo' => 'V'] as $site => $fn) {
+        foreach (array_keys($fx['rows'][$site]) as $id) {
+            $f = $fn((int) $id);
+            ok($f['form'] === null || Form::isForm($f['form']), "$site#$id form " . json_encode($f['form']));
+            ok($f['form_sub'] === null || in_array($f['form_sub'], Form::SUBS, true), "$site#$id form_sub " . json_encode($f['form_sub']));
+            $card = JudgeCard::card('L1', R($site, (int) $id), $f);
+            ok(!isset($card['extracted']['form']) || Form::isForm($card['extracted']['form']['value']), "$site#$id card form " . json_encode($card['extracted']['form'] ?? null));
+            ok(!isset($card['extracted']['form_sub']) || in_array($card['extracted']['form_sub']['value'], Form::SUBS, true), "$site#$id card form_sub");
+            eq(Veto::consumable($f), Form::flavoured($f['form'], $f['form_sub']), "$site#$id consumable");
+        }
+    }
+    // the card shows the enum value and the sub apart (run3's cards said "pod_kit (prefilled)")
+    $f = N(['variant_title' => 'Lost Mary BM6000 Prefilled Pod Kit - Cherry Ice | 20mg', 'brand' => 'Lost Mary']);
+    $c = JudgeCard::card('L1', row(['variant_title' => 'Lost Mary BM6000 Prefilled Pod Kit - Cherry Ice | 20mg']), $f);
+    eq([$c['extracted']['form']['value'], $c['extracted']['form_sub']['value']], ['pod_kit', 'prefilled']);
+    JudgeCard::assertBlind(['items' => [['ref' => 'L1', 'listing' => $c]]], []);
+    // flavoured forms (Veto::consumable, the flavour split and the seed vocabulary share Form::flavoured)
+    foreach ([['nic_salt', null, true], ['prefilled_pod', null, true], ['pod_kit', 'prefilled', true], ['pod_kit', 'refillable', false],
+        ['pod_kit', null, false], ['kit', 'prefilled', false], ['coil', null, false], [null, null, false]] as [$form, $sub, $want]) {
+        eq(Form::flavoured($form, $sub), $want, Form::label($form, $sub));
+        eq(Veto::consumable(['form' => $form, 'form_sub' => $sub]), $want, 'consumable ' . Form::label($form, $sub));
+    }
+    // the 11 spellings run3's judges wrote for listing_extract.form, the old card label, label(), the enum itself
+    foreach ([
+        'prefilled pod kit' => ['pod_kit', 'prefilled'], 'prefilled_pod_kit' => ['pod_kit', 'prefilled'], 'pod kit' => ['pod_kit', null],
+        'refillable pod kit' => ['pod_kit', 'refillable'], 'nic salt e-liquid' => ['nic_salt', null], 'refillable_pod' => ['refill_pod_cartridge', 'refillable'],
+        'vape_kit' => ['kit', null], 'prefilled pods' => ['prefilled_pod', null], 'vape pod kit' => ['pod_kit', null],
+        'replacement pods' => ['refill_pod_cartridge', null], 'e-liquid' => ['e_liquid', null],
+        'pod_kit (prefilled)' => ['pod_kit', 'prefilled'], 'pod_kit/prefilled' => ['pod_kit', 'prefilled'], 'Nic Salt' => ['nic_salt', null],
+        'disposable' => ['disposable', null], 'Disposables' => ['disposable', null], 'Coils' => ['coil', null], 'E Liquids' => ['e_liquid', null],
+        'Nicotine Pouches' => ['other', 'nicotine_pouch'], 'Shortfill' => ['shortfill', null], 'Batteries' => ['battery', null],
+        'accessories' => ['accessory', null], 'Nic Shots' => ['nic_shot', null], 'Long Fill' => ['shortfill', 'longfill'],
+    ] as $raw => [$form, $sub]) {
+        eq(Form::canonical($raw), ['form' => $form, 'form_sub' => $sub], $raw);
+    }
+    foreach (['banana', '', 'pod_kit (banana)x', 'kit kat'] as $raw) {
+        eq(Form::canonical($raw), null, json_encode($raw));
+    }
+    eq(Form::canonical('pod_kit (banana)'), ['form' => 'pod_kit', 'form_sub' => null], 'an unknown sub is dropped');
+    // Veto names both forms the same way
+    $kit = N(['variant_title' => 'Lost Mary BM6000 Prefilled Pod Kit - Cherry Ice']);
+    $pods = N(['variant_title' => 'Cherry Ice Lost Mary BM6000 Refill Pack']);
+    $v = array_values(array_filter(Veto::check($kit, $pods)['vetoes'], fn ($x) => $x['code'] === 'form'));
+    eq($v[0]['detail'] ?? null, Form::label($kit['form'], $kit['form_sub']) . ' vs ' . Form::label($pods['form'], $pods['form_sub']));
+    eq([Normalizer::VERSION, Veto::VERSION], ['n2.1', 'v2.1']);
+});
+t('run3 (e): Band labels a key-lane no-match below 80 itself; unrecognised_outcome is only an unknown outcome', function () {
+    $key = ['lane' => 'barcode', 'target' => 7, 'target_vetoes' => [], 'target_flags' => [], 'candidates' => [['id' => 7, 'prescore' => 90, 'vetoes' => []]]];
+    $nm = fn (int $conf, string $out = 'no_match_in_list') => ['outcome' => $out, 'chosen_id' => null, 'confidence' => $conf, 'units_per_item' => null];
+    foreach ([79, 75, 70, 65, 0] as $conf) {
+        eq(Band::final($key, $nm($conf)), ['band' => Band::CANT_TELL, 'reasons' => ['ai_no_match_on_key_below_80_' . $conf]], "barcode $conf");
+        eq(Band::final(['lane' => 'transfer'] + $key, $nm($conf))['reasons'], ['ai_no_match_on_key_below_80_' . $conf], "transfer $conf");
+        eq(Band::final(['pending_alias' => true] + $key, $nm($conf))['band'], Band::CANT_TELL, "alias $conf");
+    }
+    eq(Band::final($key, $nm(80)), ['band' => Band::CONFLICT, 'reasons' => ['ai_no_match_on_key']]);
+    eq(Band::final(['lane' => 'candidates', 'candidates' => [['id' => 1, 'prescore' => 80, 'vetoes' => []]]], $nm(75))['reasons'], ['no_match_fails_new_item']);
+    eq(Band::final($key, $nm(90, 'maybe')), ['band' => Band::CANT_TELL, 'reasons' => ['unrecognised_outcome']]);
+    eq(Band::final($key, $nm(40, 'maybe')), ['band' => Band::CANT_TELL, 'reasons' => ['unrecognised_outcome']]);
+    eq(Band::final($key, $nm(75, 'cannot_tell'))['reasons'], ['cannot_tell_75']);
+    // StoredBand (Reband, the bulk confirm) replays the same label a run3 proposal stored (assemble.php used to relabel it)
+    $stored = ['lane' => 'barcode', 'lane_target' => ['cw_id' => 'CWP-1'], 'lane_flags' => [], 'target_vetoes' => [], 'target_soft_flags' => [],
+        'key_possible' => true, 'key_blocked_by' => [], 'relabel_pending' => null, 'relabel_partners' => [],
+        'ai' => ['outcome' => 'no_match_in_list', 'confidence' => 72, 'units_per_item' => null, 'chosen' => null, 'closest' => ['cw_id' => 'CWP-1'],
+            'vetoes_on_chosen' => [], 'soft_flags_on_chosen' => [], 'warnings' => []],
+        'candidates' => [['cw_id' => 'CWP-1', 'prescore' => 90, 'vetoes' => []]]];
+    eq(StoredBand::evaluate($stored, Band::KEY_MIN_BY_VERSION['b2.0']), ['band' => Band::CANT_TELL, 'reasons' => ['ai_no_match_on_key_below_80_72'], 'error' => null]);
 });
 
 // ─────────────────────────────

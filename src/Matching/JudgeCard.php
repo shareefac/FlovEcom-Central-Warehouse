@@ -58,11 +58,12 @@ final class JudgeCard
             'pack_units' => 'pack_units', 'puffs' => 'puffs', 'colour' => 'colour', 'resistance_ohm' => 'resistance_ohm',
         ] as $k => $sk) {
             if ($f[$k] !== null) {
-                $val = $f[$k];
+                $ex[$k] = ['value' => $f[$k], 'source' => $src[$sk] ?? 'title'];
+                // the form as the enum value the judge is asked to answer with (Form::ALL), its sub as its own field:
+                // run3's cards showed "pod_kit (prefilled)" and the judges answered "prefilled pod kit", "prefilled_pod_kit", ...
                 if ($k === 'form' && ($f['form_sub'] ?? null) !== null) {
-                    $val .= ' (' . $f['form_sub'] . ')';
+                    $ex['form_sub'] = ['value' => $f['form_sub'], 'source' => $src[$sk] ?? 'title'];
                 }
-                $ex[$k] = ['value' => $val, 'source' => $src[$sk] ?? 'title'];
             }
         }
         if (($f['flavour_tokens'] ?? null) !== null) {

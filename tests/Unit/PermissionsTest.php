@@ -164,7 +164,7 @@ final class PermissionsTest extends TestCase
         self::assertSame(['Receive + invoice', 'Supplier invoices', 'Supplier returns'], array_column($desk[1]['items'], 'label'));
         self::assertSame(['I-3', 'I-4', 'I-4'], array_column($desk[1]['items'], 'phase'));
         $mapper = Permissions::menu(['mapper']);
-        self::assertSame(['/ui/', '/ui/review', '/ui/review'], array_column($mapper[0]['items'], 'path'));
+        self::assertSame(['/ui/', '/ui/review', '/ui/review', '/ui/review/samples'], array_column($mapper[0]['items'], 'path'));
         self::assertSame([['queue' => 'Key'], ['queue' => 'pending']], array_column($mapper[0]['items'], 'query'));
     }
 

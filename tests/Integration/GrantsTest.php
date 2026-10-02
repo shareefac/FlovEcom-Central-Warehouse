@@ -11,8 +11,11 @@ use CW\Files\FileStore;
 use CW\Files\LocalFileStorage;
 use CW\Invariants;
 use CW\Mapping\DecisionService;
+use CW\Mapping\KeyBulk;
+use CW\Mapping\KeySample;
 use CW\Mapping\ListingIngestService;
 use CW\Mapping\Proposals;
+use CW\Mapping\Reband;
 use CW\Movements;
 use CW\Reservations;
 use CW\Schema\Grants;
@@ -62,6 +65,11 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame(['Select', 'Insert', 'Update', 'Delete'], Grants::desired('stock_balance'));
         foreach (['match_run', 'match_reject', 'match_decision', 'match_proposal', 'listing_map_history'] as $t) {
             self::assertSame(['Select', 'Insert'], Grants::desired($t), $t);
+        }
+        // M27, M28: what a proposal was made against, a spot-check sample and its population are history the bulk confirm trusts.
+        foreach (['match_proposal_basis', 'key_sample', 'key_sample_member'] as $t) {
+            self::assertSame(['Select', 'Insert'], Grants::desired($t), $t);
+            self::assertSame([], Grants::desiredColumns($t), $t);
         }
         self::assertSame(['applied_at' => ['Update'], 'second_by' => ['Update'], 'state' => ['Update']], Grants::desiredColumns('match_decision'));
         self::assertSame(['status' => ['Update']], Grants::desiredColumns('match_proposal'));
@@ -440,6 +448,61 @@ final class GrantsTest extends IntegrationTestCase
             ["g-{$role}-{$n}", "g {$role}", "g-{$role}-{$n}@test.invalid"]);
         self::$db->exec('INSERT INTO staff_role (staff_user_id, role) VALUES (?, ?)', [$uid, $role]);
         return $uid;
+    }
+
+    /**
+     * M26-M28 as the app login: re-banding (a new proposal and its basis), the proved basis of an older proposal, the
+     * sample and its population, the bulk confirm and its undo; and the three new tables are append-only for it.
+     */
+    public function testTheKeyBulkFlowRunsAsTheAppLogin(): void
+    {
+        Grants::apply(self::$db, TestDb::name(), self::$user);
+        $app = $this->appSession();
+        $vpg = self::makeChannel('vpg', 'shadow');
+        $alt = self::makeChannel('alt', 'shadow');
+        foreach ([$vpg, $alt] as $c) {
+            self::$db->exec('INSERT INTO channel_warehouse (channel_id, warehouse_id, is_sellable) VALUES (?, ?, 1)', [$c, self::warehouseId('MAIN')]);
+        }
+        $lead = Caller::staff(self::$db->insert("INSERT INTO staff_user (username, display_name, email, password_hash) VALUES ('kl', 'kl', 'kl@test.invalid', 'x')"));
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'mapping_lead')", [$lead->staffUserId]);
+        $ds = new DecisionService($app);
+        $proposals = new Proposals($app, $ds);
+        $ingest = new ListingIngestService($app);
+        $run = $proposals->run('run3t-sold', 'first_match', null, 'n2.0/c1.0/v2.0/b2.0', null, ['band_version' => 'b2.0']);
+        $made = [];
+        foreach ([...array_map(static fn (int $i): int => 90 + $i % 10, range(0, 19)), 87, 86] as $i => $conf) {
+            $vid = (string) (900 + $i);
+            $v = $ingest->ingest(Caller::system('test'), $vpg, [['variant_id' => $vid, 'product_title' => "Item {$i}"]])['listings'][0]['listing_id'];
+            $sku = (int) $ds->mintAndLink($lead, (int) $v, 0, DecisionService::cardFrom([], [], ['name' => "Item {$i}"]), 'vpg_mint:grants')['sku_id'];
+            $a = $ingest->ingest(Caller::system('test'), $alt, [['variant_id' => "A{$i}", 'product_title' => "Alt {$i}"]])['listings'][0]['listing_id'];
+            $item = ['cw_id' => 'CWP-' . $vid, 'vpg_variant_id' => (int) $vid, 'title' => "Item {$i}", 'sku_id' => $sku];
+            $ev = ['title' => "Alt {$i}", 'lane' => 'barcode', 'lane_target' => $item, 'lane_flags' => [], 'target_vetoes' => [], 'target_soft_flags' => [],
+                'key_possible' => true, 'key_blocked_by' => [], 'relabel_pending' => null, 'relabel_partners' => [], 'candidates' => [],
+                'ai' => ['outcome' => 'match', 'confidence' => $conf, 'units_per_item' => 1, 'chosen' => $item, 'closest' => null, 'vetoes_on_chosen' => [],
+                    'soft_flags_on_chosen' => [], 'warnings' => []]];
+            $made[] = $proposals->add(Caller::system('import_proposals'), (int) $a, $run, ['band' => $conf >= 90 ? 'Key' : 'Check', 'proposed_sku_id' => $sku,
+                'lane' => 'barcode', 'ai_outcome' => 'match', 'ai_confidence' => $conf, 'ai_units_per_item' => 1, 'evidence' => $ev])['proposal_id'];
+        }
+        self::$db->exec('DELETE FROM match_proposal_basis WHERE proposal_id = ?', [$made[0]]); // made before 0010
+        self::assertSame(['Check>Key' => 2], (new Reband($app, $proposals))->run($lead, true)['applied']);
+        $s = (new KeySample($app))->create($lead, 'grants', 20, true);
+        self::assertSame([22, 1], [$s['population'], $s['backfill']['backfilled']]);
+        self::assertTrue((new KeySample($app))->verify('grants')['matches']);
+        foreach ($s['members'] as $m) {
+            $p = $app->one('SELECT listing_id, proposed_sku_id FROM match_proposal WHERE id = ?', [$m['proposal_id']]);
+            $ds->decide($lead, ['action' => 'link', 'listing_id' => (int) $p['listing_id'], 'sku_id' => (int) $p['proposed_sku_id'], 'proposal_id' => $m['proposal_id'],
+                'expected_map_version' => (int) $app->value('SELECT map_version FROM channel_listing WHERE id = ?', [$p['listing_id']])]);
+        }
+        $bulk = new KeyBulk($app, $ds, $proposals);
+        self::assertSame(2, $bulk->confirm($lead, 'grants', true)['applied']);
+        $undo = $bulk->undo($lead, 'key_bulk:grants', true);
+        self::assertSame([2, 2, []], [$undo['applied'], $undo['reopened'], $undo['failed']]);
+        foreach ([
+            'DELETE FROM match_proposal_basis', 'UPDATE match_proposal_basis SET map_version = 0', 'DELETE FROM key_sample', "UPDATE key_sample SET seed = 2",
+            'DELETE FROM key_sample_member', 'UPDATE key_sample_member SET position = NULL',
+        ] as $sql) {
+            self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+        }
     }
 
     private function appSession(): Db

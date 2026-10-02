@@ -23,21 +23,18 @@ namespace CW\Matching;
  */
 final class Normalizer
 {
-    public const VERSION = 'n2.0';
+    /**
+     * n2.1 (docs/decisions.md M29): forms from CW\Matching\Form (one enum for Normalizer, Veto and JudgeCard; a form outside
+     * it is a programming error), and the flavour/line split of TitlePattern tp1.1. Output differs from n2.0 only where tp1.1
+     * moves a leading line modifier back into the flavour (20 of run3's Electrofag listings, all Riot Squad "<Flavour> XL").
+     */
+    public const VERSION = 'n2.1';
 
-    public const FORMS = [
-        'disposable', 'prefilled_pod', 'pod_kit', 'refill_pod_cartridge', 'e_liquid', 'nic_salt', 'shortfill',
-        'nic_shot', 'coil', 'tank', 'kit', 'battery', 'accessory', 'other',
-    ];
+    /** The form enum (CW\Matching\Form::ALL; one list for Normalizer, Veto and JudgeCard). */
+    public const FORMS = Form::ALL;
 
-    /** Form -> veto class. Forms in one class may be the same physical item under a different label. */
-    public const FORM_CLASS = [
-        'disposable' => 'device', 'pod_kit' => 'device', 'kit' => 'device',
-        'prefilled_pod' => 'pod_refill', 'refill_pod_cartridge' => 'pod_refill',
-        'e_liquid' => 'liquid', 'nic_salt' => 'liquid', 'shortfill' => 'liquid',
-        'nic_shot' => 'nic_shot', 'coil' => 'coil', 'tank' => 'tank', 'battery' => 'battery',
-        'accessory' => 'accessory', 'other' => 'other',
-    ];
+    /** Form -> veto class (Form::CLASS_OF). Forms in one class may be the same physical item under a different label. */
+    public const FORM_CLASS = Form::CLASS_OF;
 
     /** Name-token stopwords (product_mapping::STOPWORDS plus form words, which now live in `form`). */
     public const STOPWORDS = [
@@ -286,7 +283,7 @@ final class Normalizer
             $formSub = null;
             $conflicts[] = 'form:refillable_with_flavour';
         }
-        $formClass = $form !== null ? self::FORM_CLASS[$form] : null;
+        $formClass = Form::classOf($form);
         $isDeviceish = in_array($formClass, ['device', 'pod_refill'], true) || ($form === null && ($A['puffs'] ?? []) !== []);
 
         // ── strength ─────────────────────────────────────────────────────────
@@ -504,6 +501,9 @@ final class Normalizer
             $phWhy = 'parent_rule';
         }
 
+        if (($form !== null && !Form::isForm($form)) || ($formSub !== null && !in_array($formSub, Form::SUBS, true))) {
+            throw new \LogicException('Normalizer produced a form outside the enum: ' . Form::label($form, $formSub));
+        }
         $conflictFields = [];
         foreach ($conflicts as $c) {
             $conflictFields[explode(':', $c)[0]] = true;
@@ -1095,9 +1095,7 @@ final class Normalizer
             }
             return [$pick[0], $pick[1], $pick[2], false];
         }
-        $flavoured = in_array($form, ['e_liquid', 'nic_salt', 'shortfill', 'nic_shot', 'disposable', 'prefilled_pod'], true)
-            || ($form === 'pod_kit' && $formSub === 'prefilled');
-        if ($flavoured) {
+        if (Form::flavoured($form, $formSub)) {
             $sp = TitlePattern::split(TitlePattern::headTokens($full), TitlePattern::anchorTokens($brandRaw), $lexicon);
             if ($sp !== null) {
                 $f = $clean(implode(' ', $sp['flavour']));

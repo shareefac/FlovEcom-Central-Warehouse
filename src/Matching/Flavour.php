@@ -17,7 +17,8 @@ namespace CW\Matching;
  */
 final class Flavour
 {
-    public const VERSION = 'f2.0';
+    /** f2.1 (run3 follow-up (b)): "B Gum" / "BGum" = Bubblegum ("Blueberry B Gum" on Vape and Go = "Blueberry Bubblegum"). */
+    public const VERSION = 'f2.1';
 
     /** Fuzzy flavour-word classification: one edit (OSA) for words of at least this many letters. */
     public const FUZZY_MIN_LEN = 6;
@@ -51,14 +52,16 @@ final class Flavour
         'mixed' => ['mix'],
         'bubbly' => ['bubble'],
         'hubba' => ['hubba', 'bubba'],   // "Hubba" alone is written for "Hubba Bubba" ("H Bubba")
+        'bgum' => ['bubblegum'],
     ];
 
-    /** Two-token abbreviations seen in GTIN-pair diffs ("Cotton K" = Cotton Candy, "R Berry" = Raspberry). */
+    /** Two-token abbreviations seen in GTIN-pair diffs ("Cotton K" = Cotton Candy, "R Berry" = Raspberry, "B Gum" = Bubblegum). */
     public const BIGRAMS = [
         'cotton k' => ['cotton', 'candy'],
         'h bubba' => ['hubba', 'bubba'],
         'r berry' => ['raspberry'],
         'b razz' => ['blue', 'razz'],
+        'b gum' => ['bubblegum'],        // "Blueberry B Gum", "Watermelon B' Gum" (Hayati Pro Max Plus / Pro Ultra Plus)
     ];
 
     /**
@@ -197,9 +200,7 @@ final class Flavour
                     $line[Text::stem((string) $t)][$pid] = true;
                 }
             }
-            $flavoured = in_array($f['form'] ?? null, ['e_liquid', 'nic_salt', 'shortfill', 'nic_shot', 'disposable', 'prefilled_pod'], true)
-                || (($f['form'] ?? null) === 'pod_kit' && ($f['form_sub'] ?? null) === 'prefilled')
-                || ($f['form_sub'] ?? null) === 'nicotine_pouch';
+            $flavoured = Form::flavoured($f['form'] ?? null, $f['form_sub'] ?? null) || ($f['form_sub'] ?? null) === 'nicotine_pouch';
             if (!$flavoured || ($f['flavour_tokens'] ?? null) === null || !in_array($f['flavour_src'] ?? null, $reliable, true)) {
                 continue;
             }

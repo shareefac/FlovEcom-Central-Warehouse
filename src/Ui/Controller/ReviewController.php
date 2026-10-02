@@ -251,7 +251,26 @@ final class ReviewController
         $protected = $target !== null && $target['sell_policy'] !== 'legacy';
         $rejectedIds = $q->rejectedOf($id);
         $next = $qc !== null ? $q->nextInQueue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $id) : null;
-        $qq = $qc !== null ? $qc->query() : [];
+        // Opened from a Key spot-check (M28): the page, its forms and its picks lead back there instead of to a queue.
+        $sample = null;
+        $sampleId = $qc === null ? UiRequest::id($req->param('sample') ?? $req->field('sample')) : null;
+        if ($sampleId !== null) {
+            $k = $ctx->db->one('SELECT id, name FROM key_sample WHERE id = ?', [$sampleId]);
+            $sample = $k === null ? null : ['id' => (int) $k['id'], 'name' => (string) $k['name'], 'url' => '/ui/review/samples/' . (int) $k['id']];
+        }
+        // The open proposal is a member of a Key spot-check (M28): only the sample's owner decides it. Anyone else's decision
+        // (or one by the owner that is not a plain confirmation) makes the spot-check fail, and the bulk confirm then refuses.
+        $spot = null;
+        if ($proposal !== null) {
+            $m = $ctx->db->one('SELECT k.id, k.name, k.created_by, k.sample_size, m.position, u.display_name FROM key_sample_member m '
+                . 'JOIN key_sample k ON k.id = m.sample_id LEFT JOIN staff_user u ON u.id = k.created_by '
+                . 'WHERE m.proposal_id = ? AND m.position IS NOT NULL ORDER BY k.id DESC LIMIT 1', [(int) $proposal['id']]);
+            if ($m !== null) {
+                $spot = ['id' => (int) $m['id'], 'name' => (string) $m['name'], 'position' => (int) $m['position'], 'size' => (int) $m['sample_size'],
+                    'owner' => self::s($m['display_name']), 'mine' => (int) $m['created_by'] === $me->id, 'url' => '/ui/review/samples/' . (int) $m['id']];
+            }
+        }
+        $qq = $qc !== null ? $qc->query() : ($sample !== null ? ['sample' => $sample['id']] : []);
         $pickUrl = static fn (int $sid): string => Html::url('/ui/review/listing/' . $id, $qq + ['pick' => $sid]) . '#decide';
         $usable = static fn (?int $sid): bool => $sid !== null && isset($skus[$sid]) && $skus[$sid]['merged_into_sku_id'] === null;
 
@@ -381,6 +400,8 @@ final class ReviewController
             'qc' => $qc,
             'qq' => $qq,
             'queue_link' => $qc !== null ? Html::url('/ui/review', $qc->pageQuery()) : null,
+            'sample' => $sample,
+            'spot' => $spot,
             'queue_label' => $qc !== null ? Queries::bandLabel($qc->band) : null,
             'next_link' => $next !== null ? Html::url('/ui/review/listing/' . $next, $qq) : null,
             'pending' => $pending === null ? null : $this->pendingView($pending, $me->id, $lead),
@@ -512,7 +533,8 @@ final class ReviewController
         $notice = $result['state'] === 'pending_second' ? 'pending_second' : 'decided_' . $action;
         $to = $qc !== null ? $q->nextInQueue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $id) : null;
         if ($qc === null) {
-            return HtmlResponse::redirect(Html::url('/ui/review/listing/' . $id, ['notice' => $notice]));
+            $sample = UiRequest::id($req->field('sample'));
+            return HtmlResponse::redirect(Html::url('/ui/review/listing/' . $id, ['notice' => $notice] + ($sample !== null ? ['sample' => $sample] : [])));
         }
         if ($to === null && $action === 'reject') {
             // A rejected proposal stays open (the listing still needs an item): stay on it, do not say the queue is empty.

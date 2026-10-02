@@ -251,6 +251,109 @@ DELETE grants changed):
   the 65 New item proposals with a barcode are in that case; the review screen lists them under "This listing's barcode is also on"
   and does not preselect "Mark as a new item" there (U18, U20).
 
+## Key spot-check and bulk confirm (`docs/decisions.md` M26-M28; the owner's decisions of 2 Oct 2026)
+
+Who: the owner (a mapping lead) on the CW server and on the screens. The sample belongs to the lead who draws it: only that
+lead's confirmations count and only that lead runs its bulk confirm. Every tool is a dry run unless given `--apply`, writes
+nothing in a dry run, and shares the job frame of the tools above (`--db`, `--admin` for test schemas, one run at a time, exit 3
+when the schema is not at the code's migration). Deploy first, with `0010_key_bulk.sql` (`deploy/staging/install_cron.sh
+--migrate`). Nothing here moves stock, except what every link does: units the listing sold while it was unlinked are adopted
+(none on staging: no site has sold through CW yet).
+
+```bash
+# 1. Re-band the open proposals with the current band rules (b2.1: Key from confidence 85, M26)
+php bin/reband_proposals.php --by=<owner e-mail>                  # moves by old>new, what blocks them, what is skipped
+php bin/reband_proposals.php --by=<owner e-mail> --apply          # applies the Check>Key moves; a re-run moves nothing
+# 2. The spot-check sample (20, stratified 90-100 / 85-89)
+php bin/sample_proposals.php --name=<sample> --by=<owner e-mail>            # population, strata, allocation; draws nothing
+php bin/sample_proposals.php --name=<sample> --by=<owner e-mail> --apply    # the server draws the seed, stores the 20 and the population
+php bin/sample_proposals.php --name=<sample> --verify                       # optional: re-draws it from the stored seed (read-only)
+# 3. The owner decides the 20 on the screens: /ui/review/samples -> the sample -> each listing (confirm, reject, or decide)
+# 4. The bulk confirm (refuses unless all 20 are confirmed by the owner and the sample is fit)
+php bin/bulk_confirm_key.php --sample=<sample> --lead=<owner e-mail> --report=/root/key_bulk_<sample>_dry.csv
+php bin/bulk_confirm_key.php --sample=<sample> --lead=<owner e-mail> --apply --limit=10   # a canary: check them on the screens
+php bin/bulk_confirm_key.php --sample=<sample> --lead=<owner e-mail> --apply              # the rest; a re-run links only what is left
+# 5. Only if needed: the undo (back to the Key queue, one at a time; any mapping lead)
+php bin/bulk_unlink.php --batch=key_bulk:<sample> --lead=<owner e-mail>
+php bin/bulk_unlink.php --batch=key_bulk:<sample> --lead=<owner e-mail> --apply
+```
+
+| Tool | Does | Re-run | Exit 1 when |
+|---|---|---|---|
+| `reband_proposals` | replays every open proposal's evidence: under its own run's band version (must give back its stored band, else `evidence_mismatch`, left alone) and under the current one; applies Key<->Check moves as a new proposal of run `reband-b2.1` that supersedes the old one, attributed to `--by` | moves nothing twice | a move failed |
+| `sample_proposals` | writes the proved bases of older proposals (M27), then draws `--size` (20 or more) from every open Key proposal that qualifies (M28), stratified by confidence, lowest sha256("seed:proposal id") first, with a seed the server draws; stores the sample, its seed and the whole population | a name is used once (409) | the name exists, too few proposals qualify, an override is not allowed, or `--verify` differs |
+| `bulk_confirm_key` | refuses unless the sample is complete and fit and `--lead` is its owner; links every proposal of the sample's population that still qualifies, one DecisionService decision each (`bulk_batch_id key_bulk:<sample>`, decided by the owner) | links only what is left (`already_in_batch`) | refused or stopped, or a link failed |
+| `bulk_unlink` | unlinks every listing still linked by the batch (`bulk_batch_id undo:key_bulk:<sample>`) and re-opens its proposal (run `undo:key_bulk:<sample>`) | `undone` ones are left; a waiting unlink is re-opened after its approval | an unlink failed |
+
+What to look for:
+- **Re-band.** `moves={"Check>Key":N}`: run3's files give N = 435 (confidence 85-89 only); the staging figure is lower by the
+  ones decided since. `skipped` should be `manual` only; any `evidence_mismatch` means a stored band its own evidence does not
+  give back (stop and look). `blocked` lists moves not applied: `pending_decision`, `listing_rejected_before`,
+  `listing_decided_since`, `changed:<part>` (the listing, its item or the key's target listing changed since the proposal),
+  `no_basis` (an older proposal that cannot be proved unchanged), `target_relinked` / `target_unresolved` (the Vape and Go
+  listing the key named is not linked to the item with units 1 now), `evidence_title_differs` /
+  `evidence_target_title_differs` (a title the judge saw is not the listing's title now). Those stay Check: a person decides them.
+- **Sample.** The dry run prints the strata (`stratum conf_90_100 (confidence 90-100): 14 of ...`, `conf_85_89: 6 of ...`), the
+  population and why the other Key proposals are left out (`excluded={...}`, the reasons below), and draws nothing. `--apply`
+  prints the seed the server drew and the 20 (`#position proposal listing confidence stratum`). `--seed` is refused. Run step 1
+  first: a sample drawn before the re-band has no 85-89 stratum (its population has none), and its bulk confirm covers the
+  90-100 proposals only.
+- **The 20.** `/ui/review/samples` (menu Linking -> Key spot-check) shows "n of 20 decided" and each one's state; each row opens
+  the normal review screen, which leads back and says "#n of 20 in your Key spot-check". Confirm only what is right, with
+  units 1. One rejection, any other decision (new item, ignore, another item, units other than 1), a decision that needs a
+  second person, or a decision by anyone but the owner makes the sample FAIL, and the bulk confirm then refuses it for good.
+  Anyone else opening one of the 20 is told to leave it to the owner. A failed sample's listings are never drawn into another
+  sample: find out why the Key band was wrong first; after a new matching run (or a new band version) a new sample may take
+  the NEW proposals of those listings with `--after-failed=<failed sample>` (audited).
+- **Bulk dry run.** `population` (the sample's population minus the 20), `eligible`, `excluded` by reason, `units_30d` /
+  `units_365d` of the eligible ones; the `--report` file lists each proposal: `eligible` (listing, title, item code and name,
+  confidence, units: what will be linked to what) or `excluded` with its first reason. Reasons a proposal is left out (each a
+  person decides on the screens):
+
+  | Reason | Meaning |
+  |---|---|
+  | `proposal_decided`, `proposal_superseded` | already decided (by a person, or an earlier run of this batch), or replaced by a later proposal |
+  | `listing_mapped` / `listing_ignored` / `listing_quarantined`, `pending_decision` | the listing is no longer waiting, or waits for a second person |
+  | `protected_item`, `counted_item`, `item_merged`, `item_quarantined` | the item is protected or counted (two people), merged away, or has a quarantined listing |
+  | `units_per_item`, `flag:<flag>` | not one unit per item, or flagged for two people / a relabel |
+  | `listing_rejected_before`, `item_rejected_before`, `listing_decided_since`, `bulk_undone_before` | a person said "not this item" somewhere, decided on the listing since, or an earlier bulk link of it was undone |
+  | `failed_sample_population`, `in_other_sample` | the listing was in a failed spot-check's population, or the proposal is in another spot-check's |
+  | `no_basis`, `changed:listing_profile`, `changed:listing_link`, `changed:item`, `changed:item_origin`, `changed:target_link` | nothing proves the proposal still describes the listing, the item and the key's target listing |
+  | `target_unresolved`, `target_relinked` | the Vape and Go listing the key named was not found, or is not linked to the item with units 1 now (relinked, ignored, a multiple) |
+  | `evidence_title_differs`, `evidence_target_title_differs` | a title the judge saw (from the run's export) is not the listing's title now |
+  | `not_key_now`, `evidence_unreadable`, `not_key_target` | under the current rules the evidence is not Key, or the item is not both the key target and the judge's pick |
+- **Apply.** `applied=N skipped={} failed={}`. A `failed` code (e.g. `map_version_conflict`: someone changed the listing a
+  moment earlier; `target_changed`: the key's target listing changed during the link) leaves that listing untouched; run again
+  later. `stopped=sample_changed_during_run` (exit 1): a sample member was decided otherwise during the run; the links made
+  before stand (undo if needed). Each decision is an ordinary applied `link` (`mapping.link` in `audit_log` with the batch id),
+  so the screens, the item pages and the feed show them like any other.
+
+Checks afterwards (read-only):
+
+```sql
+SELECT state, COUNT(*) FROM match_decision WHERE bulk_batch_id = 'key_bulk:<sample>' GROUP BY state;     -- all applied
+SELECT action, actor, detail FROM audit_log WHERE action IN ('mapping.reband', 'mapping.key_sample', 'mapping.key_bulk', 'mapping.key_bulk_undo') ORDER BY id;
+SELECT source, COUNT(*) FROM match_proposal_basis GROUP BY source;                                       -- recorded / backfill
+```
+
+## Building the next first-match run (`docs/decisions.md` M29)
+
+On the web server, read-only on the exports. Engine `n2.1/c1.0/v2.1/b2.1/f2.1+fv1-aeaa0af8/tp1.1` (run3 was built with
+`n2.0/c1.0/v2.0/b2.0/f2.0+fv1-aeaa0af8/tp1.0`).
+
+```bash
+nice -n 19 php -d memory_limit=2G tools/first_match/run.php --out=/root/cw_work/first_match/run4 --judge=sold \
+    [--scratch=/root/cw_work/first_match/judge_scratch/run4]      # the default
+```
+
+- The build makes one empty scratch directory per chunk (mode 0700) and stops if one already holds files: remove them or pass
+  another `--scratch`. Each chunk file names its own directory (`scratch_dir`), and `private/run4/run4_chunks.json` lists them.
+- Judges run in parallel. Give each judge its chunk, the prompt and **its own** `scratch_dir`. Never give them one shared
+  directory: run3's judges all used one, under the same file names.
+- Assemble as before (`tools/first_match/assemble.php`). `proposals_summary.listing_extract_form` shows how many of the judges'
+  form answers were outside the enum (information only).
+- Golden tests: `php tests/matching/run.php`. It also runs in the suite as `tests/Unit/MatchingGoldenTest.php`.
+
 ## Opening stock (`bin/import_opening_estimate.php`, `docs/decisions.md` D40, D40a)
 
 The estimate of a site's stock, before counts. Run it on the CW server. Always do a dry run first:

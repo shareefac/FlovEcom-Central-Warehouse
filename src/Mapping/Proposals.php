@@ -18,7 +18,9 @@ use CW\Idempotency;
  * their status: a listing has at most one `open` proposal (a unique key); a proposal of a later run
  * supersedes it, a decision settles it (DecisionService). Written under the listing's row lock, so
  * they serialise with the decisions on that listing. Nothing here links anything: with $suggest an
- * `unmapped` listing is moved to `suggested` through DecisionService (action `suggest`).
+ * `unmapped` listing is moved to `suggested` through DecisionService (action `suggest`). Every new proposal's basis
+ * (the listing's version and identity, the item's fingerprint, the lane target's link: ProposalBasis, M27) is recorded
+ * in the same transaction.
  */
 final class Proposals
 {
@@ -130,6 +132,11 @@ final class Proposals
                 $this->decisions->decide($caller, ['action' => 'suggest', 'listing_id' => $listingId,
                     'expected_map_version' => (int) $l['map_version'], 'proposal_id' => $id]);
                 $suggested = true;
+            }
+            if ($result === 'created') {
+                // M27: what this proposal was made against (the listing after its suggest, the item, the lane target's link),
+                // still under the listing lock.
+                ProposalBasis::record($db, $id, ProposalBasis::current($db, $listingId, $sku === null ? null : (int) $sku, $p['evidence'] ?? null));
             }
             return ['result' => $result, 'proposal_id' => $id, 'superseded' => $superseded, 'suggested' => $suggested];
         });
