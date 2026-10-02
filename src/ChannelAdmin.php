@@ -86,6 +86,97 @@ final class ChannelAdmin
     }
 
     /**
+     * Sets a channel's mode and/or IP allowlist (bin/channel_set.php, A14). A dry run ($apply false)
+     * only reads and reports. With $apply the channel row is locked first (FOR UPDATE, alone in its
+     * transaction, like key rotation: D39), the before-values are read again under that lock, and each
+     * setting that really changes is written and audited: `channel.mode` {from, to, by} and
+     * `channel.allowlist` {before, after, by}. An allowlist that differs only in order is unchanged.
+     * Nothing changed means nothing written and nothing audited. The site sees a new mode on its next
+     * call (X-CW-Channel-Mode, A13).
+     *
+     * @param list<string>|null $allowedIps null = keep; [] = empty (every call refused)
+     * @return array{id: int, code: string, before: array{mode: string, allowed_ips: list<string>},
+     *     after: array{mode: string, allowed_ips: list<string>}, changed: list<string>, applied: bool, warnings: list<string>}
+     */
+    public function configure(string $code, ?string $mode, ?array $allowedIps, string $actor, bool $apply): array
+    {
+        if ($mode === null && $allowedIps === null) {
+            throw new CwException('nothing_to_set', 'give a mode, an allowlist or both', 400);
+        }
+        if ($mode !== null && !in_array($mode, self::MODES, true)) {
+            throw new CwException('bad_mode', 'mode must be one of ' . implode(', ', self::MODES), 400);
+        }
+        $ips = $allowedIps === null ? null : self::ips($allowedIps);
+        $actor = trim($actor);
+        if ($actor === '' || strlen($actor) > 64 || preg_match('/^[\x20-\x7e]+$/', $actor) !== 1) {
+            throw new CwException('bad_actor', 'the actor must be 1-64 printable characters', 400);
+        }
+        $plan = function (Db $db, bool $lock) use ($code, $mode, $ips): array {
+            $row = $db->one('SELECT c.id, c.mode, c.allowed_ips, o.opening_orders_at FROM channel c '
+                . 'LEFT JOIN channel_opening o ON o.channel_id = c.id WHERE c.code = ?' . ($lock ? ' FOR UPDATE OF c' : ''), [$code]);
+            if ($row === null) {
+                throw new CwException('unknown_channel', "no channel {$code}", 404);
+            }
+            $stored = json_decode((string) $row['allowed_ips'], true);
+            $before = ['mode' => (string) $row['mode'],
+                'allowed_ips' => is_array($stored) ? array_values(array_map('strval', array_filter($stored, 'is_string'))) : []];
+            $after = ['mode' => $mode ?? $before['mode'], 'allowed_ips' => $before['allowed_ips']];
+            $changed = [];
+            if ($after['mode'] !== $before['mode']) {
+                $changed[] = 'mode';
+            }
+            if ($ips !== null && self::sorted($ips) !== self::sorted($before['allowed_ips'])) {
+                $after['allowed_ips'] = $ips;
+                $changed[] = 'allowed_ips';
+            }
+            $warnings = [];
+            if ($after['mode'] !== 'off' && $after['allowed_ips'] === []) {
+                $warnings[] = 'the allowlist is empty: every call of this site is refused (403)';
+            }
+            if ($before['mode'] === 'off' && $after['mode'] === 'live') {
+                $warnings[] = 'off -> live skips shadow (plan §12: off -> shadow -> live)';
+            }
+            if ($after['mode'] === 'live' && $before['mode'] !== 'live' && $row['opening_orders_at'] === null) {
+                $warnings[] = 'no final opening_orders batch has been accepted for this channel (D40, §8.1)';
+            }
+            if (array_search($after['mode'], self::MODES, true) < array_search($before['mode'], self::MODES, true)) {
+                $warnings[] = 'lowering the mode: the site follows on its next call; its own rollback steps apply (plan §12)';
+            }
+            return ['id' => (int) $row['id'], 'code' => $code, 'before' => $before, 'after' => $after, 'changed' => $changed,
+                'applied' => false, 'warnings' => $warnings];
+        };
+        if (!$apply) {
+            return $plan($this->db, false);
+        }
+        return $this->db->transaction(function (Db $db) use ($plan, $actor): array {
+            $p = $plan($db, true);
+            if ($p['changed'] === []) {
+                return $p;
+            }
+            $db->exec('UPDATE channel SET mode = ?, allowed_ips = ? WHERE id = ?',
+                [$p['after']['mode'], json_encode($p['after']['allowed_ips'], JSON_THROW_ON_ERROR), $p['id']]);
+            $caller = Caller::system('channel_admin');
+            if (in_array('mode', $p['changed'], true)) {
+                Audit::write($db, $caller, 'channel.mode', 'channel', $p['code'], null,
+                    ['from' => $p['before']['mode'], 'to' => $p['after']['mode'], 'by' => $actor]);
+            }
+            if (in_array('allowed_ips', $p['changed'], true)) {
+                Audit::write($db, $caller, 'channel.allowlist', 'channel', $p['code'], null,
+                    ['before' => $p['before']['allowed_ips'], 'after' => $p['after']['allowed_ips'], 'by' => $actor]);
+            }
+            $p['applied'] = true;
+            return $p;
+        });
+    }
+
+    /** @param list<string> $ips @return list<string> */
+    private static function sorted(array $ips): array
+    {
+        sort($ips, SORT_STRING);
+        return $ips;
+    }
+
+    /**
      * The movement types a site may be granted: only the ERP relay's (R17). Counts, adjustments,
      * write-offs and transfers are staff-only.
      *

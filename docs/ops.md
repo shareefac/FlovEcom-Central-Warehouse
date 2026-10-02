@@ -116,6 +116,77 @@ compressed, copytruncate (R18). Check it with
 - **Any job exits 3.** The config or connection is broken, or the schema does not match the code
   (deploy or migrate). The message says which.
 
+## Channels: keys, mode and allowlist (`docs/decisions.md` A11, A13–A17)
+
+Run these on the CW server. They connect as the app login (`cw_app`); `--db=<schema>` picks the schema.
+
+| Tool | Does |
+|---|---|
+| `bin/create_channel.php --code=<c> --name=<n> [--ips=..] [--mode=off] [--movement-types=..]` | a channel and its sellable warehouse; prints the NEW key once on stdout (A11) |
+| `bin/rotate_key.php --code=<c>` | a new key at once; the old one stops working |
+| `bin/channel_set.php --code=<c> [--mode=off\|shadow\|live] [--ips=<a,b/24>\|none] [--actor=<who>] [--apply]` | the mode and/or the IP allowlist; a dry run unless `--apply`; each change audited (A14) |
+
+Switching a site's mode, one step at a time (plan §12: off → shadow → live):
+
+    php bin/channel_set.php --code=vapeandgo --mode=shadow                                # read the plan and the warnings
+    php bin/channel_set.php --code=vapeandgo --mode=shadow --actor="<your name>" --apply
+
+- The output is `mode: <before> -> <after>` and `allowed_ips: [..] -> [..]`, or `(unchanged)`. With
+  `--apply` it ends with `applied by <who>; audited: channel.mode, channel.allowlist`.
+- `--ips` replaces the whole list. `--ips=none` empties it, which refuses every call of that site
+  (403). That is the quickest way to shut a site out without touching its key.
+- Warnings, which never stop the run:
+  - a mode other than `off` with an empty allowlist;
+  - `off -> live`;
+  - `live` before the site's final opening_orders batch;
+  - a lower mode (the site's own rollback steps apply, plan §12).
+- The site sees a new mode on its next call: every answer after authentication carries
+  `X-CW-Channel-Mode` (A13). The site's effective mode is the lower of that and its own `CW_MODE`.
+- Exit codes: 0 ok (dry run included), 1 refused (unknown channel, bad mode, address or actor),
+  2 usage, 3 cannot run.
+- The history of a channel:
+  `SELECT created_at, action, detail FROM audit_log WHERE entity_type = 'channel' AND entity_id = '<code>' ORDER BY id;`
+
+What the site connector can rely on from the API:
+- `X-CW-Channel-Mode` on every authenticated answer, errors and replays included; never on 401/403 (A13).
+- `GET /v1/changes` carries `head_seq`. When it is below the seq the site last applied, CW was
+  restored: reset the versions and re-snapshot (A15). It only sees a restore while CW's new head is
+  still below the site's cursor: if CW writes more rows after the restore than it lost before the site
+  polls again, the check passes. So after any restore of CW's database, also run each site's resync by
+  hand (`bin/cw_resync.php --reset-versions`, after `cw_replay.php`, plan "Backups & recovery").
+- `POST /v1/heartbeat` needs an `Idempotency-Key`. A retry re-sends the same body under the same key;
+  the same key with another body gets 422 `idempotency_key_reused` (A16).
+- `POST /v1/reservations` on a held order with the same lines answers 200 `extended` with the same
+  `lines[]` as a fresh 201 (A17).
+- `POST /v1/reservations/{ref}/uncancel {unit_ids}` takes a line cancel back (D46). Each cancel and
+  each uncancel of a unit needs its own Idempotency-Key (for example with a per-unit cycle counter in
+  it): a cancel re-sent under an earlier cancel's key only replays that answer.
+
+The Vape and Go connector (proto) uses all of these since 2 Oct 2026 (`docs/decisions.md` SC1–SC5). Its
+alert `unit_sweep_uncancelled` means CW kept units cancelled that the site ships: count those items.
+
+### Cancels taken back (uncancel, D46)
+
+An uncancel puts cancelled paid units back into `allocated`. Two things can land on a person's desk:
+- `oversell_event` kind `uncancel_short`: the unit was back on sale after its cancel, was sold again,
+  and the uncancel took it once more. Treat it like any other oversell (the later order is
+  back-ordered or refunded).
+- `count_review` source `uncancel_after_verify` at the sale warehouse: the unit had been parked in
+  VERIFY by a cancel without restock, and somebody may already have dealt with it there
+  (`detail.reason`: `recount_closed`, `verify_counted`, `verify_moved` (a write-off or hand transfer of
+  the item at VERIFY since the unit arrived) or `verify_short`). CW allocated it again at the sale
+  warehouse and left VERIFY alone, so until a person acts availability is lower than the shelf, never
+  higher. Look at VERIFY:
+  - the unit is still there: move it back to the shelf (`transfer_out` VERIFY, `transfer_in` at the sale
+    warehouse) and resolve its `verify_recount`;
+  - it was written off at VERIFY: reverse that write-off (the goods are going to the customer);
+  - it was already moved back to the shelf by hand: nothing more is needed.
+
+A unit nobody had touched in VERIFY comes back with the paired movement, and its `verify_recount` is
+dismissed with resolution `uncancelled`; there is nothing to do.
+
+    SELECT id, ref, detail FROM count_review WHERE source = 'uncancel_after_verify' AND status = 'open' ORDER BY id;
+
 ## The concurrency hammer (`tests/concurrency/hammer.php`)
 
 It proves the §14 concurrency guarantees with real processes, each with its own connection,
@@ -135,14 +206,23 @@ only if every check passed; otherwise it exits 1.
 |---|---|
 | 1 | 200 reserve attempts from 3 live channels on a strict item with `on_hand = 10`. Result: exactly 10 held and 190 refused (409 short). Each hold saw its own state (available after = 9..0). Availability is never negative in 1,000+ observer samples, in any response, or in a row-by-row replay of the item's ledger. Refused orders leave no rows, every site then sees 0, and the invariants hold. |
 | 2 | 100 orders placed at once, each with 2–5 lines in random order across 5 strict items, including a duplicate listing and a "10 x" listing. No deadlock or other error surfaces. Each order is all-or-nothing. `held` equals exactly the sum of the accepted orders (qty × u), and availability is never negative. Then half the orders are paid and half abandoned at the same moment: all answer 200, `held` returns to 0, `allocated` equals what was paid, and nothing oversells. |
-| 3 | 20 processes send the same Idempotency-Key at the same instant, for reserve, commit, ship, unship, ship again, return, goods_in (staff), reserve + release, cancel (restockable) and cancel (to VERIFY). Each has exactly one effect: 1 fresh answer and 19 identical replays; the ledger rows, idempotency row, audit row and balance are as expected. Three more rounds: the same order under 20 keys gives one hold and 19 "extended"; one key with two bodies gives one effect and a 422 for the other body; 20 × ship before commit give 20 × 409 `not_committed`, nothing stored and **no deadlock** (H1). |
-| 4 | For 30 s, 22 traders reserve, extend, re-reserve, commit (with and without a hold, with other lines, after expiry, on tombstones, outage orders), release (current and stale attempt), cancel, ship, book goods-in and replay earlier calls, while 2 expiry crons run at once. Every answer matches the state machine, and nothing fails. `CW\Invariants` holds on every consistent snapshot taken during the run (about 60). Every negative availability of a strict item is a flagged `oversell_event`. Every interleaving occurs at least once. Once all remaining holds are expired, nothing is held and the invariants hold. |
-| 5 | The per-item value sequence (C0, I3) under cross-warehouse races. For 30 s, 20 traders work 6 legacy items (100,000 each at MAIN, with a cost): staff movements of 1–4 items in random line order with a random MAIN/VERIFY warehouse per line (goods-in at £0.50–9.99, write-offs, adjustments ±1..5), MAIN → VERIFY transfers, reserve → commit → ship, commit → cancel to VERIFY, VERIFY counts. An observer polls the seqs every 100 ms in one statement (an item showing a gap fails the run) and checks `CW\Invariants` on a consistent snapshot every ~2 s. At the end every item is numbered 1..N (N = its on_hand rows), and replaying its rows in seq order reproduces every row's `balance_after` per location and the item's total on_hand. No error or deadlock surfaces. Info: calls/s, on_hand rows/s, how often seq order differed from ledger id order. |
+| 3 | 20 processes send the same Idempotency-Key at the same instant, for reserve, commit, ship, unship, ship again, return, goods_in (staff), reserve + release, cancel (restockable), cancel (to VERIFY), uncancel (restockable) and uncancel (back out of VERIFY: VERIFY 0, both recounts dismissed). Each has exactly one effect: 1 fresh answer and 19 identical replays; the ledger rows, idempotency row, audit row and balance are as expected. Three more rounds: the same order under 20 keys gives one hold and 19 "extended"; one key with two bodies gives one effect and a 422 for the other body; 20 × ship before commit give 20 × 409 `not_committed`, nothing stored and **no deadlock** (H1). |
+| 4 | For 30 s, 22 traders reserve, extend, re-reserve, commit (with and without a hold, with other lines, after expiry, on tombstones, outage orders), release (current and stale attempt), cancel, uncancel, ship, book goods-in and replay earlier calls, while 2 expiry crons run at once. Every answer matches the state machine, and nothing fails. `CW\Invariants` holds on every consistent snapshot taken during the run (about 60). Every negative availability of a strict item is a flagged `oversell_event`. Every interleaving occurs at least once. Once all remaining holds are expired, nothing is held and the invariants hold. |
+| 5 | The per-item value sequence (C0, I3) under cross-warehouse races. For 30 s, 20 traders work 6 legacy items (100,000 each at MAIN, with a cost): staff movements of 1–4 items in random line order with a random MAIN/VERIFY warehouse per line (goods-in at £0.50–9.99, write-offs, adjustments ±1..5), MAIN → VERIFY transfers, reserve → commit → ship, commit → cancel to VERIFY (half of them then un-cancelled: back out of VERIFY, or to review when a VERIFY count or write-off came in between), VERIFY counts. An observer polls the seqs every 100 ms in one statement (an item showing a gap fails the run) and checks `CW\Invariants` on a consistent snapshot every ~2 s. At the end every item is numbered 1..N (N = its on_hand rows), and replaying its rows in seq order reproduces every row's `balance_after` per location and the item's total on_hand. No error or deadlock surfaces. Info: calls/s, on_hand rows/s, how often seq order differed from ledger id order. |
 
 Connection budget: the staging cluster allows 76 connections in total, shared by every slot. The
 hammer holds at most 30 at once (24 workers + 1 observer by default, plus the parent, which
 holds none while children run). Before starting, it checks the cluster's free connections and
 keeps 8 spare for other slots. It shrinks the pool if needed, and refuses to start below 8.
+
+With uncancel (2 Oct 2026, slot `cfu2`, D46): `--only=3`: `RESULT: PASS (17 checks passed, 0 failed)`, both uncancel rounds
+one effect with 19 identical replays. `--only=4,5 --workers=16 --seconds=20` (a smaller run, the cluster is shared):
+`RESULT: PASS (15 checks passed, 0 failed)`, 0 deadlocks surfaced or retried; scenario 4: 24 uncancels among the traders'
+calls, 5 `uncancel_short` events, 39 live snapshots without a violation; scenario 5: 41 units back out of VERIFY and 7 sent
+to review (a VERIFY count or write-off came in between), 8 live snapshots without a violation, every balance replayed in seq order.
+After the D46 review fix (any hand move at VERIFY sends earlier parked units to review; slot `cfu5`, `--only=3,5 --workers=12
+--seconds=20`): `RESULT: PASS (24 checks passed, 0 failed)`, 0 deadlocks; scenario 5: 20 units back out of VERIFY and 24 sent
+to review, 9 live snapshots without a violation, 1,067 rows replayed in seq order.
 
 Last results (2 Oct 2026, staging, slot `i1c0`, 24 workers, seed 20261002, with C0: `docs/decisions.md` I9):
 - `RESULT: PASS (57 checks passed, 0 failed)` in 87 s; 0 deadlocks surfaced and 0 retried inside CW in every scenario.
@@ -251,15 +331,16 @@ DELETE grants changed):
   the 65 New item proposals with a barcode are in that case; the review screen lists them under "This listing's barcode is also on"
   and does not preselect "Mark as a new item" there (U18, U20).
 
-## Opening stock (`bin/import_opening_estimate.php`, `docs/decisions.md` D40, D40a)
+## Opening stock (`bin/import_opening_estimate.php`, `docs/decisions.md` D40, D40a, D40b)
 
 The estimate of a site's stock, before counts. Run it on the CW server. Always do a dry run first:
 
     php bin/import_opening_estimate.php --csv=<file> --as-of=<ISO time with offset> --doc-ref=opening:<channel>:<as-of> \
         --source="<where the figures come from>" --sha256=<hash of the archived file> [--approved-by=<who>] [--channel=<code>] [--dry-run]
 
-The CSV has 2 columns, the variant id and the figure, under a header like
-`vapeandgo_variant_id,site_qty_at_...`.
+The CSV's first two columns are the variant id and the figure, under a header like
+`vapeandgo_variant_id,site_qty_at_...` or the connector's `variant_id,prodt_stock,...`. Further columns
+are ignored.
 
 The dry run reports:
 - rows at or below zero, which are skipped;
@@ -273,15 +354,167 @@ A `quarantined` listing with stock stops the run: decide its link first. If a ru
 the same command again; it books only the missing items. A different file under the same doc_ref is
 refused (`opening_conflict`).
 
-**At a site's T0 the estimate must be rebased** (D40a: site stock at T0 + open paid units). The tool
-has no rebase mode yet, so this is a Phase 3 prerequisite. Until T0, book no counts or adjustments on
-that site's items.
+**At a site's T0 the estimate is rebased** (D40a, D40b): site stock at T0 + the open paid units. Until the
+rebase has run, book no counts or adjustments on that site's items. The steps are below.
 
 **On `cw_staging`:** Vape and Go's duty-day stock (00:00 BST, 1 Oct 2026) was booked on 2 Oct 2026.
 That is 8,199 items and 296,599 units. The input is
 `/srv/cw-import/opening_input_vapeandgo_duty_start_2026-10-01.csv` (sha256 3561293a…), derived from the
 archived duty workbook. Checks: invariants hold; all 14,856 linked listings match the file; a re-run
 books nothing.
+
+### A site's T0 (the rebase, D40b)
+
+The connector runs on the site's box, today in `App_proto/src/central_warehouse` (`cw_t0.php` drops root
+privileges itself). CW runs on the CW server, in `/opt/cw-staging`. Do it in this order:
+
+1. **Pick the time.** Do it after the day's last dispatch run. A ship of an order paid after T0 that reaches CW
+   before the rebase makes its item `moved`, and a skipped item needs a person.
+2. **Connector, dry run** (the connector still off): `php bin/cw_t0.php --capture --dry-run`. It prints T0, the
+   paid-not-shipped units by age, the batches, the orders it would skip, and the stock file's row count and
+   sha256.
+3. **Connector, capture** (the connector off): `php bin/cw_t0.php --capture --mode=off`. This writes
+   `state_dir/t0_site_stock_<YYYYMMDDTHHMMSSZ>.csv` (+ `.sha256`), the T0 record and the opening batches.
+   - It is refused while the effective mode is not off, or when connector order rows already exist.
+   - In Phase 3 it is refused for any CW but the local mock. That guard is lifted only with the owner's go, once
+     CW staging runs this code.
+4. **CW, shadow:** `php bin/channel_set.php --code=<channel> --mode=shadow`, then the same with
+   `--actor="<you>" --apply`.
+5. **Site, shadow:** set the connector's `CW_MODE` to shadow. The worker sends the opening batches first, the
+   final one last and only after every earlier one answered 200.
+6. **Connector:** run `php bin/cw_t0.php --status` until `final_acked` is true. It then prints the rebase
+   commands for this T0, with the file's name and its sha256 as captured.
+7. **Copy the file** to the CW server (from the site's box):
+
+       scp -i /root/.ssh/cw_staging <state_dir>/t0_site_stock_<ts>.csv root@46.101.55.135:/srv/cw-import/
+
+8. **CW, dry run.** `--estimate-doc-ref` is the estimate's doc_ref (on `cw_staging`:
+   `opening:vapeandgo:2026-10-01T00:00+01:00`), or `none`:
+
+       cd /opt/cw-staging && php bin/import_opening_estimate.php --rebase --channel=vapeandgo \
+           --csv=/srv/cw-import/t0_site_stock_<ts>.csv --estimate-doc-ref=opening:vapeandgo:2026-10-01T00:00+01:00 \
+           --as-of=<T0 as cw_t0.php printed it> --source="vapeandgo T0 snapshot <T0>" --dry-run
+
+   It prints:
+   - T0 and the final batch's time, and the T0 check (`--as-of`, and the T0 in the file name);
+   - listings missing from the file, quarantined listings, and unlinked rows;
+   - the opening units (linked, unlinked, released, never committed: a unit cancelled while held and left out
+     of the opening body);
+   - the items skipped by reason, then one line per skipped item with its target, earlier rows and delta;
+   - items already rebased, items with no change, and what it would book (+units, −units, net) under its
+     doc_ref (default `opening-rebase:<channel>:<T0>`).
+
+   It refuses (exit 1) before the final batch, when `--as-of` or the T0 in the file name is not CW's T0, and
+   when the doc_ref is the estimate's. Skip reasons: `counted`, `other_opening`, `moved`, `quarantined_listing`,
+   `no_t0_figure`, `no_mapped_listing` (the item was opened by the estimate, or sold in the opening, but has no
+   mapped listing on this channel now: relink it before the real run, or settle it in step 11) and
+   `units_elsewhere`.
+9. **CW, real run:** the same command with `--sha256=<the hash cw_t0.php printed> --approved-by="<who>"`
+   instead of `--dry-run`. `--as-of` is required here (the hash proves the bytes, not the snapshot).
+   - It ends `booked N items, net ±M units`.
+   - Running it again books nothing (`already rebased`).
+   - A different file under the same doc_ref is refused (`rebase_conflict`).
+10. **CW:** `php bin/invariants.php --db=cw_staging` must say `ok`.
+
+    Steps 7–10 can also run from the site's box (SC4), after step 6:
+
+        php bin/cw_t0.php --rebase --estimate-doc-ref=<the estimate's doc_ref, or none> \
+            --cw-ssh=root@46.101.55.135 --cw-ssh-key=/root/.ssh/cw_staging --cw-db=cw_staging      # copy + CW's dry run
+        php bin/cw_t0.php --rebase ... --apply --approved-by="<who>"                                 # + real run + invariants
+
+    It refuses before the final batch is acknowledged (exit 4) and when the T0 file changed (exit 3), stops at
+    the first failing step (exit 1), and records the outcome in the connector's `cw_meta` `t0_rebase`
+    (`--status` shows it). Without `--cw-ssh` it prints the commands above. It keeps the caller's user for the
+    ssh key and creates no local file. In Phase 3 it is refused for any CW but the local mock, like step 3.
+11. **Settle the skipped items** from step 8's list: count the item, or book the listed delta as a staff
+    adjustment. A `moved` item that only shipped orders paid after T0 takes exactly the listed delta. From now
+    on, counts and adjustments on the site's items are fine.
+
+## Test leftovers on staging (`bin/purge_test_refs.php`, `docs/decisions.md` D47)
+
+Removes the reservations a test left on a staging channel, by order_ref prefix. It always prints a dry run
+first, and writes only with `--apply`:
+
+    php bin/purge_test_refs.php --db=cw_staging --channel=<code> --prefix=<order_ref prefix> \
+        [--heartbeats-until=<ISO time>] [--actor="<you>"] [--apply]
+
+- **Open reservations are neutralised** through the normal paths first, so the ledger records it: held → released,
+  a committed order's open units → cancelled, restockable.
+- **A reservation and its units are deleted** only when no ledger row and no oversell event names them.
+  Unlinked units never have one. Anything else stays and is listed `kept (ledger)`.
+- **The idempotency rows of the refs left without a reservation are deleted.** A kept reservation keeps its
+  keys (the report counts them), so a late retry under one of them still replays its answer.
+- With `--heartbeats-until`, **all** of the channel's heartbeats (`channel_health`) up to that time and their
+  idempotency rows are deleted too, whatever the prefix: heartbeats name no order. Check the dry run's time
+  range, addresses and connector versions.
+- **Never deleted:** ledger rows and audit rows. Every deleted reservation is audited `reservation.purged`, and
+  the run `purge.test_refs`.
+- **Staging only:** it refuses (exit 1) unless `/etc/cw/app.env` says `environment=staging` and the schema is
+  `cw_staging` or `cw_test_*`, and on a channel in mode `live` (`REFUSED: channel_live`). A prefix needs 4–32
+  characters with a letter.
+- **Go-live checklist:** before this server or schema carries real orders, remove the marker:
+
+      sed -i '/^environment=staging$/d' /etc/cw/app.env
+
+  `bin/setup_staging.php` writes it only with `--mark-staging`, so a later re-run does not put it back.
+- **Exit codes:** 0 ok (dry run included); 1 refused, or a reservation could not be neutralised (the rest are done
+  and the failures are listed last); 2 usage; 3 cannot run.
+
+### Removing the `proto1-` smoke leftovers on `cw_staging`
+
+The Phase 3 connector smoke (2 Oct 2026) left these on channel `vapeandgo`:
+- 3 reservations (`proto1-<ord_id>`: two committed, one released);
+- 5 unlinked units (returned, cancelled, released);
+- 9 idempotency rows;
+- 4 `channel_health` rows, with their 4 heartbeat idempotency rows.
+
+The smoke's 2 `channel.mode` audit rows stay, like every audit row. Nothing moved stock (every unit is unlinked),
+so nothing needs neutralising. Run these from this machine.
+
+**0. Before.** `/opt/cw-staging` must hold code that has this tool, on a `cw_staging` migrated to the same
+migrations; the tool, like every job, refuses otherwise (H3). That means the next staging deploy:
+`scripts/remote.sh hammer bash deploy/staging/install_cron.sh`, with `--migrate` as part of the owner-approved
+Phase I-1 deploy (0006–0008). Check it:
+
+    ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && test -f bin/purge_test_refs.php && php bin/migrate.php --db=cw_staging --status'
+
+**1. Mark the server as staging** (once). This adds one line, prints nothing, and keeps the file's owner and mode:
+
+    ssh -i /root/.ssh/cw_staging root@46.101.55.135 "grep -q '^environment=' /etc/cw/app.env || printf '\nenvironment=staging\n' >> /etc/cw/app.env"
+
+**2. Dry run.** Take one time stamp for both runs; it must not be in the future:
+
+    UNTIL=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    ssh -i /root/.ssh/cw_staging root@46.101.55.135 "cd /opt/cw-staging && php bin/purge_test_refs.php --db=cw_staging --channel=vapeandgo --prefix=proto1- --heartbeats-until=$UNTIL"
+
+It must say:
+
+    reservations: 3 (release 0, cancel 0 units); delete 3 with 5 units; keep 0
+      proto1-… committed origin=reserved units=2 {"returned":2} linked=0 ledger=0 oversell=0 -> delete     (and the other two, each "-> delete")
+    idempotency rows of these refs: 9 (plus the rows of the release/cancel calls above)
+    heartbeats until …: 4 channel_health rows (first …, last …; from <the proto box>; connector vpgcw-…) and 4 heartbeat idempotency rows
+    dry run: nothing written; run again with --apply
+
+If any number differs, stop: something else used the prefix or the channel. Look before you apply.
+
+**3. Apply,** with the same `UNTIL`:
+
+    ssh -i /root/.ssh/cw_staging root@46.101.55.135 "cd /opt/cw-staging && php bin/purge_test_refs.php --db=cw_staging --channel=vapeandgo --prefix=proto1- --heartbeats-until=$UNTIL --actor='<your name>' --apply"
+
+It ends with:
+
+    done: released 0, cancelled 0 units; deleted 3 reservations (5 units), 9 idempotency rows, 4 channel_health rows, 4 heartbeat idempotency rows; audited purge.test_refs by <your name>
+
+**4. Check.** The invariants must say `ok`. The connector's read-only snapshot must show `reservations_prefix: []`,
+`units_prefix: []`, `idempotency_prefix: 0` and `channel_health.n: 0`, with the 2 `channel.mode` rows still in
+`audit_channel_mode`:
+
+    ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/invariants.php --db=cw_staging'
+    cd /var/www/html/vpg_ecom/App_proto/src/central_warehouse && ssh -i /root/.ssh/cw_staging root@46.101.55.135 'php -- proto1-' < tests/staging/cw_staging_snapshot.php
+
+The audit trail of the purge:
+
+    SELECT created_at, action, entity_id, detail FROM audit_log WHERE actor = 'system:purge_test_refs' ORDER BY id;
 
 ## The staff UI (`/ui`, linking backend front end; `docs/decisions.md` U1-U17)
 
@@ -411,7 +644,8 @@ prepared and **off**. Nothing in `deploy/staging` installs or enables it except 
    `cw-web` (+ hourly log rotation), the port-80 challenge/redirect vhost, gets the certificate, then installs the
    HTTPS vhost and checks `/ui/login` (200), `/v1/health` without a key (401) and the 301 from port 80.
 5. Open TCP 80 and 443 in the DigitalOcean cloud firewall if one is attached (ufw is inactive on this box), set
-   channel `--ips` for the API (`bin/create_channel.php`), and create the staff accounts above.
+   channel `--ips` for the API (`bin/create_channel.php`, or `bin/channel_set.php --ips=.. --apply` for an existing
+   channel), and create the staff accounts above.
 
 Renewal is certbot's systemd timer (deploy hook reloads Apache). Logs: `/var/log/cw-web/php-error.log` (rotated
 hourly at 20 MB) and `/var/log/apache2/cw-https.{access,error}.log`. To switch it off again:

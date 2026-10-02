@@ -6,14 +6,16 @@ declare(strict_types=1);
  * One-shot, idempotent setup of the CW staging database. Run ON THE STAGING SERVER as root
  * (it reads the doadmin login from /etc/cw/db.env):
  *
- *   php bin/setup_staging.php [--db=cw_staging] [--user=cw_app]
+ *   php bin/setup_staging.php [--db=cw_staging] [--user=cw_app] [--mark-staging]
  *
  *  1. CREATE DATABASE IF NOT EXISTS cw_staging (utf8mb4_0900_ai_ci).
  *  2. App login cw_app: a random password is generated once and written to /etc/cw/app.env
  *     (key=value: db_user, db_password, db_name, plus db_host/db_port copied from db.env so the
  *     web service never reads db.env; other keys in the file are kept). A new file is 0600
  *     root; an existing file keeps its group and mode (0640 root:www-data once php-fpm serves
- *     the API, see deploy/staging/install_api.sh), never wider than 0640.
+ *     the API, see deploy/staging/install_api.sh), never wider than 0640. With --mark-staging it
+ *     also writes environment=staging, the marker staging-only tools check (D47). That is opt-in: a
+ *     server that will carry real orders must never get it by re-running this script.
  *     Re-runs reuse that password; the account is created (REQUIRE SSL) or re-aligned to it.
  *  3. Migrations are applied as doadmin.
  *  4. cw_app table grants are converged: SELECT/INSERT/UPDATE/DELETE on every table except
@@ -32,11 +34,12 @@ use CW\Schema\Migrator;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-$opts = getopt('', ['db:', 'user:', 'help']);
+$opts = getopt('', ['db:', 'user:', 'mark-staging', 'help']);
 if (isset($opts['help'])) {
-    fwrite(STDOUT, "usage: php bin/setup_staging.php [--db=cw_staging] [--user=cw_app]\n");
+    fwrite(STDOUT, "usage: php bin/setup_staging.php [--db=cw_staging] [--user=cw_app] [--mark-staging]\n");
     exit(0);
 }
+$markStaging = array_key_exists('mark-staging', $opts);
 $dbName = is_string($opts['db'] ?? null) ? $opts['db'] : 'cw_staging';
 $appUser = is_string($opts['user'] ?? null) ? $opts['user'] : 'cw_app';
 if (!DbSettings::isValidIdentifier($dbName) || !DbSettings::isValidIdentifier($appUser) || strlen($appUser) > 32) {
@@ -79,6 +82,16 @@ try {
     if (($current['db_host'] ?? null) !== $hostPort['db_host'] || ($current['db_port'] ?? null) !== $hostPort['db_port']) {
         writeAppEnv($appEnvPath, $hostPort);
         $say("db_host/db_port written to {$appEnvPath}");
+    }
+    // The staging marker (D47): staging-only tools (bin/purge_test_refs.php) refuse to run without it. Opt-in, so a
+    // re-run on a server promoted to real use never puts it back (the go-live checklist removes it).
+    if ($markStaging && ($current['environment'] ?? null) !== 'staging') {
+        writeAppEnv($appEnvPath, ['environment' => 'staging']);
+        $say("environment=staging written to {$appEnvPath}");
+    } elseif (!$markStaging) {
+        $say(($current['environment'] ?? null) === 'staging'
+            ? "{$appEnvPath} says environment=staging (left as it is)"
+            : "{$appEnvPath} has no staging marker (add --mark-staging on a staging server only)");
     }
 
     $account = Grants::account($appUser);

@@ -11,7 +11,7 @@ use CW\CwException;
 use CW\Reservations;
 
 /**
- * POST /v1/reservations and /v1/reservations/{ref}/commit|release|cancel|ship|unship|return
+ * POST /v1/reservations and /v1/reservations/{ref}/commit|release|cancel|uncancel|ship|unship|return
  * (plan §3, §4). The state machine is CW\Reservations; this only maps JSON to its calls.
  */
 final class ReservationsController
@@ -65,6 +65,18 @@ final class ReservationsController
             $c->param('ref'),
             Input::list($b['unit_ids'] ?? null, 'unit_ids', 'bad_unit_ids'),
             Input::bool($b['restockable'], 'restockable'),
+            $c->idemKey(),
+        ));
+    }
+
+    /** {unit_ids} — cancelled units back to allocated (D46): the site took a line cancel back. */
+    public function uncancel(Context $c): Response
+    {
+        $b = $c->json();
+        return Response::fromOpResult($this->res($c)->uncancel(
+            $c->caller(),
+            $c->param('ref'),
+            Input::list($b['unit_ids'] ?? null, 'unit_ids', 'bad_unit_ids'),
             $c->idemKey(),
         ));
     }

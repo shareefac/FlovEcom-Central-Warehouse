@@ -276,13 +276,14 @@ and a retry succeeds. An unknown order is 404, also not stored. Units in the wro
 stored per-unit result (`already_shipped`, `not_shipped`, `already_returned`, `cancelled`,
 `unknown_unit`, ...) and change nothing. `cancel` also accepts *held* units (held −u; never VERIFY,
 because the goods never left). `return` is once per unit whatever the key, so a refund-with-restock
-and a return receipt never double-count.
+and a return receipt never double-count. `uncancel` (D46) follows the same rules.
 
 **D37. Cancel with `restockable = false`.** The unit leaves `allocated` at its sale warehouse, then
 a `transfer_out` (on_hand −u there) and a `transfer_in` (on_hand +u at `VERIFY`), noted
 `cancel_not_restockable`, and a `count_review` at VERIFY (`verify_recount`, dedupe
 `verify:<channel>:<unit>`). Nothing is written off. A person later books `write_off` at VERIFY or
-moves the unit back with `transfer_out`/`transfer_in`.
+moves the unit back with `transfer_out`/`transfer_in`. An uncancel (D46) moves a unit nobody has
+touched back the same way and dismisses its recount.
 
 **D38. Feed rows and versions.** `Stock::flush()` writes one `stock_change` row (`sku_id`,
 reason `stock`) per item whose availability at a **sellable** warehouse changed by a non-zero net
@@ -347,10 +348,10 @@ negative when its open units ship.
 - Delta: target minus the sum of the item's earlier opening rows. Book it as a signed `adjustment`
   under a new doc_ref after the final opening_orders batch, noted as the rebase.
 - Counted items are not rebased.
-- The tool has no rebase mode yet. It must be built and tested (estimate → opening_orders → some ships
-  → rebase ⇒ available equals the site figure at T0, and on_hand equals max(S_T0, 0) once all opening
-  units have shipped) before Phase 3/P reaches T0.
-- Until then, nobody books CW counts or adjustments on a site's items between its estimate and its T0.
+- ~~The tool has no rebase mode yet.~~ Built and tested: `--rebase` (D40b), with the proof asked for here
+  (estimate → opening_orders → some ships → rebase ⇒ available equals the site figure at T0, and on_hand
+  equals max(S_T0, 0) once all opening units have shipped).
+- Nobody books CW counts or adjustments on a site's items between its estimate and its rebase.
 
 *Booked so far:* only `cw_staging`, on 2 Oct 2026. The owner chose the "duty-day stock": Vape and Go's
 figure at 00:00 BST on 1 Oct 2026, from the archived VPD workbook (xlsx sha256 aecf0178…, input CSV
@@ -360,6 +361,79 @@ sha256 3561293a…). 8,199 items, 296,599 units, doc_ref `opening:vapeandgo:2026
 - It is provisional: the T0 rebase above replaces it in effect.
 *Why the actor is a system job:* the booking is mechanical, from an archived file. The approver is
 named in the note (`--approved-by`) and here.
+
+**D40b. The rebase at T0, as built (F4, 2 Oct 2026; amends D40a).** `bin/import_opening_estimate.php --rebase`
+(`CW\Ops\OpeningRebase` plans, `OpeningEstimate::apply` books). Slot `cfu3`.
+- **When.** After the channel's final opening_orders batch was accepted (`channel_opening.opening_orders_at`).
+  Before it: 409 `opening_not_final`, exit 1. T0 is the one CW recorded with the batches. `--as-of` and a file
+  named `t0_site_stock_<YYYYMMDDTHHMMSSZ>.csv` must match it. A real run needs both `--sha256` (as for the
+  estimate) and `--as-of`: the hash proves the file's bytes, not which snapshot they are, so a renamed file
+  from another capture must not pass on its name (review fix). The dry run prints the T0 check either way.
+- **Input.** The connector's T0 file as `cw_opening_stock_csv()` writes it: `variant_id,prodt_stock,...`, the
+  variant and the figure first, further columns ignored. The estimate mode accepts extra columns now too.
+- **Per item**, at the channel's sellable warehouse (`--warehouse` overrides):
+  - target = Σ over the item's `mapped` listings on this channel of max(S_T0, 0) × u, plus Σ u of the units the
+    opening committed: this channel's units of `origin = 'opening'` reservations in the states allocated,
+    shipped, cancelled and returned (every state such a unit can reach) that have a `commit` row (or an `adopt`
+    row) on their allocated bucket.
+    - A `released` unit was held before T0 and left out of the opening body: never paid, not counted.
+    - A unit cancelled while held and left out of the opening body stays `cancelled` under the (now opening)
+      reservation, but it was never paid either and has no commit row: not counted (`never_committed` in the
+      report; review fix). An uncancel of it after T0 is a sale after T0, which lowers availability as it
+      should.
+    - An unlinked unit counts for no item.
+  - delta = target − Σ the item's on_hand rows under `--estimate-doc-ref` at that warehouse (byte for byte;
+    `none` when no estimate was booked).
+  - Each non-zero delta is one signed `adjustment` under `--doc-ref` (default
+    `opening-rebase:<channel>:<T0 as YYYYMMDDTHHMMSSZ>`): actor `system:opening_estimate`, doc_type
+    `opening_rebase`, Idempotency-Key `<doc_ref>:<sku_id>`. The note names T0, the file hash, `--source` and
+    `--approved-by`.
+- **Skipped and listed**, each with its target, the earlier rows and the delta it would have booked, so a person
+  can book it or count the item:
+  - `counted`: sku or balance `counted_at` is set, or the item has a `count` row;
+  - `other_opening`: an opening row under any other doc_ref, or at another warehouse;
+  - `moved`: any on_hand row besides the estimate's and those of this channel's opening units, with its
+    movement types (the opening units' ship, unship and return, and the VERIFY moves of their cancels and
+    uncancels, are the opening's own history);
+  - `quarantined_listing`: a quarantined listing of the item has T0 stock > 0, or no figure;
+  - `no_t0_figure`: a mapped listing of the item is not in the file;
+  - `no_mapped_listing`: the item has rows under the estimate's doc_ref, or opening units, but no `mapped` or
+    `quarantined` listing on this channel now (it was unmapped or relinked after the estimate; the parallel
+    mapping work changes links). Its site figure at T0 is unknown, and without this skip the rebase would
+    write the item down to its units term without saying so (review fix). A person relinks it, counts it,
+    or books the listed delta;
+  - `units_elsewhere`: an opening unit of the item sits at another warehouse.
+- **"On_hand history is opening estimates only" is read strictly.** A ship of an order paid after T0 also makes
+  an item `moved`, although the rebase arithmetic would still hold for it. So the rebase runs straight after
+  the final batch is acknowledged, at a quiet time (after the day's dispatch run). A `moved` item is settled by a
+  person: book the listed delta as a staff adjustment, or count the item. Admitting post-T0 rows of the
+  channel's own units is the owner's choice; it is reversible.
+- **Re-runs and resumes** book only what is missing. An item already rebased under the doc_ref is judged on its
+  figure only: a later ship or count does not turn it into a skip. A different figure gives 409
+  `rebase_conflict` for the whole run, and nothing is booked. That means another file, or links changed since.
+  A deliberate second rebase uses another doc_ref; the first rebase's rows then count as `other_opening`.
+- The rebase rows carry the estimate's actor, so a later estimate run sees them as an earlier opening
+  (`earlier_opening`) and books nothing on those items.
+- **No lock across the run.** The plan is read without locks, then each item is booked in its own transaction,
+  like the estimate. D40a's rule stands: nobody books stock on a site's items between its estimate and its
+  rebase.
+- **Sister sites.** An item an earlier site's opening touched is `other_opening` or `moved`, so it is skipped by
+  design; only items no other opening touched are rebased. That fits the owner's decision of 2 Oct
+  (`docs/inventory-modules-plan.md`, "now" decision 9): sister-only items open from the sister's own figure
+  (0 or more). At that site's T0: `--estimate-doc-ref=none` with the sister's T0 file.
+- **Order at a site's T0:** `docs/ops.md` "A site's T0". The connector's `bin/cw_t0.php` prints the exact
+  commands once the final batch is acknowledged, and `--rebase` runs steps 7–10 itself (SC4).
+- **Tests:** `tests/Integration/Stock/OpeningRebaseTest.php`.
+  - The proof: estimate → opening_orders → some ships → rebase ⇒ available = S_T0 × u. It covers u = 10, an
+    item with no estimate because its figure was negative, and an item with two listings. Once every opening
+    unit has shipped, on_hand = max(S_T0, 0) × u and allocated = 0.
+  - Cancels (to VERIFY and back), a return, and a hold released by the opening body.
+  - Every skip reason, a resume, a re-run and a conflict.
+  - The connector's 4-column T0 file through the CLI, with its guards.
+
+*Why:* after the rebase, available equals the site's T0 figure, plus what came back on sale since (restockable
+cancels, returns). Once the opening units have shipped, on_hand equals max(S_T0, 0) × u. One row per item corrects
+both the estimate's drift between its as-of moment and T0 and the open paid units the estimate left out.
 
 **D41. Movements.**
 - The sign comes from the type, whatever sign the sender used: `goods_in`/`transfer_in` +|q|;
@@ -408,6 +482,8 @@ idempotency key, because the state makes it idempotent. Extending a hold sets
 5. Held units sit only under held reservations, and allocated/shipped/returned units only under
    committed ones of the same channel.
 6. Every linked unit has a balance row, and no held reservation lacks `expires_at`.
+Later additions: 7–9, the value sequence (I3); 10–11, the units' moves through VERIFY (D46).
+`src/Invariants.php` lists them all.
 It is read-only and returns readable violations. It loads units into memory, which is fine for
 tests; production needs chunking (open item).
 
@@ -495,6 +571,7 @@ idempotency lookup, so a key stored while `shadow` answers `channel_off` after a
 
 **A6. Read endpoints.**
 - `GET /v1/changes?after=&limit=`: after ≥ 0 (default 0), limit 1–5000. It is `Availability::changes`.
+  It also carries `head_seq`, the feed head (A15).
 - `GET /v1/availability?variant_ids=`: 1–1000 printable ids, as a comma list or repeated
   `variant_ids[]`.
 - `GET /v1/snapshot?after_listing=&limit=`: limit 1–5000.
@@ -515,7 +592,9 @@ idempotency lookup, so a key stored while `shadow` answers `channel_off` after a
 - Checked fields: `site_mode` off/shadow/live, the counters are integers ≥ 0, and
   `connector_version` is at most 32 characters.
 - The answer is `{result, mode, feed_seq, received_at}`. `mode` is CW's `channel.mode`; the site
-  takes the lower of that and its own (§12).
+  takes the lower of that and its own (§12). Every authenticated answer also carries it in
+  `X-CW-Channel-Mode` (A13).
+- It needs an `Idempotency-Key` like every POST; the same key with another body is 422 (A16).
 
 **A8. `PUT /v1/listings`** writes `listing_profile` only (§3, D6).
 - A variant CW has never seen gets its `unmapped` `channel_listing` row first. The profile's FK
@@ -576,6 +655,339 @@ idempotency lookup, so a key stored while `shadow` answers `channel_off` after a
   `INSERT IGNORE` saw it as a duplicate while the PHP map missed it. A variant without an exact
   match is now looked up with `=`, which applies the column's own collation.
   Test: `ApiReservationsTest::testVariantIdsFollowTheDatabaseCollation`.
+
+## Connector follow-ups, API side (slot `cfu1`, 2 Oct 2026)
+
+A13–A17 continue the A-series (the HTTP API). They close follow-ups F1, F2, F5, F6 and F8 found
+while building the site connector. Code: `src/Api/Kernel.php`, `src/Availability.php`,
+`src/Reservations.php`, `src/ChannelAdmin.php`, `bin/channel_set.php`. Tests:
+`tests/Integration/ApiKernel/` drives the real kernel in-process (base
+`tests/Support/ApiKernelTestCase`), and `tests/Integration/Ops/ChannelSetToolTest.php` runs the tool
+as the app login, so both run in every slot. The HTTP tests of slot `api` check the same over Apache.
+
+**A13. `X-CW-Channel-Mode` on every answer after authentication (F1; amends A1, A7; plan §6.2).**
+- Every answer to a caller that passed authentication (key AND allowlist, A2) carries
+  `X-CW-Channel-Mode: off|shadow|live`. That includes successes, 404/405 from routing,
+  409 `channel_off`, 400 for a missing or malformed Idempotency-Key, 413/415, shape errors, domain
+  refusals, 500 `internal` and 503 after authentication, and idempotent replays.
+- The value is `channel.mode` as this request's authentication read it: the mode the request was
+  judged under (the `off` gate, A3, uses the same read). A replay carries the mode of the moment,
+  while its stored body stays as stored (a replayed heartbeat's `data.mode` is the old one).
+- It is never sent before authentication: not on a 401, not on a 403 (a known key from an address
+  off the allowlist learns nothing), not on a 503 before the database answered.
+- *Why:* §6.2 takes the site's effective mode as the lower of its `CW_MODE` and CW's mode "read from
+  every response". Before this only the health and heartbeat bodies carried it, so a site learnt of a
+  switch on its next heartbeat (60 s) or health probe. A header keeps stored answers byte-identical
+  on replay (A1) and changes no body.
+
+**A14. `bin/channel_set.php` sets a channel's mode and allowlist (F2; amends A11; closes the open item
+"a tool to change a channel's allowlist or mode").**
+- `php bin/channel_set.php --code=<c> [--mode=off|shadow|live] [--ips=<a,b/24>|none] [--actor=<who>]
+  [--apply] [--db=<schema>] [--admin]`, through `ChannelAdmin::configure`. It is a dry run unless
+  `--apply`. Both print `mode: <before> -> <after>` and `allowed_ips: [..] -> [..]` (or
+  `(unchanged)`) and any warning.
+- `--ips` replaces the list, with the same validation as `create_channel` (addresses or CIDR blocks,
+  `/0` refused, duplicates dropped). `--ips=none` empties it. `--ips=` with no value, an option
+  without `=value` and a repeated option are usage errors: `getopt()` would silently drop the first
+  and take the next option as the value of the second.
+- With `--apply`, one transaction X-locks the channel row first (like key rotation, D39), reads the
+  before-values again under that lock, and writes and audits each setting that really changes:
+  `channel.mode` {from, to, by} and `channel.allowlist` {before, after, by}, actor
+  `system:channel_admin`. `by` is `--actor`, else the login running the tool (`SUDO_USER` first).
+  A list that differs only in order is unchanged. When nothing changes, nothing is written or audited.
+- Warnings, never refusals (the dry run is the review step): a mode other than `off` with an empty
+  allowlist (every call gets 403); `off -> live` (skips shadow, §12); `live` before the channel's
+  final opening_orders batch (D40); a lower mode (the site's rollback steps apply, §12).
+- It connects as the app login like the other channel tools (A11) and uses the job frame (H3):
+  exit 0 ok or dry run, 1 refused (unknown channel; bad mode, address or actor), 2 usage, 3 cannot
+  run. It takes no job lock: the row lock serialises two runs.
+- No feed row is written: a listing's view does not depend on the mode, and the site learns the mode
+  from A13.
+
+**A15. `GET /v1/changes` carries `head_seq` (F5; amends A6; answers the open item "after a restore
+from backup").**
+- `head_seq` is MAX(seq) of `stock_change`, 0 on an empty feed, read after the page. So
+  `head_seq >= next_after`, unless the caller's own `after` is beyond the head. It can exceed
+  `next_after` (more pages, or rows committed meanwhile).
+- Pruning keeps the newest row of every scope (H2), and seq is allocated in commit order (D39), so
+  the head never moves back in operation. A `head_seq` below the seq the site last applied
+  therefore means CW was restored to an earlier point. The site must then reset its versions and
+  re-snapshot (`/v1/snapshot`, whose `seq` is the same head). It sees this on every poll (every 2 s),
+  not only through the heartbeat's `feed_seq`, which is the same head.
+- *Limit:* it sees a restore only while the restored head is still below the site's cursor. When CW
+  writes more rows after a restore than it lost (other channels, purchasing) before the site polls
+  again, the head passes the cursor and the reused seqs in between go unnoticed. After any restore
+  the operator resyncs every site by hand (open items).
+
+**A16. The heartbeat's Idempotency-Key, spelled out (F6; amends A4, A7).** `POST /v1/heartbeat` is a
+POST like the others.
+- Without `Idempotency-Key` the answer is 400 `idempotency_key_required` (`bad_idempotency_key` for a
+  malformed one), and nothing is recorded.
+- A retry with the same key and the same body (fields in any order) replays the stored answer
+  (`Idempotent-Replayed: true`, no second `channel_health` row).
+- The same key with another body is 422 `idempotency_key_reused`, and nothing is recorded.
+- So the connector makes one key per heartbeat and re-sends exactly that body on a retry. The next
+  heartbeat, with new counters, gets a new key.
+
+**A17. An extended hold answers with its lines (F8; amends plan §3's reserve row).**
+- A reserve on a held order with the same lines answers 200 `extended`. It has the same top-level
+  keys and the same `lines[]` as a fresh 201, in the same (normalised) order.
+- Per line: `variant_id` (as sent), `qty`, `units_per_item`, `kind` (the item's policy, or
+  `unlinked`), `result` (`held`, or `unlinked`), `sku_code`, `quarantined` (linked lines) and
+  `available` (listing units, after the hold).
+- Item, u and warehouse are the units' snapshot: what the hold sits on, even if the listing was
+  relinked or its u changed since. Policy, code, quarantine and `available` are read as they are now.
+- The extra reads take no locks. Under READ COMMITTED they see the latest committed rows, and the
+  extension moves no bucket, so no balance lock is taken and the lock order is unchanged. The answer
+  is stored under the key like every other.
+- *Why:* the connector handles 201 `held` and 200 `extended` in one branch. Without `lines[]` a
+  payment retry lost the per-line kinds and availability that a fresh hold gives it.
+
+## Connector follow-ups, stock side (slot `cfu2`, 2 Oct 2026)
+
+D46 closes follow-up F7 found while building the site connector. Code: `src/Reservations.php`
+(`uncancel`), `src/Stock.php` (`UNFLAGGED`), `src/Invariants.php` (10–11), the route in
+`src/Api/Kernel.php` and `ReservationsController`. Tests: `tests/Integration/Stock/UncancelTest.php`,
+`UncancelInvariantsTest.php`, `tests/Integration/ApiKernel/UncancelRouteTest.php`, and hammer scenarios 3–5.
+
+**D46. Uncancel: a cancel taken back (F7; amends D36, D37, D44).**
+`POST /v1/reservations/{ref}/uncancel {unit_ids}` (`Reservations::uncancel`). The site sends it when a
+line cancel is taken back (`ordi_iscancelled` 1 → 0 on a paid order).
+- Like ship/unship/return (D36): an unknown order is 404 `unknown_order`, an order that is not committed
+  (held, released, expired, a tombstone) is 409 `not_committed`. Neither is stored (D27), so the same
+  key works once the commit has arrived. It is a stock-writing route: 409 `channel_off` while the
+  channel is `off` (A3).
+- Per unit, under its sale-time snapshot (warehouse, item, u), the result is one of:
+  - `uncancelled`: the unit's last cancel was restockable, or it was cancelled while held.
+    allocated +u (movement `uncancel`).
+  - `uncancelled_from_verify`: the last cancel parked it in VERIFY (D37) and it is untouched there.
+    Untouched means all of:
+    - its `verify_recount` is still open;
+    - no count of the item at VERIFY was booked after the unit arrived (whatever that count's
+      `counted_at`: a later count replaced the figure, R13);
+    - no other on_hand row of the item at VERIFY was booked after the unit arrived, except other parked
+      units arriving (`transfer_in` noted `cancel_not_restockable`) and leaving (`transfer_out` noted
+      `uncancel_from_verify`). D37 has a person settle VERIFY with `write_off` or
+      `transfer_out`/`transfer_in`, and no screen closes the recounts, so such a row may concern any unit
+      parked before it: CW cannot tell whose unit moved and moves none of them back (review fix, 2 Oct);
+    - VERIFY still holds u.
+
+    CW then books the paired movement back (`transfer_out` VERIFY −u and `transfer_in`
+    +u at the unit's warehouse, noted `uncancel_from_verify`, at booking time), then allocated +u.
+    Availability does not move, so this can never oversell. The recount is dismissed
+    (`resolution = 'uncancelled'`, the call's key in its note).
+  - `uncancelled_after_verify`: parked in VERIFY, but somebody may already have dealt with it. The
+    recount was resolved or dismissed by a person, VERIFY was counted since, VERIFY was moved by hand
+    since (a write-off or transfer), or VERIFY holds less than u. CW cannot tell where that unit is now,
+    so VERIFY is left alone. The unit is allocated +u like a restockable one, and a `count_review`
+    `uncancel_after_verify` at the unit's warehouse asks a person to reconcile (for example, to move
+    the unit back from VERIFY, or to reverse a write-off). Its detail carries `reason`
+    (`recount_closed`, `verify_counted`, `verify_moved`, `verify_short`), the ledger id of the count or
+    move that decided it, and the recount's id and status. Availability is then lower than the shelf
+    until the person acts, never higher.
+    - *Example (the review's probe):* 10 at MAIN; units a and b cancelled to VERIFY (MAIN 8, VERIFY 2);
+      staff move one back (MAIN 9, VERIFY 1). Uncancelling a gives MAIN 9 with 1 allocated, available 8,
+      VERIFY 1 and a review. Before this rule a came back from VERIFY, taking b's still-unverified unit
+      with it: available 9, one too high, with nothing raised.
+  - A unit cancelled while its listing was unlinked, and linked since, is adopted with today's link,
+    as a commit without a hold would do. The unit's sku and u are set, and the ledger note is
+    `adopted: listing <id>`. A unit that is still unlinked only changes state.
+  - Anything else gets a stored per-unit result and changes nothing: `not_cancelled` (allocated),
+    `shipped`, `returned`, `released`, `unknown_unit`.
+- Which cancel parked a unit is read from the ledger: the unit's newest `cancel` row, and a
+  `transfer_in` to VERIFY noted `cancel_not_restockable` after it. No schema change.
+- In both VERIFY cases the unit's recount key (`verify:<channel>:<unit>`) is retired, by suffixing
+  `#<review id>`. A later cancel to VERIFY then opens a fresh recount instead of meeting the old row's
+  dedupe key (D17). A person's decision on a resolved recount is left as it is.
+- **Oversell.** Some uncancels lower availability: the restockable, after-VERIFY and adopted units.
+  Where they leave a `strict` or `stopped` item below zero, CW raises one `oversell_event`
+  `uncancel_short` per balance and call, with the reservation. The shortfall is min(those units,
+  −available). The event is also listed under `oversell` in the answer, like commit's.
+  `Stock::flush` leaves `uncancel` rows to this check (`UNFLAGGED`), so nothing is flagged twice.
+  R7's flags that ignore the stock level (`stopped_sale`, `quarantined_sale`) are not raised: an
+  uncancel re-instates a sale CW already accepted.
+- Lock order is unchanged: reservation → listing rows FOR SHARE (adoption only, R4) → balances (the
+  sale warehouse and VERIFY, in one sorted `lock()`) → sku FOR SHARE → the recount rows → value clocks →
+  feed clock.
+- **Keys.** A cancel and an uncancel of the same units are separate events, each with its own key
+  (e.g. a per-unit cycle counter in the connector's key). A cancel re-sent under an earlier cancel's key
+  replays that answer and changes nothing; so does an old uncancel key.
+- Invariants 10–11 (D44):
+  - each cancel or uncancel move of a unit through VERIFY is one balanced `transfer_out`/`transfer_in`
+    pair of one item, with VERIFY on the right side;
+  - per unit and item, those VERIFY rows never net below zero;
+  - a unit whose newest such row is a move back has no open recount under its key.
+
+*Why:* until now CW could not take a cancel back. The site would ship a unit that CW held as
+cancelled, so on_hand never fell for it and availability stayed overstated by u. The VERIFY rule keeps
+D37's "nothing is written off without a person". An untouched unit is simply its cancel undone. A unit
+that a person or a count may have acted on (any count, write-off or hand transfer of the item at VERIFY
+since it arrived) is not guessed at, and is put in front of a person instead.
+
+## Connector follow-ups, opening and staging tools (slot `cfu3`, 2 Oct 2026)
+
+F4 is D40b, recorded next to D40a above. D47 closes F9. Code: `src/Ops/TestRefPurge.php`,
+`bin/purge_test_refs.php`, `Caller::channelJob`, the staging marker in `bin/setup_staging.php`. Tests:
+`tests/Integration/Ops/PurgeTestRefsTest.php`.
+
+**D47. Test leftovers on a staging channel: `bin/purge_test_refs.php` (F9).**
+`php bin/purge_test_refs.php --channel=<code> --prefix=<order_ref prefix> [--heartbeats-until=<ISO time>]
+[--actor=<who>] [--apply] [--db=<schema>] [--admin]`. It is a dry run unless `--apply`.
+- **Staging only.** app.env must say `environment=staging`, and the schema must be `cw_staging` or `cw_test_*`.
+  Otherwise the tool exits 1 with `REFUSED`.
+  - The value is read from the app.env file (`Config::appFile`). A `CW_ENVIRONMENT` variable does not count.
+    `CW_APP_ENV` can still point the tool at another app.env file (the tests use that), so the marker guards
+    against mistakes, not against a determined operator.
+  - `bin/setup_staging.php --mark-staging` writes the line; without the flag the script leaves the marker
+    alone (review fix: a re-run on a server promoted to real use must not put it back). On today's staging
+    box it is added once by hand (ops.md). Production's app.env never carries it.
+  - **A channel in mode `live` is refused** (409 `channel_live`, `REFUSED` on the CLI), whatever the marker
+    says (review fix). The marker and the schema name cannot tell a staging schema that carries live data
+    apart: `cw_staging` already holds the owner's real duty-day estimate on the live-shaped `vapeandgo`
+    channel. A test channel is `off` or `shadow`; lower a live one with `bin/channel_set.php` first if it
+    really is a test.
+  - **Go-live checklist:** before a CW server or schema carries real orders, remove `environment=staging`
+    from its app.env (ops.md "Test leftovers on staging").
+- **The prefix** is 4–32 characters of A–Z a–z 0–9 . : - with at least one letter. A bare number would match
+  real ord_ids, and LIKE wildcards are refused.
+- **Steps.** The dry run lists each reservation with what would happen to it.
+  1. *Neutralise* through the normal Reservations paths, so the ledger records it. A held reservation is
+     released (its current attempt). The held and allocated units of a committed one are cancelled, restockable.
+     Shipped and returned units stay as they are.
+     - The calls run as `Caller::channelJob(<channel>, 'purge_test_refs')`: the channel's idempotency scope,
+       actor `system:purge_test_refs` in the ledger and the audit log.
+     - Keys: `purge:release:<ref>:<attempt>` and `purge:cancel:<ref>:<16 hex of sha1(unit ids)>`, so a re-run
+       replays them.
+  2. *Delete* a reservation and its units only when no `stock_ledger` row names the order or one of its units,
+     and no `oversell_event` names the reservation. It is re-checked under the reservation's lock (lock order),
+     in one transaction per reservation, and audited `reservation.purged` (the units and their last state in the
+     detail). A linked unit always has ledger rows, so its reservation stays and is listed `kept (ledger)`.
+  3. *Delete the idempotency rows of the refs left without a reservation*: the channel-scope keys that
+     `audit_log` names for a `reservation` entity with the prefix, for refs whose reservation this run (or an
+     earlier one) deleted, or that never had one. Every reservation call is audited with its key and ref,
+     including a refused reserve that left no reservation, and the purge's own calls.
+     - The keys of a **kept** reservation stay, and the report counts them (review fix). After the purge
+       released or cancelled it, a late retry under an old key must replay its answer: deleted, a commit
+       retry would run again as `commit_after_expiry` and allocate again, and an old uncancel key would
+       re-allocate the units the purge cancelled.
+  4. With `--heartbeats-until`: **all** of the channel's `channel_health` rows received at or before that time,
+     and **all** its `/v1/heartbeat` idempotency rows created at or before it. The prefix does not apply:
+     heartbeats name no order. The dry run shows their count, time range, addresses and connector versions,
+     to check they are the test's.
+  5. One `purge.test_refs` audit row: actor `system:purge_test_refs`, the channel, `by` (`--actor`, else the login
+     running it, SUDO_USER first), the counts, and the kept and failed refs.
+- **Never deleted:** `stock_ledger`, `stock_value_ledger` and `audit_log` rows (append-only; the app login cannot)
+  and listings (NO_DELETE). The tool connects as `cw_app` like the other jobs (H3), which has full rights on
+  `reservation`, `reservation_unit`, `idempotency` and `channel_health`, and takes the job lock.
+- **Failures.** A reservation whose neutralising call fails is skipped and listed `FAILED` at the end, the rest go
+  on, and the exit code is 1 (the owner's rule for bulk actions: skip what is doubtful, finish the rest, list the
+  skipped).
+- The invariants stay green: only units with no ledger rows (unlinked ones) are deleted, with their reservation.
+
+*Why:* the Phase 3 connector smoke left `proto1-` reservations, unlinked units, idempotency rows and heartbeats
+on `cw_staging`'s live-shaped `vapeandgo` channel. Removing them by hand means admin DELETEs that nobody audits,
+and a hand-made mistake there could delete rows the ledger still names. This tool goes through the same paths a
+site does, and every row it removes is audited.
+
+## Connector follow-ups, site side (the Vape and Go connector, proto, 2 Oct 2026)
+
+SC1–SC5 record how the site connector (`App_proto/src/central_warehouse`, proto only) uses A13, A15, A17, D46
+and D40b. Its tests: `php tests/run.php` in that directory, against the mock CW `tests/mock_cw/router.php`,
+whose `legacy` switch stands for a CW before these follow-ups.
+
+**SC1. CW's mode from every answer (A13).** `cw_http` reads `X-CW-Channel-Mode` on every answer and updates
+the mode cache (`state_dir/mode.json`, source `header`); never from a 401/403 or an answer without it. The
+effective mode follows a switch at CW on the next call of any kind (the feed poll every 2 s, any hook call).
+- The health probe is now a fallback: it runs when no header was seen for 15 s (an older CW), and as the
+  breaker's recovery probe.
+- The heartbeat takes the mode from the header. Its body's `mode` counts only without a header and when the
+  answer is not a replay, because a replayed body carries the first answer's mode.
+- *Review fixes:*
+  - A header with a lower mode caps the effective mode the process has already cached, at once and before
+    any early return. Otherwise, when mode.json already held the new mode (the worker's poll wrote it), a
+    checkout that cached `live` kept skipping the site's own stock check after a reserve CW had judged in
+    shadow, where CW refuses nothing.
+  - A header may raise mode.json only if its request was sent after mode.json was last written (mode.json
+    carries `at_us`). An answer judged before a lowering that another process has already recorded is
+    stale; written back, it would hold mode.json up for up to 10 s. Lowering is always taken.
+
+**SC2. A restore is detected on every poll (A15).** A `/v1/changes` answer whose `head_seq` is below the seq
+the site asked after is not applied: `feed.reset_required` is set and `feed_restore_detected` alerts (source
+`changes`). A resync snapshot whose `seq` is below the cursor counts too. The feed then stops until
+`bin/cw_resync.php --reset-versions`, as before. An older CW without `head_seq` keeps the heartbeat's
+`feed_seq` check.
+- *Review fix:* the heartbeat's check runs only while the feed poll has seen no `head_seq` (an older CW; the
+  poll forgets the head when CW stops sending it), and never on a replayed answer. A replay carries the
+  `feed_seq` of its first answer. A worker that restarts within the minute polls first, moving the cursor
+  on, then resends the pending heartbeat; the old `feed_seq` would then signal a false restore and stop the
+  feed until someone resynced by hand.
+- *Limit (A15):* a restore is seen only while CW's head is still below the cursor. After any restore the
+  operator resyncs the sites by hand (CW ops.md).
+*Why not reset by itself:* a restored CW lost events the site had already sent (holds, commits, ships). A person
+reconciles CW first; otherwise the site would take CW's restored figures, which are too high.
+
+**SC3. Uncancel (D46).** The unit sweep sends `POST …/uncancel {unit_ids}` when a unit whose cancel was queued
+is live again (`ordi_iscancelled` 1 → 0, or a Cancelled order completed again) and not shipped. The unit's
+`cancel_state` goes back to none and its `cancel_cycle` up by one.
+- Keys: `vpg:cnl:<ref>:<cycle>:<h>` and `vpg:ucn:<ref>:<cycle>:<h>`, cycle = cancel_cycle + 1, so every cancel
+  and every uncancel of a unit has its own key (D46 "Keys").
+- Expected answers: `uncancelled`, `uncancelled_from_verify`, `uncancelled_after_verify` (logged as a warning:
+  CW opened a count review) and `not_cancelled`. A unit CW cannot put back (`shipped`, `returned`,
+  `released`, `unknown_unit`), or an uncancel row that goes dead, raises the alert `unit_sweep_uncancelled`.
+  An `oversell` in the answer is logged.
+- It needs the connector's SQL v2 (`cw_outbox.kind` 'uncancel', `cw_unit_state.cancel_cycle`), applied by
+  `bin/cw_install_tables.php` before the code; the worker refuses to start without it. Applied on the proto
+  database on 2 Oct 2026.
+- **The order-level cancel grace is 15 minutes (it was 48 h).** *Why:* the 48 h existed only because CW could
+  not take a cancel back. Now a cancel taken back is an uncancel, so the grace only has to absorb quick toggles
+  (a mis-click, a payment status flipping back). Without any grace each toggle would put the stock back on sale
+  for its length, where another order could take it, and the uncancel would then be an `uncancel_short`
+  oversell. With 48 h, a really cancelled order kept its units allocated for two days; now it is 15 minutes.
+  Units cancelled one by one are not delayed, as before.
+- An order holding a cancelled unit closes after 48 h without a change (6 h otherwise), so an order completed
+  again within two days (the proto fork's longest gap was 29 h) is uncancelled at once. A later one is found
+  by the nightly 30-day reopen, within a day.
+- *Review fixes:*
+  - Older than 30 days: the nightly pass also reopens any closed order holding a unit whose cancel was sent
+    and that is live again on the site (one scan of `cw_unit_state` for queued cancels). Before, nothing
+    reopened it, and CW kept the units cancelled while the site shipped them.
+  - A ship that CW answers `cancelled` (the site shipped a unit CW still holds as cancelled) raises the
+    alert `unit_sweep_uncancelled` (`why` = `shipped_while_cancelled_in_cw`), like a failed uncancel.
+  - An `oversell` in an uncancel answer is now the alert `uncancel_oversell`, not a warning: two paid orders
+    want one unit, and a person has to sort that out.
+  - Return rule: every site restock path sets `ordi_restock` and `ordi_iscancelled` together. A unit whose
+    cancel was taken back (`cancel_cycle` > 0) can keep that cancel's `ordi_restock = 1` with
+    `ordi_iscancelled` back at 0; that leftover no longer counts as a return once the unit ships. A real
+    restock after the dispatch sets both flags again, or leaves an `order_return_items` row.
+  - *Owner's choice, open:* the 15-minute order-level grace. Any order completed again more than 15 minutes
+    after its Cancel has its units on sale at CW in the meantime. If they sell, the uncancel raises
+    `uncancel_short`. All 9 re-completions seen on proto were 23 s to 29 h after the Cancel. To choose, compare
+    paid orders Cancelled per week (stock held back for the grace) with re-completions per week later than
+    the grace. A middle value (2 to 6 h) covers most of the observed gaps.
+
+**SC4. The rebase step from the site's box (D40b).** `bin/cw_t0.php --rebase --estimate-doc-ref=<doc_ref>|none`
+first checks T0, that CW accepted the final batch (else exit 4), and that the T0 file and its `.sha256` are the
+ones captured (else exit 3).
+- Without a transport it prints CW's commands for this T0.
+- With `--cw-ssh=<user@host> --cw-ssh-key=<file>` it runs `docs/ops.md` "A site's T0" steps 7–10 in order:
+  copy, CW's dry run (printed; a run without `--apply` stops there), then with `--apply --approved-by=<who>`
+  the real run and `bin/invariants.php`. A failing step stops the run (exit 1, alert).
+- The outcome goes to the connector's `cw_meta` `t0_rebase`. `--status` shows it and drops the TODO once
+  booked, and a booked rebase is not run again.
+- *Review fix:* `--apply` books only the plan the operator reviewed. The recorded dry run must be the last
+  step, through the same transport and for the same estimate, and CW's fresh dry run must print the same
+  doc_ref and figures (items, up, down, net, skipped). Otherwise it exits 4 (`REFUSED`), nothing is booked
+  and the record stays as it was. CW itself now needs `--as-of` on a real rebase run, and the connector
+  always sends it.
+- Phase 3: refused (exit 4) for any CW but the local mock, the same guard as the capture. The capture's own
+  guards (effective mode off, no connector order rows) are unchanged.
+- *Review fix:* that guard checks the config, not where ssh connects. `--cw-ssh` is therefore also refused
+  while the config points at the local mock (outside a CLI test config): the batches and T0 went to the
+  mock, so a rebase over ssh would run on a CW that never received them.
+
+**SC5. Extended holds (A17).** The connector already handled 201 `held` and 200 `extended` in one branch. With
+`lines[]` on `extended`, the per-line kinds now survive a payment retry. An older CW's bare `extended` leaves
+the kinds empty, so H2 keeps the site's own stock check.
 
 ## Concurrency hammer and scheduled jobs (slot `hammer`, 26 Sep 2026)
 
@@ -706,13 +1118,13 @@ with the alerting work.
 - API: a long-lived staging instance on `cw_staging` needs `0002` applied there first. It would
   then run as a second pool and vhost, e.g. `127.0.0.1:8081`.
 - API: still to build: pruning of `idempotency` (≥ 30 days), `channel_health` and `audit_log`
-  (every heartbeat adds one row to each of the three); and a tool to change a channel's allowlist
-  or mode (today that is SQL). The hold-expiry cron now exists (`bin/expire_reservations.php`, H4).
+  (every heartbeat adds one row to each of the three). ~~A tool to change a channel's allowlist
+  or mode.~~ Done: `bin/channel_set.php` (A14). The hold-expiry cron now exists (`bin/expire_reservations.php`, H4).
 - API: each request opens its own TLS database connection. On staging a health call takes
   ~40 ms and a reserve ~100 ms, well inside the site's 3 s budget.
 - API: after a restore from backup, CW's `seq` can be lower than versions a site already holds.
   The site then needs a full resync with its versions reset (a connector and runbook step, §2
-  "Backups & recovery").
+  "Backups & recovery"). Detection: `/v1/changes` now carries `head_seq` on every poll (A15).
 - API: a body over 12 MB is refused by Apache with its own HTML 413 page, not the envelope.
 - Hammer/ops: the scheduled jobs run as root on staging because `/etc/cw/app.env` is root-readable
   (H6). Production should run them as a dedicated user that can read `app.env` only.
@@ -721,6 +1133,21 @@ with the alerting work.
 - Hammer/ops: the feed clock (D39) serialises every stock-changing transaction from its flush to
   its commit. The hammer measured about 70–100 mixed operations/s with 22 concurrent callers
   against the staging cluster: far above today's peak, but it is the ceiling to watch.
+- Opening (D40b): the rebase skips an item as `moved` even when its only other history is ships of orders
+  paid after T0, which the arithmetic would allow. Owner's choice: keep it strict (run the rebase straight
+  after the final batch, settle any `moved` item by hand), or admit post-T0 rows of the channel's own units.
+- Opening (D40b): the connector's `bin/cw_t0.php` still refuses a real capture, and a `--rebase` run through a
+  transport, against CW staging (Phase 3 guard, one function: `cw_opening_target_allowed`). Lift it, with the
+  owner's go for a staging T0 rehearsal, once CW staging runs the rebase mode (SC4).
+- Staging (D47): add `environment=staging` to staging's app.env once (`docs/ops.md`), or run
+  `bin/setup_staging.php --mark-staging`. Go-live: remove it from any server or schema that will carry real
+  orders (ops.md); the purge also refuses a `live` channel.
+- Restore detection (A15, SC2): `head_seq` < the site's cursor catches a restore only while CW's new head is
+  still below the cursor. If CW writes more rows after a restore than it lost before the site's first poll
+  (other channels, purchasing), the head passes the cursor again and the reused seqs in between are skipped
+  unnoticed. A restore therefore stays an operator event: after any restore of CW's database, run
+  `bin/cw_resync.php --reset-versions` on every site (ops.md). A fingerprint of the row at `after`, or a
+  restore epoch kept outside the database, would close it; not built.
 
 ## Review fixes (slot `fix`, 26 Sep 2026)
 

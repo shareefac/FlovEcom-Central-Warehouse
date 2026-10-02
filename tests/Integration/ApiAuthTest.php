@@ -28,6 +28,7 @@ final class ApiAuthTest extends ApiTestCase
             self::assertEnvelope($r, 401, 'unauthorized');
             self::assertNull($r->data(), $what);
             self::assertSame('Bearer', $r->header('www-authenticate'), $what);
+            self::assertNull($r->header('x-cw-channel-mode'), $what . ': no mode before authentication (A13)');
         }
         // The scheme is case-insensitive; the key is not.
         self::assertEnvelope($this->call('GET', '/v1/health', null, headers: ['Authorization' => 'bearer ' . $key]), 200);
@@ -89,11 +90,15 @@ final class ApiAuthTest extends ApiTestCase
             $r = self::assertEnvelope($this->call('GET', '/v1/health', $key), 200);
             self::assertSame($code, $r->data()['channel']);
             self::assertSame($mode, $r->data()['mode']);
+            self::assertSame($mode, $r->header('x-cw-channel-mode'), 'A13: the mode on every authenticated answer');
             self::assertMatchesRegularExpression('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/', $r->data()['time']);
         }
         // A mode change is visible on the next probe (the site's circuit breaker reads it).
         self::$db->exec("UPDATE channel SET mode = 'shadow' WHERE code = 'alecto'");
         self::assertSame('shadow', $this->call('GET', '/v1/health', $c)->data()['mode']);
+        // ...and on every other answer, errors included (A13).
+        self::assertSame('shadow', $this->call('GET', '/v1/nope', $c)->header('x-cw-channel-mode'));
+        self::assertSame('shadow', $this->call('POST', '/v1/heartbeat', $c, (object) [], '')->header('x-cw-channel-mode'));
     }
 
     public function testOffChannelCannotChangeStockAndMayRetryTheSameKeyLater(): void

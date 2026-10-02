@@ -30,6 +30,11 @@ use CW\Db;
  *   5. every POST needs an Idempotency-Key                                      400
  *   6. the controller; domain outcomes come back as stored OpResults (replays included)
  *
+ * Every answer to an authenticated caller (step 2 passed), errors and replays included, carries
+ * `X-CW-Channel-Mode: off|shadow|live`: the channel's mode as this request read it, so the site
+ * learns CW's mode from every call (plan §6.2, F1). An answer before authentication (401, 403, a 503
+ * before the database answered) never carries it.
+ *
  * Nothing that failed in steps 1-5, and no CwException from the core, is stored under the
  * Idempotency-Key, so the site may retry the same key. Unexpected failures answer
  * 500 "internal" (or 503 when the database is unavailable or busy) with a request id; the
@@ -37,6 +42,9 @@ use CW\Db;
  */
 final class Kernel
 {
+    /** The channel's mode, on every answer after authentication (A13). */
+    public const MODE_HEADER = 'X-CW-Channel-Mode';
+
     /** MySQL errors that mean "try again shortly": deadlock after retries, lock wait timeout. */
     private const BUSY_CODES = [1205, 1213];
     /** Client-side / connection errors: the database is not reachable or refused the login. */
@@ -66,8 +74,9 @@ final class Kernel
     public function handle(Request $req): Response
     {
         $rid = bin2hex(random_bytes(8));
+        $channel = null;
         try {
-            $response = $this->dispatch($req, $rid);
+            $response = $this->dispatch($req, $rid, $channel);
         } catch (CwException $e) {
             $response = Response::fromException($e);
             if ($e->errorCode === 'method_not_allowed' && is_array($e->detail['allow'] ?? null)) {
@@ -79,10 +88,14 @@ final class Kernel
         } catch (\Throwable $e) {
             $response = $this->failure($e, $req, $rid);
         }
+        if ($channel !== null) {
+            $response->withHeader(self::MODE_HEADER, $channel->mode);
+        }
         return $response->withHeader('X-Request-Id', $rid);
     }
 
-    private function dispatch(Request $req, string $rid): Response
+    /** @param-out ?ApiChannel $channel the authenticated channel, set as soon as Auth accepted the caller */
+    private function dispatch(Request $req, string $rid, ?ApiChannel &$channel): Response
     {
         Auth::bearer($req, $this->log); // 401 before any database work
         try {
@@ -115,6 +128,7 @@ final class Kernel
         $r->add('POST', '/v1/reservations/{ref}/commit', $res->commit(...), true);
         $r->add('POST', '/v1/reservations/{ref}/release', $res->release(...), true);
         $r->add('POST', '/v1/reservations/{ref}/cancel', $res->cancel(...), true);
+        $r->add('POST', '/v1/reservations/{ref}/uncancel', $res->uncancel(...), true);
         $r->add('POST', '/v1/reservations/{ref}/ship', $res->ship(...), true);
         $r->add('POST', '/v1/reservations/{ref}/unship', $res->unship(...), true);
         $r->add('POST', '/v1/reservations/{ref}/return', $res->returnUnits(...), true);

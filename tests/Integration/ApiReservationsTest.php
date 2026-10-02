@@ -94,8 +94,10 @@ final class ApiReservationsTest extends ApiTestCase
         $sku = $this->item('strict', 5);
         $this->listing($site, 'V1', $sku);
         $order = ['order_ref' => '7', 'lines' => [self::line('V1', 'a')]];
-        self::assertEnvelope($this->call('POST', '/v1/reservations', $key, $order), 201);
-        self::assertSame('extended', $this->call('POST', '/v1/reservations', $key, $order)->data()['result']);
+        $fresh = self::assertEnvelope($this->call('POST', '/v1/reservations', $key, $order), 201)->data();
+        $extended = self::assertEnvelope($this->call('POST', '/v1/reservations', $key, $order), 200)->data();
+        self::assertSame('extended', $extended['result']);
+        self::assertSame($fresh['lines'], $extended['lines'], 'an extension answers with the hold\'s lines (A17)');
         $r = self::assertEnvelope($this->call('POST', '/v1/reservations', $key, ['order_ref' => '7', 'lines' => [self::line('V1', 'a', 'b')]]), 422, 'lines_changed');
         self::assertSame('held', $r->data()['status']);
 
