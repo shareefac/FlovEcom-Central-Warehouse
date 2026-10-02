@@ -19,7 +19,8 @@ final class ApiFeedTest extends ApiTestCase
         $v9 = $this->listing($site, 'V9', null);
 
         $first = self::assertEnvelope($this->call('GET', '/v1/changes?after=0', $key), 200)->data();
-        self::assertSame(['listings', 'more', 'next_after', 'resync'], array_keys($first));
+        self::assertSame(['head_seq', 'listings', 'more', 'next_after', 'resync'], array_keys($first));
+        self::assertGreaterThanOrEqual($first['next_after'], $first['head_seq'], 'the feed head (A15)');
         self::assertFalse($first['more']);
         $views = array_column($first['listings'], null, 'variant_id');
         self::assertSame([10, 1], [$views['V1']['available'], $views['V10']['available']]);

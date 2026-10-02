@@ -73,7 +73,7 @@ final class Availability
     public function snapshot(int $channelId, int $afterListingId = 0, int $limit = 1000): array
     {
         $limit = max(1, min($limit, 5000));
-        $seq = (int) ($this->db->value('SELECT MAX(seq) FROM stock_change') ?? 0);
+        $seq = $this->headSeq();
         $ids = array_map('intval', $this->db->column(
             'SELECT id FROM channel_listing WHERE channel_id = ? AND id > ? ORDER BY id LIMIT ?',
             [$channelId, $afterListingId, $limit],
@@ -92,8 +92,11 @@ final class Availability
      * row (seq > $afterSeq) sets `resync` (the site then pages through snapshot()); the same row
      * seen again in the overlap does not, so one warehouse change means one re-snapshot (R3).
      * `next_after` is the highest seq read; `more` means another call should follow at once.
+     * `head_seq` is the feed head, MAX(seq), read after the page (so head_seq >= next_after unless
+     * the caller's own `after` is beyond it). A head below the seq a site has already applied
+     * means CW's feed went back (a restore): the site then re-snapshots (A15).
      *
-     * @return array{listings: list<array<string, mixed>>, next_after: int, more: bool, resync: bool}
+     * @return array{listings: list<array<string, mixed>>, next_after: int, more: bool, resync: bool, head_seq: int}
      */
     public function changes(int $channelId, int $afterSeq, int $limit = self::MAX_CHANGE_ROWS, int $overlapSec = self::DEFAULT_OVERLAP_SEC): array
     {
@@ -137,12 +140,23 @@ final class Availability
         }
         $ids = array_keys($ids);
         sort($ids);
+        $views = $this->views($channelId, $ids);
         return [
-            'listings' => $this->views($channelId, $ids),
+            'listings' => $views,
             'next_after' => $next,
             'more' => count($new) === $limit,
             'resync' => $resync,
+            'head_seq' => $this->headSeq(),
         ];
+    }
+
+    /**
+     * The feed head: the highest seq written (0 on an empty feed). Pruning keeps the newest row of
+     * every scope (H2), so the head never moves back except through a restore of the database.
+     */
+    public function headSeq(): int
+    {
+        return (int) ($this->db->value('SELECT MAX(seq) FROM stock_change') ?? 0);
     }
 
     /**

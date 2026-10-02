@@ -59,10 +59,10 @@ final class Stock
     public const INT_MAX = 2_147_483_647;
     /**
      * Movement types whose availability fall is NOT flagged by flush() (R6): holds are not sales
-     * (a live site's reserve is refused when short), and the commit path raises its own
-     * oversell_event (Reservations::applyCommit, D33).
+     * (a live site's reserve is refused when short), and the commit and uncancel paths raise their
+     * own oversell_event (Reservations::applyCommit, D33; Reservations::uncancel, D46).
      */
-    private const UNFLAGGED = ['reserve', 'commit', 'commit_release'];
+    private const UNFLAGGED = ['reserve', 'commit', 'commit_release', 'uncancel'];
 
     /** @var array<string, array{warehouse_id: int, sku_id: int, on_hand: int, allocated: int, held: int, counted_at: ?string}> */
     private array $rows = [];

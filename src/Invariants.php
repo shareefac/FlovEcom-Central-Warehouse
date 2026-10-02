@@ -24,6 +24,12 @@ namespace CW;
  *  9. within one balance (warehouse, item) the value seq grows with the ledger id: the balance lock
  *     serialises whole transactions on a balance. Across warehouses seq order is commit order and may
  *     differ from id order (I3); that is intended and not checked.
+ * 10. the VERIFY moves of one unit in one operation (cancel with restockable = false, noted
+ *     cancel_not_restockable; uncancel back from VERIFY, noted uncancel_from_verify, D46) are one
+ *     transfer_out and one transfer_in of one item that net to zero, with VERIFY on the right side.
+ * 11. per unit and item, those VERIFY rows never net below zero (an uncancel takes back from VERIFY
+ *     only what a cancel parked there), and a unit whose newest such row is a move back has no open
+ *     verify_recount under its key (the uncancel dismissed it and retired the key).
  * D1-D7. the document base (0008): gapless numbers, reversal pairs, ledger rows naming posted documents by their
  *     number, review tasks on the right documents and never decided by their own people, line items, posted_hash
  *     (CW\Documents\DocumentInvariants, I17-I21).
@@ -146,10 +152,57 @@ final class Invariants
             $v[] = "reservation {$r['channel_id']}:{$r['order_ref']} is held without expires_at";
         }
 
+        array_push($v, ...self::verifyMoves($db));
         array_push($v, ...self::valueSequence($db));
         array_push($v, ...Documents\DocumentInvariants::check($db));
         array_push($v, ...Suppliers\SupplierInvariants::check($db));
         array_push($v, ...PurchaseOrders\PurchaseInvariants::check($db));
+        return $v;
+    }
+
+    /**
+     * Invariants 10-11: the per-unit moves into and out of VERIFY of cancel (D37) and uncancel (D46).
+     *
+     * @return list<string>
+     */
+    private static function verifyMoves(Db $db): array
+    {
+        $v = [];
+        $notes = "('cancel_not_restockable', 'uncancel_from_verify')";
+        // 10. each operation's move of a unit is a balanced pair, VERIFY on the right side
+        foreach ($db->all(
+            'SELECT l.channel_id, l.unit_id, l.idem_key, l.note, SUM(l.qty_delta) AS net, '
+            . "SUM(l.movement_type = 'transfer_out') AS outs, SUM(l.movement_type = 'transfer_in') AS ins, COUNT(DISTINCT l.sku_id) AS items, "
+            . 'SUM(l.warehouse_id = v.id) AS at_verify, '
+            . "SUM(l.warehouse_id = v.id AND l.movement_type = IF(l.note = 'cancel_not_restockable', 'transfer_in', 'transfer_out')) AS right_side "
+            . "FROM stock_ledger l JOIN warehouse v ON v.code = 'VERIFY' "
+            . "WHERE l.note IN {$notes} AND l.movement_type IN ('transfer_out', 'transfer_in') AND l.unit_id IS NOT NULL "
+            . 'GROUP BY l.channel_id, l.unit_id, l.idem_key, l.note '
+            . 'HAVING net <> 0 OR outs <> 1 OR ins <> 1 OR items <> 1 OR at_verify <> 1 OR right_side <> 1 '
+            . 'ORDER BY l.channel_id, l.unit_id LIMIT ' . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = sprintf('unit %s:%s: its %s move under key %s is not one balanced pair through VERIFY (net %d, %d out, %d in, %d items, %d at VERIFY)',
+                $r['channel_id'], $r['unit_id'], $r['note'], $r['idem_key'] ?? 'NULL', $r['net'], $r['outs'], $r['ins'], $r['items'], $r['at_verify']);
+        }
+        // 11. never more taken back from VERIFY than parked there; a move back leaves no open recount
+        foreach ($db->all(
+            'SELECT l.channel_id, l.unit_id, l.sku_id, SUM(l.qty_delta) AS net FROM stock_ledger l '
+            . "JOIN warehouse v ON v.id = l.warehouse_id AND v.code = 'VERIFY' "
+            . "WHERE l.note IN {$notes} AND l.unit_id IS NOT NULL "
+            . 'GROUP BY l.channel_id, l.unit_id, l.sku_id HAVING net < 0 ORDER BY l.channel_id, l.unit_id LIMIT ' . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "unit {$r['channel_id']}:{$r['unit_id']}: its VERIFY moves of item {$r['sku_id']} net {$r['net']} (more taken back than parked)";
+        }
+        foreach ($db->all(
+            'SELECT l.channel_id, l.unit_id, r.id AS review_id FROM stock_ledger l '
+            . '  JOIN (SELECT MAX(l2.id) AS id FROM stock_ledger l2 '
+            . "        JOIN warehouse v ON v.id = l2.warehouse_id AND v.code = 'VERIFY' "
+            . "        WHERE l2.note IN {$notes} AND l2.unit_id IS NOT NULL GROUP BY l2.channel_id, l2.unit_id) m ON m.id = l.id "
+            . "  JOIN count_review r ON r.dedupe_key = CONCAT('verify:', l.channel_id, ':', l.unit_id) AND r.status = 'open' "
+            . "WHERE l.note = 'uncancel_from_verify' ORDER BY l.channel_id, l.unit_id LIMIT " . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "unit {$r['channel_id']}:{$r['unit_id']} was moved back from VERIFY but its recount {$r['review_id']} is still open under its key";
+        }
         return $v;
     }
 

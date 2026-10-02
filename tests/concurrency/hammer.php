@@ -15,19 +15,19 @@ declare(strict_types=1);
  *      "10 x" listing) placed at once: no deadlock error surfaces, each order is all-or-nothing,
  *      held = the exact sum of the accepted orders; then half are paid and half abandoned at once.
  *   3  20 processes send the SAME Idempotency-Key at the same instant, for every operation type
- *      (reserve, commit, ship, unship, return, goods_in, release, cancel x2), plus the same order
+ *      (reserve, commit, ship, unship, return, goods_in, release, cancel x2, uncancel x2), plus the same order
  *      under 20 different keys and one key with two different bodies: exactly one effect each;
  *      and 20 copies of a ship before its commit: all 409 not_committed, nothing stored, no
  *      deadlock (this round found decisions.md H1).
  *   4  reserve / extend / re-reserve / commit (with and without a hold, other lines) / release
- *      (current and stale attempt) / tombstones / replays / cancel / ship / goods-in, interleaved
+ *      (current and stale attempt) / tombstones / replays / cancel / uncancel / ship / goods-in, interleaved
  *      with two expiry crons for --seconds: every consistent snapshot taken during the run
  *      satisfies CW\Invariants, every negative availability of a strict item is a flagged
  *      oversell_event, and nothing fails.
  *   5  the per-item value sequence (C0, I3) under cross-warehouse races for --seconds: staff
  *      movements of 1-4 items at MAIN and VERIFY in random line order (goods-in with a cost,
  *      write-offs, adjustments), MAIN -> VERIFY transfers, reserve -> commit -> ship, commit ->
- *      cancel to VERIFY and VERIFY counts. An observer polls the seqs every 100 ms (one statement:
+ *      cancel to VERIFY (half of them un-cancelled back out of VERIFY) and VERIFY counts. An observer polls the seqs every 100 ms (one statement:
  *      no item ever shows a gap) and checks CW\Invariants on a consistent snapshot every ~2 s; at
  *      the end every item is numbered 1..N and replaying its on_hand rows in seq order gives every
  *      row's balance_after and the item's total on_hand.
@@ -917,6 +917,9 @@ function scenario3(Report $rep): void
                 Fx::must($r->reserve($ch, 'i4', [line('A', 'i4a', 'i4b')], 'prep-reserve-i4'));
                 Fx::must($r->commit($ch, 'i4', [line('A', 'i4a', 'i4b')], 'reserved', 'prep-commit-i4'));
             }],
+        // D46: the two cancels above taken back
+        ['uncancel restockable', 'k-uncancel-i3', static fn (int $w, Reservations $r, Movements $m): OpResult => $r->uncancel($ch, 'i3', ['i3a', 'i3b'], 'k-uncancel-i3'), 2, [55, 2, 0]],
+        ['uncancel from VERIFY', 'k-uncancel-i4', static fn (int $w, Reservations $r, Movements $m): OpResult => $r->uncancel($ch, 'i4', ['i4a', 'i4b'], 'k-uncancel-i4'), 6, [57, 4, 0]],
     ];
 
     foreach ($rounds as $round) {
@@ -950,15 +953,20 @@ function scenario3(Report $rep): void
                 'bal' => Fx::bal($db, $sku),
                 'verify' => Fx::bal($db, $sku, 'VERIFY')['on_hand'],
                 'reviews' => (int) $db->value("SELECT COUNT(*) FROM count_review WHERE source = 'verify_recount'"),
+                'open_reviews' => (int) $db->value("SELECT COUNT(*) FROM count_review WHERE source = 'verify_recount' AND status = 'open'"),
             ];
         });
         $bal = array_values($db['bal']);
         $ok = count($rs) === $N && count($fresh) === 1 && $errors === [] && count($replays) === $N - 1 && $sameAsFresh
             && $f !== null && $f['status'] >= 200 && $f['status'] < 300
             && $db['ledger'] === $ledgerRows && $db['idem'] === 1 && $db['audit'] === 1 && $bal === $expBal;
-        $extra = $name === 'cancel to VERIFY' ? ", VERIFY on_hand {$db['verify']}, recount tasks {$db['reviews']}" : '';
+        $extra = in_array($name, ['cancel to VERIFY', 'uncancel from VERIFY'], true)
+            ? ", VERIFY on_hand {$db['verify']}, recount tasks {$db['reviews']} ({$db['open_reviews']} open)" : '';
         if ($name === 'cancel to VERIFY') {
-            $ok = $ok && $db['verify'] === 2 && $db['reviews'] === 2;
+            $ok = $ok && $db['verify'] === 2 && $db['reviews'] === 2 && $db['open_reviews'] === 2;
+        }
+        if ($name === 'uncancel from VERIFY') {
+            $ok = $ok && $db['verify'] === 0 && $db['reviews'] === 2 && $db['open_reviews'] === 0;
         }
         $rep->check($S, "{$name}: one effect", $ok,
             '1 fresh 2xx, ' . ($N - 1) . " identical replays, {$ledgerRows} ledger rows, bal " . implode('/', $expBal),
@@ -985,7 +993,7 @@ function scenario3(Report $rep): void
         'bal' => array_values(Fx::bal($db, $sku)),
         'res' => (int) $db->value("SELECT COUNT(*) FROM reservation WHERE order_ref = 'i5'"),
     ]);
-    $rep->check($S, 'same order, 20 different keys: one hold', $by === ['200 extended' => $N - 1, '201 held' => 1] && $db['ledger'] === 1 && $db['res'] === 1 && $db['bal'] === [55, 0, 1],
+    $rep->check($S, 'same order, 20 different keys: one hold', $by === ['200 extended' => $N - 1, '201 held' => 1] && $db['ledger'] === 1 && $db['res'] === 1 && $db['bal'] === [57, 4, 1],
         '1 x 201 held, 19 x 200 extended, 1 ledger row', fmt($by) . "; ledger {$db['ledger']}, reservations {$db['res']}, bal " . implode('/', $db['bal']));
     poolProblems($rep, $S, $pool);
 
@@ -1018,7 +1026,7 @@ function scenario3(Report $rep): void
         'inv' => Invariants::check($db),
     ]);
     $expUnits = $winnerOdd === 1 ? 2 : 1;
-    $rep->check($S, 'one key, two bodies: one effect', $okOthers && $db['ledger'] === $expUnits && $db['bal'] === [55, 0, 1 + $expUnits],
+    $rep->check($S, 'one key, two bodies: one effect', $okOthers && $db['ledger'] === $expUnits && $db['bal'] === [57, 4, 1 + $expUnits],
         'winner applied once; same body replays, other body 422',
         fmt(tally($rs, static fn (array $r): string => $r['status'] . ' ' . ($r['replayed'] ? 'replay' : ($r['result'] ?? '')))) . "; ledger {$db['ledger']}, bal " . implode('/', $db['bal']));
     poolProblems($rep, $S, $pool);
@@ -1102,6 +1110,7 @@ final class Trader
             $roll <= 88 => $this->cancel(),
             $roll <= 93 => $this->ship(),
             $roll <= 95 => $this->restock(),
+            $roll <= 98 => $this->uncancel(),
             default => $this->newOrder(),
         };
     }
@@ -1171,6 +1180,7 @@ final class Trader
             'commit' => $this->res->commit($this->ch, $a[0], $a[1], $a[2], $key),
             'release' => $this->res->release($this->ch, $a[0], $a[1], $key),
             'cancel' => $this->res->cancel($this->ch, $a[0], $a[1], $a[2], $key),
+            'uncancel' => $this->res->uncancel($this->ch, $a[0], $a[1], $key),
             'ship' => $this->res->ship($this->ch, $a[0], $a[1], $a[2], $key),
             'move' => $this->moves->record($this->staff, $a[0], $key),
         };
@@ -1392,6 +1402,33 @@ final class Trader
         }
     }
 
+    /** Takes back (D46) some cancelled units of a paid order: restockable cancels, so each is plainly allocated again. */
+    private function uncancel(): void
+    {
+        $refs = [];
+        foreach (array_keys($this->committed) as $r) {
+            if (in_array('cancelled', $this->orders[(string) $r]['units'], true)) {
+                $refs[] = (string) $r;
+            }
+        }
+        if ($refs === []) {
+            $this->cancel();
+            return;
+        }
+        $ref = $refs[array_rand($refs)];
+        $units = array_map('strval', array_keys(array_filter($this->orders[$ref]['units'], static fn (string $s): bool => $s === 'cancelled')));
+        $pick = array_slice($units, 0, mt_rand(1, count($units)));
+        $r = $this->call('uncancel', 'uncancel', [$ref, $pick], $this->key('uncancel', $ref), ['200 *']);
+        if ($r !== null) {
+            foreach ($r->body['units'] ?? [] as $u) {
+                if (($u['result'] ?? '') !== 'uncancelled') {
+                    $this->bad("uncancel {$ref} unit {$u['unit_id']}: " . ($u['result'] ?? '?'));
+                }
+                $this->orders[$ref]['units'][$u['unit_id']] = 'allocated';
+            }
+        }
+    }
+
     private function ship(): void
     {
         if ($this->committed === []) {
@@ -1567,7 +1604,8 @@ function scenario4(Report $rep, int $workers, int $seconds, int $seed): void
             'commit after expiry' => $revived, 'commit with other lines' => $has('commit.held.other_lines') + $has('commit.no_hold.other_lines'),
             'release' => $has('release 200 released'), 'release lost to cron' => $has('release 200 already_released') + $has('release.stale 200 already_released'),
             'stale attempt' => $has('release.stale 200 stale_attempt'), 'tombstone' => $has('reserve.tombstone 409'), 'outage order' => $has('commit.outage'),
-            'replay' => $has('replay identical'), 'cancel' => $has('cancel 200'), 'ship' => $has('ship 200'), 'goods_in' => $has('goods_in 200'),
+            'replay' => $has('replay identical'), 'cancel' => $has('cancel 200'), 'uncancel' => $has('uncancel 200'), 'ship' => $has('ship 200'),
+            'goods_in' => $has('goods_in 200'),
         ];
         $missing = array_keys(array_filter($cover, static fn (int $n): bool => $n === 0));
         $rep->check($S, 'every interleaving happened', $missing === [], 'each >= 1', ($missing === [] ? '' : 'MISSING ' . implode(', ', $missing) . '; ')
@@ -1720,6 +1758,19 @@ final class ValueTrader
                 $this->bad("cancel {$ref} unit {$u['unit_id']}: " . ($u['result'] ?? '?'));
             }
         }
+        if ($r === null || mt_rand(0, 1) === 0) {
+            return;
+        }
+        // D46: half are taken back. Untouched units come back out of VERIFY with the paired movement;
+        // a VERIFY count, write-off or transfer by another trader meanwhile sends them to review instead.
+        $u = $this->call('uncancel.from_verify', fn (): OpResult => $this->res->uncancel($this->ch, $ref, $units, $ref . '-u'), ['200 *']);
+        foreach ($u?->body['units'] ?? [] as $x) {
+            $result = (string) ($x['result'] ?? '?');
+            $this->counts["unit {$result}"] = ($this->counts["unit {$result}"] ?? 0) + 1;
+            if (!in_array($result, ['uncancelled_from_verify', 'uncancelled_after_verify'], true)) {
+                $this->bad("uncancel {$ref} unit {$x['unit_id']}: {$result}");
+            }
+        }
     }
 
     private function count(): void
@@ -1864,7 +1915,9 @@ function scenario5(Report $rep, int $workers, int $seconds, int $seed): void
     $rep->check($S, 'no errors / deadlocks surfaced', $errs === [] && ($counts['UNEXPECTED'] ?? 0) === 0, '0',
         $errs === [] && ($counts['UNEXPECTED'] ?? 0) === 0 ? '0' : fmt($errs) . ' ' . implode(' | ', array_slice($unexpected, 0, 3)));
     $rep->info($S, 'deadlocks retried inside CW', (string) $pool['deadlocks_retried']);
-    $need = ['move.goods_in 200', 'move.write_off 200', 'move.adjustment 200', 'transfer_out 200', 'transfer_in 200', 'ship 200', 'cancel.to_verify 200', 'count.verify 200'];
+    // uncancelled_after_verify needs a VERIFY count, write-off or transfer to land between a cancel and its uncancel: timing, not required
+    $need = ['move.goods_in 200', 'move.write_off 200', 'move.adjustment 200', 'transfer_out 200', 'transfer_in 200', 'ship 200', 'cancel.to_verify 200',
+        'count.verify 200', 'uncancel.from_verify 200', 'unit uncancelled_from_verify'];
     $has = static fn (string $prefix): int => array_sum(array_filter($counts, static fn (string $k): bool => str_starts_with($k, $prefix), ARRAY_FILTER_USE_KEY));
     $missing = array_values(array_filter($need, static fn (string $p): bool => $has($p) === 0));
     $rep->check($S, 'every path happened', $missing === [], 'each >= 1', $missing === [] ? 'yes' : 'MISSING ' . implode(', ', $missing));

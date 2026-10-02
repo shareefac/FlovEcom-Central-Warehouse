@@ -10,7 +10,7 @@ declare(strict_types=1);
  *
  * job = {start: float unix time, now?: CW's clock (default StockTestCase::NOW), ops: [{op, channel_id, channel_code, order_ref, lines?, origin?,
  *        attempt?, unit_ids?, dispatched_at?, at?, restockable?, request?, key, caller?}]}
- * op = reserve | commit | release | ship | unship | cancel | return | move (Movements::record)
+ * op = reserve | commit | release | ship | unship | cancel | uncancel | return | move (Movements::record)
  * caller = 'staff' runs the op as Caller::staff(1) (staff movements: counts, adjustments, transfers, costs);
  *          otherwise the op runs as the channel channel_id/channel_code.
  */
@@ -48,6 +48,7 @@ foreach ($job['ops'] as $op) {
             'ship' => $res->ship($caller, (string) $op['order_ref'], $op['unit_ids'], (string) $op['dispatched_at'], (string) $op['key']),
             'unship' => $res->unship($caller, (string) $op['order_ref'], $op['unit_ids'], $op['at'] ?? null, (string) $op['key']),
             'cancel' => $res->cancel($caller, (string) $op['order_ref'], $op['unit_ids'], (bool) $op['restockable'], (string) $op['key']),
+            'uncancel' => $res->uncancel($caller, (string) $op['order_ref'], $op['unit_ids'], (string) $op['key']),
             'return' => $res->returnUnits($caller, (string) $op['order_ref'], $op['unit_ids'], (string) $op['key']),
             'move' => $moves->record($caller, $op['request'], (string) $op['key']),
             default => throw new \InvalidArgumentException('unknown op'),

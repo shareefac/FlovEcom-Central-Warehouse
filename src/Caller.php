@@ -30,6 +30,18 @@ final class Caller
         return new self($channelId, '', 'channel:' . $code, null, self::validIp($ip));
     }
 
+    /**
+     * A system job acting through a channel's own reservation paths (bin/purge_test_refs.php, D47): the
+     * channel's idempotency scope and reservations, recorded as system:<job> in the ledger and the audit log.
+     */
+    public static function channelJob(int $channelId, string $code, string $job): self
+    {
+        if ($channelId <= 0 || preg_match('/^[a-z][a-z0-9_]{0,31}$/', $code) !== 1 || preg_match('/^[a-z][a-z0-9_]{0,24}$/', $job) !== 1) {
+            throw new \InvalidArgumentException('invalid channel job caller');
+        }
+        return new self($channelId, '', 'system:' . $job);
+    }
+
     /** $ip: the client address (REMOTE_ADDR) of a /ui request, recorded in audit_log.ip. */
     public static function staff(int $staffUserId, ?string $ip = null): self
     {

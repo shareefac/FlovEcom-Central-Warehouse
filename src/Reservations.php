@@ -11,8 +11,9 @@ use DateTimeImmutable;
  * The reservation state machine on (channel, order_ref) (plan §3, §4, §8.1).
  *
  *   reserve   new -> held (201) | refused (409, per-line available); held + same lines -> TTL
- *             extended; held + other lines -> 422; released/expired -> new attempt (attempt+1)
- *             or 409; tombstone -> 409 (no hold); committed -> 200 already_paid.
+ *             extended (200, with the same per-line payload as 201); held + other lines -> 422;
+ *             released/expired -> new attempt (attempt+1) or 409; tombstone -> 409 (no hold);
+ *             committed -> 200 already_paid.
  *   commit    held -> allocated; also without a hold (outage, late or resurrected payments):
  *             creates/revives the reservation and snapshots today's links. Never refused;
  *             a strict/stopped item pushed below zero -> oversell_event. Body lines win.
@@ -25,8 +26,12 @@ use DateTimeImmutable;
  *   unship    shipped -> allocated: allocated +u, on_hand +u; a reset at/before the last
  *             count's counted_at: allocated +u only ("pre_count"); within ±10 min: count review.
  *   return    shipped -> returned: on_hand +u, once per unit.
- *             ship / unship / return need a committed order; before the commit they throw
- *             409 not_committed, which is not stored (the site retries the same key).
+ *   uncancel  cancelled -> allocated (D46): allocated +u under the unit's snapshot; a unit its last
+ *             cancel parked in VERIFY and nobody has touched since comes back with the paired
+ *             movement (availability unchanged); one a person already dealt with is allocated and
+ *             a count review opened; a strict/stopped item left below zero -> oversell_event.
+ *             ship / unship / return / uncancel need a committed order; before the commit they
+ *             throw 409 not_committed, which is not stored (the site retries the same key).
  *   expire    held past expires_at -> expired (cron; no idempotency key needed).
  *
  * Line kinds (§2.3): unlinked lines (listing not mapped/quarantined) are recorded with
@@ -108,7 +113,7 @@ final class Reservations
                     $expires = $this->expiry($ch);
                     $this->db->exec('UPDATE reservation SET expires_at = ? WHERE id = ?', [Clock::db($expires), $res['id']]);
                     return OpResult::of(200, $base + ['result' => 'extended', 'status' => 'held', 'attempt' => $res['attempt'],
-                        'expires_at' => Clock::iso(Clock::db($expires))]);
+                        'expires_at' => Clock::iso(Clock::db($expires)), 'lines' => $this->heldViews($res['id'], $lines)]);
                 }
                 return OpResult::of(422, $base + ['error' => 'lines_changed', 'status' => 'held', 'attempt' => $res['attempt'],
                     'message' => 'the order is held with other lines; release it first']);
@@ -210,6 +215,82 @@ final class Reservations
         }
         return OpResult::of(201, $base + ['result' => 'held', 'status' => 'held', 'attempt' => $attempt,
             'expires_at' => Clock::iso(Clock::db($expires)), 'lines' => $views]);
+    }
+
+    /**
+     * The per-line payload of an extended hold (A17): the keys of a fresh hold's lines, in the same
+     * order. Item, u and warehouse are the units' snapshot (what the hold sits on); kind (policy),
+     * code, quarantined and available are read as they are now, without locks: an extension moves
+     * no bucket, and READ COMMITTED reads the latest committed balance.
+     *
+     * @param list<array{variant_id: string, qty: int, unit_ids: list<string>}> $lines
+     * @return list<array<string, mixed>>
+     */
+    private function heldViews(int $reservationId, array $lines): array
+    {
+        $units = [];
+        foreach ($this->unitsOf($reservationId) as $id => $u) {
+            // unit_id compares with the column's _ai_ci collation; ids are printable ASCII.
+            $units[strtolower((string) $id)] = $u;
+        }
+        $first = [];
+        $skuIds = [];
+        $listingIds = [];
+        $balances = [];
+        foreach ($lines as $i => $line) {
+            $u = $units[strtolower($line['unit_ids'][0])] ?? null;
+            if ($u === null) {
+                throw new \LogicException("held reservation {$reservationId} lacks unit {$line['unit_ids'][0]} of its own lines");
+            }
+            $first[$i] = $u;
+            if ($u['sku_id'] !== null) {
+                $skuIds[$u['sku_id']] = true;
+                $listingIds[$u['listing_id']] = true;
+                $balances[Stock::key($u['warehouse_id'], $u['sku_id'])] = [$u['warehouse_id'], $u['sku_id']];
+            }
+        }
+        $skus = [];
+        foreach (array_chunk(array_keys($skuIds), 1000) as $chunk) {
+            foreach ($this->db->all('SELECT id, code, sell_policy FROM sku WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $skus[(int) $r['id']] = ['code' => (string) $r['code'], 'policy' => (string) $r['sell_policy']];
+            }
+        }
+        $status = [];
+        foreach (array_chunk(array_keys($listingIds), 1000) as $chunk) {
+            foreach ($this->db->all('SELECT id, status FROM channel_listing WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $status[(int) $r['id']] = (string) $r['status'];
+            }
+        }
+        $byWarehouse = [];
+        foreach ($balances as [$wh, $sku]) {
+            $byWarehouse[$wh][] = $sku;
+        }
+        $avail = [];
+        foreach ($byWarehouse as $wh => $whSkus) {
+            foreach (array_chunk($whSkus, 1000) as $chunk) {
+                foreach ($this->db->all(
+                    'SELECT sku_id, on_hand - allocated - held AS available FROM stock_balance WHERE warehouse_id = ? AND sku_id IN ('
+                    . implode(',', array_fill(0, count($chunk), '?')) . ')',
+                    [$wh, ...$chunk],
+                ) as $r) {
+                    $avail[Stock::key((int) $wh, (int) $r['sku_id'])] = (int) $r['available'];
+                }
+            }
+        }
+        $views = [];
+        foreach ($lines as $i => $line) {
+            $u = $first[$i];
+            $v = ['variant_id' => $line['variant_id'], 'qty' => $line['qty'], 'units_per_item' => $u['u']];
+            if ($u['sku_id'] === null) {
+                $views[] = $v + ['kind' => 'unlinked', 'result' => 'unlinked', 'sku_code' => null, 'available' => null];
+                continue;
+            }
+            $sku = $skus[$u['sku_id']] ?? throw new \LogicException("unit {$u['unit_id']} names item {$u['sku_id']}, which does not exist");
+            $views[] = $v + ['kind' => $sku['policy'], 'result' => 'held', 'sku_code' => $sku['code'],
+                'quarantined' => ($status[$u['listing_id']] ?? null) === 'quarantined',
+                'available' => self::listingUnits($avail[Stock::key($u['warehouse_id'], $u['sku_id'])] ?? 0, $u['u'])];
+        }
+        return $views;
     }
 
     // ==========================================================================================
@@ -749,12 +830,213 @@ final class Reservations
     }
 
     /**
+     * A cancel taken back (F7, D46): the site un-ticked a line cancel, so cancelled paid units are
+     * allocated again, under each unit's sale-time snapshot (warehouse, item, u), as the inverse of
+     * cancel:
+     *   - last cancel restockable (or the unit was cancelled while held): allocated +u at its
+     *     warehouse ("uncancelled");
+     *   - last cancel parked the unit in VERIFY (restockable = false) and nobody has touched it there
+     *     since (its verify_recount is still open, no count and no other on_hand row of the item at VERIFY
+     *     was booked after it arrived besides other parked units coming and going, and VERIFY still holds
+     *     the units): the paired movement back, transfer_out VERIFY -u and transfer_in +u
+     *     at its warehouse (noted uncancel_from_verify), then allocated +u, so availability does not
+     *     move; the recount is dismissed ("uncancelled_from_verify");
+     *   - parked in VERIFY but already dealt with (recount closed, VERIFY counted, moved by hand or short): CW cannot
+     *     tell where that unit is now, so VERIFY is left alone, the unit is allocated like a
+     *     restockable one and a count_review `uncancel_after_verify` at its warehouse asks a person to
+     *     reconcile ("uncancelled_after_verify");
+     *   - sold while its listing was unlinked, linked since: adopted with today's link, as a commit
+     *     without a hold would (R4: the listing rows are read FOR SHARE before any balance);
+     *   - not cancelled: a stored per-unit result, nothing changes (not_cancelled, shipped, ...).
+     * Either way the unit's verify recount key is retired (suffixed #id), so a later cancel to VERIFY
+     * opens a fresh recount. Where an uncancel lowered availability and left a strict/stopped item
+     * below zero: oversell_event `uncancel_short` (shortfall = min(those units, -available)), like a
+     * commit without a hold; listed under `oversell` in the answer.
+     *
+     * @param list<string|int> $unitIds
+     */
+    public function uncancel(Caller $caller, string $orderRef, array $unitIds, string $idemKey): OpResult
+    {
+        return $this->unitOperation($caller, 'uncancel', $orderRef, $unitIds, [], $idemKey,
+            function (string $orderRef, array $units, array $wanted, string $idemKey, array $ctx) use ($caller): array {
+                /** @var array{id: int, code: string, mode: string, ttl: int, warehouse_id: int} $ch */
+                $ch = $ctx['channel'];
+                $resId = (int) $ctx['reservation']['id'];
+                $verify = $this->stock->warehouseId('VERIFY');
+                $cancelled = array_filter($units, static fn (array $u): bool => $u['state'] === 'cancelled');
+                $unlinked = array_filter($cancelled, static fn (array $u): bool => $u['sku_id'] === null);
+                $links = $this->linksNow(array_values(array_unique(array_map(static fn (array $u): int => $u['listing_id'], $unlinked))));
+                $last = $this->lastCancels($ch['id'], $verify, array_values(array_map(static fn (array $u): string => $u['unit_id'],
+                    array_filter($cancelled, static fn (array $u): bool => $u['sku_id'] !== null))));
+                $pairs = [];
+                foreach ($cancelled as $u) {
+                    $sku = $u['sku_id'] ?? ($links[$u['listing_id']]['sku_id'] ?? null);
+                    if ($sku === null) {
+                        continue;
+                    }
+                    $pairs[] = [$u['warehouse_id'], $sku];
+                    if ($last[strtolower($u['unit_id'])]['parked'] ?? false) {
+                        $pairs[] = [$verify, $sku];
+                    }
+                }
+                $this->stock->lock($pairs);
+                $skus = $this->lockSkus(array_column($pairs, 1));
+                $now = Clock::db($this->now());
+                $fallen = []; // balance => central units allocated without coming back from VERIFY
+                $out = [];
+                foreach ($wanted as $id) {
+                    $u = $units[$id] ?? null;
+                    if ($u === null) {
+                        $out[] = ['unit_id' => $id, 'result' => 'unknown_unit'];
+                        continue;
+                    }
+                    if ($u['state'] !== 'cancelled') {
+                        $out[] = ['unit_id' => $id, 'result' => $u['state'] === 'allocated' ? 'not_cancelled' : $u['state']];
+                        continue;
+                    }
+                    $sku = $u['sku_id'];
+                    $size = $u['u'];
+                    $note = null;
+                    if ($sku === null && isset($links[$u['listing_id']])) {
+                        // Cancelled while unlinked, linked since: today's link, as a commit without a hold.
+                        ['sku_id' => $sku, 'u' => $size] = $links[$u['listing_id']];
+                        $note = 'adopted: listing ' . $u['listing_id'];
+                        $this->db->exec('UPDATE reservation_unit SET sku_id = ?, units_per_item = ? WHERE channel_id = ? AND unit_id = ?',
+                            [$sku, $size, $u['channel_id'], $id]);
+                    }
+                    $this->setUnitState($u['channel_id'], $id, 'allocated');
+                    $result = 'uncancelled';
+                    if ($sku !== null) {
+                        $wh = $u['warehouse_id'];
+                        $c = $last[strtolower($u['unit_id'])] ?? null;
+                        $back = false;
+                        if ($c !== null && $c['parked']) {
+                            [$back, $result] = $this->uncancelFromVerify($caller, $orderRef, $u, $id, $c, $verify, $now, $idemKey);
+                            $note = $back ? null : 'after_verify';
+                        }
+                        $this->stock->apply($wh, $sku, 'allocated', $size, $this->move('uncancel', $caller, $orderRef, $id, $idemKey, $note));
+                        if (!$back) {
+                            $k = Stock::key($wh, $sku);
+                            $fallen[$k] = ($fallen[$k] ?? 0) + $size;
+                        }
+                    }
+                    $out[] = ['unit_id' => $id, 'result' => $result];
+                }
+                return ['units' => $out, 'oversell' => $this->flagUncancelShort($ch, $resId, $orderRef, $fallen, $skus, $idemKey)];
+            });
+    }
+
+    /**
+     * One parked unit of an uncancel (D46), under the locks of its balance and of its VERIFY balance:
+     * moves it back from VERIFY when it is untouched there, else opens the count review. Returns
+     * [moved back, per-unit result]. Retires the unit's recount key either way.
+     *
+     * @param array{channel_id: int, unit_id: string, listing_id: int, sku_id: ?int, u: int, warehouse_id: int, state: string, dispatched_at: ?string} $u
+     * @param array{cancel_id: int, parked: bool, arrived_id: ?int} $c the unit's last cancel
+     * @return array{0: bool, 1: string}
+     */
+    private function uncancelFromVerify(Caller $caller, string $orderRef, array $u, string $id, array $c, int $verify, string $now, string $idemKey): array
+    {
+        $sku = (int) $u['sku_id'];
+        $review = $this->db->one('SELECT id, status, dedupe_key FROM count_review WHERE dedupe_key = ? FOR UPDATE',
+            [mb_strcut("verify:{$u['channel_id']}:{$id}", 0, 191, 'UTF-8')]);
+        $at = $this->stock->row($verify, $sku);
+        // A count booked at VERIFY after the unit arrived (whatever its counted_at) replaced the figure
+        // the unit was part of (D42, R13). Ledger ids of one balance follow its lock, so commit order.
+        $countedAfter = $this->db->value(
+            "SELECT id FROM stock_ledger WHERE warehouse_id = ? AND sku_id = ? AND id > ? AND movement_type = 'count' ORDER BY id LIMIT 1",
+            [$verify, $sku, (int) $c['arrived_id']],
+        );
+        // Any other on_hand row at (VERIFY, item) since the unit arrived, except other parked units coming
+        // in (cancel_not_restockable) and going back (uncancel_from_verify): a person settled VERIFY by hand
+        // (D37: write_off, or transfer_out/transfer_in) without closing the recounts, and CW cannot tell whose
+        // unit they moved, so it does not guess that this one is still there (D46, review fix).
+        $movedAfter = $countedAfter !== null ? null : $this->db->value(
+            "SELECT id FROM stock_ledger WHERE warehouse_id = ? AND sku_id = ? AND id > ? AND bucket = 'on_hand' AND movement_type <> 'count' "
+            . "AND NOT (movement_type = 'transfer_in' AND note <=> 'cancel_not_restockable') "
+            . "AND NOT (movement_type = 'transfer_out' AND note <=> 'uncancel_from_verify') ORDER BY id LIMIT 1",
+            [$verify, $sku, (int) $c['arrived_id']],
+        );
+        $why = match (true) {
+            $review === null || $review['status'] !== 'open' => 'recount_closed',
+            $countedAfter !== null => 'verify_counted',
+            $movedAfter !== null => 'verify_moved',
+            $at['on_hand'] < $u['u'] => 'verify_short',
+            default => null,
+        };
+        if ($review !== null) {
+            // A later cancel to VERIFY must open a fresh recount, not find this one by its key (D17).
+            $retired = mb_strcut((string) $review['dedupe_key'], 0, 160, 'UTF-8') . '#' . $review['id'];
+            if ($why === null) {
+                $this->db->exec("UPDATE count_review SET status = 'dismissed', resolution = 'uncancelled', resolved_at = ?, note = ?, dedupe_key = ? WHERE id = ?",
+                    [$now, mb_strcut("unit {$id} of order {$orderRef} was un-cancelled and moved back from VERIFY (key {$idemKey})", 0, 500, 'UTF-8'),
+                        $retired, (int) $review['id']]);
+            } else {
+                $this->db->exec('UPDATE count_review SET dedupe_key = ? WHERE id = ?', [$retired, (int) $review['id']]);
+            }
+        }
+        if ($why === null) {
+            $booked = ['effective_at' => $now]; // booking time (D45), as the cancel's move into VERIFY
+            $this->stock->apply($verify, $sku, 'on_hand', -$u['u'],
+                $this->move('transfer_out', $caller, $orderRef, $id, $idemKey, 'uncancel_from_verify') + $booked);
+            $this->stock->apply($u['warehouse_id'], $sku, 'on_hand', $u['u'],
+                $this->move('transfer_in', $caller, $orderRef, $id, $idemKey, 'uncancel_from_verify') + $booked);
+            return [true, 'uncancelled_from_verify'];
+        }
+        $this->stock->openCountReview($u['warehouse_id'], $sku, 'uncancel_after_verify', null, "{$u['channel_id']}:{$orderRef}:{$id}",
+            ['order_ref' => $orderRef, 'unit_id' => $id, 'units' => $u['u'], 'reason' => $why, 'verify_on_hand' => $at['on_hand'],
+                'verify_count_ledger_id' => $countedAfter === null ? null : (int) $countedAfter,
+                'verify_moved_ledger_id' => $movedAfter === null ? null : (int) $movedAfter, 'arrived_ledger_id' => $c['arrived_id'],
+                'verify_review_id' => $review === null ? null : (int) $review['id'], 'verify_review_status' => $review['status'] ?? null],
+            "uncancel_verify:{$u['channel_id']}:{$c['cancel_id']}");
+        return [false, 'uncancelled_after_verify'];
+    }
+
+    /**
+     * The oversell flags of an uncancel (D46): per balance whose availability the uncancel lowered,
+     * a strict/stopped item left below zero -> one oversell_event `uncancel_short`, shortfall =
+     * min(units, -available), deduplicated per call. Stock::flush() leaves these to this method
+     * ('uncancel' is UNFLAGGED there).
+     *
+     * @param array{id: int, code: string, mode: string, ttl: int, warehouse_id: int} $ch
+     * @param array<string, int> $fallen balance key => central units
+     * @param array<int, array{code: string, policy: string}> $skus
+     * @return list<array{sku_code: string, kind: string, shortfall: int, available_after: int}>
+     */
+    private function flagUncancelShort(array $ch, int $resId, string $orderRef, array $fallen, array $skus, string $idemKey): array
+    {
+        $oversell = [];
+        ksort($fallen, SORT_STRING);
+        foreach ($fallen as $k => $units) {
+            [$wh, $sku] = array_map('intval', explode(':', $k));
+            $policy = $skus[$sku]['policy'];
+            $avail = $this->stock->available($wh, $sku);
+            if (!in_array($policy, ['strict', 'stopped'], true) || $avail >= 0) {
+                continue; // legacy: today's behaviour; backorder: below zero is intended
+            }
+            $shortfall = min($units, -$avail);
+            $this->db->exec(
+                'INSERT INTO oversell_event (warehouse_id, sku_id, channel_id, reservation_id, order_ref, kind, shortfall, available_after, detail, dedupe_key) '
+                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id',
+                [$wh, $sku, $ch['id'], $resId, $orderRef, 'uncancel_short', $shortfall, $avail,
+                    Idempotency::json(['policy' => $policy, 'uncancelled_units' => $units, 'channel_mode' => $ch['mode']]),
+                    mb_strcut("uncancel:{$ch['id']}:{$wh}:{$sku}:" . substr(hash('sha256', $idemKey), 0, 24) . ":{$orderRef}", 0, 191, 'UTF-8')],
+            );
+            $oversell[] = ['sku_code' => $skus[$sku]['code'], 'kind' => 'uncancel_short', 'shortfall' => $shortfall, 'available_after' => $avail];
+        }
+        return $oversell;
+    }
+
+    /**
      * Shared skeleton of the per-unit operations: lock the reservation, load its units, let $fn
      * lock balances and apply, flush the feed.
      *
+     * $fn gets (order_ref, units, wanted ids, key, ['channel' => ..., 'reservation' => ...]) and returns
+     * the per-unit results as a list, or ['units' => list, ...more body keys] (uncancel adds `oversell`).
+     *
      * @param list<string|int> $unitIds
      * @param array<string, mixed> $extra request fields besides order_ref/unit_ids
-     * @param callable(string, array<string, array<string, mixed>>, list<string>, string): list<array{unit_id: string, result: string}> $fn
+     * @param callable(string, array<string, array<string, mixed>>, list<string>, string, array<string, mixed>): array<int|string, mixed> $fn
      */
     private function unitOperation(Caller $caller, string $op, string $orderRef, array $unitIds, array $extra, string $idemKey, callable $fn): OpResult
     {
@@ -770,14 +1052,20 @@ final class Reservations
                     throw new CwException('unknown_order', 'CW has no reservation for this order yet', 404);
                 }
                 if ($op !== 'cancel' && $res['status'] !== 'committed') {
-                    // ship / unship / return concern paid units; the commit is still on its way
-                    // (the site's outbox sends it first). Not stored, so the same key works later (D36).
+                    // ship / unship / return / uncancel concern paid units; the commit is still on its
+                    // way (the site's outbox sends it first). Not stored, so the same key works later (D36).
                     throw new CwException('not_committed', 'order ' . $orderRef . ' is not paid yet (commit first)', 409);
                 }
                 $units = $this->unitsOf($res['id'], $wanted);
-                $out = $fn($orderRef, $units, $wanted, $idemKey);
+                $out = $fn($orderRef, $units, $wanted, $idemKey, ['channel' => $ch, 'reservation' => $res]);
+                $more = [];
+                if (!array_is_list($out)) {
+                    $more = $out;
+                    $out = $more['units'];
+                    unset($more['units']);
+                }
                 $this->stock->flush();
-                return OpResult::of(200, ['order_ref' => $orderRef, 'status' => $res['status'], 'units' => $out]);
+                return OpResult::of(200, ['order_ref' => $orderRef, 'status' => $res['status'], 'units' => $out] + $more);
             },
         );
     }
@@ -1117,6 +1405,63 @@ final class Reservations
                 'listing_id' => (int) $r['listing_id'], 'sku_id' => $r['sku_id'] === null ? null : (int) $r['sku_id'],
                 'u' => (int) $r['units_per_item'], 'warehouse_id' => (int) $r['warehouse_id'], 'state' => (string) $r['state'],
                 'dispatched_at' => $r['dispatched_at'] === null ? null : (string) $r['dispatched_at']];
+        }
+        return $out;
+    }
+
+    /**
+     * The linked listings among $listingIds, as they are now, read FOR SHARE in id order (R4: a link
+     * change and a use of its link serialise; taken after the reservation lock, before any balance).
+     *
+     * @param list<int> $listingIds
+     * @return array<int, array{sku_id: int, u: int}>
+     */
+    private function linksNow(array $listingIds): array
+    {
+        sort($listingIds);
+        $out = [];
+        foreach (array_chunk($listingIds, 1000) as $chunk) {
+            foreach ($this->db->all(
+                'SELECT id, sku_id, units_per_item, status FROM channel_listing WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?'))
+                . ') ORDER BY id FOR SHARE',
+                $chunk,
+            ) as $r) {
+                if (in_array($r['status'], ['mapped', 'quarantined'], true) && $r['sku_id'] !== null) {
+                    $out[(int) $r['id']] = ['sku_id' => (int) $r['sku_id'], 'u' => (int) $r['units_per_item']];
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Each unit's last cancel, from the ledger (D46): the id of its newest `cancel` row and whether
+     * that cancel parked it in VERIFY (restockable = false: a transfer_in to VERIFY noted
+     * cancel_not_restockable after it), with the id of that arrival row. Units without a cancel row
+     * (cancelled while unlinked) are absent. Keyed by the lower-cased unit id (unit_id compares _ai_ci).
+     *
+     * @param list<string> $unitIds
+     * @return array<string, array{cancel_id: int, parked: bool, arrived_id: ?int}>
+     */
+    private function lastCancels(int $channelId, int $verifyId, array $unitIds): array
+    {
+        $out = [];
+        foreach (array_chunk($unitIds, 1000) as $chunk) {
+            $rows = $this->db->all(
+                'SELECT id, unit_id, movement_type FROM stock_ledger WHERE channel_id = ? AND unit_id IN ('
+                . implode(',', array_fill(0, count($chunk), '?')) . ") AND (movement_type = 'cancel' "
+                . "OR (movement_type = 'transfer_in' AND warehouse_id = ? AND note = 'cancel_not_restockable')) ORDER BY id",
+                [$channelId, ...$chunk, $verifyId],
+            );
+            foreach ($rows as $r) {
+                $k = strtolower((string) $r['unit_id']);
+                if ($r['movement_type'] === 'cancel') {
+                    $out[$k] = ['cancel_id' => (int) $r['id'], 'parked' => false, 'arrived_id' => null];
+                } elseif (isset($out[$k])) {
+                    $out[$k]['parked'] = true;
+                    $out[$k]['arrived_id'] = (int) $r['id'];
+                }
+            }
         }
         return $out;
     }

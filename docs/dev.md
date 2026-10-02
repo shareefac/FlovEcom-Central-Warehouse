@@ -127,7 +127,11 @@ curl -s -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' -H '
   test. They are **skipped in every other slot**, because the vhost serves `cw_test_api` only
   (`CW_API_URL` and `CW_API_SCHEMA` override this).
 - Channel keys: `bin/create_channel.php` / `bin/rotate_key.php` print a new key once on stdout
-  (sha256 stored, never the key). Changing a channel's allowlist or mode is SQL for now.
+  (sha256 stored, never the key). `bin/channel_set.php` changes a channel's mode and/or allowlist
+  (dry run unless `--apply`, audited; A14).
+- `tests/Integration/ApiKernel/` (base `tests/Support/ApiKernelTestCase`) drive the same kernel
+  in-process against the slot's own schema, so the API's rules are also tested in **every** slot
+  (A13–A17).
 
 ## The staff UI on staging (slot `ui`)
 
@@ -205,15 +209,15 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
 | `migrations/0002_stock_core.sql` | idempotency scope (channel or source), ledger/feed indexes, `feed_clock` (D29, D38, D39) |
 | `migrations/0003_review_fixes.sql` | `channel_opening` (T0 watermarks + opening marker, off the channel row), `channel.movement_types` (R1, R12, R17) |
 | `src/Stock.php` | the only writer of `stock_balance` / `stock_ledger` / `stock_change`: `lock()` → `apply()` → `flush()`; policy + warehouse assignment |
-| `src/Reservations.php` | reserve / commit / release / cancel / ship / unship / return / opening orders / `expireDue()` |
+| `src/Reservations.php` | reserve / commit / release / cancel / uncancel (D46) / ship / unship / return / opening orders / `expireDue()` |
 | `src/Movements.php` | goods_in, supplier_return, erp_sale, adjustment, count, write_off, transfer_out/in |
 | `src/Availability.php` | per-listing views, `changes()` feed, `snapshot()` paging |
 | `src/Idempotency.php`, `Caller.php`, `OpResult.php`, `CwException.php` | one effect per key (D27–D29) |
-| `src/Invariants.php` | the nightly bucket check (D44), asserted after every stock test |
-| `tests/Integration/Stock/` | stock-core tests (§14 CW automated, minus HTTP); `HammerTest` uses `tests/Support/WorkerPool` (≤ 12 connections); `LockOrderTest` / `LinkAdoptionTest` force interleavings with `tests/Support/OpWorkers` + `op_worker.php` (waits on `performance_schema.data_locks`) |
+| `src/Invariants.php` | the nightly bucket check (D44; 10–11: the units' moves through VERIFY, D46), asserted after every stock test |
+| `tests/Integration/Stock/` | stock-core tests (§14 CW automated, minus HTTP; `UncancelTest` / `UncancelInvariantsTest`: D46); `HammerTest` uses `tests/Support/WorkerPool` (≤ 12 connections); `LockOrderTest` / `LinkAdoptionTest` force interleavings with `tests/Support/OpWorkers` + `op_worker.php` (waits on `performance_schema.data_locks`) |
 | `bin/migrate.php`, `bin/setup_staging.php` | CLI |
 | `public/index.php`, `src/Api/` | the /v1 HTTP API: `Kernel` (pipeline + error mapping), `Router`, `Auth` + `IpAllowlist` + `ApiKey`, `Request`/`Response` (envelope), `Context`, `Input`, `Controller/*` (one per resource) |
-| `src/Heartbeat.php`, `src/Purchasing.php`, `src/ChannelAdmin.php` | `POST /v1/heartbeat`, `GET /v1/purchasing`, channel creation / key rotation |
+| `src/Heartbeat.php`, `src/Purchasing.php`, `src/ChannelAdmin.php` | `POST /v1/heartbeat`, `GET /v1/purchasing`, channel creation / key rotation / mode and allowlist |
 | `migrations/0004_matching.sql` | matching runs/proposals/decisions, link history, rejects, aliases, staff roles, sessions, login attempts (M1, M2) |
 | `src/Mapping/DecisionService.php` | the only writer of a listing's link: link / unlink / new_item / ignore / reject / suggest / merge_skus, two-person approve / withdraw, the seed `mintAndLink`, the listing-row insert helper (M3–M10) |
 | `src/Mapping/ListingIngestService.php`, `src/Mapping/Proposals.php` | `PUT /v1/listings` + the import tool (M11); match runs and proposals (M13) |
@@ -225,7 +229,7 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
 | `src/Matching/`, `tools/first_match/`, `tests/matching/run.php`, `tests/fixtures/matching/golden_listings.json` | the matching engine (Normalizer, TitlePattern, Flavour, Veto, Candidates, Band, JudgeCard; `Form` = the one form enum, `JudgeScratch` = one scratch directory per judge chunk, M29) and the first-match tools; the plain golden runner (`php tests/matching/run.php`, no Composer) also runs inside the suite as `tests/Unit/MatchingGoldenTest.php`; regenerate the fixture with `tools/first_match/extract_fixture.php` |
 | `migrations/0012_key_bulk.sql`, `src/Matching/StoredBand.php`, `src/Mapping/{ProposalBasis,KeyEligibility,Reband,KeySample,KeyBulk}.php`, `src/Ui/Controller/SamplesController.php` | proposal bases, the replay of a stored band, the re-banding, the spot-check sample and its screen, the bulk confirm and its undo (M26-M28) |
 | `tests/Integration/Mapping/`, `tests/Support/MappingTestCase.php`, `tests/fixtures/mapping/` | DecisionService rules, listing intake, the tools end to end on small fixtures |
-| `bin/create_channel.php`, `bin/rotate_key.php` | channel + key tools (connect as `cw_app`) |
+| `bin/create_channel.php`, `bin/rotate_key.php`, `bin/channel_set.php` | channel, key, mode and allowlist tools (connect as `cw_app`; A11, A14) |
 | `src/Auth/` | staff sign-in for the UI: `Login` (password + TOTP), `LoginLimiter`, `Sessions` (`staff_session`, hashed ids), `Csrf`, `StaffIdentity` (M2, U1-U4) |
 | `src/Ui/` | the staff screens: `Kernel` (route, session, role, same-origin + CSRF, hardened headers), `Router`/`Route`, `Context`, `UiRequest`, `HtmlResponse`, `Html` (escaping), `View` (templates), `Queries` (read side), `QueueContext`, `Compare`, `Assets`; `Controller/{Auth,Dashboard,Review,Item,Search}Controller`; templates in `src/Ui/views/`; the two static files in `public/ui/assets/` |
 | `tests/Integration/Ui*Test.php`, `tests/Support/Ui{TestCase,Client,Response}.php` | the UI over HTTP (slot `ui` only); `tests/Unit/Ui{Unit,Templates}Test.php` need no server |
@@ -234,9 +238,12 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
 | `deploy/staging/apache-cw-https.conf`, `apache-cw-acme.conf`, `apache-cw-hardening.conf`, `php-fpm-cw-web.conf`, `logrotate-cw-web.conf`, `enable_https.sh` | the public HTTPS vhost (UI + API) for `warehouse-staging.floverfy.com`: NOT enabled (`docs/ops.md`) |
 | `deploy/staging/` | php-fpm pool, Apache vhost, `install_api.sh` |
 | `tests/Integration/Api*Test.php`, `tests/Support/ApiTestCase.php` | HTTP tests (slot `api` only) |
+| `tests/Integration/ApiKernel/`, `tests/Support/ApiKernelTestCase.php` | the /v1 kernel in-process (every slot): mode header, feed head, heartbeat key, extended holds, the uncancel route |
 | `tests/concurrency/hammer.php` | the §14 concurrency hammer: forked workers (≤ 30 connections), 4 scenarios, PASS/FAIL table (`docs/ops.md`) |
 | `tests/Integration/Stock/IdempotencyRaceTest.php` | same-key races (H1); `tests/Integration/Ops/` — pruner, the bin/ jobs end to end |
-| `src/Ops/` | `Cli` (shared job frame, H3), `Snapshot` (consistent read, H5), `ChangePruner` (H2), `ChannelHealth` (H8) |
+| `src/Ops/` | `Cli` (shared job frame, H3), `Snapshot` (consistent read, H5), `ChangePruner` (H2), `ChannelHealth` (H8), `OpeningEstimate` + `OpeningRebase` (a site's opening and its rebase at T0, D40a, D40b), `TestRefPurge` (staging test leftovers, D47) |
+| `bin/import_opening_estimate.php`, `bin/purge_test_refs.php` | the opening estimate and, with `--rebase`, its rebase at T0 (D40a, D40b); removing a test's reservations from a staging channel (D47; refuses unless app.env says `environment=staging`, and on a `live` channel) |
+| `tests/Integration/Stock/Opening{Estimate,Rebase}Test.php`, `tests/Integration/Ops/PurgeTestRefsTest.php` | the estimate; the rebase proof (estimate → opening_orders → ships → rebase), its skips and the connector's T0 file through the CLI; the purge in-process, as `cw_app` and through the CLI |
 | `bin/expire_reservations.php`, `bin/prune_changes.php`, `bin/invariants.php`, `bin/health_alert.php` | scheduled jobs (cron on staging: `docs/ops.md`) |
 | `deploy/staging/install_cron.sh`, `cw-staging.cron`, `logrotate-cw.conf` | staging cron install (`/opt/cw-staging`, `/etc/cron.d/cw-staging`) |
 | `scripts/remote.sh` | sync + run on staging |

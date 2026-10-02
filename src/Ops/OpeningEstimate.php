@@ -18,8 +18,8 @@ use CW\Movements;
  * count later replaces the figure.
  *
  * NOT included: the site's open paid-not-shipped units. /v1/opening_orders adds those to
- * `allocated` only, so at a site's T0 the opening must be rebased to (site stock at T0 + open units)
- * — D40a; this class does not do the rebase yet.
+ * `allocated` only, so at a site's T0 the opening is rebased to (site stock at T0 + open units)
+ * — D40a, D40b: CW\Ops\OpeningRebase plans it, apply() below books it.
  *
  * Which items are booked:
  *   - only listings with status `mapped` contribute; a `quarantined` listing with stock > 0 stops
@@ -178,18 +178,20 @@ final class OpeningEstimate
     }
 
     /**
-     * Books the plan, one item per call (Idempotency-Key "<doc_ref>:<sku_id>").
+     * Books the plan, one item per call (Idempotency-Key "<doc_ref>:<sku_id>"). The rebase (D40b) books its
+     * signed plan through here too, with $docType OpeningRebase::DOC_TYPE; booked_units is then the net.
      *
-     * @param array<int, int> $lines  sku_id => units
+     * @param array<int, int> $lines  sku_id => units (signed for a rebase; never 0)
      * @param ?\Closure(int, int): void $progress  called with (items done, items total)
      * @return array{booked_items: int, booked_units: int, replayed_items: int}
      */
-    public function apply(Caller $caller, array $lines, string $docRef, string $note, string $warehouse = 'MAIN', ?\Closure $progress = null): array
+    public function apply(Caller $caller, array $lines, string $docRef, string $note, string $warehouse = 'MAIN', ?\Closure $progress = null,
+        string $docType = 'opening_estimate'): array
     {
         $out = ['booked_items' => 0, 'booked_units' => 0, 'replayed_items' => 0];
         $n = 0;
         foreach ($lines as $sku => $units) {
-            $r = $this->moves->record($caller, ['type' => self::MOVEMENT_TYPE, 'doc_ref' => $docRef, 'doc_type' => 'opening_estimate',
+            $r = $this->moves->record($caller, ['type' => self::MOVEMENT_TYPE, 'doc_ref' => $docRef, 'doc_type' => $docType,
                 'warehouse' => $warehouse, 'note' => $note, 'lines' => [['sku_id' => (int) $sku, 'qty' => (int) $units, 'line_index' => 0]]],
                 $docRef . ':' . $sku);
             if (!$r->ok()) {

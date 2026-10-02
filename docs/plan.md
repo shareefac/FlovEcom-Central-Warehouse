@@ -230,20 +230,25 @@ every in-flight order is already inside `allocated` — nothing is lost at the s
 ## 3. API (JSON over HTTPS; `Authorization: Bearer <site key>` AND IP allowlist; every POST carries `Idempotency-Key`)
 | Call | Sent when | Behaviour |
 |---|---|---|
-| `POST /v1/reservations` `{order_ref, lines:[{variant_id, qty, unit_ids[]}]}` | Place order, before the payment redirect | `order_ref` = the site's `ord_id`. Sums need per item across lines (qty × u), locks rows in fixed order, checks strict items only, `held += need`. By current state: new → 201 held / 409 short (per-line `available`); held + same lines → extend TTL; released/expired → fresh attempt (attempt+1) or 409; committed → 200 "already paid"; held + different lines → 422. `stopped` items and quarantined listings → 409. Unlinked lines return `unlinked`. |
+| `POST /v1/reservations` `{order_ref, lines:[{variant_id, qty, unit_ids[]}]}` | Place order, before the payment redirect | `order_ref` = the site's `ord_id`. Sums need per item across lines (qty × u), locks rows in fixed order, checks strict items only, `held += need`. By current state: new → 201 held / 409 short (per-line `available`); held + same lines → extend TTL (200 `extended`, with the same per-line `lines[]` as 201); released/expired → fresh attempt (attempt+1) or 409; committed → 200 "already paid"; held + different lines → 422. `stopped` items and quarantined listings → 409. Unlinked lines return `unlinked`. |
 | `POST …/{ref}/commit` `{lines, origin}` | payment captured | held → allocated (always carries the lines, so it also works with no hold: outage orders, late or resurrected payments). Never refused; a strict item going below zero → `oversell_event`. |
 | `POST …/{ref}/release` `{attempt}` | payment failed/abandoned before paying | held → released; a stale `attempt` is ignored; on a committed order → 409 `use_cancel`. Unknown ref → stored tombstone (a late reserve then creates no hold). |
 | `POST …/{ref}/cancel` `{unit_ids, restockable}` | paid units cancelled before dispatch | allocated → cancelled (goods never left); `restockable=false` → units move to the non-sellable `VERIFY` location + recount task; written off only when a person or the recount confirms the loss (staff often leave the tick off) |
+| `POST …/{ref}/uncancel` `{unit_ids}` | a line cancel taken back on the site | cancelled → allocated again (D46); a unit still untouched in `VERIFY` comes back with the paired movement and its recount is dismissed; one a person already dealt with is allocated and a count review opened; a strict item going below zero → `oversell_event`. Each cancel and uncancel needs its own key. |
 | `POST …/{ref}/ship` / `unship` `{unit_ids, dispatched_at}` | worker saw units shipped / a dispatch reset | allocated −u, on_hand −u (unship reverses) |
 | `POST …/{ref}/return` `{unit_ids}` | return received after dispatch | on_hand +u (later: into RETURNS for inspection); key `return:<ordi_id>` so a refund-with-restock and a return receipt never double-count |
 | `POST /v1/opening_orders` | once, at a site's shadow start | paid-not-shipped units → committed (`origin=opening`) |
 | `POST /v1/movements` `{type, lines, doc_ref}` | ERP relay, staff screens | `goods_in`, `supplier_return`, `erp_sale`, `adjustment`, `count` (with `counted_at`), `write_off`, `transfer_out/in` |
-| `GET /v1/changes?after=<seq>` | site worker every 2 s | per **listing**: link status, central code, policy, u, available, state, version = global `seq`; stock, link, policy and warehouse changes all appear |
+| `GET /v1/changes?after=<seq>` | site worker every 2 s | per **listing**: link status, central code, policy, u, available, state, version = global `seq`; stock, link, policy and warehouse changes all appear; `head_seq` = the feed head (below the site's last seq = CW was restored → resync) |
 | `GET /v1/availability?variant_ids=` · snapshot | cart pre-check · every 15 min | current values, same version rule |
 | `PUT /v1/listings` | on product save (15-min hash delta) + nightly | writes `listing_profile` only (titles, brand, attributes, all barcodes, price, perma_link, units); `DecisionService` creates the `unmapped` listing row |
-| `POST /v1/heartbeat` | site worker every 60 s | outbox depth/age, dead-letters, last seq, site mode, connector version |
+| `POST /v1/heartbeat` | site worker every 60 s | outbox depth/age, dead-letters, last seq, site mode, connector version; needs an `Idempotency-Key` like every POST (a retry re-sends the same body; same key + another body → 422) |
 | `GET /v1/purchasing` | Vape and Go admin reports | per item: on_hand, allocated, held, available, policy, counted_at, 90-day units by site |
 | `GET /v1/health` | circuit breaker | returns `channel.mode` |
+
+Every answer after authentication (errors and replays included) carries `X-CW-Channel-Mode: off|shadow|live`, so the site
+reads CW's mode from every call (§6.2); nothing before authentication carries it. Mode and allowlist are set with
+`bin/channel_set.php` (dry run unless `--apply`, audited). Details: `docs/decisions.md` A1–A17.
 
 Lock order in every transaction: reservation row → `stock_balance` rows by (warehouse, sku) →
 `sku` rows. The expiry cron selects ids without locks, then processes each through the same path.
@@ -301,7 +306,7 @@ during a CW outage. Rule: the later-paid order is back-ordered or refunded by an
   any SQL or HTTP. In `shadow`, any CW-related failure is caught and logged — it can never stop an
   order completing.
 - **Effective mode = the lower of** the site's `CW_MODE` and CW's `channel.mode` (read from every
-  response); a mismatch alerts. The site setting alone can always roll a site back, even with CW down.
+  response: header `X-CW-Channel-Mode`); a mismatch alerts. The site setting alone can always roll a site back, even with CW down.
 - Deploy order per site: run the SQL → confirm the tables exist → deploy code → set `CW_MODE`.
 
 ### 6.3 The worker (`cw_sync_worker.php`, supervisor)
@@ -330,7 +335,7 @@ before adding hooks, or the hooks never run on live.
 | GlobalPay worker resurrects an order | `check_timeout_globalpay/timeout_watcher.php:205-240` | reserve again (new attempt) |
 | **Staff/phone ("office") orders** | `App/app_config/modules/order.php:626-668` | reserve + commit under that order's own `ord_id` |
 | **Whole paid order cancelled by staff** | `order.php` Cancelled branch :339-394 / :607-613 | `cancel` all open units, restockable (goods never left) |
-| **Line cancels** (`restock_and_cancel_items.php`, both refund branches in `refund_service.php:421-436`, dispatch `cancel_and_restock_remaining.php:37-53`) | many files | **no per-file hooks:** the worker's unit sweep sees `ordi_iscancelled` 0→1 on committed orders and sends `cancel` with `restockable = ordi_restock` |
+| **Line cancels** (`restock_and_cancel_items.php`, both refund branches in `refund_service.php:421-436`, dispatch `cancel_and_restock_remaining.php:37-53`) | many files | **no per-file hooks:** the worker's unit sweep sees `ordi_iscancelled` 0→1 on committed orders and sends `cancel` with `restockable = ordi_restock`; 1→0 (a cancel taken back) → `uncancel` |
 | **Dispatch** (`mark_as_dispatched.php`, `fetch_scanned_order*.php`, `dispatch.php:248,1045`, packing slips) | many files | **no edits:** the sweep sends `ship` per unit when `ordi_shipped=1` and its order's dispatch-log row is `Generated` (never on `Pending`/`Cancelled` rows); `dispatched_at` = that row's shipped/added time (London → UTC); units grouped by their own `ordi_ord_id` so office child orders ship against their own reservation; a reset by `clear_dispatch.php` → `unship`; nightly 30-day backstop |
 | Return after dispatch / refund with restock after dispatch | `order_return.php:850-867`; `refund_service.php:421-434` | `return` keyed `return:<ordi_id>` (the two paths de-duplicate) |
 
@@ -457,6 +462,10 @@ Full matching design record (schemas, band rules, test sets, the 40 review fixes
   `prodt_stock` (≥ 0) × u + its open paid units; 0 for items only on the sister sites. ERPNext's
   stock feed is **not** read: reading `get_product_stock_sync` flips pending purchase invoices to
   Synced as a side effect, which would stop their goods-in push.
+- **At T0 the estimate is rebased** (`bin/import_opening_estimate.php --rebase`, decisions D40a/D40b): per
+  item, max(site stock in the T0 snapshot, 0) × u + the site's opening units × u, booked as one signed
+  adjustment against the earlier estimate, straight after the final opening batch. Counted items and items
+  with any other stock history are skipped and listed for a person. Order of steps: `docs/ops.md` "A site's T0".
 
 ### 8.2 Counting
 - Order: by units sold (weekly re-ranked), on a tablet + scanner in the CW count screen.
@@ -588,7 +597,7 @@ payroll).
   release/expire/re-reserve/commit-without-hold; `stopped` item and quarantined listing → 409.
 - Bucket arithmetic: legacy item with open paid orders → count → switch to strict → orders ship →
   `allocated` returns to 0, never negative; count with a late ship dispatched before `counted_at`;
-  cancel restockable true/false; unship; return after refund (no double count); nightly invariant
+  cancel restockable true/false and uncancel (also back out of VERIFY); unship; return after refund (no double count); nightly invariant
   check (buckets = sums of `reservation_unit` states).
 - Feed: out-of-order commits, remap of a listing between items, policy change and warehouse change
   all reach the site; the version guard never applies an older value.
