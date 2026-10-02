@@ -791,6 +791,22 @@ The CW core and matching were built 26 Sep–2 Oct, much faster than estimated. 
 
 ## 10. Decisions for you (asked when each one is needed)
 
+> **Decided 2 Oct 2026 — the owner answered "agree all" to the 8 "now" decisions, so every
+> recommendation below stands:**
+> 1. Everything goes live together (option A).
+> 2. Plan for two engineers, target I-Day 1 Sep 2027, re-plan after I-1 and I-3.
+> 3. Name the people for each job now: at least two reviewers, with the owner as backup reviewer.
+> 4. ERPNext data comes only from full backup copies restored on a separate box (a seed copy now, a
+>    final copy before I-Day).
+> 5. Vape Big access now; if it is still missing in March 2027, Vape Big becomes a trade-customer
+>    fallback.
+> 6. The count screen warns first when goods arrive during a count.
+> 7. The ERPNext admin fixes the boxes-not-units and Synced-but-never-sent bugs (tested on a copy first)
+>    and re-sends 9,571 + 336 units.
+> 8. All unstamped deliveries are refused from 1 Jan 2027; anything made or imported from 1 Oct 2026
+>    that arrives unstamped is always refused.
+
+
 **A. Now (before Phase I-1)**
 1. Go-live order: everything together (A) or Part 1 first (B).
 2. Build pace: one engineer, two, or the measured pace with a re-plan after I-1.
