@@ -1324,3 +1324,658 @@ still posts `Origin: null` with `Sec-Fetch-Site: cross-site` and is still refuse
 Open after round 2:
 - Done 1 Oct 2026: `/etc/cw/initial_staff.txt` shredded, staff 2 deactivated (and its secrets reset), the public HTTPS vhost on.
 - Not built: the alias decision (U18), merge and unlink screens (U12), the remap correction movement (M24), bulk confirm (U20, rejected).
+
+## Inventory Phase I-1 (slot `i1c0`, C0 core change)
+
+The one reviewed change to the frozen stock core that the inventory plan calls C0 (`docs/inventory-modules-plan.md` §3):
+a cost and a document link on stock movements, the per-item value sequence, and the (empty) value ledger. Numbered I1–I9
+(I10–I16: roles, I17–I27: documents). Code: `migrations/0006_value_core.sql`, `src/Stock.php` (`apply`, `lock`, `flush`,
+`assignValueSeq`), `src/Movements.php` (`normaliseCost`, `prepare` + `book`, `bookForDocument`, `reverseDocument`),
+`src/Db.php` (`transactionSerial`), `src/Invariants.php` (7–9), `src/Schema/Grants.php`, `bin/setup_staging.php` (probe);
+tests `tests/Unit/MovementCostUnitTest.php`, `tests/Integration/Stock/{MovementCost,MovementHashCompat,ValueSequence,
+ValueSequenceRace,DocumentBooking}Test.php`, `tests/Integration/{ValueInvariants,Migration0006}Test.php`, new cases in
+`GrantsTest`, `SchemaConstraintsTest`, `LockOrderTest`; hammer scenario 5; `tests/Support/MigrationFixture.php`.
+
+**I1. A cost on the ledger row.** `stock_ledger` gets `unit_cost DECIMAL(14,6)` (GBP per **central** unit, 6 decimals),
+`cost_currency CHAR(3)` (always `GBP` when a cost is set) and `cost_source ENUM('document','manual','estimate')`.
+- Allowed only on an `on_hand` row of `goods_in`, `supplier_return`, `adjustment` (either sign), `count` and `write_off`
+  (`Stock::COST_TYPES`), and refused on every other row three times over: the CHECK `ck_stock_ledger_cost`, a
+  `LogicException` in `Stock::apply` (which also wants the canonical form and a known source), and 400 `cost_not_allowed`
+  from `Movements` (detail `field`). Sales, ships, transfers, `erp_sale` and `trade_sale` are issues or moves: IM8 values
+  them at the moving average, so a cost typed on them would only be a second, wrong opinion.
+- GBP only: a foreign-currency invoice is converted on its document (I-4), and the ledger never mixes currencies.
+- **Never required in C0.** The ERP relay (the sites' goods-in today) sends none, and existing callers are unchanged. The
+  GRN handler (I-3) makes it compulsory on its own lines.
+- **Sites cannot send a cost** (400 `cost_not_allowed`, nothing stored, the same key may be retried without it): costs come
+  from CW documents or from staff, never from a site's cost field (Vape and Go's holds £1 placeholders).
+- `record()` books a staff line's cost with `cost_source = 'manual'`; `bookForDocument` with `'document'`. `'estimate'` is
+  reserved for the opening cost load (IM8/IM15, decision 15); no code writes it yet and `OpeningEstimate` books quantities
+  only, as before (D40a).
+- One canonical form (`Movements::normaliseCost`): an int 0..99,999,999, a plain decimal string (no sign, exponent, padding,
+  grouping or spaces; at most 8 + 6 digits) or a finite float ≥ 0 with at most 6 decimals, stored and hashed as a 6-decimal
+  string (`"1.250000"`); anything else is 400 `bad_cost`. `"unit_cost": null` counts as not sent.
+- Count lines of one (warehouse, item) are summed into one row, so they must carry the same cost: 400 `cost_conflict`
+  otherwise, and a line without a cost next to one with a cost is a conflict too (which one would the summed row carry?).
+- How a cost is used is IM8's decision, not the ledger's: receipts at the supplied cost, issues at average; a cost on a
+  write-off or supplier return is evidence for IM8, not an instruction.
+
+**I2. A document link on the ledger row.** `document_id BIGINT UNSIGNED` and `document_line INT UNSIGNED`, indexed
+(`ix_stock_ledger_document`), **no FK** (D15): the `document` table only arrives with 0008, and an FK from the hot ledger
+insert would take a lock on the document row outside the §3 lock order. CHECK `ck_stock_ledger_document`: a line needs its
+document, and `cost_source = 'document'` needs a document. Only `Movements::bookForDocument` and `reverseDocument` write
+them; on their rows `doc_ref` is the document number (`ADJ-000001`), so the ledger reads without a join. `record()` cannot
+set them: unknown request fields are ignored (A5) and never enter the canonical request. A count row summed from several
+document lines has `document_line` NULL and lists the lines in its note (`counted=7 ships_after=0 lines 5,6`).
+
+**I3. The per-item value sequence (extends D39).** Every `on_hand` ledger row, a journalled zero count included, gets one
+`stock_value_seq` row: per item 1, 2, 3, ... in **commit order**, with no gap. IM8 values each item's movements in that
+order. Consuming `stock_ledger` ids in id order is wrong (the finance review): ids are AUTO_INCREMENT values given at insert,
+so a row of another warehouse can take a lower id and commit later, and a consumer that already passed that id skips it.
+- *The brief's premise was checked and is false.* It said "assigned under the sku row lock, which is last in the lock
+  order". `Stock.php` takes no `sku` lock on an on_hand change; `setPolicy` locks balances → `sku` X, `Reservations::lockSkus`
+  takes `sku` FOR SHARE after the balances, and a link decision takes `sku` FOR SHARE **before** the balances (M4). X-locking
+  `sku` on every on_hand change, after the balances, would put dispatch and goods-in into a cycle with every link that adopts
+  units of the same item (decision: sku S → waits for balance X; ship: balance X → waits for sku X), and every `sku` FOR SHARE
+  reader (reserve, commit, the policy screen) would queue behind dispatch traffic.
+- *Chosen:* a dedicated clock row per item, `stock_value_clock(sku_id PK, last_seq)`, locked where the brief wanted the sku
+  lock. The full order is now: idempotency claim → channel_opening → reservation rows → channel_listing (FOR SHARE) →
+  stock_balance → sku rows → **item value clocks (sku_id order, in `flush()`)** → feed clock. Nothing else ever locks a clock
+  row, so a holder of one waits only for a clock of a higher sku_id or for the feed clock, and neither waits back: no cycle.
+- `Stock::apply` queues `[sku_id, ledger id]` of every on_hand row; the **first** statement of `flush()` is
+  `assignValueSeq()`, before `flagShortfalls()` and before the early return, so ships, VERIFY moves and counts without a
+  difference (which write no feed row) are numbered too. Per `VALUE_CHUNK` (1,000) items, in ascending sku_id: one
+  `INSERT INTO stock_value_clock ... AS new ON DUPLICATE KEY UPDATE last_seq = last_seq + new.last_seq` (X-locks the rows in a
+  global order, creates a missing one), one `SELECT` of the new `last_seq` (own writes are visible under READ COMMITTED), and
+  the seq rows in multi-row INSERTs: three round trips per 1,000 items, all before the feed clock.
+- *Why gap-free and in commit order:* the clock row's X lock is held to commit; a rollback restores `last_seq` together with
+  the seq rows; so an item's seq n + 1 cannot be assigned until the transaction holding n has ended, and any reader that sees
+  n + 1 committed sees n. Within one balance, seq order is also ledger id order (the balance lock serialises whole
+  transactions, invariant 9); across warehouses it is commit order and may differ from id order (`ValueSequenceRaceTest`, and
+  the hammer's scenario 5 counts it: 26 times in a 30 s run).
+- **Consumer rule (IM8):** value an item's rows strictly by seq, starting after the item's last valued seq. A seq that is
+  missing below a visible one is corruption: stop that item and alert; it is never "not yet committed". The seq orders an
+  item, not the whole stock; IM8 needs no global order (one moving average per pool and item, I5). A clock moved by hand
+  (the app login may update `last_seq`) is corruption too (I28).
+
+**I4. Backfill in 0006.** The migration numbers every on_hand row already booked in ledger id order per item (`ROW_NUMBER()
+OVER (PARTITION BY sku_id ORDER BY id)`; deterministic: 8,199 opening adjustments expected on `cw_staging`) and gives
+**every** item a clock row (0 when it has no on_hand row; taken from the seq rows just written, never from a second count of
+the ledger: I28), so the hot path rarely inserts one. For historical rows seq order is id order. 0006 must be applied
+**together with the code**, with the writers stopped (`install_cron.sh --migrate`; I28): old code booking on_hand after the
+migration would leave rows without seqs, which invariant 7 reports, and new code before the migration fails on the missing
+tables.
+
+**I5. `stock_value_ledger`, created empty.** The value journal that IM8's `Valuation.php` will be the only writer of: its own
+BIGINT PK, `stock_ledger_id` NULLable (value-only entries), `kind` in `movement`, `cost_adjust`, `landed`, `price_credit`,
+`trueup`, `nrv_reclass`, `opening`, `count_reclass`, `qty_delta` (0 for value-only kinds: CHECK), `unit_cost`, `value_delta`,
+`qty_after`, `value_after`, `cost_source`, the document link, `effective_at` (valuation date) and `actor`. `valuation_pool`
+(default `default`) is where decision 9 (which company owns the stock) lands: one moving average per (pool, item). A stored
+generated column with a UNIQUE key allows one `movement` entry per ledger row. Append-only for the app login. IM8 may still
+change its shape while it is empty; C0 only creates it so the core never changes twice.
+
+**I6. Idempotency keys stored before C0 still replay** (requests without `unit_cost`; one that carried an ignored cost
+does not: I28). `unit_cost` enters the canonical request of a line only when it is
+sent, as its 6-decimal string, so every request without a cost hashes exactly as before (`ksort` of the line keys is
+unchanged); `"1.5"`, `1.5` and `"1.500000"` are one request, `"1.51"` another (422 `idempotency_key_reused`). Pinned by
+`MovementHashCompatTest`: three golden request hashes printed by the code before C0 (b390a40) — a goods-in by sku_id with
+line_index, warehouse and note; a backdated count; a two-line adjustment — and a stored-before-C0 key that replays.
+Response bodies are unchanged (no cost field).
+
+**I7. One `lock()` and one `flush()` per document posting.** `Movements::record()` is now `prepare()` (validation, canonical
+request) + `Idempotency::run(book())`, and `book()` resolves every line of every movement, takes ONE `Stock::lock()` of all
+their balances, applies the movements in order and calls ONE `flush()`. Document postings run inside their own transaction,
+where `Idempotency::run` refuses to run, so C0 adds two in-transaction entry points on the same `book()`:
+- `bookForDocument(Caller, {document_id, doc_ref}, opKey, movements)`: staff only (403 `staff_only`), 1–20 movements of
+  `DOCUMENT_TYPES` (400 `bad_type` / `bad_movements`), at most `MAX_LINES` lines in all, each line with its `document_line`
+  (1..4294967295, unique in its movement, used as the line index) naming the item by `sku_id` or `sku_code` (400
+  `bad_lines` otherwise: a document never names a site variant); counts pass `Clock::checkWindow` (backdated allowed). An
+  unresolved line refuses the whole posting with `CwException` 422 `unresolved_line` (detail: movement, type,
+  document_line, reason) before anything is locked; documents never park lines in `goods_in_suspense`. No idempotency row
+  and no audit row: the posting's own transaction, document lock and audit row do that. Also refused (`LogicException`, not in
+  the brief): a second call for a document that has already booked stock (a handler bug would book it twice).
+- `reverseDocument(Caller, originalId, {document_id, doc_ref}, opKey)`: the exact negation of every ledger row of the
+  original (same bucket and type, cost, cost source and document line; `effective_at` now; note `reversal of <number>`;
+  zero rows mirrored), in one `lock()`/`flush()`; 0 and no lock when the original moved no stock; `LogicException` when
+  the reversal document has already booked stock (so it can never negate twice). It never touches `counted_at`: a reversed
+  count leaves the location's count time, and a recount is IM2's business. Staff only, like `bookForDocument`.
+- **The `lock()` guard:** `Stock::lock()` throws a `LogicException` while on_hand rows applied in the same transaction still
+  wait for their seq ("call flush() before lock() again"). "The same transaction" is `Db::transactionSerial()`, a counter that
+  moves at every real `beginTransaction()` (deadlock retries included) and never when a call joins an open transaction, so the
+  stale entries a rolled-back operation leaves in a long-lived `Stock` are discarded, not numbered (also by a `flush()`
+  without `lock()`). Since I29 `lock()` also refuses once the transaction took value clocks or the feed clock through ANY
+  `Stock` on the connection.
+
+**I8. `trade_sale`, document-only.** A new movement type (on_hand − |qty|, no cost: issued at average) for IM11's trade and
+inter-site issues, added now so IM11 does not have to touch the core again. It is in `DOCUMENT_TYPES` and not in `TYPES`:
+`record()` (POST /v1/movements, the ERP relay, the staff screens) answers 400 `bad_type` for it.
+
+**I9. Measurements (2 Oct 2026, slot `i1c0`, staging cluster shared with other slots).** Before = HEAD b390a40 (a clean
+copy run in the same slot), after = C0. Commands: `scripts/remote.sh i1c0 php tests/concurrency/hammer.php --seed=20261002
+[--only=4]` and `scripts/remote.sh i1c0 vendor/bin/phpunit --filter testALargeMovementDoesNotHoldTheFeedClockForOneRoundTripPerItem`
+(the before copy carried only the extra "whole movement" print).
+
+| Measure | Before | After | Change |
+|---|---|---|---|
+| Scenario 4 operations/s (3 runs, 30 s, 22 traders + 2 crons) | 54, 62, 61 (median **61**) | 51, 60, 63 (median **60**) | −1.6 % (limit: 15 %) |
+| Scenario 4 deadlocks retried / surfaced | 0 / 0 | 0 / 0 | — |
+| 2,000-line goods-in: feed rows written within (ms), the 3 specified runs | 66, 69, 67 (median 67) | 190, 70, 47 (median 70) | bound < 250 ms held |
+| same, all 14 runs each (incl. 5 interleaved before/after pairs) | median 65, max 122 | median 78, max **313** | 13 of 14 after runs < 250 ms |
+| same, the 5 interleaved pairs only | 122, 69, 96, 52, 63 (median 69) | 67, 86, 84, 61, 88 (median 84) | |
+| whole 2,000-line movement (ms), the 5 interleaved pairs | 16031, 12641, 15097, 18267, 12366 (median 15097) | 14619, 15378, 12971, 14996, 20078 (median 14996) | none measurable |
+| Full hammer (scenarios 1–5) | 1–4: PASS (50 checks, 26 Sep) | **RESULT: PASS (57 checks passed, 0 failed)**, 87 s, 0 deadlocks retried in every scenario | |
+| Scenario 5 (new; 20 traders, 30 s) | — | 1,072 calls (36/s), 1,634 on_hand rows (54/s); 231 polls, 0 gaps; 13 live snapshots, 0 violations; seq order ≠ ledger id order 26 times | |
+
+Reading: the C0 work sits before the feed clock (three round trips per 1,000 items, measured in the whole movement, where it
+is lost in the noise of ~2,000 per-line round trips), so the serialised feed section is the same code as before; scenario 4's
+throughput is unchanged. One after-run measured a 313 ms feed span (the test's bound is 250 ms): in that run the whole
+movement took 30 s instead of the usual 12–16 s and the other site's reserve 969 ms, i.e. the shared cluster was slow, and
+before-runs in the same hour reached 122 ms. The medians differ by 13 ms in the after's disfavour; that is within the
+run-to-run spread, but it is recorded as an open item: re-measure on a quiet cluster before live. The new per-item clock does
+add one serialisation that did not exist: two transactions moving the SAME item at different warehouses (MAIN and VERIFY)
+now queue from `flush()` to commit (a few round trips); different items never wait for each other's clocks. What C0 costs
+on traffic heavy on on_hand changes (about 4 ms per one-item operation, median −7 % in an A/B): I30.
+
+## Inventory Phase I-1 (slot `i1ro`, roles)
+
+IM1's roles (`docs/inventory-modules-plan.md` §3 IM1): several roles per person, one permission map, role-aware menus and
+the People and roles screen. Numbered I10–I16. Code: `migrations/0007_staff_roles.sql`, `src/Auth/Permissions.php` (new),
+`src/Auth/{StaffIdentity,Sessions}.php`, `src/Staff/StaffRoles.php` (new), `src/Staff/StaffAdmin.php` (`create` with a role
+list, `setRoles`, `setActive`), `src/Mapping/DecisionService.php` (`staff()` and its role checks), `src/Ui/{Route,Router,
+Kernel,Context}.php`, `src/Ui/Controller/{Dashboard,People,Review}Controller.php`, `src/Ui/views/{layout,home,people,person}.php`,
+`public/ui/assets/app.css`, `bin/{create_staff,reset_staff,mint_vpg}.php`, `src/Schema/Grants.php`; tests
+`tests/Unit/PermissionsTest.php`, `tests/Integration/Staff/StaffRolesTest.php`, `tests/Integration/UiKernel/{Menus,
+PeopleScreen}Test.php`, `tests/Integration/Migration0007Test.php`, new cases in `GrantsTest`, `UiUnitTest`, `UiTemplatesTest`.
+
+**I10. `staff_role`, with history; `staff_user.role` dropped (amends M2).** One row per grant: `staff_user_id`, `role` (the
+14 roles of I11), `granted_by`/`granted_at`, `revoked_by`/`revoked_at`. A grant is revoked, never deleted: the app login has
+SELECT, INSERT and UPDATE of `revoked_at`, `revoked_by` only (`Grants::UPDATE_COLUMNS`), so the history stays readable; the
+authoritative record of who changed which role is the insert-only `audit_log` (`staff.roles`), because the app login could
+still clear a `revoked_at` (I35; `ck_staff_role_order`: never revoked before it was given). A stored generated column
+`active_staff_user_id` (the person while the grant is live, NULL once revoked) with `UNIQUE (active_staff_user_id, role)`
+allows one live grant per person and role and any number of revoked ones; CHECKs: nobody grants or revokes their own role,
+and a revoker needs a revocation time. `granted_by` NULL means a CLI tool or the backfill (`audit_log` names which). 0007
+gives every person the role they had (`CAST(role AS CHAR)`, granted at their `created_at`, one `staff.roles` audit row each,
+actor `system:migrate`) and then **drops** `staff_user.role`: a reader that was missed fails loudly (unknown column, 1054)
+instead of trusting a stale column. Forward-only (D25): deploy 0007 together with the code (`install_cron.sh --migrate`);
+old code on the new schema and new code on the old schema both fail at once, on the sign-in, rather than silently.
+
+**I11. One permission map; routes are guarded by permission; roles are read per request.** `CW\Auth\Permissions` (pure, no
+database) is the single place that says what a role may do: `ROLES` (14), `DESCRIPTIONS`, `MAP` (permission → roles),
+`MENU`, `can()`, `permissionsOf()`, `checkRoleSet()`, `menu()`. What a person may do is the union of their roles'
+permissions. A UI route's access is `public`, `any` or a permission (`Router::add` throws `InvalidArgumentException` on
+anything else, so a typo cannot leave a page open); `Kernel::guarded` refuses 403 when `$who->can($access)` is false, so a
+page left out of a menu is also refused, not only hidden. `can()` with an unknown permission throws, never answers "no".
+`Sessions::resolve` reads the live roles (`GROUP_CONCAT` of `staff_role` where `revoked_at IS NULL`) on every request, so a
+role taken away stops working on the person's next page, without ending their session. Services that write re-read the
+caller's roles inside their own transaction (`StaffRoles::active`: 403 `staff_not_allowed` for an unknown or inactive
+person): `DecisionService::staff()` now returns `{id, roles}` and checks `mapping.decide` (= mapper, mapping_lead, the old
+`DECIDERS`) and `mapping.approve` (= mapping_lead) with unchanged semantics; `DecisionService::ROLES` stays as an alias of
+`Permissions::ROLES`. 403 texts name the roles: "your role (viewer) cannot make mapping decisions" (unchanged for one role),
+"your roles (a, b) ..." for several, and "your role (buyer) does not open this page" / "your roles (a, b) do not open this
+page" for any other permission (the spec gave only the plural form; one role reads in the singular).
+
+**I12. Separation of duties: admin never posts, reviews or decides.** `admin` (people and roles) may be combined only with
+`ADMIN_COMPATIBLE` = viewer, accountant, auditor (read-only roles). `checkRoleSet` refuses anything else with 422
+`role_conflict` ("admin cannot be combined with <list>: the person who manages people and roles never posts, reviews or
+decides"), an empty set with 422 `no_roles` (to take every role away, deactivate the person) and an unknown role with 400
+`bad_role`; every writer (`StaffAdmin::create`, `setRoles`, both CLI tools, the screen) goes through it. The map gives admin
+no `doc.*`, `documents.review`, `documents.approve` or `mapping.*` (`PermissionsTest`).
+- *Defence in depth (not in the spec):* a set that breaks the rule anyway (only admin SQL can write one) is read fail-closed:
+  while admin is held, the conflicting roles grant nothing (`Permissions::effective`), so admin + mapper cannot decide.
+- **Consequence for the owner (decision 3):** the owner holds `reviewer` as the backup reviewer, and reviewer cannot be
+  combined with admin. **The owner therefore cannot also be admin: the owner must name another person as admin.** If nobody
+  is admin, `bin/reset_staff.php --email=<address> --roles=admin` on the server is the break-glass (CLI callers are system
+  callers and pass the admin check), and the People list warns "No active person holds the admin role".
+- If the owner decides otherwise (an owner-admin who also reviews), `ADMIN_COMPATIBLE` is the one constant to change
+  (`PermissionsTest::testAdminNeverPostsReviewsOrDecides` and this entry change with it).
+
+**I13. The People and roles screen (`/ui/people`).** Admin and auditor see the list (`staff.view`: name, e-mail, roles,
+active, last sign-in, created; warnings when fewer than 2 active people hold `reviewer`, decision 3, or none holds `admin`)
+and each person's page (details and the full role history: role, given at/by, taken away at/by). Only admin changes
+(`staff.manage`): a checkbox per role (`role_<name>=1`, grouped Linking / Purchasing and receiving / Stock / Review and
+finance / Admin with the descriptions; `UiRequest::field` ignores arrays, hence one field per role), and switching the
+account off or on. Rules, all enforced again by `StaffAdmin` inside its transaction:
+- **No self-edit:** an admin's own row has no forms (the page says why) and a POST is 403 `own_account`; an auditor sees no
+  forms ("Your role (auditor) can look at people and roles but not change them.") and a POST is 403 at the route.
+- **Optimistic check:** the form carries `roles_seen` (the live roles it was drawn with). When they changed meanwhile the save
+  is 409 `roles_changed`; the page is re-drawn with the current roles named, the admin's choices kept and `roles_seen`
+  updated, so saving again is a deliberate overwrite. A form without `roles_seen` is 400. Every refusal re-renders the page
+  under its status with the error and the choices kept (422 `role_conflict`/`no_roles`, 409, 403).
+- **Effects:** removed roles are revoked (`revoked_at = NOW(6)`, `revoked_by` = the admin), added ones granted
+  (`granted_by` = the admin), audit `staff.roles` `{email, before, after, added, removed}` with the admin as actor; nothing
+  changed: no write, no audit, notice "Nothing changed" (`roles_unchanged`, a notice the spec did not list). A role removed
+  takes effect on the person's next request (I11). Switching off sets `is_active = 0` and ends every session of the person at
+  once (`Sessions::revokeAll`), audit `staff.deactivate`/`staff.activate`; switching to the state the account already has
+  writes nothing.
+- **Concurrency (not in the spec):** `setRoles`/`setActive` lock the caller's and the person's `staff_user` rows in id order
+  before re-reading the caller's roles, so two admins taking admin away from each other at the same moment queue, and the
+  second finds it is no longer an admin (403) instead of both succeeding and leaving no admin.
+- **Creation and secrets stay on the server:** new people are made with `bin/create_staff.php`; a one-time password or TOTP
+  seed is never shown in a browser (the list says so). `StaffAdmin::create` called by a staff caller needs admin too.
+
+**I14. Menus and the home page (amends U13).** The navigation is `Permissions::menu($roles)`: grouped sections (Linking,
+Items, Purchasing, Receiving, Stock control, Trade, Document reviews, Documents, Accounts, Reference, Admin), only the items
+the roles permit, empty sections left out. An item is either a live link (a real GET route; `aria-current` on the current
+page's key) or a placeholder "<label> · coming in Phase I-n", which is text, never a link. In I-1 Document reviews, Documents
+and Reference are placeholders (phase I-1); the documents task (0008) makes them live. Badges are computed only for what the
+person may see: the second-approval count needs `linking.view` (U13 showed it to every signed-in user; the new roles have no
+linking screens). The quick search box needs `catalogue.view` (every role). `/ui/` stays open to every signed-in person:
+with `linking.view` it is today's dashboard; otherwise a home page ("Signed in as <name> (<roles>)", one card per menu
+section with its links and placeholders, "You have no roles yet: ask an admin" when the person has none). **The linking
+screens need `linking.view`** (viewer, mapper, mapping_lead, warehouse, manager, admin, auditor: everyone who had them
+before); the new inventory roles never had them. Search and item pages need `catalogue.view` (all 14 roles).
+- *Spec conflict, resolved in favour of the map:* the spec's MenusTest lists a buyer's sections as Items, Purchasing,
+  Reference, but its own permission map gives `buyer` `documents.view` (a buyer will post and read purchase orders). The menu
+  is derived from the map, so a buyer sees Items, Purchasing, **Documents**, Reference; the tests assert that. The three
+  acceptance menus stay different: buyer {Items, Purchasing, Documents, Reference}, purchasing desk {Items, Receiving, Trade,
+  Documents, Reference}, reviewer {Items, Document reviews, Documents, Reference}; none shows Linking or Admin. If the owner
+  wants buyers without the documents list, drop `buyer` from `documents.view` (one line).
+
+**I15. CLI: `--roles`, with `--role` as an alias (amends M15, U23).** `bin/create_staff.php --roles=buyer,reviewer` (comma
+list; `--role=<one>` kept for the existing runbooks); exactly one of the two, else exit 2 (an empty `--roles=` is exit 2 too:
+getopt gives it no value); the set passes `checkRoleSet` (exit 1 otherwise); stderr prints the roles. `bin/reset_staff.php
+--roles=<list>` replaces the set through `StaffAdmin::setRoles` as `system:reset_staff` (audited `staff.roles`), prints
+`roles: a,b -> c,d` on stderr, and combines with the other flags (the roles first, in their own transaction; then the
+reset). A role change alone does not end the person's sessions (it takes effect on their next request); every other reset
+still does. `bin/mint_vpg.php --staff` must be active and hold `mapping_lead` (`StaffRoles::of`).
+
+**I16. Proposed posting permissions (pending decisions 3 and 11).** `doc.PO.post`: buyer, purchasing_manager;
+`doc.GRN.post`: goods_in, purchasing_desk, purchasing_manager; `doc.SINV.post` and `doc.DN.post`: purchasing_desk,
+purchasing_manager; `doc.CNT.post`: stock_controller, warehouse; `doc.ADJ.post` and `doc.WO.post`: stock_controller;
+`doc.TRD.post`: purchasing_desk, purchasing_manager. `documents.review` and `documents.approve`: reviewer only (the poster
+never reviews their own document: enforced per document by the documents task). `documents.view`: every role that posts,
+reviews or audits, plus manager and warehouse; `accounts.view`: accountant, auditor. Nothing posts in I-1 (no document type
+is live), so these are defaults to confirm with the owner when decisions 3 (people per role) and 11 (approval rules and
+limits) are taken; changing one is a line in `Permissions::MAP` plus its test.
+
+## Inventory Phase I-1 (slot `i1do`, documents)
+
+IM1's document base (`docs/inventory-modules-plan.md` §3 IM1): one generic document header, lines, statuses, the post-first
+review and the blocking approvals' infrastructure, reversals, number series, reason codes, the document store, PDF and CSV
+output, and the screens around them. Numbered I17–I27. Code: `migrations/0008_documents.sql`, `src/Documents/` (`Document`,
+`DocumentHandler`, `DocumentHandlers`, `Documents`, `NumberSeries`, `DocumentInvariants`), `src/Files/` (`FileStorage`,
+`LocalFileStorage`, `FileStore`, `FileStoreException`), `src/Output/` (`Fpdf`, `PdfWriter`, `CsvWriter`),
+`src/Ui/Controller/{Documents,Reviews,Reference,Files}Controller.php`, `src/Ui/views/{documents,document,reviews,reasons,
+series}.php`, `src/Ui/{Kernel,Context}.php`, `PeopleController::csv`, `src/Auth/Permissions.php` (the three menu sections go
+live), `src/Invariants.php` (D1–D7), `src/Schema/Grants.php`, `bin/{store_file,verify_files}.php`,
+`deploy/staging/install_file_store.sh` (written, not run), `composer.json`/`composer.lock` (setasign/fpdf); tests
+`tests/Unit/{CsvWriter,PdfWriter}Test.php`, `tests/Integration/Documents/*`, `tests/Integration/Files/*`,
+`tests/Integration/UiKernel/{ReviewScreens,ReferenceScreens,Downloads}Test.php`, `tests/Integration/Migration0008Test.php`,
+new cases in `GrantsTest`; support `tests/Support/Documents/{FixtureAdjustmentHandler,FixtureDocuments,DocWorkerPool}.php`,
+`tests/Support/doc_worker.php`.
+
+**I17. The document base: one header, generic lines, module extension tables; immutable once posted.** Every document
+type (PO, GRN, SINV, DN, CNT, ADJ, WO, TRD) is a `document` row (type, number, status, version, external_ref, doc_date,
+warehouse, reason, note, who created / submitted / posted / cancelled it and when, `posted_hash`, `reverses_id`,
+`review_state`) with `document_line` rows (line_no, item, warehouse, signed qty in central units, unit cost, amount,
+reason, description); a module keeps its own columns in extension tables keyed `(document_id, line_no)`, never in new
+columns of the base. What a type does is its `DocumentHandler` (validate, approvalUnits, post, reverse); the generic
+`CW\Documents\Documents` owns everything else.
+- **Status machine:** draft → posted | awaiting_approval | cancelled; awaiting_approval → posted (approved) | draft
+  (withdrawn by the requester) | cancelled (rejected); posted → reversed (by its reversal). CHECKs hold the pairs
+  together (a number iff posted or reversed; posted needs posted_at, actor, hash, review_state; cancelled iff
+  cancelled_at; awaiting approval needs submitted_at).
+- **Immutable after posting, three times over:** the code (every write locks the row `FOR UPDATE`, requires `status =
+  'draft'` (409 `not_draft`) and the version the form was drawn with (409 `version_conflict`), and moves `version`); the
+  column grants (the app login cannot UPDATE `id`, `doc_type`, `created_by`, `created_actor`, `created_at`, `reverses_id`,
+  and deletes nothing: `Grants::UPDATE_COLUMNS['document']`); and `posted_hash`, the sha256 of the canonical JSON
+  (`Idempotency::canonicalJson`) of the header fields (id, doc_type, number, external_ref, doc_date, warehouse_id,
+  reason_code, note, reverses_id) and the lines, decimals as the database returns them, checked nightly for EVERY posted
+  document against its write-once posting record, `document_posting` (D7, I33: the document's own columns, posted_hash and
+  posted_at included, can be rewritten by the app login; the record cannot). `document_line` keeps FULL grants (draft lines
+  are replaced); a line changed after posting is what D7 finds.
+- **Who may write a draft (not in the spec):** drafting, posting, cancelling and reversing need `doc.<TYPE>.post`; a
+  caller holding admin is refused first (403 `admin_cannot_post`, I12; also for an admin set that only admin SQL can
+  write); system and channel callers get 403 `staff_required`; roles are re-read inside the transaction (an inactive
+  person: 403 `staff_not_allowed`). **A draft's header and lines are changed only by its creator** (403 `not_creator`);
+  anyone allowed to post the type may post or cancel it. The review rule excludes the creator, the submitter and the
+  poster, so a third person who could edit the lines could otherwise write a document's content and then review it.
+- **Generic checks at posting** (again, a draft may be days old): at least one line (422 `no_lines`); header and line
+  reasons known, applicable to the type, active and not CW's own (422 `unknown_reason`, `reason_not_applicable`,
+  `reason_inactive`, `reason_system_only`); a reason that needs a note has one (the header note, or a line's description:
+  422 `note_required`); items exist and are not merged (422 `unknown_sku`, `merged_item`). Then the handler's own
+  `validate()`. Lines are checked when set too (400 `bad_lines`, `bad_cost` via `Movements::normaliseCost`, `bad_amount`,
+  422 `unknown_warehouse`); a header takes only external_ref, doc_date, warehouse, reason_code, note (400 `bad_field`).
+- **Spec DDL corrected (safer):** the spec's format CHECKs used `REGEXP`, which follows the column collation
+  (`utf8mb4_0900_ai_ci`, case-insensitive): an upper-case `posted_hash` or sha256, a lower-case type code and an
+  upper-case reason code passed. 0008 uses `REGEXP_LIKE(..., 'c')` for `ck_reason_code_code`, `ck_document_type_code`,
+  `ck_document_hash` and `ck_stored_file_sha` (`Migration0008Test`). 0008 was never applied anywhere before this change.
+
+**I18. Corrections are reversals.** A reversal is a new document of the same type and number series with `reverses_id` = the
+original (one LIVE reversal per document: `UNIQUE (live_reverses_id)`, I32), the original's external_ref and warehouse,
+today's date, the reason, and the original's lines copied with `qty` and `amount` negated (unit costs and line reasons
+kept). In one transaction: original row lock → reversal row + lines → number → reversal posted (its own `posted_hash`) and
+original `reversed` → the original's open review task `withdrawn` (decided_by NULL, note `reversed by <number>`) → audit
+`document.reverse` (idem_key `doc:<reversal id>:reverse`) → `handler->reverse()` (module rows only) →
+`Movements::reverseDocument` (the exact negation of every ledger row of the original, I7) → the reversal's review task if
+the type's rule asks for one.
+- A reversal is never reversed, and a document is reversed once (409 `not_reversible`); a draft is cancelled, not reversed.
+  Rejecting the review of a reversal records the rejection and books nothing (I31).
+- A **voluntary** reversal (`doc.<TYPE>.post`; reason applying to `reversal`, not CW's own: entered_in_error, duplicate,
+  other with a note) is reviewed under the type's rule; its review units (spec silent) are what it moved:
+  Σ|qty_delta| of its on_hand ledger rows, so an `over_limit` type reviews a large undo like a large posting. A voluntary
+  reversal that puts more units back on hand than the "positive without a supplier document" limit waits for that blocking
+  approval first, for every type (I32).
+- The **rejection** reversal (I19) has reason `review_rejected` (CW's own), is created and posted by the reviewer, needs no
+  `doc.<TYPE>.post` (a mechanical undo), and is not reviewed again (review_state `not_required`).
+- The original keeps its review_state as it was when reversed; D4 only asks posted documents for their open task.
+
+**I19. Review model: post first, a second person reviews; two blocking approvals.** A posting books at once; the type's
+`review_rule` (`all`, `over_limit` with `review_limit_units`, `none`) then opens a `review_task` (kind `review`, due
+`review_due_days` later) and sets `review_state = 'pending'`. Blocking approvals come only from
+`document_type.approval_rule` (`positive_without_supplier_doc`: ADJ, when the handler's approval units exceed
+`approval_limit_units`), a reversal that puts stock back above that limit (I32) and, from I-2, supplier activation
+(`subject_type = 'supplier'`; until then a supplier task is 409 `subject_not_built`): the document waits in
+`awaiting_approval`, unnumbered and unbooked, with an open task of kind `approval`.
+- **Who decides:** a review needs `documents.review`, an approval `documents.approve` (both reviewer today, I16); never
+  admin (403 `admin_cannot_review`); never the document's creator, submitter or poster (403 `own_document`, with the
+  reason the screen shows: "You posted this document: another reviewer must review it."). `ck_review_task_not_own`
+  refuses the opener as decider in SQL as well, and D5 checks the creator and submitter too.
+- **Outcomes:** approving a review: `review_state = 'approved'`. Approving an approval: the document is posted now as the
+  **requester's posting** (posted_by = submitted_by, actor `staff:<requester>` on the ledger), review_state `approved` (the
+  approval was the review; no review task; audited under the reviewer, I34). Rejecting a review posts the reversal (I18) and
+  sets review_state `rejected` (the review of a reversal: recorded, nothing booked, I31). Rejecting an approval cancels the
+  request (cancel_reason = the note). A rejection needs a note of 3–500 characters (400 `note_required`). The requester may
+  withdraw an open approval (the document is a draft again, submitted_by/at cleared; a reversal request is cancelled
+  instead, I32; nobody else may: 403 `not_requester`).
+- **Not in the spec:** an approval posts as the requester only while the requester is still active and may still post the
+  type; otherwise 409 `requester_cannot_post` and the reviewer rejects instead (posting under the name of someone who has
+  left would be wrong).
+- **Locking:** a decision reads the task, locks its document `FOR UPDATE`, then the task `FOR UPDATE` and re-checks that it
+  is open (409 `task_closed`); the document is locked first by every writer, so a reversal and a decision on the same
+  document queue instead of deadlocking.
+- **Badge and queue:** the menu's Review queue shows `reviews_open`, the open tasks this person may decide (their kinds,
+  not opened by them, not on a document they created, submitted or posted); the queue lists every open task, oldest
+  first, with the due date and an overdue flag, and says why for the ones the person may not decide.
+- **Limits** (10 units for CNT/WO reviews and ADJ approvals; 3 review days, 7 for PO) are placeholders until decision 11.
+
+**I20. Number series: continuous per prefix, gapless.** `number_series(prefix, last_no, pad)`, one per type, no yearly
+reset: the year end is undecided (decision 13), a calendar reset would split a financial year anyway, there is no New Year
+edge, and it is simpler. A number is taken at posting, inside the posting transaction, after the document row and before
+any stock lock, so the ledger's `doc_ref` is the number: `UPDATE number_series SET last_no = LAST_INSERT_ID(last_no + 1)`
+(X-locks the row to commit; the value comes back through the connection's `LAST_INSERT_ID()`), then `SELECT LAST_INSERT_ID(),
+pad`. A rollback restores `last_no`, so 1..last_no are always all on posted documents (D1). Format `PREFIX-000001`; a series
+that outgrows its pad gets wider (`ADJ-1000000`), never wraps. Cost: postings of one type serialise from numbering to
+commit, acceptable at ~15 a day. Measured: 12 processes × 100 allocations, every 10th rolled back: 1,080 unique numbers,
+exactly 1..1,080, 0 deadlocks (`NumberSeriesRaceTest`). The app login may UPDATE `last_no` only.
+
+**I21. The full lock order of a posting (extends D39, I3).** idempotency claim (none for documents) → the document row(s),
+by id (the original first, a new reversal row after it) → the review task row (decisions) → the number_series row →
+(module rows, I-2 onwards) → reservation → channel_listing → stock_balance → sku → item value clocks → feed clock. Nothing
+with a foreign key is written after the stock locks: the review_state UPDATE touches the already-locked document row and
+no FK column, `review_task` has no foreign keys (its staff ids are checked by D5), audit_log has none, and
+`document_line.sku_id` has no FK (D15; D6 checks it). FK checks of the header and lines (type, warehouse, reason, staff)
+take S locks before the number and the stock. Locking reads (`FOR UPDATE` / `FOR SHARE`) of the column-granted `document`
+and `review_task` work for the app login (`GrantsTest`). Measured: 8 processes posting 64 documents over 6 items at MAIN
+and VERIFY in random line order, while 4 processes made 60 staff movements on the same items: no error, numbers 1..64,
+every document's ledger rows carry its id and number, all invariants (`PostingRaceTest`).
+
+**I22. Reason codes.** The 22 seeded codes of 0008 (damaged ... other), each with `applies_to` (adjustment, write_off,
+count, return, supplier_return, reversal), a direction, `needs_note`, `is_gift` (a free gift is reported apart, IM13;
+vaping/nicotine gifts to the public are an offence from 29 Oct 2026) and `system_only` (`opening_rebase` for the T0 rebase,
+IM2; `review_rejected` for I19's reversals: never offered on a form, refused when staff send them). Provisional until the
+I-0 analysis of the ERPNext reconciliation history (+644k / −128k units). The app login has SELECT only (`READ_ONLY`): the
+list changes by migration. Which `applies_to` a document uses is `Documents::REASON_USE` (ADJ adjustment, WO write_off,
+CNT count, DN supplier_return; reversals `reversal`; the other types carry no reason until their phase decides). The
+direction (increase/decrease) is checked by the type's handler, because what a sign means is the type's business (a WO
+line's positive qty is a decrease).
+
+**I23. The document store: content-addressed, write-once, verified, kept 7 years.**
+- `stored_file`: one row per distinct content (sha256 UNIQUE), its size, the MIME type sniffed from the bytes with finfo
+  (never the client's name or claim; allow-list PDF, JPEG, PNG, CSV, text, XLSX: 415 `type_not_allowed` otherwise, HTML,
+  SVG and executables included), the original name (base name, no control characters or path separators, ≤ 255 bytes),
+  kind, backend, storage key, `retain_until` = `CURRENT_DATE + 7 years` (CHECK ≥ created + 7 years), who stored it.
+  `document_file` attaches a file to a document under a role (any status but cancelled: 409 `document_cancelled`).
+  Both append-only for the app login. 25 MiB cap (413 `too_large`), 400 `empty_file`.
+- `FileStorage` has put / open / exists / keys / name and deliberately **no delete, rename or overwrite**.
+  `LocalFileStorage` (staging) keeps `<root>/<2 hex>/<sha256>`: put copies into `tmp/` (fwrite, fflush, fsync), checks
+  **the copy** hashes to the key (stronger than the spec's check of the source: the copy is what is kept), chmods it 0440
+  and `link()`s it into place (fails if the name exists, so nothing is ever replaced; an existing file must hold the same
+  content, else `collision`). The root must be absolute and must not be a `public` path, under /var/www or inside the code
+  directory (a deploy rsyncs it with --delete).
+- `FileStore::store` writes the row and the bytes in one transaction (the bytes before the commit: a row never names
+  missing content; a failed commit leaves an orphan, which `verify` counts); the same content again returns the first row
+  (`deduped`), putting the bytes back if the storage lost them; audit `file.store` either way. `read` re-hashes the bytes:
+  a mismatch is 500 `file_corrupt` (logged, with the request id on the screens), never served; a missing file 500
+  `file_missing`.
+- Staging: `deploy/staging/install_file_store.sh` (written, **not run**; after the I-1 deploy) creates `/srv/cw-docs`,
+  `tmp/` and the shards `00`..`ff` as root:www-data 02770, makes the shards append-only (`chattr +a`: entries can be added,
+  never removed or renamed, root included; a warning where the file system cannot), adds `file_store_dir` to app.env through
+  `AppEnvFile`, and checks that `rm` of a probe file in a shard fails. Since I36 a root sweep also makes every stored file
+  immutable (`seal_file_store.sh`, every minute): until then a file's content is protected by detection only. **Before
+  live:** an S3 (London) or B2 bucket with Object Lock in COMPLIANCE mode behind the same interface, enforcing
+  `retain_until` itself.
+- Tools: `bin/store_file.php --file --kind [--note]` (prints `id= sha256= size= mime= deduped=`), `bin/verify_files.php
+  [--limit]` (missing / mismatch lines and exit 1; orphans counted, exit 0; scheduled nightly since I36). Browser uploads wait
+  for the I-2/I-3 screens and a change of the UI pool's `post_max_size` (2M).
+- Downloads (`/ui/files/{id}`, the PDFs, the CSVs) go through `FilesController::download`: `Content-Disposition:
+  attachment` with an ASCII fallback and the UTF-8 `filename*`, a second CSP `sandbox` enforced together with the
+  kernel's, nosniff and no-store from `Kernel::secure`.
+
+**I24. PDF: FPDF, pinned to 1.8.2 for now.** FPDF (setasign/fpdf, MIT on Packagist) is one small class (about 1,900
+lines plus the core font metrics), writes text, lines and tables with the PDF core fonts, embeds nothing and fetches
+nothing: no HTML or CSS parser and no remote resources or font cache (dompdf's history of a font-cache RCE is avoided by
+not having those parts). The LGPL/GPL alternatives (tFPDF, dompdf, TCPDF, mPDF) were rejected as not permissive.
+- **The spec's premise was checked and is wrong:** it said 1.8.6 has no requirements and only 1.9 needs ext-gd and
+  ext-zlib. Packagist's metadata (checked from staging, 2 Oct 2026) lists `ext-gd` and `ext-zlib` for **every release
+  from 1.8.3 to 1.9.0**; 1.8.2 (FPDF 1.82, 2019-12-07) is the newest without them. Staging has zlib but **not gd**
+  (`php -m`; package `php8.3-gd` 8.3.6 is available but not installed), so `composer require setasign/fpdf:1.8.6` fails.
+- Options: install php8.3-gd (a server change outside this task: needs the owner's go); declare a root
+  `"provide": {"ext-gd": "*"}` (tells Composer a lie for every future package); vendor a copy of 1.9.0 (no Composer
+  updates); or **pin 1.8.2 (chosen)**: the same API, run on staging under `error_reporting(E_ALL)` with every call
+  PdfWriter makes and no notice or deprecation (PdfWriter passes `isUTF8 = true` to the metadata setters, so 1.82's
+  `utf8_encode` is never called); the same probe (a title, a 120-row table over four pages, the `{nb}` footer) gave a valid
+  four-page PDF with 1.8.2 and with 1.9.0. gd is only used by FPDF for GIF and WebP images, which PdfWriter never draws.
+  `composer audit`: no advisories.
+- **Open item:** install `php8.3-gd` on staging (and live), then `composer require setasign/fpdf:^1.9` (one line and the
+  lock); `PdfWriterTest` stays the check.
+- Windows-1252 only (core fonts): `PdfWriter::text()` converts UTF-8 with `iconv //TRANSLIT//IGNORE` (fallback mbstring
+  with `?`) after removing control characters; £, é, ™, €, curly quotes survive, other scripts become `?` or their ASCII
+  look-alike, never raw UTF-8. A PDF that must show another script needs a TTF font (tFPDF is LGPL; decide then).
+
+**I25. CSV for Excel, safe against formula injection.** `CsvWriter`: UTF-8 with one BOM, RFC 4180 (every field quoted,
+quotes doubled, CRLF line ends; a newline inside a field stays inside its quotes). Every column is declared `text` or
+`number`. A text cell loses NUL bytes, has invalid UTF-8 repaired, and is prefixed with `'` when its first non-blank
+character (any Unicode white space or U+3000) is `=`, `+`, `-`, `@` or their full-width forms ＝ ＋ － ＠, or when it starts
+with TAB or CR, so `=HYPERLINK(...)`, `-1+2`, `\t=1` and `＝1` read as text. A number cell is an int, a finite float or a
+plain decimal string written bare; null is an empty cell (not in the spec: an empty cell cannot inject); anything else
+throws (`\InvalidArgumentException`: a programming error, never silently text). Header cells follow the text rule. Served
+as `text/csv; charset=utf-8` attachments (I23). Two lists in I-1: reason codes (`/ui/reference/reasons.csv`, every role)
+and people (`/ui/people.csv`, staff.view: id, name, e-mail, roles, active, last sign-in, created; no secrets).
+
+**I26. DN means our supplier return / debit note.** The type `DN` ("Supplier return / debit note") is the document CW
+raises when goods go back to a supplier and the supplier owes us; its reasons are the `supplier_return` ones. This is an
+assumption to confirm in I-4 (IM7), where the supplier's own credit note may become a separate type.
+
+**I27. No document type is live in Phase I-1.** `DocumentHandlers::all()` returns `[]`: the document base, the review queue,
+the number series and the reference screens are real and reachable from the menu (Document reviews, Documents, Reference
+are live links since this task), but nothing can be drafted until a phase registers its type (I-2 PO and supplier
+activation, I-3 GRN, I-4 SINV, DN, CNT, ADJ, WO, I-6 TRD). The documents list says "No document type is live yet" and a
+document of a type without a handler says which phase brings its screens. Tests register
+`tests/Support/Documents/FixtureAdjustmentHandler` as ADJ (one signed `adjustment` per line, review units Σ|qty|, approval
+units = positive units without an external_ref) through `Ui\Kernel`'s `$handlers` and `new Documents(...)`; it never ships.
+c0's `DocumentBookingTest` and `GrantsTest` book with fixed document ids, so `FixtureDocuments::posted()` gives those ids
+real posted rows (numbers 1, 2, ...; a reversal pair whole) and D1–D7 hold for them.
+
+Measurements (2 Oct 2026, slot `i1do`, the working tree with C0, roles and documents): full suite `scripts/remote.sh i1do
+vendor/bin/phpunit` green (the 73 skips are the HTTP Api*/Ui* tests of slots api and ui); the whole hammer
+`scripts/remote.sh i1do php tests/concurrency/hammer.php --seed=20261002`: RESULT: PASS (57 checks), 90 s, 0 deadlocks
+surfaced or retried, scenario 4 at 61 operations/s (I9 measured 60 after C0), scenario 5 at 58 calls/s;
+`NumberSeriesRaceTest` 1,200 allocations by 12 workers in 4.3 s (including a 1.5 s start delay), 0 deadlocks;
+`PostingRaceTest` 64 postings and 60 staff moves in 5.0 s, 0 deadlocks retried or surfaced.
+
+
+## Inventory Phase I-1 review fixes (slot `i1fx`, 2 Oct 2026)
+
+Three reviews of the I-1 tree (C0 core safety, security and permissions, data integrity; probes in slots i1rv1–i1rv3)
+found one blocker, five important and several minor points. Each fix below has a regression test. 0006–0008 had not been
+applied anywhere, so their DDL was corrected in place (D25 forbids editing an APPLIED migration only). Numbered I28–I37.
+Code: `migrations/0006_value_core.sql` (clock backfill), `0007_staff_roles.sql` (`ck_staff_role_order`),
+`0008_documents.sql` (`live_reverses_id`, `document_posting`, `stored_file.storage_key` index, `document_file.retain_until`),
+`src/Stock.php` (`seal()`), `src/Documents/{Documents,DocumentInvariants,Document,DocumentHandler}.php`,
+`src/Staff/StaffAdmin.php`, `src/Files/{FileStorage,LocalFileStorage,FileStore}.php`, `src/Ui/Controller/{Documents,Reviews,
+People,Files}Controller.php`, `src/Ui/views/{document,person}.php`, `src/Schema/Grants.php`, `bin/mint_vpg.php`,
+`deploy/staging/{seal_file_store.sh,install_file_store.sh,cw-staging.cron,install_cron.sh}` (written, not run); tests in
+`ValueSequenceTest`, `Migration000{6,8}Test`, `Documents/{DocumentLifecycle,ReviewRules,DocumentInvariants}Test`,
+`Files/{FileStore,LocalFileStorage,SealFileStore}Test`, `UiKernel/{ReviewScreens,PeopleScreen,Downloads}Test`,
+`Staff/StaffRolesTest`, `GrantsTest`, `ImportToolsTest`, `DeployTest`.
+
+**I28. The value core's data edges (amends I3, I4, I5, I6).**
+- **0006 takes each item's clock from the seq rows it has just written** (`COALESCE(MAX(seq), 0)`), no longer from a second
+  count of `stock_ledger`. The migrator runs each statement on its own (autocommit), so an on_hand row booked by old code
+  between the two statements used to leave the clock one ahead of the seqs: the next booking took n + 2 and left a gap that
+  no later booking can fill and that I3's consumer rule must treat as corruption (review probe: seqs [1, 3], clock 3). Now
+  such a row is a row WITHOUT a seq (invariant 7), which an admin repair can append, and the next booking continues at n + 1
+  (`Migration0006Test::testARowBookedBetweenTheBackfillStatementsLeavesNoGap`, run statement by statement).
+- **Stop the writers while `--migrate` runs, and reopen only after the check** (ops.md, "0006"): `SELECT COUNT(*) FROM
+  stock_value_seq` = the on_hand ledger rows and `bin/invariants.php` says `ok`. On `cw_staging` nothing books on_hand during
+  a deploy (the cron only touches holds) and live starts empty, so the window was theoretical; the rule makes it impossible.
+- **A clock moved by hand is corruption** (I3, I5): the app login may UPDATE `stock_value_clock.last_seq` (the ODKU needs
+  it), so a hand-made `last_seq = last_seq + 5` is possible with the app's own rights and leaves a gap that only invariant 8
+  reports. IM8 must stop the item and alert on such a gap, never skip it.
+- **I6's promise covers requests without `unit_cost`.** A request that carried an (ignored) `unit_cost` before C0 now hashes
+  differently (a stored key answers 422 `idempotency_key_reused`), and a site or a staff `erp_sale` sending one gets 400
+  `cost_not_allowed` before the idempotency lookup. No known caller sends it (the relay is not live, there are no staff
+  movement screens); the relay connector must never forward a cost field.
+
+**I29. No balance is locked after the clocks, whatever the Stock instance (extends I7, D39).** I7's `lock()` guard lived in
+one `Stock` object, so a second `Movements`/`Stock` on the same connection inside the same transaction could take balance
+locks after the first one's value clocks or feed clock (e.g. a future handler whose `reverse()` books stock, which
+`Documents::reverse` calls before `Movements::reverseDocument`). `Stock` now marks, per connection (a static `WeakMap` keyed
+by the `Db`), the `transactionSerial()` in which it took value clocks or the feed clock, and `lock()` refuses in that same
+transaction ("no balance is locked after them"). A transaction whose `flush()` took no clock may still lock again; a new
+transaction (a deadlock retry included) starts clean. No current path locks after its clocks: the full suite and the hammer
+pass unchanged (`ValueSequenceTest::testNoBalanceIsLockedAfterTheClocksThroughAnyStockOfTheConnection`,
+`DocumentLifecycleTest::testAHandlerThatBooksStockInReverseIsRefused`). Also new:
+`testARollbackAfterFlushRestoresTheClockAndTheSeqRows` (the R16 case failed before `flush()`, so it never proved that a
+rollback restores a clock that was bumped).
+
+**I30. What C0 costs on the on_hand paths (amends I9).** I9's −1.6 % was scenario 4, where only about 9 % of the operations
+touch on_hand. The review measured the value-seq statements directly (`SeqCostProbeTest`, slot i1rv1): about **4 ms per
+one-item on_hand operation** (median 3.98, p90 4.91 against a 0.74 ms `SELECT 1`), taken while the operation's balance locks
+are held, i.e. +20–25 % on a 1-line goods-in (~15 ms) or a 1-unit ship (~19 ms); and an A/B on a mix heavy on on_hand
+(12 workers, 30 s, 4 hot items at MAIN and VERIFY, 4 alternating rounds): on_hand rows/s −0.7, −4.9, −9.2, −14.8 %
+(median about −7 %). Inside the 15 % target, and recorded so the I-3 goods-in bench is sized with it. *Not done:* saving the
+SELECT round trip in the single-item case (`LAST_INSERT_ID(expr)` in the ODKU, or folding the seq INSERT into an INSERT ...
+SELECT): it would change the frozen core again for ~1 ms of ~4, and the target holds; revisit with IM8's measurements.
+
+**I31. Rejecting the review of a reversal never reverses it (blocker; amends I18, I19).** `reject()` posted the reversal of
+whatever document it was given, so a reviewer rejecting the review of a VOLUNTARY reversal (an ordinary action: the reversal's
+page showed the form) created a reversal of the reversal: the original's stock was booked again while it still said
+`reversed`, and `Invariants::check` reported two D2 violations (both reviews reproduced it). Chosen: the rejection of a
+reversal's review is **recorded and books nothing** — task `rejected`, the reversal's `review_state = 'rejected'`, audit
+`document.reject` with `booked: false`; the original stays reversed; if it was right, its poster posts it again as a new
+document (the page and the notice say so; the list's review filter "rejected" finds them). Refusing the rejection instead
+(409) was rejected: the task would stay open forever or force a reviewer to approve what they think is wrong. A reversal is
+never reversed, now three times over: `reverse()` (409 `not_reversible`), `reject()` (this rule) and a `LogicException` in
+`postReversal()` (I32's split of it) for any other caller.
+
+**I32. A reversal that puts stock back waits for the blocking approval (important; amends I18, I19).** The spec reviewed a
+voluntary reversal "under the type's rule", so reversing a correct write-down of 50 put 50 units back on hand at once, with a
+review only afterwards: exactly the owner's "positive adjustment without a supplier document above a small limit", one of
+the only two blocking approvals, bypassed (and for WO, CNT and DN, whose types have no approval rule, always). The safer
+option, chosen: a voluntary reversal whose units back on hand — per item, `max(0, −Σ qty_delta)` of the original's on_hand
+rows, so a move between warehouses counts 0 and a write-down's reversal counts in full — exceed the limit of the
+`positive_without_supplier_doc` rule (`MIN(approval_limit_units)` of the types that have it: ADJ, 10, until decision 11), for
+ANY type, is a **request**: the reversal document is created `awaiting_approval` (no number, nothing booked; lines the
+original's negated; created and submitted by the requester) with an open approval task (`reason positive_without_supplier_doc`,
+units). A reviewer approving it posts it as the requester's reversal (number, original `reversed`, the original's open review
+withdrawn, stock negated; review_state `approved`); rejecting cancels it; the requester may withdraw it, which **cancels** it
+(a reversal is never a draft: its lines are the original's). A reversal never carries a supplier document of its own, so
+the original's external_ref does not exempt it.
+- **One live reversal per document:** `UNIQUE (live_reverses_id)`, a stored generated column that is `reverses_id` unless
+  the reversal is cancelled, so a cancelled request frees the slot and the document can be reversed again; while a request
+  waits, a second `reverse()` is 409 `reversal_pending` and the page offers no reversal form. Rejecting the ORIGINAL's review
+  while a request waits cancels the request first (its task withdrawn, "superseded"), then posts the rejection's reversal.
+- **Locks:** `lockTask` locks a reversal's original before the reversal (document rows in id order, I21; `reverses_id` is
+  frozen by the column grant, so the unlocked read of it is stable).
+- **D2** now allows a reversal that is `awaiting_approval` (its original `posted`) or `cancelled` (history), refuses a
+  reversal that is a draft or reversed, nets only POSTED pairs and asks every `reversed` document for its POSTED reversal.
+- Smaller reversals, and the rejection's reversal (decided by a reviewer, the second person already), post at once as before.
+
+**I33. The posting record: posted documents are checked against a write-once anchor (important; amends I17 D7).** The app
+login may UPDATE a posted document's state columns (posted_hash and posted_at among them, needed by the posting itself) and
+has full rights on `document_line` (draft lines are replaced), so it could rewrite a posted line AND recompute the unkeyed
+`posted_hash`, or move `posted_at` back past D7's 400-day window: D7 then reported nothing (review probe). Now every posting
+also inserts a `document_posting` row (document_id PK, number, posted_hash, posted_by, posted_actor, posted_at and
+`content`, the canonical JSON the hash covers), append-only for the app login (`Grants::APPEND_ONLY`), and the
+`document.post`/`document.reverse` audit rows carry the hash too. D7 now checks (1) every posted or reversed document has
+its record and its number, posted_hash, posted_by, posted_actor and posted_at still equal it, and no unposted document has
+one; (2) each record's content hashes to its posted_hash; (3) EVERY posted document's header and lines, recomputed by id in
+batches of 500 (no time window), hash to its RECORD's posted_hash. The posted content can be read back from the record
+after a tampering. Cost: one extra row per posting (~15 a day) and a full re-hash nightly (estimated well under a minute at
+7 years' volume); if it ever grows, rotate by id. `document_line` keeps FULL rights: detection, not prevention, is the
+control for posted lines (as for every column-granted table).
+
+**I34. An approval's posting is audited under the reviewer who performed it (amends I19).** The posting stays the
+requester's (`posted_by`, `posted_actor` and the ledger's actor, as the spec says), but the `document.post` (or
+`document.reverse`, I32) audit row now has the reviewer as actor, with their IP, and `on_behalf_of` (the requester) and
+`approved_by` in its detail: a forensic query by actor no longer shows a posting by someone who was not there.
+
+**I35. Staff administration hardening (amends I10, I12, I13, I15, U23).**
+- **`StaffAdmin::reset()` follows `setRoles()`'s caller rules** (`authorise()`: admin only, never one's own account, staff
+  only): it checked nothing, so a future screen calling it would have let a buyer re-issue their own one-time password or
+  switch anyone off (review probe). Only `bin/reset_staff.php` calls it today, as a system caller, which still passes.
+- **Placeholder accounts are never switched on or given a role by a staff caller** (409 `placeholder_account`):
+  `create()`, `setRoles()` when it adds a role, `setActive(true)` and `reset(--activate)`. A placeholder is an account whose
+  e-mail is under `.invalid` (U23's definition, `enable_https.sh`'s check). An admin could switch the `.invalid` mapping_lead
+  back on in the browser and give it reviewer, a working second identity that defeats the two-person rule, which
+  `enable_https.sh` checks only once. Taking a role away stays allowed; the CLI (a system caller, root on the server) stays the
+  break-glass. The People list warns while a placeholder is active, and an inactive placeholder's page has no switch-on form.
+  The test fixtures now give staff `@test.example` addresses (a real person's), keeping `.invalid` for placeholders.
+- `ck_staff_role_order`: a grant is never revoked before it was given. **I10 reworded:** the authoritative record of who
+  changed which role is the insert-only `audit_log` (`staff.roles`); the app login can still clear a `revoked_at` (it must
+  write it), which the history alone would not show.
+- `bin/mint_vpg.php --staff` checks `Permissions::can(..., 'mapping.approve')`, so a set that breaks I12 (admin +
+  mapping_lead, only admin SQL can write one) is refused up front instead of failing part-way in DecisionService.
+
+**I36. The file store, hardened (amends I23).**
+- **Staging is detect-only for a file's content until it is sealed.** `chattr +a` on a shard stops rm and mv only: a file
+  linked in is owned by whoever stored it (php-fpm's www-data for browser uploads, root for the CLI), mode 0440, and its
+  owner can chmod it back and rewrite it in place (review probe). New `deploy/staging/seal_file_store.sh` (root, every minute
+  from `cw-staging.cron`) makes every stored file root:www-data 0440 and `chattr +i` (immutable: nobody, root included,
+  changes, removes or renames it until the flag is taken off); `install_file_store.sh` seals what is there and now also
+  checks that a sealed probe cannot be rewritten in place by www-data or root. Until the sweep (≤ 1 minute), and against
+  someone who removes the flag, the controls are detection: re-hash on every read and **`bin/verify_files.php`, now
+  scheduled nightly** (04:27, syslog tag `cw-files`). The Object Lock bucket before live is still the real control.
+- **Downloads carry the SNIFFED type's extension** (`FileStore::downloadName`): a name whose extension is not one of the
+  sniffed type's gets that type's first extension appended, so 4 KB of text followed by `<html><script>` (sniffed text/plain,
+  allowed) named `duty.hta` is saved as `duty.hta.txt`, never run by mshta. `cleanName` also removes Unicode format
+  characters (`\p{Cf}`: the bidi overrides and isolates that make `invoice<RLO>fdp.bat` read as a PDF, zero-width
+  characters). text/plain stays allowed: libmagic reports many CSV exports as text/plain.
+- **`store()` checks and keeps a private copy** (mode 0600 in the temp directory, read at most 25 MiB + 1): size, type and
+  hash are taken from bytes nobody else can change, so a source swapped between the checks cannot slip past them.
+- **Retention per attachment:** `document_file.retain_until` (CHECK ≥ attached + 7 years) is set at every attachment, and
+  `FileStorage::extendRetention()` (new; the local backend records retention on the rows only and checks the key exists) is
+  called with it, so the same certificate attached to a document five years later is kept for that document too. A bare
+  re-store of the same content does not extend anything (no record depends on an unattached file). Notes for the Object
+  Lock backend in the interface's docblock: a conditional put (`If-None-Match: *`), read the OLDEST version and treat a
+  delete marker as missing, no DeleteObject/DeleteObjectVersion/governance bypass for the app role, retention set at put and
+  only ever extended.
+- `stored_file.storage_key` is indexed (the verifier's orphan lookup scanned the table per batch of 500 keys).
+
+**I37. Review points declined or deferred, with why.**
+- *Saving a round trip in `assignValueSeq`* (optional, review 1): declined for now (I30).
+- *Forcing a password change when an admin switches an account back on* (optional, review 2): declined. The admin's action is
+  audited, and a new one-time password can only be issued on the server (secrets never reach a browser, I13); a person whose
+  credentials may have leaked is reset with `bin/reset_staff.php --new-password --new-totp`.
+- *An invariant comparing each person's live roles with their last `staff.roles` audit row* (optional, review 2): deferred;
+  the audit rows have three shapes (backfill, create, change) and the record itself is authoritative (I35).
+- *Dropping text/plain from the allowed types* (review 3): declined (I36: CSV detection); the download extension removes the risk.
+- *Splitting documents under the review/approval limits, and "a supplier document" being any external_ref* (review 3,
+  minor): real, but it belongs to decision 11 and the I-4 ADJ handler, since no type is live in I-1. Written into
+  `DocumentHandler::approvalUnits`'s contract: evidence must be verifiable (an attached `supplier_invoice`/`delivery_note`
+  file or a posted SINV/GRN), and a person's positive units of the day should count together.
+- *Scoping `/ui/files/{id}` to files attached to a document the person may see* (review 3, nit): deferred to the I-2/I-3
+  upload screens; in I-1 `documents.view` sees every document, and files arrive only through the CLI.
+- *A test that a deadlock-victim retry renumbers cleanly*: the review's `DeadlockRetryProbeTest` showed it does (a new
+  `transactionSerial()` drops the stale pending rows); covered by the existing serial logic and `ValueSequenceRaceTest`, no
+  new test.
+
+Measurements (2 Oct 2026, slot `i1fx`, the whole I-1 tree with these fixes): full suite `scripts/remote.sh i1fx
+vendor/bin/phpunit` green (the skips are the HTTP Api*/Ui* tests of slots api and ui); the hammer `scripts/remote.sh i1fx php
+tests/concurrency/hammer.php --seed=20261002`: RESULT: PASS (57 checks), 86 s, 0 deadlocks surfaced or retried in every
+scenario; scenario 4 at 62 operations/s (I9: 60 after C0; i1do: 61), scenario 5 at 47 calls/s and 69 on_hand rows/s with 226
+polls and no gap; `LockOrderTest`'s 2,000-line goods-in wrote its feed rows within 54 ms (bound 250 ms), the whole movement
+12.8 s; `NumberSeriesRaceTest` 1,200 allocations by 12 workers in 4.8 s, 0 deadlocks; `PostingRaceTest` 64 postings and 60
+staff moves in 5.3 s, 0 deadlocks retried or surfaced.

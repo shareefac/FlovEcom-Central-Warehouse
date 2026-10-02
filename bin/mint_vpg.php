@@ -21,6 +21,7 @@ declare(strict_types=1);
  * Exit codes: 0 ok · 1 some listings missing or failed · 2 usage · 3 cannot run.
  */
 
+use CW\Auth\Permissions;
 use CW\Caller;
 use CW\CwException;
 use CW\Db;
@@ -29,6 +30,7 @@ use CW\Mapping\BarcodeSeeder;
 use CW\Mapping\DecisionService;
 use CW\Mapping\Proposals;
 use CW\Ops\Cli;
+use CW\Staff\StaffRoles;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -56,9 +58,13 @@ exit(Cli::main('mint_vpg', ['features:', 'staff:', 'duplicates:', 'channel:', 'b
         $dry = array_key_exists('dry-run', $opts);
         $db = $cli->db;
 
-        $staff = $db->one('SELECT id, role, is_active FROM staff_user WHERE email = ?', [strtolower($email)]);
-        if ($staff === null || (int) $staff['is_active'] !== 1 || $staff['role'] !== DecisionService::LEAD) {
-            throw new InvalidArgumentException("--staff must be an active mapping_lead ({$email} is " . ($staff === null ? 'unknown' : "{$staff['role']}, active={$staff['is_active']}") . ')');
+        $staff = $db->one('SELECT id, is_active FROM staff_user WHERE email = ?', [strtolower($email)]);
+        $staffRoles = $staff === null ? [] : StaffRoles::of($db, (int) $staff['id']);
+        // Permissions::can, not the raw list: a set that breaks the separation of duties (admin + mapping_lead, only admin SQL
+        // can write one) is read fail-closed, as DecisionService will read it (I12, I35), so the run stops here, not part-way.
+        if ($staff === null || (int) $staff['is_active'] !== 1 || !Permissions::can($staffRoles, 'mapping.approve')) {
+            throw new InvalidArgumentException("--staff must be an active mapping_lead ({$email} is " . ($staff === null ? 'unknown'
+                : (implode(', ', $staffRoles) ?: 'without roles') . ", active={$staff['is_active']}") . ')');
         }
         $channelId = $db->value('SELECT id FROM channel WHERE code = ?', [$code]);
         if ($channelId === null) {

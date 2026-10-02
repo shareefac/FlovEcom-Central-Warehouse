@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui;
 
+use CW\Auth\Permissions;
 use CW\CwException;
 
 /** Method + path -> route. `{id}` matches a positive integer. Unknown path 404, wrong method 405. */
@@ -12,9 +13,16 @@ final class Router
     /** @var list<Route> */
     private array $routes = [];
 
-    /** @param \Closure(Context): HtmlResponse $handler */
+    /**
+     * @param string $access Route::PUBLIC, Route::ANY or a permission of Permissions::MAP; anything else is a
+     *        programming error (a typo must not leave a page open or shut by accident)
+     * @param \Closure(Context): HtmlResponse $handler
+     */
     public function add(string $method, string $pattern, string $access, \Closure $handler): self
     {
+        if ($access !== Route::PUBLIC && $access !== Route::ANY && !isset(Permissions::MAP[$access])) {
+            throw new \InvalidArgumentException("route {$method} {$pattern}: access must be public, any or a permission, not {$access}");
+        }
         $regex = '#^' . preg_replace_callback(
             '#\{([a-z_]+)\}|[^{]+#',
             static fn (array $m): string => isset($m[1]) && $m[1] !== '' ? '(?P<' . $m[1] . '>[1-9][0-9]{0,17})' : preg_quote($m[0], '#'),

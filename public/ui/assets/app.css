@@ -25,14 +25,31 @@ code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem; padding: .5rem 1rem; background: var(--panel); border-bottom: 1px solid var(--line); }
 .top .brand { font-weight: 700; text-decoration: none; color: var(--ink); }
-.top nav { display: flex; gap: 1rem; }
-.top nav a { text-decoration: none; padding: .2rem 0; border-bottom: 2px solid transparent; }
-.top nav a[aria-current="page"] { border-bottom-color: var(--accent); font-weight: 600; }
 .top .quick { display: flex; gap: .4rem; flex: 1 1 220px; max-width: 380px; }
 .top .quick input { flex: 1; min-width: 0; }
 .top .me { display: flex; align-items: center; gap: .6rem; margin-left: auto; }
 .top .me form { margin: 0; }
 .role { font-size: .8rem; background: var(--tag-bg); border-radius: 999px; padding: .05rem .5rem; }
+
+/* Role-aware navigation (Auth\Permissions::MENU, I14): one group per section; "coming in Phase ..." items are not links. */
+nav.menu { display: flex; flex-wrap: wrap; gap: .35rem 1.5rem; padding: .4rem 1rem; background: var(--panel); border-bottom: 1px solid var(--line); font-size: .92rem; }
+.menu-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .8rem; }
+.menu-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+nav.menu a { text-decoration: none; padding: .15rem 0; border-bottom: 2px solid transparent; }
+nav.menu a[aria-current="page"] { border-bottom-color: var(--accent); font-weight: 600; }
+.soon { color: var(--muted); font-style: italic; }
+.home-sections { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
+.home-sections ul.plain li { margin: .25rem 0; }
+
+/* People and roles: the role checkbox grid, read-only notes, history. */
+.role-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .8rem; margin-bottom: .8rem; }
+fieldset.role-group { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .8rem; margin: 0; background: var(--panel); }
+fieldset.role-group legend { font-weight: 600; padding: 0 .3rem; }
+label.role-choice { display: grid; grid-template-columns: auto 1fr; column-gap: .5rem; align-items: baseline; color: var(--ink); font-size: .95rem; margin: .3rem 0; }
+label.role-choice .role-name { font-weight: 600; }
+label.role-choice .role-desc { grid-column: 2; color: var(--muted); font-size: .85rem; }
+form.roles { max-width: 1000px; }
+tr.inactive > *, tr.revoked > * { color: var(--muted); }
 .badge { display: inline-block; min-width: 1.4em; padding: 0 .4em; text-align: center; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: .8rem; }
 
 .notice, .note, .error { padding: .55rem .8rem; border-radius: 6px; margin: .6rem 0; }

@@ -2,7 +2,9 @@
 # Installs (idempotently) the CW scheduled jobs on the STAGING server, against cw_staging:
 #   /opt/cw-staging            a copy of the code (no tests/tools, no dev dependencies): the crons
 #                              never run from a slot directory, which remote.sh re-syncs with --delete
-#   /etc/cron.d/cw-staging     expire_reservations (every minute), prune_changes, invariants (nightly)
+#   /etc/cron.d/cw-staging     expire_reservations (every minute), prune_changes, invariants (nightly), the document
+#                              store's seal sweep (every minute) and verify_files (nightly; both idle until
+#                              install_file_store.sh has made /srv/cw-docs)
 #   /etc/logrotate.d/cw-staging, /var/log/cw/
 # Then runs every job once, as cron will (app login), and prints what they said.
 # Run from this machine (remote.sh syncs the slot first, then this copies the slot):

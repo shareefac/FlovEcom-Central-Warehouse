@@ -9,8 +9,10 @@ declare(strict_types=1);
  * deadlocks Db::transaction() retried. Never touches the schema (no bootstrap).
  *
  * job = {start: float unix time, now?: CW's clock (default StockTestCase::NOW), ops: [{op, channel_id, channel_code, order_ref, lines?, origin?,
- *        attempt?, unit_ids?, dispatched_at?, at?, restockable?, request?, key}]}
+ *        attempt?, unit_ids?, dispatched_at?, at?, restockable?, request?, key, caller?}]}
  * op = reserve | commit | release | ship | unship | cancel | return | move (Movements::record)
+ * caller = 'staff' runs the op as Caller::staff(1) (staff movements: counts, adjustments, transfers, costs);
+ *          otherwise the op runs as the channel channel_id/channel_code.
  */
 
 use CW\Caller;
@@ -37,7 +39,7 @@ if (isset($job['start'])) {
 }
 $out = [];
 foreach ($job['ops'] as $op) {
-    $caller = Caller::channel((int) $op['channel_id'], (string) $op['channel_code']);
+    $caller = ($op['caller'] ?? null) === 'staff' ? Caller::staff(1) : Caller::channel((int) $op['channel_id'], (string) $op['channel_code']);
     try {
         $r = match ($op['op']) {
             'reserve' => $res->reserve($caller, (string) $op['order_ref'], $op['lines'], (string) $op['key']),
@@ -50,12 +52,12 @@ foreach ($job['ops'] as $op) {
             'move' => $moves->record($caller, $op['request'], (string) $op['key']),
             default => throw new \InvalidArgumentException('unknown op'),
         };
-        $out[] = ['order_ref' => $op['order_ref'], 'status' => $r->status, 'replayed' => $r->replayed,
+        $out[] = ['order_ref' => $op['order_ref'] ?? null, 'status' => $r->status, 'replayed' => $r->replayed,
             'result' => $r->body['result'] ?? $r->body['error'] ?? null, 'body_hash' => hash('sha256', json_encode(\CW\Idempotency::canonical($r->body)))];
     } catch (CwException $e) {
-        $out[] = ['order_ref' => $op['order_ref'], 'status' => $e->httpStatus, 'error' => $e->errorCode];
+        $out[] = ['order_ref' => $op['order_ref'] ?? null, 'status' => $e->httpStatus, 'error' => $e->errorCode];
     } catch (\Throwable $e) {
-        $out[] = ['order_ref' => $op['order_ref'], 'status' => 500, 'error' => get_class($e) . ': ' . $e->getMessage()];
+        $out[] = ['order_ref' => $op['order_ref'] ?? null, 'status' => 500, 'error' => get_class($e) . ': ' . $e->getMessage()];
     }
 }
 echo json_encode(['results' => $out, 'deadlocks' => Db::deadlockRetries()], JSON_THROW_ON_ERROR), "\n";

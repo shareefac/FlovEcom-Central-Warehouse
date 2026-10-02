@@ -18,7 +18,8 @@ declare(strict_types=1);
  *  3. Migrations are applied as doadmin.
  *  4. cw_app table grants are converged: SELECT/INSERT/UPDATE/DELETE on every table except
  *     stock_ledger and audit_log (SELECT/INSERT only) and schema_migrations (SELECT only).
- *  5. Verification as cw_app: can read, cannot UPDATE/DELETE the append-only tables.
+ *  5. Verification as cw_app: can read, cannot UPDATE/DELETE the append-only tables (probed on the
+ *     first column of each table's primary key: stock_value_seq has no `id`).
  * Secrets are never printed.
  */
 
@@ -109,7 +110,16 @@ try {
     $warehouses = (int) $app->value('SELECT COUNT(*) FROM warehouse');
     $denied = [];
     foreach (Grants::APPEND_ONLY as $table) {
-        foreach (['UPDATE ' . Db::ident($table) . ' SET id = id WHERE 1 = 0', 'DELETE FROM ' . Db::ident($table) . ' WHERE 1 = 0'] as $sql) {
+        $pk = $db->value(
+            "SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY' "
+            . 'ORDER BY ORDINAL_POSITION LIMIT 1',
+            [$dbName, $table],
+        );
+        if ($pk === null) {
+            throw new RuntimeException("append-only table {$table} has no primary key to probe");
+        }
+        $col = Db::ident((string) $pk);
+        foreach (['UPDATE ' . Db::ident($table) . " SET {$col} = {$col} WHERE 1 = 0", 'DELETE FROM ' . Db::ident($table) . ' WHERE 1 = 0'] as $sql) {
             try {
                 $app->exec($sql);
                 throw new RuntimeException("{$appUser} can run a write it must not have: " . strtok($sql, ' ') . " {$table}");

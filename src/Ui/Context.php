@@ -5,9 +5,14 @@ declare(strict_types=1);
 namespace CW\Ui;
 
 use CW\Auth\Csrf;
+use CW\Auth\Permissions;
 use CW\Auth\StaffIdentity;
 use CW\Caller;
+use CW\Config;
 use CW\Db;
+use CW\Documents\DocumentHandlers;
+use CW\Documents\Documents;
+use CW\Files\FileStore;
 use CW\Mapping\DecisionService;
 use CW\Staff\SecretBox;
 
@@ -19,10 +24,14 @@ final class Context
 {
     private ?Queries $queries = null;
     private ?DecisionService $decisions = null;
+    private ?Documents $documents = null;
+    private ?FileStore $files = null;
 
     /**
      * @param array<string, string> $params route parameters
      * @param string|null $pre the login form's pre-session cookie value (public routes)
+     * @param (\Closure(Db): array<string, \CW\Documents\DocumentHandler>)|null $handlers the live document types (Kernel)
+     * @param (\Closure(string): void)|null $log the kernel's error log (file integrity failures land there with the request id)
      */
     public function __construct(
         public readonly UiRequest $req,
@@ -33,6 +42,8 @@ final class Context
         public readonly string $rid,
         public readonly ?string $pre = null,
         #[\SensitiveParameter] private readonly string $secretKey = '',
+        private readonly ?\Closure $handlers = null,
+        private readonly ?\Closure $log = null,
     ) {
     }
 
@@ -62,6 +73,26 @@ final class Context
         return $this->decisions ??= new DecisionService($this->db);
     }
 
+    /** The document base with the live document types (none in I-1: DocumentHandlers::all). */
+    public function documents(): Documents
+    {
+        return $this->documents ??= new Documents($this->db, $this->handlers !== null ? ($this->handlers)($this->db) : DocumentHandlers::all($this->db));
+    }
+
+    /** The file store app.env names (file_store_dir / CW_FILE_STORE_DIR); 503 file_store_unconfigured without one. */
+    public function files(): FileStore
+    {
+        $log = $this->log;
+        $rid = $this->rid;
+        return $this->files ??= FileStore::fromConfig(Config::loadApp(), $this->db, static function (string $m) use ($log, $rid): void {
+            if ($log !== null) {
+                $log("{$rid} {$m}");
+            } else {
+                error_log("[cw-ui] {$rid} {$m}");
+            }
+        });
+    }
+
     public function id(string $name = 'id'): int
     {
         return (int) ($this->params[$name] ?? 0);
@@ -77,7 +108,9 @@ final class Context
     }
 
     /**
-     * A page in the layout.
+     * A page in the layout. The layout gets the person's menu (Permissions::menu of the roles read for this
+     * request, I14), the badge counts their menu shows (only those they may see: the second-approval count needs
+     * linking.view, the review count documents.review) and whether the quick search box is theirs (catalogue.view).
      *
      * @param array<string, mixed> $vars
      * @param array<string, mixed> $layout title, active (nav key), notice ...
@@ -87,9 +120,32 @@ final class Context
         $token = $this->token();
         $shared = ['csrf' => $token, 'who' => $this->who];
         $view = new View(View::defaultDir(), $shared);
-        $pending = $this->who !== null ? $this->queries()->pendingCount() : null;
-        $html = $view->page($template, $vars, $layout + ['title' => 'Central Warehouse', 'active' => '', 'notice' => null, 'pendingCount' => $pending]);
+        $html = $view->page($template, $vars, $layout + ['title' => 'Central Warehouse', 'active' => '', 'notice' => null,
+            'menu' => $this->menu(), 'badges' => $this->badges(), 'searchBox' => $this->who?->can('catalogue.view') ?? false]);
         return new HtmlResponse($status, $html);
+    }
+
+    /** @return list<array{section: string, items: list<array<string, mixed>>}> the signed-in person's menu ([] when nobody) */
+    public function menu(): array
+    {
+        return $this->who === null ? [] : Permissions::menu($this->who->roles);
+    }
+
+    /**
+     * @return array<string, int> badge name (Permissions::MENU `badge`) => count, for what the person may see:
+     *         linking_pending (decisions waiting for a second approval), reviews_open (open review and approval tasks this
+     *         person may decide: not opened by them, not on a document they created, submitted or posted; I19)
+     */
+    public function badges(): array
+    {
+        $out = [];
+        if ($this->who !== null && $this->who->can('linking.view')) {
+            $out['linking_pending'] = $this->queries()->pendingCount();
+        }
+        if ($this->who !== null && $this->who->can('documents.review')) {
+            $out['reviews_open'] = $this->documents()->decidableCount($this->who->id, $this->who->roles);
+        }
+        return $out;
     }
 
     /** An error page (with the navigation when signed in). */

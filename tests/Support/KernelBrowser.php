@@ -18,7 +18,7 @@ final class KernelBrowser
     public array $cookies = [];
 
     private const HEADERS = ['content-type', 'location', 'set-cookie', 'content-security-policy', 'x-content-type-options',
-        'x-frame-options', 'referrer-policy', 'cache-control', 'retry-after', 'strict-transport-security', 'x-request-id'];
+        'x-frame-options', 'referrer-policy', 'cache-control', 'retry-after', 'strict-transport-security', 'x-request-id', 'content-disposition'];
 
     public function __construct(private readonly Kernel $kernel, public string $ip = '198.51.100.20', private readonly string $host = 'cw-ui.review.invalid')
     {

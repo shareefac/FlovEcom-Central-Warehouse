@@ -51,8 +51,10 @@ final class Sessions
         if ($id === null) {
             return null;
         }
+        // The roles are read here, on every request (I11): a role taken away stops working on the person's next page.
         $r = $this->db->one(
-            'SELECT s.staff_user_id, s.revoked, u.email, u.display_name, u.role, u.is_active, u.password_must_change, '
+            'SELECT s.staff_user_id, s.revoked, u.email, u.display_name, u.is_active, u.password_must_change, '
+            . '(SELECT GROUP_CONCAT(r.role ORDER BY r.role) FROM staff_role r WHERE r.staff_user_id = u.id AND r.revoked_at IS NULL) AS roles, '
             . '(s.revoked = 0 AND s.mfa_at IS NOT NULL '
             . 'AND s.created_at > NOW(6) - INTERVAL ' . self::ABSOLUTE_SECONDS . ' SECOND '
             . 'AND s.last_seen_at > NOW(6) - INTERVAL ' . self::IDLE_SECONDS . ' SECOND) AS live '
@@ -67,7 +69,8 @@ final class Sessions
             return null;
         }
         $this->db->exec('UPDATE staff_session SET last_seen_at = NOW(6) WHERE id = ? AND revoked = 0', [$id]);
-        return new StaffIdentity((int) $r['staff_user_id'], (string) $r['email'], (string) $r['display_name'], (string) $r['role'],
+        $roles = $r['roles'] === null || $r['roles'] === '' ? [] : explode(',', (string) $r['roles']);
+        return new StaffIdentity((int) $r['staff_user_id'], (string) $r['email'], (string) $r['display_name'], $roles,
             (int) $r['password_must_change'] === 1, $id);
     }
 

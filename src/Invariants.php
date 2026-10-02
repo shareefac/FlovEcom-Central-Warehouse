@@ -17,6 +17,16 @@ namespace CW;
  *  5. unit states agree with their reservation (held units only under held reservations,
  *     allocated/shipped/returned units only under committed ones) and channel.
  *  6. every linked unit has a balance row.
+ *  7. every on_hand ledger row has exactly one stock_value_seq row (I3), and every seq row points at
+ *     an existing on_hand row of the same item.
+ *  8. per item the value seqs are exactly 1..N, and its stock_value_clock row says N (no clock row,
+ *     no seq rows: an item without on_hand rows may have a clock at 0 or none).
+ *  9. within one balance (warehouse, item) the value seq grows with the ledger id: the balance lock
+ *     serialises whole transactions on a balance. Across warehouses seq order is commit order and may
+ *     differ from id order (I3); that is intended and not checked.
+ * D1-D7. the document base (0008): gapless numbers, reversal pairs, ledger rows naming posted documents by their
+ *     number, review tasks on the right documents and never decided by their own people, line items, posted_hash
+ *     (CW\Documents\DocumentInvariants, I17-I21).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  */
@@ -128,6 +138,67 @@ final class Invariants
             "SELECT id, channel_id, order_ref FROM reservation WHERE status = 'held' AND expires_at IS NULL LIMIT " . self::MAX_PER_CHECK,
         ) as $r) {
             $v[] = "reservation {$r['channel_id']}:{$r['order_ref']} is held without expires_at";
+        }
+
+        array_push($v, ...self::valueSequence($db));
+        array_push($v, ...Documents\DocumentInvariants::check($db));
+        return $v;
+    }
+
+    /**
+     * Invariants 7-9: the per-item value sequence (I3) that IM8 values each item's on_hand changes by.
+     *
+     * @return list<string>
+     */
+    private static function valueSequence(Db $db): array
+    {
+        $v = [];
+        // 7. one seq row per on_hand row (uq_stock_value_seq_ledger makes "at most one"), pointing back at it
+        foreach ($db->all(
+            'SELECT l.id, l.warehouse_id, l.sku_id, l.movement_type FROM stock_ledger l '
+            . 'LEFT JOIN stock_value_seq s ON s.stock_ledger_id = l.id '
+            . "WHERE l.bucket = 'on_hand' AND s.stock_ledger_id IS NULL ORDER BY l.id LIMIT " . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "ledger row {$r['id']} ({$r['movement_type']}, on_hand of {$r['warehouse_id']}:{$r['sku_id']}) has no value seq";
+        }
+        foreach ($db->all(
+            'SELECT s.sku_id, s.seq, s.stock_ledger_id, l.id AS l_id, l.bucket, l.sku_id AS l_sku FROM stock_value_seq s '
+            . 'LEFT JOIN stock_ledger l ON l.id = s.stock_ledger_id '
+            . "WHERE l.id IS NULL OR l.bucket <> 'on_hand' OR l.sku_id <> s.sku_id ORDER BY s.sku_id, s.seq LIMIT " . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "value seq {$r['sku_id']}#{$r['seq']} points at ledger row {$r['stock_ledger_id']}, "
+                . ($r['l_id'] === null ? 'which does not exist' : "which is in bucket {$r['bucket']} of item {$r['l_sku']}");
+        }
+
+        // 8. seqs 1..N per item, and the clock agrees
+        foreach ($db->all(
+            'SELECT sku_id, MIN(seq) AS lo, MAX(seq) AS hi, COUNT(*) AS n FROM stock_value_seq GROUP BY sku_id '
+            . 'HAVING MIN(seq) <> 1 OR MAX(seq) <> COUNT(*) ORDER BY sku_id LIMIT ' . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "item {$r['sku_id']}: value seqs {$r['lo']}..{$r['hi']} in {$r['n']} rows (expected 1..{$r['n']}, no gap)";
+        }
+        foreach ($db->all(
+            'SELECT c.sku_id, c.last_seq, COALESCE(m.hi, 0) AS hi FROM stock_value_clock c '
+            . 'LEFT JOIN (SELECT sku_id, MAX(seq) AS hi FROM stock_value_seq GROUP BY sku_id) m ON m.sku_id = c.sku_id '
+            . 'WHERE c.last_seq <> COALESCE(m.hi, 0) ORDER BY c.sku_id LIMIT ' . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "item {$r['sku_id']}: value clock at {$r['last_seq']} but its highest value seq is {$r['hi']}";
+        }
+        foreach ($db->all(
+            'SELECT s.sku_id, COUNT(*) AS n FROM stock_value_seq s LEFT JOIN stock_value_clock c ON c.sku_id = s.sku_id '
+            . 'WHERE c.sku_id IS NULL GROUP BY s.sku_id ORDER BY s.sku_id LIMIT ' . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "item {$r['sku_id']} has {$r['n']} value seqs but no value clock";
+        }
+
+        // 9. within one balance, seq order = ledger id order
+        foreach ($db->all(
+            'SELECT warehouse_id, sku_id, id, seq, prev FROM ('
+            . '  SELECT l.warehouse_id, l.sku_id, l.id, s.seq, LAG(s.seq) OVER (PARTITION BY l.warehouse_id, l.sku_id ORDER BY l.id) AS prev '
+            . "  FROM stock_ledger l JOIN stock_value_seq s ON s.stock_ledger_id = l.id WHERE l.bucket = 'on_hand') t "
+            . 'WHERE seq <= prev ORDER BY warehouse_id, sku_id, id LIMIT ' . self::MAX_PER_CHECK,
+        ) as $r) {
+            $v[] = "balance {$r['warehouse_id']}:{$r['sku_id']}: ledger row {$r['id']} has value seq {$r['seq']}, not after the previous row's {$r['prev']}";
         }
         return $v;
     }

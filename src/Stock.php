@@ -19,14 +19,21 @@ use DateTimeImmutable;
  *   $stock->lock($pairs)        lock every (warehouse, sku) balance the operation touches, in
  *                               (warehouse_id, sku_id) order (creates missing rows)
  *   $stock->apply(...)          change one bucket: UPDATE + one stock_ledger row
- *   $stock->flush()             one stock_change row per sku whose availability at a sellable
- *                               warehouse changed (the change feed, §3)
- * Lock order in every transaction (§3, D39, R1): the idempotency claim (its FK check takes an S
+ *   $stock->flush()             numbers every on_hand ledger row of the operation in its item's
+ *                               value sequence (I3), then writes one stock_change row per sku whose
+ *                               availability at a sellable warehouse changed (the change feed, §3)
+ * Lock order in every transaction (§3, D39, R1, I3): the idempotency claim (its FK check takes an S
  * lock on the calling site's channel row) -> channel_opening (opening orders only) -> reservation
  * rows -> channel_listing rows (FOR SHARE, sales only, R4) -> stock_balance rows (this class) ->
- * sku rows (callers lock sku rows only after lock()) -> the feed clock (D39), taken by every
- * stock_change insert and held to commit, so `seq` is allocated in commit order and a listing's
- * version never goes backwards. Nothing is locked after the feed clock.
+ * sku rows (callers lock sku rows only after lock(); a link decision reads them FOR SHARE before,
+ * M4) -> the item value clocks (stock_value_clock rows, sku_id order, taken by flush() for the items
+ * whose on_hand changed, I3) -> the feed clock (D39), taken by every stock_change insert and held to
+ * commit, so `seq` is allocated in commit order and a listing's version never goes backwards.
+ * Nothing is locked after the feed clock.
+ *
+ * A row of the operation that changes on_hand (any delta, a zero-delta journalled count too) may
+ * carry a cost and a document link (unit_cost, cost_source, document_id, document_line: I1, I2);
+ * the value of the stock is IM8's business (Valuation.php), not this class's.
  *
  * flush() also raises the oversell flags of non-sale paths (R6): a strict/stopped item whose
  * availability at a sellable warehouse fell in this operation and ended below zero.
@@ -39,6 +46,14 @@ final class Stock
     public const NEAR_COUNT_SEC = 600;
     /** Feed rows per multi-row INSERT in flush() (R2: one round trip per chunk, not per item). */
     public const FEED_CHUNK = 1000;
+    /** Item clocks per multi-row INSERT in assignValueSeq() (one chunk = three round trips, I3). */
+    public const VALUE_CHUNK = 1000;
+    /** Movement types whose on_hand rows may carry a unit cost (I1; ck_stock_ledger_cost). */
+    public const COST_TYPES = ['goods_in', 'supplier_return', 'adjustment', 'count', 'write_off'];
+    /** Where a ledger row's cost came from (stock_ledger.cost_source). */
+    public const COST_SOURCES = ['document', 'manual', 'estimate'];
+    /** The only cost currency (I1: a foreign invoice is converted on its document). */
+    public const CURRENCY = 'GBP';
     /** The INT range of the bucket columns (R16: refused with 422 instead of a strict-mode 500). */
     public const INT_MIN = -2_147_483_648;
     public const INT_MAX = 2_147_483_647;
@@ -57,6 +72,18 @@ final class Stock
     private array $negChecked = [];
     /** @var array<string, array<string, mixed>> per balance: the last movement that lowered availability (R6) */
     private array $lastFall = [];
+    /** @var list<array{0: int, 1: int}> [sku_id, stock_ledger id] of this operation's on_hand rows, in apply (= ledger id) order */
+    private array $valuePending = [];
+    /** Db::transactionSerial() of the transaction that wrote $valuePending (I7: a rolled-back operation leaves stale entries) */
+    private ?int $pendingSerial = null;
+    /**
+     * Per connection (every Stock on it): the Db::transactionSerial() of the transaction that took value clocks or the
+     * feed clock, after which no balance may be locked (D39, I29). Static, so the rule holds across Stock instances
+     * (a second Movements or Reservations on the same connection inside the same transaction).
+     *
+     * @var \WeakMap<Db, int>|null
+     */
+    private static ?\WeakMap $sealed = null;
     /** @var array<int, bool>|null warehouse id => is_sellable */
     private ?array $sellable = null;
     /** @var array<string, int>|null warehouse code => id */
@@ -83,6 +110,13 @@ final class Stock
      * values for this operation. Missing rows are created. Resets the per-operation state, so an
      * operation calls lock() exactly once, with every pair it will touch.
      *
+     * Refuses (LogicException) while on_hand rows applied in THIS transaction still wait for their
+     * value seq: a second lock() before flush() would drop them from the item's sequence, or take
+     * balance locks while the first operation's clocks are still to come (I7: one lock(), one flush()
+     * per operation). Entries left by a rolled-back transaction are discarded. Refuses too once this
+     * transaction has taken value clocks or the feed clock, through ANY Stock on this connection: a
+     * balance locked after them would break the lock order (D39, I29).
+     *
      * @param iterable<array{0: int, 1: int}> $pairs [warehouse_id, sku_id]
      */
     public function lock(iterable $pairs): void
@@ -90,6 +124,15 @@ final class Stock
         if (!$this->db->inTransaction()) {
             throw new \LogicException('Stock::lock() must run inside a transaction');
         }
+        if ($this->valuePending !== [] && $this->pendingSerial === $this->db->transactionSerial()) {
+            throw new \LogicException('on_hand rows of this operation have no value seq yet: call flush() before lock() again');
+        }
+        if (self::$sealed !== null && (self::$sealed[$this->db] ?? null) === $this->db->transactionSerial()) {
+            throw new \LogicException('this transaction already took value clocks or the feed clock: no balance is locked after them '
+                . '(D39, I29: one lock() and one flush() per transaction)');
+        }
+        $this->valuePending = [];
+        $this->pendingSerial = null;
         $this->rows = [];
         $this->availDelta = [];
         $this->negChecked = [];
@@ -147,15 +190,27 @@ final class Stock
 
     /**
      * Changes one bucket of a locked balance and journals it. Returns the bucket's new value.
+     * Every on_hand row (a journalled zero included) is queued for its item's value seq, which
+     * flush() assigns (I3).
      *
      * @param array{type: string, actor: string, channel_id?: ?int, order_ref?: ?string, unit_id?: ?string,
-     *              doc_ref?: ?string, idem_key?: ?string, effective_at?: ?string, note?: ?string} $m
+     *              doc_ref?: ?string, idem_key?: ?string, effective_at?: ?string, note?: ?string,
+     *              unit_cost?: ?string, cost_source?: ?string, document_id?: ?int, document_line?: ?int} $m
+     *        unit_cost: canonical 6-dp GBP per central unit (Movements::normaliseCost), only on an on_hand
+     *        row of a COST_TYPES movement, with its cost_source (I1); document_id/document_line: I2
      * @param bool $journalZero write a ledger row even when $delta is 0 (a count that found no difference)
      */
     public function apply(int $warehouseId, int $skuId, string $bucket, int $delta, array $m, bool $journalZero = false): int
     {
         if (!in_array($bucket, self::BUCKETS, true)) {
             throw new \InvalidArgumentException("unknown bucket {$bucket}");
+        }
+        $cost = $m['unit_cost'] ?? null;
+        if ($cost !== null && ($bucket !== 'on_hand' || !in_array($m['type'], self::COST_TYPES, true)
+            || !is_string($cost) || preg_match('/^(0|[1-9][0-9]{0,7})\.[0-9]{6}$/D', $cost) !== 1
+            || !in_array($m['cost_source'] ?? null, self::COST_SOURCES, true))) {
+            // The caller's validation failed open (ck_stock_ledger_cost would refuse most of it anyway).
+            throw new \LogicException("a unit cost belongs on an on_hand row of a cost-bearing movement, as a canonical decimal with its source ({$bucket} {$m['type']})");
         }
         $k = self::key($warehouseId, $skuId);
         $before = $this->row($warehouseId, $skuId)[$bucket];
@@ -180,15 +235,24 @@ final class Stock
             );
         }
         $this->rows[$k][$bucket] = $after;
-        $this->db->exec(
+        $ledgerId = $this->db->insert(
             'INSERT INTO stock_ledger (warehouse_id, sku_id, bucket, qty_delta, balance_after, movement_type, channel_id, '
-            . 'order_ref, unit_id, doc_ref, idem_key, effective_at, actor, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            . 'order_ref, unit_id, doc_ref, idem_key, effective_at, actor, note, unit_cost, cost_currency, cost_source, document_id, document_line) '
+            . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 $warehouseId, $skuId, $bucket, $delta, $after, $m['type'], $m['channel_id'] ?? null,
                 $m['order_ref'] ?? null, $m['unit_id'] ?? null, $m['doc_ref'] ?? null, $m['idem_key'] ?? null,
                 $m['effective_at'] ?? null, $m['actor'], isset($m['note']) ? substr($m['note'], 0, 255) : null,
+                $cost, $cost === null ? null : self::CURRENCY, $cost === null ? null : $m['cost_source'],
+                $m['document_id'] ?? null, $m['document_line'] ?? null,
             ],
         );
+        if ($bucket === 'on_hand') {
+            if ($this->valuePending === []) {
+                $this->pendingSerial = $this->db->transactionSerial();
+            }
+            $this->valuePending[] = [$skuId, $ledgerId];
+        }
         $availChange = $bucket === 'on_hand' ? $delta : -$delta;
         $this->availDelta[$k] = ($this->availDelta[$k] ?? 0) + $availChange;
         if ($availChange < 0) {
@@ -263,12 +327,16 @@ final class Stock
      * since the last flush()/lock(). Call it at the end of the operation, just before commit, so
      * a row's created_at is close to its commit time (the feed's overlap window relies on it).
      *
-     * First (before the feed clock) it flags oversells of the non-sale paths (R6). The rows go in
-     * multi-row INSERTs of FEED_CHUNK (R2): the feed clock is global, so it must be held for a
-     * couple of round trips, not one per item.
+     * First it gives every on_hand row of the operation its item's value seq (I3): always, also
+     * when no feed row follows (a ship moves on_hand and allocated together, a VERIFY move or a
+     * count that found no difference changes no sellable availability). Then (still before the
+     * feed clock) it flags oversells of the non-sale paths (R6). The rows go in multi-row INSERTs
+     * of FEED_CHUNK (R2): the feed clock is global, so it must be held for a couple of round
+     * trips, not one per item.
      */
     public function flush(string $reason = 'stock'): void
     {
+        $this->assignValueSeq();
         $this->flagShortfalls();
         $skus = [];
         foreach ($this->availDelta as $k => $d) {
@@ -294,6 +362,83 @@ final class Stock
                 array_push($params, $sku, $reason);
             }
             $this->db->exec('INSERT INTO stock_change (sku_id, reason) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?)')), $params);
+        }
+    }
+
+    /**
+     * Numbers this operation's on_hand ledger rows in their items' value sequences (I3): per item
+     * 1, 2, 3, ... in commit order, with no gap, so IM8 (Valuation.php) values each item's on_hand
+     * changes strictly in that order and can tell "not yet committed" from "missing".
+     *
+     * Each item's clock is its own `stock_value_clock` row: one multi-row INSERT ... ON DUPLICATE KEY
+     * UPDATE per VALUE_CHUNK items, in ascending sku_id (a global order, so two operations never
+     * wait for each other's clocks in a cycle), adds the item's row count to last_seq and X-locks the
+     * row; the item's rows then get last_seq - n + 1 .. last_seq in apply order (= ledger id order).
+     * Three round trips per chunk: the INSERT, a SELECT of the new last_seq values (own writes are
+     * visible under READ COMMITTED) and the seq rows.
+     *
+     * Why a clock row and not the `sku` row (the brief's "under the sku row lock"): nothing in the
+     * stock core X-locks `sku` on an on_hand change, and a link decision reads `sku` FOR SHARE BEFORE
+     * the balances (M4). X-locking it here, after the balances, would close a cycle with every link
+     * that adopts units of the same item (decision: sku S -> wants balance X; ship: balance X -> wants
+     * sku X) and queue every `sku` FOR SHARE reader behind dispatch traffic. The clock row sits where
+     * the brief wanted the lock: after every stock_balance and sku lock, before the feed clock, and
+     * nothing else ever locks it.
+     *
+     * Why commit order and never a visible gap: the clock row's X lock is held to commit; a rollback
+     * restores last_seq together with the seq rows; so seq n + 1 of an item cannot be assigned until
+     * the transaction that took n has ended, and a reader that sees seq n + 1 committed sees n too.
+     * (stock_ledger ids, AUTO_INCREMENT at insert, are not in commit order across warehouses: a
+     * consumer reading ledger ids in id order could skip a row committed late.)
+     */
+    private function assignValueSeq(): void
+    {
+        $pending = $this->valuePending;
+        $serial = $this->pendingSerial;
+        $this->valuePending = [];
+        $this->pendingSerial = null;
+        if ($pending === [] || $serial !== $this->db->transactionSerial()) {
+            return; // nothing, or rows of a rolled-back transaction (gone with it)
+        }
+        if (!$this->db->inTransaction()) {
+            throw new \LogicException('value seqs are assigned inside the transaction that books the rows');
+        }
+        $bySku = [];
+        foreach ($pending as [$sku, $ledgerId]) {
+            $bySku[$sku][] = $ledgerId;
+        }
+        ksort($bySku);
+        foreach (array_chunk($bySku, self::VALUE_CHUNK, true) as $chunk) {
+            $params = [];
+            foreach ($chunk as $sku => $ids) {
+                array_push($params, $sku, count($ids));
+            }
+            $this->seal();
+            $this->db->exec(
+                'INSERT INTO stock_value_clock (sku_id, last_seq) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?)'))
+                . ' AS new ON DUPLICATE KEY UPDATE last_seq = stock_value_clock.last_seq + new.last_seq',
+                $params,
+            );
+            $last = [];
+            foreach ($this->db->all(
+                'SELECT sku_id, last_seq FROM stock_value_clock WHERE sku_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')',
+                array_keys($chunk),
+            ) as $r) {
+                $last[(int) $r['sku_id']] = (int) $r['last_seq'];
+            }
+            $rows = [];
+            foreach ($chunk as $sku => $ids) {
+                $seq = $last[$sku] - count($ids);
+                foreach ($ids as $ledgerId) {
+                    array_push($rows, $sku, ++$seq, $ledgerId);
+                }
+            }
+            foreach (array_chunk($rows, 3 * self::VALUE_CHUNK) as $part) {
+                $this->db->exec(
+                    'INSERT INTO stock_value_seq (sku_id, seq, stock_ledger_id) VALUES ' . implode(', ', array_fill(0, intdiv(count($part), 3), '(?, ?, ?)')),
+                    $part,
+                );
+            }
         }
     }
 
@@ -364,7 +509,15 @@ final class Stock
         if (!$this->db->inTransaction()) {
             throw new \LogicException('stock_change rows are written inside the transaction that makes the change');
         }
+        $this->seal();
         $this->db->exec('INSERT INTO feed_clock (id, ticks) VALUES (1, 1) ON DUPLICATE KEY UPDATE ticks = ticks + 1');
+    }
+
+    /** Marks this connection's transaction as past its balance locks (value clocks or feed clock taken: lock() refuses, I29). */
+    private function seal(): void
+    {
+        self::$sealed ??= new \WeakMap();
+        self::$sealed[$this->db] = $this->db->transactionSerial();
     }
 
     // ------------------------------------------------------------------------------------------

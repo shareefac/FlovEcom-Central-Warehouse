@@ -6,6 +6,7 @@ namespace CW\Tests\Unit;
 
 use CW\Auth\Csrf;
 use CW\Auth\LoginLimiter;
+use CW\Auth\Permissions;
 use CW\Auth\StaffIdentity;
 use CW\ConfigException;
 use CW\CwException;
@@ -294,6 +295,17 @@ final class UiUnitTest extends TestCase
         [$slash] = $r->match('GET', '/ui/');
         self::assertSame('/ui', $root->pattern);
         self::assertSame('/ui/', $slash->pattern);
+
+        // I11: access is public, any or a permission of the map; a typo fails when the route is added.
+        $r->add('GET', '/ui/x', 'staff.view', $h);
+        foreach (['decide', 'lead', 'admin', 'staff.View', 'staff.view ', '', 'doc.XX.post'] as $bad) {
+            try {
+                $r->add('GET', '/ui/y', $bad, $h);
+                self::fail("access {$bad} accepted");
+            } catch (\InvalidArgumentException $e) {
+                self::assertStringContainsString('access must be', $e->getMessage());
+            }
+        }
     }
 
     public function testEveryRealRouteHasADeliberateAccessLevel(): void
@@ -309,8 +321,25 @@ final class UiUnitTest extends TestCase
         self::assertSame(Route::DECIDE, $byPath['POST /ui/review/listing/{id}/decide']);
         self::assertSame(Route::LEAD, $byPath['POST /ui/review/decision/{id}/approve']);
         self::assertSame(Route::DECIDE, $byPath['POST /ui/review/decision/{id}/withdraw']);
+        self::assertSame(['mapping.decide', 'mapping.approve'], [Route::DECIDE, Route::LEAD]);
         self::assertSame(Route::ANY, $byPath['POST /ui/logout']);
+        self::assertSame(Route::ANY, $byPath['GET /ui']);
+        self::assertSame(Route::ANY, $byPath['GET /ui/'], 'everyone lands on /ui/: the dashboard or their home page');
+        self::assertSame('linking.view', $byPath['GET /ui/review']);
+        self::assertSame('linking.view', $byPath['GET /ui/review/listing/{id}']);
+        self::assertSame('catalogue.view', $byPath['GET /ui/items/{id}']);
+        self::assertSame('catalogue.view', $byPath['GET /ui/search']);
+        $people = 0;
         foreach ($byPath as $key => $access) {
+            self::assertTrue(in_array($access, [Route::PUBLIC, Route::ANY], true) || isset(Permissions::MAP[$access]), "{$key}: {$access}");
+            if (str_starts_with($key, 'POST /ui/people')) {
+                self::assertSame('staff.manage', $access, "{$key}: only an admin changes people");
+                $people++;
+            }
+            if (str_starts_with($key, 'GET /ui/people')) {
+                self::assertSame('staff.view', $access, "{$key}: admin and auditor look");
+                $people++;
+            }
             if (str_starts_with($key, 'POST ')) {
                 self::assertNotSame('', $access, $key);
             }
@@ -320,8 +349,21 @@ final class UiUnitTest extends TestCase
             if (str_starts_with($key, 'POST /ui/review/')) {
                 self::assertContains($access, [Route::DECIDE, Route::LEAD], "{$key}: a decision needs a deciding role");
             }
+            // Documents (0008): reading needs documents.view, the queue and its decisions documents.review (the service
+            // checks the task's kind, the type's doc.<TYPE>.post and the own-document rule again), the lists reference.view.
+            if (str_starts_with($key, 'POST /ui/documents/reviews/') || $key === 'GET /ui/documents/reviews') {
+                self::assertSame('documents.review', $access, $key);
+            } elseif (str_starts_with($key, 'GET /ui/documents') || str_starts_with($key, 'GET /ui/files/') || $key === 'POST /ui/documents/{id}/reverse') {
+                self::assertSame('documents.view', $access, $key);
+            }
+            if (str_starts_with($key, 'GET /ui/reference/')) {
+                self::assertSame('reference.view', $access, $key);
+            }
         }
         self::assertArrayNotHasKey('GET /ui/logout', $byPath);
+        self::assertSame(5, $people, 'GET /ui/people, GET /ui/people.csv, GET /ui/people/{id}, POST .../roles, POST .../active');
+        self::assertArrayHasKey('POST /ui/people/{id}/roles', $byPath);
+        self::assertArrayHasKey('POST /ui/people/{id}/active', $byPath);
     }
 
     // ---- UiRequest, roles ------------------------------------------------------------------------------
@@ -374,15 +416,34 @@ final class UiUnitTest extends TestCase
 
     public function testRolesMapToWhatTheyMayDo(): void
     {
-        $who = static fn (string $role): StaffIdentity => new StaffIdentity(1, 'a@b.test', 'A', $role, false, 'sid');
+        $who = static fn (string ...$roles): StaffIdentity => new StaffIdentity(1, 'a@b.test', 'A', $roles, false, 'sid');
         self::assertTrue($who('mapper')->canDecide());
         self::assertFalse($who('mapper')->isLead());
         self::assertTrue($who('mapping_lead')->canDecide());
         self::assertTrue($who('mapping_lead')->isLead());
-        foreach (['viewer', 'admin', 'warehouse', '', 'MAPPER'] as $other) {
+        foreach (['viewer', 'admin', 'warehouse', '', 'MAPPER', 'buyer', 'reviewer'] as $other) {
             self::assertFalse($who($other)->canDecide(), $other);
             self::assertFalse($who($other)->isLead(), $other);
         }
+        // Several roles: the union of what each may do.
+        $both = $who('viewer', 'mapping_lead', 'reviewer');
+        self::assertTrue($both->canDecide());
+        self::assertTrue($both->isLead());
+        self::assertTrue($both->can('documents.review'));
+        self::assertTrue($both->can('linking.view'));
+        self::assertFalse($both->can('staff.view'));
+        self::assertTrue($both->has('reviewer'));
+        self::assertFalse($both->has('buyer'));
+        self::assertSame(['mapping_lead', 'reviewer', 'viewer'], $both->roles, 'sorted');
+        self::assertSame('mapping_lead, reviewer, viewer', $both->rolesLabel());
+        self::assertSame('Your roles (mapping_lead, reviewer, viewer)', $both->rolesPhrase());
+        self::assertSame('your role (viewer)', $who('viewer')->rolesPhrase(true));
+        self::assertSame(['buyer'], $who('buyer', 'buyer', '')->roles, 'unique, no empty names');
+        $none = $who();
+        self::assertSame('no roles', $none->rolesLabel());
+        self::assertFalse($none->can('catalogue.view'), 'no roles, no pages');
+        $this->expectException(\InvalidArgumentException::class);
+        $both->can('linking.veiw');
     }
 
     // ---- Compare ---------------------------------------------------------------------------------------

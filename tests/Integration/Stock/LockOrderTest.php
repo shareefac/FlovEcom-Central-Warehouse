@@ -139,6 +139,8 @@ final class LockOrderTest extends StockTestCase
      * a couple of round trips, not one per item. A 2,000-line goods-in (Movements::MAX_LINES) on
      * 2,000 items: its feed rows are written within ~50-90 ms (it was ~1.6 s at 0.66 ms per round
      * trip, and every other site's stock write waited that long).
+     * C0 (I3, I9): the item value clocks and seq rows come before the feed clock (three round trips
+     * per 1,000 items, outside the feed clock's span); the whole movement's time is printed too.
      */
     public function testALargeMovementDoesNotHoldTheFeedClockForOneRoundTripPerItem(): void
     {
@@ -170,9 +172,16 @@ final class LockOrderTest extends StockTestCase
             "SELECT COUNT(*) AS n, TIMESTAMPDIFF(MICROSECOND, MIN(created_at), MAX(created_at)) DIV 1000 AS ms FROM stock_change "
             . "WHERE reason = 'stock' AND sku_id IN (SELECT sku_id FROM stock_ledger WHERE idem_key = 'gi-big')",
         );
-        fwrite(STDERR, sprintf("\n[lock-order] goods-in of %d lines: %d feed rows written within %d ms; other-site reserve %d ms (warm %d ms)\n",
-            $n, $span['n'], $span['ms'], $rr['results'][2]['elapsed_ms'], $rr['results'][0]['elapsed_ms']));
+        fwrite(STDERR, sprintf("\n[lock-order] goods-in of %d lines: %d feed rows written within %d ms; other-site reserve %d ms (warm %d ms); whole movement %d ms\n",
+            $n, $span['n'], $span['ms'], $rr['results'][2]['elapsed_ms'], $rr['results'][0]['elapsed_ms'], $rm['results'][0]['elapsed_ms']));
         self::assertSame($n, (int) $span['n']);
+        $order = self::$db->one(
+            "SELECT (SELECT COUNT(*) FROM stock_value_seq s JOIN stock_ledger l ON l.id = s.stock_ledger_id WHERE l.idem_key = 'gi-big') AS seqs, "
+            . "(SELECT MAX(s.created_at) FROM stock_value_seq s JOIN stock_ledger l ON l.id = s.stock_ledger_id WHERE l.idem_key = 'gi-big') AS last_seq_at, "
+            . "(SELECT MIN(created_at) FROM stock_change WHERE reason = 'stock' AND sku_id IN (SELECT sku_id FROM stock_ledger WHERE idem_key = 'gi-big')) AS first_feed_at",
+        );
+        self::assertSame($n, (int) $order['seqs'], 'every line has its value seq');
+        self::assertLessThanOrEqual((string) $order['first_feed_at'], (string) $order['last_seq_at'], 'the value clocks come before the feed clock');
         // Measured 46-90 ms on staging (the review's target: < 100 ms). The bound leaves headroom for
         // a busy shared cluster and still catches one INSERT per item (1.5-1.8 s) by a factor of 6.
         self::assertLessThan(250, (int) $span['ms'], "flush() held the global feed clock across {$span['n']} feed rows for {$span['ms']} ms");

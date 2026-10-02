@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace CW\Mapping;
 
 use CW\Audit;
+use CW\Auth\Permissions;
 use CW\Caller;
 use CW\CwException;
 use CW\Db;
 use CW\Idempotency;
 use CW\Reservations;
+use CW\Staff\StaffRoles;
 use CW\Stock;
 
 /**
@@ -52,7 +54,8 @@ use CW\Stock;
 final class DecisionService
 {
     public const ACTIONS = ['link', 'unlink', 'new_item', 'ignore', 'reject', 'suggest', 'merge_skus'];
-    public const ROLES = ['viewer', 'mapper', 'mapping_lead', 'warehouse', 'manager', 'admin'];
+    /** Kept as an alias: the roles live in Auth\Permissions (I11). */
+    public const ROLES = Permissions::ROLES;
     public const DECIDERS = ['mapper', 'mapping_lead'];
     public const LEAD = 'mapping_lead';
     public const LINKED = ['mapped', 'quarantined'];
@@ -123,7 +126,7 @@ final class DecisionService
         $reason = self::reason($reason);
         return $this->db->transaction(function (Db $db) use ($caller, $decisionId, $reason): array {
             $staff = $this->staff($caller);
-            if ($staff === null || $staff['role'] !== self::LEAD) {
+            if ($staff === null || !self::isLead($staff)) {
                 throw new CwException('lead_required', 'only a mapping_lead can approve a pending decision', 403);
             }
             $d = $this->pendingDecision($decisionId);
@@ -197,7 +200,7 @@ final class DecisionService
             }
             $d = $this->pendingDecision($decisionId);
             $own = (int) $d['decided_by'] === $staff['id'];
-            if (!$own && $staff['role'] !== self::LEAD) {
+            if (!$own && !self::isLead($staff)) {
                 throw new CwException('lead_required', 'only the decider or a mapping_lead can withdraw a pending decision', 403);
             }
             $this->lockListing((int) $d['listing_id']);
@@ -368,10 +371,11 @@ final class DecisionService
         if ($staff === null && $action !== 'suggest') {
             throw new CwException('staff_required', 'only a person can make this decision', 403);
         }
-        if ($staff !== null && !in_array($staff['role'], self::DECIDERS, true)) {
-            throw new CwException('role_not_allowed', "role {$staff['role']} cannot make mapping decisions", 403);
+        if ($staff !== null && !Permissions::can($staff['roles'], 'mapping.decide')) {
+            throw new CwException('role_not_allowed', (count($staff['roles']) === 1 ? 'role ' : 'roles ')
+                . (implode(', ', $staff['roles']) ?: 'none') . ' cannot make mapping decisions', 403);
         }
-        if (($r['bulk_batch_id'] !== null || $mint !== null) && ($staff === null || $staff['role'] !== self::LEAD)) {
+        if (($r['bulk_batch_id'] !== null || $mint !== null) && ($staff === null || !self::isLead($staff))) {
             throw new CwException('lead_required', 'bulk decisions are made by a mapping_lead', 403);
         }
 
@@ -400,7 +404,7 @@ final class DecisionService
             }
             throw new CwException('proposal_closed', "the proposal is {$p['status']}", 409);
         }
-        if ($action !== 'suggest' && $open !== null && $open['band'] === 'Conflict' && $staff !== null && $staff['role'] !== self::LEAD) {
+        if ($action !== 'suggest' && $open !== null && $open['band'] === 'Conflict' && $staff !== null && !self::isLead($staff)) {
             throw new CwException('lead_required', 'a listing with a Conflict proposal is decided by a mapping_lead', 403);
         }
         if ($action !== 'suggest' && $r['proposal_id'] === null && $open !== null) {
@@ -717,7 +721,12 @@ final class DecisionService
     // helpers
     // ==========================================================================================
 
-    /** @return array{id: int, role: string}|null null for a system caller */
+    /**
+     * The acting person and their live roles, re-read inside the decision's transaction (I11): a role taken away a
+     * moment ago no longer decides. 403 staff_not_allowed for an unknown or inactive person.
+     *
+     * @return array{id: int, roles: list<string>}|null null for a system caller
+     */
     private function staff(Caller $caller): ?array
     {
         if ($caller->staffUserId === null) {
@@ -726,11 +735,13 @@ final class DecisionService
             }
             return null;
         }
-        $s = $this->db->one('SELECT id, role, is_active FROM staff_user WHERE id = ?', [$caller->staffUserId]);
-        if ($s === null || (int) $s['is_active'] !== 1) {
-            throw new CwException('staff_not_allowed', 'unknown or inactive staff user', 403);
-        }
-        return ['id' => (int) $s['id'], 'role' => (string) $s['role']];
+        return ['id' => $caller->staffUserId, 'roles' => StaffRoles::active($this->db, $caller->staffUserId)];
+    }
+
+    /** Holds mapping_lead (Permissions: mapping.approve). @param array{id: int, roles: list<string>} $staff */
+    private static function isLead(array $staff): bool
+    {
+        return Permissions::can($staff['roles'], 'mapping.approve');
     }
 
     /**

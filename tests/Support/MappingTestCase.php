@@ -27,14 +27,23 @@ abstract class MappingTestCase extends StockTestCase
         $this->proposals = new Proposals(self::$db, $this->ds);
     }
 
-    /** A staff user with $role (active unless told otherwise). */
-    protected function staffUser(string $role, bool $active = true): Caller
+    /**
+     * A staff user holding $roles (one role or several; staff_role rows, 0007), active unless told otherwise.
+     *
+     * @param string|list<string> $roles
+     */
+    protected function staffUser(string|array $roles, bool $active = true): Caller
     {
+        $roles = is_string($roles) ? [$roles] : $roles;
         $n = ++$this->staffSeq;
+        $label = implode('-', $roles);
         $id = self::$db->insert(
-            'INSERT INTO staff_user (username, display_name, email, role, password_hash, is_active) VALUES (?, ?, ?, ?, ?, ?)',
-            ["{$role}{$n}@test.invalid", "{$role} {$n}", "{$role}{$n}@test.invalid", $role, 'x', $active ? 1 : 0],
+            'INSERT INTO staff_user (username, display_name, email, password_hash, is_active) VALUES (?, ?, ?, ?, ?)',
+            ["{$label}{$n}@test.invalid", "{$label} {$n}", "{$label}{$n}@test.invalid", 'x', $active ? 1 : 0],
         );
+        foreach ($roles as $role) {
+            self::$db->exec('INSERT INTO staff_role (staff_user_id, role) VALUES (?, ?)', [$id, $role]);
+        }
         return Caller::staff($id);
     }
 

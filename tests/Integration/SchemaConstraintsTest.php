@@ -158,6 +158,67 @@ final class SchemaConstraintsTest extends IntegrationTestCase
         self::assertNull(self::$db->value('SELECT api_key_hash FROM channel WHERE id = ?', [$id]), 'no key = fail closed');
     }
 
+    /** C0 (0006, I1, I2): a cost belongs on an on_hand row of a cost-bearing movement, in GBP, with its source; a document line needs its document. */
+    public function testLedgerCostAndDocumentChecks(): void
+    {
+        $sku = self::makeSku();
+        $main = self::warehouseId('MAIN');
+        self::$db->exec('INSERT INTO stock_balance (warehouse_id, sku_id) VALUES (?, ?)', [$main, $sku]);
+        $row = fn (array $over): int => self::$db->insert(
+            'INSERT INTO stock_ledger (warehouse_id, sku_id, bucket, qty_delta, balance_after, movement_type, actor, unit_cost, cost_currency, cost_source, document_id, document_line) '
+            . "VALUES (?, ?, ?, 1, 1, ?, 'system:test', ?, ?, ?, ?, ?)",
+            [$main, $sku, ...array_values(array_merge(['bucket' => 'on_hand', 'movement_type' => 'goods_in', 'unit_cost' => '1.250000',
+                'cost_currency' => 'GBP', 'cost_source' => 'manual', 'document_id' => null, 'document_line' => null], $over))],
+        );
+        $row([]);
+        $row(['cost_source' => 'document', 'document_id' => 7, 'document_line' => 3]);
+        $row(['unit_cost' => '0', 'movement_type' => 'count']);
+        $row(['unit_cost' => null, 'cost_currency' => null, 'cost_source' => null, 'movement_type' => 'erp_sale', 'document_id' => 7]);
+        foreach ([
+            'a cost on a held row' => ['bucket' => 'held', 'movement_type' => 'reserve'],
+            'a cost on erp_sale' => ['movement_type' => 'erp_sale'],
+            'a cost on trade_sale' => ['movement_type' => 'trade_sale'],
+            'a negative cost' => ['unit_cost' => '-0.01'],
+            'a cost without currency' => ['cost_currency' => null],
+            'a cost without source' => ['cost_source' => null],
+            'a currency without cost' => ['unit_cost' => null, 'cost_source' => null],
+            'currency EUR' => ['cost_currency' => 'EUR'],
+            'cost_source document without document_id' => ['cost_source' => 'document'],
+            'document_line without document_id' => ['document_line' => 1],
+        ] as $label => $over) {
+            self::assertSame(self::CHECK_VIOLATED, self::mysqlError(fn () => $row($over)), $label);
+        }
+        self::assertSame(4, (int) self::$db->value('SELECT COUNT(*) FROM stock_ledger'));
+    }
+
+    /** C0 (0006, I3, I5): seqs start at 1; one value entry per ledger movement; only movements carry quantities. */
+    public function testValueSequenceAndValueLedgerChecks(): void
+    {
+        $sku = self::makeSku();
+        self::$db->exec('INSERT INTO stock_value_seq (sku_id, seq, stock_ledger_id) VALUES (?, 1, 10)', [$sku]);
+        self::assertSame(self::CHECK_VIOLATED, self::mysqlError(fn () => self::$db->exec('INSERT INTO stock_value_seq (sku_id, seq, stock_ledger_id) VALUES (?, 0, 11)', [$sku])));
+        self::assertSame(self::DUPLICATE, self::mysqlError(fn () => self::$db->exec('INSERT INTO stock_value_seq (sku_id, seq, stock_ledger_id) VALUES (?, 1, 12)', [$sku])));
+        self::assertSame(self::DUPLICATE, self::mysqlError(fn () => self::$db->exec('INSERT INTO stock_value_seq (sku_id, seq, stock_ledger_id) VALUES (?, 2, 10)', [$sku])));
+
+        $entry = fn (string $kind, ?int $ledgerId, ?int $valueSeq, int $qty, ?string $cost = '1.000000', ?int $docLine = null): int => self::$db->insert(
+            'INSERT INTO stock_value_ledger (sku_id, kind, stock_ledger_id, value_seq, qty_delta, unit_cost, value_delta, qty_after, value_after, cost_source, '
+            . "document_id, document_line, effective_at, actor) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 'average', NULL, ?, UTC_TIMESTAMP(6), 'system:test')",
+            [$sku, $kind, $ledgerId, $valueSeq, $qty, $cost, $docLine],
+        );
+        $entry('movement', 10, 1, 5);
+        $entry('landed', 10, null, 0);           // a value-only entry may point at the movement it adds to
+        $entry('trueup', null, null, 0, null);
+        self::assertSame(self::CHECK_VIOLATED, self::mysqlError(fn () => $entry('movement', null, 1, 5)), 'a movement without a ledger id');
+        self::assertSame(self::CHECK_VIOLATED, self::mysqlError(fn () => $entry('movement', 11, null, 5)), 'a movement without its seq');
+        self::assertSame(self::CHECK_VIOLATED, self::mysqlError(fn () => $entry('cost_adjust', 10, null, 5)), 'a value-only kind with a quantity');
+        self::assertSame(self::CHECK_VIOLATED, self::mysqlError(fn () => $entry('landed', null, null, 0, '-1')), 'a negative cost');
+        self::assertSame(self::CHECK_VIOLATED, self::mysqlError(fn () => $entry('landed', null, null, 0, null, 2)), 'a document line without its document');
+        self::assertSame(self::DUPLICATE, self::mysqlError(fn () => $entry('movement', 10, 1, 5)), 'one movement entry per ledger row');
+        self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM stock_value_ledger'));
+        self::assertSame([10, null, null], array_map(static fn ($v): ?int => $v === null ? null : (int) $v,
+            self::$db->column('SELECT movement_ledger_id FROM stock_value_ledger ORDER BY id')));
+    }
+
     public function testQueueRowsNeedAResolutionTimeOnceClosed(): void
     {
         $sku = self::makeSku();

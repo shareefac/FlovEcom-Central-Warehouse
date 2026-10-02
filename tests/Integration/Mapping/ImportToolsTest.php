@@ -62,6 +62,11 @@ final class ImportToolsTest extends MappingTestCase
         self::assertSame([0, 0, 0], [(int) self::$db->value('SELECT COUNT(*) FROM sku'), $this->decisions(),
             (int) self::$db->value('SELECT COUNT(*) FROM listing_profile WHERE features IS NOT NULL')]);
         self::assertSame(2, self::tool('mint_vpg', "--features={$dir}/run2/listings_features.jsonl", '--staff=' . self::$db->value('SELECT email FROM staff_user WHERE id = ?', [$this->staffUser('mapper')->staffUserId]))['code'], 'a mapper cannot mint');
+        // admin + mapping_lead (only admin SQL can write it) is read fail-closed, as DecisionService reads it (I35): refused up front.
+        $bad = self::tool('mint_vpg', "--features={$dir}/run2/listings_features.jsonl", '--staff=' . self::$db->value('SELECT email FROM staff_user WHERE id = ?',
+            [$this->staffUser(['admin', 'mapping_lead'])->staffUserId]));
+        self::assertSame(2, $bad['code'], 'admin + mapping_lead cannot mint');
+        self::assertStringContainsString('admin, mapping_lead', $bad['err']);
 
         $r = self::tool('mint_vpg', "--features={$dir}/run2/listings_features.jsonl", "--staff={$email}");
         self::assertSame(0, $r['code'], $r['err'] . $r['out']);
@@ -204,7 +209,9 @@ final class ImportToolsTest extends MappingTestCase
         self::assertSame(0640, fileperms($env) & 0777);
 
         $u = self::$db->one("SELECT * FROM staff_user WHERE email = 'ann@example.test'");
-        self::assertSame(['ann@example.test', 'Ann Lead', 'mapping_lead', 1, 1], [$u['username'], $u['display_name'], $u['role'], $u['password_must_change'], $u['is_active']]);
+        self::assertSame(['ann@example.test', 'Ann Lead', 1, 1], [$u['username'], $u['display_name'], $u['password_must_change'], $u['is_active']]);
+        self::assertSame(['mapping_lead'], array_map('strval', self::$db->column('SELECT role FROM staff_role WHERE staff_user_id = ? AND revoked_at IS NULL', [$u['id']])));
+        self::assertStringContainsString('roles mapping_lead)', $r['err']);
         self::assertStringStartsWith('$argon2id$', (string) $u['password_hash']);
         self::assertTrue(password_verify($password, (string) $u['password_hash']));
         parse_str((string) parse_url($uri, PHP_URL_QUERY), $q);
@@ -215,7 +222,7 @@ final class ImportToolsTest extends MappingTestCase
         self::assertNotNull(Totp::verify($secret, Totp::code($secret)));
         self::assertStringNotContainsString($secret, (string) $u['totp_secret_enc']);
         $audit = (string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'staff.create'");
-        self::assertEquals(['email' => 'ann@example.test', 'role' => 'mapping_lead'], json_decode($audit, true), 'no secret in the audit');
+        self::assertEquals(['email' => 'ann@example.test', 'roles' => ['mapping_lead']], json_decode($audit, true), 'no secret in the audit');
 
         // The same address again, or a bad role: refused, nothing printed; the key stays.
         $again = self::tool('create_staff', '--email=ann@example.test', '--role=mapper', ['CW_APP_ENV' => $env]);

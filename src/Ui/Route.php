@@ -4,13 +4,18 @@ declare(strict_types=1);
 
 namespace CW\Ui;
 
-/** One /ui route. $access: public | any (every signed-in role) | decide (mapper, mapping_lead) | lead (mapping_lead). */
+/**
+ * One /ui route. $access: `public` (no sign-in), `any` (every signed-in person, whatever their roles) or a
+ * permission of Auth\Permissions::MAP (I11: routes are guarded by permission, not only hidden from the menu).
+ */
 final class Route
 {
     public const PUBLIC = 'public';
     public const ANY = 'any';
-    public const DECIDE = 'decide';
-    public const LEAD = 'lead';
+    /** Link, new item, ignore, reject, withdraw: mapper, mapping_lead. */
+    public const DECIDE = 'mapping.decide';
+    /** The second approval: mapping_lead. */
+    public const LEAD = 'mapping.approve';
 
     /** @param \Closure(Context): HtmlResponse $handler */
     public function __construct(

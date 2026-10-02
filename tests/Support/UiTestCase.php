@@ -67,19 +67,22 @@ abstract class UiTestCase extends MappingTestCase
      * A staff account created the way bin/create_staff.php does it, with its password and TOTP secret
      * kept for the test (never printed).
      *
-     * @return array{id: int, email: string, role: string, password: string, secret: string}
+     * @param string|list<string> $roles one role or several
+     * @return array{id: int, email: string, roles: list<string>, password: string, secret: string}
      */
-    protected function uiUser(string $role, bool $mustChange = false, ?string $email = null): array
+    protected function uiUser(string|array $roles, bool $mustChange = false, ?string $email = null): array
     {
+        $roles = is_string($roles) ? [$roles] : $roles;
+        $label = implode('-', $roles);
         $n = ++$this->userSeq;
-        $email ??= "ui-{$role}-{$n}@test.invalid";
-        $made = (new StaffAdmin(self::$db))->create(Caller::system('ui_test'), $email, $role, self::box(), ucfirst($role) . " {$n}");
+        $email ??= "ui-{$label}-{$n}@test.invalid";
+        $made = (new StaffAdmin(self::$db))->create(Caller::system('ui_test'), $email, $roles, self::box(), ucfirst($label) . " {$n}");
         parse_str((string) parse_url($made['otpauth'], PHP_URL_QUERY), $query);
         self::assertIsString($query['secret'] ?? null);
         if (!$mustChange) {
             self::$db->exec('UPDATE staff_user SET password_must_change = 0 WHERE id = ?', [$made['id']]);
         }
-        return ['id' => $made['id'], 'email' => $made['email'], 'role' => $role, 'password' => $made['password'], 'secret' => $query['secret']];
+        return ['id' => $made['id'], 'email' => $made['email'], 'roles' => $made['roles'], 'password' => $made['password'], 'secret' => $query['secret']];
     }
 
     /** The code an authenticator shows now (a step earlier or later with $stepOffset). */

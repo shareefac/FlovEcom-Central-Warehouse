@@ -18,6 +18,11 @@ final class TestDb
     public const NAME_PATTERN = '/^cw_test_[a-z0-9_]{1,40}$/';
     /** Rows that 0001_core.sql seeds; clean() keeps them. */
     public const SEED_WAREHOUSES = ['MAIN', 'VERIFY', 'UNSTAMPED'];
+    /**
+     * Reference lists 0008_documents.sql seeds (reason codes, document types): clean() keeps them, so a test that
+     * changes one (a review rule, a limit) restores it itself.
+     */
+    public const SEED_TABLES = ['reason_code', 'document_type'];
 
     private static ?Db $db = null;
 
@@ -71,7 +76,10 @@ final class TestDb
         return Db::connect(self::config()->dbAdmin()->withDatabase(self::name()));
     }
 
-    /** Empties every table except schema_migrations and the seeded warehouses. */
+    /**
+     * Empties every table except schema_migrations, the seeded warehouses and the seeded reference lists
+     * (SEED_TABLES); the number series (one seeded row per prefix) are set back to 0 (pad 6) instead of deleted.
+     */
     public static function clean(Db $db): void
     {
         $tables = $db->column(
@@ -81,7 +89,11 @@ final class TestDb
         try {
             foreach ($tables as $t) {
                 $t = (string) $t;
-                if ($t === 'schema_migrations') {
+                if ($t === 'schema_migrations' || in_array($t, self::SEED_TABLES, true)) {
+                    continue;
+                }
+                if ($t === 'number_series') {
+                    $db->exec('UPDATE number_series SET last_no = 0, pad = 6');
                     continue;
                 }
                 if ($t === 'warehouse') {

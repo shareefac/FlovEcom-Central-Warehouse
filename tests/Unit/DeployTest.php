@@ -99,6 +99,27 @@ final class DeployTest extends TestCase
         self::assertStringContainsString('.well-known/acme-challenge/', $acme);
     }
 
+    /**
+     * I36: new files of the document store are sealed every minute (root:www-data 0440, chattr +i) and every stored file
+     * is re-hashed nightly; the installer seals what is there and checks that a sealed file cannot be rewritten in place.
+     */
+    public function testTheDocumentStoreIsSealedAndVerifiedOnASchedule(): void
+    {
+        $cron = (string) file_get_contents(self::DIR . '/cw-staging.cron');
+        self::assertMatchesRegularExpression('#^\* \* \* \* \*  root  bash /opt/cw-staging/deploy/staging/seal_file_store\.sh /srv/cw-docs >> /var/log/cw/seal_file_store\.log 2>&1$#m', $cron);
+        self::assertMatchesRegularExpression('#^27 4 \* \* \*  root  \[ ! -d /srv/cw-docs \] \|\| \{ cd /opt/cw-staging && php bin/verify_files\.php --db=cw_staging #m', $cron);
+        $seal = (string) file_get_contents(self::DIR . '/seal_file_store.sh');
+        self::assertStringStartsWith("#!/usr/bin/env bash\n", $seal);
+        self::assertStringContainsString('set -euo pipefail', $seal);
+        self::assertStringContainsString('chown root:www-data "$path" && chmod 0440 "$path" && chattr +i "$path"', $seal);
+        self::assertStringContainsString('^[0-9a-f]{64}$', $seal, 'only stored files (sha256 names) are sealed');
+        self::assertStringNotContainsString('chattr -i', $seal, 'the sweep never unseals');
+        self::assertStringNotContainsString('rm ', preg_replace('/^\s*#.*$/m', '', $seal) ?? '', 'the sweep never removes');
+        $install = (string) file_get_contents(self::DIR . '/install_file_store.sh');
+        self::assertStringContainsString('seal_file_store.sh', $install);
+        self::assertStringContainsString('in-place rewrite of a sealed file refused', $install);
+    }
+
     /** The one script that switches it on refuses unless the name, the address and the code are right. */
     public function testEnableHttpsRefusesUntilItIsSafe(): void
     {

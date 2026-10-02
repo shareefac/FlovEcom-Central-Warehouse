@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CW\Tests\Unit;
 
+use CW\Auth\Permissions;
+use CW\Auth\StaffIdentity;
 use CW\Ui\Html;
 use CW\Ui\View;
 use PHPUnit\Framework\TestCase;
@@ -31,7 +33,8 @@ final class UiTemplatesTest extends TestCase
     public function testThereAreTemplatesToCheck(): void
     {
         $names = array_keys(self::templates());
-        foreach (['layout', 'login', 'password', 'dashboard', 'queue', 'listing', 'item', 'search', 'pending', 'pending_actions', 'pending_decision', 'error'] as $t) {
+        foreach (['layout', 'login', 'password', 'dashboard', 'queue', 'listing', 'item', 'search', 'pending', 'pending_actions', 'pending_decision', 'error',
+            'home', 'people', 'person', 'documents', 'document', 'reviews', 'reasons', 'series'] as $t) {
             self::assertContains($t . '.php', $names);
         }
         self::assertSame([], array_filter($names, static fn (string $n): bool => preg_match('/^[a-z][a-z_]*\.php$/', $n) !== 1), 'names View::render accepts');
@@ -102,7 +105,8 @@ final class UiTemplatesTest extends TestCase
                 }
             }
         }
-        self::assertGreaterThanOrEqual(6, $posts, 'login, password, logout, decide, approve, withdraw');
+        self::assertGreaterThanOrEqual(11, $posts, 'login, password, logout, decide, approve, withdraw, person roles, person active, '
+            . 'document approve, document reject, document reverse');
     }
 
     public function testThePageBodiesRenderWithHostileValuesInert(): void
@@ -115,6 +119,34 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;&quot;&apos;&amp;', $html);
         self::assertStringNotContainsString('tok"><b>', $html);
         self::assertStringContainsString('tok&quot;&gt;&lt;b&gt;', $html);
+    }
+
+    /** I14: the layout draws the person's menu: live items as links (current one marked), placeholders as text, never links. */
+    public function testTheLayoutDrawsTheMenuOfTheRoles(): void
+    {
+        $who = new StaffIdentity(7, 'b@test.invalid', 'Bea <b>', ['buyer', 'mapper'], false, 'sid');
+        $view = new View(View::defaultDir(), ['csrf' => 'tok', 'who' => $who]);
+        $html = $view->page('home', ['name' => $who->displayName, 'roles' => $who->rolesLabel(), 'noRoles' => false, 'sections' => Permissions::menu($who->roles)],
+            ['title' => 'Home', 'active' => 'review', 'notice' => null, 'menu' => Permissions::menu($who->roles), 'badges' => ['linking_pending' => 3], 'searchBox' => true]);
+        $nav = substr($html, (int) strpos($html, '<nav class="menu"'), (int) strpos($html, '</nav>') - (int) strpos($html, '<nav class="menu"'));
+        self::assertStringContainsString('<span class="menu-label">Linking</span>', $nav);
+        self::assertStringContainsString('<span class="menu-label">Purchasing</span>', $nav);
+        self::assertStringContainsString('<a href="/ui/review?queue=Key" aria-current="page">Review</a>', $nav);
+        self::assertStringContainsString('<a href="/ui/review?queue=pending">Second approval <span class="badge">3</span></a>', $nav);
+        self::assertSame(3, substr_count($nav, '&middot; coming in Phase I-2</span>'));
+        self::assertStringContainsString('<span class="soon">Suppliers &middot; coming in Phase I-2</span>', $nav);
+        self::assertDoesNotMatchRegularExpression('#<a [^>]*>[^<]*coming in Phase#', $html, 'a placeholder is never a link');
+        self::assertStringNotContainsString('Admin', $nav);
+        self::assertStringContainsString('<span class="role">buyer, mapper</span>', $html);
+        self::assertStringContainsString('Bea &lt;b&gt;', $html);
+        self::assertStringContainsString('action="/ui/search"', $html);
+
+        $none = new StaffIdentity(8, 'n@test.invalid', 'Nobody', [], false, 'sid');
+        $html = (new View(View::defaultDir(), ['csrf' => 'tok', 'who' => $none]))->page('home', ['name' => 'Nobody', 'roles' => 'no roles', 'noRoles' => true, 'sections' => []],
+            ['title' => 'Home', 'active' => 'home', 'notice' => null, 'menu' => [], 'badges' => [], 'searchBox' => false]);
+        self::assertStringNotContainsString('<nav class="menu"', $html);
+        self::assertStringNotContainsString('action="/ui/search"', $html);
+        self::assertStringContainsString('You have no roles yet: ask an admin', $html);
     }
 
     /** True when $expr is one or more helper calls joined by `.`: `$e($x)`, `$e($a) . $e($b)`. */

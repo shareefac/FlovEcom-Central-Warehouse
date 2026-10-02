@@ -290,7 +290,7 @@ final class ReviewController
         $lead = $me->isLead();
         $noForm = null;
         if (!$me->canDecide()) {
-            $noForm = 'Your role (' . $me->role . ') can look at listings but not decide them.';
+            $noForm = $me->rolesPhrase() . ' can look at listings but not decide them.';
         } elseif ($band === 'Conflict' && !$lead) {
             $noForm = 'A Conflict proposal can only be decided by a mapping lead.';
         } elseif ($pending !== null) {

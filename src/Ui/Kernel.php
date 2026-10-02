@@ -12,8 +12,13 @@ use CW\CwException;
 use CW\Db;
 use CW\Ui\Controller\AuthController;
 use CW\Ui\Controller\DashboardController;
+use CW\Ui\Controller\DocumentsController;
+use CW\Ui\Controller\FilesController;
 use CW\Ui\Controller\ItemController;
+use CW\Ui\Controller\PeopleController;
+use CW\Ui\Controller\ReferenceController;
 use CW\Ui\Controller\ReviewController;
+use CW\Ui\Controller\ReviewsController;
 use CW\Ui\Controller\SearchController;
 
 /**
@@ -23,11 +28,14 @@ use CW\Ui\Controller\SearchController;
  *   2. connect as the app login (cw_app) and load `ui_secret_key` (CSRF); 503 page when either fails
  *   3. resolve the session cookie: live session (not revoked, MFA done, idle < 30 min, age < 12 h) or nobody
  *   4. access: public routes; otherwise sign-in (303 to /ui/login), forced password change,
- *      then the route's role (`decide` = mapper / mapping_lead, `lead` = mapping_lead)
+ *      then the route's permission (Auth\Permissions::MAP, checked against the roles read for this
+ *      request: a page a person cannot open is refused 403, not only left out of their menu, I11)
  *   5. every POST: same-origin check (Origin / Sec-Fetch-Site when sent) and the CSRF token
  *   6. the controller
  * Every answer carries the security headers (CSP `default-src 'self'`: no inline script or style,
- * no third-party anything; frame-ancestors 'none'; no-store). Unexpected failures are a plain
+ * no third-party anything; frame-ancestors 'none'; no-store). A download (a PDF, a CSV, a stored file:
+ * Controller\FilesController::download) is an attachment and carries a second policy, `sandbox`, which the
+ * browser enforces together with the first. Unexpected failures are a plain
  * 500 page with a request id (503 when the database is unavailable or busy); details go to the
  * error log only.
  */
@@ -46,9 +54,15 @@ final class Kernel
      * @param \Closure(): Db $connect
      * @param \Closure(): ?string $secretKey base64 ui_secret_key
      * @param \Closure(string): void $log
+     * @param (\Closure(Db): array<string, \CW\Documents\DocumentHandler>)|null $handlers the live document types
+     *        (default CW\Documents\DocumentHandlers::all: none in I-1; tests register a fixture type)
      */
-    public function __construct(private readonly \Closure $connect, private readonly \Closure $secretKey, private readonly \Closure $log)
-    {
+    public function __construct(
+        private readonly \Closure $connect,
+        private readonly \Closure $secretKey,
+        private readonly \Closure $log,
+        private readonly ?\Closure $handlers = null,
+    ) {
     }
 
     /** The front controller's kernel: app.env only (like the API), CW_* overrides from the process env. */
@@ -118,7 +132,7 @@ final class Kernel
         $who = (new Sessions($db))->resolve($req->cookie(self::SESSION_COOKIE));
         $pre = $req->cookie(self::PRE_COOKIE);
         $pre = $pre !== null && preg_match('/^[A-Za-z0-9_-]{43}$/D', $pre) === 1 ? $pre : null;
-        $ctx = new Context($req, $db, $who, $csrf, $params, $rid, $pre, $key);
+        $ctx = new Context($req, $db, $who, $csrf, $params, $rid, $pre, $key, $this->handlers, $this->log);
         try {
             return $this->guarded($route, $ctx);
         } catch (CwException $e) {
@@ -142,11 +156,13 @@ final class Kernel
             if ($who->mustChangePassword && !in_array($req->path, ['/ui/password', '/ui/logout'], true)) {
                 return HtmlResponse::redirect('/ui/password');
             }
-            if ($route->access === Route::DECIDE && !$who->canDecide()) {
-                throw new CwException('role_not_allowed', "your role ({$who->role}) cannot make mapping decisions", 403);
-            }
-            if ($route->access === Route::LEAD && !$who->isLead()) {
-                throw new CwException('lead_required', 'only a mapping lead can do this', 403);
+            if ($route->access !== Route::ANY && !$who->can($route->access)) {
+                throw match ($route->access) {
+                    Route::DECIDE => new CwException('role_not_allowed', $who->rolesPhrase(true) . ' cannot make mapping decisions', 403),
+                    Route::LEAD => new CwException('lead_required', 'only a mapping lead can do this', 403),
+                    default => new CwException('role_not_allowed', $who->rolesPhrase(true)
+                        . (count($who->roles) === 1 ? ' does not open this page' : ' do not open this page'), 403),
+                };
             }
         }
         if ($req->method === 'POST') {
@@ -193,6 +209,11 @@ final class Kernel
         $review = new ReviewController();
         $items = new ItemController();
         $search = new SearchController();
+        $people = new PeopleController();
+        $documents = new DocumentsController();
+        $reviews = new ReviewsController();
+        $reference = new ReferenceController();
+        $files = new FilesController();
         $r = new Router();
         $r->add('GET', '/ui/login', Route::PUBLIC, $auth->loginForm(...));
         $r->add('POST', '/ui/login', Route::PUBLIC, $auth->login(...));
@@ -201,13 +222,33 @@ final class Kernel
         $r->add('POST', '/ui/password', Route::ANY, $auth->password(...));
         $r->add('GET', '/ui', Route::ANY, $dash->index(...));
         $r->add('GET', '/ui/', Route::ANY, $dash->index(...));
-        $r->add('GET', '/ui/review', Route::ANY, $review->queue(...));
-        $r->add('GET', '/ui/review/listing/{id}', Route::ANY, $review->listing(...));
+        // The linking screens: linking.view (the inventory roles never had them, I14); search and items: catalogue.view.
+        $r->add('GET', '/ui/review', 'linking.view', $review->queue(...));
+        $r->add('GET', '/ui/review/listing/{id}', 'linking.view', $review->listing(...));
         $r->add('POST', '/ui/review/listing/{id}/decide', Route::DECIDE, $review->decide(...));
         $r->add('POST', '/ui/review/decision/{id}/approve', Route::LEAD, $review->approve(...));
         $r->add('POST', '/ui/review/decision/{id}/withdraw', Route::DECIDE, $review->withdraw(...));
-        $r->add('GET', '/ui/items/{id}', Route::ANY, $items->show(...));
-        $r->add('GET', '/ui/search', Route::ANY, $search->index(...));
+        $r->add('GET', '/ui/items/{id}', 'catalogue.view', $items->show(...));
+        $r->add('GET', '/ui/search', 'catalogue.view', $search->index(...));
+        // People and roles (I13): admin and auditor look, admin changes.
+        $r->add('GET', '/ui/people', 'staff.view', $people->index(...));
+        $r->add('GET', '/ui/people/{id}', 'staff.view', $people->show(...));
+        $r->add('POST', '/ui/people/{id}/roles', 'staff.manage', $people->roles(...));
+        $r->add('POST', '/ui/people/{id}/active', 'staff.manage', $people->active(...));
+        $r->add('GET', '/ui/people.csv', 'staff.view', $people->csv(...));
+        // Documents (IM1, I17-I27): the list and pages for documents.view; posting and reversing are checked per type by
+        // CW\Documents\Documents (doc.<TYPE>.post), the kind of a review task likewise (documents.review / documents.approve).
+        $r->add('GET', '/ui/documents', 'documents.view', $documents->index(...));
+        $r->add('GET', '/ui/documents/reviews', 'documents.review', $reviews->queue(...));
+        $r->add('POST', '/ui/documents/reviews/{id}/approve', 'documents.review', $reviews->approve(...));
+        $r->add('POST', '/ui/documents/reviews/{id}/reject', 'documents.review', $reviews->reject(...));
+        $r->add('GET', '/ui/documents/{id}', 'documents.view', $documents->show(...));
+        $r->add('GET', '/ui/documents/{id}/pdf', 'documents.view', $documents->pdf(...));
+        $r->add('POST', '/ui/documents/{id}/reverse', 'documents.view', $documents->reverse(...));
+        $r->add('GET', '/ui/files/{id}', 'documents.view', $files->show(...));
+        $r->add('GET', '/ui/reference/reasons', 'reference.view', $reference->reasons(...));
+        $r->add('GET', '/ui/reference/reasons.csv', 'reference.view', $reference->reasonsCsv(...));
+        $r->add('GET', '/ui/reference/series', 'reference.view', $reference->series(...));
         return $this->router = $r;
     }
 
@@ -216,7 +257,7 @@ final class Kernel
     {
         $view = new View(View::defaultDir(), ['csrf' => '', 'who' => null]);
         $html = $view->page('error', ['status' => $status, 'code' => $code, 'message' => $message, 'rid' => $rid],
-            ['title' => 'Error ' . $status, 'active' => '', 'notice' => null, 'pendingCount' => null]);
+            ['title' => 'Error ' . $status, 'active' => '', 'notice' => null, 'menu' => [], 'badges' => [], 'searchBox' => false]);
         return new HtmlResponse($status, $html);
     }
 

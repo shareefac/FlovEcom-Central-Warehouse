@@ -29,6 +29,9 @@ final class Db
     /** Deadlocks retried by transaction() in this process (tests assert "no deadlocks" with it). */
     private static int $deadlockRetries = 0;
 
+    /** Transactions transaction() has begun on this connection (I7). */
+    private int $txSerial = 0;
+
     private function __construct(private readonly PDO $pdo, public readonly DbSettings $settings)
     {
     }
@@ -130,6 +133,17 @@ final class Db
     }
 
     /**
+     * Number of transactions transaction() has begun on this connection: it moves on at every real
+     * beginTransaction() (a deadlock retry included), never when a call joins an open transaction.
+     * It lets per-operation state tell this transaction from a rolled-back one (Stock's pending value
+     * sequence, I7).
+     */
+    public function transactionSerial(): int
+    {
+        return $this->txSerial;
+    }
+
+    /**
      * Runs $fn($this) inside a transaction and returns its result.
      *
      * On a deadlock (MySQL 1213) the transaction is rolled back and $fn is run again, up to
@@ -149,6 +163,7 @@ final class Db
         }
         for ($attempt = 0; ; $attempt++) {
             $this->pdo->beginTransaction();
+            $this->txSerial++;
             try {
                 $result = $fn($this);
                 $this->pdo->commit();

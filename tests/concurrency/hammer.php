@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * CW concurrency hammer (plan §14 "CW (automated)"): real processes, real connections, real races.
  *
- *   scripts/remote.sh hammer php tests/concurrency/hammer.php [--workers=24] [--seconds=30] [--only=1,4] [--seed=N]
+ *   scripts/remote.sh hammer php tests/concurrency/hammer.php [--workers=24] [--seconds=30] [--only=1,4,5] [--seed=N]
  *
  * Scenarios (each prints PASS/FAIL rows; the exit status is 0 only when every row passes):
  *   1  200 reserve attempts from 3 live channels race for a strict item with on_hand = 10:
@@ -24,6 +24,13 @@ declare(strict_types=1);
  *      with two expiry crons for --seconds: every consistent snapshot taken during the run
  *      satisfies CW\Invariants, every negative availability of a strict item is a flagged
  *      oversell_event, and nothing fails.
+ *   5  the per-item value sequence (C0, I3) under cross-warehouse races for --seconds: staff
+ *      movements of 1-4 items at MAIN and VERIFY in random line order (goods-in with a cost,
+ *      write-offs, adjustments), MAIN -> VERIFY transfers, reserve -> commit -> ship, commit ->
+ *      cancel to VERIFY and VERIFY counts. An observer polls the seqs every 100 ms (one statement:
+ *      no item ever shows a gap) and checks CW\Invariants on a consistent snapshot every ~2 s; at
+ *      the end every item is numbered 1..N and replaying its on_hand rows in seq order gives every
+ *      row's balance_after and the item's total on_hand.
  *
  * Processes: pcntl_fork. Every worker opens its OWN connection after the fork; the parent holds
  * NO connection while children live (a TLS socket shared across fork would be corrupted when a
@@ -1595,6 +1602,317 @@ function scenario4(Report $rep, int $workers, int $seconds, int $seed): void
 }
 
 // =============================================================================================
+// Scenario 5: the per-item value sequence under cross-warehouse races (C0, I3)
+// =============================================================================================
+
+/** One trader of scenario 5: staff movements, transfers, sales and VERIFY counts on 6 legacy items. */
+final class ValueTrader
+{
+    private readonly Reservations $res;
+    private readonly Movements $moves;
+    private readonly Caller $staff;
+    /** @var array<string, int> outcome label => count */
+    public array $counts = [];
+    /** @var list<string> */
+    public array $unexpected = [];
+    private int $n = 0;
+
+    /** @param array<string, int> $variants variant => sku_id */
+    public function __construct(private readonly Db $db, private readonly int $w, private readonly Caller $ch, private readonly array $variants)
+    {
+        $this->res = new Reservations($db);
+        $this->moves = new Movements($db);
+        $this->staff = Caller::staff(1);
+    }
+
+    public function step(): void
+    {
+        $roll = mt_rand(1, 100);
+        match (true) {
+            $roll <= 30 => $this->staffMove(),
+            $roll <= 50 => $this->transfer(),
+            $roll <= 80 => $this->sale(),
+            $roll <= 90 => $this->cancelToVerify(),
+            default => $this->count(),
+        };
+    }
+
+    /** @return list<int> 1..$max distinct items in random order */
+    private function items(int $max): array
+    {
+        $skus = array_values($this->variants);
+        shuffle($skus);
+        return array_slice($skus, 0, mt_rand(1, $max));
+    }
+
+    private function key(string $what): string
+    {
+        return "v5-{$this->w}-" . (++$this->n) . "-{$what}";
+    }
+
+    private function staffMove(): void
+    {
+        $type = ['goods_in', 'write_off', 'adjustment'][mt_rand(0, 2)];
+        $lines = [];
+        foreach ($this->items(4) as $i => $sku) {
+            $qty = mt_rand(1, 5) * ($type === 'adjustment' && mt_rand(0, 1) === 0 ? -1 : 1);
+            $pence = mt_rand(50, 999); // GBP 0.50-9.99
+            $lines[] = ['sku_id' => $sku, 'qty' => $qty, 'line_index' => $i, 'warehouse' => mt_rand(0, 1) === 0 ? 'MAIN' : 'VERIFY']
+                + ($type === 'goods_in' ? ['unit_cost' => sprintf('%d.%02d', intdiv($pence, 100), $pence % 100)] : []);
+        }
+        $key = $this->key($type);
+        $this->call("move.{$type}", fn (): OpResult => $this->moves->record($this->staff, ['type' => $type, 'doc_ref' => strtoupper($key), 'lines' => $lines], $key), ['200 recorded']);
+    }
+
+    private function transfer(): void
+    {
+        $skus = $this->items(3);
+        $doc = strtoupper($this->key('trf'));
+        $out = array_map(static fn (int $sku, int $i): array => ['sku_id' => $sku, 'qty' => mt_rand(1, 3), 'line_index' => $i], $skus, array_keys($skus));
+        $in = array_map(static fn (array $l): array => ['warehouse' => 'VERIFY'] + $l, $out);
+        $this->call('transfer_out', fn (): OpResult => $this->moves->record($this->staff, ['type' => 'transfer_out', 'warehouse' => 'MAIN', 'doc_ref' => $doc, 'lines' => $out], $doc . '-out'), ['200 recorded']);
+        $this->call('transfer_in', fn (): OpResult => $this->moves->record($this->staff, ['type' => 'transfer_in', 'doc_ref' => $doc, 'lines' => $in], $doc . '-in'), ['200 recorded']);
+    }
+
+    /** @return list<array{variant_id: string, qty: int, unit_ids: list<string>}> */
+    private function lines(string $ref, int $max): array
+    {
+        $names = array_keys($this->variants);
+        shuffle($names);
+        $lines = [];
+        $u = 0;
+        foreach (array_slice($names, 0, mt_rand(1, $max)) as $v) {
+            $units = [];
+            for ($q = mt_rand(1, 2); $q > 0; $q--) {
+                $units[] = $ref . 'u' . (++$u);
+            }
+            $lines[] = line($v, ...$units);
+        }
+        return $lines;
+    }
+
+    private function sale(): void
+    {
+        $ref = "v5s{$this->w}-" . (++$this->n);
+        $lines = $this->lines($ref, 2);
+        $units = array_merge(...array_column($lines, 'unit_ids'));
+        if ($this->call('reserve', fn (): OpResult => $this->res->reserve($this->ch, $ref, $lines, $ref . '-r'), ['201 held']) === null) {
+            return;
+        }
+        if ($this->call('commit', fn (): OpResult => $this->res->commit($this->ch, $ref, $lines, 'reserved', $ref . '-c'), ['200 committed']) === null) {
+            return;
+        }
+        $at = Clock::iso(Clock::db(Clock::now()->modify('-60 seconds')));
+        $this->call('ship', fn (): OpResult => $this->res->ship($this->ch, $ref, $units, $at, $ref . '-s'), ['200 *']);
+    }
+
+    private function cancelToVerify(): void
+    {
+        $ref = "v5c{$this->w}-" . (++$this->n);
+        $lines = $this->lines($ref, 2);
+        $units = array_merge(...array_column($lines, 'unit_ids'));
+        if ($this->call('commit.unreserved', fn (): OpResult => $this->res->commit($this->ch, $ref, $lines, 'unreserved', $ref . '-c'), ['200 committed']) === null) {
+            return;
+        }
+        $r = $this->call('cancel.to_verify', fn (): OpResult => $this->res->cancel($this->ch, $ref, $units, false, $ref . '-x'), ['200 *']);
+        foreach ($r?->body['units'] ?? [] as $u) {
+            if (($u['result'] ?? '') !== 'cancelled_to_verify') {
+                $this->bad("cancel {$ref} unit {$u['unit_id']}: " . ($u['result'] ?? '?'));
+            }
+        }
+    }
+
+    private function count(): void
+    {
+        $skus = array_values($this->variants);
+        $sku = $skus[mt_rand(0, count($skus) - 1)];
+        $now = (int) $this->db->value("SELECT b.on_hand FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id WHERE w.code = 'VERIFY' AND b.sku_id = ?", [$sku]);
+        $qty = max(0, $now + mt_rand(-3, 3));
+        $key = $this->key('count');
+        $at = Clock::iso(Clock::db(Clock::now()->modify('-1 second')));
+        $this->call('count.verify', fn (): OpResult => $this->moves->record($this->staff, ['type' => 'count', 'warehouse' => 'VERIFY', 'counted_at' => $at,
+            'lines' => [['sku_id' => $sku, 'qty' => $qty]]], $key), ['200 recorded']);
+    }
+
+    /**
+     * @param callable(): OpResult $fn
+     * @param list<string> $expect "status result" pairs ("200 *" = any 200)
+     */
+    private function call(string $label, callable $fn, array $expect): ?OpResult
+    {
+        try {
+            $r = $fn();
+        } catch (\Throwable $e) {
+            $err = Errors::asResult($e);
+            $this->counts["{$label} {$err['status']} {$err['error']}"] = ($this->counts["{$label} {$err['status']} {$err['error']}"] ?? 0) + 1;
+            $this->bad("{$label}: " . $err['error']);
+            return null;
+        }
+        $result = (string) ($r->body['result'] ?? $r->body['error'] ?? '');
+        $k = "{$label} {$r->status} {$result}";
+        $this->counts[$k] = ($this->counts[$k] ?? 0) + 1;
+        if (!in_array("{$r->status} {$result}", $expect, true) && !in_array("{$r->status} *", $expect, true)) {
+            $this->bad("{$label}: got {$r->status} {$result}, expected " . implode('|', $expect) . ' -> ' . json_encode($r->body));
+            return null;
+        }
+        return $r;
+    }
+
+    private function bad(string $m): void
+    {
+        $this->counts['UNEXPECTED'] = ($this->counts['UNEXPECTED'] ?? 0) + 1;
+        if (count($this->unexpected) < 20) {
+            $this->unexpected[] = "w{$this->w} " . substr($m, 0, 700);
+        }
+    }
+}
+
+function scenario5(Report $rep, int $workers, int $seconds, int $seed): void
+{
+    $S = '5 value sequence';
+    $traders = min(20, $workers - 2);
+    Report::say("\n== Scenario 5: {$traders} traders for {$seconds} s at MAIN and VERIFY, value seqs polled every 100 ms, invariants on live snapshots ==");
+    [$ch, $variants] = Pool::withDb(static function (Db $db): array {
+        TestDb::clean($db);
+        $fx = new Fx($db);
+        $ch = $fx->channel('vs5', 'live');
+        $moves = new Movements($db);
+        $variants = [];
+        for ($i = 1; $i <= 6; $i++) {
+            $sku = $fx->sku('legacy', 0, "Value seq item {$i}");
+            $fx->listing($ch, "VS{$i}", $sku);
+            $variants["VS{$i}"] = $sku;
+            // The opening stock, with a cost: it also creates each item's clock row before the race.
+            Fx::must($moves->record(Caller::staff(1), ['type' => 'goods_in', 'warehouse' => 'MAIN', 'doc_ref' => "VS5-OPEN-{$i}",
+                'lines' => [['sku_id' => $sku, 'qty' => 100_000, 'unit_cost' => '2.50']]], "vs5-open-{$i}"));
+        }
+        return [$ch, $variants];
+    });
+    $skus = array_values($variants);
+    $rowsBefore = Pool::withDb(static fn (Db $db): int => (int) $db->value("SELECT COUNT(*) FROM stock_ledger WHERE bucket = 'on_hand'"));
+
+    $pool = Pool::run($traders, static function (int $wi, Db $db) use ($ch, $variants, $seconds): array {
+        $end = microtime(true) + $seconds;
+        $t = new ValueTrader($db, $wi, $ch, $variants);
+        $steps = 0;
+        while (microtime(true) < $end) {
+            $t->step();
+            $steps++;
+        }
+        return ['steps' => $steps, 'counts' => $t->counts, 'unexpected' => $t->unexpected];
+    }, static function (Db $db, callable $stop) use ($skus): array {
+        $marks = implode(',', array_fill(0, count($skus), '?'));
+        $sql = "SELECT sku_id, COUNT(*) AS n, MIN(seq) AS lo, MAX(seq) AS hi FROM stock_value_seq WHERE sku_id IN ({$marks}) GROUP BY sku_id";
+        $polls = 0;
+        $gaps = 0;
+        $gapSamples = [];
+        $snapshots = 0;
+        $violations = [];
+        $ms = [];
+        $nextSnapshot = microtime(true) + 2.0;
+        $last = false;
+        while (true) {
+            foreach ($db->all($sql, $skus) as $r) {
+                if ((int) $r['lo'] !== 1 || (int) $r['hi'] !== (int) $r['n']) {
+                    $gaps++;
+                    if (count($gapSamples) < 10) {
+                        $gapSamples[] = "poll {$polls}: item {$r['sku_id']} seqs {$r['lo']}..{$r['hi']} in {$r['n']} rows";
+                    }
+                }
+            }
+            $polls++;
+            if ($last || microtime(true) >= $nextSnapshot) {
+                $t = hrtime(true);
+                $inv = Snapshot::read($db, static fn (Db $db): array => Invariants::check($db));
+                $ms[] = intdiv(hrtime(true) - $t, 1_000_000);
+                $snapshots++;
+                foreach ($inv as $v) {
+                    if (count($violations) < 10) {
+                        $violations[] = "snapshot {$snapshots}: {$v}";
+                    }
+                }
+                $nextSnapshot = microtime(true) + 2.0;
+            }
+            if ($last) {
+                break;
+            }
+            usleep(100_000);
+            $last = $stop();
+        }
+        return ['polls' => $polls, 'gaps' => $gaps, 'gap_samples' => $gapSamples, 'snapshots' => $snapshots, 'violations' => $violations,
+            'check_ms_max' => $ms === [] ? 0 : max($ms)];
+    }, $seconds + 240);
+    poolProblems($rep, $S, $pool);
+
+    $counts = [];
+    $unexpected = [];
+    $steps = 0;
+    foreach ($pool['workers'] as $w) {
+        $steps += $w['steps'];
+        foreach ($w['counts'] as $k => $v) {
+            $counts[$k] = ($counts[$k] ?? 0) + $v;
+        }
+        array_push($unexpected, ...$w['unexpected']);
+    }
+    ksort($counts);
+    $calls = array_sum(array_filter($counts, static fn (string $k): bool => $k !== 'UNEXPECTED', ARRAY_FILTER_USE_KEY));
+    $rowsDuring = Pool::withDb(static fn (Db $db): int => (int) $db->value("SELECT COUNT(*) FROM stock_ledger WHERE bucket = 'on_hand'")) - $rowsBefore;
+    $rep->info($S, 'run', sprintf('%d traders + 1 observer, seed %d, %d s; %d steps, %d calls (%.0f/s); %d on_hand rows (%.0f/s)',
+        $traders, $seed, $seconds, $steps, $calls, $calls / max(1, $seconds), $rowsDuring, $rowsDuring / max(1, $seconds)));
+    $rep->info($S, 'outcomes', fmt(array_filter($counts, static fn (string $k): bool => $k !== 'UNEXPECTED', ARRAY_FILTER_USE_KEY)));
+    $errs = array_filter($counts, static fn (string $k): bool => (bool) preg_match('/ 5\d\d /', $k), ARRAY_FILTER_USE_KEY);
+    $rep->check($S, 'no errors / deadlocks surfaced', $errs === [] && ($counts['UNEXPECTED'] ?? 0) === 0, '0',
+        $errs === [] && ($counts['UNEXPECTED'] ?? 0) === 0 ? '0' : fmt($errs) . ' ' . implode(' | ', array_slice($unexpected, 0, 3)));
+    $rep->info($S, 'deadlocks retried inside CW', (string) $pool['deadlocks_retried']);
+    $need = ['move.goods_in 200', 'move.write_off 200', 'move.adjustment 200', 'transfer_out 200', 'transfer_in 200', 'ship 200', 'cancel.to_verify 200', 'count.verify 200'];
+    $has = static fn (string $prefix): int => array_sum(array_filter($counts, static fn (string $k): bool => str_starts_with($k, $prefix), ARRAY_FILTER_USE_KEY));
+    $missing = array_values(array_filter($need, static fn (string $p): bool => $has($p) === 0));
+    $rep->check($S, 'every path happened', $missing === [], 'each >= 1', $missing === [] ? 'yes' : 'MISSING ' . implode(', ', $missing));
+    $obs = $pool['observer'] ?? ['polls' => 0, 'gaps' => -1, 'gap_samples' => ['observer missing'], 'snapshots' => 0, 'violations' => ['observer missing'], 'check_ms_max' => 0];
+    $rep->check($S, 'no seq gap ever visible', $obs['polls'] >= 50 && $obs['gaps'] === 0, '>= 50 polls, 0 gaps',
+        "{$obs['polls']} polls, {$obs['gaps']} gaps" . ($obs['gap_samples'] === [] ? '' : ': ' . implode(' | ', array_slice($obs['gap_samples'], 0, 3))));
+    $rep->check($S, 'invariants on every live snapshot', $obs['snapshots'] >= 5 && $obs['violations'] === [], '>= 5 snapshots, 0 violations',
+        "{$obs['snapshots']} snapshots (slowest check {$obs['check_ms_max']} ms), " . ($obs['violations'] === [] ? '0 violations' : implode(' | ', array_slice($obs['violations'], 0, 3))));
+
+    Pool::withDb(static function (Db $db) use ($rep, $S, $skus): void {
+        $bad = [];
+        $replayBad = [];
+        $rows = 0;
+        foreach ($skus as $sku) {
+            $n = (int) $db->value("SELECT COUNT(*) FROM stock_ledger WHERE sku_id = ? AND bucket = 'on_hand'", [$sku]);
+            $seqs = array_map('intval', $db->column('SELECT seq FROM stock_value_seq WHERE sku_id = ? ORDER BY seq', [$sku]));
+            if ($seqs !== range(1, $n)) {
+                $bad[] = "item {$sku}: " . count($seqs) . " seqs for {$n} on_hand rows";
+            }
+            // IM8's consumer: value the item's rows strictly in seq order. Per location the running quantity must
+            // reproduce every row's balance_after, and the total must end at the item's on_hand.
+            $run = [];
+            foreach ($db->all('SELECT s.seq, l.warehouse_id, l.qty_delta, l.balance_after FROM stock_value_seq s '
+                . 'JOIN stock_ledger l ON l.id = s.stock_ledger_id WHERE s.sku_id = ? ORDER BY s.seq', [$sku]) as $r) {
+                $wh = (int) $r['warehouse_id'];
+                $run[$wh] = ($run[$wh] ?? 0) + (int) $r['qty_delta'];
+                if ($run[$wh] !== (int) $r['balance_after'] && count($replayBad) < 5) {
+                    $replayBad[] = "item {$sku} seq {$r['seq']}: replay {$run[$wh]} vs balance_after {$r['balance_after']}";
+                }
+                $rows++;
+            }
+            $total = (int) $db->value('SELECT COALESCE(SUM(on_hand), 0) FROM stock_balance WHERE sku_id = ?', [$sku]);
+            if (array_sum($run) !== $total && count($replayBad) < 5) {
+                $replayBad[] = "item {$sku}: replay ends at " . array_sum($run) . ", on_hand is {$total}";
+            }
+        }
+        $rep->check($S, 'every item numbered 1..N (N = on_hand rows)', $bad === [], 'all ' . count($skus) . ' items', $bad === [] ? 'yes' : implode(' | ', $bad));
+        $rep->check($S, 'replay in seq order = balances', $replayBad === [], 'every balance_after, every total',
+            $replayBad === [] ? "{$rows} rows replayed" : implode(' | ', $replayBad));
+        $inv = Invariants::check($db);
+        $rep->check($S, 'invariants at the end', $inv === [], 'none violated', $inv === [] ? 'none violated' : implode(' | ', array_slice($inv, 0, 3)));
+        $order = (int) $db->value('SELECT COUNT(*) FROM (SELECT s.sku_id, s.seq, s.stock_ledger_id, '
+            . 'LAG(s.stock_ledger_id) OVER (PARTITION BY s.sku_id ORDER BY s.seq) AS prev FROM stock_value_seq s) t WHERE stock_ledger_id < prev');
+        $rep->info($S, 'seq order differs from ledger id order (commit order across warehouses)', "{$order} times");
+    });
+}
+
+// =============================================================================================
 // main
 // =============================================================================================
 
@@ -1602,7 +1920,7 @@ function main(array $argv): int
 {
     $opts = getopt('', ['workers:', 'seconds:', 'only:', 'seed:', 'help']);
     if (isset($opts['help'])) {
-        fwrite(STDOUT, "usage: php tests/concurrency/hammer.php [--workers=24] [--seconds=30] [--only=1,2,3,4] [--seed=N]\n");
+        fwrite(STDOUT, "usage: php tests/concurrency/hammer.php [--workers=24] [--seconds=30] [--only=1,2,3,4,5] [--seed=N]\n");
         return 0;
     }
     if (!function_exists('pcntl_fork')) {
@@ -1613,7 +1931,7 @@ function main(array $argv): int
     $workers = (int) ($opts['workers'] ?? 24);
     $seconds = (int) ($opts['seconds'] ?? 30);
     $seed = isset($opts['seed']) ? (int) $opts['seed'] : random_int(1, 2_000_000_000);
-    $only = isset($opts['only']) ? array_map('intval', explode(',', (string) $opts['only'])) : [1, 2, 3, 4];
+    $only = isset($opts['only']) ? array_map('intval', explode(',', (string) $opts['only'])) : [1, 2, 3, 4, 5];
     if ($workers < 6 || $workers + 2 > Pool::MAX_CONNECTIONS || $seconds < 5) {
         fwrite(STDERR, 'hammer: --workers must be 6..' . (Pool::MAX_CONNECTIONS - 2) . " and --seconds >= 5\n");
         return 2;
@@ -1651,6 +1969,7 @@ function main(array $argv): int
         2 => static fn () => scenario2($rep, $workers, $seed),
         3 => static fn () => scenario3($rep),
         4 => static fn () => scenario4($rep, $workers, $seconds, $seed),
+        5 => static fn () => scenario5($rep, $workers, $seconds, $seed),
     ];
     foreach ($only as $n) {
         if (!isset($scenarios[$n])) {

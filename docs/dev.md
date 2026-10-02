@@ -88,6 +88,10 @@ and single quotes for strings; `sql_require_primary_key = 1` (every table needs 
 3. Apply to staging: `scripts/remote.sh <slot> php bin/migrate.php --db=cw_staging`. This also grants
    `cw_app` its rights on new tables. A new append-only table must be added to
    `CW\Schema\Grants::APPEND_ONLY` in the same change.
+4. A migration that rewrites or backfills existing rows gets a test on a scratch schema:
+   `[$db, $dir] = MigrationFixture::upTo('m6', '0005_listing_barcodes_index.sql')`, insert the rows as they were,
+   `MigrationFixture::migrateRest($db, $dir, '0006_value_core.sql')`, assert, `MigrationFixture::drop('m6', $dir)` in tearDown
+   (`tests/Integration/Migration0006Test.php`).
 
 ## The HTTP API on staging (slot `api`)
 
@@ -165,11 +169,17 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
 ## Staff accounts, signing in, the public HTTPS vhost
 
 - **Create a person** (on the staging box, in `/opt/cw-staging`, as root; `--db=cw_test_ui --admin` for the test copy):
-  `php bin/create_staff.php --email=<address> --role=<mapper|mapping_lead|viewer|warehouse|manager|admin> --name="Name"`.
+  `php bin/create_staff.php --email=<address> --roles=<role>[,<role>...] --name="Name"` (I15; `--role=<one>` is an alias,
+  never both). Roles: viewer, mapper, mapping_lead, warehouse, manager, admin, buyer, purchasing_manager, goods_in,
+  purchasing_desk, stock_controller, reviewer, accountant, auditor (`CW\Auth\Permissions`); admin only with viewer,
+  accountant, auditor (I12).
   It prints `password=` (one-time) and `otpauth=` (the TOTP seed as a URI) ONCE on stdout; hand them over on different
   channels. Stored: argon2id hash, `password_must_change = 1`, the seed sealed with `ui_secret_key` (app.env).
-- **Recover a person**: `php bin/reset_staff.php --email=<address> [--new-password] [--new-totp] [--deactivate | --activate]`
+- **Recover a person**: `php bin/reset_staff.php --email=<address> [--new-password] [--new-totp] [--deactivate | --activate] [--roles=<list>]`
   (never re-create or delete an account; decisions name it). New secrets are printed once; every reset ends the person's sessions.
+  `--roles=a,b` replaces the person's roles (stderr `roles: x -> a,b`, audited `staff.roles`; the break-glass when no admin can
+  sign in); on its own it keeps their sessions, the new roles apply on their next request. Day to day an admin changes roles and
+  switches accounts off on `/ui/people` (I13).
 - **Sign in**: `/ui/login` takes e-mail, password and the current 6-digit code together; the first sign-in forces
   `/ui/password`. Test copy (slot `ui`, schema `cw_test_ui`): `http://127.0.0.1:8080/ui/login` with
   `Host: cw-ui.staging.invalid`, on the staging box only (e.g. through an SSH tunnel: `ssh -L 8080:127.0.0.1:8080 ...` and a
@@ -229,3 +239,40 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
 | `scripts/remote.sh` | sync + run on staging |
 | `docs/decisions.md` | choices made where the plan is silent |
 | `docs/ops.md` | runbook: scheduled jobs, staging cron, the hammer |
+| `migrations/0006_value_core.sql` | C0: cost (`unit_cost`, `cost_currency`, `cost_source`) and document link (`document_id`, `document_line`) on `stock_ledger`; `stock_value_clock`, `stock_value_seq` (backfilled), `stock_value_ledger` (empty, IM8's) (I1–I5) |
+| `src/Stock.php` `assignValueSeq()` | the per-item value sequence: the first step of `flush()` numbers every on_hand row of the operation under the item clocks (sku_id order, before the feed clock); `lock()` refuses while rows wait for their seq (I3, I7), and once the transaction took value clocks or the feed clock through any `Stock` on the connection (I29: one balance-lock phase per transaction) |
+| `src/Movements.php` `bookForDocument()`, `reverseDocument()` | a document posting's stock movements inside the posting's transaction (one `lock()`, one `flush()`), and their exact negation; `normaliseCost()` (I1, I2, I7) |
+| `tests/Support/MigrationFixture.php` | a scratch schema `cw_test_<slot>_<suffix>` migrated up to a given file, to test what a later migration does to existing rows (`Migration0006Test`) |
+| `migrations/0007_staff_roles.sql` | `staff_role` (several roles per person, revoked never deleted, one live grant per role), backfilled from `staff_user.role`, which is dropped (I10) |
+| `src/Auth/Permissions.php` | THE permission map: the 14 roles, `MAP` (permission → roles), `MENU`, `can()`, `checkRoleSet()` (admin only with viewer/accountant/auditor), `menu()`; routes name a permission (I11, I12, I14, I16) |
+| `src/Staff/StaffRoles.php`, `StaffAdmin::setRoles`/`setActive` | read side of `staff_role` (live roles, history, counts) and the role/account changes of the People screen and `reset_staff --roles` (I13) |
+| `src/Ui/Controller/PeopleController.php`, `views/{people,person,home}.php` | `/ui/people` (list, person page, role form, switch on/off) and the home page of roles without the linking screens (I13, I14) |
+| `tests/Unit/PermissionsTest.php`, `tests/Integration/UiKernel/{Menus,PeopleScreen}Test.php`, `tests/Integration/Staff/StaffRolesTest.php`, `Migration0007Test` | the map, the owner's menu acceptance test, the People screen, `StaffAdmin` + CLI, the 0007 backfill; `KernelUiTestCase::nav()` reads a page's menu; `uiUser()`/`staffUser()` take one role or a list |
+| `migrations/0008_documents.sql` | the document base: `reason_code` (22, read-only), `document_type` (8, read-only; review and approval rules), `number_series` (one per prefix, gapless), `document` (header, status, version, `posted_hash`, `reverses_id`), `document_line`, `review_task` (reviews and blocking approvals, no FKs), `stored_file` + `document_file` (append-only) (I17–I23) |
+| `src/Documents/` | `Documents` (drafts, post, reverse, approve, reject, withdraw; the lock order of I21), `Document` (a row), `DocumentHandler` (one per type) + `DocumentHandlers` (the registry: empty in I-1, I27), `NumberSeries` (I20), `DocumentInvariants` (D1–D7, called by `Invariants::check`) |
+| `src/Files/` | `FileStorage` (no delete/overwrite), `LocalFileStorage` (content-addressed, write-once, staging), `FileStore` (MIME sniffing, 25 MiB, dedupe, 7-year retention, verify on read, attach), configured by app.env `file_store_dir` / env `CW_FILE_STORE_DIR` (I23) |
+| `src/Output/` | `PdfWriter` on `Fpdf` (setasign/fpdf 1.8.2, core fonts, Windows-1252: I24), `CsvWriter` (BOM, CRLF, formula-injection safe: I25) |
+| `src/Ui/Controller/{Documents,Reviews,Reference,Files}Controller.php`, `views/{documents,document,reviews,reasons,series}.php` | `/ui/documents` (list, page, PDF, reverse), `/ui/documents/reviews` (queue, approve, reject), `/ui/reference/{reasons,reasons.csv,series}`, `/ui/files/{id}`, `/ui/people.csv`; `FilesController::download` is the one way a download leaves the screens (attachment + CSP sandbox) |
+| `bin/store_file.php`, `bin/verify_files.php`, `deploy/staging/install_file_store.sh`, `deploy/staging/seal_file_store.sh` | the file store's CLI (the only way files arrive in I-1), its staging install and the root sweep that makes stored files immutable (cron every minute, I36; neither run yet: `docs/ops.md`); `tests/Integration/Files/SealFileStoreTest.php` runs the sweep on a scratch directory under `/var/tmp` (root + chattr, else skipped) |
+| `document_posting` (0008) | the write-once record of every posting (hash, poster, time, the canonical content): DocumentInvariants D7 checks every posted document against it; tests that write posted documents by SQL must add one (`FixtureDocuments::posted` does, I33) |
+| `tests/Support/Documents/FixtureAdjustmentHandler.php` | a TEST-ONLY ADJ type (one signed adjustment per line): `KernelUiTestCase::kernel()` and the document tests register it; production registers none (I27) |
+| `tests/Support/Documents/{FixtureDocuments,DocWorkerPool}.php`, `tests/Support/doc_worker.php` | posted document rows for tests that book with fixed document ids; parallel workers (≤ 12) for the number-series and posting races |
+| `tests/Integration/Documents/`, `tests/Integration/Files/`, `tests/Integration/UiKernel/{ReviewScreens,ReferenceScreens,Downloads}Test.php`, `Migration0008Test` | the document base (lifecycle, review rules, invariants, races), the file store and its tools (temp directories via `CW_FILE_STORE_DIR`), the screens and downloads |
+
+Document and file tests notes:
+- `TestDb::clean()` keeps the seeded `reason_code` and `document_type` rows (a test that changes one restores it) and sets
+  every `number_series` back to 0 (pad 6) instead of deleting it.
+- A test that books stock with `Movements::bookForDocument` / `reverseDocument` directly must give its document ids real
+  posted rows (`FixtureDocuments::posted($db, $id, 'ADJ', $no[, $reversesId])`, numbers 1, 2, ... per type): every
+  `StockTestCase` asserts `Invariants::check`, which now includes the document checks D1–D7.
+- Staff created for tests that go through `StaffAdmin` with a staff caller use `@test.example` addresses
+  (`KernelUiTestCase::uiUser`): an address under `.invalid` is a placeholder account, which a screen never switches on or
+  gives a role (I35).
+- File store tests use a temporary root (`sys_get_temp_dir()`), never a directory inside the repo (refused) and never
+  `/srv/cw-docs`; the screens find it through `CW_FILE_STORE_DIR` (`putenv` in the test), the CLI tools through the
+  process environment.
+- Composer: `setasign/fpdf` is in `require` (install_cron.sh runs `composer --no-dev`). It is pinned to 1.8.2 because
+  every later release declares `ext-gd`, which staging lacks (I24): `composer require setasign/fpdf:^1.9` once
+  `php8.3-gd` is installed. Change dependencies with `composer require` in a slot (`scripts/remote.sh <slot> 'COMPOSER_ALLOW_SUPERUSER=1
+  composer require ...'`) and copy `composer.json` and `composer.lock` back with rsync: a hand-edited `composer.json`
+  makes remote.sh's `composer install` refuse ("not present in the lock file").

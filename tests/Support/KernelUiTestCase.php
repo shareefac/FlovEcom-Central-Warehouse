@@ -13,6 +13,7 @@ use CW\Schema\Grants;
 use CW\Staff\SecretBox;
 use CW\Staff\StaffAdmin;
 use CW\Staff\Totp;
+use CW\Tests\Support\Documents\FixtureAdjustmentHandler;
 use CW\Ui\Kernel;
 
 /**
@@ -45,13 +46,14 @@ abstract class KernelUiTestCase extends MappingTestCase
         self::$box = SecretBox::fromBase64($key);
     }
 
+    /** The kernel as production builds it, plus the test-only ADJ document type (I27: no type is live in I-1). */
     protected function kernel(): Kernel
     {
         $db = self::$appDb;
         $key = self::$uiKey;
         return new Kernel(static fn (): Db => $db, static fn (): string => $key, static function (string $m): void {
             self::$log[] = $m;
-        });
+        }, static fn (Db $db): array => ['ADJ' => new FixtureAdjustmentHandler($db)]);
     }
 
     protected function browser(string $ip = '198.51.100.20'): KernelBrowser
@@ -67,21 +69,24 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * A staff account made the way bin/create_staff.php makes it.
+     * A staff account made the way bin/create_staff.php makes it, holding $roles (one role or several).
      *
-     * @return array{id: int, email: string, role: string, password: string, secret: string}
+     * @param string|list<string> $roles
+     * @return array{id: int, email: string, roles: list<string>, password: string, secret: string}
      */
-    protected function uiUser(string $role, bool $mustChange = false): array
+    protected function uiUser(string|array $roles, bool $mustChange = false): array
     {
+        $roles = is_string($roles) ? [$roles] : $roles;
+        $label = implode('-', $roles);
         $n = ++$this->userSeq;
-        $email = "k-{$role}-{$n}@test.invalid";
-        $made = (new StaffAdmin(self::$db))->create(Caller::system('kernel_test'), $email, $role, self::$box, ucfirst($role) . " {$n}");
+        $email = "k-{$label}-{$n}@test.example"; // a real person's address: `.invalid` marks a placeholder account (I35)
+        $made = (new StaffAdmin(self::$db))->create(Caller::system('kernel_test'), $email, $roles, self::$box, ucfirst($label) . " {$n}");
         parse_str((string) parse_url($made['otpauth'], PHP_URL_QUERY), $query);
         self::assertIsString($query['secret'] ?? null);
         if (!$mustChange) {
             self::$db->exec('UPDATE staff_user SET password_must_change = 0 WHERE id = ?', [$made['id']]);
         }
-        return ['id' => $made['id'], 'email' => $made['email'], 'role' => $role, 'password' => $made['password'], 'secret' => $query['secret']];
+        return ['id' => $made['id'], 'email' => $made['email'], 'roles' => $made['roles'], 'password' => $made['password'], 'secret' => $query['secret']];
     }
 
     protected static function code(string $secret, int $stepOffset = 0): string
@@ -145,6 +150,29 @@ abstract class KernelUiTestCase extends MappingTestCase
         $form = $r->form('/ui/review/listing/' . $listingId . '/decide');
         self::assertNotSame([], $form, 'no decide form: ' . $r->describe());
         return $form;
+    }
+
+    /**
+     * The main navigation of a page as the person sees it (I14): section label => its items, each
+     * ['label' => visible text, 'href' => link or null for a "coming in Phase ..." placeholder].
+     *
+     * @return array<string, list<array{label: string, href: ?string}>>
+     */
+    protected static function nav(UiResponse $r): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $out = [];
+        foreach ($xp->query('//nav[@aria-label="Main"]/div[contains(concat(" ", @class, " "), " menu-group ")]') ?: [] as $group) {
+            $label = trim((string) $xp->evaluate('string(span[@class="menu-label"])', $group));
+            $items = [];
+            foreach ($xp->query('a | span[@class="soon"]', $group) ?: [] as $item) {
+                /** @var \DOMElement $item */
+                $items[] = ['label' => trim((string) preg_replace('/\s+/u', ' ', (string) $item->textContent)),
+                    'href' => $item->nodeName === 'a' ? $item->getAttribute('href') : null];
+            }
+            $out[$label] = $items;
+        }
+        return $out;
     }
 
     protected static function statusOf(UiResponse $r): string

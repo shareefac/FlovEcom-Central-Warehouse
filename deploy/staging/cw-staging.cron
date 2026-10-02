@@ -16,5 +16,11 @@ MAILTO=""
 # Nightly invariant check on one consistent snapshot; a mismatch is also written to syslog (tag cw-invariants).
 47 3 * * *  root  cd /opt/cw-staging && { php bin/invariants.php --db=cw_staging >> /var/log/cw/invariants.log 2>&1 || logger -p user.err -t cw-invariants "cw_staging invariant check failed (exit $?); see /var/log/cw/invariants.log"; }
 
+# The document store (docs/decisions.md I23, I36): seal new stored files every minute (root:www-data 0440, chattr +i, so
+# they cannot be rewritten in place; silent when nothing is new; nothing to do before install_file_store.sh), and re-hash
+# every stored file nightly; a missing or changed file also goes to syslog (tag cw-files).
+* * * * *  root  bash /opt/cw-staging/deploy/staging/seal_file_store.sh /srv/cw-docs >> /var/log/cw/seal_file_store.log 2>&1
+27 4 * * *  root  [ ! -d /srv/cw-docs ] || { cd /opt/cw-staging && php bin/verify_files.php --db=cw_staging >> /var/log/cw/verify_files.log 2>&1 || logger -p user.err -t cw-files "cw_staging stored files missing or changed (exit $?); see /var/log/cw/verify_files.log"; }
+
 # Not scheduled yet: bin/health_alert.php is a stub that only prints (no alert webhook yet, plan §6.3).
 # */5 * * * *  root  cd /opt/cw-staging && php bin/health_alert.php --db=cw_staging >> /var/log/cw/health_alert.log 2>&1

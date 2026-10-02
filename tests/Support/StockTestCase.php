@@ -159,11 +159,11 @@ abstract class StockTestCase extends IntegrationTestCase
         return $this->res->ship($site, $ref, $units, $dispatchedAt, $key ?? $this->key('ship'));
     }
 
-    /** Books a movement of one item as staff. */
-    protected function book(string $type, int $sku, int $qty, string $warehouse = 'MAIN', ?string $countedAt = null): OpResult
+    /** Books a movement of one item as staff ($unitCost: the line's unit_cost, I1). */
+    protected function book(string $type, int $sku, int $qty, string $warehouse = 'MAIN', ?string $countedAt = null, ?string $unitCost = null): OpResult
     {
         $req = ['type' => $type, 'warehouse' => $warehouse, 'doc_ref' => 'DOC-' . bin2hex(random_bytes(3)),
-            'lines' => [['sku_id' => $sku, 'qty' => $qty]]];
+            'lines' => [['sku_id' => $sku, 'qty' => $qty] + ($unitCost === null ? [] : ['unit_cost' => $unitCost])]];
         if ($countedAt !== null) {
             $req['counted_at'] = $countedAt;
         }
