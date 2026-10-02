@@ -9,6 +9,7 @@ use CW\Auth\LoginLimiter;
 use CW\Auth\Sessions;
 use CW\Caller;
 use CW\Db;
+use CW\Documents\DocumentHandlers;
 use CW\Schema\Grants;
 use CW\Staff\SecretBox;
 use CW\Staff\StaffAdmin;
@@ -46,14 +47,14 @@ abstract class KernelUiTestCase extends MappingTestCase
         self::$box = SecretBox::fromBase64($key);
     }
 
-    /** The kernel as production builds it, plus the test-only ADJ document type (I27: no type is live in I-1). */
+    /** The kernel as production builds it (DocumentHandlers::all: PO since I-2), plus the test-only ADJ document type (I27). */
     protected function kernel(): Kernel
     {
         $db = self::$appDb;
         $key = self::$uiKey;
         return new Kernel(static fn (): Db => $db, static fn (): string => $key, static function (string $m): void {
             self::$log[] = $m;
-        }, static fn (Db $db): array => ['ADJ' => new FixtureAdjustmentHandler($db)]);
+        }, static fn (Db $db): array => DocumentHandlers::all($db) + ['ADJ' => new FixtureAdjustmentHandler($db)]);
     }
 
     protected function browser(string $ip = '198.51.100.20'): KernelBrowser

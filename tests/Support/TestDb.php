@@ -19,10 +19,10 @@ final class TestDb
     /** Rows that 0001_core.sql seeds; clean() keeps them. */
     public const SEED_WAREHOUSES = ['MAIN', 'VERIFY', 'UNSTAMPED'];
     /**
-     * Reference lists 0008_documents.sql seeds (reason codes, document types): clean() keeps them, so a test that
-     * changes one (a review rule, a limit) restores it itself.
+     * Reference lists the migrations seed (0008: reason codes, document types; 0009: settings, VAT codes): clean() keeps
+     * them, so a test that changes one (a review rule, a limit, a setting) restores it itself.
      */
-    public const SEED_TABLES = ['reason_code', 'document_type'];
+    public const SEED_TABLES = ['reason_code', 'document_type', 'app_setting', 'vat_code'];
 
     private static ?Db $db = null;
 

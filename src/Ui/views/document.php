@@ -6,6 +6,9 @@
 <?php if (!$handler): ?>
 <p class="note"><?= $e($type['name']) ?> screens arrive in Phase <?= $e($type['phase']) ?>.</p>
 <?php endif; ?>
+<?php if ($poHref !== null): ?>
+<p class="actions"><a class="button" href="<?= $u($poHref) ?>">Open in Purchasing</a> <span class="muted">(the order's own page: lines, sending, cancelling, the PDF)</span></p>
+<?php endif; ?>
 
 <dl class="wide">
   <dt>Status</dt><dd><span class="status"><?= $e($statusText) ?></span></dd>
@@ -54,7 +57,7 @@
   <form class="inline" method="post" action="<?= $u('/ui/documents/reviews/' . $decide['task']['id'] . '/reject') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label>Why it is rejected (required) <input type="text" name="note" minlength="3" maxlength="500" required></label>
-    <button type="submit"><?php if ($decide['task']['kind'] === 'approval'): ?>Reject the request<?php elseif ($doc->isReversal()): ?>Reject<?php else: ?>Reject and reverse<?php endif; ?></button>
+    <button type="submit"><?php if ($decide['task']['kind'] === 'approval'): ?>Reject the request<?php elseif ($doc->isReversal() || $rejectRecords): ?>Reject<?php else: ?>Reject and reverse<?php endif; ?></button>
   </form>
 <?php if ($decide['task']['kind'] === 'approval' && $doc->isReversal()): ?>
   <p class="muted">Approving posts this reversal now, as the requester's posting: the original's stock is booked back. Rejecting cancels the request: nothing is booked.</p>
@@ -63,6 +66,9 @@
 <?php elseif ($doc->isReversal()): ?>
   <p class="muted">A reversal is never reversed: rejecting records that this reversal was wrong and books nothing. If the original was right,
     its poster posts it again as a new document.</p>
+<?php elseif ($rejectRecords): ?>
+  <p class="muted">Rejecting records the rejection and changes nothing else: the document stands (a purchase order may already be with the supplier).
+    Its poster then cancels or amends it.</p>
 <?php else: ?>
   <p class="muted">Rejecting posts the document's reversal now (reason: rejected at review).</p>
 <?php endif; ?>

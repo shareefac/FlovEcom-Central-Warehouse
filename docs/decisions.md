@@ -1979,3 +1979,829 @@ scenario; scenario 4 at 62 operations/s (I9: 60 after C0; i1do: 61), scenario 5 
 polls and no gap; `LockOrderTest`'s 2,000-line goods-in wrote its feed rows within 54 ms (bound 250 ms), the whole movement
 12.8 s; `NumberSeriesRaceTest` 1,200 allocations by 12 workers in 4.8 s, 0 deadlocks; `PostingRaceTest` 64 postings and 60
 staff moves in 5.3 s, 0 deadlocks retried or surfaced.
+
+
+## Inventory Phase I-2 (slot `i2su`, suppliers)
+
+Phase I-2 task 1 of 3 (`docs/inventory-modules-plan.md` IM4; the I-2 build spec of 2 Oct 2026): the settings, the VAT
+codes, suppliers and supplier items with the blocking activation approval, the ERPNext supplier seed importer, every
+Phase I-2 permission and menu item, and the shared groundwork of the next two tasks (one-effect forms, uploads, a CSV
+reader). Numbered I38–I47. Nothing books stock. Code: `migrations/0009_suppliers.sql`, `src/Settings.php`,
+`src/Suppliers/{Suppliers,SupplierItems,SupplierInvariants,ErpSeedImport}.php`, `src/Output/CsvReader.php`,
+`src/Ui/FormOnce.php`, `src/Ui/Controller/{Suppliers,SupplierItems}Controller.php`, `src/Ui/views/{suppliers,supplier,
+supplier_form,supplier_items,supplier_item,supplier_item_form,settings}.php`, `bin/{settings,import_erp_suppliers}.php`;
+changed: `src/Auth/Permissions.php`, `src/Ui/{Kernel,Context,UiRequest}.php`, `src/Ui/Controller/{Reviews,Reference,
+Item}Controller.php`, `src/Ui/views/{reviews,item}.php`, `src/Documents/Documents.php` (`lockTask`), `src/Files/FileStore.php`
+(kind `supplier_check`), `src/Schema/Grants.php`, `src/Invariants.php`, `public/ui/assets/app.css`; tests
+`tests/Unit/{CsvReader,SettingsParse}Test.php`, `tests/Integration/{Migration0009,Settings}Test.php`,
+`tests/Integration/Suppliers/*` (with `SupplierTestCase` and `supplier_worker.php`), `tests/Integration/UiKernel/
+SupplierScreensTest.php`, and updates of `PermissionsTest`, `MenusTest`, `GrantsTest`, `ReviewRulesTest`,
+`tests/Support/{KernelBrowser,TestDb}.php`, `UiTemplatesTest` and `ReferenceScreensTest` (the last two outside the task's
+file list: see I47).
+
+**I38. Settings; decision 9 — one company owns all warehouse stock (provisional, owner to confirm).** `app_setting` (0009)
+holds typed settings (string, text, int, decimal, bool, date) as JSON, with `provisional` (1 = a default the owner has
+not confirmed) and the owner `decision` it implements; `CW\Settings` reads them once per instance (`get`, `company`,
+`all`); an unknown key is a `\LogicException`. The table is READ-ONLY for the app login (`Grants::READ_ONLY`): only
+`bin/settings.php --set ... --admin` changes a value (audit `setting.change {key, before, after, reason}`, `updated_actor =
+system:settings`). Decision 9 is built as: **one company buys and owns all warehouse stock**, its legal and trading name,
+address, company number, VAT number, purchasing phone and e-mail and the delivery address come from `company.*` settings,
+**empty placeholders** until the owner provides them, and `company.confirmed = false` makes every PO PDF carry "COMPANY
+DETAILS NOT CONFIRMED — DO NOT SEND" (the pos task prints it); one valuation pool (`valuation_pool = 'default'`, I5).
+Choices the spec left open:
+- `--set` without `--admin` is refused before connecting (exit 1): connecting as the app login to a test schema that has no
+  grants would otherwise fail as "cannot run" (exit 3) and hide the real reason.
+- A decimal is stored as a JSON **string** (its digits exactly as typed); a seeded JSON number (the reorder task's `0.50`)
+  is read through its text, so `get()` never returns a float. Empty (`""`) is "not set": '' for string/text, null for
+  int/decimal/date; a bool is always true or false.
+- `--value` is accepted for a text setting too (one line); several lines come with `--value-file` (CRLF read as LF, the
+  file's final line break dropped). Sending the current value writes nothing ("unchanged").
+- `--confirmed` (not in the spec): records that the owner confirmed a value (provisional = 0, audited `confirmed: true`),
+  so the screen's "provisional" tags can disappear one decision at a time. Changing a value does not confirm it.
+- `Settings::RULES`: every `*_days` key 0–120 (`suppliers.approval_due_days` 1–120), `company.email` an address,
+  `po.default_vat_code` an active VAT code, `reorder.short_weight` / `promo_price_drop` 0–1, and the reorder task's keys
+  bounded in advance (the rules of later tasks' keys live here so that the CLI checks them the day the keys arrive).
+- The screen `/ui/reference/settings` (every role) lists every setting (value, provisional, decision, description,
+  updated), the document types' rules (review, due days, approval, what a rejection does: `reject_action`, read as
+  "reversed" until the pos task adds the column) and the VAT codes. `vat_code` (S 20 %, R 5 %, Z, E, RC, OS) is read-only
+  and changed by migration.
+
+**I39. Decision 25 — no supplier bank details (provisional, owner to confirm).** No bank, IBAN, SWIFT/BIC, sort-code or
+account-number column exists on `supplier`, `supplier_item` or `supplier_item_price` (`Migration0009Test` asserts the
+column names); the forms say so; an ERPNext export with a bank column is imported without it (the run's summary lists it
+under `ignored_columns`); a supplier field named `bank_account` is refused (400 `bad_field`). Supplier payments stay outside
+CW until a payments part is built.
+
+**I40. Decision 11 for suppliers — blocking approvals by a second person (provisional, owner to confirm); the I-2
+permissions and menus.** Activating a new supplier, re-activating an inactive one, and an overseas supplier's import route
+(how and where UK duty stamps are applied before arrival) each need a **blocking** approval: a `review_task` with
+`subject_type = 'supplier'`, kind `approval`, reason `new_supplier` / `reactivation` / `import_route`, due
+`suppliers.approval_due_days` (3) later. Identity changes of an active supplier open a **non-blocking** review (kind
+`review`, reason `supplier_changed`, due 7 days; `suppliers.change_review = true`): approving it acknowledges the change,
+rejecting it deactivates the supplier.
+- **Who decides** (`Suppliers::refusal`, shown on the card and the queue, enforced with 403): never admin
+  (`admin_cannot_review`), only `suppliers.approve` (reviewer; `role_not_allowed`), never the task's opener, the supplier's
+  creator or the person who last changed an approval-relevant field (`own_supplier`: "You asked for this approval / You
+  created this supplier / You last changed this supplier: another reviewer must decide."); `ck_review_task_not_own` holds
+  the opener in SQL. A supplier created by the ERPNext import is "created" by the `--staff` buyer, who can never approve it.
+- `Permissions::MAP` gains `suppliers.view` (buyer, purchasing_manager, goods_in, purchasing_desk, stock_controller,
+  reviewer, accountant, auditor, manager), `suppliers.manage` (buyer, purchasing_manager), `suppliers.approve` (reviewer),
+  `purchasing.view` (buyer, purchasing_manager, goods_in, purchasing_desk, reviewer, accountant, auditor, manager),
+  `reorder.view` (buyer, purchasing_manager, reviewer, auditor, manager), `reorder.manage` (buyer, purchasing_manager);
+  `doc.PO.post` is unchanged. Admin holds none of the manage / approve / post permissions (`PermissionsTest`).
+- The Purchasing section is Suppliers (live, `/ui/purchasing/suppliers`), Purchase orders (`purchasing.view`), Reorder
+  list and Sales history (`reorder.view`), the last three placeholders "coming in Phase I-2" until the pos and reorder
+  tasks; Reference gains Settings. The acceptance menus therefore change (amends I14): buyer {Items, Purchasing, Documents,
+  Reference}; purchasing desk {Items, **Purchasing**, Receiving, Trade, Documents, Reference}; reviewer {Items,
+  **Purchasing**, Document reviews, Documents, Reference}; admin {Linking, Items, Reference, Admin}; auditor {Linking,
+  Items, **Purchasing**, Documents, Accounts, Reference, Admin}. stock_controller also sees Purchasing (Suppliers only).
+- The review queue (`/ui/documents/reviews`) lists supplier tasks (type "Supplier", linking to the card): activations and
+  import routes under "Waiting for approval (blocking)", change reviews under "Posted, waiting for review (and changed
+  suppliers)", oldest first with the document tasks. The badge `reviews_open` = `Documents::decidableCount` +
+  `Suppliers::decidableCount` (only for holders of `suppliers.approve`). Supplier tasks are decided on the supplier's
+  card: `Documents::approve/reject/withdraw` refuse them with 409 `supplier_task` ("supplier approvals are decided on the
+  supplier's page"; was `subject_not_built`, I19).
+
+**I41. Decision 12 — CW does not write its cost into the sites (provisional, owner to confirm).** Not built in Phase I-2:
+the setting `costs.site_writeback = false` records the default and nothing reads it yet.
+
+**I42. The supplier state machine, as built (spec §5.2–§5.5).**
+- draft → (request activation, complete: name; address line 1, postcode, country; e-mail or phone; payment terms; the
+  due-diligence check on / by / next review; an overseas supplier's import route — else 422 `supplier_incomplete` with
+  `detail.missing`) → pending_approval → (a second person approves) active → (deactivate, reason 3–500) inactive →
+  (request: reason `reactivation`) pending_approval → active. Withdraw (the requester only, 403 `not_requester`) or reject
+  (note 3–500) sends a new supplier back to draft and a reactivation back to inactive. A pending supplier cannot be
+  changed (409 `supplier_pending`). Every write carries the version (409 `version_conflict`) or a state check; nothing
+  changed writes nothing.
+- **Reactivation and `ck_supplier_inactive`** (spec silent): the CHECK ties `deactivated_at` to status inactive, so asking
+  for a reactivation clears `deactivated_at` (keeping `deactivated_by` and the reason for the card); withdrawing or
+  rejecting it makes the supplier inactive again **from that moment**: `deactivated_at` = now, `deactivated_by` = the person
+  who withdrew or rejected, the reason "reactivation withdrawn by the requester; earlier: …" / "reactivation rejected:
+  <note>". The approval clears every `deactivated_*` field and sets `approved_by/at` to the new approver.
+- **Approval-relevant fields**: name, legal name, company number, VAT number, the address lines, city, postcode, country,
+  e-mail, overseas, import route, **the import-route evidence file** and the due-diligence fields (the DD evidence file
+  included): a change sets `details_changed_by/at`. Terms, lead days, VAT code, contacts and notes are not.
+- **The import route** (spec: "is_overseas or import_route changed on an overseas supplier"): on an active supplier that
+  was or becomes overseas, a change of `is_overseas`, `import_route` or the route's evidence file clears
+  `import_route_approved_*` and, while it stays overseas, opens the blocking `import_route` approval unless one is open
+  (the open one covers further changes; its decider sees the current route). Made UK: the approval is cleared (the CHECK
+  needs overseas) and an open route approval is withdrawn ("the supplier is no longer overseas"). An active supplier made
+  overseas without a route: 422 `supplier_incomplete`. Rejecting a route approval records the note; the route stays
+  unapproved (POs refused) until it is changed again. A route change is the route approval, not also a change review:
+  `supplier_changed` opens only for the other identity fields.
+- **Deactivation withdraws the supplier's open tasks** (a change review, a route approval; note "the supplier was
+  deactivated"): a reactivation is approved afresh and re-approves the route with it, and the one-open-task-per-kind rule
+  (`open_key`) cannot block the reactivation's approval. Rejecting a change review does the same.
+- An inactive supplier's identity changes open no review: its reactivation approval is that review.
+- Approving or rejecting moves the version and records `last_decision_note` (forms drawn before are redrawn, 409).
+- **Locks**: the supplier row `FOR UPDATE`, then its `review_task` rows `FOR UPDATE` (a decision reads the task's subject
+  unlocked, then locks the supplier, then the task, and re-checks it is open: 409 `task_closed`). No supplier code locks a
+  document row or books stock (spec §6.9).
+- **Invariants S1–S5** (`SupplierInvariants`, appended to `Invariants::check`, ≤ 50 per check): S1 also checks that an open
+  route approval is on an active overseas supplier and an open change review on an active supplier, and that open tasks
+  carry known reasons; S2 also checks that `approved_by` is the latest activation's decider. A merged item is not a
+  violation (S5; the screens tag it "merged into CW-x").
+
+**I43. Supplier items.** Created in any supplier status (a buyer prepares the items while the activation waits); the item
+must exist and not be merged (422); one row per (supplier, item, central pack) (409 `duplicate_pack`), a supplier code once
+per supplier, compared without case (409 `duplicate_supplier_code`); defaults each / 1 / MOQ 1 / multiple 1. A first price
+may come with the creation (the screen's optional field; recorded as a manual price in the same transaction).
+- **Preferred** (spec: unset the others, then set; retry a 1062 once, then 409): `setPreferred` and `update(is_preferred)`
+  unset the item's other preferred rows and **move their version** (a form drawn before cannot set one back unseen), then
+  set this one; the UNIQUE `preferred_sku_id` decides a race and the loser retries once (then wins: it unsets the winner;
+  409 `preferred_busy` if it collides again). An inactive row is never preferred: switching a row off drops its flag, and
+  preferring an inactive row is 422 `supplier_item_inactive`.
+- **`pack_in_use`** (a changed pack once a posted PO line uses the item) is left to the pos task, which owns `po_line`:
+  `SupplierItems::checkPackChange()` is the hook, empty today.
+
+**I44. Prices: integers only, the last-price rule.** A pack price is GBP excluding VAT per purchase unit, ≥ 0, at most 10
+digits and 4 decimals (`£`, spaces and thousands commas are ignored; 422 `bad_price` otherwise); the unit price is pack
+price / units per pack rounded **half-up to 6 decimals with integer arithmetic** (`(e4 × 200 + upp) div (2 × upp)`; no
+bcmath, no floats). A manual price's `effective_on` is on or before today (UK date; default today). The last price
+(`last_pack_price/on/source`) moves when the new price's date is on or after the current one's (the same date: the newer
+row wins), so it always mirrors the newest (effective_on, id) row of source import / manual / invoice (S4); a PO price
+(pos task) goes to the history as `po` and sets only `last_po_*`.
+
+**I45. Reading people's CSV; the ERPNext seed import.** `CsvReader` (spec §5.6) as specified, plus: rows are numbered by
+CSV record after the header (blank records keep their numbers, so row N is spreadsheet row N + 1); rows of empty cells are
+skipped like blank lines; **trailing empty cells beyond the header are tolerated** (a spreadsheet adds them) while a
+non-empty extra cell is 400 `bad_file`; a short row is padded; the byte cap applies after gunzip (a zip bomb is 413
+`too_large`), the row cap is 413 `too_many_rows`. `ErpSeedImport` (spec §5.7):
+- One `import_run` per file (sha256); "already imported" counts only a **done, non-dry** run of the same kind, so a dry run
+  never blocks the real one and a failed run can be repeated. A real run is ONE transaction with a **savepoint per row**:
+  a refused row rolls back to its savepoint and is reported, an unexpected error rolls the file back (run `failed`). A dry
+  run processes everything in a transaction that is rolled back (it writes only its `import_run` row) and reports what the
+  real run would do.
+- Suppliers: a new supplier is named after its ERPNext name unless the file names it; an existing ERPNext name is compared
+  only on the fields the file gives (the report lists the fields that differ). `--request-activation` asks for every
+  supplier of the file that ends draft or inactive and complete, as `--staff`. The due-diligence check is **not** an
+  import column (it is captured fresh in CW): a buyer completes it on the card; `--request-activation` is for a re-run with
+  `--update-blank` or a supplier completed by hand before the import.
+- Items: pass 1 resolves every row (no writes), pass 2 fails both rows of an item made preferred twice, pass 3 upserts by
+  (supplier, item, central pack) — the same pack again updates the fields given — and records the price (source `import`,
+  `source_ref` = the file's reference or `import_run:<id>`). A Vape and Go listing must be `mapped` (an unmapped or
+  quarantined one is "not linked"); a `vpg_code` that names several variants in the listings export fails as ambiguous.
+- Exit codes: 0 done (also "already imported"), 1 a row failed or a file was refused (missing required column), 2 usage
+  (also a `--staff` who may not manage suppliers, checked up front), 3 cannot run. Files up to 32 MiB.
+
+**I46. One effect per form, uploads (the shared I-2 groundwork, spec §8.2).**
+- `Ui\FormOnce`: a creating form carries `form_key` (32 hex, `random_bytes(16)`), run through `Idempotency::run` under
+  `ui:<staff id>:<form_key>` (staff share the idempotency scope `source = 'staff'`); the request hash covers the posted
+  fields (without csrf and form_key). A bad key is 400 `bad_form_key`; a replay returns the stored 303 (one supplier however
+  often the form is sent); the same key with other values is 422 `idempotency_key_reused` ("this form was already sent
+  with other values: reload"); a refusal stores nothing, so the corrected form is sent again with the same key. Used for a
+  new supplier, a new supplier item and a manual price; every other supplier POST carries the version (409 redraws the
+  page with the current data: "changed since you opened it") or relies on a state check.
+- `UiRequest` gains `files` (`{path, name, size, error}` per file field; `fromGlobals()` keeps only `is_uploaded_file()`
+  entries and the ones PHP refused for their size, so a screen can answer 413) and `file()`. Over 2 MiB the UI pool either
+  refuses the file (`UPLOAD_ERR_INI_SIZE`: the controller answers 413) or, above `post_max_size`, drops the whole body: the
+  kernel answers **413 before the CSRF check** when a POST arrives with no fields, no files and a Content-Length over 2 MiB
+  (otherwise it would read as "this form has expired"). `KernelBrowser::postMultipart` builds such requests for tests.
+- The supplier evidence upload (multipart `file` + `kind` dd / import_route + version) stores through `FileStore::store`
+  (new kind `supplier_check`; type sniffed, deduplicated) and records the file id with `Suppliers::setEvidence` (an
+  approval-relevant change); when the file store is not set up (cw_staging today) the card answers **503** "the file store
+  is not set up on this server". `UiTemplatesTest` now also checks that a form with a file field is a multipart POST.
+
+**I47. Deviations from the spec, measurements, open items for the pos task.**
+- *Files outside the task's list:* `tests/Unit/UiTemplatesTest.php` (its menu test asserted "Suppliers · coming in Phase
+  I-2"; it now asserts the live link, and gained the multipart check) and `tests/Integration/UiKernel/ReferenceScreensTest.php`
+  (the Reference menu now ends with Settings) had to follow the §3 menu change; a support base
+  `tests/Integration/Suppliers/SupplierTestCase.php` and the race worker `tests/Integration/Suppliers/supplier_worker.php`
+  were added.
+- *Supplier items in any supplier status* (the spec's §5.4 settles its own question that way): built so.
+- *0009 is exactly §4.1* (a header comment added).
+- *Additions the spec did not ask for:* `bin/settings.php --confirmed` (I38); trailing empty CSV cells tolerated (I45);
+  the version of a supplier item whose preferred flag another write unset moves (I43); S1/S2 check a little more than
+  listed (I42); the multipart check in `UiTemplatesTest` (I46).
+- *Measurements* (2 Oct 2026, slot `i2su`): the full suite `scripts/remote.sh i2su vendor/bin/phpunit`: 537 tests (482
+  before this task), 11,202 assertions, 73 skipped — the HTTP Api*/Ui* tests of slots api and ui — green in 5 min 30 s (the
+  third full run). The two earlier full runs each had one failure of a timing-bound test in code this task does not touch,
+  each passing alone right after: `DbTest::testRealDeadlockIsDetectedAndRetried` ("second session never started waiting
+  for the lock" within 10 s; then 3 × OK) and `LockOrderTest`'s 2,000-line goods-in (feed rows within 903 ms against a
+  250 ms bound; alone 62–65 ms, 154 ms in the green run): the shared staging cluster was slow for a moment. The supplier
+  tests alone (36 + 14 screen and grants tests) take about 35 s. `SupplierRaceTest`: two reviewers
+  approving one activation at once → one approved, one 409 `task_closed`, 0 deadlocks; with the first holding its
+  transaction 800 ms the second waited for the supplier row (≥ 400 ms) and then got 409; two buyers preferring two supplies
+  of one item → exactly one preferred (with a hold: both calls 200, the later one wins after its one retry). S1–S5 on 50
+  suppliers, 15,000 supplier items and 45,000 price rows (a probe on the slot's schema, not kept): **830 ms** (best of 3),
+  almost all of it S4's newest-price lookup per item; nightly that is fine; if supplier items grow past ~100k, rewrite S4
+  as one ROW_NUMBER() pass.
+- *Open for the pos task:* `SupplierItems::checkPackChange()` (409 `pack_in_use`); the PO approval refusing a supplier
+  that is not active or an overseas supplier without `import_route_approved_at`; the PO PDF banner from
+  `Settings::company()['confirmed']`; the supplier card's "Recent purchase orders"; `po.*` settings rows (RULES already
+  bound `po.default_vat_code` and `po.over_delivery_tolerance_pct`); `ReferenceController::settings` shows
+  `reject_action` once 0010 adds it; the queue's `?type=` filter must keep supplier rows (type "Supplier") apart.
+
+
+## Inventory Phase I-2 (slot `i2po`, purchase orders)
+
+Phase I-2 task 2 of 3 (`docs/inventory-modules-plan.md` IM5; the I-2 build spec of 2 Oct 2026, §2.3, §4.2, §6, §8.1–8.3,
+§9.2): purchase orders as the first real document type, their approval and review rules, the PDF, the lines file (CSV and
+XLSX), the receipt API Phase I-3 will call, the ERPNext open-PO importer and the screens. Numbered I48–I59. Nothing books
+stock. Code: `migrations/0010_purchase_orders.sql`, `src/PurchaseOrders/{PurchaseOrders,PurchaseOrderHandler,PurchaseInvariants,
+PurchaseOrderPdf,PoLinesFile,PoMath,ErpOpenPoImport}.php`, `src/Output/{XlsxWriter,XlsxReader}.php`,
+`src/Ui/Controller/PurchaseOrdersController.php`, `src/Ui/views/{purchase_orders,purchase_order,purchase_order_edit}.php`,
+`bin/{document_rules,import_erp_open_pos}.php`, `composer.json`/`composer.lock` (openspout); changed:
+`src/Documents/{DocumentHandlers,Documents}.php`, `src/Output/Fpdf.php`, `src/Suppliers/SupplierItems.php`,
+`src/Auth/Permissions.php`, `src/Ui/{Kernel,UiRequest}.php`, `src/Ui/Controller/{Reviews,Documents,Suppliers,Reference}Controller.php`,
+`src/Ui/views/{reviews,document,documents,supplier}.php`, `src/Schema/Grants.php`, `src/Invariants.php`,
+`public/ui/assets/app.css`; tests `tests/Unit/{PoMath,PoLinesFile,XlsxRoundTrip,PurchaseOrderPdf}Test.php`,
+`tests/Integration/{Migration0010,DocumentRulesCli}Test.php`, `tests/Integration/PurchaseOrders/*` (with
+`PurchaseOrderTestCase` and `po_worker.php`), `tests/Integration/UiKernel/PurchaseOrderScreensTest.php`, and updates of
+`KernelUiTestCase`, `PermissionsTest`, `MenusTest`, `ReviewScreensTest`, `DocumentLifecycleTest`, `ReviewRulesTest`,
+`GrantsTest` and (outside the task's list: I59) `Migration0008Test`, `Migration0009Test`, `SettingsTest`,
+`SupplierScreensTest`, `UiTemplatesTest`.
+
+**I48. Decision 11 for purchase orders (provisional, owner to confirm).** The PO `document_type` row (0010) is: **post first,
+a second person reviews every PO within 7 days** (`review_rule 'all'`, `review_due_days 7`: the reviewer's weekly routine is
+Document reviews filtered to "Purchase order"); **a PO whose net total (excl. VAT) is above £10,000 waits for a blocking
+approval** before it is numbered (`approval_rule 'over_value'`, `approval_limit_units 10000` in WHOLE GBP; the handler's
+approval units are the net rounded UP to whole pounds, so £10,000.00 posts at once and £10,000.01 = 10,001 waits); and
+**rejecting a PO's review records the rejection and cancels nothing** (`reject_action 'record'`: the order may already be
+with the supplier; the buyer then cancels or amends it, I49). The limit and the review days change with
+`bin/document_rules.php --admin` (I57), never by editing code. The cancellation of a PO is reviewed like a PO (rule `all`;
+its review units are 0: it books nothing). Over-delivery tolerance at goods-in: `po.over_delivery_tolerance_pct = 10`
+(provisional, decision 11; read from Phase I-3). `po.default_vat_code = 'S'` (a line's VAT code when the supplier names
+none) and `po.terms` (printed under every PO, including the UK duty-stamp sentence) are provisional settings too. The
+creator, the requester and the poster never decide (I19); admin never posts or decides (I12).
+
+**I49. `reject_action`: a rejected review that only records (amends I19).** `document_type.reject_action` ENUM('reverse',
+'record') (0010; every type but PO keeps `reverse`). `Documents::reject` on a review: when the document is a reversal (I31)
+**or** its type's `reject_action` is `record`, the task is rejected, the document's `review_state = 'rejected'` and its
+version moves, nothing is reversed or booked; audit `document.reject` with `booked: false` and, for a record type,
+`recorded: true`. The generic document page says so ("Rejecting records the rejection and changes nothing else"; the
+button reads "Reject", not "Reject and reverse") and a new notice `rejected_recorded` exists on both the document and the PO
+pages. The PO page shows "Rejected at review by X: note" and the list filters "rejected at review". Why not reverse a PO:
+reversing it would tell the system it is cancelled while the supplier is already picking it; the person who can phone the
+supplier (the buyer) decides between cancel and amend.
+
+**I50. The PO as a document type; immutability starts at approval.** A PO is a `document` (type PO, warehouse MAIN, doc_date
+= the order date) with a `purchase_order` header extension (supplier, `state`, totals, the company and supplier snapshots,
+sent / closed) and one `po_line` per `document_line` (pack, packs, pack price, VAT code and rate, the reorder suggestion,
+received units), removed with its draft line (`ON DELETE CASCADE`: `Documents::setLines` replaces draft lines). Mapping:
+draft (its creator edits it freely) → **approve** = `Documents::post` (number `PO-000123`, `posted_hash` +
+`document_posting`, the handler's `po_posting` anchor, the review task) or `awaiting_approval` above the limit → state
+`approved` → `sent` (`markSent`, re-sending allowed) → `part_received` / `received` (`applyReceipt`, I-3) → `closed`
+(part-received only). Cancelling a draft is `cancelDraft`; cancelling a posted PO is `Documents::reverse` — a "cancellation"
+document numbered in the same series (it takes a number, like every reversal, I18) — refused with 409 `po_has_receipts` once
+a line has receipts (close it instead) and 409 `po_completed` when received or closed. A reversal PO document has no
+`purchase_order` (P1).
+- **Why immutability starts at approval, not at "sent":** the number, the review and the supplier's copy all refer to the
+  approved content; the review is of what was approved; an order is often phoned or e-mailed minutes after approval, and
+  "sent" is a fact recorded afterwards, so a sent flag cannot be what fixes the content. Every change after approval is a
+  reversal plus a new PO (I17, I18): amend = **reverse (reason `po_amended`) + a new draft copied from it** (source `amend`,
+  `amends_document_id`, the original's lines, packs, prices, supplier quote reference and notes) **in ONE transaction**, so
+  there is never an order cancelled without its replacement or two live versions; the new PDF says "Amends PO-x".
+- **The write-once anchor (P2, like I33):** at approval the handler writes `po_posting` (the canonical JSON of the immutable
+  `purchase_order` fields — supplier, source, expected date, amends, currency, totals, both snapshots — and every `po_line`
+  field but `received_units`, with its sha256), append-only for the app login. `document_posting` already anchors the
+  generic lines; `po_posting` anchors what only the PO tables hold (packs, pack price, VAT, the snapshots).
+- **Snapshots (decision 9):** `company_snapshot` = `Settings::company()` (confirmed flag included) and `supplier_snapshot`
+  (code, name, legal name, address, VAT number, contact, e-mail, phone) at approval: a posted PO's PDF prints them, not
+  today's settings or supplier record; a draft prints the current ones.
+- **Prices at approval:** each item line with a supplier item adds a price-history row `source 'po'` (`source_ref` = the
+  number, `document_id`, `effective_on` = the order date) and sets `supplier_item.last_po_*` (only when the order date is on
+  or after the current `last_po_on`), never the last price (I44, S4): the next PO is pre-filled from the last invoice or
+  manual price, not from the previous PO.
+- **No stock:** the handler books nothing; `Movements::reverseDocument` on its cancellation finds no ledger rows.
+- Grants (§4.4): `purchase_order` NO_DELETE, `po_posting` APPEND_ONLY, `po_line` FULL.
+
+**I51. PO money with integers only.** `PoMath`: a pack price is held as e4 (1/10,000 GBP), the line amount = half-up(packs ×
+pack price, 2), the unit cost = half-up(pack price / units per pack, 6) (`(e4 × 200 + upp) div (2 × upp)`, as I44), the line
+VAT = half-up(amount × rate / 100, 2) **per line**, net = Σ amounts, VAT = Σ line VAT (so the PDF's per-code VAT adds up to
+the total exactly), gross = net + VAT, the approval units = ceil(net) in whole GBP. Limits (spec silent): a pack price ≤
+£9,999,999.9999, a line ≤ £99,999,999.99, packs 1..1,000,000, units per pack 1..100,000, a line ≤ 10,000,000 units
+(`Documents::MAX_QTY`): every product stays far inside a 64-bit integer, so bcmath is not needed. A charge line (delivery,
+...) is one "pack" of 1 whose pack price is its amount, in whole pence and > 0. Invariant P3 recomputes the formulas **in
+SQL with integer operands** (`CAST(pack_price * 10000 AS UNSIGNED)` then `DIV`): a DECIMAL division rounds its quotient at
+`div_precision_increment` (4) decimals, so a quotient of n + 0.99996 (units per pack ≥ 10,000) would truncate to n + 1, and
+rounding to 8 decimals first turns 0.0499 / 99,999 = 0.000000499 into 0.000001 (PoMathTest has that case).
+
+**I52. The PurchaseOrders service as built (spec §6.3).**
+- Every write: a staff caller holding `doc.PO.post` (never admin), roles re-read inside the transaction, ONE
+  `Db::transaction`, the document row locked first and its version checked and moved; a draft changed only by its creator
+  (403 `not_creator`); anyone allowed to post POs may approve or cancel another's draft (the document base's rule).
+- `saveDraft` moves the version by 2 (`updateDraft`, then `setLines`, as the spec says). The supplier changes only while the
+  draft has no lines (409 `supplier_has_lines`). A line without a supplier item is linked automatically to the supplier's
+  active supplier item of that item and pack when one exists; `save_item` creates it (needs `suppliers.manage`: buyers and
+  purchasing managers have both). A VAT code must exist and be in use; a draft line keeps the rate of the moment it was
+  saved, and approval refuses a line whose code's rate changed since (422 `vat_rate_changed`: save again).
+- `addLine` resolution (spec): digits → a usable barcode (a case barcode with `units_per_scan` k > 1 takes the supplier item
+  of pack k; else the preferred or only supplier item; **several and none preferred → `choices`** (spec silent); none → a
+  line in packs of k, purchase unit `case`); then this supplier's code (any case); then a CW code (`CW-123`; the `CW` prefix is
+  required here so that digits stay barcodes); then a search (`choices`, items this supplier sells first, ≤ 20). The same
+  supplier item already on the draft gets the packs added (a repeated scan adds a pack). `addSupplierItem` (not in the spec)
+  serves the editor's "Choose" buttons for a supplier item.
+- `markSent`: state approved or sent; with a file store the PDF as sent is stored (kind `generated_pdf`) and attached (role
+  `generated_pdf`) in the same transaction and `sent_file_id` set; without one it is skipped (the screen says so) and an
+  earlier archived PDF stays referenced. The document's version moves, so the same send form twice is 409.
+- `cancel`: a draft → `cancelDraft` (the reason's label and the note); a PO waiting for approval → withdrawn and cancelled
+  by its requester only (others: 409 `awaiting_approval`); a posted PO → `Documents::reverse` with a PO reason
+  (`not_needed`, `supplier_cannot_supply`, `entered_in_error`, `duplicate`, `other` with a note). `withdraw` (not in the spec)
+  turns a waiting request back into a draft (the requester), with its own route.
+- `copy` from any PO (a cancellation copies its original); `copy` and `amend` drop a supplier item that is no longer active
+  or no longer this supplier's (the line keeps its item, pack and code) and a VAT code no longer in use (the default
+  applies). An item merged since stops the save with 422 `merged_item` (the document base refuses merged items) — the
+  editor shows the warning first.
+- The receipt API for I-3: `openLines(poId, outstandingOnly = true)` (an order that expects nothing — not posted, received,
+  closed, cancelled — has none), `applyReceipt` / `reverseReceipt(poId, [line_no => central units], grnLabel, ?Caller)`:
+  inside the caller's transaction only (`LogicException`), the PO document row then `purchase_order` FOR UPDATE, item lines
+  only (422 `bad_receipt`), never below 0 (409 `receipt_below_zero`); the state follows (all item lines received ≥ ordered →
+  received; some → part_received; none → sent or approved by `sent_at`); a receipt is applied only to an approved, sent or
+  part-received order (409 `po_not_receivable`), taken back also from received; audit `po.receipt`. The optional Caller
+  (default `system:po_receipt`) is an addition for the audit row.
+- Warnings, never refusals: the supplier not active yet, an overseas route not approved, due diligence overdue, the net
+  below the supplier's minimum order, a £0 price, a merged item, a supplier item switched off.
+
+**I53. The screens (spec §8.1, §8.3).** Purchase orders is a live menu item (`purchasing.view`). The list (filters state,
+supplier, number / supplier's reference, rejected at review; cancellation documents only with `show=all`; CSV) carries the
+"New purchase order" form (FormOnce). The **editor** (the draft's creator only; anyone else gets the read-only view) is one
+form whose first fields are `version`, `line_count` and `lines_editable`; the first submit button is **Add**, so Enter in the
+scan box adds the line and saves every edit in the table in one transaction; packs 0 removes a line; a charge is added below
+the lines; fewer `line_<n>_packs` fields than `line_count` is 400 `form_truncated` (PHP drops fields past `max_input_vars`);
+above 300 lines the table is read-only and the file import edits the order. A refused save redraws the editor with what was
+typed. `UiRequest::fieldsMatching()` reads the rows. The **view** shows state, review and history, the decide box (its forms
+post to `/ui/documents/reviews/{task}/approve|reject`, which come back to the order's page for a PO or its cancellation),
+the actions the person may use (send, cancel, amend and copy with FormOnce, close, withdraw), the files, the downloads (PDF,
+lines CSV / XLSX). The review queue gains `?type=` (a document type or Supplier) and shows the units of an `over_value`
+approval as £ (whole GBP). The generic document page links "Open in Purchasing" and hides its generic reversal form for a
+PO (a PO is cancelled or amended in Purchasing); the PO reversal reasons are offered only on POs. The supplier card lists
+its last 10 orders with links. Desk, reviewer, accountant and auditor read; POSTs need `doc.PO.post` (403).
+
+**I54. Locks and races (spec §6.9, extends I21).** idempotency claim (FormOnce) → document rows by id (an original before its
+reversal; I-3: the GRN, then the PO document) → review task → **supplier rows** (FOR SHARE in the PO's validate and in
+save / create / amend, FOR UPDATE in supplier writes) → number_series → **purchase_order → po_line → supplier_item (id
+order) → supplier_item_price → po_posting** → (stock: never, for a PO). Supplier code never locks a document row; PO code
+never locks stock. Tested with two processes (`PurchaseOrderRaceTest`): the same draft approved twice → one posting, the
+other 409; the same new-order form from two processes → one draft (the second replays the first); approve against the
+supplier's deactivation → either posted first (the deactivation waited ≥ 400 ms for the share lock) or refused 422
+`supplier_not_active` after waiting for the deactivation — never posted after the deactivation committed; 0 deadlocks.
+
+**I55. `pack_in_use` (amends I43; stricter than the spec).** `SupplierItems::update` refuses a changed `units_per_pack` with
+409 `pack_in_use` once **any PO line that is not on a cancelled draft** uses the supplier item — the spec said a posted line.
+A draft or a waiting request keeps the pack it was saved with, and its next save (or an approval after the change) would
+refuse the line as "pack differs"; refusing the change up front is clearer. Add a new supplier item for a new pack size.
+
+**I56. The ERPNext open-PO import as built (spec §6.8).** One CW PO per `erp_po` with only the outstanding packs
+(ordered − received > 0, lines in `line_no` order); `external_ref = "ERPNext <erp_po>"`; a live CW PO (draft, waiting or
+posted) with that reference is **skipped** (re-run safe), as is a PO with nothing outstanding; a supplier that is not active
+(or overseas without an approved route), an unresolved / unlinked / merged item or a bad value refuses the **whole PO**,
+reported with status **failed** and "whole PO skipped: …" (the spec says "skipped"; "failed" keeps the report's statuses
+those of the supplier seed and makes the CLI exit 1, so a refused order is not missed). Created as `--staff` (active,
+`doc.PO.post`), source `erp_seed`, doc_date = the order date, approved through the base (above £10,000 it waits: reported
+"waits for a reviewer's approval"), then `markSent(imported, ERPNext)` without archiving a PDF. One transaction per PO; one
+`import_run` (kind `erp_open_pos`) per file; the same file again → "already imported (run N)"; `--dry-run` runs every PO in
+a rolled-back transaction and keeps only its run row. Item references resolve exactly as the supplier-items seed (§5.7);
+the resolution is a copy of `ErpSeedImport::resolveItem` (private there, outside this task's files): open item to share it.
+Tested only with synthetic temporary files; nothing connects to ERPNext.
+
+**I57. `bin/document_rules.php`.** `--type=<CODE> [--approval-limit=N] [--review-rule=all|over_limit|none] [--review-limit=N]
+[--review-due-days=N] --reason=... --admin`: refused before connecting without `--admin` (exit 1, `document_type` is
+read-only for the app login); the CHECKs as usage errors (exit 2): `--approval-limit` only on a type with an approval rule,
+`--review-limit` only with `over_limit`, which needs a limit; limits 0..2,000,000,000; due days 1..120; reason 3–500
+characters. One transaction (the row FOR UPDATE), audit `document_type.change {type, before, after, reason}` (actor
+`system:document_rules`); the same values again: "unchanged", nothing written. It does not change `approval_rule` or
+`reject_action` (a migration does).
+
+**I58. The lines file and XLSX; OpenSpout; spec DDL corrections.**
+- **openspout/openspout v4.32.0** (MIT), installed in slot i2po with `composer require openspout/openspout:^4.32`; it requires
+  php ~8.3, ext-dom, fileinfo, filter, libxml, xmlreader, zip — all on staging — and **no gd**. `composer audit`: "No security
+  vulnerability advisories found" (2 Oct 2026). `composer.json`/`composer.lock` copied back from the slot.
+- `XlsxWriter` writes every text cell as `new Cell\StringCell` (an inline string) and numbers as `NumericCell`, never
+  `Cell::fromValue()`: a supplier description `=HYPERLINK(...)` stays text (the test reads `sheet1.xml`: no `<f>`).
+  Characters XML 1.0 cannot hold are removed.
+- `XlsxReader`: before any XML is parsed, the zip-bomb guard checks the archive's entries (≤ 1,000), the declared
+  uncompressed size of the first worksheet and of `sharedStrings.xml` (≤ 50 MiB each) and of all entries (≤ 100 MiB) — a
+  forged size in the central directory is refused unread (tested); ≤ 2,001 non-empty rows, row numbers ≤ 10,000 (empty rows
+  are kept so a row number is the spreadsheet's), ≤ 50 columns. **openspout reads a text cell that starts with "=" as a
+  FormulaCell without a computed value**: the reader returns that text; a real formula returns its cached value, never the
+  formula. Values become strings (a number in its shortest form: 24, not 24.0; a long barcode stays all digits).
+- `PoLinesFile` (§6.6) as specified, plus: a **charge row** (`purchase_unit = charge`, no item code, the amount in
+  `pack_price`, the description in `note`) so an exported order with a delivery charge imports again; header names are
+  normalised like `CsvReader`'s; errors read `row N, column: message` (N = the data row, spreadsheet row N + 1), at most 50
+  plus "... and N more"; an empty file is "the file has no lines".
+- **0010's DDL corrected (safer):** `ck_purchase_order_sent` and `ck_purchase_order_closed` compare the state NULL-safely
+  (`state <=> 'closed'`, `NOT (state <=> 'sent')`): with the spec's `state = 'closed'` an unposted row (state NULL) carrying
+  `closed_at` made the CHECK NULL, which MySQL accepts. Otherwise 0010 is §4.2 with a header comment.
+- `Fpdf` takes an optional footer text (null keeps CW's footer); the PO footer is "<legal name> · Company no. · VAT no. ·
+  <number> · page n/{nb}". The PO PDF's table header is 7.5 pt bold so "Pack price" fits its 16 mm column; the totals print
+  "Lines / units", Net, "VAT S 20%" per code and Total.
+
+**I59. Deviations, measurements, open items (pos task).**
+- *Files outside the task's list* (each had to follow the PO type going live or 0010's seeds): `tests/Integration/Migration0008Test.php`
+  (22 reason codes are 0008's: the 3 PO reasons excluded; the PO row is now `all`), `Migration0009Test` (its 12 seeds selected by
+  prefix), `SettingsTest` (counts read from the table; `po.*` now exist), `UiKernel/SupplierScreensTest` (the settings page's PO
+  rule and counts), `UiKernel/ReferenceScreensTest` (25 reason codes, PO live in the series list), `tests/Unit/UiTemplatesTest.php`
+  (Purchase orders is a live link; the new templates listed); `src/Ui/Controller/SuppliersController.php` (the card's
+  "Recent purchase orders" data) and `ReferenceController.php` (the series page printed an `over_value` rule as "positive units
+  …"; stale comments); support files `tests/Integration/PurchaseOrders/{PurchaseOrderTestCase,po_worker}.php`. `src/Ui/Context.php`
+  was left alone: the controller builds the service.
+- *Not as the spec says:* `pack_in_use` counts drafts too (I55); a refused open PO is status `failed` (I56); the ERP item
+  resolution is copied from `ErpSeedImport` (I56); 0010's two state CHECKs are NULL-safe (I58); `addLine` answers `choices` when a
+  supplier sells an item in several packs and none is preferred, and needs the `CW` prefix for a CW code (I52); a merged item on
+  a draft stops its save (the document base refuses merged items: the editor warns first) instead of being only a warning.
+- *Additions:* `addSupplierItem`, `withdraw` (service and route), the optional Caller of the receipt API, `openLines`'
+  `$outstandingOnly`, charge rows in the lines file, `Fpdf`'s footer, the PO reversal reasons hidden from other types'
+  reversal form, the generic reversal form hidden for POs, the supplier card's "New purchase order" link.
+- *Test runs* (slot i2po): the full suite `scripts/remote.sh i2po vendor/bin/phpunit` **green: 581 tests (537 before this task),
+  11,619 assertions, 73 skipped** (the HTTP Api*/Ui* tests of slots api and ui), 6 min 49 s. The run before it had one failure,
+  the timing-bound `DbTest::testRealDeadlockIsDetectedAndRetried` ("second session never started waiting for the lock", as in the
+  suppliers task: I47), which passed alone straight after; the cluster was slow that hour (`PostingRaceTest` 14.9 s against 7.4 s
+  in the green run).
+- *Measurements* (2 Oct 2026, slot i2po, staging): saving a **300-line** draft 134–186 ms (3 runs; 414–474 ms before the supplier
+  items were read in two queries instead of one per line); adding a line to it 149 ms; **approving** it 171 ms (825 ms before the
+  `last_po_*` update became one statement and the PO price rows one multi-row insert); `pdfData` 19 ms; the **PDF of 120 lines**
+  16–30 ms (14.8 KB compressed; 3+ pages), of 300 lines 43 ms; P1–P6 on that schema 34 ms. Races: 0 deadlocks.
+- *The hammer* (`scripts/remote.sh i2po php tests/concurrency/hammer.php --seed=20261002`): **RESULT: PASS (57 checks passed, 0
+  failed)** in 89 s, 0 deadlocks surfaced or retried; scenario 4 at 1,169 operations (39/s), scenario 5 at 35 calls/s. **Scenario
+  4 is not within 15 % of 62/s, and the cause is the cluster, not this change:** in the same hour the committed I-1 tree (HEAD
+  0e53d35, `git archive` into the same slot) measured 45, 46, 51, 32/s (`--only=4`); this tree 42, 38, 46, 34, 40/s (and 44/s); this
+  tree with the S1–S5 and P1–P6 hooks removed from `Invariants::check` 37, 43/s — the spread of each set covers the others.
+  Re-measure in the FIX step when the staging cluster is quiet (the I-1 figure of 62/s was taken in the morning).
+- *Staging file store, found during the run:* `/srv/cw-docs` exists on the staging box since 2 Oct 2026 12:03 UTC (the
+  installer's probes are in shards 00 and 01) and app.env names it, contrary to the suppliers report. The first run of
+  `PurchaseOrderScreensTest` (before the fix) therefore stored ONE test PDF there: `/srv/cw-docs/a8/a8c2e9ef06bd4e67bfee48a66ffac29d342655491a09861e0f6457f508203eca`
+  (2,899 bytes, root, 14:37 UTC; a draft-company PO of a test supplier, no personal data). Its `stored_file` row was in the test
+  schema `cw_test_i2po`, so it is an **orphan** (`bin/verify_files.php` counts it, exit 0). The shard is append-only (`chattr
+  +a`), so nothing was removed: deleting it needs root and `chattr -a` on shard `a8` — the owner's call. The screen test now
+  points `CW_FILE_STORE_DIR` at a temporary directory (`docs/dev.md`), as every other storing test already did.
+- *Open for the reorder task (I-2 task 3):* `PurchaseOrders::onOrder(list<int> $skuIds): array<int, int>` — central units still
+  expected per item (Σ max(0, qty − received_units) over posted POs in approved / sent / part_received; every id asked for is a
+  key, 0 when nothing) and `PurchaseOrders::inDrafts(list<int> $skuIds): array<int, int>` — central units on PO drafts and on
+  POs waiting for approval (shown, not counted); both chunk the ids by 1,000 and read `document_line` by `ix_document_line_sku`.
+  "Create draft PO" builds drafts with `createDraft(Caller, supplierId, [], 'reorder')` then `saveDraft(..., [], lines)` where a
+  line is `['supplier_item_id' => id, 'packs' => k, 'suggested_units' => units]` (price = the last price, VAT = the supplier's),
+  inside its FormOnce transaction (both join it). `PurchaseOrders::resolve()` is public if the reorder screens need the scan rules.
+- *Open for I-3:* `openLines` / `applyReceipt` / `reverseReceipt` as specified (I52); the over-delivery tolerance
+  (`po.over_delivery_tolerance_pct`) is enforced there; a closed PO's receipts cannot be taken back (409) — decide if a GRN
+  reversal on a closed PO should reopen it.
+- *Other open items:* share the item-reference resolution between `ErpSeedImport` and `ErpOpenPoImport`; the PO PDF keeps a
+  fixed layout for one company (decision 9 may add more); the owner's provisional decision 11 (the £10,000 limit, the 7-day
+  review, record-not-reverse) and the `po.*` settings stay "provisional, owner to confirm".
+
+
+## Inventory Phase I-2 (slot `i2re`, reorder)
+
+Phase I-2 task 3 of 3 (`docs/inventory-modules-plan.md` IM9 basic and the sales-history import; the I-2 build spec of 2 Oct
+2026, §4.3, §7, §8.1, §9.3, §11.R): the read-only sales-history export from the live sites and its import, the demand
+builder, the IM9 basic reorder list with "create draft PO", and their screens. Numbered I60–I71. Nothing books stock. Code:
+`migrations/0011_reorder.sql`, `tools/sales_history/export.php`, `src/Reorder/{SalesHistoryImport,DemandBuilder,DemandMath,
+PromoDetector,ReorderList,ReorderMath,Explain,ReorderSettings,DraftPos}.php`, `src/Ui/Controller/{Reorder,SalesHistory}Controller.php`,
+`src/Ui/views/{reorder,reorder_item,reorder_brands,reorder_anomalies,sales_history}.php`, `bin/{import_sales_history,reorder_demand}.php`;
+changed: `src/Purchasing.php` (`stockOf`), `src/Auth/Permissions.php` (Reorder list and Sales history live), `src/Ui/Kernel.php`,
+`src/Schema/Grants.php`, `public/ui/assets/app.css`; tests `tests/Unit/{DemandMath,PromoDetector,ReorderMath,Explain}Test.php`,
+`tests/Integration/Migration0011Test.php`, `tests/Integration/Reorder/*` (with the support files `ReorderFixtures.php` and
+`ReorderTestCase.php`), `tests/Integration/UiKernel/{ReorderScreens,SalesHistoryScreen}Test.php`, and updates of
+`PermissionsTest`, `MenusTest`, `GrantsTest` and (outside the task's list, I71) `UiTemplatesTest`.
+
+**I60. The read-only export from the live sites (`tools/sales_history/export.php`, spec §7.1).** A standalone `mysqli` tool
+run on the Vape and Go box (that database is VPC-private), with the spec's SQL V1 / O1 / O2 / S1–S3 verbatim, the session
+`MAX_EXECUTION_TIME = 30000`, READ COMMITTED, READ ONLY (checked through `@@transaction_read_only` before the first query), one
+`START TRANSACTION READ ONLY … COMMIT` per 7-day slice, 200 ms apart, the Threads_running guard (≤ 30, 12 waits of 5 s, then
+exit 3), and output only under `CW_SALES_EXPORT_ROOT` (default `/root/cw_work/sales_history`; `--out` checked lexically and
+again after `realpath`, exit 2), files 0640. Choices the spec left open:
+- **Parameters are inlined** as quoted literals of dates the tool computed and checked (`YYYY-MM-DD[ 00:00:00]`), so the
+  EXPLAIN and the query are the same text; nothing from outside the tool reaches the SQL.
+- **The gate**: every statement of a slice is EXPLAINed before any of them runs; a row of type `ALL`, a table or alias whose
+  key is not in its allow-list (or NULL), a driving estimate above 500,000 rows, or an EXPLAIN that fails (a forced index
+  that is gone: MySQL 1176) is exit 3, "nothing further was run (data queries run before: N); no files kept". A plan row
+  without a table is accepted only for "Select tables optimized away" / "No matching min/max row" (the MAX of S3).
+- **Two passes**: the sales (V1 or O1, then O2, merged per variant and day) slice by slice; then the snapshot. S2 keeps only
+  the variants that sold anywhere in the export (spec), so it needs the whole first pass. S3's `MAX(pss_date)` runs first
+  in pass 2: when it finds no day on or before `--to` (Electrofag's table was empty when the spec was written) or the table
+  does not exist, the stock files are not written (a manifest warning says why), and S1/S2 only read slices up to that day.
+- Files are written as `.part` and renamed when everything succeeded; the manifest adds `kind` per file, the `queries`
+  themselves (their sha256 is `query_sha256`) and `warnings`. Error messages are scrubbed of the host, user and password; a
+  connection failure prints only its MySQL code.
+- Tested on a fake site schema with the live tables' columns and index names (`SalesExportToolTest`): both sources, the
+  office orders (a re-ship child left out, `ord_parent_Id = 0` counted), a cancelled line counted only when returned, the
+  window [from, to + 1), the stock files, the sha256s, the gate (index dropped; a primary key without the date first), the
+  root check, a wrong password, a missing and an empty snapshot table.
+
+**I61. The import (`SalesHistoryImport`, `bin/import_sales_history.php`, spec §7.2).** As specified (manifest site = channel
+else exit 2; sha256 per file else exit 1 `sha_mismatch`; the same sales file loaded → "already loaded as batch N", exit 0;
+one transaction per 7-day slice deleting the channel's sales, stock and snapshot days of the slice before inserting 500-row
+chunks; `listing_stock_latest` replaced; `loaded` with its counts, or `failed` with the error; unknown / unlinked counted per
+batch and every row kept; the month table and the anomaly uplift; then the demand unless `--no-build` or a dry run). Choices:
+- **Gaps both ways**: the spec refuses a batch starting after coverage end + 1; a batch ending before coverage start − 1 is
+  refused too (the coverage is [min from, max to], so a hole in the middle would otherwise read as days without sales);
+  `--allow-gap` overrides both and the hole then does read as zero sales (`docs/ops.md`).
+- **A dry run writes nothing at all**, not even a batch row (the UNIQUE (channel, sales_sha256) would then block the real
+  load). A `failed` batch row is reused when the same file is run again (its slices are idempotent).
+- Rows are checked strictly (the exact header, the site, a printable variant id ≤ 64, dates inside the export and never going
+  back, whole non-negative units, a row selling at least one unit, money rounded half-up to pence). The rows of a slice are
+  inserted in primary-key order (variant, then day): the 12-month Vape and Go load fell from 290 s to 169 s on staging.
+- The uplift baseline is 1 July – 31 August of the window's year, both clipped to the export; a brand window is measured on
+  the rows of that brand's linked items.
+
+**I62. Demand (`DemandMath`, `DemandBuilder`, spec §7.3) as built.** The formula exactly as specified, with rates as e4
+integers (half-up) and the weight as e6; the exclusions in order nodata → before_first → anomaly → promo → oos; V_S ⊂ V_L.
+- **The spike-cap example in spec §9.3** ("one day of 200 in a 2/day series → capped at 8") assumes μ = 2, i.e. the mean
+  *without* the spike; §7.3 defines μ as the mean of the valid days, spike included: 380 / 91, cap ⌈4 × 4.18⌉ = 17. The
+  formula was followed and `DemandMathTest` asserts 17 (and 197 / 91 for r_L); the floor (5) and the multiple are tested too.
+- first(ℓ), units_365 and the plain 30-day average come from the 365 days to E_c; the read is 366 days so that the 12
+  calendar months (`monthly`, ending with the month of the newest history end over all sites) are whole. "Sold in the loaded
+  history" (spec) = a sale in those 365 days; an item with a minimum stock gets a row (of zeros) without history.
+- **Item columns**: rate = Σ u·rate(ℓ); `rate_short` / `rate_long` = Σ u·r over the listings that have one (NULL when none);
+  `valid_days_*`, `excluded_*` and `capped_days` are those of the **main listing** (the largest u·rate, then u·units_365, then
+  the lowest id); `detail` = `{"listings": [...]}` per listing, main first, with the spec's fields plus `excluded_short`,
+  `anomalies` (each window's id, label, dates and days in the short and long windows), `method`, first / last sale and
+  units_365. MySQL keeps JSON objects in its own key order (tests compare them with `assertEquals`).
+- Listings: status `mapped`, the item not merged, on a channel with loaded history; a brand is compared lower-case and
+  trimmed (the column's collation ignores case). An anomaly of one site or one brand applies only there.
+- The build: `GET_LOCK('cw_reorder_build:<schema>', 0)` (409 `build_running`; the CLI and the import say "already running",
+  exit 0), released in `finally`; the reorder.* settings checked (`ReorderSettings::params`: a value out of range is 500
+  `bad_setting`, nothing written); chunks of 1,000 items with per-channel `IN` reads on the primary keys; ONE transaction
+  `DELETE FROM reorder_demand` + 500-row INSERTs. `DemandBuilder::item()` computes one item day by day for its page.
+
+**I63. Promotions (`PromoDetector`, spec §7.3).** As specified: per channel and brand, days from E_c − W_L − 28 + 1, the
+28-day reference without days that sold nothing, anomaly days of (c, b) and days already flagged; |R| ≥ 7; the three tests.
+Money in pence, the decimal settings in millionths, the price test cross-multiplied with **bcmath** (a whole-brand day passes
+64 bits). U(t) counts **listing units** as the spec says; a brand mixing single and multi-pack listings would read better in
+central units (u × units) — left for the full engine (I-6). Merged items are left out of the brand totals.
+
+**I64. The reorder line and the list (`ReorderMath`, `ReorderList`, spec §7.4) as built.** L / R / S / φ precedence, target
+(min then max), ROP, P = A + O (drafts shown, never counted), need, packs (up, or nearest = ⌊2N + upp⌋ / 2upp; MOQ, then the
+multiple), value = packs × last pack price, urgent ⇔ P < ROP, cover now in tenths of days (∞ when d = 0), the order urgent →
+cover now → value → item. Choices:
+- **The list's items** are the demand rows plus the items with a minimum stock (a minimum set since the last build shows at
+  once). A preferred supplier item comes from the generated `preferred_sku_id`; a supplier not active is a flag
+  (`supplier_draft`, `supplier_pending_approval`, `supplier_inactive`), not a refusal; `no_price`, `no_history`, `merged`,
+  `do_not_reorder`, `no_supplier` are flags too. Never suggested: do-not-reorder and merged (k = 0, shown with "every item").
+- **Stock**: `cw` = `Purchasing::stockOf()` (Σ sellable on_hand − allocated − held, may be negative); `site` = Σ over the item's
+  **vapeandgo** mapped listings of u × `listing_stock_latest.stock`, with its date (0 and "no snapshot" without one).
+- Filters: brand (any case), preferred supplier, words of name / brand / code or a CW code, urgent, `show=need` (k > 0) or
+  `all`, stock source; unknown values fall back to the defaults. 200 lines a page; the CSV has every line.
+
+**I65. The "Why" (`Explain`).** Built from the stored detail and the line, in the spec's shape: "Demand 12.4/day = 0.5×13.1
+(28 days: 19 valid; 9 excluded: Pre-duty stockpiling 14–22 Sep) + 0.5×11.7 (91 days: …; 1 day capped at 40) [vapeandgo 11.9 +
+electrofag 0.50]; factor 1.00. Cover 2 lead + 7 review + 5 safety = 14 days → target 174. Available 60 + on order 48 = 108 (in
+drafts 0). Need 66 → 3 × box of 24 = 72 (MOQ 2). Plain 30-day average 15.2/day." Choices: the windows' facts are the main
+listing's; listings with different methods are explained one by one; an anomaly is named by its label before " (", or its
+first two words when that is longer than 40 characters (the seeded window reads "Pre-duty stockpiling 14–22 Sep"); a rate
+prints one decimal from 1 a day and two below; the factor names its source (item / brand / default) and the factored rate;
+site stock, urgency, a minimum or maximum that set the target, MOQ / multiple / nearest rounding and "no preferred
+supplier" are said when they apply.
+
+**I66. Reorder settings (`ReorderSettings`, spec §7.5).** Item and brand rows carry a version, 0 meaning "no row yet" (an
+insert; a row created meanwhile is 409 `version_conflict`); an unchanged save writes nothing; audit `reorder.item_settings` /
+`reorder.brand_settings` with before and after. A brand must be some item's brand (422 `unknown_brand`; stored in the item's
+spelling). Factors 0.00–5.00 with two decimals, safety 0–90, lead 0–120, min ≤ max. Anomaly windows: 3–200-character label,
+first ≤ last day, at most 92 days apart (93 days, the CHECK), optional site and brand; ended, never deleted (`NO_DELETE`);
+ending an ended one is 409 `anomaly_ended`. Every write: `reorder.manage` read inside the transaction, never admin. Recalculate
+audits `reorder.recalculate {items, listings, ms, channels}`.
+
+**I67. "Create draft PO" (`DraftPos`, spec §7.4).** The ticked items are grouped by their preferred supplier (by supplier id,
+lines by item code), one `PurchaseOrders::createDraft(…, 'reorder')` + `saveDraft` per supplier with `{supplier_item_id,
+packs, suggested_units}` (price = last price, VAT = the supplier's), all in the caller's transaction (FormOnce on the screen).
+Skipped and listed: no preferred supplier, an inactive preferred supplier, a merged item, an item not on the list. Packs 0 are
+left out; nothing left is 422 `nothing_picked`; an item twice or negative packs is 400 `bad_pick`. **The signature gained the
+stock source** (`create(Caller, picks, 'cw'|'site', ?formKey)`): `suggested_units` is the suggestion the buyer saw (with the
+site's stock it differs). A draft below the supplier's minimum order is warned about. Audit `reorder.draft_pos`.
+
+**I68. The screens (spec §8.1).** Reorder list and Sales history are live menu items (`reorder.view`). The list carries the
+draft form only for `doc.PO.post` with `row_count` first and the filters as hidden fields; fewer `packs_<sku>` fields than
+`row_count` is 400 `form_truncated`. **After "create draft PO"**: one draft and nothing skipped → 303 to the PO editor
+(`?notice=created`); otherwise → 303 to the reorder list with a "New draft orders" panel (draft ids and up to 50 skipped
+item ids in the URL, re-read and re-checked on display) — the PO list has no "these drafts" filter and its controller is
+not this task's. A refused draft form redraws the list with the error (FormOnce stores nothing). Item, brand and anomaly
+forms: 409 redraws the current values ("changed since you opened them"), 422 keeps what was typed. The item page shows every
+day of the long window per listing (computed now) with its reason. Sales history: per site the coverage, snapshot days, the
+latest site stock, the top 50 unknown / unlinked variants by units in the last 91 days of the history with the listing
+profile's titles (a link to `/ui/review/listing/{id}` only for `linking.view`), its full CSV, and the last 100 batches. CSS in
+`app.css`; no JavaScript.
+
+**I69. IM9 defaults — provisional, owner to confirm.** All in `app_setting` (0011, `provisional = 1`), changed with
+`bin/settings.php --set=reorder.<key> … --admin`, read at every build and list:
+
+| Setting | Default | |
+|---|---|---|
+| `reorder.default_lead_days` / `default_review_days` / `default_safety_days` | 2 / 7 / 5 | provisional, owner to confirm (safety 5 = today's ERPNext practice) |
+| `reorder.short_window_days` / `long_window_days` / `short_weight` | 28 / 91 / 0.50 | provisional, owner to confirm |
+| `reorder.min_valid_days_short` / `min_valid_days_long` | 7 / 21 | provisional, owner to confirm |
+| `reorder.spike_cap_multiple` / `spike_cap_floor` | 4 / 5 | provisional, owner to confirm |
+| `reorder.promo_price_drop` / `promo_units_uplift` / `promo_min_units` | 0.10 / 1.50 / 20 | provisional, owner to confirm |
+| `reorder.stale_history_days` | 3 | not provisional (a screen warning) |
+| `demand_anomaly` 14–22 Sep 2026, every site and brand | seeded | provisional, owner to confirm (see I71 on 23–30 Sep) |
+
+Also provisional, owner to confirm: the list's default stock source is CW's (site stock on request); "site stock" means
+Vape and Go's; packs round up unless an item says nearest; drafts take the last (invoice / manual / import) price; the
+earlier provisional decisions stand (9: one company, I38; 11: approvals, I40 / I48; 12: no cost write-back, I41; 25: no bank
+details, I39).
+
+**I70. Measurements (2 Oct 2026).**
+- **The live export, run once per site** (this box, `nice -n 10`, 16:57 BST, after the 03:40 rebuild and outside 03:30–05:00):
+  - vapeandgo (`appad_vapeandago_ecommerce`, `--source=cps`) 2025-10-02 to 2026-10-01: **32.8 s**, 53 slices, **602,739**
+    sales rows, 36,841 stock-day rows, 29,127 latest rows (snapshot 1 Oct; 8 snapshot days from 24 Sep, ~16k unsellable a
+    day), **Threads_running before 3, max 7, after 2**. Plans: V1 range `cps_date` (19,420 rows), O2 range
+    `idx_ord_type_status_date` (45) + ref `idx_ordi_ord_cancelled_prodt` (11), S1/S2 range PRIMARY, S3 optimized away + ref
+    PRIMARY. Units/day online: Jul 14,856, Aug 14,823, Sep 22,523.
+  - electrofag (`alectrofag_live`, `--source=orders`): **22.1 s**, 53 slices, **11,481** sales rows (history from May 2026),
+    273 stock-day rows, 9,014 latest rows (one snapshot day, 29 Sep), **Threads_running before 2, max 3, after 2**. Plans: O1
+    range `idx_orders_report` + ref `idx_ordi_ord_cancelled_prodt` + DEPENDENT SUBQUERY ref `idx_orti_ordi`; O2 as above.
+  - Files: `/root/cw_work/sales_history/{vapeandgo,electrofag}/`. Nothing else touched the live databases.
+- **The rehearsal** (`RealDataRehearsalTest`, slot i2re, scratch schema `cw_test_i2re_rh`; 1,858 Vape and Go listings of Elux,
+  Lost Mary and Bar Juice 5000 minted and linked, 0 refused): import vapeandgo **169.1 s** (602,739 rows, 5,534,577 units;
+  unknown 0, **unlinked 2,632,447 units = 47.6 %** — only three brands linked), electrofag **3.0 s** (34,628 units; unknown 77,
+  unlinked 34,551 = 100 %: no Electrofag listing linked); the 14–22 Sep window **+42.9 %** on Vape and Go (21,262.8 units/day
+  against 14,884.5 in Jul–Aug; the memory note's +43 %) and +7.9 % on Electrofag; **build 10.7 s** for 1,010 items; all 262
+  Elux items sold before 14 Sep have the 9 days excluded. **Promotion days flagged on vapeandgo**: Elux Nic Salt (Legend
+  Salts) **2026-09-23** (29,745 units at £1.651 against ~7,000 at £1.95), and 17 Jun, 22 Jul, 21 Aug; Lost Mary 10 Jul, 31 Aug;
+  Bar Juice 5000 5 Jun, 17 Jul; Elux Vape 10 Jun, 26 Jun. 24 Sep (13,978 at £1.77, a 9.2 % drop) is not a promotion day under
+  the 10 % rule.
+- **rate against rate_raw_30** (Σ over the brand's items, central units a day): Elux Nic Salt 8,421.5 vs 10,350.3 (**81.4 %**),
+  Lost Mary 476.4 vs 558.9 (85.2 %), Bar Juice 5000 1,686.8 vs 2,007.7 (84.0 %), Elux Vape 4.8 vs 3.3 (145 %: a few units).
+  Expect suggestions about 15–20 % below an ERPNext 30-day average for brands inflated in September.
+- **The build at scale** (`DemandBuilderTest::testTheBuildAtScale`, `CW_REORDER_PERF=1`): 15,000 linked items of 100 brands,
+  182,000 rows in the 91-day window (730,000 in the year), 8 snapshot days: **49.0 s** (target ≤ 60 s; the staging cluster was
+  slow that hour: generating the rows server-side took 450 s), 196 MB.
+- **The full suite** `scripts/remote.sh i2re vendor/bin/phpunit`: **green, 641 tests (581 before this task), 12,042
+  assertions, 75 skipped** (the 73 HTTP Api*/Ui* tests of slots api and ui, and the two opt-in tests above), 6 min 50 s. The
+  run before it had one failure, the pos task's timing-bound `PurchaseOrderRaceTest::testApproveAgainstTheSupplierDeactivation`
+  (case a: the approving worker started after the deactivation's 0.2 s head start, so the approval found the supplier
+  inactive — correct behaviour, wrong interleaving for the test); alone it passed 3 times out of 3. This task touches no PO or
+  supplier code. The reorder tests alone (24 unit, 34 integration and screen tests, plus the 2 opt-in) take about 70 s.
+
+**I71. Deviations, open items.**
+- *Not as the spec says:* the spike-cap example (I62); dry run writes no batch row, a backward gap is refused too, a failed
+  batch is reused (I61); the export inlines its checked dates, runs S3's MAX first and skips the stock files without a
+  snapshot (I60); `DraftPos::create` takes the stock source (I67); after "create draft PO" with several drafts or skipped
+  items the screen returns to the reorder list's "New draft orders" panel instead of a PO list filter (I68).
+- *Files outside the task's list:* `tests/Unit/UiTemplatesTest.php` (it asserted the two "coming in Phase I-2" placeholders;
+  the new templates are listed); the test support files `tests/Integration/Reorder/{ReorderFixtures,ReorderTestCase}.php`.
+- *Settings::RULES* (the suppliers task's file) does not bound `reorder.min_valid_days_short/long` (their keys do not end in
+  `_days`); `ReorderSettings::params` checks every reorder.* range when the demand is built or listed (500 `bad_setting`).
+  Add `min ≤ window` rules there when that file is next open.
+- **For the owner — September after the window:** the export shows pre-duty buying after 22 Sep too: Elux Nic Salt sold
+  13,436 / 16,372 / **35,453** units on 28 / 29 / **30 Sep** (the day before the duty) at the normal price (~£1.95), against
+  ~7,000 a normal day; the spike cap holds each listing at 4× its mean, but these days still lift the short window. A buyer can
+  add a window "23–30 Sep" on Reorder › Anomaly windows (or the owner extends the seeded one): **provisional, owner to decide**.
+  After the duty, a brand factor (e.g. 0.85) is the planned lever for the expected drop (memory "demand context").
+- *Not done here (each needs the owner's go, spec §11):* loading the exports into `cw_staging` (migration 0011 first, after
+  the FIX step); a nightly export → import → build (no cron installed); Vape Big's history (access pending, decision 5).
+- The import on staging writes ~3,600 rows a second; a nightly one-day export is ~2,000 rows (seconds).
+
+
+## Inventory Phase I-2 review fixes (slot `i2fx`, 2 Oct 2026)
+
+Two reviews of the uncommitted I-2 tree (correctness and data integrity, probes in slot i2rv1; security and usability,
+probes in slot i2rv2) found one blocker, five important points, nine minor ones and four nits. Every point was applied
+except one (I88), each with a regression test. 0009–0011 have not been applied to `cw_staging`, but no DDL had to change.
+Numbered I72–I89. Code: `src/Suppliers/{Suppliers,SupplierItems,SupplierInvariants,ErpSeedImport}.php`,
+`src/PurchaseOrders/{PurchaseOrders,PurchaseOrderHandler,ErpOpenPoImport}.php`, `src/Output/XlsxReader.php`,
+`src/Reorder/{ReorderList,ReorderMath,Explain,SalesHistoryImport}.php`, `tools/sales_history/export.php` (version 1.1),
+`bin/import_sales_history.php`, `src/Settings.php`, `src/Ui/{Kernel,UiRequest}.php`,
+`src/Ui/Controller/{PurchaseOrders,SupplierItems,Reorder,SalesHistory,Documents,Files}Controller.php`,
+`src/Ui/views/{supplier,supplier_form,supplier_item_form,purchase_order,purchase_order_edit,reorder}.php`; tests in
+`Suppliers/{SupplierLifecycle,SupplierItems,ErpSupplierImport}Test`, `PurchaseOrders/PurchaseOrderLifecycleTest` (and the
+other PO tests' `markSent` calls), `Reorder/{SalesExportTool,SalesHistoryImport,ReorderList,DemandBuilder}Test`,
+`UiKernel/{PurchaseOrderScreens,ReorderScreens}Test`, `SettingsTest`, `Unit/{ReorderMath,XlsxRoundTrip}Test`.
+
+**I72. An overseas supplier's route, and whether it is overseas at all, need a second person (blocker; amends I40, I42).**
+One buyer could switch the blocking import-route approval off by unticking "overseas": the open approval was withdrawn, the
+change was left out of the change review, and `PurchaseOrderHandler::validate` checked the route only for `is_overseas = 1`
+(the review's probe posted PO-000001 straight after). Now:
+- On an **active** supplier a change of any route field (`is_overseas` either way, `import_route`, its evidence file)
+  clears `import_route_approved_*` and keeps or opens ONE blocking approval task (reason `import_route`), whatever the
+  direction. **POs are refused while it is open** (`validate` reads `review_task.open_key = 'supplier:<id>:approval'` after
+  the supplier's FOR SHARE; READ COMMITTED and the supplier row written by every task-opening transaction make that read
+  current), with the warning in the editor. Approving it for a supplier that is overseas approves the route (as before); for
+  one made UK it confirms that no route is needed. **Rejecting "no longer overseas" deactivates the supplier** ("rejected at
+  review: …", its other tasks withdrawn), like a rejected change review; rejecting a route change of an overseas supplier
+  still only records it (POs stay refused). S1 now allows an open `import_route` task on any active supplier.
+- **A supplier whose country is not GB must be overseas** (provisional, owner to confirm): `create`/`update` refuse 422
+  `bad_field` (is_overseas) otherwise; the ERPNext supplier import derives `is_overseas = 1` from a non-GB country when the
+  column is empty (an explicit 0 fails the row). The country itself is approval-relevant, so changing it on an active supplier
+  also opens the (non-blocking) change review.
+- **Minor, same place:** the route approval is cleared on a route change **whatever the status** (it covered the route as it
+  was; a reactivation approves it again). Before, editing an inactive overseas supplier's route, or making it UK, broke
+  `ck_supplier_route` (an unmapped 3819, a 500 page).
+
+**I73. The PO editor stays below `max_input_vars` (important).** Each item line sends 4 fields (6 without a supplier item),
+plus ~17 others, against PHP's default 1,000 (the UI pool does not raise it): from 249 lines every save was refused and at
+248 a typed charge was dropped silently. Now (a) `Kernel` refuses **any** POST that arrives with `max_input_vars` fields
+(400 `form_truncated`, nothing done: PHP keeps at most that many and drops the rest without a word), and (b) the editor is
+editable only while `PurchaseOrdersController::editorFields()` (24 fixed + 4/6/3 per item / item without supplier item /
+charge line) stays below `max_input_vars` (about 240 lines with supplier items), else the lines are read-only and changed by
+the file import; `MAX_EDITOR_LINES` (300) stays as an upper bound. The test checks that every named field the rendered form
+can send is counted by `editorFields`.
+
+**I74. The last price is the price of a pack (important; amends I44, S4).** A supplier item moved from packs of 1 at £1.00 to
+packs of 24 kept £1.00, so a draft PO priced 48 units at £2 (the reorder value, the editor's pre-fill and the PDF too).
+`last_pack_price/on/source` now mirror the newest non-`po` history row **whose `units_per_pack` is the item's current one**
+(NULL when none): `SupplierItems::update` recomputes them when the pack changes (audited as a change of `last_pack_price`;
+the page says "record the new pack's price"), and changing back finds the old pack's price again. S4 checks the same rule.
+`last_po_*` needs nothing: a pack change is refused once any live PO uses the item (I55).
+
+**I75. A new supplier item becomes the preferred supply when its item has none (nit, usability).** The reorder list and its
+drafts use only the preferred supply, and the form's preferred box was unticked by default, so a buyer adding 40 items for a
+brand would see "no preferred supplier" on every line and "create draft PO" would skip them all (owner acceptance steps 3–5).
+`SupplierItems::create` takes `is_preferred = 'auto'`: preferred when the item has no active preferred supply (the UNIQUE
+`preferred_sku_id` decides a race: a duplicate key leaves it an alternative). The screen's new select defaults to "Yes,
+unless the item already has a preferred supply" (also "Yes, instead of its current one" and "No"); the ERPNext items import
+uses `auto` for an empty `is_preferred`; the PO editor's "save as this supplier's item" uses `auto`. Explicit 1 and 0 behave
+as before; service callers that pass nothing get an alternative, as before.
+
+**I76. Out-of-stock days survive short exports (important; amends I60).** An out-of-stock day counts only when the variant
+sold nothing that day, but the export kept unsellable days only for variants that sold **inside its own window**, so the
+nightly one-day export the runbook prescribes kept none, and its overlapping import deleted the ones loaded before (probe:
+rate 10.0 → 8.37, `excluded_oos` 7 → 0). Export tool 1.1 keeps the unsellable days of every variant sold (online or office)
+in the **365 days to `--to`**: a window shorter than that first reads `[--to − 364, --from)` with the same statements, the same
+EXPLAIN gate, Threads_running guard and per-slice READ ONLY transactions, keeping only variant ids (a slice that reads nothing
+skips the 200 ms pause). The manifest records `stock_filter` and `lookback {from, to, slices, variants_in_window, variants}`.
+With that, replacing a slice's stock days on import is right again, so the import is unchanged; a short export of tool 1.0
+(no `stock_filter`) must not be loaded alone (ops.md). The 12-month exports already in `/root/cw_work/sales_history` are
+complete (their window is the year) and were not re-run: no new live read was needed for this fix.
+
+**I77. The sales import: quarantined listings and older snapshots (minor).**
+- A quarantined listing keeps its `sku_id` (`ck_channel_listing_link`) but the demand reads `mapped` listings only, so its
+  sales vanished unreported (probe: 460 units, unlinked 0). The batch counts and the Sales history list now count a listing
+  that is not `mapped` as unlinked ("unlinked (quarantined)").
+- `listing_stock_latest` is replaced only by a snapshot **at least as new** as the stored one; an older re-export is
+  reported ("the stored snapshot of … is newer than this export's: kept", count `latest_kept_older`).
+
+**I78. `stock=site` counts usable site stock (important; amends I64).** The real export has 350 In-Stock-mode sellable rows
+summing to −114,704 (variant 48: −35,794 against 41,709 units sold in 91 days) and 171 unsellable rows with stock > 0, and the
+list added them as they were. Now a listing counts `max(0, stock)` when sellable and **0 when unsellable**; a line whose
+listing is in the site's **In-Stock** mode (sold whatever its figure; availability keys off the stock mode, not the
+quantity) or below 0 is flagged `site_stock_unreliable` ("site stock not reliable"), and the Why says "[not reliable: …]".
+The ERPNext comparison of acceptance step 4 should prefer lines without that flag.
+
+**I79. The reorder list does not pre-tick a line already in a draft (minor; amends I67, I68).** In-drafts units are shown and
+never counted (spec §7.4), so after "create draft orders" (several suppliers, or skipped items) the list came back with every
+line ticked again and a second click drafted them twice. A line with units in drafts is now unticked with the flag "already
+in a draft order"; the buyer ticks it to order more.
+
+**I80. The reorder point is capped by the maximum stock (minor; amends I64).** `ROP = min(ROP, T)` when `max_stock` is set:
+a maximum below the cover no longer leaves a line "urgent" with nothing to order (probe: target 20, ROP 70, need 0).
+
+**I81. The order date and the last PO price (nits).** A PO's order date is at most 31 days ahead and 731 days back (422
+`bad_field`): a typo such as 2027 set `last_po_on` in the future and froze every later PO price of its items. Cancelling a
+posted PO (`PurchaseOrderHandler::reverse`) sets `last_po_*` of the supplier items it had set back to their newest PO that
+still stands (or NULL), so a cancelled order no longer pre-fills the editor's "last PO" price.
+
+**I82. The reorder windows are bounded in the settings tool (nit; amends I69).** `Settings::RULES` gains
+`reorder.short_window_days` 1..120 and ≤ the long window and ≥ its fewest valid days, `reorder.long_window_days` 1..120 and ≥
+both the short window and its fewest valid days, `reorder.min_valid_days_short/long` 1..120 and ≤ their window (a new
+`at_least`/`at_most` rule against other settings). A value the tool accepts can no longer make every reorder page and build
+fail with 500 `bad_setting`.
+
+**I83. XLSX: the wide-row bomb (minor; amends I58).** An 88 KB file whose row 1 held 3,000,000 cells (45 MB of XML, under the
+50 MiB guard) exhausted 256 MB inside openspout (a fatal error, a crash page). `XlsxReader` now pre-scans every worksheet
+with `XMLReader` (streaming, `LIBXML_NONET`, constant memory) and refuses a row of more than **1,000 cells** (empty styled
+cells included; the 50-column rule still applies to what is read) with 400 `bad_file` before openspout builds anything, and
+the per-part limit drops from 50 MiB to **16 MiB** (2,001 rows × 50 columns of PO lines are a few MiB).
+
+**I84. "Recalculate" inside a UI request (minor).** The full rebuild measured 49 s for 15,000 items in phpunit, against the UI
+pool's `max_execution_time` 50 s / `request_terminate_timeout` 60 s (a killed worker rebuilds nothing). The button now
+rebuilds only while at most **3,000** items are linked (`ReorderController::UI_REBUILD_MAX_ITEMS`; the rehearsal: 1,010
+items in 10.7 s), else 409 `rebuild_on_server` pointing to `bin/reorder_demand.php`. The list at that scale is measured in
+the opt-in perf test (I89).
+
+**I85. Purchase orders are for people with Purchasing (minor).** `documents.view` includes warehouse and stock_controller,
+`purchasing.view` does not, yet they could list POs and open their lines, prices and PDF under `/ui/documents`, and were
+offered a dead "Open in Purchasing" link. Now `/ui/documents` leaves PO documents out for them, `/ui/documents/{id}` and its
+PDF answer 403, the link is drawn only for `purchasing.view`, and `/ui/files/{id}` refuses a file attached only to POs (the
+PDF as sent) without `purchasing.view` and a supplier's evidence (`supplier_check`) without `suppliers.view` (a step on I37's
+deferred file scoping).
+
+**I86. Sending a PO that should not go yet (minor; provisional, owner to confirm).** `PurchaseOrders::sendWarnings()` lists
+a rejected review ("cancel or amend it rather than send it") and company details not confirmed in the order's snapshot (its
+PDF says DO NOT SEND). `markSent` refuses 409 `send_warnings` while there are any unless the person acknowledges them
+(`$acknowledged`; the form shows them with a required "Send anyway" box); the `po.send` audit row keeps what was acknowledged.
+The ERPNext open-PO import passes true (ERPNext sent those orders). With `company.confirmed` false (today's seed) every send
+needs the box ticked, which is the point until the owner confirms the company.
+
+**I87. Approve is part of the editor form (important; amends I53).** "Approve the order" was a separate form carrying only the
+version, so packs or prices typed and not saved were silently left out of the approved — immutable — order (owner acceptance
+step 5: "adjusts packs in the editor … then Approve PO"). The editor's form now ends with "Save" and **"Save and approve the
+order"**: `lines()` saves what is typed and approves exactly that in ONE transaction (a refused approval saves nothing and the
+page comes back with what was typed); text left in the scan box is refused first ("press Add, or clear it"). The separate
+form is gone from the editor (the read-only view keeps its own for a draft seen by another buyer).
+
+**I88. Points declined or left to the owner.**
+- *The import keeping the stock days of variants absent from a new file* (review 1, finding 1, second option): not done. With
+  I76 every export carries the stock days of all variants sold in the year to its end, so a slice's rows are complete and
+  replacing them is correct; keeping old rows would keep stale out-of-stock days when a re-export corrects them.
+- *A SELECT-only database login per site for the export* (review 2, nit): the owner's choice, written into ops.md. The
+  Electrofag run used db-transfer's DEST login and the Vape and Go run the site's application login; both can write, and the
+  read-only session, the per-slice READ ONLY transactions and the constant SQL are the guards (the review verified all three).
+
+**I89. Measurements and test runs (2 Oct 2026).**
+- **Full suite** `scripts/remote.sh i2fx vendor/bin/phpunit`: green, **649 tests, 12,540 assertions, 75 skipped** (the HTTP
+  Api*/Ui* tests of slots api and ui, and the two opt-in tests), 6 min 41 s. Baseline of the unfixed tree in the same slot:
+  641 tests, 12,338 assertions, green. No timing flake this time (`DbTest`, `LockOrderTest`: 2,000 feed rows within 62 ms).
+- **HTTP tests:** `scripts/remote.sh ui vendor/bin/phpunit --filter Ui`: 128 tests, 19,460 assertions, OK (the 1 skip is the
+  opt-in `testTheBuildAtScale`, whose name matches); `scripts/remote.sh api vendor/bin/phpunit --filter Api`: 49 tests, 2,687
+  assertions, OK (the 1 skip is `UiReviewFlowTest`, which runs in slot ui).
+- **Hammer** `scripts/remote.sh i2fx php tests/concurrency/hammer.php --seed=20261002` (24 workers, ≤ 30 connections):
+  `RESULT: PASS (57 checks passed, 0 failed)`, 91 s, 0 deadlocks surfaced or retried; scenario 5: 45 calls/s, 66 on_hand
+  rows/s, 206 polls, 0 gaps, slowest live invariant check 2.9 s. Scenario 4 alone (`--only=4`, twice): **56/s and 58/s**,
+  within 15 % of 62/s (the pos task's 39/s, I59, was the cluster).
+- **Reorder at scale** (`CW_REORDER_PERF=1 … --filter testTheBuildAtScale`): 15,000 items, 182,000 rows in 91 days: build
+  **51.0 s** (I70: 49.0 s); the reorder list of all 15,000 lines plus the Why of a page of 200: **1.6 s** (CW stock) and **1.3
+  s** (site stock). Peak memory of the whole test process 270 MB, mostly the build; the list alone in the UI pool (256 MB) is
+  not measured separately: check before linking that many items.
+- **Not re-run:** the live export. I76 changes the tool only for windows shorter than a year; the existing 12-month exports
+  in `/root/cw_work/sales_history` are complete and are what the deploy loads. `SalesExportToolTest` (fake site schema)
+  proves 1.1, including the new one-day case.

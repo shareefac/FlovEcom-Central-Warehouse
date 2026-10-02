@@ -2,6 +2,9 @@
 <?php if ($live === []): ?>
 <p class="note">No document type is live yet. These screens, the review queue and the number series are ready; the documents themselves arrive with
   their phases:<?php foreach ($types as $i => $t): ?> <?= $e($t['name']) ?> (<?= $e($t['code']) ?>) in Phase <?= $e($t['phase']) ?><?php if ($i < count($types) - 1): ?>;<?php else: ?>.<?php endif; ?><?php endforeach; ?></p>
+<?php else: ?>
+<p class="note">Live document types:<?php foreach ($types as $t): ?><?php if (in_array($t['code'], $live, true)): ?> <?= $e($t['name']) ?> (<?= $e($t['code']) ?>)<?php if ($t['code'] === 'PO'): ?>, written in Purchasing<?php endif; ?>;<?php endif; ?><?php endforeach; ?>
+  the others arrive with their phases:<?php foreach ($types as $t): ?><?php if (!in_array($t['code'], $live, true)): ?> <?= $e($t['name']) ?> (<?= $e($t['code']) ?>) in Phase <?= $e($t['phase']) ?>;<?php endif; ?><?php endforeach; ?></p>
 <?php endif; ?>
 
 <form class="filters" method="get" action="/ui/documents">

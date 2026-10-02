@@ -17,11 +17,13 @@ final class Migration0008Test extends IntegrationTestCase
 
     public function testTheSeeds(): void
     {
-        self::assertSame(22, (int) self::$db->value('SELECT COUNT(*) FROM reason_code'));
+        // 0010 (the pos task, I48) adds the three PO reversal reasons po_amended, supplier_cannot_supply and not_needed: 0008's 22 are the rest.
+        $po = "('po_amended', 'supplier_cannot_supply', 'not_needed')";
+        self::assertSame(22, (int) self::$db->value("SELECT COUNT(*) FROM reason_code WHERE code NOT IN {$po}"));
         self::assertSame(['damaged', 'faulty', 'expired', 'lost_theft', 'found', 'wrong_item_booked', 'supplier_error', 'supplier_collection', 'destroyed',
             'free_gift', 'sample', 'unstamped_found', 'count_difference', 'recount', 'data_correction', 'customer_return_resaleable',
             'customer_return_damaged', 'entered_in_error', 'duplicate', 'opening_rebase', 'review_rejected', 'other'],
-            array_map('strval', self::$db->column('SELECT code FROM reason_code ORDER BY sort_order')));
+            array_map('strval', self::$db->column("SELECT code FROM reason_code WHERE code NOT IN {$po} ORDER BY sort_order")));
         $flags = static fn (string $code): array => array_map('intval', (array) self::$db->one(
             'SELECT needs_note, is_gift, system_only, is_active FROM reason_code WHERE code = ?', [$code]));
         self::assertSame(['needs_note' => 0, 'is_gift' => 1, 'system_only' => 0, 'is_active' => 1], $flags('free_gift'));
@@ -34,7 +36,7 @@ final class Migration0008Test extends IntegrationTestCase
         self::assertSame(['increase', 'decrease', 'either'], [self::$db->value("SELECT direction FROM reason_code WHERE code = 'found'"),
             self::$db->value("SELECT direction FROM reason_code WHERE code = 'damaged'"), self::$db->value("SELECT direction FROM reason_code WHERE code = 'recount'")]);
         self::assertSame(['entered_in_error', 'duplicate', 'review_rejected', 'other'],
-            array_map('strval', self::$db->column("SELECT code FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 ORDER BY sort_order")));
+            array_map('strval', self::$db->column("SELECT code FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND code NOT IN {$po} ORDER BY sort_order")));
 
         $types = self::$db->all('SELECT code, prefix, phase, review_rule, review_limit_units, approval_rule, approval_limit_units, review_due_days FROM document_type ORDER BY code');
         self::assertCount(8, $types);
@@ -46,7 +48,8 @@ final class Migration0008Test extends IntegrationTestCase
         self::assertSame(['positive_without_supplier_doc', 10, 'all'], [$by['ADJ']['approval_rule'], $by['ADJ']['approval_limit_units'], $by['ADJ']['review_rule']]);
         self::assertSame(['over_limit', 10], [$by['CNT']['review_rule'], $by['CNT']['review_limit_units']]);
         self::assertSame(['over_limit', 10], [$by['WO']['review_rule'], $by['WO']['review_limit_units']]);
-        self::assertSame(['none', 7, 'I-2'], [$by['PO']['review_rule'], $by['PO']['review_due_days'], $by['PO']['phase']]);
+        // 0010 (provisional decision 11, I48) changed the PO row to review 'all' and approval over_value 10000 (Migration0010Test).
+        self::assertSame(['all', 7, 'I-2'], [$by['PO']['review_rule'], $by['PO']['review_due_days'], $by['PO']['phase']]);
         self::assertSame(['I-3', 'I-4', 'I-4', 'I-6'], [$by['GRN']['phase'], $by['SINV']['phase'], $by['DN']['phase'], $by['TRD']['phase']]);
 
         self::assertSame(array_fill_keys(['ADJ', 'CNT', 'DN', 'GRN', 'PO', 'SINV', 'TRD', 'WO'], [0, 6]),

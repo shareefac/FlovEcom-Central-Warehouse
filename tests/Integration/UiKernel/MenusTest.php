@@ -27,18 +27,24 @@ final class MenusTest extends KernelUiTestCase
         $d = self::nav($desk->get('/ui/'));
         $r = self::nav($reviewer->get('/ui/'));
         self::assertSame(['Items', 'Purchasing', 'Documents', 'Reference'], array_keys($b));
-        self::assertSame(['Items', 'Receiving', 'Trade', 'Documents', 'Reference'], array_keys($d));
-        self::assertSame(['Items', 'Document reviews', 'Documents', 'Reference'], array_keys($r));
+        self::assertSame(['Items', 'Purchasing', 'Receiving', 'Trade', 'Documents', 'Reference'], array_keys($d));
+        self::assertSame(['Items', 'Purchasing', 'Document reviews', 'Documents', 'Reference'], array_keys($r));
         foreach ([$b, $d, $r] as $nav) {
             self::assertArrayNotHasKey('Linking', $nav);
             self::assertArrayNotHasKey('Admin', $nav);
             self::assertSame([['label' => 'Search', 'href' => '/ui/search']], $nav['Items']);
         }
         self::assertSame([
-            ['label' => 'Suppliers' . self::SOON . 'I-2', 'href' => null],
-            ['label' => 'Purchase orders' . self::SOON . 'I-2', 'href' => null],
-            ['label' => 'Reorder list' . self::SOON . 'I-2', 'href' => null],
-        ], $b['Purchasing'], 'three placeholders, none a link');
+            ['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'],
+            ['label' => 'Purchase orders', 'href' => '/ui/purchasing/orders'],
+            ['label' => 'Reorder list', 'href' => '/ui/purchasing/reorder'],
+            ['label' => 'Sales history', 'href' => '/ui/purchasing/sales-history'],
+        ], $b['Purchasing'], 'every Purchasing item is live (the I-2 suppliers, pos and reorder tasks)');
+        self::assertSame([
+            ['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'],
+            ['label' => 'Purchase orders', 'href' => '/ui/purchasing/orders'],
+        ], $d['Purchasing'], 'the desk sees suppliers and purchase orders, not the reorder list');
+        self::assertSame($b['Purchasing'], $r['Purchasing'], 'the reviewer reads the purchasing screens');
         self::assertSame([
             ['label' => 'Receive + invoice' . self::SOON . 'I-3', 'href' => null],
             ['label' => 'Supplier invoices' . self::SOON . 'I-4', 'href' => null],
@@ -48,8 +54,8 @@ final class MenusTest extends KernelUiTestCase
         // Live since the documents task (0008, I27): the review queue, the documents list and the reference lists.
         self::assertSame([['label' => 'Review queue', 'href' => '/ui/documents/reviews']], $r['Document reviews']);
         self::assertSame([['label' => 'All documents', 'href' => '/ui/documents']], $r['Documents']);
-        self::assertSame([['label' => 'Reason codes', 'href' => '/ui/reference/reasons'], ['label' => 'Number series', 'href' => '/ui/reference/series']],
-            $b['Reference']);
+        self::assertSame([['label' => 'Reason codes', 'href' => '/ui/reference/reasons'], ['label' => 'Number series', 'href' => '/ui/reference/series'],
+            ['label' => 'Settings', 'href' => '/ui/reference/settings']], $b['Reference']);
         self::assertNotSame($b, $d);
         self::assertNotSame($d, $r);
         self::assertNotSame($b, $r);
@@ -93,12 +99,12 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(200, $home->status, $home->describe());
         self::assertStringContainsString('Signed in as Buyer 1 (buyer).', $home->text());
         self::assertStringNotContainsString('Listings waiting for a decision', $home->text());
-        self::assertStringContainsString('Purchase orders · coming in Phase I-2', $home->text());
+        self::assertStringNotContainsString('coming in Phase I-2', $home->text());
         $xp = new \DOMXPath($home->dom());
         self::assertSame(4, $xp->query('//main//section[contains(@class, "card")]')->length, 'one card per menu section');
-        self::assertSame(['/ui/search', '/ui/documents', '/ui/reference/reasons', '/ui/reference/series'],
-            array_values(array_filter(array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array($xp->query('//main//a'))))), 'the live links of a buyer in I-1 (purchasing comes in I-2)');
+        self::assertSame(['/ui/search', '/ui/purchasing/suppliers', '/ui/purchasing/orders', '/ui/purchasing/reorder', '/ui/purchasing/sales-history', '/ui/documents',
+            '/ui/reference/reasons', '/ui/reference/series', '/ui/reference/settings'], array_values(array_filter(array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array($xp->query('//main//a'))))), 'the live links of a buyer after the I-2 reorder task');
         self::assertSame(1, $xp->query('//header//form[@action="/ui/search"]')->length, 'the quick search box: catalogue.view');
 
         $mapper = $this->signIn($this->uiUser('mapper'));
@@ -142,7 +148,7 @@ final class MenusTest extends KernelUiTestCase
         $reviewer = $this->signIn($this->uiUser('reviewer'));
         self::assertStringNotContainsString('class="badge"', $reviewer->get('/ui/')->body, 'no linking.view, no linking count');
         $auditor = $this->signIn($this->uiUser('auditor'));
-        self::assertSame(['Linking', 'Items', 'Documents', 'Accounts', 'Reference', 'Admin'], array_keys(self::nav($auditor->get('/ui/'))));
+        self::assertSame(['Linking', 'Items', 'Purchasing', 'Documents', 'Accounts', 'Reference', 'Admin'], array_keys(self::nav($auditor->get('/ui/'))));
         self::assertSame(['/ui/', '/ui/review?queue=Key', '/ui/review?queue=pending'], array_column(self::nav($auditor->get('/ui/'))['Linking'], 'href'));
     }
 

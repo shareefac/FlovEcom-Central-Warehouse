@@ -27,6 +27,12 @@ namespace CW;
  * D1-D7. the document base (0008): gapless numbers, reversal pairs, ledger rows naming posted documents by their
  *     number, review tasks on the right documents and never decided by their own people, line items, posted_hash
  *     (CW\Documents\DocumentInvariants, I17-I21).
+ * S1-S5. suppliers and supplier items (0009): a pending supplier has exactly its one open activation task, an active one
+ *     was approved by a second person, an approved import route has its approval, the last price mirrors the newest
+ *     non-PO price, supplier items name existing items (CW\Suppliers\SupplierInvariants, I38-I47).
+ * P1-P6. purchase orders (0010): every PO has its header and the state agrees with the document, an approved PO's content
+ *     still matches its write-once po_posting anchor, the line formulas, line pairs, receipts vs state, totals
+ *     (CW\PurchaseOrders\PurchaseInvariants, I48-I59).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  */
@@ -142,6 +148,8 @@ final class Invariants
 
         array_push($v, ...self::valueSequence($db));
         array_push($v, ...Documents\DocumentInvariants::check($db));
+        array_push($v, ...Suppliers\SupplierInvariants::check($db));
+        array_push($v, ...PurchaseOrders\PurchaseInvariants::check($db));
         return $v;
     }
 

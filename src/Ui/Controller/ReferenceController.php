@@ -10,9 +10,10 @@ use CW\Ui\Context;
 use CW\Ui\HtmlResponse;
 
 /**
- * Reference lists (reference.view, every role): the reason codes (I22; also as CSV for Excel) and the number series
- * with the document types and their review rules (I19, I20). Read-only: both lists are changed by a migration only
- * (the app login has SELECT on reason_code and document_type, and moves number_series.last_no only by posting).
+ * Reference lists (reference.view, every role): the reason codes (I22; also as CSV for Excel), the number series
+ * with the document types and their review rules (I19, I20), and the settings with the VAT codes (I38-I41). Read-only:
+ * these lists are changed by a migration or an admin tool on the server only (the app login has SELECT on reason_code,
+ * document_type, app_setting and vat_code, and moves number_series.last_no only by posting).
  */
 final class ReferenceController
 {
@@ -53,8 +54,11 @@ final class ReferenceController
                     'over_limit' => 'above ' . (int) $r['review_limit_units'] . ' units',
                     default => 'none',
                 },
-                'approval' => $r['approval_rule'] === 'none' ? 'none'
-                    : 'positive units without a supplier document above ' . (int) $r['approval_limit_units'],
+                'approval' => match ($r['approval_rule']) {
+                    'none' => 'none',
+                    'over_value' => 'net value above £' . number_format((int) $r['approval_limit_units']),
+                    default => 'positive units without a supplier document above ' . (int) $r['approval_limit_units'],
+                },
                 'due_days' => (int) $r['review_due_days'],
                 'live' => $docs->handler((string) $r['code']) !== null,
                 'phase' => (string) $r['phase'],
@@ -62,6 +66,42 @@ final class ReferenceController
         }
         uksort($rows, static fn (string $a, string $b): int => array_search($a, self::TYPE_ORDER, true) <=> array_search($b, self::TYPE_ORDER, true));
         return $ctx->page('series', ['series' => array_values($rows)], 200, ['title' => 'Number series', 'active' => 'series']);
+    }
+
+    /**
+     * The settings (app_setting, I38-I41): every setting with its value, whether the owner has confirmed it (provisional),
+     * the owner decision it implements and when it changed; the document types' review and approval rules; the VAT codes.
+     * Read-only: settings change with bin/settings.php --admin on the server, document rules by migration and
+     * bin/document_rules.php --admin (I57), VAT codes by migration.
+     */
+    public function settings(Context $ctx): HtmlResponse
+    {
+        $rules = [];
+        foreach ($ctx->db->all('SELECT * FROM document_type') as $r) {
+            $rules[(string) $r['code']] = [
+                'code' => (string) $r['code'], 'name' => (string) $r['name'],
+                'review' => match ($r['review_rule']) {
+                    'all' => 'every document',
+                    'over_limit' => 'above ' . (int) $r['review_limit_units'] . ' units',
+                    default => 'none',
+                },
+                'due_days' => (int) $r['review_due_days'],
+                'approval' => match ($r['approval_rule']) {
+                    'none' => 'none',
+                    'positive_without_supplier_doc' => 'positive units without a supplier document above ' . (int) $r['approval_limit_units'],
+                    'over_value' => 'net value above £' . number_format((int) $r['approval_limit_units']),
+                    default => str_replace('_', ' ', (string) $r['approval_rule']) . ' above ' . (int) $r['approval_limit_units'],
+                },
+                // reject_action (0010, I49): 'reverse' (I19) or 'record' (PO: the rejection is recorded, the order stands).
+                'reject' => ($r['reject_action'] ?? 'reverse') === 'record' ? 'recorded only (the document stands)' : 'the document is reversed',
+            ];
+        }
+        uksort($rules, static fn (string $a, string $b): int => array_search($a, self::TYPE_ORDER, true) <=> array_search($b, self::TYPE_ORDER, true));
+        return $ctx->page('settings', [
+            'settings' => $ctx->settings()->all(),
+            'rules' => array_values($rules),
+            'vat' => $ctx->db->all('SELECT code, label, rate_percent, is_active FROM vat_code ORDER BY sort_order, code'),
+        ], 200, ['title' => 'Settings', 'active' => 'settings']);
     }
 
     /** @return list<array<string, mixed>> */

@@ -339,8 +339,10 @@ final class Documents
      * doc.<TYPE>.post for this mechanical undo; the reversal is not reviewed again; a voluntary reversal of it that
      * still waits for approval is cancelled first, I32). The review of a REVERSAL: the rejection is recorded
      * (review_state rejected) and nothing is booked, because a reversal is never reversed (I31): if the original was
-     * right, it is posted again as a new document. An approval: the request is cancelled (cancel_reason = the note).
-     * Returns the document (reversed, rejected or cancelled).
+     * right, it is posted again as a new document. The review of a type whose `reject_action` is 'record' (PO, 0010:
+     * the order may already be with the supplier) likewise only records the rejection: review_state rejected, nothing
+     * reversed, the document stands until its poster cancels or amends it (I49). An approval: the request is cancelled
+     * (cancel_reason = the note). Returns the document (reversed, rejected or cancelled).
      */
     public function reject(Caller $reviewer, int $taskId, string $note): Document
     {
@@ -358,13 +360,16 @@ final class Documents
             if ($task['kind'] === 'review') {
                 $this->checkReviewable($doc);
                 $t = $this->typeRow($doc->docType);
-                if ($doc->isReversal()) {
+                $record = ($t['reject_action'] ?? 'reverse') === 'record';
+                if ($doc->isReversal() || $record) {
                     // I31: a reversal is never reversed. The rejection is recorded on the reversal and nothing is booked; the
-                    // original stays reversed until someone posts it again as a new document.
+                    // original stays reversed until someone posts it again as a new document. A type whose reject_action is
+                    // 'record' (PO, I49) is likewise only marked rejected: its poster cancels or amends it.
                     $this->decideTask($taskId, 'rejected', $me['id'], $note, $now);
                     $db->exec("UPDATE document SET review_state = 'rejected', version = version + 1, updated_at = ? WHERE id = ?", [$now, $doc->id]);
                     Audit::write($db, $reviewer, 'document.reject', 'document', (string) $doc->id, null,
-                        ['task_id' => $taskId, 'kind' => 'review', 'number' => $doc->number, 'note' => $note, 'reverses' => $doc->reversesId, 'booked' => false]);
+                        ['task_id' => $taskId, 'kind' => 'review', 'number' => $doc->number, 'note' => $note]
+                        + ($doc->isReversal() ? ['reverses' => $doc->reversesId] : []) + ['booked' => false] + ($record ? ['recorded' => true] : []));
                     return $this->get($doc->id);
                 }
                 $handler = $this->handlerFor($t);
@@ -810,7 +815,8 @@ final class Documents
         $t = $this->db->one('SELECT subject_type, subject_id FROM review_task WHERE id = ?', [$taskId])
             ?? throw new CwException('unknown_task', 'there is no such review task', 404);
         if ($t['subject_type'] !== 'document') {
-            throw new CwException('subject_not_built', 'supplier activation reviews arrive in Phase I-2', 409);
+            // Supplier tasks (activation, import route, change review) are CW\Suppliers\Suppliers' (I-2, I40).
+            throw new CwException('supplier_task', "supplier approvals are decided on the supplier's page", 409);
         }
         // A reversal's original first (document rows in id order, I21): approving a reversal request writes it too.
         // reverses_id never changes (column grant), so this unlocked read is stable.

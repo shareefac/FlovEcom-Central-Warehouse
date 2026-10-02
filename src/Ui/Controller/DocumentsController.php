@@ -22,12 +22,15 @@ use CW\Ui\UiRequest;
  * A reversal's review can be rejected but never reverses it (I31: the page says so); a reversal that puts stock back on
  * hand above the approval limit is a request until a reviewer approves it (I32).
  *
- * In Phase I-1 no document type is live (I27): the list says so, a document of a type without a handler says which
- * phase brings its screens, and nothing here creates documents (the type screens of I-2 to I-6 will).
+ * A type without a handler says which phase brings its screens (I27); the list names the live types (PO since the I-2
+ * pos task, whose own screens are in Purchasing: a PO's page here links "Open in Purchasing", I53). Nothing here creates
+ * documents (the type screens of I-2 to I-6 do).
  */
 final class DocumentsController
 {
     public const PER_PAGE = 50;
+    /** Reversal reasons that only make sense for a purchase order (0010). */
+    public const PO_REASONS = ['po_amended', 'supplier_cannot_supply', 'not_needed'];
     /** notice key => text. Only these can be shown: a notice never comes from the URL as text. */
     public const NOTICES = [
         'approved' => 'Review approved.',
@@ -36,6 +39,8 @@ final class DocumentsController
         'rejected_reversal' => 'Rejected: the rejection is recorded and nothing was booked, because a reversal is never reversed. '
             . 'The original stays reversed: if it was right, its poster posts it again as a new document.',
         'rejected_approval' => 'Rejected: the request was cancelled; nothing was booked.',
+        'rejected_recorded' => 'Rejected: the rejection is recorded and the document stands (its type records a rejection instead of reversing: '
+            . 'a purchase order may already be with the supplier). Its poster cancels or amends it.',
         'reversed' => 'Reversal posted: the stock of the original document is booked back.',
         'reversal_submitted' => 'Reversal requested: it puts stock back on hand without a supplier document above the limit, so a reviewer '
             . 'approves it before it is posted (nothing is numbered or booked until then).',
@@ -62,6 +67,11 @@ final class DocumentsController
                 $where[] = "{$col} = ?";
                 $params[] = $f[$k];
             }
+        }
+        if (!$ctx->me()->can('purchasing.view')) {
+            // Purchase orders (prices, suppliers) are for people with Purchasing (review finding, I85): warehouse and
+            // stock-control staff see every other document.
+            $where[] = "d.doc_type <> 'PO'";
         }
         if ($f['q'] !== '') {
             $like = '%' . addcslashes($f['q'], '%_\\') . '%';
@@ -123,6 +133,9 @@ final class DocumentsController
         if ($data === null) {
             return $ctx->error(404, 'unknown_document', 'there is no such document');
         }
+        if (($no = self::poRefusal($ctx, $data['doc'])) !== null) {
+            return $no;
+        }
         /** @var Document $doc */
         $doc = $data['doc'];
         $pdf = new PdfWriter("{$data['type']['name']} {$doc->label()}", 'Status: ' . self::statusText($doc)
@@ -174,6 +187,9 @@ final class DocumentsController
         }
         /** @var Document $doc */
         $doc = $data['doc'];
+        if (($no = self::poRefusal($ctx, $doc)) !== null) {
+            return $no;
+        }
         $me = $ctx->me();
         $open = null;
         foreach ($data['tasks'] as $t) {
@@ -187,13 +203,19 @@ final class DocumentsController
             $decide = ['task' => $open, 'refusal' => $no['message'] ?? null];
         }
         $reverse = null;
-        if ($doc->status === 'posted' && !$doc->isReversal() && $data['reversedBy'] === null && $data['handler'] && Documents::mayPost($me->roles, $doc->docType)) {
-            $reverse = ['reasons' => $ctx->db->all(
+        // A PO is cancelled or amended on its own page in Purchasing (I53), not with the generic reversal form.
+        if ($doc->status === 'posted' && !$doc->isReversal() && $data['reversedBy'] === null && $data['handler'] && $doc->docType !== 'PO'
+            && Documents::mayPost($me->roles, $doc->docType)) {
+            // The PO reversal reasons (0010: an amended order, a supplier who cannot supply, not needed) are offered on POs only.
+            $reverse = ['reasons' => array_values(array_filter($ctx->db->all(
                 "SELECT code, label, needs_note FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND system_only = 0 AND is_active = 1 "
                 . 'ORDER BY sort_order, code',
-            )];
+            ), static fn (array $r): bool => $doc->docType === 'PO' || !in_array($r['code'], self::PO_REASONS, true)))];
         }
         return $ctx->page('document', $data + [
+            // A type whose rejected review is only recorded (PO, I49); a PO's own page is in Purchasing (I53).
+            'rejectRecords' => ($data['type']['reject_action'] ?? 'reverse') === 'record',
+            'poHref' => $doc->docType === 'PO' && $data['handler'] && $me->can('purchasing.view') ? '/ui/purchasing/orders/' . ($doc->reversesId ?? $doc->id) : null,
             'decide' => $decide,
             'reverse' => $reverse,
             'statusText' => self::statusText($doc),
@@ -201,6 +223,15 @@ final class DocumentsController
             'errorCode' => $error?->errorCode,
             'waiting' => $open !== null,
         ], $status, ['title' => $doc->label(), 'active' => 'documents', 'notice' => $notice]);
+    }
+
+    /** 403 for a purchase order shown to someone without purchasing.view (I85), else null. */
+    private static function poRefusal(Context $ctx, Document $doc): ?HtmlResponse
+    {
+        if ($doc->docType === 'PO' && !$ctx->me()->can('purchasing.view')) {
+            return $ctx->error(403, 'role_not_allowed', 'purchase orders (their prices and suppliers) are shown to people with access to Purchasing');
+        }
+        return null;
     }
 
     /**

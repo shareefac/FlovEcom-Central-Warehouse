@@ -14,7 +14,10 @@ use CW\Documents\DocumentHandlers;
 use CW\Documents\Documents;
 use CW\Files\FileStore;
 use CW\Mapping\DecisionService;
+use CW\Settings;
 use CW\Staff\SecretBox;
+use CW\Suppliers\SupplierItems;
+use CW\Suppliers\Suppliers;
 
 /**
  * Everything a controller needs for one /ui request: the request, the database, the signed-in
@@ -26,6 +29,9 @@ final class Context
     private ?DecisionService $decisions = null;
     private ?Documents $documents = null;
     private ?FileStore $files = null;
+    private ?Settings $settings = null;
+    private ?Suppliers $suppliers = null;
+    private ?SupplierItems $supplierItems = null;
 
     /**
      * @param array<string, string> $params route parameters
@@ -77,6 +83,24 @@ final class Context
     public function documents(): Documents
     {
         return $this->documents ??= new Documents($this->db, $this->handlers !== null ? ($this->handlers)($this->db) : DocumentHandlers::all($this->db));
+    }
+
+    /** CW's settings (app_setting), read once per request. */
+    public function settings(): Settings
+    {
+        return $this->settings ??= new Settings($this->db);
+    }
+
+    /** Suppliers and their approvals (IM4). */
+    public function suppliers(): Suppliers
+    {
+        return $this->suppliers ??= new Suppliers($this->db, $this->settings());
+    }
+
+    /** Supplier items and prices (IM4). */
+    public function supplierItems(): SupplierItems
+    {
+        return $this->supplierItems ??= new SupplierItems($this->db);
     }
 
     /** The file store app.env names (file_store_dir / CW_FILE_STORE_DIR); 503 file_store_unconfigured without one. */
@@ -134,7 +158,8 @@ final class Context
     /**
      * @return array<string, int> badge name (Permissions::MENU `badge`) => count, for what the person may see:
      *         linking_pending (decisions waiting for a second approval), reviews_open (open review and approval tasks this
-     *         person may decide: not opened by them, not on a document they created, submitted or posted; I19)
+     *         person may decide: not opened by them, not on a document they created, submitted or posted, I19; plus the
+     *         open supplier tasks they may decide: not on a supplier they created, asked for or last changed, I40)
      */
     public function badges(): array
     {
@@ -142,8 +167,10 @@ final class Context
         if ($this->who !== null && $this->who->can('linking.view')) {
             $out['linking_pending'] = $this->queries()->pendingCount();
         }
-        if ($this->who !== null && $this->who->can('documents.review')) {
-            $out['reviews_open'] = $this->documents()->decidableCount($this->who->id, $this->who->roles);
+        if ($this->who !== null && ($this->who->can('documents.review') || $this->who->can('suppliers.approve'))) {
+            // Documents and suppliers share the review queue (I40): the open supplier tasks this person may decide count too.
+            $out['reviews_open'] = $this->documents()->decidableCount($this->who->id, $this->who->roles)
+                + $this->suppliers()->decidableCount($this->who->id, $this->who->roles);
         }
         return $out;
     }

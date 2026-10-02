@@ -24,7 +24,19 @@ final class FilesController
 {
     public function show(Context $ctx): HtmlResponse
     {
-        $file = $ctx->files()->read($ctx->id());
+        $id = $ctx->id();
+        $me = $ctx->me();
+        // Scoped like the pages that link them (I85): a supplier's evidence needs suppliers.view; a file attached only to
+        // purchase orders (the PDF as sent) needs purchasing.view.
+        $kind = $ctx->db->value('SELECT kind FROM stored_file WHERE id = ?', [$id]);
+        if ($kind === 'supplier_check' && !$me->can('suppliers.view')) {
+            return $ctx->error(403, 'role_not_allowed', 'a supplier\'s evidence is shown to people with access to the suppliers');
+        }
+        if (!$me->can('purchasing.view') && $ctx->db->value("SELECT 1 FROM document_file df JOIN document d ON d.id = df.document_id WHERE df.file_id = ? AND d.doc_type = 'PO' LIMIT 1", [$id]) !== null
+            && $ctx->db->value("SELECT 1 FROM document_file df JOIN document d ON d.id = df.document_id WHERE df.file_id = ? AND d.doc_type <> 'PO' LIMIT 1", [$id]) === null) {
+            return $ctx->error(403, 'role_not_allowed', 'this file belongs to a purchase order: it is shown to people with access to Purchasing');
+        }
+        $file = $ctx->files()->read($id);
         $mime = (string) $file['meta']['mime'];
         return self::download($file['bytes'], $mime, FileStore::downloadName((string) $file['meta']['original_name'], $mime));
     }

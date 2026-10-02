@@ -36,6 +36,26 @@ final class KernelBrowser
         return $this->send('POST', $path, [], $form, $headers + ['content-type' => 'application/x-www-form-urlencoded']);
     }
 
+    /**
+     * A multipart form post with files, built as the UiRequest PHP would hand the kernel (I46): each file is
+     * ['path' => a local file, 'name' => the client's file name] plus optional 'size' (default: the file's) and 'error'
+     * (default UPLOAD_ERR_OK; UPLOAD_ERR_INI_SIZE with path '' is what PHP gives for a file over upload_max_filesize).
+     *
+     * @param array<string, string> $form
+     * @param array<string, array{path: string, name: string, size?: int, error?: int}> $files
+     * @param array<string, string> $headers
+     */
+    public function postMultipart(string $path, array $form, array $files, array $headers = []): UiResponse
+    {
+        $up = [];
+        foreach ($files as $field => $f) {
+            $error = $f['error'] ?? UPLOAD_ERR_OK;
+            $up[$field] = ['path' => $f['path'], 'name' => $f['name'],
+                'size' => $f['size'] ?? ($f['path'] !== '' && is_file($f['path']) ? (int) filesize($f['path']) : 0), 'error' => $error];
+        }
+        return $this->send('POST', $path, [], $form, $headers + ['content-type' => 'multipart/form-data; boundary=----cwkernelbrowser'], $up);
+    }
+
     public function follow(UiResponse $r): UiResponse
     {
         $to = $r->location() ?? throw new \LogicException('not a redirect: ' . $r->describe());
@@ -49,11 +69,12 @@ final class KernelBrowser
      * @param array<string, string> $query
      * @param array<string, string> $post
      * @param array<string, string> $headers
+     * @param array<string, array{path: string, name: string, size: int, error: int}> $files
      */
-    public function send(string $method, string $path, array $query, array $post, array $headers = []): UiResponse
+    public function send(string $method, string $path, array $query, array $post, array $headers = [], array $files = []): UiResponse
     {
         $h = ['host' => $this->host] + array_change_key_case($headers, CASE_LOWER);
-        $res = $this->kernel->handle(new UiRequest($method, $path, $query, $post, $this->cookies, $h, $this->ip, false));
+        $res = $this->kernel->handle(new UiRequest($method, $path, $query, $post, $this->cookies, $h, $this->ip, false, $files));
         $out = [];
         foreach (self::HEADERS as $name) {
             $v = $res->headerValues($name);

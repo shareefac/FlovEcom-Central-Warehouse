@@ -34,7 +34,9 @@ final class UiTemplatesTest extends TestCase
     {
         $names = array_keys(self::templates());
         foreach (['layout', 'login', 'password', 'dashboard', 'queue', 'listing', 'item', 'search', 'pending', 'pending_actions', 'pending_decision', 'error',
-            'home', 'people', 'person', 'documents', 'document', 'reviews', 'reasons', 'series'] as $t) {
+            'home', 'people', 'person', 'documents', 'document', 'reviews', 'reasons', 'series', 'settings', 'suppliers', 'supplier', 'supplier_form',
+            'supplier_items', 'supplier_item', 'supplier_item_form', 'purchase_orders', 'purchase_order', 'purchase_order_edit', 'reorder', 'reorder_item',
+            'reorder_brands', 'reorder_anomalies', 'sales_history'] as $t) {
             self::assertContains($t . '.php', $names);
         }
         self::assertSame([], array_filter($names, static fn (string $n): bool => preg_match('/^[a-z][a-z_]*\.php$/', $n) !== 1), 'names View::render accepts');
@@ -96,6 +98,11 @@ final class UiTemplatesTest extends TestCase
         foreach (self::templates() as $name => $src) {
             preg_match_all('#<form\b([^>]*)>(.*?)</form>#is', $src, $forms, PREG_SET_ORDER);
             foreach ($forms as $f) {
+                if (preg_match('/type="file"/i', $f[2]) === 1) {
+                    // An upload (I-2): a multipart POST, else the browser sends the file name only.
+                    self::assertMatchesRegularExpression('/method="post"/i', $f[1], "{$name}: a file upload is a POST");
+                    self::assertMatchesRegularExpression('#enctype="multipart/form-data"#i', $f[1], "{$name}: a form with a file field must be multipart");
+                }
                 if (preg_match('/method="post"/i', $f[1]) === 1) {
                     $posts++;
                     self::assertMatchesRegularExpression('#<input type="hidden" name="csrf" value="<\?= \$e\(\$csrf\) \?>">#', $f[2], "{$name}: a POST form without the csrf field");
@@ -133,8 +140,11 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<span class="menu-label">Purchasing</span>', $nav);
         self::assertStringContainsString('<a href="/ui/review?queue=Key" aria-current="page">Review</a>', $nav);
         self::assertStringContainsString('<a href="/ui/review?queue=pending">Second approval <span class="badge">3</span></a>', $nav);
-        self::assertSame(3, substr_count($nav, '&middot; coming in Phase I-2</span>'));
-        self::assertStringContainsString('<span class="soon">Suppliers &middot; coming in Phase I-2</span>', $nav);
+        self::assertSame(0, substr_count($nav, '&middot; coming in Phase I-2</span>'), 'every Phase I-2 item is live since the reorder task');
+        self::assertStringContainsString('<a href="/ui/purchasing/suppliers">Suppliers</a>', $nav, 'live since the I-2 suppliers task');
+        self::assertStringContainsString('<a href="/ui/purchasing/orders">Purchase orders</a>', $nav, 'live since the I-2 pos task');
+        self::assertStringContainsString('<a href="/ui/purchasing/reorder">Reorder list</a>', $nav, 'live since the I-2 reorder task');
+        self::assertStringContainsString('<a href="/ui/purchasing/sales-history">Sales history</a>', $nav, 'live since the I-2 reorder task');
         self::assertDoesNotMatchRegularExpression('#<a [^>]*>[^<]*coming in Phase#', $html, 'a placeholder is never a link');
         self::assertStringNotContainsString('Admin', $nav);
         self::assertStringContainsString('<span class="role">buyer, mapper</span>', $html);

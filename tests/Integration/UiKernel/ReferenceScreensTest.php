@@ -23,19 +23,22 @@ final class ReferenceScreensTest extends KernelUiTestCase
         $reasons = $web->get('/ui/reference/reasons');
         self::assertSame(200, $reasons->status, $reasons->describe());
         $xp = new \DOMXPath($reasons->dom());
-        self::assertSame(22, $xp->query('//table[@class="reasons"]/tbody/tr')->length);
+        self::assertSame(25, $xp->query('//table[@class="reasons"]/tbody/tr')->length, '22 of 0008 and the 3 PO reversal reasons of 0010');
         self::assertStringContainsString('Free gift (not vaping/nicotine products from 29 Oct 2026)', $reasons->text());
-        self::assertSame('review_rejected', trim((string) $xp->query('//table[@class="reasons"]/tbody/tr[21]/th')->item(0)?->textContent));
+        self::assertStringContainsString('Replaced by an amended order', $reasons->text());
+        self::assertSame('review_rejected', trim((string) $xp->query('//table[@class="reasons"]/tbody/tr[24]/th')->item(0)?->textContent));
         self::assertContains('/ui/reference/reasons.csv', $reasons->hrefs());
-        self::assertSame([['label' => 'Reason codes', 'href' => '/ui/reference/reasons'], ['label' => 'Number series', 'href' => '/ui/reference/series']],
-            self::nav($reasons)['Reference']);
+        self::assertSame([['label' => 'Reason codes', 'href' => '/ui/reference/reasons'], ['label' => 'Number series', 'href' => '/ui/reference/series'],
+            ['label' => 'Settings', 'href' => '/ui/reference/settings']], self::nav($reasons)['Reference'], 'Settings since the I-2 suppliers task');
 
         $series = $web->get('/ui/reference/series');
         self::assertSame(200, $series->status);
         self::assertSame(['PO-000001', 'GRN-000001', 'SINV-000001', 'DN-000001', 'CNT-000001', 'ADJ-000001', 'WO-000001', 'TRD-000001'], self::column($series, 4));
         self::assertSame(array_fill(0, 8, 'none yet'), self::column($series, 3));
-        self::assertSame('coming in Phase I-2', self::column($series, 8)[0]);
+        self::assertSame('live', self::column($series, 8)[0], 'PO since the I-2 pos task');
+        self::assertSame('coming in Phase I-3', self::column($series, 8)[1]);
         self::assertSame('live', self::column($series, 8)[5], 'the fixture ADJ type of the tests');
+        self::assertSame(['every document', 'net value above £10,000'], [self::column($series, 5)[0], self::column($series, 6)[0]]);
         self::assertSame('positive units without a supplier document above 10', self::column($series, 6)[5]);
         self::assertSame('above 10 units', self::column($series, 5)[4]);
 
@@ -63,7 +66,7 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertContains('sandbox', $csv->headerValues('content-security-policy'));
         self::assertStringStartsWith("\xEF\xBB\xBF\"code\",\"label\",", $csv->body);
         self::assertSame(1, substr_count($csv->body, "\xEF\xBB\xBF"));
-        self::assertSame(23, substr_count($csv->body, "\r\n"), 'header + 22 codes, CRLF');
+        self::assertSame(26, substr_count($csv->body, "\r\n"), 'header + 25 codes (0008, 0010), CRLF');
         self::assertStringContainsString("\"damaged\",\"Damaged\",\"adjustment, write_off, return, supplier_return\",\"decrease\",\"no\",\"no\",\"no\",\"yes\",10\r\n", $csv->body);
 
         $people = $web->get('/ui/people');

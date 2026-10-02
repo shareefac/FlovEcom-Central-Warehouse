@@ -258,6 +258,33 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
 | `tests/Support/Documents/FixtureAdjustmentHandler.php` | a TEST-ONLY ADJ type (one signed adjustment per line): `KernelUiTestCase::kernel()` and the document tests register it; production registers none (I27) |
 | `tests/Support/Documents/{FixtureDocuments,DocWorkerPool}.php`, `tests/Support/doc_worker.php` | posted document rows for tests that book with fixed document ids; parallel workers (≤ 12) for the number-series and posting races |
 | `tests/Integration/Documents/`, `tests/Integration/Files/`, `tests/Integration/UiKernel/{ReviewScreens,ReferenceScreens,Downloads}Test.php`, `Migration0008Test` | the document base (lifecycle, review rules, invariants, races), the file store and its tools (temp directories via `CW_FILE_STORE_DIR`), the screens and downloads |
+| `migrations/0009_suppliers.sql` | Phase I-2 suppliers task: `app_setting` (12 typed settings, read-only for cw_app), `vat_code` (6, read-only), `supplier` (no bank columns), `supplier_item` (pack, MOQ, preferred: generated `preferred_sku_id` + UNIQUE, last price), `supplier_item_price` (append-only history), `import_run` (ERPNext seed files) (I38–I47) |
+| `src/Settings.php`, `bin/settings.php` | typed settings (`get`, `company`, `all`, `parse`, `RULES`, `set`); the CLI lists them (app login) and changes one with `--admin` only (audit `setting.change`) (I38) |
+| `src/Suppliers/Suppliers.php` | the supplier record, its state machine (draft → pending_approval → active → inactive), the blocking activation / import-route approvals and the non-blocking change review (`review_task` subject `supplier`), `refusal()` (who may decide), `decidableCount()` (badge), `missing()` (completeness), `checkOverseas()` (a non-GB supplier is overseas); every route / overseas change of an active supplier is a blocking approval (I40, I42, I72) |
+| `src/Suppliers/SupplierItems.php` | supplier items (pack → central units, MOQ, multiple, lead, preferred; `is_preferred = 'auto'` on create: I75), manual and import prices, the last-price rule (per pack size: I74), integer half-up unit prices (I43, I44) |
+| `src/Suppliers/SupplierInvariants.php` | S1–S5, called by `Invariants::check` (I42) |
+| `src/Suppliers/ErpSeedImport.php`, `bin/import_erp_suppliers.php` | the ERPNext supplier / supplier-item seed from CSV exports of the BACKUP copy: one `import_run` per file, savepoint per row, dry run, report CSV (I45; formats in `docs/ops.md`) |
+| `src/Output/CsvReader.php` | reading people's CSV: gzip, BOM, Windows-1252 fallback, delimiter detection, normalised headers, row/byte caps (I45) |
+| `src/Ui/FormOnce.php` | one effect per creating form: `form_key` → `Idempotency::run` under `ui:<staff id>:<form_key>` (I46) |
+| `src/Ui/Controller/{Suppliers,SupplierItems}Controller.php`, `views/{suppliers,supplier,supplier_form,supplier_items,supplier_item,supplier_item_form,settings}.php` | `/ui/purchasing/suppliers…`, `/ui/purchasing/supplier-items/{id}…`, `/ui/reference/settings`; supplier tasks in `/ui/documents/reviews`; the Suppliers panel of `/ui/items/{id}` (I40, I46) |
+| `tests/Integration/Suppliers/`, `tests/Integration/UiKernel/SupplierScreensTest.php`, `Migration0009Test`, `SettingsTest`, `tests/Unit/{CsvReader,SettingsParse}Test.php` | suppliers (lifecycle, items, invariants, ERP import end to end through the CLI, races with `supplier_worker.php`: two processes, one connection each), the screens, the schema, settings and the CSV reader |
+| `migrations/0010_purchase_orders.sql` | Phase I-2 pos task: the PO `document_type` row (review `all` due 7, approval `over_value` 10000 whole GBP, `reject_action` `record`), `document_type.reject_action`, 3 PO reversal reasons, `po.*` settings, `purchase_order` (header extension: supplier, state after approval, totals, company + supplier snapshots, sent / closed), `po_line` (line extension, cascades with its draft line), `po_posting` (write-once anchor of the approved content) (I48–I59) |
+| `src/PurchaseOrders/PurchaseOrderHandler.php` | the PO `DocumentHandler` (registered in `DocumentHandlers::all`): validate (active supplier FOR SHARE, approved import route and no open route approval (I72), sellable warehouse, the line formulas, VAT codes), approvalUnits = ceil(net), post (totals, snapshots, `po_posting`, `po` price history, `last_po_*`), reverse (refused with receipts; puts `last_po_*` back to the newest standing PO: I81); no stock (I50) |
+| `src/PurchaseOrders/PurchaseOrders.php` | the PO service: createDraft, saveDraft, addLine (scan resolution), addSupplierItem, importLines, approve, markSent (PDF archived when a file store is given; `sendWarnings` need acknowledging: I86), cancel, withdraw, amend, copy, close, openLines / applyReceipt / reverseReceipt (for I-3), onOrder / inDrafts (for the reorder list), warnings, pdfData, exportRows (I52) |
+| `src/PurchaseOrders/{PoMath,PurchaseInvariants,PoLinesFile,PurchaseOrderPdf,ErpOpenPoImport}.php` | integer money (half-up line amount, 6-decimal unit cost, per-line VAT, ceil approval units: I51); P1–P6 (called by `Invariants::check`); the lines file (CSV / XLSX export, all-or-nothing import rules: I58); the PO PDF on `Fpdf` (letterhead, banners, repeated table header: I52); the ERPNext open-PO import (I56) |
+| `src/Output/{XlsxWriter,XlsxReader}.php` | XLSX through openspout ^4.32 (MIT): text cells always `StringCell` (never a formula), the reader's zip-bomb guard (16 MiB a part), the streaming 1,000-cells-a-row pre-scan and row / column caps (I58, I83); `Fpdf` takes an optional footer text |
+| `bin/document_rules.php`, `bin/import_erp_open_pos.php` | document_type rule changes (`--admin`, audited `document_type.change`: I57); the ERPNext open-PO import (I56); both in `docs/ops.md` |
+| `src/Ui/Controller/PurchaseOrdersController.php`, `views/{purchase_orders,purchase_order,purchase_order_edit}.php` | `/ui/purchasing/orders…`: list + CSV + new-order form, the one-form editor (version / line_count / lines_editable first; editable while `editorFields()` < max_input_vars; "Save and approve" in the same form: I73, I87), the order's view with its actions and the decide box, lines CSV / XLSX, the PDF; `UiRequest::fieldsMatching` reads the editor's rows (I53) |
+| `tests/Integration/PurchaseOrders/`, `tests/Integration/UiKernel/PurchaseOrderScreensTest.php`, `Migration0010Test`, `DocumentRulesCliTest`, `tests/Unit/{PoMath,PoLinesFile,XlsxRoundTrip,PurchaseOrderPdf}Test.php` | POs: lifecycle, the receipt API, invariants P1–P6, races (`po_worker.php`: two processes), the ERPNext open-PO import end to end through the CLI (synthetic files), the screens, the schema, the rules CLI, money, the lines file, XLSX and the PDF |
+| `migrations/0011_reorder.sql` | Phase I-2 reorder task: `sales_import_batch` (one per loaded export: files, sha256, range, unknown / unlinked counts; never deleted), `sales_history_day` (daily sales per site variant, mapped to items at read time), `channel_snapshot_day`, `listing_stock_day` (unsellable days), `listing_stock_latest` (the site's last snapshot), `item_reorder`, `reorder_brand`, `demand_anomaly` (seeded 14–22 Sep 2026; never deleted), `reorder_demand`, the 14 `reorder.*` settings (I60–I71) |
+| `tools/sales_history/export.php` | the read-only sales export from the live sites, run on the Vape and Go box (standalone `mysqli`, no CW code): V1/O1/O2/S1–S3, READ ONLY per 7-day slice, the EXPLAIN gate (exit 3), the Threads_running guard, files only under `CW_SALES_EXPORT_ROOT`; stock days of every variant sold in the 365 days to `--to` (a lookback pass for shorter windows, tool 1.1) (I60, I76; `docs/ops.md`) |
+| `src/Reorder/SalesHistoryImport.php`, `bin/import_sales_history.php` | loads an export: manifest and sha256 checks, the coverage rules (overlap replaces, gap refused), one transaction per 7-day slice, the mapping report (not `mapped` = unlinked), the latest site stock only when newer, the month and anomaly-uplift report (I61, I77) |
+| `src/Reorder/{DemandMath,PromoDetector}.php` | pure: one listing's demand (exclusions, spike cap, 28/91-day blend, fallbacks; e4 integers) and the promotion days of a brand from revenue per unit (bcmath) (I62, I63) |
+| `src/Reorder/DemandBuilder.php`, `bin/reorder_demand.php` | rebuilds `reorder_demand` (GET_LOCK, chunks of 1,000 items, one write transaction) and an item's day-by-day view; no cron (I62) |
+| `src/Reorder/{ReorderMath,ReorderList,Explain,ReorderSettings,DraftPos}.php` | the reorder line (target, ROP, need, packs), the list (filters, CW or usable site stock with the `site_stock_unreliable` flag, on order / in drafts from `PurchaseOrders`; ROP capped by max stock), the "Why", item / brand settings and anomaly windows, "create draft PO" (one per preferred supplier) (I64–I67) |
+| `src/Purchasing.php` `stockOf()` | CW's sellable stock of an arbitrary set of items (the reorder list) |
+| `src/Ui/Controller/{Reorder,SalesHistory}Controller.php`, `views/{reorder,reorder_item,reorder_brands,reorder_anomalies,sales_history}.php` | `/ui/purchasing/reorder…` (list, CSV, draft — lines already in drafts not pre-ticked —, recalculate up to `UI_REBUILD_MAX_ITEMS` linked items, item, brands, anomalies; I79, I84) and `/ui/purchasing/sales-history` (+ `unlinked.csv`); live menu items (I68) |
+| `tests/Integration/Reorder/`, `tests/Integration/UiKernel/{ReorderScreens,SalesHistoryScreen}Test.php`, `Migration0011Test`, `tests/Unit/{DemandMath,PromoDetector,ReorderMath,Explain}Test.php` | the export against a fake site schema (`cw_test_<slot>_site`), the import through the CLI, the demand build, the list against real POs, the drafts, the screens; `ReorderFixtures` (trait) / `ReorderTestCase`; opt-in: `RealDataRehearsalTest` (`CW_REHEARSAL_DIR`), `DemandBuilderTest::testTheBuildAtScale` (`CW_REORDER_PERF=1`) |
 
 Document and file tests notes:
 - `TestDb::clean()` keeps the seeded `reason_code` and `document_type` rows (a test that changes one restores it) and sets
@@ -271,6 +298,44 @@ Document and file tests notes:
 - File store tests use a temporary root (`sys_get_temp_dir()`), never a directory inside the repo (refused) and never
   `/srv/cw-docs`; the screens find it through `CW_FILE_STORE_DIR` (`putenv` in the test), the CLI tools through the
   process environment.
+- `*.csv` is git-ignored (`.gitignore`): tests write their CSV (and gzip, jsonl.gz) fixtures to temporary files
+  (`sys_get_temp_dir()`), never into the repo (`CsvReaderTest`, `ErpSupplierImportTest`).
+- `TestDb::SEED_TABLES` also keeps `app_setting` and `vat_code` (0009): a test that changes a setting does it with the admin
+  connection and restores it (`SettingsTest` saves and restores every row; the app login cannot write them).
+- Uploads in screen tests: `KernelBrowser::postMultipart($path, $form, ['file' => ['path' => <local file>, 'name' => <client
+  name>]])` builds the `UiRequest` PHP would hand the kernel (optional `size`, `error`: `UPLOAD_ERR_INI_SIZE` with path `''`
+  is a file over `upload_max_filesize`); a body over `post_max_size` arrives with no fields at all: `send('POST', $path, [],
+  [], ['content-length' => '3145728'])` (413). The evidence upload stores through `CW_FILE_STORE_DIR` (a temp directory); a
+  missing directory gives the 503 the staging UI shows until `install_file_store.sh` runs.
+- A creating form carries `form_key` (`FormOnce::newKey()`): screen tests post the same form twice and assert one effect.
+- `Kernel` refuses any POST that arrives with `UiRequest::maxInputVars()` (PHP's `max_input_vars`, 1,000) fields: 400
+  `form_truncated` (PHP silently drops the rest; I73). A big form sizes itself below it (`PurchaseOrdersController::editorFields`);
+  `KernelBrowser` builds the request directly, so a test simulates truncation by posting that many fields.
+- `markSent` refuses while `sendWarnings()` lists anything (today's seed has `company.confirmed` false): service tests pass
+  `$acknowledged = true`, screen tests post `send_anyway=1` (I86). The PO editor approves through its own form
+  (`action=approve` posted to `/lines`), not `/approve` (I87).
+- `KernelUiTestCase::kernel()` registers the production handlers (`DocumentHandlers::all`: PO since the I-2 pos task) plus the
+  test-only ADJ fixture; `DocumentTestCase` still registers ADJ only (so `type_not_built` is tested with GRN there). A test that
+  needs another type's row changed (`reject_action = 'record'` on ADJ in `ReviewRulesTest`) changes it with the admin
+  connection and restores it (`document_type` is a seed table).
+- **The staging box has a file store now** (`/srv/cw-docs`, named by app.env `file_store_dir`; observed 2 Oct 2026): a screen
+  test that stores files (the PO "Mark as sent", evidence uploads) MUST point `CW_FILE_STORE_DIR` at a temporary directory
+  (`putenv` in setUp, restored in tearDown), or it writes into the real store, whose shards are append-only. Service tests
+  build `PurchaseOrders` without a file store (`$files` null: the PDF is not archived).
+- PO tests (`tests/Integration/PurchaseOrders/PurchaseOrderTestCase`): suppliers made active by a second person through
+  `SupplierTestCase`, `approvedPo()`, `draftPo()`; receipts are applied inside `self::$db->transaction(...)` (they refuse to run
+  outside one). Lines files and open-PO CSVs are written to temporary directories (`*.csv` is git-ignored).
+- Reorder tests (`tests/Integration/Reorder/ReorderFixtures`, used by `ReorderTestCase` and the screen tests): sales history is
+  written straight into the tables (`history()`: one loaded batch and its rows) or as export files in a temporary directory
+  (`exportFiles()`: gzip CSV + manifest, as the export tool writes them); `demand_anomaly` is NOT a seed table (the
+  migration's 14–22 Sep row is gone after `TestDb::clean`): a test that needs it calls `stockpiling()`; settings changed with
+  `setting()` are restored in tearDown. MySQL returns JSON objects in its own key order: compare decoded `detail` objects
+  with `assertEquals`, not `assertSame`.
+- `SalesExportToolTest` creates `cw_test_<slot>_site` (the live tables' columns and index names, filler rows outside the
+  window and `ANALYZE TABLE` so that the optimizer reads by index as on live) and runs the tool as a subprocess with
+  `CW_EXPORT_DB_*` and `CW_SALES_EXPORT_ROOT` set to a temporary directory; it never connects to a real site.
+- Composer: `openspout/openspout` ^4.32 (v4.32.0; needs ext-dom, fileinfo, filter, libxml, xmlreader, zip — all on staging —
+  and no gd) is in `require` (I58).
 - Composer: `setasign/fpdf` is in `require` (install_cron.sh runs `composer --no-dev`). It is pinned to 1.8.2 because
   every later release declares `ext-gd`, which staging lacks (I24): `composer require setasign/fpdf:^1.9` once
   `php8.3-gd` is installed. Change dependencies with `composer require` in a slot (`scripts/remote.sh <slot> 'COMPOSER_ALLOW_SUPERUSER=1

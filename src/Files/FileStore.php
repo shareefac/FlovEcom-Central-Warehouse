@@ -30,15 +30,16 @@ use CW\Db;
  *
  * `stored_file` and `document_file` are append-only for the app login; the storage interface has no delete or
  * overwrite. Configured by app.env `file_store_dir` (env CW_FILE_STORE_DIR); unset: 503 file_store_unconfigured.
- * Browser uploads come with the I-2/I-3 screens (the UI pool's post_max_size is 2M); until then files arrive through
- * bin/store_file.php.
+ * Browser uploads arrive from the I-2 supplier card (kind supplier_check, at most 2 MiB: the UI pool's post_max_size);
+ * other files through bin/store_file.php until the I-3 screens.
  */
 final class FileStore
 {
     public const MAX_BYTES = 26_214_400;
     public const ALLOWED_MIME = ['application/pdf', 'image/jpeg', 'image/png', 'text/csv', 'text/plain',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
-    public const KINDS = ['supplier_invoice', 'delivery_note', 'packing_list', 'photo', 'duty_evidence', 'generated_pdf', 'other'];
+    /** supplier_check (I-2): a supplier's due-diligence or import-route evidence, uploaded on the supplier card (I46). */
+    public const KINDS = ['supplier_invoice', 'delivery_note', 'packing_list', 'photo', 'duty_evidence', 'generated_pdf', 'supplier_check', 'other'];
     /** document_file.role */
     public const ROLES = ['supplier_invoice', 'delivery_note', 'photo', 'evidence', 'generated_pdf'];
     public const RETENTION_YEARS = 7;

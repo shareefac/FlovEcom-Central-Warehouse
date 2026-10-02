@@ -8,7 +8,7 @@ use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 
-/** /ui/items/{id}: who an item is, every listing linked to it (now or before), and its stock. */
+/** /ui/items/{id}: who an item is, every listing linked to it (now or before), its stock and (suppliers.view) who supplies it. */
 final class ItemController
 {
     public function show(Context $ctx): HtmlResponse
@@ -72,6 +72,22 @@ final class ItemController
             }
         }
         $cwp = $sku['origin'] === 'vpg_mint' ? ($q->skus([$id])[$id]['vpg_variant_id'] ?? null) : null;
+        // Who supplies the item (IM4, I-2): shown to the people who may see suppliers.
+        $suppliers = null;
+        if ($ctx->me()->can('suppliers.view')) {
+            $suppliers = array_map(static fn (array $r): array => [
+                'id' => (int) $r['id'], 'supplier_id' => (int) $r['supplier_id'], 'supplier' => (string) $r['supplier_code'], 'name' => (string) $r['supplier_name'],
+                'status' => (string) $r['status'], 'code' => self::s($r['supplier_code_item']),
+                'pack' => SupplierItemsController::pack((string) $r['purchase_unit'], (int) $r['units_per_pack']),
+                'preferred' => (int) $r['is_preferred'] === 1 && (int) $r['is_active'] === 1, 'active' => (int) $r['is_active'] === 1,
+                'price' => SupplierItemsController::gbp($r['last_pack_price']), 'price_on' => self::s($r['last_price_on']),
+            ], $ctx->db->all(
+                'SELECT i.id, i.supplier_id, s.code AS supplier_code, s.name AS supplier_name, s.status, i.supplier_code AS supplier_code_item, i.purchase_unit, '
+                . 'i.units_per_pack, i.is_preferred, i.is_active, i.last_pack_price, i.last_price_on FROM supplier_item i JOIN supplier s ON s.id = i.supplier_id '
+                . 'WHERE i.sku_id = ? ORDER BY i.is_active DESC, i.is_preferred DESC, s.name, i.units_per_pack',
+                [$id],
+            ));
+        }
         return $ctx->page('item', [
             'sku' => [
                 'id' => $id, 'code' => self::s($sku['code']), 'name' => self::s($sku['name']), 'brand' => self::s($sku['brand']),
@@ -88,6 +104,7 @@ final class ItemController
             'stock' => $stock,
             'totals' => $totals,
             'ledger' => $ledger,
+            'suppliers' => $suppliers,
         ], 200, ['title' => (string) $sku['code'], 'active' => 'search']);
     }
 

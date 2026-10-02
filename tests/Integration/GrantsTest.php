@@ -6,6 +6,7 @@ namespace CW\Tests\Integration;
 
 use CW\Caller;
 use CW\Db;
+use CW\Documents\DocumentHandlers;
 use CW\Documents\Documents;
 use CW\Files\FileStore;
 use CW\Files\LocalFileStorage;
@@ -14,10 +15,18 @@ use CW\Mapping\DecisionService;
 use CW\Mapping\ListingIngestService;
 use CW\Mapping\Proposals;
 use CW\Movements;
+use CW\PurchaseOrders\PurchaseOrders;
+use CW\Reorder\DemandBuilder;
+use CW\Reorder\DraftPos;
+use CW\Reorder\ReorderList;
+use CW\Reorder\ReorderSettings;
+use CW\Reorder\SalesHistoryImport;
 use CW\Reservations;
 use CW\Schema\Grants;
 use CW\Staff\StaffAdmin;
 use CW\Staff\StaffRoles;
+use CW\Suppliers\SupplierItems;
+use CW\Suppliers\Suppliers;
 use CW\Tests\Support\Documents\FixtureAdjustmentHandler;
 use CW\Tests\Support\Documents\FixtureDocuments;
 use CW\Tests\Support\IntegrationTestCase;
@@ -106,6 +115,38 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame([], Grants::desiredColumns('stored_file'));
         self::assertSame([], Grants::desiredColumns('document_file'));
         self::assertSame(Grants::FULL, Grants::desired('document_line'));
+        // 0009 (I38-I47): settings and VAT codes are read-only; suppliers, supplier items and import runs are never deleted; the
+        // price history is append-only.
+        foreach (['app_setting', 'vat_code'] as $t) {
+            self::assertSame(['Select'], Grants::desired($t), $t);
+            self::assertContains($t, Grants::READ_ONLY);
+        }
+        foreach (['supplier', 'supplier_item', 'import_run'] as $t) {
+            self::assertSame(['Select', 'Insert', 'Update'], Grants::desired($t), $t);
+            self::assertContains($t, Grants::NO_DELETE);
+        }
+        self::assertSame(['Select', 'Insert'], Grants::desired('supplier_item_price'));
+        self::assertSame([], Grants::desiredColumns('supplier_item_price'));
+        self::assertContains('supplier_item_price', Grants::APPEND_ONLY);
+        // 0010 (I48-I59): a PO header is never deleted (cancelled instead), the posting anchor is write-once, a draft's
+        // po_line rows are replaced with their document lines (FULL).
+        self::assertSame(['Select', 'Insert', 'Update'], Grants::desired('purchase_order'));
+        self::assertContains('purchase_order', Grants::NO_DELETE);
+        self::assertSame(['Select', 'Insert'], Grants::desired('po_posting'));
+        self::assertSame([], Grants::desiredColumns('po_posting'));
+        self::assertContains('po_posting', Grants::APPEND_ONLY);
+        self::assertSame(Grants::FULL, Grants::desired('po_line'));
+        // 0011 (I60-I71): an import batch and an anomaly window are never deleted (a later batch replaces the days, a window is
+        // ended); the history, the snapshot and stock days, the site's latest stock, the reorder settings and the demand are
+        // replaced (FULL: an import deletes its days before inserting them, the demand is rebuilt).
+        foreach (['sales_import_batch', 'demand_anomaly'] as $t) {
+            self::assertSame(['Select', 'Insert', 'Update'], Grants::desired($t), $t);
+            self::assertContains($t, Grants::NO_DELETE);
+            self::assertSame([], Grants::desiredColumns($t), $t);
+        }
+        foreach (['sales_history_day', 'channel_snapshot_day', 'listing_stock_day', 'listing_stock_latest', 'item_reorder', 'reorder_brand', 'reorder_demand'] as $t) {
+            self::assertSame(Grants::FULL, Grants::desired($t), $t);
+        }
     }
 
     public function testApplyConvergesAndTheAppLoginIsLimited(): void
@@ -365,7 +406,7 @@ final class GrantsTest extends IntegrationTestCase
     {
         Grants::apply(self::$db, TestDb::name(), self::$user);
         $app = $this->appSession();
-        self::assertSame(22, (int) $app->value('SELECT COUNT(*) FROM reason_code'));
+        self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM reason_code'), (int) $app->value('SELECT COUNT(*) FROM reason_code'), 'the app login reads them all');
         self::assertSame(8, (int) $app->value('SELECT COUNT(*) FROM document_type'));
         foreach ([
             "INSERT INTO reason_code (code, label, applies_to) VALUES ('xx', 'x', 'adjustment')", "UPDATE reason_code SET label = 'x'", 'DELETE FROM reason_code',
@@ -431,6 +472,177 @@ final class GrantsTest extends IntegrationTestCase
             exec('rm -rf ' . escapeshellarg($dir));
         }
         self::assertSame([], Invariants::check(self::$db));
+    }
+
+    /**
+     * 0009 as the app login (I38-I47): the supplier flow (create, complete, request, a second person approves, an item, a
+     * manual price, the preferred supply, an import-route change and its approval, deactivation) runs with exactly these
+     * rights, locking reads included; settings and VAT codes cannot be written; suppliers, items, prices and import runs are
+     * never deleted and a price is never rewritten.
+     */
+    public function testTheSupplierTablesAsTheAppLogin(): void
+    {
+        Grants::apply(self::$db, TestDb::name(), self::$user);
+        $app = $this->appSession();
+        $buyer = Caller::staff($this->staffWith('buyer'));
+        $reviewer = Caller::staff($this->staffWith('reviewer'));
+        $sup = new Suppliers($app);
+        $s = $sup->create($buyer, ['name' => 'App Login Supplier', 'address_line1' => '1 Road', 'postcode' => 'LS1 1AA', 'email' => 'o@app.example',
+            'payment_terms' => '30 days', 'dd_checked_on' => gmdate('Y-m-d', time() - 5 * 86400), 'dd_checked_by' => (string) $buyer->staffUserId,
+            'dd_next_review_on' => gmdate('Y-m-d', time() + 300 * 86400), 'is_overseas' => '1', 'import_route' => 'Stamped in Kent']);
+        $s = $sup->requestActivation($buyer, (int) $s['id'], (int) $s['version']);
+        $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND state = 'open'");
+        $s = $sup->approve($reviewer, $task, 'checked');
+        self::assertSame(['active', $reviewer->staffUserId, $reviewer->staffUserId], [$s['status'], (int) $s['approved_by'], (int) $s['import_route_approved_by']]);
+        $items = new SupplierItems($app);
+        $i = $items->create($buyer, (int) $s['id'], self::makeSku('App item'), ['units_per_pack' => '24', 'is_preferred' => '1'], ['pack_price' => '12.00']);
+        $i = $items->recordPrice($buyer, (int) $i['id'], '11.50', null, 'new list');
+        $i = $items->update($buyer, (int) $i['id'], (int) $i['version'], ['moq_packs' => '2']);
+        $items->setPreferred($buyer, (int) $i['id'], false);
+        $s = $sup->update($buyer, (int) $s['id'], (int) $s['version'], ['import_route' => 'Stamped in Essex']);
+        $route = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND state = 'open' AND reason = 'import_route'");
+        $s = $sup->approve($reviewer, $route, null);
+        $s = $sup->deactivate($buyer, (int) $s['id'], (int) $s['version'], 'test over');
+        self::assertSame('inactive', $s['status']);
+        self::assertSame(['11.5000', 'manual'], [$i['last_pack_price'], $i['last_price_source']]);
+        foreach ([
+            'DELETE FROM supplier', 'DELETE FROM supplier_item', 'DELETE FROM import_run', 'DELETE FROM supplier_item_price',
+            'UPDATE supplier_item_price SET pack_price = 0', 'UPDATE supplier_item_price SET source = \'po\'',
+            "UPDATE app_setting SET description = 'x'", 'DELETE FROM app_setting', "UPDATE vat_code SET label = 'x'", 'DELETE FROM vat_code',
+        ] as $sql) {
+            self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+        }
+        $app->pdo()->beginTransaction();
+        self::assertNull($app->one('SELECT id FROM supplier WHERE id = 0 FOR UPDATE'));
+        self::assertNull($app->one('SELECT id FROM supplier_item WHERE id = 0 FOR UPDATE'));
+        $app->pdo()->rollBack();
+        self::assertSame([], Invariants::check(self::$db));
+    }
+
+    /**
+     * 0010 as the app login (I48-I59): a PO drafted (with save_item), approved (the po_posting anchor, the po price history,
+     * last_po_*), sent, cancelled, amended and its review rejected (recorded) with exactly these rights, locking reads
+     * included; purchase_order rows are never deleted and an anchor is never rewritten.
+     */
+    public function testThePurchaseOrderFlowAsTheAppLogin(): void
+    {
+        Grants::apply(self::$db, TestDb::name(), self::$user);
+        $app = $this->appSession();
+        $buyer = Caller::staff($this->staffWith('buyer'));
+        $reviewer = Caller::staff($this->staffWith('reviewer'));
+        $sup = new Suppliers($app);
+        $s = $sup->create($buyer, ['name' => 'PO App Supplier', 'address_line1' => '1 Road', 'postcode' => 'LS1 1AA', 'email' => 'o@po.example',
+            'payment_terms' => '30 days', 'dd_checked_on' => gmdate('Y-m-d', time() - 5 * 86400), 'dd_checked_by' => (string) $buyer->staffUserId,
+            'dd_next_review_on' => gmdate('Y-m-d', time() + 300 * 86400)]);
+        $s = $sup->requestActivation($buyer, (int) $s['id'], (int) $s['version']);
+        $sup->approve($reviewer, (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND state = 'open'"), null);
+        $docs = new Documents($app, DocumentHandlers::all($app));
+        $pos = new PurchaseOrders($app, $docs);
+        $sku = self::makeSku('PO app item');
+        $d = $pos->createDraft($buyer, (int) $s['id'], ['external_ref' => 'Q-1']);
+        $d = $pos->saveDraft($buyer, $d->id, $d->version, [], [['sku_id' => $sku, 'units_per_pack' => 12, 'packs' => 2, 'pack_price' => '24.00', 'supplier_code' => 'APP-12',
+            'save_item' => true], ['kind' => 'charge', 'description' => 'Delivery', 'pack_price' => '5.00']]);
+        $r = $pos->addLine($buyer, $d->id, $d->version, 'app-12');
+        self::assertSame('incremented', $r['status']);
+        $p = $pos->approve($buyer, $d->id, $r['document']->version);
+        self::assertSame(['posted', 'PO-000001'], [$p->status, $p->number]);
+        $p = $pos->markSent($buyer, $p->id, $p->version, 'email', 'o@po.example', true);
+        self::assertSame('sent', self::$db->value('SELECT state FROM purchase_order WHERE document_id = ?', [$p->id]));
+        self::assertSame('po', self::$db->value("SELECT source FROM supplier_item_price WHERE document_id = ?", [$p->id]));
+        $docs->reject($reviewer, (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'document' AND subject_id = ? AND state = 'open'", [$p->id]),
+            'price check');
+        $new = $pos->amend($buyer, $p->id, 'po_amended', null);
+        self::assertSame('draft', $new->status);
+        self::assertSame([], $pos->openLines($p->id), 'a cancelled order expects nothing');
+        foreach (['DELETE FROM purchase_order', 'DELETE FROM po_posting', 'UPDATE po_posting SET content_hash = REPEAT(\'0\', 64)', "UPDATE po_posting SET content = '{}'"] as $sql) {
+            self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+        }
+        $app->pdo()->beginTransaction();
+        self::assertNull($app->one('SELECT document_id FROM purchase_order WHERE document_id = 0 FOR UPDATE'));
+        $app->pdo()->rollBack();
+        self::assertSame([], Invariants::check(self::$db));
+    }
+
+    /**
+     * 0011 as the app login (I60-I71): a sales-history import and its overlapping successor (the days replaced), the demand
+     * build (its named lock, DELETE + INSERT), item and brand settings, an anomaly window added and ended, the reorder list and
+     * "create draft PO", with exactly these rights, locking reads included; import batches and windows are never deleted.
+     */
+    public function testTheReorderFlowAsTheAppLogin(): void
+    {
+        Grants::apply(self::$db, TestDb::name(), self::$user);
+        $app = $this->appSession();
+        $buyer = Caller::staff($this->staffWith('buyer'));
+        $reviewer = Caller::staff($this->staffWith('reviewer'));
+        $channel = self::makeChannel('vapeandgo');
+        $sku = self::makeSku('App reorder item');
+        self::$db->exec("UPDATE sku SET brand = 'Elux' WHERE id = ?", [$sku]);
+        self::$db->exec("INSERT INTO channel_listing (channel_id, external_variant_id, sku_id, units_per_item, status) VALUES (?, '701', ?, 1, 'mapped')", [$channel, $sku]);
+        $sup = new Suppliers($app);
+        $s = $sup->create($buyer, ['name' => 'Reorder App Supplier', 'address_line1' => '1 Road', 'postcode' => 'LS1 1AA', 'email' => 'o@ra.example',
+            'payment_terms' => '30 days', 'dd_checked_on' => gmdate('Y-m-d', time() - 5 * 86400), 'dd_checked_by' => (string) $buyer->staffUserId,
+            'dd_next_review_on' => gmdate('Y-m-d', time() + 300 * 86400)]);
+        $s = $sup->requestActivation($buyer, (int) $s['id'], (int) $s['version']);
+        $sup->approve($reviewer, (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND state = 'open'"), null);
+        (new SupplierItems($app))->create($buyer, (int) $s['id'], $sku, ['units_per_pack' => '10', 'is_preferred' => '1'], ['pack_price' => '15.00']);
+
+        $dir = sys_get_temp_dir() . '/cw_grants_sales_' . bin2hex(random_bytes(4));
+        mkdir($dir, 0700);
+        try {
+            $import = new SalesHistoryImport($app);
+            $r = $import->import(Caller::system('test'), 'vapeandgo', self::salesExport($dir . '/a', '2026-09-01', '2026-09-30', 4));
+            self::assertSame('loaded', $r['status']);
+            $r = $import->import(Caller::system('test'), 'vapeandgo', self::salesExport($dir . '/b', '2026-09-15', '2026-10-01', 6));
+            self::assertSame(['loaded', 17], [$r['status'], $r['counts']['rows_read']]);
+        } finally {
+            exec('rm -rf ' . escapeshellarg($dir));
+        }
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM listing_stock_latest'));
+        $b = (new DemandBuilder($app))->rebuild();
+        self::assertSame(1, $b['items']);
+        $set = new ReorderSettings($app);
+        $set->saveItem($buyer, $sku, 0, ['safety_days' => '3']);
+        $set->saveBrand($buyer, 'Elux', 0, ['demand_factor' => '0.90']);
+        $a = $set->addAnomaly($buyer, ['date_from' => '2026-09-20', 'date_to' => '2026-09-21', 'label' => 'app window']);
+        $set->endAnomaly($buyer, (int) $a['id']);
+        (new DemandBuilder($app))->rebuild();
+        $docs = new Documents($app, DocumentHandlers::all($app));
+        $pos = new PurchaseOrders($app, $docs);
+        $list = new ReorderList($app, $pos);
+        $line = $list->lines(ReorderList::filters([]))[0] ?? null;
+        self::assertNotNull($line);
+        self::assertSame($sku, $line['sku_id']);
+        $d = (new DraftPos($app, $pos, $list))->create($buyer, [['sku_id' => $sku, 'packs' => (int) $line['packs']]]);
+        self::assertCount(1, $d['drafts']);
+        foreach (['DELETE FROM sales_import_batch', 'DELETE FROM demand_anomaly'] as $sql) {
+            self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+        }
+        $app->pdo()->beginTransaction();
+        foreach (['item_reorder WHERE sku_id = 0', 'reorder_brand WHERE brand = \'x\'', 'demand_anomaly WHERE id = 0', 'sales_import_batch WHERE id = 0',
+            'reorder_demand WHERE sku_id = 0'] as $t) {
+            self::assertSame([], $app->all("SELECT 1 FROM {$t} FOR UPDATE"));
+        }
+        $app->pdo()->rollBack();
+        self::assertSame([], Invariants::check(self::$db));
+    }
+
+    /** A one-variant export (variant 701, $perDay a day) in $dir, as tools/sales_history/export.php writes it; returns the manifest. */
+    private static function salesExport(string $dir, string $from, string $to, int $perDay): string
+    {
+        mkdir($dir, 0700);
+        $name = "vapeandgo_sales_{$from}_{$to}_20261002T050000Z.csv.gz";
+        $csv = "site,variant_id,sale_date,units_online,orders_online,net_online,gross_online,units_office,orders_office\n";
+        for ($t = strtotime($from . ' 00:00:00 UTC'); $t <= strtotime($to . ' 00:00:00 UTC'); $t += 86400) {
+            $csv .= 'vapeandgo,701,' . gmdate('Y-m-d', $t) . ",{$perDay},1,{$perDay}.00,{$perDay}.00,0,0\n";
+        }
+        file_put_contents("{$dir}/{$name}", gzencode($csv));
+        $latest = "vapeandgo_stocklatest_{$to}_20261002T050000Z.csv.gz";
+        file_put_contents("{$dir}/{$latest}", gzencode("site,variant_id,snapshot_date,stock,stock_mode,sellable\nvapeandgo,701,{$to},5,In-Stock,1\n"));
+        $manifest = "{$dir}/vapeandgo_sales_{$from}_{$to}_20261002T050000Z.manifest.json";
+        file_put_contents($manifest, json_encode(['site' => 'vapeandgo', 'source' => 'cps', 'from' => $from, 'to' => $to, 'exported_at' => '2026-10-02T05:00:00Z',
+            'snapshot_days' => [['date' => $to, 'variants' => 1, 'unsellable' => 0]], 'files' => [['name' => $name, 'kind' => 'sales', 'sha256' => hash_file('sha256', "{$dir}/{$name}")],
+                ['name' => $latest, 'kind' => 'latest', 'sha256' => hash_file('sha256', "{$dir}/{$latest}")]]], JSON_THROW_ON_ERROR));
+        return $manifest;
     }
 
     private function staffWith(string $role): int

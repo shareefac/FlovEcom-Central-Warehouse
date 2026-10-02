@@ -78,4 +78,35 @@ final class Purchasing
         }
         return ['items' => $items, 'next_after_sku' => count($rows) === $limit ? end($ids) : null];
     }
+
+    /**
+     * CW's stock of an arbitrary set of items (the reorder list, I-2): per item, summed over SELLABLE warehouses, on_hand,
+     * allocated, held and available = on_hand - allocated - held (which may be negative), as report() reads them. Every id
+     * asked for is a key (zeros when the item has no balance). Ids are read in chunks of 1,000 (ix_stock_balance_sku).
+     *
+     * @param list<int> $skuIds
+     * @return array<int, array{on_hand: int, allocated: int, held: int, available: int}>
+     */
+    public function stockOf(array $skuIds): array
+    {
+        $out = [];
+        $ids = array_values(array_unique(array_map('intval', $skuIds)));
+        foreach ($ids as $id) {
+            $out[$id] = ['on_hand' => 0, 'allocated' => 0, 'held' => 0, 'available' => 0];
+        }
+        foreach (array_chunk($ids, 1000) as $chunk) {
+            foreach ($this->db->all(
+                'SELECT b.sku_id, SUM(b.on_hand) AS on_hand, SUM(b.allocated) AS allocated, SUM(b.held) AS held FROM stock_balance b '
+                . 'JOIN warehouse w ON w.id = b.warehouse_id AND w.is_sellable = 1 WHERE b.sku_id IN (' . implode(', ', array_fill(0, count($chunk), '?')) . ') '
+                . 'GROUP BY b.sku_id',
+                $chunk,
+            ) as $r) {
+                $onHand = (int) $r['on_hand'];
+                $allocated = (int) $r['allocated'];
+                $held = (int) $r['held'];
+                $out[(int) $r['sku_id']] = ['on_hand' => $onHand, 'allocated' => $allocated, 'held' => $held, 'available' => $onHand - $allocated - $held];
+            }
+        }
+        return $out;
+    }
 }

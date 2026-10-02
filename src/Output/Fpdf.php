@@ -5,15 +5,17 @@ declare(strict_types=1);
 namespace CW\Output;
 
 /**
- * FPDF (setasign/fpdf, MIT; I24) with CW's page footer, "Central Warehouse · generated <UTC> · page n/{nb}", and the
- * two measurements PdfWriter needs to repeat a table's header after a page break. Use it through PdfWriter: text
- * given to FPDF must already be Windows-1252 (PdfWriter::text()).
+ * FPDF (setasign/fpdf, MIT; I24) with CW's page footer and the two measurements PdfWriter needs to repeat a table's header
+ * after a page break. The footer is "Central Warehouse · generated <UTC> · page n/{nb}", or, given a footer text (a PO's
+ * "<legal name> · Company no. · VAT no. · <number>", spec §6.7), that text followed by " · page n/{nb}". Use it through
+ * PdfWriter (or PurchaseOrderPdf): text given to FPDF must already be Windows-1252 (PdfWriter::text()).
  */
 final class Fpdf extends \FPDF
 {
     private readonly string $stamp;
 
-    public function __construct()
+    /** @param string|null $footer UTF-8 footer text (null: CW's own footer) */
+    public function __construct(private readonly ?string $footer = null)
     {
         parent::__construct('P', 'mm', 'A4');
         $this->stamp = gmdate('Y-m-d H:i') . ' UTC';
@@ -24,7 +26,8 @@ final class Fpdf extends \FPDF
         $this->SetY(-12);
         $this->SetFont('Helvetica', '', 7);
         $this->SetTextColor(110, 110, 110);
-        $this->Cell(0, 5, PdfWriter::text('Central Warehouse · generated ' . $this->stamp . ' · page ' . $this->PageNo() . '/{nb}'), 0, 0, 'C');
+        $text = $this->footer === null ? 'Central Warehouse · generated ' . $this->stamp : $this->footer;
+        $this->Cell(0, 5, PdfWriter::text($text . ' · page ' . $this->PageNo() . '/{nb}'), 0, 0, 'C');
         $this->SetTextColor(0, 0, 0);
     }
 

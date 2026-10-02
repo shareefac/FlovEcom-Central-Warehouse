@@ -86,6 +86,15 @@ store"). Check afterwards: `SELECT COUNT(*) FROM reason_code` = 22, `document_ty
 number_series` = 0, `document` and `document_posting` empty, and `php bin/invariants.php` says `ok`. The new cron lines
 (seal sweep, nightly `verify_files`) come with the same `install_cron.sh` run and stay idle until the store is installed.
 
+**`0009_suppliers.sql`, `0010_purchase_orders.sql`, `0011_reorder.sql` (Phase I-2; not applied yet):** new tables only, plus
+the PO `document_type` row (review all, due 7, approval over £10,000 net, reject records), 3 PO reversal reasons, 29
+`app_setting` rows (12 + 3 + 14, provisional), 6 VAT codes and the 14–22 Sep 2026 anomaly window. No backfill; nothing
+books stock. Migrate with the I-2 code in one `install_cron.sh --migrate` run (after 0006–0008, or in the same run). Check
+afterwards: `SELECT COUNT(*) FROM app_setting` = 29, `vat_code` = 6, `SELECT approval_rule, approval_limit_units,
+review_rule, reject_action FROM document_type WHERE code = 'PO'` = `over_value, 10000, all, record`, `SELECT COUNT(*) FROM
+demand_anomaly` = 1, `supplier`/`purchase_order`/`sales_history_day` empty, and `php bin/invariants.php` says `ok` (it now
+runs S1–S5 and P1–P6 too). Then the settings (company details) and the sales-history load ("Purchasing, Phase I-2" below).
+
 ### API log rotation (staging)
 
 `install_api.sh` installs `/etc/cw/logrotate-cw-api.conf` (from `deploy/staging/logrotate-cw-api.conf`)
@@ -152,6 +161,12 @@ Last results (2 Oct 2026, staging, slot `i1c0`, 24 workers, seed 20261002, with 
   without a violation; seq order differed from ledger id order 26 times (commit order across warehouses, as designed).
 - `LockOrderTest` (2,000-line goods-in): feed rows written within 66/69/67 ms before and 190/70/47 ms after (median of
   14 runs each: 65 vs 78 ms; one after-run hit 313 ms while the cluster was slow, see I9). Re-measure on a quiet cluster.
+
+Phase I-2 after its review fixes (2 Oct 2026, slot `i2fx`, seed 20261002, 24 workers; the invariants now include S1–S5 and
+P1–P6; decisions I72–I89): `RESULT: PASS (57 checks passed, 0 failed)` in 91 s; 0 deadlocks surfaced or retried; scenario 5:
+1,349 calls (45/s), 1,984 on_hand rows (66/s), 206 seq polls without a gap, 11 live snapshots (slowest check 2.9 s) without a
+violation; scenario 4 alone (`--only=4`, twice): 1,666 and 1,737 operations (**56/s and 58/s**, within 15 % of I-1's 62/s; the
+pos task's 39/s was the cluster that hour, I59).
 
 After the I-1 review fixes (2 Oct 2026, slot `i1fx`, seed 20261002, 24 workers; decisions I28–I37): `RESULT: PASS (57 checks
 passed, 0 failed)` in 86 s; 0 deadlocks surfaced and 0 retried in every scenario (the new I29 guard never fired); scenario 4:
@@ -427,8 +442,9 @@ refused or was busy (`Retry-After` is sent) or `ui_secret_key` is missing from `
 ## The document store (`/srv/cw-docs`; `docs/decisions.md` I23)
 
 Every file CW keeps (supplier invoices, delivery notes, duty-stamp photos, generated PDFs) is stored once per content
-under its sha256, read-only, for at least 7 years (`stored_file.retain_until`), and re-hashed whenever it is read. In I-1
-files arrive only through the CLI below; browser uploads come with the I-2/I-3 screens. **Before live** the local
+under its sha256, read-only, for at least 7 years (`stored_file.retain_until`), and re-hashed whenever it is read. Files
+arrive through the CLI below and, since the I-2 suppliers task, the supplier card's evidence upload (kind `supplier_check`,
+≤ 2 MiB, which answers 503 until this store is installed); the receiving screens follow in I-3. **Before live** the local
 directory is replaced by an S3 (London) or B2 bucket with Object Lock in COMPLIANCE mode (same interface, `CW\Files\FileStorage`).
 
 Install on staging (**not done yet**: after the I-1 deploy, `install_cron.sh --migrate`, with the owner's go), from this
@@ -471,10 +487,429 @@ printf x >> /srv/cw-docs/<first 2 hex>/<sha256>                            # mus
 
 | Tool | What it does | Exit codes |
 |---|---|---|
-| `bin/store_file.php --file=<path> --kind=<kind> [--note=..]` | kinds: supplier_invoice, delivery_note, packing_list, photo, duty_evidence, generated_pdf, other. Type sniffed from the content (PDF, JPEG, PNG, CSV, text, XLSX only), ≤ 25 MiB, audited `file.store` as `system:store_file`. | 0 stored · 1 refused (type, size, kind) · 2 usage · 3 cannot run (no `file_store_dir`, database) |
+| `bin/store_file.php --file=<path> --kind=<kind> [--note=..]` | kinds: supplier_invoice, delivery_note, packing_list, photo, duty_evidence, generated_pdf, supplier_check, other. Type sniffed from the content (PDF, JPEG, PNG, CSV, text, XLSX only), ≤ 25 MiB, audited `file.store` as `system:store_file`. | 0 stored · 1 refused (type, size, kind) · 2 usage · 3 cannot run (no `file_store_dir`, database) |
 | `bin/verify_files.php [--limit=N]` | Re-hashes every stored file through the store. `missing id= sha256=` / `mismatch id= sha256=` on stderr; orphans (bytes no row names, left by a failed commit) are counted and kept. Scheduled nightly at 04:27 (`cw-staging.cron`, I36). | 0 intact · **1 missing or changed** · 2 usage · 3 cannot run |
 | `deploy/staging/seal_file_store.sh [root]` | Seals stored files not yet immutable (root:www-data 0440, `chattr +i`); every minute from cron, once by the installer. | 0 ok · 1 a file could not be sealed · 3 cannot run |
 
 A changed or missing file is never served: the screen answers 500 with a request id (`grep <id>
 /var/log/cw-ui/php-error.log` shows which file). Keep the evidence, compare with the backup, never "fix" the row.
 
+
+## Purchasing, Phase I-2: settings and the ERPNext supplier seed (`docs/decisions.md` I38–I47)
+
+### Settings (`bin/settings.php`)
+
+CW's settings live in `app_setting` (0009): the company that buys and owns the warehouse stock (decision 9: the PO
+letterhead), the supplier approval rules (decision 11), the cost write-back switch (decision 12) and, from the later I-2
+tasks, the PO and reorder defaults. Every seeded value is **provisional** until the owner confirms it; the screen
+`/ui/reference/settings` (every role) shows each one with its decision number. The app login can only read them.
+
+```bash
+# on the staging box, in /opt/cw-staging, as root (or from a slot: scripts/remote.sh <slot> php bin/settings.php ... --db=cw_test_<slot> --admin)
+php bin/settings.php --list                                                   # key, type, value, [provisional], decision
+php bin/settings.php --set=company.legal_name --value="Example Vapes Ltd" --reason="owner's company details, 3 Oct" --admin
+php bin/settings.php --set=company.address --value-file=/root/address.txt --reason="registered office" --admin   # several lines
+php bin/settings.php --set=company.confirmed --value=true --reason="owner confirmed the details" --confirmed --admin
+```
+
+- `--set` needs `--admin` (the admin login of `/etc/cw/db.env`): without it the tool stops at once with "settings change
+  needs --admin (cw_app has SELECT only)", exit 1.
+- The value is parsed for the setting's type: `int` (whole number), `decimal` (`0.50`, kept exactly as typed), `bool`
+  (`true`/`false`), `string` (one line, ≤ 255), `text` (≤ 4000, line breaks allowed: give it with `--value-file`), `date`
+  (`YYYY-MM-DD`); an empty value clears a string, text, number or date. Key rules (`Settings::RULES`): day counts 0–120,
+  `suppliers.approval_due_days` 1–120, `company.email` an address, `po.default_vat_code` an active VAT code, weights 0–1.
+- `--confirmed` also records that the owner confirmed the value (the "provisional" mark goes).
+- A change writes `updated_actor = system:settings` and the audit row `setting.change {key, before, after, reason}`;
+  sending the value the setting already has writes nothing ("unchanged").
+- Exit codes: 0 done · 1 `--set` without `--admin` · 2 usage, unknown key, bad value or reason (3–500 characters) · 3 cannot run.
+
+| Key | Type | Default | Decision | Meaning |
+|---|---|---|---|---|
+| `company.legal_name`, `trading_name`, `company_number`, `vat_number`, `phone`, `email` | string | empty | 9 | the PO letterhead; an empty value prints `[to be confirmed]` |
+| `company.address`, `company.delivery_address` | text | empty | 9 | one line per line |
+| `company.confirmed` | bool | false | 9 | false: every PO PDF says "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND" |
+| `costs.site_writeback` | bool | false | 12 | CW's average cost into the sites' cost field: **not built in I-2**, nothing reads it |
+| `suppliers.approval_due_days` | int | 3 | 11 | an activation / import-route approval is due this many days after it is asked for |
+| `suppliers.change_review` | bool | true | 11 | identity changes of an active supplier open a (non-blocking) review |
+
+### Suppliers on the screens
+
+Purchasing › Suppliers (`/ui/purchasing/suppliers`). A buyer creates a supplier (a **draft**), completes it — address,
+postcode, country, e-mail or phone, payment terms, the due-diligence check (date, who, next review) and, for an overseas
+supplier, its import route (how and where UK duty stamps are applied) — and presses "Ask a second person to activate it".
+The supplier then waits (`pending_approval`, nothing can be changed; the requester may withdraw). A **reviewer** who did not
+create it, ask for it or last change it finds it in Document reviews › "Waiting for approval (blocking)" and approves or
+rejects it on the supplier's page; admin never decides. Only an active supplier will get purchase orders (pos task). An
+identity change of an active supplier opens a review that does not block (rejecting it deactivates the supplier); a change
+of an overseas supplier's import route, **or of whether it is overseas at all** (ticking or unticking "overseas"), blocks its
+POs until a second person approves it (rejecting "no longer overseas" deactivates the supplier; I72). A supplier whose
+country is not GB must be marked overseas (provisional, I72). Deactivating needs a reason;
+reactivating needs a second person's approval again. Evidence files (due diligence, import route) are uploaded on the card
+(≤ 2 MiB, kept in the document store as kind `supplier_check`); **until `install_file_store.sh` has run, the upload answers
+503** "the file store is not set up on this server" and the evidence is typed into the text fields instead. (Observed by the
+pos task, 2 Oct 2026 14:40 UTC: `/srv/cw-docs` exists on staging since 12:03 UTC with the installer's probes and app.env
+names it, so staging has a file store now.) No bank
+details are kept in CW (decision 25).
+
+### ERPNext supplier seed (`bin/import_erp_suppliers.php`)
+
+Seeds suppliers and supplier items from CSV files exported from the **restored backup copy** of ERPNext (owner decision 4).
+CW never connects to ERPNext, and the indicative SQL below is **never run on live ERPNext**.
+
+```bash
+# on the staging box, in /opt/cw-staging (app login), files copied to /srv/cw-import/ (or any path):
+php bin/import_erp_suppliers.php --suppliers=/srv/cw-import/suppliers.csv --staff=buyer@example.co.uk --dry-run --report=/root/suppliers-dry.csv
+php bin/import_erp_suppliers.php --suppliers=/srv/cw-import/suppliers.csv --staff=buyer@example.co.uk --report=/root/suppliers.csv
+php bin/import_erp_suppliers.php --items=/srv/cw-import/supplier_items.csv --staff=buyer@example.co.uk \
+    --vpg-codes=/root/cw_work/first_match/vapeandgo_listings_<date>.jsonl.gz --report=/root/items.csv
+```
+
+- `--staff` is the buyer the rows are created by (active, `suppliers.manage`): that person can then never approve them.
+- New suppliers are **drafts**; an existing ERPNext name is skipped, or with `--update-blank` its empty fields are filled
+  while it is draft or inactive. An active (or pending) supplier is never changed by an import: the report lists the
+  fields that differ. `--request-activation` asks a second person to activate every supplier of the file that is draft or
+  inactive and complete — the due-diligence check is never imported (it is captured fresh in CW), so in practice the
+  buyer completes the check on the screen first and a second import with `--update-blank --request-activation`, or the
+  card's button, asks for the approval.
+- Each file is one `import_run` row (its sha256): the same file again prints "already imported (run N)" and exits 0. A
+  dry run checks every row and keeps nothing but its `import_run` row (and does not count as imported).
+- A row that cannot be used fails on its own (unknown supplier, unresolved or unlinked or merged item, a bad value, two
+  rows making one item preferred — both fail) and is listed in `--report` (`row, key, status, reason`; status created /
+  updated / skipped / failed) and on stdout; the other rows are kept. Exit 1 when a row failed or a file was refused
+  (no `erp_name` column, ...), 2 usage (also `--staff` who may not manage suppliers), 3 cannot run.
+- Columns are matched by header name (case-insensitive, spaces = `_`); unknown columns are ignored and listed in the run's
+  summary (a bank column included: decision 25). Files: UTF-8 or Windows-1252 (Excel UK), comma, semicolon or TAB, may be
+  gzipped, at most 32 MiB.
+
+**`suppliers.csv`** (* = required): `erp_name*` (ERPNext `Supplier.name`), `name` (default `erp_name`), `code` (default:
+the capitals and digits of the name, cut to 12, then `-2`, `-3`… on a clash), `legal_name`, `company_number`,
+`vat_number`, `address_line1`, `address_line2`, `city`, `postcode`, `country` (ISO alpha-2, default GB; `UK` reads as GB),
+`contact_name`, `email`, `phone`, `payment_terms`, `payment_terms_days`, `default_lead_days`, `review_days`, `is_overseas`
+(0/1), `default_vat_code` (S, R, Z, E, RC, OS; default S), `notes`.
+
+**`supplier_items.csv`**: `supplier*` (the ERPNext name or the CW code), `item_ref_type*`, `item_ref*`, `supplier_code`,
+`supplier_description`, `purchase_unit` (default `each`), `units_per_pack` (default 1, **in the referenced item's units**),
+`moq_packs`, `order_multiple_packs`, `lead_days`, `is_preferred` (0/1), `last_pack_price` (GBP excl. VAT per purchase unit,
+≤ 4 decimals), `last_price_date` (`YYYY-MM-DD`, default the import date; not in the future), `last_price_ref`.
+
+| `item_ref_type` | `item_ref` | Resolved through | Central units per pack |
+|---|---|---|---|
+| `cw_code` | `CW-000123` (or `123`) | the CW item | `units_per_pack` |
+| `vpg_variant` | Vape and Go `prodt_id` (= ERPNext item `product_id`) | the `vapeandgo` listing, which must be linked (`mapped`) | × the listing's `units_per_item` |
+| `vpg_code` | Vape and Go `prodt_code` | `--vpg-codes` (the first-match listings export: `code` → `variant_id`), then as `vpg_variant` | × `units_per_item` |
+| `barcode` | a GTIN (leading zeros ignored) | a usable `sku_barcode` | × `units_per_scan` |
+| `erp_item` | ERPNext `Item.name` | `sku_erp_item` | × its `units_per_item` |
+
+Rows are upserted by (supplier, item, central pack): the same pack again updates the given fields; a price becomes a
+price-history row (source `import`, `source_ref` = `last_price_ref` or `import_run:<id>`) and the supplier item's last
+price when it is the newest. A merged item or an unlinked listing is never guessed at: the row fails.
+
+Worked example (two files and what the import makes):
+
+```csv
+erp_name,name,address_line1,postcode,email,payment_terms,is_overseas
+Example Wholesale,Example Wholesale Ltd,Unit 2 Park Road,LS1 1AA,orders@example-wholesale.co.uk,30 days EOM,0
+Shenzhen Vape Co,,,,,,1
+```
+
+```csv
+supplier,item_ref_type,item_ref,supplier_code,purchase_unit,units_per_pack,moq_packs,is_preferred,last_pack_price,last_price_date,last_price_ref
+Example Wholesale,vpg_variant,48213,EW-ELX-BR,box,10,2,1,16.5000,2026-09-18,PINV-2026-00412
+EXAMPLEWHOLE,barcode,5060000000001,EW-CASE,case,6,,,72.00,,
+```
+
+→ two draft suppliers, `EXAMPLEWHOLE` and `SHENZHENVAPE` (the second overseas: it needs its import route before it can be
+activated); a supplier item "box of 10 listing units" of variant 48213 — with `units_per_item` 1 that is 10 central units
+(a 2-pack listing would make it 20) — preferred, MOQ 2 boxes, last price £16.50 a box (£1.65 a unit) from invoice
+PINV-2026-00412; and a case of 6 × the barcode's `units_per_scan`.
+
+**Indicative SQL on the restored backup copy** (MariaDB; field names as on ERPNext v15, to be confirmed on the I-0 copy;
+`product_id` is the custom Item field that holds the Vape and Go `prodt_id`):
+
+```sql
+-- suppliers.csv: every enabled supplier with its primary address
+SELECT s.name AS erp_name, s.supplier_name AS name, s.tax_id AS vat_number,
+       a.address_line1, a.address_line2, a.city, a.pincode AS postcode,
+       CASE WHEN a.country IN ('United Kingdom', 'UK') OR a.country IS NULL THEN 'GB' ELSE '' END AS country,
+       s.email_id AS email, s.mobile_no AS phone, s.payment_terms,
+       CASE WHEN a.country IS NOT NULL AND a.country NOT IN ('United Kingdom', 'UK') THEN 1 ELSE 0 END AS is_overseas
+FROM `tabSupplier` s LEFT JOIN `tabAddress` a ON a.name = s.supplier_primary_address
+WHERE s.disabled = 0 ORDER BY s.name;
+
+-- supplier_items.csv: the latest SUBMITTED purchase-invoice line per supplier and item (rate per purchase UOM,
+-- conversion_factor = stock units per purchase UOM; check that it is whole: the importer takes whole packs only)
+SELECT x.supplier, IF(x.product_id IS NULL, 'erp_item', 'vpg_variant') AS item_ref_type, COALESCE(x.product_id, x.item_code) AS item_ref,
+       x.supplier_part_no AS supplier_code, x.item_name AS supplier_description, LOWER(x.uom) AS purchase_unit,
+       CAST(x.conversion_factor AS UNSIGNED) AS units_per_pack, ROUND(x.rate, 4) AS last_pack_price,
+       x.posting_date AS last_price_date, x.invoice AS last_price_ref
+FROM (SELECT pi.supplier, pii.item_code, it.product_id, its.supplier_part_no, pii.item_name, pii.uom, pii.conversion_factor, pii.rate,
+             pi.posting_date, pi.name AS invoice,
+             ROW_NUMBER() OVER (PARTITION BY pi.supplier, pii.item_code ORDER BY pi.posting_date DESC, pi.name DESC) AS rn
+      FROM `tabPurchase Invoice` pi
+      JOIN `tabPurchase Invoice Item` pii ON pii.parent = pi.name
+      JOIN `tabItem` it ON it.name = pii.item_code
+      LEFT JOIN `tabItem Supplier` its ON its.parent = it.name AND its.supplier = pi.supplier
+      WHERE pi.docstatus = 1 AND pi.is_return = 0) x
+WHERE x.rn = 1 ORDER BY x.supplier, x.item_code;
+```
+
+Export with the MariaDB client's `--batch` output converted to CSV (or `SELECT ... INTO OUTFILE` on the backup box), copy the
+files to staging, and run a `--dry-run` first: its report shows every row that would fail.
+
+## Purchasing, Phase I-2: purchase orders (`docs/decisions.md` I48–I59)
+
+### Purchase orders on the screens
+
+Purchasing › Purchase orders (`/ui/purchasing/orders`; everyone with `purchasing.view` reads, buyers and purchasing managers
+act). The list filters by state, supplier, number / supplier's reference and "rejected at review" (CSV: `orders.csv`); a
+buyer starts a draft there ("New purchase order": pick the supplier — a draft or pending supplier is allowed, the approval
+then waits for the supplier's own approval).
+
+- **The editor** (the draft's creator only; others see it read-only) is one form: order date, expected delivery, the
+  supplier's quote reference, notes to the supplier (printed), then the **scan box**: a barcode (a case barcode takes the
+  supplier item of that pack), this supplier's code, a CW code or words of the name. Enter adds the line **and saves every
+  change made in the table** (packs, pack price, VAT code, note; packs 0 removes a line); scanning the same item again adds
+  a pack. Several matches give a "Choose" list on the same page. A line without a supplier item takes the units per pack
+  typed, and "save as this supplier's item" remembers the pack and code. A charge (delivery, ...) is added below the lines.
+  The page shows stock now, on order elsewhere, the last price and last PO price, and warnings (supplier not active yet,
+  due diligence overdue, below the supplier's minimum order, a £0 price, a merged item). The table is editable while the
+  form stays under PHP's `max_input_vars` (1,000): about 240 lines with supplier items, fewer without (I73); a larger order
+  shows its lines read-only and is edited with the lines file (the header, a scan and a charge still work). Any form that
+  arrives with 1,000 fields is refused, nothing saved (400 `form_truncated`).
+- **New supplier items** (the supplier card, the import, "save as this supplier's item") become the item's **preferred
+  supply** when the item has none yet (I75): the reorder list and its draft orders use the preferred supply. Changing a
+  supplier item's pack size drops the old pack's last price (record the new pack's price; I74).
+- **The lines file**: "Download the lines" (XLSX or CSV: `line, cw_code, supplier_code, barcode, item_name, purchase_unit,
+  units_per_pack, packs, units, pack_price, vat_code, line_total, note`) and "Import" (CSV or XLSX, ≤ 2 MiB, ≤ 2,000 rows;
+  `append` adds packs to a line of the same supplier item, `replace` replaces every line). **All or nothing**: a file with
+  any problem changes nothing and the page lists the problems as `row N, column: message` (row 1 = the first line under
+  the header). `units`, when given, must be packs × units per pack (boxes typed as units are caught); a supplier item's pack
+  and unit must match. A charge row: `purchase_unit` = `charge`, no item code, the amount in `pack_price`, what it is in `note`.
+- **Approve** ("Save and approve the order", a button of the editor form: what is typed is saved and approved together, I87):
+  at most £10,000 net (provisional, decision 11) it is numbered at once (`PO-000123`) and fixed; a second
+  person (reviewer) reviews it within 7 days in Document reviews (filter "Purchase order"). Above the limit a reviewer
+  approves it first on the order's page (the requester may withdraw the request). Approval is refused for a supplier that
+  is not active, an overseas supplier whose import route is not approved, or a supplier whose change of route / overseas
+  status waits for a second person. The order date is at most 31 days ahead and 731 days back (I81).
+- **After approval** the order's page offers: the PDF (letterhead from the company settings; "COMPANY DETAILS NOT CONFIRMED
+  — DO NOT SEND" until `company.confirmed` is true), **Mark as sent** (e-mail, portal, phone, ...; again allowed; the PDF as
+  sent is kept in the document store `/srv/cw-docs` when the server has one; while the company details are not confirmed
+  or the order's review was rejected the form says so and needs "Send anyway" ticked, which the audit row keeps, I86), **Cancel** (posts a cancellation in the PO
+  series, reviewed like an order; refused once goods were received: close it instead), **Amend** (cancels it and copies it
+  into a new draft that says "Amends PO-x"), **Copy** into a new draft, and **Close** (part-received only: the rest is not
+  expected). A rejected review is recorded and shown on the page ("Rejected at review by …"); the order stands until the
+  buyer cancels or amends it.
+- The supplier's card lists its last 10 orders; the document page (`/ui/documents/{id}`) links "Open in Purchasing".
+  Purchase orders (and the PDFs attached to them) are shown only to people with `purchasing.view`: warehouse and stock
+  control see every other document (I85).
+
+### Document rules (`bin/document_rules.php`)
+
+How owner decision 11 changes the PO approval limit (provisional £10,000 net) or a type's review rule. `document_type` is
+read-only for the app login, so a change needs the admin login.
+
+```bash
+# on the staging box, in /opt/cw-staging, as root (from a slot: scripts/remote.sh <slot> php bin/document_rules.php ... --db=cw_test_<slot> --admin)
+php bin/document_rules.php --type=PO --approval-limit=25000 --reason="owner decision 11: approval above GBP 25k" --admin
+php bin/document_rules.php --type=PO --review-due-days=14 --reason="fortnightly PO review" --admin
+php bin/document_rules.php --type=WO --review-rule=over_limit --review-limit=25 --reason="write-offs above 25 units" --admin
+```
+
+- `--approval-limit` only for a type with an approval rule (PO: whole GBP of the net total; ADJ: units); `--review-limit`
+  only with the `over_limit` review rule (which needs one); limits 0–2,000,000,000; `--review-due-days` 1–120. The same
+  values again: "unchanged".
+- Audited `document_type.change {type, before, after, reason}` (actor `system:document_rules`); the next posting uses the
+  new rule (open tasks keep the due date they were opened with).
+- Exit codes: 0 done (also unchanged) · 1 without `--admin` (refused before connecting) · 2 usage, unknown type, a value
+  the rules refuse, a reason not 3–500 characters · 3 cannot run.
+
+### ERPNext open POs (`bin/import_erp_open_pos.php`)
+
+Brings ERPNext's open purchase orders into CW once, at I-Day, from a CSV exported from the **restored backup copy** (owner
+decision 4; never live ERPNext). Each ERPNext PO becomes one CW PO holding only its **outstanding** packs, created as the
+`--staff` buyer, approved through the normal rules (above the value limit it waits for a reviewer: reported) and marked sent
+(`imported`, to `ERPNext`). Run the supplier and supplier-item seed first: the suppliers must be **active**.
+
+```bash
+# on the staging box, in /opt/cw-staging (app login), the file copied to /srv/cw-import/:
+php bin/import_erp_open_pos.php --file=/srv/cw-import/open_pos.csv --staff=buyer@example.co.uk --dry-run --report=/root/open-pos-dry.csv
+php bin/import_erp_open_pos.php --file=/srv/cw-import/open_pos.csv --staff=buyer@example.co.uk --report=/root/open-pos.csv \
+    [--vpg-codes=/root/cw_work/first_match/vapeandgo_listings_<date>.jsonl.gz]
+```
+
+**`open_pos.csv`**, one row per PO line (* = required; headers case-insensitive, any order): `erp_po*` (ERPNext
+`Purchase Order.name`), `supplier*` (ERPNext name or CW code), `order_date*` (`YYYY-MM-DD`), `expected_date`, `line_no*`,
+`item_ref_type*` + `item_ref*` (`cw_code`, `vpg_variant`, `vpg_code`, `barcode`, `erp_item`: as `supplier_items.csv`),
+`supplier_code`, `purchase_unit`, `units_per_pack` (in the referenced item's units, default 1), `packs_ordered*`,
+`packs_received` (default 0), `pack_price*` (GBP excl. VAT per purchase unit, ≤ 4 decimals), `vat_code` (default the
+supplier's).
+
+- Report statuses (`--report`: `row, key, status, reason`): **created** ("PO-000123 approved and marked sent", or "waits
+  for a reviewer's approval"), **skipped** ("already in CW as PO-x": a live CW PO has `external_ref = ERPNext <erp_po>`, so a
+  re-run is safe; "nothing outstanding"), **failed** ("whole PO skipped: …": a supplier that is not active, an unresolved,
+  unlinked or merged item, a bad value — never a partial PO). One transaction per PO; one `import_run` per file (the same
+  file again: "already imported (run N)"); `--dry-run` writes only its `import_run` row.
+- Exit codes: 0 done · 1 a PO failed or the file was refused · 2 usage (also `--staff` who may not post POs) · 3 cannot run.
+
+Worked example:
+
+```csv
+erp_po,supplier,order_date,expected_date,line_no,item_ref_type,item_ref,supplier_code,purchase_unit,units_per_pack,packs_ordered,packs_received,pack_price,vat_code
+PUR-ORD-2026-00412,Example Wholesale,2026-09-20,2026-09-27,1,vpg_variant,48213,EW-ELX-BR,box,10,10,4,16.50,S
+PUR-ORD-2026-00412,Example Wholesale,2026-09-20,2026-09-27,2,vpg_variant,48214,EW-ELX-WM,box,10,5,5,16.50,S
+```
+
+→ one CW PO, `external_ref` "ERPNext PUR-ORD-2026-00412", order date 20 Sep, one line: 6 boxes of 10 (60 central units with
+`units_per_item` 1) at £16.50, linked to the supplier item of that pack when there is one; line 2 is fully received and left
+out.
+
+**Indicative SQL on the restored backup copy** (field names as on ERPNext v15, to be confirmed on the I-0 copy):
+
+```sql
+SELECT po.name AS erp_po, po.supplier, po.transaction_date AS order_date, po.schedule_date AS expected_date, poi.idx AS line_no,
+       IF(it.product_id IS NULL, 'erp_item', 'vpg_variant') AS item_ref_type, COALESCE(it.product_id, poi.item_code) AS item_ref,
+       its.supplier_part_no AS supplier_code, LOWER(poi.uom) AS purchase_unit, CAST(poi.conversion_factor AS UNSIGNED) AS units_per_pack,
+       CAST(poi.qty AS UNSIGNED) AS packs_ordered, CAST(FLOOR(poi.received_qty) AS UNSIGNED) AS packs_received, ROUND(poi.rate, 4) AS pack_price
+FROM `tabPurchase Order` po
+JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
+JOIN `tabItem` it ON it.name = poi.item_code
+LEFT JOIN `tabItem Supplier` its ON its.parent = it.name AND its.supplier = po.supplier
+WHERE po.docstatus = 1 AND po.status IN ('To Receive and Bill', 'To Receive') AND poi.received_qty < poi.qty
+ORDER BY po.name, poi.idx;
+```
+
+`qty` and `received_qty` are in the line's purchase UOM; check that `conversion_factor` is whole. Run `--dry-run` first.
+
+## Purchasing, Phase I-2: sales history and the reorder list (`docs/decisions.md` I60–I71)
+
+The reorder list needs the sites' sales. Until the sites are connected (plan Phases 3–4) the history comes from a
+**read-only export run on this box** (the Vape and Go web server: the Vape and Go database is VPC-private), copied to
+staging and loaded there. Nothing in this section writes to a site or to ERPNext.
+
+### 1. The export (`tools/sales_history/export.php`, on this box)
+
+```bash
+cd /root/central-warehouse
+nice -n 10 php tools/sales_history/export.php --site=vapeandgo --source=cps \
+    --global-config=/var/www/html/vpg_ecom/App/global_config.php                  # 12 months to yesterday (UK)
+nice -n 10 php tools/sales_history/export.php --site=electrofag --source=orders \
+    --dbtransfer-dest=/var/www/html/vpg_ecom/App/db-transfer/config.php
+# later, only the new days (the import refuses a gap): --from=<the last export's --to + 1> [--to=YYYY-MM-DD]
+```
+
+- **When:** after 05:00 UK (Vape and Go's `consolidate_product_sale` is rebuilt at 03:40; before 04:00 the tool warns that
+  yesterday may not be settled) and outside the night jobs (03:30–05:00). It takes about half a minute a site.
+- **What it reads** (only these SELECTs, each EXPLAINed first; the exact SQL is in the tool and in the manifest):
+  Vape and Go online sales from `consolidate_product_sale` (`--source=cps`), Electrofag's from its order lines
+  (`--source=orders`: Completed Online orders, a cancelled line counted only when it was returned); office orders of both
+  (Completed, not a re-ship child, line not cancelled); the stock snapshot (`product_stock_snapshot`): the days it covered,
+  the unsellable days of the variants sold in the **365 days to `--to`**, and the last day's stock. A window shorter than a
+  year (the nightly `--from=<last --to + 1>`) first reads the earlier sales of that year with the same statements and gate,
+  keeping only the variant ids (tool 1.1, I76): an out-of-stock day counts only for a variant that did not sell that day, so
+  without it a one-day export kept no out-of-stock day at all. That pass makes a one-day export take about as long as a
+  12-month one (some 30 s for Vape and Go). Load short exports made by tool 1.0 (no `stock_filter` in their manifest)
+  only together with a 12-month re-export.
+- **Safety, in the code:** the session is `MAX_EXECUTION_TIME = 30000`, READ COMMITTED, READ ONLY; one `START TRANSACTION
+  READ ONLY` per 7-day slice, 200 ms apart; before each slice `Threads_running` must be ≤ 30 (`--max-threads-running`),
+  else it waits 5 s, at most 12 times, then gives up (exit 3); **the EXPLAIN gate** refuses (exit 3, nothing further run,
+  no file kept) a full scan, an index outside the statement's allow-list, a missing forced index, or a driving estimate
+  above 500,000 rows. On exit 3 do not loosen anything: the site's indexes changed — compare the plan printed with the
+  manifest of the last good run and talk to whoever changed them.
+- **Output:** `/root/cw_work/sales_history/<site>/` only (`--out` must be inside `CW_SALES_EXPORT_ROOT`, default
+  `/root/cw_work/sales_history`; else exit 2), files 0640: `<site>_sales_<from>_<to>_<ts>.csv.gz`, `..._stockdays_...`,
+  `..._stocklatest_<date>_...` (the stock files only when the site has a snapshot) and the `.manifest.json` (window, rule,
+  per-month units, snapshot days, every file's sha256 and rows, the SQL's sha256, the first slice's plans, Threads_running
+  before / max / after). It prints one summary line; credentials and the database host are never printed.
+- Exit codes: 0 done · 1 failed (connection, query, file; no file kept) · 2 usage · 3 refused (EXPLAIN gate, busy server).
+
+First run (2 Oct 2026, 16:57 BST; docs/decisions.md I70): vapeandgo 2025-10-02..2026-10-01 in 32.8 s, 602,739 sales rows,
+36,841 stock-day rows, 29,127 latest rows (snapshot 1 Oct), Threads_running 3 / 7 / 2; electrofag in 22.1 s, 11,481 /
+273 / 9,014 rows (one snapshot day, 29 Sep), Threads_running 2 / 3 / 2.
+
+### 2. Copy and import (staging)
+
+```bash
+# from this box (the staging key): the site's directory next to its manifest
+rsync -a -e 'ssh -i /root/.ssh/cw_staging' /root/cw_work/sales_history/vapeandgo/ root@46.101.55.135:/srv/cw-import/sales/vapeandgo/
+rsync -a -e 'ssh -i /root/.ssh/cw_staging' /root/cw_work/sales_history/electrofag/ root@46.101.55.135:/srv/cw-import/sales/electrofag/
+# on the staging box, in /opt/cw-staging (app login; the slots: scripts/remote.sh <slot> php bin/... --db=cw_test_<slot> --admin)
+php bin/import_sales_history.php --channel=vapeandgo --manifest=/srv/cw-import/sales/vapeandgo/<file>.manifest.json --dry-run
+php bin/import_sales_history.php --channel=vapeandgo --manifest=/srv/cw-import/sales/vapeandgo/<file>.manifest.json --no-build
+php bin/import_sales_history.php --channel=electrofag --manifest=/srv/cw-import/sales/electrofag/<file>.manifest.json
+php bin/reorder_demand.php                                       # also run by each import unless --no-build
+```
+
+- **Checks:** the manifest's site must be `--channel` (exit 2); every file's sha256 must be the manifest's (exit 1,
+  `sha_mismatch`: copy again); the same sales file loaded before: "already loaded as batch N" (exit 0).
+- **Coverage:** a site's history runs from its first loaded day to its last. An export that would leave days without
+  history before or after it is refused (exit 1, `history_gap`) unless `--allow-gap` — those days would then read as days
+  without sales. An export that overlaps loaded days **replaces** them (sales, stock days, snapshot days); the site's latest
+  stock is replaced only by a snapshot at least as new as the stored one (an older re-export says "the stored snapshot of
+  <date> is newer than this export's: kept", I77).
+- **The report:** `rows / units`, `unknown` (variants CW has no listing for: import the site's listings), `unlinked`
+  (listings not linked to an item, or not `mapped` — a quarantined listing keeps its item but counts for nothing, I77: link
+  or release them on the review screens — their history counts from then on, nothing is lost), stock days, latest rows, snapshot days, a units-a-day table per month, and per active anomaly window its units a
+  day against July–August of its year ("+42.9 %" for 14–22 Sep 2026 on Vape and Go). Then the demand build.
+- A load that fails part-way marks its batch `failed` (Sales history shows the error); the days loaded before stay; run the
+  same command again (the slices are idempotent).
+- 12 months of Vape and Go take about five minutes to load on staging (602,739 rows); a day's export takes seconds.
+- Exit codes: 0 loaded / already / dry run · 1 refused or the build failed · 2 usage · 3 cannot run.
+- **No cron is installed.** When the owner wants it nightly: the export at 05:15 UK here with `--from` = the day after the
+  last export, the copy, the import, all three in one script, after a decision on who watches its exit codes.
+
+### 3. The reorder list on the screens
+
+Purchasing › **Reorder list** (`/ui/purchasing/reorder`; buyers, purchasing managers, reviewers, auditors, managers read;
+buyers and purchasing managers change settings and make drafts):
+
+- Filters: brand, preferred supplier, item, "lines to order" / "every item", urgent only, **CW stock** or **Vape and Go's own
+  stock** (the site's last snapshot: use it to compare with ERPNext while CW stock on staging is the 1 Oct estimate; an
+  unsellable listing counts 0 and a figure below 0 counts 0; a line whose listing is in the site's In-Stock mode — sold
+  whatever its figure, best sellers far below 0 — is flagged "site stock not reliable", I78). 200
+  lines a page; "Download (CSV, every line)" has every column and the Why; `rate_raw_30` is the plain 30-day average
+  (ERPNext "Fetch Item"-like, no exclusions) to compare with.
+- Each line: demand a day, cover days (lead + review + safety), target, available, on order (approved / sent /
+  part-received POs), in drafts (shown, not counted), need, **packs** (prefilled, editable), units, last pack price, value,
+  cover now, flags, and **Why** (the demand's windows and exclusions, the cover, the stock, the packs).
+- Lines are pre-ticked when they suggest packs, **except** a line already in a draft order (flag "already in a draft
+  order"; its suggestion does not count drafts): tick it only to order more (I79). A maximum stock below the cover caps the
+  reorder point too, so such a line is never "urgent" with nothing to order (I80).
+- **Create draft orders from the ticked lines:** one draft PO per preferred supplier (lines in the supplier's pack, the
+  last price, the supplier's VAT code; the suggestion is kept on each line). One supplier → straight into the PO editor;
+  several, or items skipped (no preferred supplier, an inactive supplier, a merged item) → back to the list with the new
+  drafts and what was skipped. The same form sent twice makes the drafts once.
+- **Recalculate the demand** after an import or a change of the windows — from the page while at most 3,000 items are
+  linked (a UI request stops at 50 s); above that the page says so and the demand is rebuilt with `bin/reorder_demand.php`
+  on the server (I84). The header says when the demand was computed and
+  warns when a site's history ends more than `reorder.stale_history_days` (3) ago or an import is newer than the demand.
+- An item's page (`/ui/purchasing/reorder/items/{id}`): the line, the stored demand and its 12 months, every day of the
+  long window per listing with why it was or was not counted, and the item's settings (demand factor, safety days, lead
+  days, minimum / maximum stock, pack rounding, do not reorder).
+- **Brand factors and safety days** (`/ui/purchasing/reorder/brands`): e.g. a factor 0.85 for the expected post-duty drop.
+- **Anomaly windows** (`/ui/purchasing/reorder/anomalies`): days not trusted as demand (at most 93 days; one site or all;
+  one brand or all). 14–22 Sep 2026 (pre-duty stockpiling) is seeded. A change counts at the next Recalculate.
+- Purchasing › **Sales history** (`/ui/purchasing/sales-history`): per site the coverage, the snapshot days, the latest
+  site stock, the top 50 unknown / unlinked variants of the last 91 days (with the site's titles; a link to the listing for
+  those who may link) and the full list as CSV; the import batches with their counts.
+- The `reorder.*` settings (windows, weight, minimum valid days, the spike cap, the promotion test, default lead / review /
+  safety days) are provisional (owner to confirm) and change with `bin/settings.php --set=reorder.<key> ... --admin`; the
+  windows and their fewest valid days are checked against each other (short ≤ long, fewest valid days 1..their window, I82).
+- **The export's database logins** (I88, owner's choice): the Electrofag export connects with db-transfer's DEST login and
+  the Vape and Go export with the site's own application login; both can write, and the read-only session settings, the
+  per-slice READ ONLY transactions and the constant SQL are what keep the export read-only. Before a nightly job exists, a
+  SELECT-only login per site (on the five tables the export reads) is the safer choice: point the tool at it with
+  `CW_EXPORT_DB_HOST / _PORT / _USER / _PASSWORD / _NAME / _SSL`.
+
+### 4. The real-data rehearsal (opt-in test, staging only)
+
+```bash
+mkdir -p data/rehearsal/sales data/rehearsal/first_match                      # data/ is git-ignored
+cp -r /root/cw_work/sales_history/vapeandgo /root/cw_work/sales_history/electrofag data/rehearsal/sales/
+cp /root/cw_work/first_match/*_listings_*.jsonl.gz data/rehearsal/first_match/  # one file per site
+scripts/remote.sh <slot> env CW_REHEARSAL_DIR=data/rehearsal vendor/bin/phpunit --filter RealDataRehearsalTest
+rm -rf data/rehearsal                                                         # the next remote.sh run removes the remote copy
+```
+
+It builds `cw_test_<slot>_rh`, imports both listing exports, links only the Vape and Go listings of Elux, Lost Mary and
+Bar Juice 5000, loads both sales exports, builds the demand, checks the stockpiling window, Elux's promotion and its demand
+against the plain average, prints the numbers on stderr and drops the schema (about 8 minutes).

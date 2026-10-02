@@ -100,20 +100,43 @@ final class PermissionsTest extends TestCase
             'Reference', 'Admin'], array_column(Permissions::MENU, 'section'));
     }
 
+    /** Phase I-2 (I40): suppliers, purchase orders, the reorder list. */
+    public function testThePurchasingPermissionsOfPhaseI2(): void
+    {
+        self::assertSame(['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'manager'],
+            Permissions::MAP['suppliers.view']);
+        self::assertSame(['buyer', 'purchasing_manager'], Permissions::MAP['suppliers.manage']);
+        self::assertSame(['reviewer'], Permissions::MAP['suppliers.approve']);
+        self::assertSame(['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'reviewer', 'accountant', 'auditor', 'manager'],
+            Permissions::MAP['purchasing.view']);
+        self::assertSame(['buyer', 'purchasing_manager', 'reviewer', 'auditor', 'manager'], Permissions::MAP['reorder.view']);
+        self::assertSame(['buyer', 'purchasing_manager'], Permissions::MAP['reorder.manage']);
+        self::assertSame(['buyer', 'purchasing_manager'], Permissions::MAP['doc.PO.post'], 'unchanged: drafting, approving, sending ... a PO');
+        // The person who changes a supplier never approves one, unless they also hold reviewer (then the supplier's own rule decides).
+        self::assertSame([], array_intersect(Permissions::MAP['suppliers.manage'], Permissions::MAP['suppliers.approve']));
+        self::assertTrue(Permissions::can(['buyer', 'reviewer'], 'suppliers.approve'));
+    }
+
     public function testAdminNeverPostsReviewsOrDecides(): void
     {
         $sets = [['admin'], ['admin', 'viewer'], ['admin', 'accountant'], ['admin', 'auditor'], ['admin', 'viewer', 'accountant', 'auditor']];
         foreach ($sets as $set) {
             foreach (Permissions::permissionsOf($set) as $perm) {
-                self::assertDoesNotMatchRegularExpression('/^(doc\.|mapping\.|documents\.(review|approve)$)/', $perm, implode('+', $set));
+                self::assertDoesNotMatchRegularExpression('/^(doc\.|mapping\.|documents\.(review|approve)$|suppliers\.(manage|approve)$|reorder\.manage$)/', $perm,
+                    implode('+', $set));
             }
             self::assertTrue(Permissions::can($set, 'staff.manage'));
+            foreach (['suppliers.manage', 'suppliers.approve', 'reorder.manage', 'doc.PO.post'] as $perm) {
+                self::assertFalse(Permissions::can($set, $perm), implode('+', $set) . " never holds {$perm}");
+            }
         }
         self::assertSame(['catalogue.view', 'linking.view', 'staff.view', 'staff.manage', 'reference.view'], Permissions::permissionsOf(['admin']));
         // A set that breaks the rule (only admin SQL can write one) is read fail-closed: the conflicting roles count for nothing.
         self::assertFalse(Permissions::can(['admin', 'mapper'], 'mapping.decide'));
         self::assertFalse(Permissions::can(['admin', 'reviewer'], 'documents.review'));
         self::assertFalse(Permissions::can(['admin', 'buyer'], 'doc.PO.post'));
+        self::assertFalse(Permissions::can(['admin', 'buyer'], 'suppliers.manage'));
+        self::assertFalse(Permissions::can(['admin', 'reviewer'], 'suppliers.approve'));
         self::assertTrue(Permissions::can(['admin', 'buyer'], 'staff.manage'));
         self::assertTrue(Permissions::can(['admin', 'auditor', 'buyer'], 'accounts.view'), 'the compatible roles still count');
         self::assertTrue(Permissions::can(['mapper', 'reviewer'], 'mapping.decide'), 'without admin, every role counts');
@@ -144,25 +167,36 @@ final class PermissionsTest extends TestCase
         Permissions::can(['admin'], 'staff.mange');
     }
 
-    /** The owner's acceptance test (I-1 §4.4), on the map: buyer, desk and reviewer see three different menus. */
+    /**
+     * The owner's acceptance test (I-1 §4.4), on the map: buyer, desk and reviewer see three different menus; since the I-2
+     * suppliers task the desk and the reviewer see Purchasing too (I40), and the auditor reads it.
+     */
     public function testBuyerDeskAndReviewerSeeDifferentMenus(): void
     {
         $sections = static fn (array $roles): array => array_column(Permissions::menu($roles), 'section');
         self::assertSame(['Items', 'Purchasing', 'Documents', 'Reference'], $sections(['buyer']));
-        self::assertSame(['Items', 'Receiving', 'Trade', 'Documents', 'Reference'], $sections(['purchasing_desk']));
-        self::assertSame(['Items', 'Document reviews', 'Documents', 'Reference'], $sections(['reviewer']));
+        self::assertSame(['Items', 'Purchasing', 'Receiving', 'Trade', 'Documents', 'Reference'], $sections(['purchasing_desk']));
+        self::assertSame(['Items', 'Purchasing', 'Document reviews', 'Documents', 'Reference'], $sections(['reviewer']));
         self::assertSame(['Linking', 'Items', 'Reference', 'Admin'], $sections(['admin']));
-        self::assertSame(['Linking', 'Items', 'Documents', 'Accounts', 'Reference', 'Admin'], $sections(['auditor']));
+        self::assertSame(['Linking', 'Items', 'Purchasing', 'Documents', 'Accounts', 'Reference', 'Admin'], $sections(['auditor']));
         self::assertSame(['Linking', 'Items', 'Purchasing', 'Receiving', 'Trade', 'Document reviews', 'Documents', 'Reference'],
             $sections(['mapper', 'purchasing_manager', 'reviewer']), 'several roles: the union, in menu order');
         self::assertSame([], Permissions::menu([]), 'no roles, no menu');
 
         $buyer = Permissions::menu(['buyer']);
-        self::assertSame(['Suppliers', 'Purchase orders', 'Reorder list'], array_column($buyer[1]['items'], 'label'));
-        self::assertSame(['I-2', 'I-2', 'I-2'], array_column($buyer[1]['items'], 'phase'));
+        self::assertSame(['Suppliers', 'Purchase orders', 'Reorder list', 'Sales history'], array_column($buyer[1]['items'], 'label'));
+        self::assertSame(['/ui/purchasing/suppliers', '/ui/purchasing/orders', '/ui/purchasing/reorder', '/ui/purchasing/sales-history'],
+            array_column($buyer[1]['items'], 'path'), 'every Purchasing item is live (the suppliers, pos and reorder tasks)');
+        self::assertSame([], array_column($buyer[1]['items'], 'phase'), 'no Phase I-2 placeholder is left');
         $desk = Permissions::menu(['purchasing_desk']);
-        self::assertSame(['Receive + invoice', 'Supplier invoices', 'Supplier returns'], array_column($desk[1]['items'], 'label'));
-        self::assertSame(['I-3', 'I-4', 'I-4'], array_column($desk[1]['items'], 'phase'));
+        self::assertSame(['Suppliers', 'Purchase orders'], array_column($desk[1]['items'], 'label'), 'no reorder list for the desk');
+        self::assertSame(['/ui/purchasing/suppliers', '/ui/purchasing/orders'], array_column($desk[1]['items'], 'path'), 'the desk reads the orders');
+        self::assertSame(['Receive + invoice', 'Supplier invoices', 'Supplier returns'], array_column($desk[2]['items'], 'label'));
+        self::assertSame(['I-3', 'I-4', 'I-4'], array_column($desk[2]['items'], 'phase'));
+        $reviewer = Permissions::menu(['reviewer']);
+        self::assertSame(['Suppliers', 'Purchase orders', 'Reorder list', 'Sales history'], array_column($reviewer[1]['items'], 'label'));
+        self::assertSame(['Reason codes', 'Number series', 'Settings'], array_column(Permissions::menu(['viewer'])[2]['items'], 'label'),
+            'Reference gains Settings (every role)');
         $mapper = Permissions::menu(['mapper']);
         self::assertSame(['/ui/', '/ui/review', '/ui/review'], array_column($mapper[0]['items'], 'path'));
         self::assertSame([['queue' => 'Key'], ['queue' => 'pending']], array_column($mapper[0]['items'], 'query'));

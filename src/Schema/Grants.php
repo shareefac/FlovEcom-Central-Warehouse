@@ -29,9 +29,11 @@ final class Grants
      * (the file store keeps every document at least 7 years, I23).
      * document_posting: the write-once record of each posting (posted_hash and the content it covers), which the app login
      * can add but never rewrite, so a posted document changed afterwards is found even when its own columns were (I33).
+     * supplier_item_price: a supplier item's price history (I-2, I43): prices are added, never rewritten.
+     * po_posting: the write-once anchor of an approved PO's module content (I-2, I50; invariant P2, like I33).
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
-        'stored_file', 'document_file', 'document_posting'];
+        'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -53,14 +55,24 @@ final class Grants
             'submitted_by', 'submitted_at', 'posted_by', 'posted_actor', 'posted_at', 'posted_hash', 'cancelled_by', 'cancelled_at',
             'cancel_reason', 'review_state'],
     ];
-    /** reason_code / document_type: seeded reference lists, changed only by a migration (I22, I19). */
-    public const READ_ONLY = ['schema_migrations', 'reason_code', 'document_type'];
+    /**
+     * reason_code / document_type: seeded reference lists, changed only by a migration (I22, I19). app_setting: changed by
+     * bin/settings.php with the admin login (I38); vat_code: by a migration (I-2).
+     */
+    public const READ_ONLY = ['schema_migrations', 'reason_code', 'document_type', 'app_setting', 'vat_code'];
     /**
      * Rows the app never deletes: a listing (reservation_unit.listing_id has no FK, so deleting a listing
      * that only ever sold while unlinked would orphan its holding-ledger units), an item (merged, never
-     * deleted: M10), a listing's profile, a staff account (deactivated, never deleted: decisions name it).
+     * deleted: M10), a listing's profile, a staff account (deactivated, never deleted: decisions name it), a supplier and a
+     * supplier item (deactivated, never deleted: POs and the price history name them, I-2), an ERPNext seed import's run and
+     * a PO's header (cancelled, never deleted: I-2, I50). po_line keeps FULL rights: a draft's lines are replaced (its rows go
+     * with their document_line, ON DELETE CASCADE). A sales-history import batch (its row stays when a later batch replaces its
+     * days: the history of what was loaded, I-2 I61) and an anomaly window (ended, never deleted: who excluded which days stays
+     * readable, I66). The sales-history tables, the reorder settings and reorder_demand keep FULL rights: an import replaces
+     * its days, the demand is rebuilt (DELETE + INSERT in one transaction).
      */
-    public const NO_DELETE = ['channel_listing', 'listing_profile', 'sku', 'staff_user'];
+    public const NO_DELETE = ['channel_listing', 'listing_profile', 'sku', 'staff_user', 'supplier', 'supplier_item', 'import_run', 'purchase_order',
+        'sales_import_batch', 'demand_anomaly'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

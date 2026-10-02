@@ -66,7 +66,11 @@ final class ReviewRulesTest extends DocumentTestCase
         self::refused(404, 'unknown_task', fn () => $this->docs->approve($this->staffUser('reviewer'), 999_999, null));
         $supplier = self::$db->insert("INSERT INTO review_task (subject_type, subject_id, kind, reason, opened_actor, due_at) "
             . "VALUES ('supplier', 1, 'approval', 'new_supplier', 'staff:1', NOW(6))");
-        self::refused(409, 'subject_not_built', fn () => $this->docs->approve($this->staffUser('reviewer'), $supplier, null));
+        // Supplier tasks are decided through CW\Suppliers\Suppliers on the supplier's page (I-2, I40).
+        $e = self::refused(409, 'supplier_task', fn () => $this->docs->approve($this->staffUser('reviewer'), $supplier, null));
+        self::assertSame("supplier approvals are decided on the supplier's page", $e->getMessage());
+        self::refused(409, 'supplier_task', fn () => $this->docs->reject($this->staffUser('reviewer'), $supplier, 'not here'));
+        self::refused(409, 'supplier_task', fn () => $this->docs->withdraw($this->staffUser('stock_controller'), $supplier));
         self::$db->exec('DELETE FROM review_task WHERE id = ?', [$supplier]);
         self::assertSame('open', $this->task($review)['state']);
         self::assertSame('open', $this->task($approval)['state']);
@@ -130,6 +134,36 @@ final class ReviewRulesTest extends DocumentTestCase
         $detail = json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'document.reject' AND entity_id = ?", [(string) $r->id]), true);
         self::assertSame([false, $p->id], [$detail['booked'], $detail['reverses']]);
         self::refused(409, 'not_reversible', fn () => $this->docs->reverse($b, $r->id, 'duplicate', null), 'and still never reversed by hand');
+    }
+
+    /**
+     * A type whose reject_action is 'record' (PO since 0010, provisional decision 11, I49): rejecting its review marks the
+     * document rejected and books and reverses nothing; the document stands. Shown here on the fixture ADJ type with its
+     * row switched to 'record' for the test (document_type is a seed table: restored after).
+     */
+    public function testATypeThatRecordsARejectionReversesNothing(): void
+    {
+        self::$db->exec("UPDATE document_type SET reject_action = 'record' WHERE code = 'ADJ'");
+        try {
+            $docs = new \CW\Documents\Documents(self::$db, ['ADJ' => new \CW\Tests\Support\Documents\FixtureAdjustmentHandler(self::$db)]);
+            $sc = $this->staffUser('stock_controller');
+            $a = $this->item('strict', 5);
+            $d = $docs->createDraft($sc, 'ADJ', ['external_ref' => 'SUP-REC']);
+            $d = $docs->setLines($sc, $d->id, $d->version, [['sku_id' => $a, 'qty' => -2]]);
+            $p = $docs->post($sc, $d->id, $d->version);
+            $task = $this->openTask($p->id);
+            $r = $docs->reject($this->staffUser('reviewer'), $task, 'the count was wrong');
+            self::assertSame(['posted', 'rejected'], [$r->status, $r->reviewState]);
+            self::assertSame('rejected', $this->task($task)['state']);
+            self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM document WHERE reverses_id = ?', [$p->id]), 'nothing reversed');
+            self::assertSame(3, (int) self::$db->value('SELECT on_hand FROM stock_balance WHERE sku_id = ?', [$a]), 'the posting stands');
+            $audit = json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'document.reject' AND entity_id = ?", [(string) $p->id]), true);
+            self::assertSame([false, true, 'the count was wrong'], [$audit['booked'], $audit['recorded'], $audit['note']]);
+            // Its poster may still reverse it voluntarily.
+            self::assertSame('reversed', $docs->get($docs->reverse($sc, $p->id, 'entered_in_error', null)->reversesId ?? 0)->status);
+        } finally {
+            self::$db->exec("UPDATE document_type SET reject_action = 'reverse' WHERE code = 'ADJ'");
+        }
     }
 
     public function testAReviewOnAReversedDocumentCannotBeDecided(): void

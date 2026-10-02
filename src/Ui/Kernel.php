@@ -16,10 +16,15 @@ use CW\Ui\Controller\DocumentsController;
 use CW\Ui\Controller\FilesController;
 use CW\Ui\Controller\ItemController;
 use CW\Ui\Controller\PeopleController;
+use CW\Ui\Controller\PurchaseOrdersController;
 use CW\Ui\Controller\ReferenceController;
+use CW\Ui\Controller\ReorderController;
 use CW\Ui\Controller\ReviewController;
 use CW\Ui\Controller\ReviewsController;
+use CW\Ui\Controller\SalesHistoryController;
 use CW\Ui\Controller\SearchController;
+use CW\Ui\Controller\SupplierItemsController;
+use CW\Ui\Controller\SuppliersController;
 
 /**
  * The /ui staff screens (plan §7.1, §11): one request in, one HTML page out.
@@ -55,7 +60,7 @@ final class Kernel
      * @param \Closure(): ?string $secretKey base64 ui_secret_key
      * @param \Closure(string): void $log
      * @param (\Closure(Db): array<string, \CW\Documents\DocumentHandler>)|null $handlers the live document types
-     *        (default CW\Documents\DocumentHandlers::all: none in I-1; tests register a fixture type)
+     *        (default CW\Documents\DocumentHandlers::all: PO since I-2; tests add the fixture ADJ type)
      */
     public function __construct(
         private readonly \Closure $connect,
@@ -166,6 +171,18 @@ final class Kernel
             }
         }
         if ($req->method === 'POST') {
+            // A body over the UI pool's post_max_size (2M) reaches PHP with no fields and no files at all: say so (413)
+            // rather than "this form has expired" (the CSRF field was dropped with the rest).
+            if ($req->post === [] && $req->files === [] && (int) ($req->header('content-length') ?? '0') > UiRequest::MAX_UPLOAD_BYTES) {
+                throw new CwException('too_large', 'the form was larger than ' . intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576)
+                    . ' MiB (a file is at most ' . intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576) . ' MiB): nothing was saved', 413);
+            }
+            // PHP drops the fields past max_input_vars without a word: a POST that arrives with that many may have lost
+            // some (a typed charge, a line's packs), so nothing is done with it (I73).
+            if (count($req->post) >= UiRequest::maxInputVars()) {
+                throw new CwException('form_truncated', 'the form had more fields than this server accepts (' . UiRequest::maxInputVars()
+                    . '), so some may have been dropped: nothing was saved. A long purchase order is changed with the file import.', 400);
+            }
             $this->checkOrigin($req);
             $token = $req->field('csrf');
             // A public form (the sign-in) always carries the pre-login token, even when the browser holds a
@@ -214,6 +231,11 @@ final class Kernel
         $reviews = new ReviewsController();
         $reference = new ReferenceController();
         $files = new FilesController();
+        $suppliers = new SuppliersController();
+        $supplierItems = new SupplierItemsController();
+        $orders = new PurchaseOrdersController();
+        $reorder = new ReorderController();
+        $sales = new SalesHistoryController();
         $r = new Router();
         $r->add('GET', '/ui/login', Route::PUBLIC, $auth->loginForm(...));
         $r->add('POST', '/ui/login', Route::PUBLIC, $auth->login(...));
@@ -249,6 +271,62 @@ final class Kernel
         $r->add('GET', '/ui/reference/reasons', 'reference.view', $reference->reasons(...));
         $r->add('GET', '/ui/reference/reasons.csv', 'reference.view', $reference->reasonsCsv(...));
         $r->add('GET', '/ui/reference/series', 'reference.view', $reference->series(...));
+        $r->add('GET', '/ui/reference/settings', 'reference.view', $reference->settings(...));
+        // Purchasing, Phase I-2 (IM4 suppliers, I38-I47): everyone with suppliers.view looks; buyers change (suppliers.manage,
+        // checked again by CW\Suppliers\*); reviewers decide supplier tasks (suppliers.approve and the second-person rule).
+        $r->add('GET', '/ui/purchasing/suppliers', 'suppliers.view', $suppliers->index(...));
+        $r->add('GET', '/ui/purchasing/suppliers.csv', 'suppliers.view', $suppliers->csv(...));
+        $r->add('GET', '/ui/purchasing/suppliers/new', 'suppliers.manage', $suppliers->newForm(...));
+        $r->add('POST', '/ui/purchasing/suppliers', 'suppliers.manage', $suppliers->create(...));
+        $r->add('POST', '/ui/purchasing/suppliers/tasks/{id}/approve', 'suppliers.approve', $suppliers->approve(...));
+        $r->add('POST', '/ui/purchasing/suppliers/tasks/{id}/reject', 'suppliers.approve', $suppliers->reject(...));
+        $r->add('POST', '/ui/purchasing/suppliers/tasks/{id}/withdraw', 'suppliers.manage', $suppliers->withdraw(...));
+        $r->add('GET', '/ui/purchasing/suppliers/{id}', 'suppliers.view', $suppliers->show(...));
+        $r->add('GET', '/ui/purchasing/suppliers/{id}/edit', 'suppliers.manage', $suppliers->editForm(...));
+        $r->add('POST', '/ui/purchasing/suppliers/{id}', 'suppliers.manage', $suppliers->update(...));
+        $r->add('POST', '/ui/purchasing/suppliers/{id}/request-activation', 'suppliers.manage', $suppliers->requestActivation(...));
+        $r->add('POST', '/ui/purchasing/suppliers/{id}/deactivate', 'suppliers.manage', $suppliers->deactivate(...));
+        $r->add('POST', '/ui/purchasing/suppliers/{id}/evidence', 'suppliers.manage', $suppliers->evidence(...));
+        $r->add('GET', '/ui/purchasing/suppliers/{id}/items', 'suppliers.view', $supplierItems->index(...));
+        $r->add('GET', '/ui/purchasing/suppliers/{id}/items.csv', 'suppliers.view', $supplierItems->csv(...));
+        $r->add('GET', '/ui/purchasing/suppliers/{id}/items/new', 'suppliers.manage', $supplierItems->newForm(...));
+        $r->add('POST', '/ui/purchasing/suppliers/{id}/items', 'suppliers.manage', $supplierItems->create(...));
+        $r->add('GET', '/ui/purchasing/supplier-items/{id}', 'suppliers.view', $supplierItems->show(...));
+        $r->add('POST', '/ui/purchasing/supplier-items/{id}', 'suppliers.manage', $supplierItems->update(...));
+        $r->add('POST', '/ui/purchasing/supplier-items/{id}/price', 'suppliers.manage', $supplierItems->price(...));
+        // Purchase orders (IM5, I48-I59): purchasing.view looks; doc.PO.post (buyers) acts, checked again by CW\PurchaseOrders\PurchaseOrders
+        // (and the creator-only rule of drafts); reviewers decide on the order's page through /ui/documents/reviews/{id}/*.
+        $r->add('GET', '/ui/purchasing/orders', 'purchasing.view', $orders->index(...));
+        $r->add('GET', '/ui/purchasing/orders.csv', 'purchasing.view', $orders->csv(...));
+        $r->add('POST', '/ui/purchasing/orders', 'doc.PO.post', $orders->create(...));
+        $r->add('GET', '/ui/purchasing/orders/{id}', 'purchasing.view', $orders->show(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/lines', 'doc.PO.post', $orders->lines(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/lines/import', 'doc.PO.post', $orders->import(...));
+        $r->add('GET', '/ui/purchasing/orders/{id}/lines.csv', 'purchasing.view', $orders->linesCsv(...));
+        $r->add('GET', '/ui/purchasing/orders/{id}/lines.xlsx', 'purchasing.view', $orders->linesXlsx(...));
+        $r->add('GET', '/ui/purchasing/orders/{id}/pdf', 'purchasing.view', $orders->pdf(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/approve', 'doc.PO.post', $orders->approve(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/send', 'doc.PO.post', $orders->send(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/cancel', 'doc.PO.post', $orders->cancel(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/amend', 'doc.PO.post', $orders->amend(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/copy', 'doc.PO.post', $orders->copy(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/close', 'doc.PO.post', $orders->close(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/withdraw', 'doc.PO.post', $orders->withdraw(...));
+        // The reorder list and the sales history (IM9 basic, I60-I71): reorder.view looks; reorder.manage changes settings and
+        // recalculates (checked again by CW\Reorder\ReorderSettings); doc.PO.post makes the drafts (checked again by PurchaseOrders).
+        $r->add('GET', '/ui/purchasing/reorder', 'reorder.view', $reorder->index(...));
+        $r->add('GET', '/ui/purchasing/reorder.csv', 'reorder.view', $reorder->csv(...));
+        $r->add('POST', '/ui/purchasing/reorder/draft', 'doc.PO.post', $reorder->draft(...));
+        $r->add('POST', '/ui/purchasing/reorder/recalculate', 'reorder.manage', $reorder->recalculate(...));
+        $r->add('GET', '/ui/purchasing/reorder/items/{id}', 'reorder.view', $reorder->item(...));
+        $r->add('POST', '/ui/purchasing/reorder/items/{id}', 'reorder.manage', $reorder->saveItem(...));
+        $r->add('GET', '/ui/purchasing/reorder/brands', 'reorder.view', $reorder->brands(...));
+        $r->add('POST', '/ui/purchasing/reorder/brands', 'reorder.manage', $reorder->saveBrand(...));
+        $r->add('GET', '/ui/purchasing/reorder/anomalies', 'reorder.view', $reorder->anomalies(...));
+        $r->add('POST', '/ui/purchasing/reorder/anomalies', 'reorder.manage', $reorder->addAnomaly(...));
+        $r->add('POST', '/ui/purchasing/reorder/anomalies/{id}/end', 'reorder.manage', $reorder->endAnomaly(...));
+        $r->add('GET', '/ui/purchasing/sales-history', 'reorder.view', $sales->index(...));
+        $r->add('GET', '/ui/purchasing/sales-history/unlinked.csv', 'reorder.view', $sales->unlinkedCsv(...));
         return $this->router = $r;
     }
 

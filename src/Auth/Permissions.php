@@ -20,7 +20,8 @@ use CW\CwException;
  * gives roles never posts, reviews or decides. A set that breaks the rule anyway (only possible through
  * admin SQL) is read fail-closed: the conflicting roles grant nothing while admin is held (effective()).
  *
- * The posting permissions (doc.<TYPE>.post) are proposals pending the owner's decisions 3 and 11 (I16).
+ * The posting permissions (doc.<TYPE>.post) are proposals pending the owner's decisions 3 and 11 (I16); the Phase I-2
+ * purchasing permissions (suppliers.*, purchasing.view, reorder.*) likewise (I40).
  */
 final class Permissions
 {
@@ -80,6 +81,16 @@ final class Permissions
         'doc.ADJ.post' => ['stock_controller'],
         'doc.WO.post' => ['stock_controller'],
         'doc.TRD.post' => ['purchasing_desk', 'purchasing_manager'],
+        // Phase I-2 (docs/decisions.md I40): suppliers (IM4), purchase orders (IM5), the reorder list and its sales history (IM9).
+        // doc.PO.post (buyer, purchasing_manager) covers drafting, approving (posting), sending, cancelling, amending, closing
+        // and importing PO lines. A supplier is approved by a reviewer who did not create, ask for or last change it.
+        'suppliers.view' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor',
+            'manager'],
+        'suppliers.manage' => ['buyer', 'purchasing_manager'],
+        'suppliers.approve' => ['reviewer'],
+        'purchasing.view' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'reviewer', 'accountant', 'auditor', 'manager'],
+        'reorder.view' => ['buyer', 'purchasing_manager', 'reviewer', 'auditor', 'manager'],
+        'reorder.manage' => ['buyer', 'purchasing_manager'],
     ];
 
     /**
@@ -99,10 +110,12 @@ final class Permissions
         ['section' => 'Items', 'items' => [
             ['label' => 'Search', 'perm' => 'catalogue.view', 'key' => 'search', 'path' => '/ui/search'],
         ]],
+        // Phase I-2: Suppliers (the suppliers task), Purchase orders (the pos task), Reorder list and Sales history (the reorder task).
         ['section' => 'Purchasing', 'items' => [
-            ['label' => 'Suppliers', 'perm' => 'doc.PO.post', 'phase' => 'I-2'],
-            ['label' => 'Purchase orders', 'perm' => 'doc.PO.post', 'phase' => 'I-2'],
-            ['label' => 'Reorder list', 'perm' => 'doc.PO.post', 'phase' => 'I-2'],
+            ['label' => 'Suppliers', 'perm' => 'suppliers.view', 'key' => 'suppliers', 'path' => '/ui/purchasing/suppliers'],
+            ['label' => 'Purchase orders', 'perm' => 'purchasing.view', 'key' => 'orders', 'path' => '/ui/purchasing/orders'],
+            ['label' => 'Reorder list', 'perm' => 'reorder.view', 'key' => 'reorder', 'path' => '/ui/purchasing/reorder'],
+            ['label' => 'Sales history', 'perm' => 'reorder.view', 'key' => 'sales_history', 'path' => '/ui/purchasing/sales-history'],
         ]],
         ['section' => 'Receiving', 'items' => [
             ['label' => 'Receive + invoice', 'perm' => 'doc.GRN.post', 'phase' => 'I-3'],
@@ -128,6 +141,7 @@ final class Permissions
         ['section' => 'Reference', 'items' => [
             ['label' => 'Reason codes', 'perm' => 'reference.view', 'key' => 'reasons', 'path' => '/ui/reference/reasons'],
             ['label' => 'Number series', 'perm' => 'reference.view', 'key' => 'series', 'path' => '/ui/reference/series'],
+            ['label' => 'Settings', 'perm' => 'reference.view', 'key' => 'settings', 'path' => '/ui/reference/settings'],
         ]],
         ['section' => 'Admin', 'items' => [
             ['label' => 'People and roles', 'perm' => 'staff.view', 'key' => 'people', 'path' => '/ui/people'],

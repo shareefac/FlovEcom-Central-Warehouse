@@ -46,6 +46,38 @@
   </section>
 </div>
 
+<?php if ($suppliers !== null): ?>
+<section aria-labelledby="suppliers-h">
+  <h2 id="suppliers-h">Suppliers</h2>
+<?php if ($suppliers === []): ?>
+  <p class="muted">No supplier sells us this item yet.</p>
+<?php else: ?>
+  <table class="item-suppliers">
+    <thead>
+      <tr>
+        <th scope="col">Supplier</th>
+        <th scope="col">Supplier's code</th>
+        <th scope="col">Pack</th>
+        <th scope="col">Preferred</th>
+        <th scope="col" class="num">Last price (per pack)</th>
+      </tr>
+    </thead>
+    <tbody>
+<?php foreach ($suppliers as $r): ?>
+      <tr<?php if (!$r['active']): ?> class="inactive"<?php endif; ?>>
+        <td><a href="<?= $u('/ui/purchasing/supplier-items/' . $r['id']) ?>"><?= $e($r['supplier']) ?></a> <?= $e($r['name']) ?><?php if ($r['status'] !== 'active'): ?> <span class="tag"><?= $e(str_replace('_', ' ', $r['status'])) ?></span><?php endif; ?><?php if (!$r['active']): ?> <span class="tag">not used</span><?php endif; ?></td>
+        <td><?= $e($r['code']) ?></td>
+        <td><?= $e($r['pack']) ?></td>
+        <td><?php if ($r['preferred']): ?><span class="tag ok">preferred</span><?php endif; ?></td>
+        <td class="num"><?= $e($r['price']) ?><?php if ($r['price_on'] !== null): ?> <span class="muted"><?= $e($r['price_on']) ?></span><?php endif; ?></td>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+<?php endif; ?>
+</section>
+<?php endif; ?>
+
 <section aria-labelledby="listings-h">
   <h2 id="listings-h">Listings on the sites</h2>
 <?php if ($listings === []): ?>

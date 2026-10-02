@@ -128,3 +128,47 @@ table.candidates th[scope="row"] { width: 3.5rem; font-variant-numeric: tabular-
 form.quick { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: 1rem 0; }
 .minicard .sep { color: var(--muted); }
 .elsewhere { margin-top: 1rem; border-color: var(--warn-ink); }
+
+/* Purchasing (I-2): supplier and supplier-item forms, the activation box, the settings list. */
+form.record { display: grid; gap: .8rem; max-width: 760px; }
+form.record fieldset { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .8rem; margin: 0; background: var(--panel); display: grid; gap: .45rem; }
+form.record legend { font-weight: 600; padding: 0 .3rem; color: var(--ink); }
+form.upload { display: grid; gap: .5rem; margin-top: .8rem; padding-top: .6rem; border-top: 1px solid var(--line); }
+textarea { font: inherit; padding: .4rem .55rem; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--ink); min-width: 0; }
+input[type="date"], input[type="file"] { font: inherit; padding: .3rem .4rem; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--ink); }
+textarea:focus-visible, input[type="date"]:focus-visible, input[type="file"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.status-active { background: var(--ok-bg); color: var(--ok-ink); }
+.status-pending_approval { background: var(--warn-bg); color: var(--warn-ink); }
+.status-inactive { background: var(--bad-bg); color: var(--bad-ink); }
+section.box { margin: 1rem 0; }
+section.box.waiting { border-width: 2px; }
+td.pre { white-space: pre-line; overflow-wrap: anywhere; }
+table.settings th[scope="row"] { white-space: nowrap; }
+
+/* Purchase orders (I-2 pos task): the one-form editor, its line table, the choices of a search, the warnings and totals. */
+form.po-editor { display: grid; gap: .8rem; }
+form.po-editor fieldset { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .8rem; margin: 0; background: var(--panel); display: flex;
+  flex-wrap: wrap; gap: .6rem; align-items: flex-end; }
+form.po-editor legend { font-weight: 600; padding: 0 .3rem; color: var(--ink); }
+form.po-editor fieldset.scan input[type="search"] { min-width: 22rem; }
+form.po-editor fieldset.po-header textarea { min-width: 20rem; }
+input.short { width: 6.5rem; }
+table.po-lines input, table.po-lines select { padding: .2rem .3rem; }
+table.po-lines td { vertical-align: top; }
+table.po-lines label.choice { display: block; font-size: .85em; }
+section.choices { border: 2px solid var(--accent); border-radius: 6px; padding: .5rem .8rem; }
+section.choices li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .2rem 0; }
+ul.warnings { list-style: none; padding: .5rem .8rem; margin: .8rem 0; background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; }
+ul.warnings li + li { margin-top: .25rem; }
+section.totals dl { max-width: 26rem; }
+
+/* Reorder list and sales history (I-2 reorder task): the list's form, the "Why" of a line, the day-by-day table. */
+form.reorder { display: block; }
+table.reorder input.packs { width: 5.5rem; }
+table.reorder tr.urgent > th:first-of-type, table.reorder tr.urgent > td:first-child { box-shadow: inset 3px 0 0 var(--bad-ink); }
+details.why { border: 0; padding: 0; margin-top: .2rem; font-weight: 400; }
+details.why[open] { display: block; }
+details.why p { margin: .3rem 0 0; max-width: 60rem; font-size: .88rem; color: var(--ink); }
+table.days, table.months { width: auto; }
+table.days tr.excluded > * { color: var(--muted); }
+table.months th, table.months td { padding: .3rem .45rem; }
