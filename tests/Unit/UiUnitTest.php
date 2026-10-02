@@ -356,10 +356,20 @@ final class UiUnitTest extends TestCase
             } elseif (str_starts_with($key, 'GET /ui/documents') || str_starts_with($key, 'GET /ui/files/') || $key === 'POST /ui/documents/{id}/reverse') {
                 self::assertSame('documents.view', $access, $key);
             }
-            if (str_starts_with($key, 'GET /ui/reference/')) {
+            // Everyone reads the reference lists and the company details; only the company form and its POSTs need more (I90).
+            if (str_starts_with($key, 'GET /ui/reference/') && $key !== 'GET /ui/reference/company/edit') {
                 self::assertSame('reference.view', $access, $key);
             }
+            if (str_starts_with($key, 'POST /ui/reference/company')) {
+                self::assertContains($access, ['company.edit', 'company.confirm'], "{$key}: a reviewer, never admin");
+            }
         }
+        self::assertSame('company.edit', $byPath['GET /ui/reference/company/edit']);
+        self::assertSame('company.edit', $byPath['POST /ui/reference/company']);
+        self::assertSame('company.confirm', $byPath['POST /ui/reference/company/confirm']);
+        self::assertSame('company.confirm', $byPath['POST /ui/reference/company/reviews/{id}/approve']);
+        self::assertSame('company.confirm', $byPath['POST /ui/reference/company/reviews/{id}/reject']);
+        self::assertSame('reference.view', $byPath['GET /ui/reference/company/sample.pdf']);
         self::assertArrayNotHasKey('GET /ui/logout', $byPath);
         self::assertSame(5, $people, 'GET /ui/people, GET /ui/people.csv, GET /ui/people/{id}, POST .../roles, POST .../active');
         self::assertArrayHasKey('POST /ui/people/{id}/roles', $byPath);

@@ -8,6 +8,7 @@ use CW\Auth\Csrf;
 use CW\Auth\Permissions;
 use CW\Auth\StaffIdentity;
 use CW\Caller;
+use CW\Company\CompanyDetails;
 use CW\Config;
 use CW\Db;
 use CW\Documents\DocumentHandlers;
@@ -32,6 +33,7 @@ final class Context
     private ?Settings $settings = null;
     private ?Suppliers $suppliers = null;
     private ?SupplierItems $supplierItems = null;
+    private ?CompanyDetails $company = null;
 
     /**
      * @param array<string, string> $params route parameters
@@ -103,6 +105,12 @@ final class Context
         return $this->supplierItems ??= new SupplierItems($this->db);
     }
 
+    /** The company details printed on POs (company_profile, I90-I99). */
+    public function company(): CompanyDetails
+    {
+        return $this->company ??= new CompanyDetails($this->db);
+    }
+
     /** The file store app.env names (file_store_dir / CW_FILE_STORE_DIR); 503 file_store_unconfigured without one. */
     public function files(): FileStore
     {
@@ -159,7 +167,8 @@ final class Context
      * @return array<string, int> badge name (Permissions::MENU `badge`) => count, for what the person may see:
      *         linking_pending (decisions waiting for a second approval), reviews_open (open review and approval tasks this
      *         person may decide: not opened by them, not on a document they created, submitted or posted, I19; plus the
-     *         open supplier tasks they may decide: not on a supplier they created, asked for or last changed, I40)
+     *         open supplier tasks they may decide: not on a supplier they created, asked for or last changed, I40; plus the
+     *         open reviews of a change of the company details they did not make, I94)
      */
     public function badges(): array
     {
@@ -167,10 +176,11 @@ final class Context
         if ($this->who !== null && $this->who->can('linking.view')) {
             $out['linking_pending'] = $this->queries()->pendingCount();
         }
-        if ($this->who !== null && ($this->who->can('documents.review') || $this->who->can('suppliers.approve'))) {
-            // Documents and suppliers share the review queue (I40): the open supplier tasks this person may decide count too.
+        if ($this->who !== null && ($this->who->can('documents.review') || $this->who->can('suppliers.approve') || $this->who->can('company.confirm'))) {
+            // Documents, suppliers and the company details share the review queue (I40, I94): the open tasks this person may decide.
             $out['reviews_open'] = $this->documents()->decidableCount($this->who->id, $this->who->roles)
-                + $this->suppliers()->decidableCount($this->who->id, $this->who->roles);
+                + $this->suppliers()->decidableCount($this->who->id, $this->who->roles)
+                + $this->company()->decidableCount($this->who->id, $this->who->roles);
         }
         return $out;
     }

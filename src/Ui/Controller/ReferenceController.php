@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Company\CompanyDetails;
 use CW\Documents\NumberSeries;
 use CW\Output\CsvWriter;
 use CW\Ui\Context;
@@ -13,7 +14,8 @@ use CW\Ui\HtmlResponse;
  * Reference lists (reference.view, every role): the reason codes (I22; also as CSV for Excel), the number series
  * with the document types and their review rules (I19, I20), and the settings with the VAT codes (I38-I41). Read-only:
  * these lists are changed by a migration or an admin tool on the server only (the app login has SELECT on reason_code,
- * document_type, app_setting and vat_code, and moves number_series.last_no only by posting).
+ * document_type, app_setting and vat_code, and moves number_series.last_no only by posting). The settings page starts with
+ * the company details (their own screen since 0013: CompanyController, I90).
  */
 final class ReferenceController
 {
@@ -97,7 +99,10 @@ final class ReferenceController
             ];
         }
         uksort($rules, static fn (string $a, string $b): int => array_search($a, self::TYPE_ORDER, true) <=> array_search($b, self::TYPE_ORDER, true));
+        $company = $ctx->company()->current();
         return $ctx->page('settings', [
+            'company' => ['legal_name' => $company['legal_name'], 'confirmed' => $company['confirmed'], 'version' => $company['version'],
+                'missing' => CompanyDetails::missing($company), 'canEdit' => $ctx->me()->can('company.edit')],
             'settings' => $ctx->settings()->all(),
             'rules' => array_values($rules),
             'vat' => $ctx->db->all('SELECT code, label, rate_percent, is_active FROM vat_code ORDER BY sort_order, code'),

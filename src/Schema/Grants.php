@@ -33,10 +33,12 @@ final class Grants
      * po_posting: the write-once anchor of an approved PO's module content (I-2, I50; invariant P2, like I33).
      * match_proposal_basis / key_sample / key_sample_member: what a proposal was made against, and a spot-check sample with
      * the population it was drawn from: the bulk confirm trusts them, so the app login can add them but never rewrite them (M27, M28).
+     * company_profile: the company details printed on POs, one row per saved or confirmed version (0013, I91): a version is
+     * added, never rewritten or removed, so who changed and who confirmed what stays readable.
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
         'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
-        'key_sample_member'];
+        'key_sample_member', 'company_profile'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -60,7 +62,8 @@ final class Grants
     ];
     /**
      * reason_code / document_type: seeded reference lists, changed only by a migration (I22, I19). app_setting: changed by
-     * bin/settings.php with the admin login (I38); vat_code: by a migration (I-2).
+     * bin/settings.php with the admin login (I38; the company details moved to company_profile in 0013, I91); vat_code: by a
+     * migration (I-2).
      */
     public const READ_ONLY = ['schema_migrations', 'reason_code', 'document_type', 'app_setting', 'vat_code'];
     /**

@@ -22,7 +22,9 @@ use CW\Ui\HtmlResponse;
  * counts only the tasks they may decide. Every decision goes through CW\Documents\Documents, which checks it again.
  * Since the pos task (I-2, I53): `?type=PO` (a document type, or Supplier) narrows the queue (the reviewer's weekly PO
  * routine); the units of an over_value approval are whole GBP and shown as £; a PO and its cancellation are decided on
- * the order's page in Purchasing, where a decision comes back to.
+ * the order's page in Purchasing, where a decision comes back to. Since 0013 (I94) the checks of a person's confirmation of
+ * their own change of the company details are listed too (type "Company details", `?type=Company`, labelled with the
+ * watched fields changed), decided on the Company details page.
  */
 final class ReviewsController
 {
@@ -31,7 +33,7 @@ final class ReviewsController
         $me = $ctx->me();
         $types = array_map('strval', $ctx->db->column('SELECT code FROM document_type'));
         $type = $ctx->req->param('type');
-        $type = $type !== null && (in_array($type, $types, true) || $type === 'Supplier') ? $type : null;
+        $type = $type !== null && (in_array($type, $types, true) || $type === 'Supplier' || $type === 'Company') ? $type : null;
         $now = gmdate('Y-m-d H:i:s');
         $lists = ['approval' => [], 'review' => []];
         foreach ($ctx->db->all(
@@ -69,6 +71,28 @@ final class ReviewsController
                 'due_at' => $r['due_at'], 'overdue' => (string) $r['due_at'] < $now, 'refusal' => $no['message'] ?? null,
             ];
         }
+        // Checks of a person's confirmation of their own change of the company details (I94): non-blocking, decided on the
+        // Company details page; the label says what changed.
+        $what = [];
+        foreach ($ctx->company()->reviews() as $t) {
+            $what[(int) $t['id']] = implode(', ', array_map(static fn (array $c): string => $c['label'], array_filter($t['changes'], static fn (array $c): bool => $c['watched'])));
+        }
+        foreach ($ctx->db->all(
+            'SELECT t.id AS task_id, t.kind, t.reason AS task_reason, t.subject_id, t.opened_by, t.opened_at, t.due_at, o.display_name AS opened_by_name '
+            . "FROM review_task t LEFT JOIN staff_user o ON o.id = t.opened_by WHERE t.subject_type = 'company' AND t.state = 'open' ORDER BY t.opened_at, t.id",
+        ) as $r) {
+            if ($type !== null && $type !== 'Company') {
+                continue;
+            }
+            $no = $ctx->company()->refusal($me->id, $me->roles, $r);
+            $changed = $what[(int) $r['task_id']] ?? '';
+            $lists[(string) $r['kind']][] = [
+                'task_id' => (int) $r['task_id'], 'document_id' => null, 'label' => 'Company details, version ' . (int) $r['subject_id'] . ($changed !== '' ? " ({$changed})" : ''),
+                'type' => 'Company details',
+                'href' => '/ui/reference/company', 'reason' => (string) $r['task_reason'], 'units' => null, 'money' => false, 'opened_by' => $r['opened_by_name'],
+                'opened_at' => $r['opened_at'], 'due_at' => $r['due_at'], 'overdue' => (string) $r['due_at'] < $now, 'refusal' => $no['message'] ?? null,
+            ];
+        }
         foreach ($lists as &$list) {
             usort($list, static fn (array $a, array $b): int => [(string) $a['opened_at'], $a['task_id']] <=> [(string) $b['opened_at'], $b['task_id']]);
         }
@@ -81,6 +105,7 @@ final class ReviewsController
             }
         }
         $filter['Supplier'] = 'Suppliers';
+        $filter['Company'] = 'Company details';
         return $ctx->page('reviews', ['approvals' => $lists['approval'], 'reviews' => $lists['review'], 'type' => $type, 'types' => $filter], 200,
             ['title' => 'Document reviews', 'active' => 'reviews']);
     }

@@ -3,7 +3,8 @@
   anything is booked (a positive adjustment without a supplier document above the limit) or used (a new or re-activated supplier, an overseas
   supplier's import route, a purchase order above the value limit). Nobody decides a document they created, asked for or posted, or a supplier they
   created, asked for or last changed. Rejecting a posted document posts its reversal, except a purchase order, whose rejection is recorded (its buyer
-  cancels or amends it); rejecting a request cancels it. Supplier tasks are decided on the supplier's page, purchase orders on the order's page.</p>
+  cancels or amends it); rejecting a request cancels it. Supplier tasks are decided on the supplier's page, purchase orders on the order's page, and a
+  change of confirmed company details (checked by a reviewer who did not make it) on the Company details page.</p>
 <form class="filters" method="get" action="/ui/documents/reviews">
   <label>Type
     <select name="type">
@@ -18,7 +19,7 @@
 <?php if ($approvals === [] && $reviews === []): ?>
 <p class="note"><?php if ($type !== null): ?>Nothing of this type is waiting for review.<?php else: ?>Nothing is waiting for review.<?php endif; ?></p>
 <?php else: ?>
-<?php foreach ([['id' => 'approvals', 'title' => 'Waiting for approval (blocking)', 'rows' => $approvals], ['id' => 'reviews', 'title' => 'Posted, waiting for review (and changed suppliers)', 'rows' => $reviews]] as $list): ?>
+<?php foreach ([['id' => 'approvals', 'title' => 'Waiting for approval (blocking)', 'rows' => $approvals], ['id' => 'reviews', 'title' => 'Posted, waiting for review (and changed suppliers or company details)', 'rows' => $reviews]] as $list): ?>
 <section aria-labelledby="<?= $e($list['id']) ?>-h">
   <h2 id="<?= $e($list['id']) ?>-h"><?= $e($list['title']) ?></h2>
 <?php if ($list['rows'] === []): ?>
@@ -27,7 +28,7 @@
   <table class="reviews">
     <thead>
       <tr>
-        <th scope="col">Document or supplier</th>
+        <th scope="col">Document, supplier or company details</th>
         <th scope="col">Type</th>
         <th scope="col">Why</th>
         <th scope="col" class="num">Units or value</th>

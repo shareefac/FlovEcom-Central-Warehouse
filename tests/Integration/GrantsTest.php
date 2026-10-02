@@ -155,6 +155,11 @@ final class GrantsTest extends IntegrationTestCase
         foreach (['sales_history_day', 'channel_snapshot_day', 'listing_stock_day', 'listing_stock_latest', 'item_reorder', 'reorder_brand', 'reorder_demand'] as $t) {
             self::assertSame(Grants::FULL, Grants::desired($t), $t);
         }
+        // 0013 (I91): the company details are versions, added and never rewritten or removed (Company\CompanyDetailsTest runs the flow as the app login).
+        self::assertSame(['Select', 'Insert'], Grants::desired('company_profile'));
+        self::assertSame([], Grants::desiredColumns('company_profile'));
+        self::assertContains('company_profile', Grants::APPEND_ONLY);
+        self::assertSame(['Select'], Grants::desired('app_setting'), 'still read-only: the company details left it, nothing gained a write path');
     }
 
     public function testApplyConvergesAndTheAppLoginIsLimited(): void

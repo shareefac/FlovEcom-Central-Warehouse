@@ -29,7 +29,8 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertSame('review_rejected', trim((string) $xp->query('//table[@class="reasons"]/tbody/tr[24]/th')->item(0)?->textContent));
         self::assertContains('/ui/reference/reasons.csv', $reasons->hrefs());
         self::assertSame([['label' => 'Reason codes', 'href' => '/ui/reference/reasons'], ['label' => 'Number series', 'href' => '/ui/reference/series'],
-            ['label' => 'Settings', 'href' => '/ui/reference/settings']], self::nav($reasons)['Reference'], 'Settings since the I-2 suppliers task');
+            ['label' => 'Settings', 'href' => '/ui/reference/settings'], ['label' => 'Company details', 'href' => '/ui/reference/company']],
+            self::nav($reasons)['Reference'], 'Settings since the I-2 suppliers task, Company details since 0013 (I90)');
 
         $series = $web->get('/ui/reference/series');
         self::assertSame(200, $series->status);

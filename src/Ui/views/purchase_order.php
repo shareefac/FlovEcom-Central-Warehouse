@@ -14,6 +14,9 @@
 <?php endforeach; ?>
 </ul>
 <?php endif; ?>
+<?php if ($companyNote !== null): ?>
+<p class="note company-note"><?= $e($companyNote['text']) ?> <a href="/ui/reference/company"><?= $e($companyNote['link']) ?></a></p>
+<?php endif; ?>
 <?php if ($doc->status === 'draft'): ?>
 <p class="note read-only">A draft is changed only by the person who created it (<?= $e($people['created']) ?>).</p>
 <?php endif; ?>
@@ -128,7 +131,7 @@
     </label>
     <label>To <input type="text" name="to" maxlength="191" value="<?= $e($supplier['email'] ?? '') ?>"></label>
 <?php if ($sendWarnings !== []): ?>
-    <span class="warnings"><?php foreach ($sendWarnings as $w): ?><?= $e($w) ?> <?php endforeach; ?></span>
+    <span class="warnings"><?php foreach ($sendWarnings as $w): ?><?= $e($w) ?> <?php endforeach; ?><?php if ($companyNote !== null): ?><a href="/ui/reference/company">Company details</a><?php endif; ?></span>
     <label class="choice"><input type="checkbox" name="send_anyway" value="1" required> Send anyway</label>
 <?php endif; ?>
     <button type="submit" class="primary"><?php if (($po['state'] ?? '') === 'sent'): ?>Sent again<?php else: ?>Mark as sent<?php endif; ?></button>

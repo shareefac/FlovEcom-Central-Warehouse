@@ -7,7 +7,8 @@ namespace CW\Output;
 /**
  * FPDF (setasign/fpdf, MIT; I24) with CW's page footer and the two measurements PdfWriter needs to repeat a table's header
  * after a page break. The footer is "Central Warehouse · generated <UTC> · page n/{nb}", or, given a footer text (a PO's
- * "<legal name> · Company no. · VAT no. · <number>", spec §6.7), that text followed by " · page n/{nb}". Use it through
+ * "<legal name> · Company no. · VAT no. · <number>", spec §6.7), that text followed by " · page n/{nb}"; a footer text too
+ * wide for the page (a long legal name) is cut with "…" so that the page number always shows (I96). Use it through
  * PdfWriter (or PurchaseOrderPdf): text given to FPDF must already be Windows-1252 (PdfWriter::text()).
  */
 final class Fpdf extends \FPDF
@@ -26,8 +27,16 @@ final class Fpdf extends \FPDF
         $this->SetY(-12);
         $this->SetFont('Helvetica', '', 7);
         $this->SetTextColor(110, 110, 110);
-        $text = $this->footer === null ? 'Central Warehouse · generated ' . $this->stamp : $this->footer;
-        $this->Cell(0, 5, PdfWriter::text($text . ' · page ' . $this->PageNo() . '/{nb}'), 0, 0, 'C');
+        $text = PdfWriter::text($this->footer === null ? 'Central Warehouse · generated ' . $this->stamp : $this->footer);
+        $page = PdfWriter::text(' · page ' . $this->PageNo() . '/{nb}');
+        $room = $this->innerWidth() - 2 * $this->cellPadding();
+        if ($this->GetStringWidth($text . $page) > $room) {
+            while ($text !== '' && $this->GetStringWidth($text . "\x85" . $page) > $room) {
+                $text = substr($text, 0, -1);
+            }
+            $text .= "\x85";
+        }
+        $this->Cell(0, 5, $text . $page, 0, 0, 'C');
         $this->SetTextColor(0, 0, 0);
     }
 

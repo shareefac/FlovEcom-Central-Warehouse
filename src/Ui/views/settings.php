@@ -1,7 +1,20 @@
 <h1>Settings</h1>
+<section class="card company-summary<?php if (!$company['confirmed']): ?> waiting<?php endif; ?>" aria-labelledby="company-h">
+  <h2 id="company-h">Company details</h2>
+  <p>The company name, numbers and addresses printed on every purchase order<?php if ($company['legal_name'] !== ''): ?>: <strong><?= $e($company['legal_name']) ?></strong><?php endif; ?>.
+<?php if ($company['confirmed']): ?>
+    <span class="tag ok">Confirmed</span></p>
+<?php else: ?>
+    <span class="tag bad">Not confirmed</span> Every purchase order PDF says "do not send" until they are confirmed.<?php if ($company['missing'] !== []): ?> Still missing: <?= $e(implode(', ', $company['missing'])) ?>.<?php endif; ?></p>
+<?php endif; ?>
+  <p><?php if ($company['canEdit']): ?><a class="button primary-link" href="/ui/reference/company">Add or change the company details</a><?php else: ?><a href="/ui/reference/company">See the company details</a><?php endif; ?></p>
+</section>
+
+<h2>Settings</h2>
 <p class="muted">How CW is set up. A setting marked <span class="tag warn">provisional</span> is a default the owner has not confirmed yet (the decision
   number refers to the owner's decisions in the inventory plan). Settings are changed on the server by an engineer with
-  <code>bin/settings.php --set=&lt;key&gt; --value=&lt;value&gt; --reason="..." --admin</code>; every change is audited.</p>
+  <code>bin/settings.php --set=&lt;key&gt; --value=&lt;value&gt; --reason="..." --admin</code>; every change is audited. The company details are
+  changed on their own screen, above.</p>
 <table class="settings">
   <thead>
     <tr>

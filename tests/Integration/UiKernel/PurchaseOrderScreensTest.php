@@ -198,6 +198,12 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         // Approve: numbered, then the PDF and send.
         $ed = $buyer->get("/ui/purchasing/orders/{$id}");
         self::assertStringContainsString('£250.50', $ed->text(), 'net 3 x 11.50 + 24 x 9.00');
+        // The company details are not confirmed (TestDb::clean leaves no version): the draft says why its PDF says "do not send" and links
+        // to the Company details screen (I96); a buyer may look, not change them.
+        $note = (new \DOMXPath($ed->dom()))->query('//main//p[contains(@class, "company-note")]/a');
+        self::assertSame(1, $note->length);
+        self::assertSame(['/ui/reference/company', 'See the company details'], [$note->item(0)?->getAttribute('href'), trim((string) $note->item(0)?->textContent)]);
+        self::assertStringContainsString('The company details are not confirmed yet, so this order\'s PDF says "company details not confirmed - do not send".', $ed->text());
         self::assertFalse($ed->hasForm("/ui/purchasing/orders/{$id}/approve"), 'the editor approves through its own form (review finding)');
         // Review finding: packs typed and not saved are what is approved (Approve is a button of the editor form).
         $f = $ed->form('/lines');
@@ -223,8 +229,11 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         $send = $view->form("/ui/purchasing/orders/{$id}/send");
         self::assertSame(['csrf', 'version', 'to', 'via'], array_keys($send));
         self::assertSame('sales@screensupplies.example', $send['to'], 'the supplier\'s e-mail is offered');
-        // Review finding (I86): the company details are not confirmed: the form says so and asks for "send anyway".
+        // Review finding (I86): the company details are not confirmed: the form says so and asks for "send anyway", and links to them (I96).
         self::assertStringContainsString('company details it was approved with are not confirmed', $view->text());
+        self::assertSame(['/ui/reference/company'], array_map(static fn (\DOMAttr $a): string => $a->value,
+            iterator_to_array((new \DOMXPath($view->dom()))->query('//form[contains(@action, "/send")]//span[@class="warnings"]/a/@href'))));
+        self::assertStringContainsString('The company details are not confirmed yet: this order\'s PDF says', $view->text());
         $warned = $buyer->post("/ui/purchasing/orders/{$id}/send", $send);
         self::assertSame(409, $warned->status, $warned->describe());
         self::assertStringContainsString('Tick "send anyway"', $warned->text());

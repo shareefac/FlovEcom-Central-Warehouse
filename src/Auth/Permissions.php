@@ -21,7 +21,7 @@ use CW\CwException;
  * admin SQL) is read fail-closed: the conflicting roles grant nothing while admin is held (effective()).
  *
  * The posting permissions (doc.<TYPE>.post) are proposals pending the owner's decisions 3 and 11 (I16); the Phase I-2
- * purchasing permissions (suppliers.*, purchasing.view, reorder.*) likewise (I40).
+ * purchasing permissions (suppliers.*, purchasing.view, reorder.*) likewise (I40), and the company details' (company.*, I90).
  */
 final class Permissions
 {
@@ -91,6 +91,10 @@ final class Permissions
         'purchasing.view' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'reviewer', 'accountant', 'auditor', 'manager'],
         'reorder.view' => ['buyer', 'purchasing_manager', 'reviewer', 'auditor', 'manager'],
         'reorder.manage' => ['buyer', 'purchasing_manager'],
+        // The company details printed on every PO (I90, provisional: owner to confirm): everyone reads them (reference.view); a
+        // reviewer (the owner's role) adds, changes and confirms them and reviews another reviewer's change; never admin (I12).
+        'company.edit' => ['reviewer'],
+        'company.confirm' => ['reviewer'],
     ];
 
     /**
@@ -143,6 +147,7 @@ final class Permissions
             ['label' => 'Reason codes', 'perm' => 'reference.view', 'key' => 'reasons', 'path' => '/ui/reference/reasons'],
             ['label' => 'Number series', 'perm' => 'reference.view', 'key' => 'series', 'path' => '/ui/reference/series'],
             ['label' => 'Settings', 'perm' => 'reference.view', 'key' => 'settings', 'path' => '/ui/reference/settings'],
+            ['label' => 'Company details', 'perm' => 'reference.view', 'key' => 'company', 'path' => '/ui/reference/company'],
         ]],
         ['section' => 'Admin', 'items' => [
             ['label' => 'People and roles', 'perm' => 'staff.view', 'key' => 'people', 'path' => '/ui/people'],

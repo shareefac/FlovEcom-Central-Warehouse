@@ -14,8 +14,10 @@ use CW\Tests\Support\UiTestCase;
  */
 final class UiSecurityTest extends UiTestCase
 {
-    private const GETS = ['/ui', '/ui/', '/ui/review?queue=Key', '/ui/review?queue=pending', '/ui/review/listing/1', '/ui/items/1', '/ui/search', '/ui/search?q=abc', '/ui/password'];
-    private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw'];
+    private const GETS = ['/ui', '/ui/', '/ui/review?queue=Key', '/ui/review?queue=pending', '/ui/review/listing/1', '/ui/items/1', '/ui/search', '/ui/search?q=abc', '/ui/password',
+        '/ui/reference/company', '/ui/reference/company/edit', '/ui/reference/company/sample.pdf'];
+    private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw',
+        '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject'];
 
     public function testEveryScreenNeedsASignIn(): void
     {

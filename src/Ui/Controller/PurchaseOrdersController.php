@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Company\CompanyDetails;
 use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
@@ -461,6 +462,7 @@ final class PurchaseOrdersController
                     $totals['by_code'])],
             'stateText' => self::stateText($doc, $po, $db),
             'warnings' => in_array($doc->status, ['draft', 'awaiting_approval'], true) ? $svc->warnings($doc->id) : [],
+            'companyNote' => self::companyNote($ctx, $po),
             'limit' => (int) $type['approval_limit_units'],
             'error' => $error?->getMessage(),
             'errorCode' => $error?->errorCode,
@@ -563,6 +565,44 @@ final class PurchaseOrdersController
             'amendReasons' => $pick(PurchaseOrders::AMEND_REASONS),
             'formKey' => $canPost ? FormOnce::newKey() : null,
         ];
+    }
+
+    /**
+     * Why this order's PDF says "do not send" because of the company details, with a link to the Company details screen and
+     * its words (I96, I98), or null: a draft prints the details in use, an approved order the snapshot it was approved with (an
+     * order approved before the details were confirmed keeps saying it: amending it prints the confirmed ones; an order whose
+     * snapshot carries a change a reviewer rejected says so: cancel or amend it). Only while the order may still go to the
+     * supplier or be delivered (draft, waiting for approval, approved, sent, part received).
+     *
+     * @param array<string, mixed> $po
+     * @return array{text: string, link: string}|null
+     */
+    private static function companyNote(Context $ctx, array $po): ?array
+    {
+        $state = $po['state'] ?? null;
+        if ($state !== null && !in_array($state, CompanyDetails::OPEN_ORDER_STATES, true)) {
+            return null;
+        }
+        $current = $ctx->company()->current();
+        $fix = $ctx->me()->can('company.edit') && !$current['confirmed'] ? 'Add or confirm the company details' : 'See the company details';
+        if ($state !== null) {
+            $snapshot = json_decode((string) ($po['company_snapshot'] ?? 'null'), true);
+            if (is_array($snapshot) && $ctx->company()->rejectedIn($snapshot) !== null) {
+                return ['link' => 'See the company details', 'text' => 'This order was approved with company details that include a change a reviewer '
+                    . 'rejected: its PDF says "company details rejected at review - do not send". Cancel or amend it.'];
+            }
+            if (is_array($snapshot) && ($snapshot['confirmed'] ?? false) === true) {
+                return null;
+            }
+            return $current['confirmed']
+                ? ['link' => 'See the company details', 'text' => 'This order was approved before the company details were confirmed: its PDF keeps the details '
+                    . 'it was approved with and says "company details not confirmed - do not send". Amend it to print the confirmed details.']
+                : ['link' => $fix, 'text' => 'The company details are not confirmed yet: this order\'s PDF says "company details not confirmed - do not send".'];
+        }
+        if ($current['confirmed']) {
+            return null;
+        }
+        return ['link' => $fix, 'text' => 'The company details are not confirmed yet, so this order\'s PDF says "company details not confirmed - do not send".'];
     }
 
     /**

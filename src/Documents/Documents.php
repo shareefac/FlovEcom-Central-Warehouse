@@ -814,6 +814,10 @@ final class Documents
     {
         $t = $this->db->one('SELECT subject_type, subject_id FROM review_task WHERE id = ?', [$taskId])
             ?? throw new CwException('unknown_task', 'there is no such review task', 404);
+        if ($t['subject_type'] === 'company') {
+            // Reviews of a change of the company details are CW\Company\CompanyDetails' (I94).
+            throw new CwException('company_task', 'reviews of the company details are decided on the Company details page', 409);
+        }
         if ($t['subject_type'] !== 'document') {
             // Supplier tasks (activation, import route, change review) are CW\Suppliers\Suppliers' (I-2, I40).
             throw new CwException('supplier_task', "supplier approvals are decided on the supplier's page", 409);

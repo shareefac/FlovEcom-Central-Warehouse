@@ -8,6 +8,7 @@ use CW\Audit;
 use CW\Auth\Permissions;
 use CW\Caller;
 use CW\Clock;
+use CW\Company\CompanyDetails;
 use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
@@ -299,8 +300,9 @@ final class PurchaseOrders
 
     /**
      * Why a PO should not go to the supplier yet (review finding, I86): its review was rejected (the buyer cancels or amends
-     * it), or the company details it was approved with are not confirmed (its PDF says "do not send"). markSent() refuses
-     * while there are any, unless the person acknowledges them.
+     * it), the company details it was approved with are not confirmed (its PDF says "do not send"), or they carry a change of
+     * the company details that a reviewer rejected after the order was approved (I98: its PDF says so too). markSent()
+     * refuses while there are any, unless the person acknowledges them.
      *
      * @return list<string>
      */
@@ -317,6 +319,9 @@ final class PurchaseOrders
         $company = $r['company_snapshot'] === null ? null : json_decode((string) $r['company_snapshot'], true);
         if (!is_array($company) || ($company['confirmed'] ?? false) !== true) {
             $out[] = 'The company details it was approved with are not confirmed: its PDF says "company details not confirmed - do not send".';
+        }
+        if (is_array($company) && (new CompanyDetails($this->db))->rejectedIn($company) !== null) {
+            $out[] = 'The company details it was approved with include a change a reviewer rejected (see Company details): cancel or amend it rather than send it.';
         }
         return $out;
     }
@@ -694,7 +699,8 @@ final class PurchaseOrders
 
     /**
      * Everything the PDF prints (PurchaseOrderPdf::render): a posted PO from its snapshots (decision 9: what was approved),
-     * a draft from the current settings and supplier; a cancellation document prints its original's lines.
+     * a draft from the company details in use (Settings::company(): company_profile since 0013, I91) and the current supplier;
+     * a cancellation document prints its original's lines.
      *
      * @return array<string, mixed>
      */
@@ -714,6 +720,9 @@ final class PurchaseOrders
         $po = $this->headerRow($orig->id) ?? throw new CwException('po_header_missing', 'this purchase order has no header', 422);
         $posted = $po['state'] !== null && $po['company_snapshot'] !== null;
         $company = $posted ? (array) json_decode((string) $po['company_snapshot'], true) : $this->settings->company();
+        // An order approved with company details a reviewer later rejected prints a "do not send" banner of its own (I98).
+        $rejected = $posted && $doc->reversesId === null && in_array($po['state'], CompanyDetails::OPEN_ORDER_STATES, true)
+            && (new CompanyDetails($this->db))->rejectedIn($company) !== null;
         $supplierRow = $this->db->one('SELECT * FROM supplier WHERE id = ?', [(int) $po['supplier_id']]) ?? [];
         $supplier = $posted ? (array) json_decode((string) $po['supplier_snapshot'], true) : PurchaseOrderHandler::supplierSnapshot($supplierRow);
         $lines = [];
@@ -749,6 +758,7 @@ final class PurchaseOrders
             'cancellation' => $cancellation,
             'cancelled_by' => $reversedBy === null ? null : (string) $reversedBy,
             'company' => $company,
+            'company_rejected' => $rejected,
             'supplier' => $supplier,
             'lines' => $lines,
             'totals' => PoMath::totals($calc),

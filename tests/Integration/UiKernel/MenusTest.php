@@ -55,7 +55,8 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame([['label' => 'Review queue', 'href' => '/ui/documents/reviews']], $r['Document reviews']);
         self::assertSame([['label' => 'All documents', 'href' => '/ui/documents']], $r['Documents']);
         self::assertSame([['label' => 'Reason codes', 'href' => '/ui/reference/reasons'], ['label' => 'Number series', 'href' => '/ui/reference/series'],
-            ['label' => 'Settings', 'href' => '/ui/reference/settings']], $b['Reference']);
+            ['label' => 'Settings', 'href' => '/ui/reference/settings'], ['label' => 'Company details', 'href' => '/ui/reference/company']], $b['Reference']);
+        self::assertSame($b['Reference'], $r['Reference'], 'every role reads the company details (I90); only the reviewer changes them, on the page');
         self::assertNotSame($b, $d);
         self::assertNotSame($d, $r);
         self::assertNotSame($b, $r);
@@ -103,7 +104,7 @@ final class MenusTest extends KernelUiTestCase
         $xp = new \DOMXPath($home->dom());
         self::assertSame(4, $xp->query('//main//section[contains(@class, "card")]')->length, 'one card per menu section');
         self::assertSame(['/ui/search', '/ui/purchasing/suppliers', '/ui/purchasing/orders', '/ui/purchasing/reorder', '/ui/purchasing/sales-history', '/ui/documents',
-            '/ui/reference/reasons', '/ui/reference/series', '/ui/reference/settings'], array_values(array_filter(array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            '/ui/reference/reasons', '/ui/reference/series', '/ui/reference/settings', '/ui/reference/company'], array_values(array_filter(array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array($xp->query('//main//a'))))), 'the live links of a buyer after the I-2 reorder task');
         self::assertSame(1, $xp->query('//header//form[@action="/ui/search"]')->length, 'the quick search box: catalogue.view');
 

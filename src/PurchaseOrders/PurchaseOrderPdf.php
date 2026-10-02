@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\PurchaseOrders;
 
+use CW\Company\CompanyDetails;
 use CW\Output\Fpdf;
 use CW\Output\PdfWriter;
 
@@ -12,22 +13,28 @@ use CW\Output\PdfWriter;
  * A4 portrait, 15 mm margins, Helvetica (a PDF core font: nothing embedded or fetched), every string through
  * PdfWriter::text() (Windows-1252: £, ×, — survive).
  *
- *   banners (red)      DRAFT — NOT AN ORDER (not approved); CANCELLED — see PO-x (reversed); COMPANY DETAILS NOT
- *                      CONFIRMED — DO NOT SEND (company.confirmed false: the setting for a draft, the snapshot when posted)
- *   top left           the buying company (decision 9): legal name, trading name, address, phone, e-mail, company and VAT
- *                      numbers; an empty value prints [to be confirmed]
- *   top right          PURCHASE ORDER, the number (or "draft #id"), order date, expected delivery, the supplier's quote
- *                      reference, "Amends PO-x"
- *   two boxes          Supplier (name, code, address, VAT no., contact, e-mail) and Deliver to (company.delivery_address)
+ *   banners (red)      DRAFT — NOT AN ORDER (not approved; SAMPLE — NOT AN ORDER for the Company details screen's sample);
+ *                      CANCELLED — see PO-x (reversed); COMPANY DETAILS NOT CONFIRMED — DO NOT SEND (company `confirmed`
+ *                      false: the Company details in use for a draft, the snapshot when posted); COMPANY DETAILS REJECTED AT
+ *                      REVIEW — DO NOT SEND (`company_rejected`: an approved order whose snapshot carries a change a
+ *                      reviewer rejected, I98)
+ *   top left           the buying company (decision 9; CW\Company\CompanyDetails since 0013, I96): legal name, trading name,
+ *                      address, phone, e-mail, company and VAT numbers ("GB 123 4567 89"; no VAT line for a company that
+ *                      said it is not VAT registered); an empty value prints [to be confirmed]
+ *   top right          PURCHASE ORDER, the number (or "draft #id", or SAMPLE), order date, expected delivery, the supplier's
+ *                      quote reference, "Amends PO-x"
+ *   two boxes          Supplier (name, code, address, VAT no., contact, e-mail) and Deliver to (the delivery address, long
+ *                      lines wrapped, never cut), both on one page (a new page when the letterhead leaves too little room)
  *   lines (180 mm)     # · Supplier code · CW code · Description · Pack ("box ×24") · Packs · Units · Pack price · VAT · Net;
  *                      the header repeats on every page; a charge line leaves the codes and pack columns blank
  *   totals             lines / units; Net; VAT per code ("VAT S 20%  £x"); Total
  *   notes              the PO's note ("Notes to supplier"), then po.terms
  *   footer             "<legal name> · Company no. · VAT no. · <number> · page n/{nb}"
  *
- * A posted PO prints its snapshots (what was approved), a draft the current settings and supplier (PurchaseOrders::pdfData);
- * a cancellation document prints "CANCELLATION OF PO-x" with the original's lines and the reason. Pure: it draws what it is
- * given, no database (PurchaseOrderPdfTest).
+ * A posted PO prints its snapshots (what was approved), a draft the current company details and supplier
+ * (PurchaseOrders::pdfData); a cancellation document prints "CANCELLATION OF PO-x" with the original's lines and the reason;
+ * sampleData() is the made-up order of "See how a purchase order will look". Pure: it draws what it is given, no database
+ * (PurchaseOrderPdfTest).
  */
 final class PurchaseOrderPdf
 {
@@ -61,20 +68,25 @@ final class PurchaseOrderPdf
         $company = $d['company'];
         $label = (string) $d['label'];
         $cancel = $d['cancellation'] ?? null;
-        $footer = self::val($company['legal_name'] ?? '') . ' · Company no. ' . self::val($company['company_number'] ?? '') . ' · VAT no. '
-            . self::val($company['vat_number'] ?? '') . ' · ' . ($cancel !== null ? (string) $cancel['number'] : $label);
+        $sample = ($d['sample'] ?? false) === true;
+        // "Not VAT registered" (said explicitly, I92) prints no VAT number at all; not said yet prints [to be confirmed].
+        $vat = ($company['vat_registered'] ?? null) === false ? null : self::val(CompanyDetails::formatVat(trim((string) ($company['vat_number'] ?? ''))));
+        $footer = self::val($company['legal_name'] ?? '') . ' · Company no. ' . self::val($company['company_number'] ?? '')
+            . ($vat !== null ? ' · VAT no. ' . $vat : '') . ' · ' . ($cancel !== null ? (string) $cancel['number'] : $label);
         $pdf = new Fpdf($footer);
         $pdf->SetCompression($this->compress);
         $pdf->SetMargins(15, 15, 15);
         $pdf->SetAutoPageBreak(true, 18);
         $pdf->AliasNbPages();
         $pdf->SetCreator('Central Warehouse', true);
-        $pdf->SetTitle(($cancel !== null ? 'Cancellation of ' : 'Purchase order ') . $label, true);
+        $pdf->SetTitle(($cancel !== null ? 'Cancellation of ' : ($sample ? 'Sample purchase order ' : 'Purchase order ')) . $label, true);
         $pdf->AddPage();
 
         // Banners
         $banners = [];
-        if (!($d['posted'] ?? false)) {
+        if ($sample) {
+            $banners[] = 'SAMPLE — NOT AN ORDER';
+        } elseif (!($d['posted'] ?? false)) {
             $banners[] = 'DRAFT — NOT AN ORDER';
         }
         if ($cancel === null && ($d['cancelled_by'] ?? null) !== null) {
@@ -82,6 +94,9 @@ final class PurchaseOrderPdf
         }
         if (!($company['confirmed'] ?? false)) {
             $banners[] = 'COMPANY DETAILS NOT CONFIRMED — DO NOT SEND';
+        }
+        if (($d['company_rejected'] ?? false) === true) {
+            $banners[] = 'COMPANY DETAILS REJECTED AT REVIEW — DO NOT SEND';
         }
         foreach ($banners as $b) {
             $pdf->SetFont('Helvetica', 'B', 11);
@@ -108,7 +123,9 @@ final class PurchaseOrderPdf
         $left[] = 'Phone: ' . self::val($company['phone'] ?? '');
         $left[] = 'E-mail: ' . self::val($company['email'] ?? '');
         $left[] = 'Company no. ' . self::val($company['company_number'] ?? '');
-        $left[] = 'VAT no. ' . self::val($company['vat_number'] ?? '');
+        if ($vat !== null) {
+            $left[] = 'VAT no. ' . $vat;
+        }
         foreach ($left as $l) {
             $pdf->SetX(15);
             $pdf->MultiCell(100, 4.5, PdfWriter::text($l), 0, 'L');
@@ -125,7 +142,7 @@ final class PurchaseOrderPdf
             $right[] = ['Of order', $label];
             $right[] = ['Cancelled on', (string) ($cancel['date'] ?? '')];
         } else {
-            $right[] = ['Order no.', $d['number'] === null ? 'draft #' . $d['id'] : $label];
+            $right[] = ['Order no.', $sample ? 'SAMPLE' : ($d['number'] === null ? 'draft #' . $d['id'] : $label)];
         }
         $right[] = ['Order date', (string) ($d['order_date'] ?? '')];
         if (($d['expected_date'] ?? null) !== null) {
@@ -157,9 +174,19 @@ final class PurchaseOrderPdf
             ($s['contact_name'] ?? null) !== null ? 'Contact: ' . $s['contact_name'] : null,
             ($s['email'] ?? null) !== null ? 'E-mail: ' . $s['email'] : null,
         ], static fn (?string $v): bool => $v !== null && trim($v) !== ''));
-        $deliver = self::lines((string) ($company['delivery_address'] ?? ''));
-        $boxTop = $pdf->GetY();
+        // The delivery address is wrapped to the box, never cut: a driver must be able to read all of it (I96).
+        $pdf->SetFont('Helvetica', '', 9);
+        $deliver = [];
+        foreach (self::lines((string) ($company['delivery_address'] ?? '')) as $line) {
+            array_push($deliver, ...$this->wrap($pdf, PdfWriter::text($line), 84));
+        }
         $h = 6 + 4.5 * max(count($supplierLines), max(1, count($deliver))) + 2;
+        // The two boxes stay whole on one page (a long letterhead may leave too little room under it): at most 8 address
+        // lines of 100 characters wrap to about 116 mm, which fits a fresh page.
+        if ($pdf->GetY() + $h > $pdf->breakAt()) {
+            $pdf->AddPage();
+        }
+        $boxTop = $pdf->GetY();
         $pdf->Rect(15, $boxTop, 88, $h);
         $pdf->Rect(107, $boxTop, 88, $h);
         $pdf->SetXY(17, $boxTop + 1.5);
@@ -174,9 +201,9 @@ final class PurchaseOrderPdf
         $pdf->SetFont('Helvetica', 'B', 9);
         $pdf->Cell(84, 5, PdfWriter::text('Deliver to'), 0, 2, 'L');
         $pdf->SetFont('Helvetica', '', 9);
-        foreach ($deliver === [] ? [self::TBC] : $deliver as $l) {
+        foreach ($deliver === [] ? [PdfWriter::text(self::TBC)] : $deliver as $l) {
             $pdf->SetX(109);
-            $pdf->Cell(84, 4.5, $this->fit($pdf, PdfWriter::text($l), 84), 0, 2, 'L');
+            $pdf->Cell(84, 4.5, $l, 0, 2, 'L');
         }
         $pdf->SetY($boxTop + $h + 5);
 
@@ -254,6 +281,37 @@ final class PurchaseOrderPdf
         return $pdf->Output('S');
     }
 
+    /**
+     * The made-up order of "See how a purchase order will look" (the Company details screen, I96): no number, marked SAMPLE,
+     * a fictional supplier and three lines, with the company details given ($company: CompanyDetails::company()).
+     *
+     * @param array<string, mixed> $company
+     * @return array<string, mixed>
+     */
+    public static function sampleData(array $company, string $orderDate, string $terms): array
+    {
+        $lines = [
+            ['line_no' => 1, 'kind' => 'item', 'supplier_code' => 'EX-1001', 'sku_code' => 'CW-000001', 'description' => 'Example disposable vape, 20mg, strawberry',
+                'purchase_unit' => 'box', 'units_per_pack' => 10, 'packs' => 5, 'units' => 50, 'pack_price' => '25.0000', 'vat_code' => 'S', 'amount_e2' => 12500],
+            ['line_no' => 2, 'kind' => 'item', 'supplier_code' => 'EX-2002', 'sku_code' => 'CW-000002', 'description' => 'Example e-liquid 10ml, menthol',
+                'purchase_unit' => 'each', 'units_per_pack' => 1, 'packs' => 24, 'units' => 24, 'pack_price' => '1.2000', 'vat_code' => 'S', 'amount_e2' => 2880],
+            ['line_no' => 3, 'kind' => 'charge', 'supplier_code' => null, 'sku_code' => null, 'description' => 'Delivery', 'purchase_unit' => 'each',
+                'units_per_pack' => 1, 'packs' => 1, 'units' => null, 'pack_price' => '6.5000', 'vat_code' => 'S', 'amount_e2' => 650],
+        ];
+        return [
+            'sample' => true, 'number' => null, 'label' => 'SAMPLE', 'id' => 0, 'status' => 'draft', 'state' => null, 'posted' => false,
+            'order_date' => $orderDate, 'expected_date' => null, 'external_ref' => null, 'note' => 'This is a sample: it shows how a purchase order prints the company details.',
+            'amends' => null, 'cancellation' => null, 'cancelled_by' => null,
+            'company' => $company,
+            'supplier' => ['code' => 'EXAMPLE', 'name' => 'Example Supplier', 'legal_name' => 'Example Supplier Ltd', 'address_line1' => '1 Example Street',
+                'address_line2' => null, 'city' => 'Exampletown', 'postcode' => 'EX1 1AA', 'country' => 'GB', 'vat_number' => null, 'contact_name' => null,
+                'email' => 'orders@supplier.example', 'phone' => null],
+            'lines' => $lines,
+            'totals' => PoMath::totals(array_map(static fn (array $l): array => ['amount_e2' => $l['amount_e2'], 'vat_code' => 'S', 'rate_e2' => 2000], $lines)),
+            'terms' => $terms,
+        ];
+    }
+
     private function tableHeader(Fpdf $pdf): void
     {
         $pdf->SetFont('Helvetica', 'B', 7.5);
@@ -263,6 +321,45 @@ final class PurchaseOrderPdf
         }
         $pdf->Ln(self::ROW_H);
         $pdf->SetFont('Helvetica', '', 8);
+    }
+
+    /**
+     * $s (Windows-1252) as the lines that fit a cell of $w mm at the current font: broken at spaces, a single word longer than
+     * the cell broken where it must.
+     *
+     * @return list<string>
+     */
+    private function wrap(Fpdf $pdf, string $s, float $w): array
+    {
+        $room = $w - 2 * $pdf->cellPadding();
+        $out = [];
+        $line = '';
+        foreach (explode(' ', str_replace(["\r", "\n"], ' ', $s)) as $word) {
+            if ($word === '') {
+                continue;
+            }
+            $try = $line === '' ? $word : $line . ' ' . $word;
+            if ($pdf->GetStringWidth($try) <= $room) {
+                $line = $try;
+                continue;
+            }
+            if ($line !== '') {
+                $out[] = $line;
+            }
+            while ($pdf->GetStringWidth($word) > $room) {
+                $cut = strlen($word) - 1;
+                while ($cut > 1 && $pdf->GetStringWidth(substr($word, 0, $cut)) > $room) {
+                    $cut--;
+                }
+                $out[] = substr($word, 0, $cut);
+                $word = substr($word, $cut);
+            }
+            $line = $word;
+        }
+        if ($line !== '') {
+            $out[] = $line;
+        }
+        return $out;
     }
 
     /** $s (Windows-1252) on one line, cut with "…" (0x85) to fit a cell of $w mm. */

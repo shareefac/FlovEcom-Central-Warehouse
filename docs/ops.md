@@ -90,10 +90,11 @@ number_series` = 0, `document` and `document_posting` empty, and `php bin/invari
 the PO `document_type` row (review all, due 7, approval over £10,000 net, reject records), 3 PO reversal reasons, 29
 `app_setting` rows (12 + 3 + 14, provisional), 6 VAT codes and the 14–22 Sep 2026 anomaly window. No backfill; nothing
 books stock. Migrate with the I-2 code in one `install_cron.sh --migrate` run (after 0006–0008, or in the same run). Check
-afterwards: `SELECT COUNT(*) FROM app_setting` = 29, `vat_code` = 6, `SELECT approval_rule, approval_limit_units,
-review_rule, reject_action FROM document_type WHERE code = 'PO'` = `over_value, 10000, all, record`, `SELECT COUNT(*) FROM
-demand_anomaly` = 1, `supplier`/`purchase_order`/`sales_history_day` empty, and `php bin/invariants.php` says `ok` (it now
-runs S1–S5 and P1–P6 too). Then the settings (company details) and the sales-history load ("Purchasing, Phase I-2" below).
+afterwards: `SELECT COUNT(*) FROM app_setting` = 29 (20 once 0013 has moved the nine `company.*` rows), `vat_code` = 6,
+`SELECT approval_rule, approval_limit_units, review_rule, reject_action FROM document_type WHERE code = 'PO'` = `over_value,
+10000, all, record`, `SELECT COUNT(*) FROM demand_anomaly` = 1, `supplier`/`purchase_order`/`sales_history_day` empty, and
+`php bin/invariants.php` says `ok` (it now runs S1–S5 and P1–P6 too). Then the company details (0013 below; "Company details")
+and the sales-history load ("Purchasing, Phase I-2" below).
 
 **`0012_key_bulk.sql` (Key spot-check and bulk confirm, M26–M28; not applied yet):** three new append-only tables
 (`match_proposal_basis`, `key_sample`, `key_sample_member`; cw_app gets SELECT, INSERT), no seeds, no backfill (the re-band and
@@ -101,6 +102,19 @@ sample tools write the proved bases of older proposals). It was written as `0010
 when merged after Phase I-2: name order applies it after 0011, in the same `install_cron.sh --migrate` run. Check afterwards: the
 three tables exist and are empty, and `php bin/migrate.php --status` lists no PENDING file. Then the runbook "Key spot-check and
 bulk confirm" below.
+
+**`0013_company_profile.sql` (the Company details screen, I90–I99; not applied yet):** creates `company_profile` (cw_app:
+SELECT, INSERT), copies the nine `company.*` settings into its version 1, tidied as the screen tidies them (audited
+`company.change`, actor `system:migrate`), then **deletes those nine rows from `app_setting`**, and adds `company` to
+`review_task.subject_type`. Deploy it with the code of the same change in one `install_cron.sh --migrate` run, never apart: older
+code reads the `company.*` settings it deletes (every PO PDF and approval would fail with a 500). Re-runnable if it stops half way.
+Check afterwards: `SELECT version, kind, legal_name, company_number, vat_number, confirmed, saved_actor FROM company_profile` = one
+row, version 1, kind `seed`, saved by `system:migrate`, the values `bin/settings.php --list` showed before (company and VAT numbers
+without spaces, extra spaces gone); `SELECT COUNT(*) FROM audit_log WHERE entity_type = 'company_profile'` = 1; `SELECT COUNT(*) FROM
+app_setting WHERE setting_key LIKE 'company.%'` = 0 (`app_setting` 20 rows); `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+WHERE TABLE_NAME = 'review_task' AND COLUMN_NAME = 'subject_type'` lists `company`; `php bin/migrate.php --status` lists no PENDING
+file; `php bin/invariants.php` says `ok` (it now runs C1–C4 too). Then the owner adds and confirms the details on the screen
+("Company details" below).
 
 ### API log rotation (staging)
 
@@ -841,19 +855,63 @@ A changed or missing file is never served: the screen answers 500 with a request
 
 ## Purchasing, Phase I-2: settings and the ERPNext supplier seed (`docs/decisions.md` I38–I47)
 
+### Company details (the screen; `docs/decisions.md` I90–I99)
+
+The company that buys the stock, as every purchase order prints it (legal and trading name, company number, VAT, registered
+address, purchasing phone and e-mail, delivery address), lives in `company_profile` (0013), one row per version. It is changed
+**on the screen**, by a person holding **reviewer** (the owner on staging); everyone else reads it; admin never changes it.
+
+1. Reference › **Company details** (`/ui/reference/company`; also the card at the top of Reference › Settings, and the link on
+   any purchase order whose PDF says "do not send").
+2. **Add or change the details** → one form → **Save**. Empty fields may be filled in later. The form refuses, with a sentence at
+   the field: a company number that is not 8 characters (8 digits with the leading zeros, or 2 letters + 6 digits; the rarer R +
+   7 digits and IP/SP/NP + 5 digits + R pass too); a VAT number that is not GB/XI + 9 or 12 digits (spaces and a missing GB are
+   fine); a VAT choice that disagrees with the number ("VAT registered" needs a number, "Not VAT registered" none); an address over
+   8 lines or a line over 100 characters; a character the PDF cannot print (letters outside Western European ones, emoji). A save
+   makes the details **not confirmed**.
+3. Check every detail against Companies House and the VAT certificate, then **These details are correct** (the button appears
+   once legal name, company number, registered address, VAT number or "Not VAT registered", purchasing e-mail and delivery
+   address are all there; details copied from the old settings that still need tidying say "Save once, then confirm"). New
+   drafts' PDFs lose the "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND" banner.
+4. **See how a purchase order will look (PDF)**: a SAMPLE order (no number, fictional supplier) with the details in use.
+
+- Orders **approved before** the details were confirmed keep the details they were approved with, and their PDF keeps saying
+  "do not send" (the Company details page counts those approved and not sent yet): amend them (cancel + copy) to print the
+  confirmed details; sending one anyway needs "Send anyway" ticked (I86).
+- A person who **confirms their own change** of the legal name, company number, VAT, purchasing e-mail or delivery address
+  (compared with the last confirmed details, however many saves it took) asks **another reviewer** to check it (Document reviews,
+  type "Company details"; decided on the Company details page by a reviewer who neither made nor confirmed the change). It stops
+  nothing. A change confirmed by someone else needs no check. With one reviewer the check stays open, calmly ("Nobody else holds
+  the reviewer role yet"): name a second reviewer (decision 3) to close it.
+- **Rejecting** the change unconfirms the details if they still carry it; the people who made or confirmed it cannot confirm it
+  again (another reviewer can, if it was right after all). Approved orders that carry the rejected change are listed on the
+  Company details page, say so on their own page, print "COMPANY DETAILS REJECTED AT REVIEW — DO NOT SEND" and warn before
+  sending: cancel or amend them.
+- If someone else saved meanwhile, the save is refused, nothing written: the form shows what changed and keeps what was typed.
+- Every version (who, when, what changed, why) and every confirmation is on the page; `audit_log` has `company.change`,
+  `company.confirm`, `company.review`. The nightly `bin/invariants.php` checks every version against them (C1–C4): a
+  `company details version n ...` line means a row was added outside the screen. Keep the evidence (copy the row and the audit
+  rows of the company details), tell the owner, and look at who could write as the app login (`/etc/cw/db.env`). Until a reviewer
+  saves and confirms the right details on the screen, the details in use may be the made-up ones. Only a version number at the top
+  of its range blocks saving ("The history of the company details is damaged"): then, after copying it, remove that one row with
+  the admin login.
+- There is **no command-line way** to change them: `bin/settings.php --set=company.<key>` is refused (exit 2) with a pointer to the
+  screen. If nobody can sign in with reviewer, give a real person the role (`bin/reset_staff.php --email=<address>
+  --roles=reviewer[,...]`, "Staff accounts" above), never admin.
+
 ### Settings (`bin/settings.php`)
 
-CW's settings live in `app_setting` (0009): the company that buys and owns the warehouse stock (decision 9: the PO
-letterhead), the supplier approval rules (decision 11), the cost write-back switch (decision 12) and, from the later I-2
-tasks, the PO and reorder defaults. Every seeded value is **provisional** until the owner confirms it; the screen
-`/ui/reference/settings` (every role) shows each one with its decision number. The app login can only read them.
+CW's settings live in `app_setting` (0009): the supplier approval rules (decision 11), the cost write-back switch (decision 12)
+and, from the later I-2 tasks, the PO and reorder defaults. Every seeded value is **provisional** until the owner confirms it; the
+screen `/ui/reference/settings` (every role) shows each one with its decision number. The app login can only read them. The
+company details are not settings any more (above).
 
 ```bash
 # on the staging box, in /opt/cw-staging, as root (or from a slot: scripts/remote.sh <slot> php bin/settings.php ... --db=cw_test_<slot> --admin)
 php bin/settings.php --list                                                   # key, type, value, [provisional], decision
-php bin/settings.php --set=company.legal_name --value="Example Vapes Ltd" --reason="owner's company details, 3 Oct" --admin
-php bin/settings.php --set=company.address --value-file=/root/address.txt --reason="registered office" --admin   # several lines
-php bin/settings.php --set=company.confirmed --value=true --reason="owner confirmed the details" --confirmed --admin
+php bin/settings.php --set=suppliers.approval_due_days --value=5 --reason="owner asked for five days, 3 Oct" --admin
+php bin/settings.php --set=po.terms --value-file=/root/terms.txt --reason="owner's PO terms" --admin   # several lines
+php bin/settings.php --set=po.terms --value-file=/root/terms.txt --reason="owner confirmed the terms" --confirmed --admin
 ```
 
 - `--set` needs `--admin` (the admin login of `/etc/cw/db.env`): without it the tool stops at once with "settings change
@@ -861,17 +919,15 @@ php bin/settings.php --set=company.confirmed --value=true --reason="owner confir
 - The value is parsed for the setting's type: `int` (whole number), `decimal` (`0.50`, kept exactly as typed), `bool`
   (`true`/`false`), `string` (one line, ≤ 255), `text` (≤ 4000, line breaks allowed: give it with `--value-file`), `date`
   (`YYYY-MM-DD`); an empty value clears a string, text, number or date. Key rules (`Settings::RULES`): day counts 0–120,
-  `suppliers.approval_due_days` 1–120, `company.email` an address, `po.default_vat_code` an active VAT code, weights 0–1.
+  `suppliers.approval_due_days` 1–120, `po.default_vat_code` an active VAT code, weights 0–1, the reorder windows against each other.
 - `--confirmed` also records that the owner confirmed the value (the "provisional" mark goes).
 - A change writes `updated_actor = system:settings` and the audit row `setting.change {key, before, after, reason}`;
   sending the value the setting already has writes nothing ("unchanged").
-- Exit codes: 0 done · 1 `--set` without `--admin` · 2 usage, unknown key, bad value or reason (3–500 characters) · 3 cannot run.
+- Exit codes: 0 done · 1 `--set` without `--admin` · 2 usage, unknown key, a `company.*` key, bad value or reason (3–500
+  characters) · 3 cannot run.
 
 | Key | Type | Default | Decision | Meaning |
 |---|---|---|---|---|
-| `company.legal_name`, `trading_name`, `company_number`, `vat_number`, `phone`, `email` | string | empty | 9 | the PO letterhead; an empty value prints `[to be confirmed]` |
-| `company.address`, `company.delivery_address` | text | empty | 9 | one line per line |
-| `company.confirmed` | bool | false | 9 | false: every PO PDF says "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND" |
 | `costs.site_writeback` | bool | false | 12 | CW's average cost into the sites' cost field: **not built in I-2**, nothing reads it |
 | `suppliers.approval_due_days` | int | 3 | 11 | an activation / import-route approval is due this many days after it is asked for |
 | `suppliers.change_review` | bool | true | 11 | identity changes of an active supplier open a (non-blocking) review |
@@ -1035,8 +1091,8 @@ then waits for the supplier's own approval).
   approves it first on the order's page (the requester may withdraw the request). Approval is refused for a supplier that
   is not active, an overseas supplier whose import route is not approved, or a supplier whose change of route / overseas
   status waits for a second person. The order date is at most 31 days ahead and 731 days back (I81).
-- **After approval** the order's page offers: the PDF (letterhead from the company settings; "COMPANY DETAILS NOT CONFIRMED
-  — DO NOT SEND" until `company.confirmed` is true), **Mark as sent** (e-mail, portal, phone, ...; again allowed; the PDF as
+- **After approval** the order's page offers: the PDF (letterhead from the company details it was approved with; "COMPANY
+  DETAILS NOT CONFIRMED — DO NOT SEND" when they were not confirmed then: see "Company details" above), **Mark as sent** (e-mail, portal, phone, ...; again allowed; the PDF as
   sent is kept in the document store `/srv/cw-docs` when the server has one; while the company details are not confirmed
   or the order's review was rejected the form says so and needs "Send anyway" ticked, which the audit row keeps, I86), **Cancel** (posts a cancellation in the PO
   series, reviewed like an order; refused once goods were received: close it instead), **Amend** (cancels it and copies it

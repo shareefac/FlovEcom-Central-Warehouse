@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace CW;
 
+use CW\Company\CompanyDetails;
+
 /**
- * CW's typed settings (app_setting, 0009; docs/decisions.md I38-I41): company details for the PO letterhead (decision 9),
- * the supplier approval rules (decision 11), the cost write-back switch (decision 12) and, from the later I-2 tasks, the PO
- * and reorder defaults. Read-only for the app login (Grants::READ_ONLY); bin/settings.php --admin changes a value
- * (audit setting.change). Rows are read once per instance (a request or a job sees one consistent set).
+ * CW's typed settings (app_setting, 0009; docs/decisions.md I38-I41): the supplier approval rules (decision 11), the cost
+ * write-back switch (decision 12) and, from the later I-2 tasks, the PO and reorder defaults. Read-only for the app login
+ * (Grants::READ_ONLY); bin/settings.php --admin changes a value (audit setting.change). Rows are read once per instance (a
+ * request or a job sees one consistent set).
+ *
+ * The company details of the PO letterhead (decision 9) were company.* settings until 0013; they are now versions in
+ * company_profile, added and confirmed by staff on the Company details screen (CW\Company\CompanyDetails, I90-I99).
+ * company() reads them from there, and set() refuses a company.* key with a pointer to the screen.
  *
  * value_json holds a JSON string, number or boolean; "" means "not set" (an empty placeholder: get() returns '' for the
  * text types and null for int, decimal and date). A decimal is kept as a JSON string (its digits exactly as given; a
@@ -17,6 +23,8 @@ namespace CW;
 final class Settings
 {
     public const TYPES = ['string', 'text', 'int', 'decimal', 'bool', 'date'];
+    /** Where the company details are changed since 0013 (I91). */
+    public const COMPANY_SCREEN = '/ui/reference/company';
     public const STRING_MAX = 255;
     public const TEXT_MAX = 4000;
 
@@ -26,7 +34,6 @@ final class Settings
      * count from 0 to 120 unless listed here.
      */
     public const RULES = [
-        'company.email' => ['email' => true],
         'suppliers.approval_due_days' => ['min' => 1, 'max' => 120],
         'po.default_vat_code' => ['vat_code' => true],
         'po.over_delivery_tolerance_pct' => ['min' => 0, 'max' => 200],
@@ -70,20 +77,16 @@ final class Settings
     }
 
     /**
-     * The company that buys and owns the warehouse stock (decision 9, provisional): what a PO letterhead prints. Empty
-     * strings until the owner provides them; confirmed false until the owner confirms them.
+     * The company that buys and owns the warehouse stock (decision 9, provisional): what a PO letterhead prints, from the
+     * version of company_profile in use (CW\Company\CompanyDetails::company(), read on every call, never cached). Empty
+     * strings until someone provides them; confirmed false until someone confirms them; vat_registered null until someone
+     * says; version 0 when there is no version at all.
      *
-     * @return array{legal_name: string, trading_name: string, address: string, company_number: string, vat_number: string, phone: string, email: string, delivery_address: string, confirmed: bool}
+     * @return array{legal_name: string, trading_name: string, address: string, company_number: string, vat_number: string, phone: string, email: string, delivery_address: string, confirmed: bool, vat_registered: ?bool, version: int}
      */
     public function company(): array
     {
-        $out = [];
-        foreach (['legal_name', 'trading_name', 'address', 'company_number', 'vat_number', 'phone', 'email', 'delivery_address'] as $k) {
-            $out[$k] = (string) $this->get("company.{$k}");
-        }
-        $out['confirmed'] = (bool) $this->get('company.confirmed');
-        /** @var array{legal_name: string, trading_name: string, address: string, company_number: string, vat_number: string, phone: string, email: string, delivery_address: string, confirmed: bool} $out */
-        return $out;
+        return (new CompanyDetails($this->db))->company();
     }
 
     /**
@@ -246,12 +249,17 @@ final class Settings
      * and checked against its rule; $confirm also marks it as confirmed by the owner (provisional = 0). Writes
      * updated_actor = system:settings and updated_at, and audit setting.change {key, before, after, reason}. Returns
      * ['changed' => bool, 'before' => typed, 'after' => typed]; nothing is written when neither the value nor the
-     * provisional flag changes.
+     * provisional flag changes. A company.* key is refused (400 company_details): the company details have their own
+     * screen and history since 0013 (I91).
      *
      * @return array{changed: bool, before: mixed, after: mixed}
      */
     public function set(Caller $caller, string $key, string $raw, string $reason, bool $confirm = false): array
     {
+        if (str_starts_with($key, 'company.')) {
+            throw new CwException('company_details', 'the company details are no longer settings: a reviewer adds, changes and confirms them on the '
+                . 'Company details screen (Reference > Company details, ' . self::COMPANY_SCREEN . '), which keeps every version', 400);
+        }
         $reason = trim($reason);
         if (mb_strlen($reason) < 3 || mb_strlen($reason) > 500 || !mb_check_encoding($reason, 'UTF-8')) {
             throw new CwException('bad_reason', 'say in 3 to 500 characters why the setting changes', 400);

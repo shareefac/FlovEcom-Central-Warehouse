@@ -20,6 +20,9 @@
 <?php endforeach; ?>
 </ul>
 <?php endif; ?>
+<?php if ($companyNote !== null): ?>
+<p class="note company-note"><?= $e($companyNote['text']) ?> <a href="/ui/reference/company"><?= $e($companyNote['link']) ?></a></p>
+<?php endif; ?>
 
 <form class="po-editor" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

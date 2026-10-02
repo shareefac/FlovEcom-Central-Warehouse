@@ -74,11 +74,11 @@ final class UiResponse
     /**
      * The fields a browser would submit for the (first) form whose action contains $action:
      * hidden, text, number, search fields, the checked radio of each group, checked boxes and
-     * the first option of a select. Disabled controls are left out.
+     * the first option of a select; with $textareas also every textarea (its text). Disabled controls are left out.
      *
      * @return array<string, string>
      */
-    public function form(string $action): array
+    public function form(string $action, bool $textareas = false): array
     {
         foreach ($this->dom()->getElementsByTagName('form') as $form) {
             if (!str_contains($form->getAttribute('action'), $action)) {
@@ -111,6 +111,14 @@ final class UiResponse
                     }
                 }
                 $out[$sel->getAttribute('name')] = (string) $chosen;
+            }
+            if ($textareas) {
+                foreach ($form->getElementsByTagName('textarea') as $ta) {
+                    if ($ta->getAttribute('name') !== '' && !$ta->hasAttribute('disabled')) {
+                        // A browser drops the one line break that may follow the opening tag.
+                        $out[$ta->getAttribute('name')] = (string) preg_replace('/^\r?\n/', '', (string) $ta->textContent);
+                    }
+                }
             }
             return $out;
         }

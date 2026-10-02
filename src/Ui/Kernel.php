@@ -11,6 +11,7 @@ use CW\ConfigException;
 use CW\CwException;
 use CW\Db;
 use CW\Ui\Controller\AuthController;
+use CW\Ui\Controller\CompanyController;
 use CW\Ui\Controller\DashboardController;
 use CW\Ui\Controller\DocumentsController;
 use CW\Ui\Controller\FilesController;
@@ -277,6 +278,16 @@ final class Kernel
         $r->add('GET', '/ui/reference/reasons.csv', 'reference.view', $reference->reasonsCsv(...));
         $r->add('GET', '/ui/reference/series', 'reference.view', $reference->series(...));
         $r->add('GET', '/ui/reference/settings', 'reference.view', $reference->settings(...));
+        // The company details printed on POs (I90-I99): everyone reads; company.edit saves, company.confirm confirms and decides a
+        // review of another reviewer's change (reviewer today, never admin; checked again by CW\Company\CompanyDetails).
+        $company = new CompanyController();
+        $r->add('GET', '/ui/reference/company', 'reference.view', $company->show(...));
+        $r->add('GET', '/ui/reference/company/sample.pdf', 'reference.view', $company->samplePdf(...));
+        $r->add('GET', '/ui/reference/company/edit', 'company.edit', $company->editForm(...));
+        $r->add('POST', '/ui/reference/company', 'company.edit', $company->save(...));
+        $r->add('POST', '/ui/reference/company/confirm', 'company.confirm', $company->confirm(...));
+        $r->add('POST', '/ui/reference/company/reviews/{id}/approve', 'company.confirm', $company->approveReview(...));
+        $r->add('POST', '/ui/reference/company/reviews/{id}/reject', 'company.confirm', $company->rejectReview(...));
         // Purchasing, Phase I-2 (IM4 suppliers, I38-I47): everyone with suppliers.view looks; buyers change (suppliers.manage,
         // checked again by CW\Suppliers\*); reviewers decide supplier tasks (suppliers.approve and the second-person rule).
         $r->add('GET', '/ui/purchasing/suppliers', 'suppliers.view', $suppliers->index(...));

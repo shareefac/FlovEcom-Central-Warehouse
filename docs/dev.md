@@ -269,7 +269,7 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
 | `tests/Support/Documents/{FixtureDocuments,DocWorkerPool}.php`, `tests/Support/doc_worker.php` | posted document rows for tests that book with fixed document ids; parallel workers (≤ 12) for the number-series and posting races |
 | `tests/Integration/Documents/`, `tests/Integration/Files/`, `tests/Integration/UiKernel/{ReviewScreens,ReferenceScreens,Downloads}Test.php`, `Migration0008Test` | the document base (lifecycle, review rules, invariants, races), the file store and its tools (temp directories via `CW_FILE_STORE_DIR`), the screens and downloads |
 | `migrations/0009_suppliers.sql` | Phase I-2 suppliers task: `app_setting` (12 typed settings, read-only for cw_app), `vat_code` (6, read-only), `supplier` (no bank columns), `supplier_item` (pack, MOQ, preferred: generated `preferred_sku_id` + UNIQUE, last price), `supplier_item_price` (append-only history), `import_run` (ERPNext seed files) (I38–I47) |
-| `src/Settings.php`, `bin/settings.php` | typed settings (`get`, `company`, `all`, `parse`, `RULES`, `set`); the CLI lists them (app login) and changes one with `--admin` only (audit `setting.change`) (I38) |
+| `src/Settings.php`, `bin/settings.php` | typed settings (`get`, `company` (from `company_profile` since 0013), `all`, `parse`, `RULES`, `set`); the CLI lists them (app login) and changes one with `--admin` only (audit `setting.change`; a `company.*` key is refused: I91) (I38) |
 | `src/Suppliers/Suppliers.php` | the supplier record, its state machine (draft → pending_approval → active → inactive), the blocking activation / import-route approvals and the non-blocking change review (`review_task` subject `supplier`), `refusal()` (who may decide), `decidableCount()` (badge), `missing()` (completeness), `checkOverseas()` (a non-GB supplier is overseas); every route / overseas change of an active supplier is a blocking approval (I40, I42, I72) |
 | `src/Suppliers/SupplierItems.php` | supplier items (pack → central units, MOQ, multiple, lead, preferred; `is_preferred = 'auto'` on create: I75), manual and import prices, the last-price rule (per pack size: I74), integer half-up unit prices (I43, I44) |
 | `src/Suppliers/SupplierInvariants.php` | S1–S5, called by `Invariants::check` (I42) |
@@ -295,6 +295,11 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
 | `src/Purchasing.php` `stockOf()` | CW's sellable stock of an arbitrary set of items (the reorder list) |
 | `src/Ui/Controller/{Reorder,SalesHistory}Controller.php`, `views/{reorder,reorder_item,reorder_brands,reorder_anomalies,sales_history}.php` | `/ui/purchasing/reorder…` (list, CSV, draft — lines already in drafts not pre-ticked —, recalculate up to `UI_REBUILD_MAX_ITEMS` linked items, item, brands, anomalies; I79, I84) and `/ui/purchasing/sales-history` (+ `unlinked.csv`); live menu items (I68) |
 | `tests/Integration/Reorder/`, `tests/Integration/UiKernel/{ReorderScreens,SalesHistoryScreen}Test.php`, `Migration0011Test`, `tests/Unit/{DemandMath,PromoDetector,ReorderMath,Explain}Test.php` | the export against a fake site schema (`cw_test_<slot>_site`), the import through the CLI, the demand build, the list against real POs, the drafts, the screens; `ReorderFixtures` (trait) / `ReorderTestCase`; opt-in: `RealDataRehearsalTest` (`CW_REHEARSAL_DIR`), `DemandBuilderTest::testTheBuildAtScale` (`CW_REORDER_PERF=1`) |
+| `migrations/0013_company_profile.sql` | the company details printed on POs: `company_profile` (one row per version, append-only for cw_app; `baseline_version` on a confirmation), version 1 copied (tidied) from the nine `company.*` settings, which are then deleted from `app_setting`; `review_task.subject_type` + `company` (I90–I99) |
+| `src/Company/CompanyDetails.php` | the company details: `current()`, `company()` (what a PO prints; `Settings::company()` returns it), `check()` / `tidy()` / `unsaved()` (validation and normalisation), `missing()`, `problems()`, `save()` / `confirm()` (version-checked, the PRIMARY KEY as the lock; the check of a person's confirmation of their own watched change against the baseline: `involved()`, I94), `decideReview()`, `refusal()`, `decidableCount()`, `reviews()`, rejected changes (`rejectedIn()`, `ordersWithRejectedDetails()`, I98), `history()`, `changesSince()`, `watched()`, `formatVat()`, `vatChecksumOk()`, `unprintable()` (Windows-1252) |
+| `src/Company/CompanyInvariants.php` | C1–C4, called by `Invariants::check`: versions 1..n, a confirmation changes nothing, one audit row per version, the right roles at the time, checks decided by nobody involved (I91) |
+| `src/Ui/Controller/CompanyController.php`, `views/{company,company_form}.php` | `/ui/reference/company` (details, status, problems, checks, orders carrying a rejected change, history), `/edit` (the one form, drawn tidied), POST save and `/confirm` (FormOnce + version; a form sent again comes back ready to save), `/reviews/{id}/{approve,reject}`, `/sample.pdf` (`PurchaseOrderPdf::sampleData`); the Settings page's company card; the PO pages' "do not send" note (I90–I99) |
+| `tests/Unit/CompanyDetailsCheckTest.php`, `tests/Integration/Company/CompanyDetailsTest.php`, `Migration0013Test`, `tests/Integration/UiKernel/CompanyScreensTest.php` | the form's rules; the service (versions, stale and racing saves, confirm, the check at confirmation however many saves it took, rejected changes and their orders, roles, PO snapshots, the app login's grants and a made-up version found by C1–C4); the seed copy, its tidying and re-runs; the screens (roles, admin 403 on every POST, CSRF, stale and re-sent forms, required fields, an untidy seed, the review queue, the lone owner's check, flagged orders, phone-width markup) |
 
 Document and file tests notes:
 - `TestDb::clean()` keeps the seeded `reason_code` and `document_type` rows (a test that changes one restores it) and sets
@@ -312,6 +317,15 @@ Document and file tests notes:
   (`sys_get_temp_dir()`), never into the repo (`CsvReaderTest`, `ErpSupplierImportTest`).
 - `TestDb::SEED_TABLES` also keeps `app_setting` and `vat_code` (0009): a test that changes a setting does it with the admin
   connection and restores it (`SettingsTest` saves and restores every row; the app login cannot write them).
+- `company_profile` (0013) is **not** a seed table: `TestDb::clean` empties it, so every test starts with no company details
+  (`Settings::company()` = empty placeholders, `confirmed` false, `version` 0: the "do not send" banner, as before 0013). A test that
+  needs details saves them through `CompanyDetails::save()` / `confirm()` as a reviewer (staff callers only), or inserts a row with the
+  admin connection (a `seed` row needs no `saved_by`). The `company.*` settings no longer exist: `Settings::get('company.x')` throws.
+- The invariants after every stock-derived test include C1–C4 (`CompanyInvariants`): a row inserted by hand needs what the service
+  would have written, or the test ends red: a `seed` needs its `company.change` audit row by `system:migrate` (entity_id `'1'`), a
+  `change` its `company.change` row by its `saved_actor`, saved by someone holding reviewer; a test that forges a row on purpose
+  deletes it before it ends (`CompanyDetailsTest::testTheAppLoginAddsVersionsButNeverRewritesThemAndAMadeUpOneIsFound`).
+- `UiResponse::form($action, true)` also returns the form's textareas (the company form's addresses), as a browser would send them.
 - Uploads in screen tests: `KernelBrowser::postMultipart($path, $form, ['file' => ['path' => <local file>, 'name' => <client
   name>]])` builds the `UiRequest` PHP would hand the kernel (optional `size`, `error`: `UPLOAD_ERR_INI_SIZE` with path `''`
   is a file over `upload_max_filesize`); a body over `post_max_size` arrives with no fields at all: `send('POST', $path, [],
@@ -321,7 +335,7 @@ Document and file tests notes:
 - `Kernel` refuses any POST that arrives with `UiRequest::maxInputVars()` (PHP's `max_input_vars`, 1,000) fields: 400
   `form_truncated` (PHP silently drops the rest; I73). A big form sizes itself below it (`PurchaseOrdersController::editorFields`);
   `KernelBrowser` builds the request directly, so a test simulates truncation by posting that many fields.
-- `markSent` refuses while `sendWarnings()` lists anything (today's seed has `company.confirmed` false): service tests pass
+- `markSent` refuses while `sendWarnings()` lists anything (a test schema has no confirmed company details): service tests pass
   `$acknowledged = true`, screen tests post `send_anyway=1` (I86). The PO editor approves through its own form
   (`action=approve` posted to `/lines`), not `/approve` (I87).
 - `KernelUiTestCase::kernel()` registers the production handlers (`DocumentHandlers::all`: PO since the I-2 pos task) plus the

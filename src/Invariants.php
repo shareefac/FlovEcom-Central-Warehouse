@@ -39,6 +39,9 @@ namespace CW;
  * P1-P6. purchase orders (0010): every PO has its header and the state agrees with the document, an approved PO's content
  *     still matches its write-once po_posting anchor, the line formulas, line pairs, receipts vs state, totals
  *     (CW\PurchaseOrders\PurchaseInvariants, I48-I59).
+ * C1-C4. the company details (0013): versions 1..n, a confirmation changes nothing, one audit row per version by the actor
+ *     that saved it, saved and confirmed by people who held company.edit / company.confirm then, checks decided by nobody
+ *     involved (CW\Company\CompanyInvariants, I91, I94).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  */
@@ -157,6 +160,7 @@ final class Invariants
         array_push($v, ...Documents\DocumentInvariants::check($db));
         array_push($v, ...Suppliers\SupplierInvariants::check($db));
         array_push($v, ...PurchaseOrders\PurchaseInvariants::check($db));
+        array_push($v, ...Company\CompanyInvariants::check($db));
         return $v;
     }
 

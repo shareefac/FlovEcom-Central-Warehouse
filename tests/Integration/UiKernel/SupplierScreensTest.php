@@ -292,7 +292,10 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM app_setting'), $xp->query('//table[@class="settings"]/tbody/tr')->length);
         self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM app_setting WHERE provisional = 1'),
             $xp->query('//table[@class="settings"]//span[contains(@class, "warn") and text()="provisional"]')->length);
-        self::assertStringContainsString('company.legal_name (not set) provisional 9', $page->text());
+        self::assertStringNotContainsString('company.legal_name', $page->text(), 'the company details have their own screen since 0013 (I91)');
+        self::assertStringContainsString('Company details The company name, numbers and addresses printed on every purchase order. Not confirmed', $page->text());
+        self::assertContains('/ui/reference/company', $page->hrefs());
+        self::assertStringContainsString('costs.site_writeback false provisional 12', $page->text());
         self::assertStringContainsString('suppliers.approval_due_days 3 provisional 11', $page->text());
         $po = trim((string) preg_replace('/\s+/', ' ', (string) $xp->query('//table[@class="rules"]/tbody/tr[1]')->item(0)?->textContent));
         // 0010 (the pos task, provisional decision 11): every PO reviewed within 7 days, approval above £10,000 net, a rejection recorded.

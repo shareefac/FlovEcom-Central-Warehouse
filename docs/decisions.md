@@ -2436,6 +2436,8 @@ system:settings`). Decision 9 is built as: **one company buys and owns all wareh
 address, company number, VAT number, purchasing phone and e-mail and the delivery address come from `company.*` settings,
 **empty placeholders** until the owner provides them, and `company.confirmed = false` makes every PO PDF carry "COMPANY
 DETAILS NOT CONFIRMED — DO NOT SEND" (the pos task prints it); one valuation pool (`valuation_pool = 'default'`, I5).
+*(Since 0013 the company details are versions in `company_profile`, added and confirmed by a reviewer on the Company details
+screen; the `company.*` settings are gone: I90–I99.)*
 Choices the spec left open:
 - `--set` without `--admin` is refused before connecting (exit 1): connecting as the app login to a test schema that has no
   grants would otherwise fail as "cannot run" (exit 3) and hide the real reason.
@@ -3494,3 +3496,254 @@ Open after M29:
   it, but the run3 task text named only the prompt and the chunk.
 - Staff can still type a free-text form into a new item's card (`DecisionService` card override `form`, 32 characters). It is
   not mapped through `Form::canonical()`. That is outside matching and was left alone here.
+
+## Company details screen (slots `co1`–`co5`, 2 Oct 2026)
+
+The owner's request of 2 Oct 2026: "add an option in the setting where I can add or edit these details" — the company details
+every purchase order prints (legal and trading name, company number, VAT number, registered address, purchasing phone and
+e-mail, delivery address). Until now they were the nine `company.*` settings of 0009, read-only for the app login and changed
+only with `bin/settings.php --admin` on the server, and every PO PDF said "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND" while
+`company.confirmed` was false. Built in slot `co1`, reviewed three times (security, fraud and concurrency; validation, PDF and
+migration; the owner's experience on a phone), review fixes in `co5`. Numbered I90–I99. Code: `migrations/0013_company_profile.sql`,
+`src/Company/{CompanyDetails,CompanyInvariants}.php` (new), `src/Ui/Controller/CompanyController.php` (new),
+`src/Ui/views/{company,company_form}.php` (new); changed: `src/Settings.php`, `bin/settings.php`, `src/Auth/Permissions.php`,
+`src/Schema/Grants.php`, `src/Invariants.php`, `src/Ui/{Kernel,Context}.php`, `src/Ui/Controller/{Reference,Reviews,PurchaseOrders}Controller.php`,
+`src/Ui/views/{settings,reviews,purchase_order,purchase_order_edit}.php`, `src/Documents/Documents.php` (`lockTask`),
+`src/PurchaseOrders/{PurchaseOrders,PurchaseOrderPdf}.php`, `src/Output/Fpdf.php`, `public/ui/assets/app.css`; tests
+`tests/Unit/CompanyDetailsCheckTest.php`, `tests/Integration/Company/CompanyDetailsTest.php`, `tests/Integration/Migration0013Test.php`,
+`tests/Integration/UiKernel/CompanyScreensTest.php` (new), and updates of `PermissionsTest`, `PurchaseOrderPdfTest`,
+`UiTemplatesTest`, `UiUnitTest`, `SettingsTest`, `Migration0009Test`, `GrantsTest`, `MenusTest`, `ReferenceScreensTest`,
+`SupplierScreensTest`, `PurchaseOrderScreensTest`, `UiSecurityTest` (HTTP, slot ui) and `tests/Support/UiResponse.php`
+(`form($action, true)` reads textareas).
+
+**I90. Where and who (provisional, owner to confirm the roles).**
+- **Where:** Reference › **Company details** (`/ui/reference/company`, a menu item for every role, `key` company), the top of
+  Reference › Settings (a "Company details" card: confirmed or not, what is missing, "Add or change the company details" for
+  those who may, "See the company details" for the others), and every purchase order whose PDF says "do not send" because of the
+  company details (a note with the link on the draft editor and the order's page, and a link inside the "Send anyway" warning;
+  the link reads "Add or confirm the company details" only for a person who can and while they are unconfirmed, else "See the
+  company details"). The page shows the details as printed, the status, what a confirmation still needs and any problem, the
+  checks of a confirmation (I94), the approved orders that carry a rejected change (I98), every version, and "See how a purchase
+  order will look (PDF)". Changes are made on `/ui/reference/company/edit`: one form, every field, plain words, one column (I97).
+- **Who:** everyone with `reference.view` (all 14 roles) reads. Two new permissions, both **reviewer** only (the owner holds
+  reviewer + mapping_lead on staging): `company.edit` (save) and `company.confirm` (confirm; decide another reviewer's check,
+  I94). **Never admin** (I12): admin holds neither, a set that breaks I12 is read fail-closed, the routes answer 403 and
+  `CompanyDetails` refuses again inside its transaction (403 `admin_cannot_edit`, `admin_cannot_review`; a buyer
+  `role_not_allowed`; a system caller `staff_required`: no CLI changes them). Two permissions rather than one so that the owner
+  can later let buyers keep the details while only reviewers confirm them: one line each in `Permissions::MAP`.
+
+**I91. One source of truth: `company_profile`, versioned and append-only (amends I38).**
+- `company_profile` (0013) holds **one row per version**: `version` (the PRIMARY KEY, 1, 2, 3 ...), `kind` (seed, change,
+  confirm, unconfirm), the nine fields (`vat_registered` 1 / 0 / NULL beside `vat_number`), `confirmed` with `confirmed_by`,
+  `confirmed_actor`, `confirmed_at`, `baseline_version` (a confirmation: the confirmed version it was compared with, I94), the
+  optional `reason`, `saved_by`, `saved_actor`, `saved_at`. The app login has SELECT and INSERT only (`Grants::APPEND_ONLY`), so
+  no version is ever rewritten or removed. The highest version is in use. CHECKs (any login, admin SQL included): the
+  confirmation columns agree with `confirmed`; `confirm` rows are confirmed, `change` / `unconfirm` rows are not; only a
+  `confirm` has a `baseline_version`, always an earlier one; a VAT number is there exactly when `vat_registered` = 1; outside the
+  seed the company number is `^([0-9]{8}|[A-Z]{2}[0-9]{6}|R[0-9]{7}|(IP|SP|NP)[0-9]{5}R)$`, the VAT number
+  `^(GB|XI)([0-9]{9}|[0-9]{12})$` and `saved_by` is set.
+- **Append-only does not stop the app login from ADDING a made-up version** (review finding: a forged confirmed row with other
+  details, or version 4294967295, which froze every later save with a database error). Before 0013 the app login could not
+  change the company details at all, so the nightly invariants now check every version (**C1–C4**, `CW\Company\CompanyInvariants`,
+  run by `bin/invariants.php`, the hammer and every stock test, like D7 and P2 for the other write-once tables): C1 versions are
+  exactly 1..n and only version 1 is a seed; C2 a confirm or unconfirm has the same nine fields as the version before it, a
+  confirm was saved by its confirmer and its baseline is an earlier confirmed version; C3 every version has exactly one audit row
+  of its own, by the actor that saved it (seed `company.change` by `system:migrate`, change `company.change`, confirm
+  `company.confirm`, unconfirm the `company.review` whose `unconfirmed_version` it is); C4 a change was saved by someone holding
+  `company.edit` then, a confirm and an unconfirm by someone holding `company.confirm`, none of them admin then (`staff_role`
+  history, 5 minutes' tolerance for the app's and the database's clocks), and every check is on a confirm version, opened by its
+  confirmer and decided by nobody involved. The history also shows field changes of a confirm or unconfirm (which the screen never
+  makes) with "tell the person who looks after CW". A version number at the top of its range now stops a save with 500
+  `company_versions_broken` and a plain sentence instead of a database error (C1 names the gap). **No trigger** (it would stop a
+  forged row at once): migrations have no `DELIMITER`, so no triggers or procedures (D25, M1); a forger able to write as the app
+  login can also write `audit_log`, so C1–C4 detect what they cannot prevent, as for every other write-once table.
+- **0013** copies the nine `company.*` settings into version 1 (kind seed, actor `system:migrate`, audited `company.change`,
+  reason "copied from the old company settings"), **tidied as the screen tidies what is typed** (review finding: a seed with a
+  double space inside a line was "changed" by an untouched Save, which unconfirmed it): names on one line with single spaces,
+  addresses one line per line (CR LF and CR read as LF, tabs as spaces, runs of spaces collapsed, no space at either end of a
+  line, no blank line), the phone's spaces collapsed, the e-mail trimmed; the company and VAT numbers without spaces and in
+  capitals when that gives a valid number (9 or 12 bare digits gain GB), otherwise as typed (the page lists the problem and a save
+  must correct it). Only Unicode NFC is left to the first save (SQL cannot do it; a seed with a decomposed accent shows "save them
+  once, then confirm", I94). `company.confirmed` = true is kept, with the actor and time of that settings row. It then **deletes the
+  nine `company.*` rows from `app_setting`**: code still reading them fails loudly (`Settings::get` of an unknown key is a
+  `\LogicException`), and nothing can drift between two copies. `app_setting` stays read-only. 0013 also adds `'company'` to
+  `review_task.subject_type` (I94). Re-runnable: `CREATE TABLE IF NOT EXISTS`, the seed and its audit row behind NOT EXISTS
+  guards, an idempotent DELETE and MODIFY (a run that stopped half way, or the file applied twice, doubles nothing:
+  `Migration0013Test`).
+- `Settings::company()` now returns `CompanyDetails::company()`: the version in use, read on every call (never cached), with
+  `vat_registered` and `version` added to the old keys; version 0 with empty placeholders when there is no row (a test schema
+  after `TestDb::clean`, which empties the table). Every PDF and sending path goes through it: `PurchaseOrderHandler::post`
+  snapshots it at approval, `PurchaseOrders::pdfData` prints it for a draft. **A posted PO keeps the details it was approved
+  with** (unchanged: its `company_snapshot`); its PDF and `sendWarnings()` read the snapshot as before (plus I98).
+- `bin/settings.php --set=company.<anything>` (and `Settings::set`) is **refused** (400 `company_details`, exit 2): "the company
+  details are no longer settings: a reviewer adds, changes and confirms them on the Company details screen (Reference > Company
+  details, /ui/reference/company), which keeps every version". **No CLI write path is kept:** the details are not an
+  emergency (a PO can always be drafted; the banner only warns), a second path would need its own audit and version rules,
+  and the break-glass when nobody holds reviewer is `bin/reset_staff.php --roles=reviewer` for a real person (I12, I15).
+
+**I92. What the form accepts (validation and normalisation, `CompanyDetails::check`).** Every problem is reported at once
+(422 `company_invalid`, `detail.errors` field => one plain sentence, shown at the field; what was typed is kept). Saving is
+allowed with fields still empty (the owner may fill them in bit by bit); a confirmation needs more (I94). The form is drawn from
+the stored details as a save would store them (`CompanyDetails::tidy`), so an untouched Save changes nothing.
+- **Text:** valid UTF-8, NFC (a typed "e" + combining accent becomes é), no control character (C0, DEL, C1). Names are one line
+  (runs of spaces and tabs become one space): legal and trading name at most 160 characters (Companies House's limit; within
+  `Settings::STRING_MAX`). Addresses: CR LF / CR read as LF, tabs as spaces, blank lines dropped, at most **8 lines of 100
+  characters** (807 at most, within `Settings::TEXT_MAX`).
+- **Printable on the PDF:** the PO's font is Helvetica, a PDF core font in Windows-1252 (I24): Western European letters, £, €,
+  curly quotes and dashes print; Polish ł, Greek, Chinese, emoji or a right-to-left override would come out as "?" or vanish.
+  They are **refused** with the character ("The legal name contains "Ł", which a purchase order cannot print ... type a plain
+  letter instead"; an invisible one is "an invisible character"; no code points, which mean nothing to the owner), never
+  changed silently. (Embedding a Unicode font would need FPDF 1.9's tFPDF route and `ext-gd`, I24: not for this task.)
+- **Company number:** spaces and hyphens removed, capitals; 8 characters: 8 digits (leading zeros kept, never added: "1234567"
+  is refused with "keep the leading zeros") or 2 letters + 6 digits (SC123456, NI..., OC...); also accepted, though the help
+  text does not list them (review finding): R + 7 digits (a Northern Ireland company registered before 1922, R0000123) and IP,
+  SP or NP + 5 digits + R (registered societies, IP12345R).
+- **VAT:** a choice of three — "VAT registered" (a number required), "Not VAT registered" (the explicit choice: no number, and
+  none may be typed), "Not known yet"; the three choices sit together, the number below them. A number typed with "Not known
+  yet" means registered. The number: spaces, dots and hyphens removed, capitals, 9 or 12 bare digits gain **GB**; then GB or XI
+  + 9 digits, or + 12 for a branch. Stored without spaces, shown and printed as "GB 123 4567 82". HMRC's check digits (weighted
+  modulus 97, old and "9755" schemes) are a **warning on the page only, never a refusal** (`vatChecksumOk`): a wrong refusal
+  would lock the owner out of their own number.
+- **Phone:** digits, spaces and + ( ) - . only (the help text says so too), + only first, 7 to 15 digits, at most 32 characters.
+  **E-mail:** `FILTER_VALIDATE_EMAIL`, at most 191. **Reason:** optional, one line, at most 500, kept in the version and the
+  audit row.
+- No bank details (decision 25, I39): the form has none and says "We never keep bank details here".
+
+**I93. Concurrency and one effect per form.** The edit and confirm forms carry the **version** they were drawn with and a
+FormOnce key (I46): the same form sent twice (a double tap) replays the first result, one version. A save or confirmation whose
+version is no longer current is 409 `company_changed` and writes nothing ("Someone changed the company details while you had
+them open (<who> saved version n at <time> UTC): nothing was saved" / "... nothing was confirmed"). Two saves of the same version
+at the same moment both pass that check; the PRIMARY KEY on `version` turns the second away (1062 → the same 409) and its
+transaction, audit row included, rolls back (an `unconfirm` racing a save lands the same way). After a stale save the form comes
+back with **what the person typed**, the new version and "What changed meanwhile" (each field "Was:" / "Now:" on lines of their
+own), so saving again is a deliberate overwrite (like I13's `roles_seen`); after a stale confirmation the page shows the details
+as they are now ("check them, then confirm again"). A form that was saved and is sent again **with other values** (the back
+button; FormOnce's `idempotency_key_reused`) comes back the same way: "You already saved this form once. What you typed is kept
+below: check it and press Save again", at the current version with a fresh key, so the next Save works (review finding: it used to
+come back stale and fail a second time).
+
+**I94. Confirming; one person may change and confirm; a check when they confirm their own risky change (provisional, owner to
+confirm).**
+- "These details are correct" is a separate form on the details page (a reviewer, the version shown). It adds a `confirm`
+  version with the same details. It needs: legal name, company number, registered address, a VAT number or the explicit "not VAT
+  registered", purchasing e-mail and delivery address (trading name and phone are optional); else 422 `company_incomplete` naming
+  what is missing (and no form on the page). A seeded value that breaks today's rules is 422 `company_invalid` (the page lists the
+  problems, confirmed or not); one that is valid but not yet in its tidy form is 422 `company_unsaved`, and the page offers no
+  button but says "Press "Change the details" and Save once (spaces and line breaks are tidied), then confirm them here".
+- **Saving a change of any field makes the details unconfirmed again** (every field is printed): the next draft PDF says "do
+  not send" until someone confirms them again. A save that changes nothing writes nothing ("Nothing changed"). A save opens no
+  check: while the details are unconfirmed every PDF says "do not send".
+- **The person who changed the details may confirm them.** The owner works alone on staging today; a two-person confirmation
+  would lock them out. Instead the check is made **when details are confirmed** (review finding, blocker: it was made when a
+  save changed *confirmed* details, so saving the phone first, or a second save before confirming, skipped it and the delivery
+  address could be diverted unchecked). A confirmation is compared with its **baseline**: the newest earlier confirmed version that
+  carries no value a reviewer rejected (I98); `baseline_version` records it. When a **watched field** — legal name, company number,
+  VAT (registration or number), purchasing e-mail or delivery address (a changed delivery address on POs is the classic way to
+  divert goods) — differs from the baseline (compared as tidied, so tidying alone is no change), however many saves it took, **and
+  the confirmer saved a change of a watched field since the baseline** (they confirm their own change), the confirmation opens a
+  **non-blocking check** (`review_task` subject `company`, subject_id = the confirm version, kind review, reason
+  `company_changed`, due 7 days). A watched change confirmed by **someone else** had its second person already: no check. The
+  first confirmation ever has no baseline and no check; if every earlier confirmed version carries a rejected value, the baseline
+  is the empty details.
+- The check is listed in Document reviews (type "Company details", "Company details, version n (delivery address, ...)", filter
+  `?type=Company`, counted in the badge of those who may decide it) and decided on the Company details page, where its card shows
+  every field that changed since the baseline ("Was:" / "Now:"). It is decided by a reviewer **not involved**
+  (`CompanyDetails::involved`): not the confirmer, and nobody who saved a change after the baseline (`refusal`;
+  `ck_review_task_not_own` holds the opener in SQL; never admin). "The change is right" records the check; "Reject the change"
+  (a note of 3–500 characters) records why (I98). Documents' approve/reject refuse a company task (409 `company_task`).
+- With one reviewer the check stays open: the card says "Nobody else holds the reviewer role yet, so this check stays open. It
+  stops nothing; once a second person holds the reviewer role (People and roles), they can close it", with no due date and never
+  "overdue" while nobody could decide it (review finding: a lone owner collected red overdue checks they could not act on). The
+  People screen already warns while fewer than two people hold reviewer (decision 3). If the owner wants two people to confirm,
+  `confirm()` refuses a person in `involved()` (a line, like `Suppliers::refusal`).
+
+**I95. History and audit.** The page lists every version, newest first: "Version n · changed by / confirmed by / made unconfirmed
+by <name> on <time> UTC", confirmed or not, the outcome of its check if any ("check: rejected"), the reason, and what changed
+against the version before ("Was:" / "Now:"; the seed is "copied from the old settings"). People never read `system:*`: the seed
+is by "the set-up (copied from the old settings)" and a confirmation copied from the settings by "the old settings". `audit_log`:
+`company.change` {version, changed, before, after (only the fields changed), reason, was_confirmed} (the seed: actor
+`system:migrate`, after = all fields), `company.confirm` {version, confirms_version, baseline_version, watched_changed,
+review_task, details}, `company.review` {task, version, decision, note, unconfirmed_version}; entity `company_profile` / the
+version (C3 checks one per version). The FormOnce rows add `ui.company.save` / `ui.company.confirm`.
+
+**I96. The PDF.**
+- The letterhead, the footer and the "Deliver to" box print `Settings::company()` (a draft) or the snapshot (an approved order),
+  as before; the "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND" banner goes once the details in use are confirmed (a draft) or
+  were confirmed at approval (an order). **An order approved before the details were confirmed keeps saying it**: its page says
+  so and that amending it (cancel + copy, I50) prints the confirmed details; the Company details page counts the approved orders
+  not sent yet that carry unconfirmed details (for people with `purchasing.view`). An order approved with details a reviewer later
+  rejected prints "COMPANY DETAILS REJECTED AT REVIEW — DO NOT SEND" (I98).
+- The VAT number prints as "GB 123 4567 82" (an older snapshot prints as stored); "not VAT registered" prints **no VAT line**
+  in the letterhead or footer; not said yet prints "VAT no. [to be confirmed]" as before. A long delivery-address line is
+  **wrapped** in its box, never cut with "…" (a driver must read all of it); a footer too wide for the page (a long legal name) is
+  cut with "…" so that the page number always shows (`Fpdf::Footer`). The Supplier and Deliver-to boxes are drawn **whole on one
+  page**: when the letterhead leaves too little room for them, they start the next page (review finding: at the largest values
+  the form accepts — names of 160 characters, both addresses 8 × 100 capitals, a 191-character e-mail — they ran off page 1 and
+  the delivery address landed on page 3 outside its box; the largest box, about 116 mm, fits a fresh page).
+- "See how a purchase order will look" (`/ui/reference/company/sample.pdf`, everyone with `reference.view`):
+  `PurchaseOrderPdf::sampleData` — no PO number, banner "SAMPLE — NOT AN ORDER", "Order no. SAMPLE", a fictional supplier
+  ("Example Supplier Ltd") and three lines, the details in use (with the "do not send" banner while they are not confirmed),
+  today's UK date and `po.terms`. Served as an attachment under the download CSP like every PDF (I99).
+
+**I97. Screens, measurements, open items.**
+- Phone width: one column (the form's fields are full width, labels above them, `type=tel` / `email` and `autocomplete` for the
+  phone keyboards), no table on either page (the history is a list; "Was:" and "Now:" of an address on lines of their own), the
+  details list stacks below 600 px, and so do the check forms (`article.review form.inline`, this page only: review finding, the
+  first rule changed every inline form of the app); the menu, CSRF, hardened headers and escaping are the kernel's (I11,
+  U-entries). `CompanyScreensTest` checks the markup; it was not looked at on a real phone.
+- Plain words on the owner's pages (review finding): no decision numbers, no "CW", no `system:*` actors, no code points; the hint
+  under the status names the button it means; the status quotes the banner with the PDF's em dash.
+- **Test runs (2 Oct 2026, after the review fixes):** full suite `scripts/remote.sh co5 vendor/bin/phpunit`: green, **741 tests,
+  15,134 assertions, 75 skipped**, 10 min 54 s. HTTP: `scripts/remote.sh ui vendor/bin/phpunit --filter Ui`: 140 tests, 20,402
+  assertions, OK (1 skip, the opt-in perf test); `scripts/remote.sh api vendor/bin/phpunit --filter Api`: 59 tests, 3,116
+  assertions, OK (1 skip, `UiReviewFlowTest`). Hammer `scripts/remote.sh co5 php tests/concurrency/hammer.php --seed=20261002`:
+  **RESULT: PASS (59 checks passed, 0 failed)**, 91 s, 0 errors or deadlocks surfaced. (Before the review fixes, in `co1`: 734
+  tests, 15,095 assertions, 75 skipped; baseline of the unchanged tree: 709 tests.)
+- **Deploy:** 0013 needs the code of this change in the same `install_cron.sh --migrate` run (old code on the new schema reads
+  `company.*` settings that are gone: every PO PDF and approval would fail with a 500; new code on the old schema has no
+  `company_profile`). Then the owner opens Reference › Company details, adds the details and confirms them (docs/ops.md).
+- Open: the owner to confirm I90 (reviewer edits and confirms), I94 (one person may confirm, checked by another reviewer when
+  they confirm their own change; which fields are watched), I98 (who may confirm a rejected change again), I92's 8 × 100 address
+  limit and the refusal of characters the PDF cannot print. Approved orders that carry unconfirmed or rejected details are not
+  amended automatically (a buyer decides, I96, I98).
+
+**I98. A rejected change (review findings: a rejected change could be confirmed again at once by the person who made it, and
+orders approved with it kept printing it with no warning).**
+- A **rejection** records the reviewer's note. Its **rejected values** are each watched field the checked confirmation changed
+  against its baseline, with its new value (an empty value is never one: it cannot be confirmed anyway). While the details in
+  use are confirmed and still carry a rejected value, the rejection adds an **`unconfirm` version** ("a reviewer rejected the
+  change confirmed in version n: <note>"): every new PO PDF says "do not send" until someone corrects and confirms them. When they
+  no longer carry it (changed since, or not confirmed), nothing else changes ("The details in use are not confirmed with it, so
+  nothing else changed").
+- **The people involved in a rejected change may not confirm details that carry a rejected value again** (403 `rejected_change`,
+  nothing written: "A reviewer rejected this change of the delivery address (<reviewer>: "<note>"). You made or confirmed that
+  change, so another reviewer must confirm it; or change the details."). Tweaking another field does not get round it: any one
+  rejected value counts. Such details are never a baseline, so a confirmation of them by anyone is compared with the last
+  confirmed details without them.
+- **Another reviewer may confirm them after all** (they decided the change is right: the rejecting reviewer included): that
+  confirmation **lifts** the rejection (`CompanyDetails::rejections()` leaves out a rejection followed by a confirmation, by
+  someone not involved in it, of details that carry its values). The owner alone can never be blocked by this: a rejection needs a
+  second reviewer, who can then confirm.
+- **Approved orders that carry a rejected value** (states approved, sent, part received; matched on the snapshot's watched
+  values, tidied; a snapshot from before 0013 counts a VAT number as registered) are flagged until they are cancelled, received or
+  the rejection is lifted: `PurchaseOrders::sendWarnings()` adds "The company details it was approved with include a change a
+  reviewer rejected (see Company details): cancel or amend it rather than send it" (sending needs "Send anyway", I86), the PDF
+  prints "COMPANY DETAILS REJECTED AT REVIEW — DO NOT SEND", the order's page says so with "See the company details", and the
+  Company details page lists them with links (for people with `purchasing.view`). `decideReview()` returns how many there are.
+
+**I99. Review findings applied and rejected (`co5`).** Applied: the check at confirmation against the baseline (I94, blocker);
+rejected values (I98); the invariants C1–C4, `company_versions_broken` and the history alarm (I91); the flagged orders (I98); the
+check card's "Was:" / "Now:" (I94); the boxes kept on one page (I96); the tidy seed and form, problems shown when confirmed, the
+rarer company numbers, the phone's "." in the help (I91, I92, I94); no confirm button for an untidy seed, the form sent again,
+the lone owner's calm check, the link words of an approved order, the scoped phone-width rule, plain words, the VAT choices
+together (I93, I94, I97). Rejected, with reasons:
+- *A BEFORE INSERT trigger to force `version = MAX + 1` and confirm-equals-previous:* no triggers in CW's migrations (D25, M1);
+  C1–C4 find a made-up row each night, as D7 and P2 do for the other write-once tables, and the 1264 path no longer surfaces as a
+  database error (I91).
+- *Keep a check at save time as well:* dropped. While details are unconfirmed every PDF says "do not send"; the risk begins at
+  confirmation, where the check now is. Two checks of one change would only add open tasks the lone owner cannot close.
+- *Open the sample PDF inline on a phone:* kept as an attachment. Every CW download is served with the download CSP (`sandbox`),
+  under which browsers' built-in PDF viewers do not display the file; loosening the CSP for one PDF is not worth it, and a phone
+  opens a downloaded PDF in one tap.
+- *Refuse the rejecting reviewer too:* no. A rejection needs a second reviewer; refusing them as well would leave nobody able to
+  confirm the change if it was right after all. Their confirmation is recorded and lifts the rejection (I98).

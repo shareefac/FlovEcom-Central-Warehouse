@@ -177,3 +177,29 @@ table.months th, table.months td { padding: .3rem .45rem; }
 .progress { font-size: 1.05rem; margin: .25rem 0 .5rem; }
 .state-confirmed { color: var(--ok-ink); font-weight: 600; }
 .state-open { color: var(--muted); }
+
+/* Company details (I90-I99): the status card, the one form (phone width: one column, full-width fields), the history. */
+a.button.primary-link { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.company-status.waiting { border-width: 2px; }
+.company-status form.confirm { display: grid; gap: .5rem; margin: .6rem 0; }
+.company-status form.confirm p { margin: 0; }
+form.record.company input[type="text"], form.record.company input[type="email"], form.record.company input[type="tel"], form.record.company textarea { width: 100%; }
+input[type="tel"] { padding: .4rem .55rem; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--ink); min-width: 0; font: inherit; }
+.field-error { margin: 0 0 .3rem; color: var(--bad-ink); font-size: .9rem; }
+[aria-invalid="true"] { border-color: var(--bad-ink); box-shadow: 0 0 0 1px var(--bad-ink); }
+dl.company dd.pre, span.pre { white-space: pre-line; }
+ol.versions { margin: 0; padding-left: 1.5rem; }
+ol.versions > li { margin: 0 0 .8rem; overflow-wrap: anywhere; }
+ol.versions > li p { margin: .15rem 0; }
+ul.changes li { margin: .3rem 0 .5rem; }
+ul.changes .field { display: block; font-weight: 600; }
+ul.changes .was, ul.changes .now { display: block; padding-left: .8rem; }
+ul.changes .was { color: var(--muted); }
+.rejected-orders ul { margin: .3rem 0 0; }
+article.review { margin: .6rem 0; }
+article.review form.inline { flex-wrap: wrap; margin: .3rem .6rem .3rem 0; }
+@media (max-width: 600px) {
+  dl.company { grid-template-columns: 1fr; }
+  dl.company dt { margin-top: .4rem; }
+  article.review form.inline { display: flex; }
+}

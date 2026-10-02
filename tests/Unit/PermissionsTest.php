@@ -117,16 +117,32 @@ final class PermissionsTest extends TestCase
         self::assertTrue(Permissions::can(['buyer', 'reviewer'], 'suppliers.approve'));
     }
 
+    /** The company details printed on POs (I90, provisional): everyone reads, a reviewer changes and confirms, never admin. */
+    public function testTheCompanyDetailsPermissions(): void
+    {
+        self::assertSame(['reviewer'], Permissions::MAP['company.edit']);
+        self::assertSame(['reviewer'], Permissions::MAP['company.confirm']);
+        foreach (Permissions::ROLES as $role) {
+            self::assertSame($role === 'reviewer', Permissions::can([$role], 'company.edit'), $role);
+            self::assertSame($role === 'reviewer', Permissions::can([$role], 'company.confirm'), $role);
+            self::assertTrue(Permissions::can([$role], 'reference.view'), "{$role} reads the company details");
+        }
+        self::assertTrue(Permissions::can(['reviewer', 'mapping_lead'], 'company.edit'), "the owner's roles on staging");
+        $reference = array_values(array_filter(Permissions::MENU, static fn (array $s): bool => $s['section'] === 'Reference'))[0]['items'];
+        self::assertSame(['Company details', 'reference.view', 'company', '/ui/reference/company'],
+            [end($reference)['label'], end($reference)['perm'], end($reference)['key'], end($reference)['path']]);
+    }
+
     public function testAdminNeverPostsReviewsOrDecides(): void
     {
         $sets = [['admin'], ['admin', 'viewer'], ['admin', 'accountant'], ['admin', 'auditor'], ['admin', 'viewer', 'accountant', 'auditor']];
         foreach ($sets as $set) {
             foreach (Permissions::permissionsOf($set) as $perm) {
-                self::assertDoesNotMatchRegularExpression('/^(doc\.|mapping\.|documents\.(review|approve)$|suppliers\.(manage|approve)$|reorder\.manage$)/', $perm,
-                    implode('+', $set));
+                self::assertDoesNotMatchRegularExpression('/^(doc\.|mapping\.|documents\.(review|approve)$|suppliers\.(manage|approve)$|reorder\.manage$|company\.)/',
+                    $perm, implode('+', $set));
             }
             self::assertTrue(Permissions::can($set, 'staff.manage'));
-            foreach (['suppliers.manage', 'suppliers.approve', 'reorder.manage', 'doc.PO.post'] as $perm) {
+            foreach (['suppliers.manage', 'suppliers.approve', 'reorder.manage', 'doc.PO.post', 'company.edit', 'company.confirm'] as $perm) {
                 self::assertFalse(Permissions::can($set, $perm), implode('+', $set) . " never holds {$perm}");
             }
         }
@@ -137,6 +153,8 @@ final class PermissionsTest extends TestCase
         self::assertFalse(Permissions::can(['admin', 'buyer'], 'doc.PO.post'));
         self::assertFalse(Permissions::can(['admin', 'buyer'], 'suppliers.manage'));
         self::assertFalse(Permissions::can(['admin', 'reviewer'], 'suppliers.approve'));
+        self::assertFalse(Permissions::can(['admin', 'reviewer'], 'company.edit'), 'admin never changes the company details (I90, I12)');
+        self::assertFalse(Permissions::can(['admin', 'reviewer'], 'company.confirm'));
         self::assertTrue(Permissions::can(['admin', 'buyer'], 'staff.manage'));
         self::assertTrue(Permissions::can(['admin', 'auditor', 'buyer'], 'accounts.view'), 'the compatible roles still count');
         self::assertTrue(Permissions::can(['mapper', 'reviewer'], 'mapping.decide'), 'without admin, every role counts');
@@ -195,8 +213,8 @@ final class PermissionsTest extends TestCase
         self::assertSame(['I-3', 'I-4', 'I-4'], array_column($desk[2]['items'], 'phase'));
         $reviewer = Permissions::menu(['reviewer']);
         self::assertSame(['Suppliers', 'Purchase orders', 'Reorder list', 'Sales history'], array_column($reviewer[1]['items'], 'label'));
-        self::assertSame(['Reason codes', 'Number series', 'Settings'], array_column(Permissions::menu(['viewer'])[2]['items'], 'label'),
-            'Reference gains Settings (every role)');
+        self::assertSame(['Reason codes', 'Number series', 'Settings', 'Company details'], array_column(Permissions::menu(['viewer'])[2]['items'], 'label'),
+            'Reference gains Settings and Company details (every role reads them; I90)');
         $mapper = Permissions::menu(['mapper']);
         self::assertSame(['/ui/', '/ui/review', '/ui/review', '/ui/review/samples'], array_column($mapper[0]['items'], 'path'));
         self::assertSame([['queue' => 'Key'], ['queue' => 'pending']], array_column($mapper[0]['items'], 'query'));

@@ -48,20 +48,16 @@ final class Migration0009Test extends IntegrationTestCase
 
     public function testTheSeeds(): void
     {
-        // The 12 keys 0009 seeds (later migrations add po.* (0010) and reorder.* (0011)).
+        // The 12 keys 0009 seeds (later migrations add po.* (0010) and reorder.* (0011)); 0013 moves the nine company.* keys to
+        // company_profile (Migration0013Test checks them on a schema migrated up to 0012, before the move).
         $settings = self::$db->all("SELECT setting_key, value_type, CAST(value_json AS CHAR) AS v, provisional, decision FROM app_setting "
             . "WHERE SUBSTRING_INDEX(setting_key, '.', 1) IN ('company', 'costs', 'suppliers') ORDER BY setting_key");
-        self::assertCount(12, $settings);
+        self::assertCount(3, $settings);
         $by = array_column($settings, null, 'setting_key');
-        self::assertSame(['company.address', 'company.company_number', 'company.confirmed', 'company.delivery_address', 'company.email', 'company.legal_name',
-            'company.phone', 'company.trading_name', 'company.vat_number', 'costs.site_writeback', 'suppliers.approval_due_days', 'suppliers.change_review'],
-            array_keys($by));
+        self::assertSame(['costs.site_writeback', 'suppliers.approval_due_days', 'suppliers.change_review'], array_keys($by));
         foreach ($by as $k => $s) {
             self::assertSame(1, (int) $s['provisional'], "{$k}: provisional until the owner confirms it");
         }
-        self::assertSame(['bool', 'false', '9'], [$by['company.confirmed']['value_type'], $by['company.confirmed']['v'], $by['company.confirmed']['decision']]);
-        self::assertSame(['string', '""'], [$by['company.legal_name']['value_type'], $by['company.legal_name']['v']], 'an empty placeholder');
-        self::assertSame(['text', '""'], [$by['company.address']['value_type'], $by['company.address']['v']]);
         self::assertSame(['bool', 'false', '12'], [$by['costs.site_writeback']['value_type'], $by['costs.site_writeback']['v'], $by['costs.site_writeback']['decision']]);
         self::assertSame(['int', '3', '11'], [$by['suppliers.approval_due_days']['value_type'], $by['suppliers.approval_due_days']['v'], $by['suppliers.approval_due_days']['decision']]);
         self::assertSame(['bool', 'true'], [$by['suppliers.change_review']['value_type'], $by['suppliers.change_review']['v']]);

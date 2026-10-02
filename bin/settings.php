@@ -16,6 +16,10 @@ declare(strict_types=1);
  * system:settings and audited setting.change {key, before, after, reason}. --confirmed also records that the owner
  * confirmed the value (the setting is no longer marked provisional).
  *
+ * The company details (company.*) are not settings since 0013: a reviewer adds, changes and confirms them on the Company
+ * details screen (/ui/reference/company, docs/decisions.md I91), which keeps every version; --set=company.<anything> is
+ * refused (exit 2) with a pointer to it.
+ *
  * Exit codes: 0 done (also "unchanged") · 1 refused (--set without --admin) · 2 usage, unknown key or bad value ·
  * 3 cannot run (database, schema).
  */
