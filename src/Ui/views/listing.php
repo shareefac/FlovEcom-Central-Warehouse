@@ -1,6 +1,8 @@
 <p class="crumbs">
 <?php if ($queue_link !== null): ?>
   <a href="<?= $e($queue_link) ?>">&larr; <?= $e($queue_label) ?> queue</a>
+<?php elseif ($sample !== null): ?>
+  <a href="<?= $e($sample['url']) ?>">&larr; Key spot-check <?= $e($sample['name']) ?></a>
 <?php else: ?>
   <a href="/ui/">&larr; Dashboard</a>
 <?php endif; ?>
@@ -13,6 +15,17 @@
 
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
+<?php endif; ?>
+<?php if ($spot !== null): ?>
+<?php if ($spot['mine']): ?>
+<p class="notice spot-check">This proposal is #<?= $n($spot['position']) ?> of <?= $n($spot['size']) ?> in your
+  <a href="<?= $e($spot['url']) ?>">Key spot-check <?= $e($spot['name']) ?></a>. Confirm it only if it is right: rejecting it, or any
+  other decision, stops the bulk confirm of that spot-check.</p>
+<?php else: ?>
+<p class="error spot-check" role="alert">This proposal is #<?= $n($spot['position']) ?> of the
+  <a href="<?= $e($spot['url']) ?>">Key spot-check <?= $e($spot['name']) ?></a> of <?= $e($spot['owner'] ?? 'another mapping lead') ?>.
+  Leave it to them: a decision by anyone else makes the spot-check fail.</p>
+<?php endif; ?>
 <?php endif; ?>
 
 <div class="cols">

@@ -7,7 +7,8 @@ declare(strict_types=1);
  *
  *   nice -n 19 php -d memory_limit=2G tools/first_match/run.php \
  *       [--vpg=<vapeandgo_listings_*.jsonl.gz>] [--alt=<electrofag_listings_*.jsonl.gz>] [--out=<dir>] \
- *       [--private=<dir>] [--prompt=<judge prompt .md>] [--pilot1=<run1 dir>] [--no-judge] [--judge=pilot2|sold]
+ *       [--private=<dir>] [--prompt=<judge prompt .md>] [--pilot1=<run1 dir>] [--no-judge] [--judge=pilot2|sold] \
+ *       [--scratch=<dir>]
  *
  * --judge=sold builds the full judge run for the sold scope instead of the pilot-2 chunks (section 11,
  * tools/first_match/judge_full.php), e.g. --out=/root/cw_work/first_match/run3 --judge=sold.
@@ -27,6 +28,9 @@ declare(strict_types=1);
  * that can read the run folder still cannot reach them):
  *   <chunk>.refmap.json       ref -> id maps
  *   pilot2_answers.json       the answer key (judges must never read these)
+ * and one empty scratch directory per chunk (mode 0700) under --scratch (default <parent of --out>/judge_scratch/<run
+ * name>, apart from the run and private folders), named in the chunk file as `scratch_dir`: judges run in parallel, so
+ * each writes its working files only in its own directory (CW\Matching\JudgeScratch; run3's judges shared one).
  *
  * Nothing is linked: every output is a proposal for staff review.
  */
@@ -39,6 +43,7 @@ use CW\Matching\Flavour;
 use CW\Matching\FlavourVocab;
 use CW\Matching\Gtin;
 use CW\Matching\JudgeCard;
+use CW\Matching\JudgeScratch;
 use CW\Matching\Normalizer;
 use CW\Matching\Text;
 use CW\Matching\TitlePattern;
@@ -46,7 +51,7 @@ use CW\Matching\Veto;
 
 ini_set('memory_limit', '2G');
 $t0 = microtime(true);
-$opt = getopt('', ['vpg:', 'alt:', 'out:', 'prompt:', 'private:', 'pilot1:', 'no-judge', 'judge:']);
+$opt = getopt('', ['vpg:', 'alt:', 'out:', 'prompt:', 'private:', 'pilot1:', 'no-judge', 'judge:', 'scratch:']);
 if (!in_array($opt['judge'] ?? 'pilot2', ['pilot2', 'sold'], true)) {
     fwrite(STDERR, "--judge must be pilot2 (default) or sold\n");
     exit(2);
@@ -1236,6 +1241,9 @@ $answers = ['prompt_version' => $promptVersion, 'prompt' => $promptRel, 'engine'
     'chunks' => []];
 $chunkFiles = [];
 $strataCounts = [];
+// one scratch directory per judge (JudgeScratch): parallel judges never share a working file
+$scratchDirs = JudgeScratch::prepare(rtrim((string) ($opt['scratch'] ?? JudgeScratch::defaultRoot($out)), '/'),
+    array_map(fn ($ci) => 'pilot2_c' . ($ci + 1), array_keys($chunks)), [$out, $private]);
 $nearDupExcluded = ['items' => 0, 'candidates' => 0, 'unseparated_negatives_kept' => 0,
     'rule' => 'a same-product (or same identity words) negative with no veto and no text-difference flag against the truth is left out; other unseparated negatives stay and are named in the answer key'];
 foreach ($chunks as $ci => $items) {
@@ -1338,7 +1346,8 @@ foreach ($chunks as $ci => $items) {
         'chunk' => $name,
         'prompt_version' => $promptVersion,
         'instructions' => $promptRel,
-        'purpose' => 'Judge each listing against its own candidates only, following the instructions file.',
+        'purpose' => 'Judge each listing against its own candidates only, following the instructions file. ' . JudgeScratch::INSTRUCTION,
+        'scratch_dir' => $scratchDirs[$name],
         'context' => $context,
         'items' => $cards,
     ];
@@ -1355,7 +1364,8 @@ foreach ($chunks as $ci => $items) {
     file_put_contents("$private/$name.refmap.json", json_encode(['chunk' => $name, 'prompt_version' => $promptVersion, 'refs' => $refmap],
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     $answers['chunks'][$name] = $ans;
-    $chunkFiles[$name] = ['file' => "$out/judge/$name.json", 'items' => count($cards), 'bytes' => strlen($json), 'assert_blind' => 'passed'];
+    $chunkFiles[$name] = ['file' => "$out/judge/$name.json", 'scratch_dir' => $scratchDirs[$name], 'items' => count($cards), 'bytes' => strlen($json),
+        'assert_blind' => 'passed'];
 }
 file_put_contents("$private/pilot2_answers.json", json_encode($answers, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 ksort($strataCounts);

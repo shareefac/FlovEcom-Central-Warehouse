@@ -172,3 +172,8 @@ details.why p { margin: .3rem 0 0; max-width: 60rem; font-size: .88rem; color: v
 table.days, table.months { width: auto; }
 table.days tr.excluded > * { color: var(--muted); }
 table.months th, table.months td { padding: .3rem .45rem; }
+
+/* Key spot-check (M28) */
+.progress { font-size: 1.05rem; margin: .25rem 0 .5rem; }
+.state-confirmed { color: var(--ok-ink); font-weight: 600; }
+.state-open { color: var(--muted); }

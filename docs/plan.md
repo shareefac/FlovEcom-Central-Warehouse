@@ -366,6 +366,10 @@ before adding hooks, or the hooks never run on live.
   (products Vape and Go doesn't sell). Order of work: by units sold, then the unsold long tail.
 - The AI never links anything; a person confirms every cross-site link, one at a time, with the
   candidate pre-selected when a usable barcode and the AI agree (a few seconds each).
+  *Owner's decision, 2 Oct 2026 (`docs/decisions.md` M26-M28):* Key starts at judge confidence 85; and once a
+  mapping lead has confirmed every proposal of a seeded 20-proposal spot-check of the Key band, the rest of that
+  sample's Key proposals may be confirmed by that lead in one CLI step (one DecisionService decision each, nothing that
+  needs two people, undoable by batch). One rejection in the spot-check stops it.
   **Two people** only for: links/unlinks/merges touching an already-protected item,
   `units_per_item ≠ 1`, and mapping-driven stock corrections on protected items.
 

@@ -1294,7 +1294,8 @@ by stockpiling and a promotion); the 365-day column comes first. The `vpg_duplic
 open the next listing" button (a second POST form, same fields and checks) sits above the evidence, so a Key item that checks out
 needs one click. "New item" preselects "Mark as a new item" unless its barcode is on another listing or item. Rejected: a bulk
 confirm of Key items (plan §7.1: one-at-a-time confirmation with preselection; bulk decisions stay mapping_lead tools). Not done:
-revising the plan's "a few seconds each" (plan.md is the spec; no measured figure exists yet).
+revising the plan's "a few seconds each" (plan.md is the spec; no measured figure exists yet). **Amended by M28 (the owner,
+2 Oct 2026):** a bulk confirm of Key proposals exists as a mapping-lead CLI step after a spot-check, never as a button.
 
 **U21. The limiter's check and charge are one step (amends U1).** `Login::attempt` (and the password change's check of the current
 password) runs count -> verify -> record under named locks of the account and of the address (`LoginLimiter::exclusive`,
@@ -2805,3 +2806,264 @@ form is gone from the editor (the read-only view keeps its own for a draft seen 
 - **Not re-run:** the live export. I76 changes the tool only for windows shorter than a year; the existing 12-month exports
   in `/root/cw_work/sales_history` are complete and are what the deploy loads. `SalesExportToolTest` (fake site schema)
   proves 1.1, including the new one-day case.
+
+## Key spot-check and bulk confirm (slot `mpk1`, 2 Oct 2026)
+
+The owner's two decisions of 2 Oct 2026 (the owner holds `reviewer` and `mapping_lead` on staging). Numbered M26-M28. Code:
+`src/Matching/{Band,StoredBand}.php`, `src/Mapping/{ProposalBasis,KeyEligibility,Reband,KeySample,KeyBulk}.php`,
+`src/Mapping/Proposals.php` (records the basis), `src/Schema/Grants.php`, `migrations/0012_key_bulk.sql` (written as 0010, see below),
+`bin/{reband_proposals,sample_proposals,bulk_confirm_key,bulk_unlink}.php`, `src/Ui/Controller/SamplesController.php`,
+`src/Ui/views/{samples,sample}.php`, `src/Ui/{Kernel,Controller/ReviewController}.php`, `src/Ui/views/listing.php`,
+`src/Auth/Permissions.php` (menu), `tools/first_match/{assemble,judge_full}.php`; tests `tests/Unit/BandTest.php`,
+`tests/Integration/Mapping/{KeyBulk,KeyBulkTools}Test.php`, `tests/Integration/UiKernel/KeySampleScreenTest.php`,
+`tests/Support/KeyFixtures.php`, new cases in `GrantsTest`, `MenusTest`, `PermissionsTest`, `tests/matching/run.php`. Runbook:
+`docs/ops.md`, "Key spot-check and bulk confirm".
+
+**M26. Key from judge confidence 85 (Band b2.1; the owner's decision (1)).** When the barcode or transfer key and the
+barcode-blind judge agree (the judge picks the lane target), Key starts at confidence 85 instead of 90 (b2.0, pilot-1
+recommendation 9). Every other Key condition is unchanged: a barcode or transfer lane with one target, units per item 1, no
+veto or soft flag on the target, no pending line alias or relabel, no Conflict, and (assemble.php's routing) no
+`quote_not_verbatim` warning. `Band::KEY_MIN_CONFIDENCE` = 85, `VERSION` = b2.1, and `KEY_MIN_BY_VERSION` (b2.0: 90, b2.1: 85)
+so a stored band can be replayed under the version that made it; `Band::final()` takes that threshold as an optional third
+argument for the replay only. Tests: 85-89 with a clean agreeing key is Key on both lanes, 84 is Check, 85-89 without a key
+(candidates lane, or no single target) stays Check, a vetoed target is Conflict and never Key at any confidence, a soft flag,
+units 2 or a pending alias never Key (`BandTest`, `tests/matching/run.php`).
+- **Measured on run3's files** (the source of what `cw_staging` holds; replayed offline, read-only): the b2.0 replay gives back
+  all 2,623 stored bands (0 mismatches); b2.1 moves 435 Check proposals to Key and nothing else (confidence 85: 78, 86: 87,
+  87: 75, 88: 190, 89: 5; 5,587 units in 365 days). The owner's "about 390" was an estimate; the staging dry run counts only
+  the proposals still open, so it gives the real figure.
+- **`CW\Matching\StoredBand`** replays a stored first-match proposal: Band's inputs rebuilt from `match_proposal.evidence`
+  (lane, lane target, lane flags, target vetoes and soft flags, the judged candidates with their prescores and vetoes, the
+  judge's outcome, pick, confidence and units; a match below 50 counts as cannot_tell, as in assemble.php), then assemble.php's
+  two routing rules (pending relabels to Manual; a non-verbatim quote caps Key at Check), plus one guard: Key also needs
+  `key_possible` true, `key_blocked_by` empty and no veto or soft flag on the judge's pick. The evidence holds the judged
+  candidate list, not the engine's full list, so a New item / Can't tell result that depended on an unjudged candidate may not
+  replay; the Key threshold depends on the lane target and the pick only.
+- **`bin/reband_proposals.php`** (`CW\Mapping\Reband`): every OPEN proposal (decided and superseded ones are never read for a
+  change) whose run's band version is known (`match_run.detail.band_version`, else the engine string). Its evidence must replay
+  under THAT version to its stored band (else `evidence_mismatch`: left alone and counted); Manual proposals are skipped. A
+  different band under the current version is a move, reported by `old>new`. Only Key<->Check moves are applied (the proposed
+  item is the judge's pick in both); any other move is reported and needs a new matching run. A move is applied as a later
+  run's proposal: under the listing's row lock a NEW proposal (run `reband-<version>`, source `reband`, engine
+  `reband/<version>`, same item, judge answer and flags; `evidence.band`/`band_reasons` the new ones and `evidence.reband` the
+  old proposal, band, version and reasons) supersedes the old one through `Proposals::add` (audited `mapping.propose`; a
+  `mapping.reband` row sums the run). Not applied while the listing is linked, ignored or quarantined, has a decision waiting
+  for a second person, has any decision since the proposal (a reject included: a band does not overrule a person who said
+  "not this item"), or the proposal's basis (M27) is missing or no longer holds (the evidence would be stale). Dry run by
+  default; a re-run moves nothing twice (a re-banded proposal replays to its own band under b2.1). A re-band is not a decision:
+  the listing's status and `map_version` do not move.
+- `tools/first_match/assemble.php` accepts answers built with any Band version this Band knows (b2.0 -> b2.1 changed only
+  final()'s threshold, not provisional()), so run3 can still be re-assembled, now under b2.1.
+
+**M27. What a proposal was made against: its basis (the owner's "hash check").** `match_proposal_basis` (0012, append-only for
+the app login): the listing's `map_version` once the proposal and its own `suggest` were written (it moves on every link,
+status and identity change, M20), the listing profile's `identity_hash`, a fingerprint of the proposed item
+(`ProposalBasis::itemHash`: code, name, brand, sell policy, counted_at, the identity card, merged_into, origin listing), the
+`identity_hash` of the listing the item was minted from, and the LINK OF THE LANE TARGET: the Vape and Go listing the barcode
+or transfer key named (`target_listing_id`, its `map_version`, status, item and units per item), with `basis_hash` = sha256 of
+all of it. The lane target is found as `bin/import_proposals.php` named the item: the listing with the variant id of
+`evidence.lane_target` (`CWP-<id>`) that is linked to the proposed item (on the item's origin channel if several are); once
+recorded it is followed by its listing id. `Proposals::add` records the basis for every new proposal in the transaction that
+makes it (source `recorded`). `ProposalBasis::changes()` names what differs now: `listing_profile`, `listing_link`, `item`,
+`item_origin`, `target_link`.
+- **Why the lane target (review blocker, 2 Oct 2026).** A Key proposal stands on "the barcode/transfer key says this Electrofag
+  listing is the item that Vape and Go listing V is linked to". If V is relinked to another item, ignored, or set to units per
+  item 2 by two people after the proposal, the proposal no longer stands, yet nothing in the Electrofag listing, the item row
+  or V's identity moves. Probe P5 of the review linked the Electrofag listing at u = 1 to the item that two people had just
+  made a multiple for V. Now: `changed:target_link` (the basis) and `target_relinked` (V must be `mapped` to the proposed
+  item with u = 1 now, whatever the basis says) both exclude it, and the bulk confirm reads V `FOR SHARE` before it links
+  (no decision on V can commit in between) and checks V again after the link.
+- **Older proposals** (imported before 0012) get a basis only when it can be PROVED that nothing changed since they were made
+  (`ProposalBasis::prove`, source `backfill`, the proof in `detail`): the listing is still at the `map_version` its own
+  `suggest` left (expected + 1; no suggest record: no proof), the item row was not written after the proposal
+  (`sku.updated_at`: mint, policy, count and merge all write it), and the origin listing's and the lane target's
+  `map_version`s are the ones their last decisions before the proposal left (an identity change moves them without a
+  decision; `target_unproved` when the target is not linked to the item now or moved since). Otherwise none is written and the
+  proposal is never acted on in bulk: a person decides it. `bin/sample_proposals.php --apply` and `bin/reband_proposals.php
+  --apply` write the proved bases of the proposals they look at; their dry runs prove without writing.
+- Why a separate table, not a column: the app login may update only `match_proposal.status` (M16), so a basis for an older
+  proposal could not be added to it; a basis row is written once and never changed.
+
+**M28. The spot-check and the bulk confirm (the owner's decision (2); amends U20, plan §7.1 for this step only).**
+- **Eligibility** (`CW\Mapping\KeyEligibility`, shared by the sample and the bulk confirm). A proposal qualifies only when it is
+  open, stored Key AND Key now (StoredBand under the current rules), its listing unmapped or suggested with no decision waiting,
+  its item legacy, not counted (sku.counted_at, a balance count time or a `count` movement), not merged, with no quarantined
+  listing, units per item 1, no flag for two people or a relabel (`two_person_confirm`, `relabel_pending`, `target_not_minted`,
+  `merge_suggestion`), the proposed item both the key target and the judge's pick, no reject ever on the listing or on the item's
+  family by any listing, no decision on the listing since the proposal, no undone bulk link on the listing, its listing never
+  in the population of a FAILED sample (`failed_sample_population`; see the override below), the proposal in no other sample's
+  population (`in_other_sample`), its basis (M27) present and unchanged, the lane target found (`target_unresolved`) and still
+  linked to the item with u = 1 (`target_relinked`), and the titles the judge saw (`evidence.title`, `evidence.lane_target.title`,
+  i.e. the Normalizer's title: the variant title, else the product title, cleaned) still the listings' titles, case and spacing
+  aside (`evidence_title_differs`, `evidence_target_title_differs`: the basis dates from the import, the titles from the run's
+  export). Everything that needs two people (plan §7.1: protected items, units per item other than 1,
+  merges) or a person's judgement is therefore left out by construction; the report counts each proposal under its first reason.
+- **The sample** (`bin/sample_proposals.php`, `CW\Mapping\KeySample`; tables `key_sample`, `key_sample_member`, append-only).
+  `--by` must be an active mapping lead, and the sample is THEIRS: only their confirmations count, and only they run its bulk
+  confirm. Size at least `KeySample::MIN_SIZE` = 20 (also a CHECK in the schema). The population is every open Key proposal that
+  qualifies at that moment (written bases first). Strata by the judge's confidence: 90-100 (b2.0's Key) and 85-89 (what M26
+  newly admits); proportional allocation, largest remainder, at least one per non-empty stratum (20 from 936 + 435 on run3's
+  figures: 14 and 6). In a stratum the members with the lowest sha256("<seed>:<proposal id>"), positions 1..n in that order.
+  The SEED is drawn by the server (`random_int`, 1..2^53-1) only on `--apply`, after the population is fixed; no caller can
+  pass one (`--seed` is refused) and the dry run shows the population, the strata and the allocation, never members. Anyone
+  can re-draw a stored sample from its stored seed and population (`--verify`, `KeySample::verify`). Stored: name (the bulk
+  batch is then `key_bulk:<name>`), seed, method, band version, size, the strata, the excluded counts, the overrides, who drew
+  it, and EVERY population member with its stratum and confidence (position set for the sample). Audited `mapping.key_sample`
+  with the chosen proposal ids. Names are used once.
+- **No re-draw past a failure.** A proposal is in at most one sample's population (`in_other_sample`), so nobody can draw sample
+  after sample over the same proposals until one looks easy (every draw is stored and audited anyway). A FAILED sample's
+  listings never go into a bulk confirm again (`failed_sample_population`), whoever's sample it is. The only way back is an
+  explicit override, `--after-failed=<sample>`: allowed only when the band version changed since that sample was drawn or a new
+  matching run (not a re-band, not an undo) was imported since, and then only for proposals made after that sample (the ones it
+  judged stay one at a time); stored in `key_sample.overrides` with the reason and audited.
+- **Confirmed** (`KeySample::status`): a sample member counts as confirmed only when an applied `link` decision named its
+  proposal, to its item with units per item 1, outside any bulk batch, made by the sample's OWNER alone (no second person:
+  `needs_second` empty), while the owner held `mapping_lead` (`staff_role` history), and that link is still the listing's
+  current one. Verdict `complete` (all confirmed), `waiting` (some not decided yet), `failed` (any member rejected, decided
+  otherwise, replaced by a later proposal, waiting for or decided with a second person, decided by anyone but the owner, by the
+  owner without `mapping_lead`, or relinked since). A failure is final. The review screen of a member's listing says so: to the
+  owner "#n of 20 in your Key spot-check", to anyone else "leave it to them: a decision by anyone else makes the spot-check fail".
+- **Fit** (`status()['fit']`): a sample unlocks a bulk confirm only with at least 20 members, every non-empty stratum holding at
+  least its allocated share (and at least one), and members exactly what its stored seed draws from its stored population
+  (`sample_too_small`, `stratum_short:<stratum>`, `draw_not_reproducible`).
+- **The screen** (`/ui/review/samples`, `/ui/review/samples/{id}`, `linking.view`, menu "Key spot-check" under Linking): the
+  samples with "n of 20 decided" and their state; a sample's members with their listing, item, confidence and state (who and
+  when), a link to each in the normal review screen, and what the bulk confirm will do. The review screen opened from a sample
+  (`?sample=<id>`) leads back to it, and its forms carry the sample, so after a decision the owner lands on the same listing with
+  the usual notice and the way back. Read-only: there is no bulk button (the reason U20 gave stands for the screens).
+- **The bulk confirm** (`bin/bulk_confirm_key.php --sample --lead [--apply] [--limit] [--report]`, `CW\Mapping\KeyBulk::confirm`).
+  `--lead` must be the sample's owner (else exit 2, `not_sample_owner`). Refuses (exit 1, every unconfirmed member listed)
+  unless the verdict is `complete` and the sample is fit (`sample_unfit`). Acts on the sample's POPULATION only (a proposal that
+  became Key after the draw is never included), on the members that qualify NOW (re-checked). Each listing in its own
+  transaction: the lane target's listing read `FOR SHARE` first (a relink, ignore or unit change of it waits until this decision
+  commits), the eligibility again, then `DecisionService::decide(link)` as the owner with u = 1, the proposal named,
+  `expected_map_version` = the basis's (409 when the listing moved since), `bulk_batch_id` = `key_bulk:<sample>` and a reason
+  naming the spot-check; a decision that would need a second person is rolled back, never left pending; under the locks the
+  decision holds, the item fingerprint, the lane target's link and the rejects are checked again (rolled back on a difference).
+  Every 25 links the sample's own verdict and fitness are read again (`stopped=sample_changed_during_run`, exit 1). So a failure
+  leaves whole decisions only, and a re-run links only what is left (`already_in_batch` counts the earlier ones). `--limit=N`
+  stops after N links (skips and failures do not count). The dry run reports the population, how many qualify, the excluded
+  counts by reason and the units covered; `--report=<file.csv>` (never overwritten) lists every proposal of the population with
+  its outcome (`eligible` / `excluded`), first and all reasons, listing, title, item code and name, confidence, stratum, units
+  and lane target listing (cells a spreadsheet could run as a formula are prefixed with `'`). Audited per decision
+  (`mapping.link`, with the batch) and per run (`mapping.key_bulk`).
+- **The undo** (`bin/bulk_unlink.php --batch=key_bulk:<sample> --lead [--apply]`, `KeyBulk::undo`): only `key_bulk:` batches.
+  Every listing still linked by a decision of the batch is unlinked through `DecisionService` as the lead (`bulk_batch_id`
+  `undo:<batch>`), and its proposal re-opened as a new proposal (run `undo:<batch>`, source `key_bulk_undo`, `evidence.reopened`),
+  so the listing is back in the Key queue; a listing relinked by hand since is left alone; an unlink that needs a second person
+  (the item was counted since, M6) waits for one, and a re-run after the approval re-opens its proposal. A listing whose bulk
+  link was undone never qualifies for a bulk confirm again (`bulk_undone_before`): one at a time from then on. Audited
+  per decision and per run (`mapping.key_bulk_undo`).
+- **Two people:** none of the bulk's decisions needs a second person by construction, and DecisionService checks the rule again
+  at each one. A link that two people made on the lane target (a multiple, a relink) is never overridden by one bulk decision
+  (M27). Attribution: every bulk decision's `decided_by` is the sample's owner (`--lead`); the sample's confirmations are the
+  owner's own decisions on the screen; the re-band's new proposals are attributed with `bin/reband_proposals.php --by`.
+
+**Review of M26-M28 (2 Oct 2026, slot mpk3; fixed in slot mpk4).** One blocker, two important findings, three minor ones and
+three nits, all applied:
+- Blocker: the basis did not cover the lane target's link (probes P1 relink, P1b ignore, P5 u = 2 by two people; P5 linked the
+  Electrofag listing at u = 1 anyway). Fixed by the `target_link` part, `target_relinked`, the `FOR SHARE` read and the check
+  after the link (M27). Tests: `KeyBulkTest` (basis, eligibility, the bulk run with all three probes).
+- A sample of 1 unlocked the whole population (P2): `MIN_SIZE` 20 at create, in the schema, and `fit` at the bulk confirm.
+- A failed sample could be replaced by a new one over the same population (P3), and the documented flow let the operator see
+  members before choosing the seed: server-drawn seed on `--apply` only, no members in the dry run, `in_other_sample`,
+  `failed_sample_population` and the override rule above.
+- Any lead's (or a mapper's) confirmation counted, and needs_second was not checked: owner-only, one person, `--lead` = owner,
+  and the banner on the review screen. Members stay in the normal Key queue (hiding them from others would make the queue
+  counts disagree with the bands); the banner is the guard.
+- The basis dates from the import, not the run's export: the title checks. The dry run gave counts only: `--report`.
+- `--limit` counted skips; the re-band was attributed to the system; the migration number collided with phase I-2's
+  `0009_suppliers.sql`: links only, `--by`, `0010_key_bulk.sql` (since renumbered `0012_key_bulk.sql`, below).
+
+Open after M26-M28 (nothing was run on `cw_staging`):
+- Deploy with `0012_key_bulk.sql` (`install_cron.sh --migrate`); then, as the owner, the runbook: re-band (dry run, then
+  `--apply --by`), draw the sample (dry run, then `--apply`), confirm or reject the 20 on the screen, then the bulk confirm (dry
+  run with `--report`, a canary, then `--apply`).
+- Phase I-2 adds `0009_suppliers.sql`, `0010_purchase_orders.sql` and `0011_reorder.sql`; this branch's migration, written as
+  `0010_key_bulk.sql`, was renamed `0012_key_bulk.sql` when it was merged after Phase I-2 (2 Oct 2026; content unchanged but for
+  its header comment). The migrator records a migration by its file name and refuses a schema that holds a version with no
+  file, so the rename is safe only because 0010_key_bulk had been applied to throw-away `cw_test_*` schemas alone (dropped and
+  re-created on every PHPUnit run), never to `cw_staging`. The migrator applies every pending file in name order.
+
+
+## Matching rule fixes from run3 (slot `mpk2`, 2 Oct 2026)
+
+The five follow-ups that run3's review recorded. None changes a band threshold (M26 did) or anything already on `cw_staging`: the
+proposals there keep the evidence run3 stored, and `StoredBand` replays stored vetoes, not new ones. They act on the next matching
+run. Code: `src/Matching/{Form,JudgeScratch}.php` (new), `src/Matching/{Normalizer,TitlePattern,Flavour,Veto,JudgeCard,Band}.php`,
+`tools/first_match/{run,judge_full,assemble,extract_fixture}.php`, `tests/fixtures/matching/golden_listings.json` (23 rows added,
+the old ones byte-identical); tests in `tests/matching/run.php` (section 6), `tests/Unit/BandTest.php`, and
+`tests/Unit/MatchingGoldenTest.php`, which runs `tests/matching/run.php` inside the suite. Engine `n2.1/c1.0/v2.1/b2.1/f2.1+fv1-aeaa0af8/tp1.1`.
+
+**M29. The run3 follow-ups.**
+- **(a) Riot Squad "BAR EDTN": a false `line_modifier` veto (TitlePattern tp1.1, Normalizer n2.1).** "xl" is on 3+ Riot Squad
+  products on Electrofag, so it entered that brand's line lexicon. TitlePattern then started the line of "Mango XL Riot Squad BAR
+  EDTN 10ml Nic Salt" at "xl", which gave the flavour "mango" and the modifier "xl". Vape and Go's "Mango XL Nic Salt E-Liquid by
+  Riot Bar Edition" has the flavour "mango xl" and no modifier. The result was a one-sided "xl" and a hard veto on the true pair. In a
+  flavour-first title, line modifiers at the head of the line now stay in the flavour, as the class already intended ("a modifier
+  before the line belongs to the flavour"), even when the lexicon holds them. This applies only while a brand or lexicon word that
+  is not a modifier is left in the line. Line-first titles ("Hayati Pro Max Cherry Ice") are unchanged. The golden fixture now
+  carries the real lexicon, which is why the old test, run with an empty lexicon, missed the bug. Every Riot XL flavour exists only
+  as XL in both catalogues, so "Mango XL" against a plain "Mango" has no real case. A test pins it anyway: it is a soft flag
+  (`flavour_extra`), never Key.
+- **(b) "B Gum" = Bubblegum (Flavour f2.1).** `BIGRAMS['b gum']` and `SYNONYMS['bgum']` canonicalise to "bubblegum". Hayati
+  "Blueberry Bubblegum" against "Blueberry B Gum" was a `flavour_diff` Conflict. A stated "B Gum" is now a flavour word, so
+  "Strawberry Watermelon" against "Watermelon B Gum / Strawberry B Gum" is a hard `flavour_superset` (before: the soft
+  `flavour_extra`). The generated seed vocabulary (`fv1-aeaa0af8`, tied to the export) is unchanged. A rebuild would drop "bgum",
+  which is now a synonym of a seed word.
+- **(c) One scratch directory per judge (`CW\Matching\JudgeScratch`).** run3's 98 judges ran in parallel and all wrote into the
+  one session scratchpad under the same names ("view.txt" 38 times, "compact.txt" 14 times, from the judge transcripts), so one
+  judge could overwrite or read another's notes. The chunk builders (`run.php` pilot 2 and `judge_full.php`) now create one empty
+  directory per chunk, mode 0700, under `--scratch` (default `<parent of --out>/judge_scratch/<run>`), before any chunk is
+  written. The directory is named in the chunk file (`scratch_dir`, with the instruction in `purpose`) and in
+  `<run>_chunks.json`, together with `scratch_root` and a `judge_task` note telling the orchestrator to hand each judge its own.
+  The build refuses:
+  - a root inside the run or private folder, or one that holds either;
+  - a chunk named twice or a name that is a path;
+  - a directory that already holds files (a previous attempt).
+
+  The prompt of record (`judge_v2.md`, sha256 0bfb5977...) is unchanged; it already says "Work in your own scratch directory".
+- **(d) One form enum (`CW\Matching\Form`).** `Form::ALL` (the 14 values), `CLASS_OF`, `SUBS`, `FLAVOURED`/`flavoured()`,
+  `label()` and `canonical()` are now the one definition. `Normalizer::FORMS`/`FORM_CLASS` are aliases of it, and the Normalizer
+  throws on a form outside it. `Veto::consumable()`, the Normalizer's flavour split and the seed vocabulary all use
+  `Form::flavoured()`; they held three copies of the list before. Veto details name forms with `label()` ("pod_kit/prefilled",
+  v2.1, no rule change). JudgeCard now shows `extracted.form` as the enum value and `extracted.form_sub` apart. run3's cards said
+  "pod_kit (prefilled)", which is not a value the prompt allows, and the judges answered `listing_extract.form` with 11 spellings
+  outside the enum ("prefilled pod kit", "prefilled_pod_kit", "vape_kit", "e-liquid", ...; 39 of 2,916 answers).
+  `Form::canonical()` maps those, the old label and plurals onto the enum. `assemble.php` counts them in
+  `proposals_summary.listing_extract_form` (information only; the judge's form never decides a band). Rebuilding run3's chunks
+  with this code changes only `scratch_dir`, the form/form_sub split and the 5 Riot XL listing cards.
+- **(e) Band's key-lane no-match label (b2.1, reasons only).** On the barcode or transfer lane, a judge `no_match_in_list` below
+  80 (80 and above is a Conflict) fell through to `unrecognised_outcome` at 70-79, which `assemble.php` relabelled afterwards, and
+  was `no_match_in_list_<conf>` below 70. Band now says `ai_no_match_on_key_below_80_<conf>` itself, and assemble's relabel is
+  gone. `unrecognised_outcome` now means only an outcome outside `Band::OUTCOMES`, at any confidence. No band moves, so the
+  version stays b2.1 (not deployed yet). `StoredBand` now replays the same reasons the four run3 proposals stored.
+
+Measured offline on run3's inputs (read-only; scratch copies of the run folders):
+- **Features.** All 38,119 listings of both exports were normalised with the old and new code. Only 20 Electrofag listings
+  change, all Riot Squad "<Flavour> XL ... BAR EDTN": the flavour gains "xl" and the modifier "xl" goes. No Vape and Go listing
+  changes, and no form or form_sub changes anywhere.
+- **Pairs.** All 160,121 run3 pairs were vetoed again (lane targets, candidates and judge picks). No barcode or transfer
+  lane-target pair changes. 21 candidate pairs lose every veto, all true:
+  - 15 Riot XL pairs with the same flavour and strength;
+  - 6 Bubblegum/B Gum pairs.
+
+  10 unvetoed pairs gain a hard `flavour_superset`, all real differences: "Strawberry Watermelon" against a flavour with "B Gum"
+  added. The other 369 changes stay vetoed: the false `line_modifier` goes (374 pairs in all), but flavour or strength still
+  separates the pair.
+- **Judge picks.** 7 of run3's 9 `ai_match_on_vetoed_pair` Conflicts were these false vetoes (A#280, 1076, 1077, 5820, 6484;
+  3352, 3398; 13 units in 365 days). On a new run they would be Check (5) and Can't tell (2, judge confidence below 80). They
+  are candidates-lane listings, so never Key.
+- **Re-assembly.** Re-assembling run3 with the new and the old code gives byte-identical proposals (judgements identical but
+  for paths). The `StoredBand` replay of all 2,623 proposals gives back every stored band, and now every non-Manual reason (the
+  old code had 4 mismatches, the relabelled ones).
+- **Tests.** The new golden cases fail on the old code (5 of 59) and pass on the new code (59 of 59).
+
+Open after M29:
+- Nothing changes on `cw_staging` by itself. The 7 listings above stay Conflict proposals there until a new run's proposals are
+  imported, or a person decides them on the review screen. A person may link them today: a Conflict needs a mapping lead
+  (M7), and the evidence shows the veto that no longer applies.
+- The orchestrator of the next judge run should pass each judge its `scratch_dir` from `<run>_chunks.json`. The chunk file names
+  it, but the run3 task text named only the prompt and the chunk.
+- Staff can still type a free-text form into a new item's card (`DecisionService` card override `form`, 32 characters). It is
+  not mapped through `Form::canonical()`. That is outside matching and was left alone here.

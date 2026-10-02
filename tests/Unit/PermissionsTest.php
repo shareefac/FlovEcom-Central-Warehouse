@@ -198,7 +198,7 @@ final class PermissionsTest extends TestCase
         self::assertSame(['Reason codes', 'Number series', 'Settings'], array_column(Permissions::menu(['viewer'])[2]['items'], 'label'),
             'Reference gains Settings (every role)');
         $mapper = Permissions::menu(['mapper']);
-        self::assertSame(['/ui/', '/ui/review', '/ui/review'], array_column($mapper[0]['items'], 'path'));
+        self::assertSame(['/ui/', '/ui/review', '/ui/review', '/ui/review/samples'], array_column($mapper[0]['items'], 'path'));
         self::assertSame([['queue' => 'Key'], ['queue' => 'pending']], array_column($mapper[0]['items'], 'query'));
     }
 

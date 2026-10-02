@@ -22,8 +22,11 @@ final class Veto
      * umbrella words ("salt", "pod", "bar") no longer make two brands/lines agree; a model number on one side
      * only is flagged; new vetoes line_word (each side has a line word the other lacks) and multipack
      * ("10 x 10ml" against a single unit); volume is n_a on pods/devices like nic_type.
+     *
+     * v2.1 (docs/decisions.md M29): no rule changes; consumable() is Form::flavoured(), and a form veto's detail names both
+     * forms with Form::label ("pod_kit/prefilled vs prefilled_pod/prefilled").
      */
-    public const VERSION = 'v2.0';
+    public const VERSION = 'v2.1';
 
     public const CODES = [
         'strength', 'nic_type', 'form', 'line_number', 'line_modifier', 'line_word', 'flavour_superset', 'flavour_diff',
@@ -139,14 +142,14 @@ final class Veto
         if ($lf !== null && $sf !== null) {
             $fields['form'] = 'agree';
             if ($lf !== $sf) {
-                $veto('form', $l['form'] . ' vs ' . $s['form']);
+                $veto('form', Form::label($l['form'], $l['form_sub']) . ' vs ' . Form::label($s['form'], $s['form_sub']));
                 $fields['form'] = 'conflict';
             } elseif (in_array($l['form_sub'], ['prefilled', 'refillable'], true) && in_array($s['form_sub'], ['prefilled', 'refillable'], true)
                 && $l['form_sub'] !== $s['form_sub']) {
-                $veto('form', $l['form'] . '/' . $l['form_sub'] . ' vs ' . $s['form'] . '/' . $s['form_sub']);
+                $veto('form', Form::label($l['form'], $l['form_sub']) . ' vs ' . Form::label($s['form'], $s['form_sub']));
                 $fields['form'] = 'conflict';
             } elseif ($lf === 'other' && $l['form_sub'] !== null && $s['form_sub'] !== null && $l['form_sub'] !== $s['form_sub']) {
-                $veto('form', $l['form_sub'] . ' vs ' . $s['form_sub']);
+                $veto('form', Form::label($l['form'], $l['form_sub']) . ' vs ' . Form::label($s['form'], $s['form_sub']));
                 $fields['form'] = 'conflict';
             }
         } else {
@@ -427,11 +430,10 @@ final class Veto
         return false;
     }
 
-    /** A flavoured consumable (liquid, nic shot, disposable, prefilled pod or prefilled pod kit). */
+    /** A flavoured consumable (liquid, nic shot, disposable, prefilled pod or prefilled pod kit: Form::flavoured). */
     public static function consumable(array $x): bool
     {
-        return in_array($x['form'] ?? null, ['e_liquid', 'nic_salt', 'shortfill', 'nic_shot', 'disposable', 'prefilled_pod'], true)
-            || (($x['form'] ?? null) === 'pod_kit' && ($x['form_sub'] ?? null) === 'prefilled');
+        return Form::flavoured($x['form'] ?? null, $x['form_sub'] ?? null);
     }
 
     /**

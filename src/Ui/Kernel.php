@@ -22,6 +22,7 @@ use CW\Ui\Controller\ReorderController;
 use CW\Ui\Controller\ReviewController;
 use CW\Ui\Controller\ReviewsController;
 use CW\Ui\Controller\SalesHistoryController;
+use CW\Ui\Controller\SamplesController;
 use CW\Ui\Controller\SearchController;
 use CW\Ui\Controller\SupplierItemsController;
 use CW\Ui\Controller\SuppliersController;
@@ -250,6 +251,10 @@ final class Kernel
         $r->add('POST', '/ui/review/listing/{id}/decide', Route::DECIDE, $review->decide(...));
         $r->add('POST', '/ui/review/decision/{id}/approve', Route::LEAD, $review->approve(...));
         $r->add('POST', '/ui/review/decision/{id}/withdraw', Route::DECIDE, $review->withdraw(...));
+        // The Key spot-check (M28): read-only; the owner decides each member on the listing page above.
+        $samples = new SamplesController();
+        $r->add('GET', '/ui/review/samples', 'linking.view', $samples->index(...));
+        $r->add('GET', '/ui/review/samples/{id}', 'linking.view', $samples->show(...));
         $r->add('GET', '/ui/items/{id}', 'catalogue.view', $items->show(...));
         $r->add('GET', '/ui/search', 'catalogue.view', $search->index(...));
         // People and roles (I13): admin and auditor look, admin changes.

@@ -473,6 +473,15 @@
                     "strips"
                 ]
             },
+            "30781": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "riot",
+                    "squad",
+                    "xl"
+                ]
+            },
             "31162": {
                 "published_siblings": 13,
                 "line_lexicon": [
@@ -571,6 +580,51 @@
                     "range",
                     "shisha",
                     "ultra"
+                ]
+            },
+            "34556": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "riot",
+                    "squad",
+                    "xl"
+                ]
+            },
+            "34596": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "riot",
+                    "squad",
+                    "xl"
+                ]
+            },
+            "34599": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "riot",
+                    "squad",
+                    "xl"
+                ]
+            },
+            "34601": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "riot",
+                    "squad",
+                    "xl"
+                ]
+            },
+            "34603": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "riot",
+                    "squad",
+                    "xl"
                 ]
             },
             "34922": {
@@ -715,6 +769,32 @@
                     "ultra"
                 ]
             },
+            "36925": {
+                "published_siblings": 51,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "36968": {
+                "published_siblings": 22,
+                "line_lexicon": [
+                    "bar",
+                    "bloody"
+                ]
+            },
             "36999": {
                 "published_siblings": 3,
                 "line_lexicon": [
@@ -757,6 +837,25 @@
                     "pouches",
                     "pro",
                     "strips"
+                ]
+            },
+            "37248": {
+                "published_siblings": 51,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
                 ]
             },
             "37353": {
@@ -923,6 +1022,10 @@
                     "pro"
                 ]
             },
+            "43180": {
+                "published_siblings": 21,
+                "line_lexicon": []
+            },
             "43435": {
                 "published_siblings": 61,
                 "line_lexicon": [
@@ -976,8 +1079,46 @@
                     "legend"
                 ]
             },
+            "45730": {
+                "published_siblings": 116,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
             "45768": {
                 "published_siblings": 116,
+                "line_lexicon": [
+                    "elite",
+                    "hayati",
+                    "liora",
+                    "lite",
+                    "max",
+                    "mini",
+                    "moxy",
+                    "plus",
+                    "pouches",
+                    "pro",
+                    "quokka",
+                    "range",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "46162": {
+                "published_siblings": 136,
                 "line_lexicon": [
                     "elite",
                     "hayati",
@@ -1020,6 +1161,16 @@
                     "pro"
                 ]
             },
+            "280": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "edtn",
+                    "riot",
+                    "squad",
+                    "xl"
+                ]
+            },
             "461": {
                 "published_siblings": 4,
                 "line_lexicon": [
@@ -1048,6 +1199,13 @@
                     "bar"
                 ]
             },
+            "878": {
+                "published_siblings": 21,
+                "line_lexicon": [
+                    "bar",
+                    "bloody"
+                ]
+            },
             "886": {
                 "published_siblings": 21,
                 "line_lexicon": [
@@ -1072,6 +1230,16 @@
                     "slushy",
                     "temptations",
                     "treats"
+                ]
+            },
+            "1077": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "edtn",
+                    "riot",
+                    "squad",
+                    "xl"
                 ]
             },
             "1345": {
@@ -1203,7 +1371,43 @@
                     "ultra"
                 ]
             },
+            "3352": {
+                "published_siblings": 0,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "3398": {
+                "published_siblings": 0,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
+            },
             "3648": {
+                "published_siblings": 39,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "3652": {
                 "published_siblings": 39,
                 "line_lexicon": [
                     "hayati",
@@ -1309,6 +1513,16 @@
                     "nera"
                 ]
             },
+            "5820": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "edtn",
+                    "riot",
+                    "squad",
+                    "xl"
+                ]
+            },
             "5879": {
                 "published_siblings": 4,
                 "line_lexicon": [
@@ -1342,6 +1556,16 @@
                     "oxva",
                     "pro",
                     "xlim"
+                ]
+            },
+            "6484": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "edtn",
+                    "riot",
+                    "squad",
+                    "xl"
                 ]
             },
             "6597": {
@@ -1406,6 +1630,16 @@
                     "original",
                     "pro",
                     "ske"
+                ]
+            },
+            "7966": {
+                "published_siblings": 4,
+                "line_lexicon": [
+                    "bar",
+                    "edtn",
+                    "riot",
+                    "squad",
+                    "xl"
                 ]
             },
             "8182": {
@@ -1479,6 +1713,10 @@
                     "vinci"
                 ]
             },
+            "9867": {
+                "published_siblings": 21,
+                "line_lexicon": []
+            },
             "10952": {
                 "published_siblings": 3,
                 "line_lexicon": [
@@ -1488,6 +1726,18 @@
             },
             "11850": {
                 "published_siblings": 116,
+                "line_lexicon": [
+                    "hayati",
+                    "max",
+                    "plus",
+                    "pro",
+                    "quokka",
+                    "shisha",
+                    "ultra"
+                ]
+            },
+            "12256": {
+                "published_siblings": 135,
                 "line_lexicon": [
                     "hayati",
                     "max",
@@ -3622,6 +3872,62 @@
                 "units_30d": 2,
                 "units_365d": 46
             },
+            "30781": {
+                "site": "vapeandgo",
+                "variant_id": 30781,
+                "product_id": 6585,
+                "product_title": "Peach XL Nic Salt by Riot Squad Bar Edition - 10ml",
+                "variant_title": "Peach XL Nic Salt by Riot Squad Bar Edition - 10ml | 10mg",
+                "brand": "Riot Squad Nic Salts",
+                "brand_id": 393,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "riot-squad-nic-salt-bar-edition-peach-xl-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056059561028
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "60/40",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 21
+            },
             "31162": {
                 "site": "vapeandgo",
                 "variant_id": 31162,
@@ -3962,6 +4268,254 @@
                 ],
                 "units_30d": 43,
                 "units_365d": 867
+            },
+            "34556": {
+                "site": "vapeandgo",
+                "variant_id": 34556,
+                "product_id": 7482,
+                "product_title": "Sour Cherry Apple Nic Salt E-Liquid by Riot Bar Edition 10ml ",
+                "variant_title": "Sour Cherry Apple Nic Salt E-Liquid by Riot Bar Edition 10ml  | 20mg",
+                "brand": "Riot Squad Nic Salts",
+                "brand_id": 393,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "riot-squad-nic-salt-bar-edition-sour-cherry-apple-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056059546575
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "60/40",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 2,
+                "units_365d": 14
+            },
+            "34596": {
+                "site": "vapeandgo",
+                "variant_id": 34596,
+                "product_id": 7489,
+                "product_title": "Cherry XL Nic Salt E-Liquid by Riot Bar Edition 10ml",
+                "variant_title": "Cherry XL Nic Salt E-Liquid by Riot Bar Edition 10ml | 10mg",
+                "brand": "Riot Squad Nic Salts",
+                "brand_id": 393,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "riot-squad-nic-salt-bar-edition-cherry-xl-10ml/10mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056059555393
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "60/40",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 30
+            },
+            "34599": {
+                "site": "vapeandgo",
+                "variant_id": 34599,
+                "product_id": 7490,
+                "product_title": "Apple XL Nic Salt E-Liquid by Riot Bar Edition 10ml",
+                "variant_title": "Apple XL Nic Salt E-Liquid by Riot Bar Edition 10ml | 5mg",
+                "brand": "Riot Squad Nic Salts",
+                "brand_id": 393,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "riot-squad-nic-salt-bar-edition-apple-xl-10ml/5mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056059555331
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "60/40",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 6,
+                "units_365d": 42
+            },
+            "34601": {
+                "site": "vapeandgo",
+                "variant_id": 34601,
+                "product_id": 7490,
+                "product_title": "Apple XL Nic Salt E-Liquid by Riot Bar Edition 10ml",
+                "variant_title": "Apple XL Nic Salt E-Liquid by Riot Bar Edition 10ml | 20mg",
+                "brand": "Riot Squad Nic Salts",
+                "brand_id": 393,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "riot-squad-nic-salt-bar-edition-apple-xl-10ml/20mg/",
+                "product_permalink": null,
+                "barcodes": [
+                    5056059555485
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "60/40",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 21
+            },
+            "34603": {
+                "site": "vapeandgo",
+                "variant_id": 34603,
+                "product_id": 7491,
+                "product_title": "Mango XL Nic Salt E-Liquid by Riot Bar Edition 10ml",
+                "variant_title": "Mango XL Nic Salt E-Liquid by Riot Bar Edition 10ml | 5mg",
+                "brand": "Riot Squad Nic Salts",
+                "brand_id": 393,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 2.99,
+                "sale_price": 2.49,
+                "permalink": "riot-squad-nic-salt-bar-edition-mango-xl-10ml/5mg/",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 5,
+                        "name": "PG/VG",
+                        "value": "60/40",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "UK",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 4,
+                        "name": "Bottle Size",
+                        "value": "10ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 1
             },
             "34922": {
                 "site": "vapeandgo",
@@ -4583,6 +5137,124 @@
                 "units_30d": 63,
                 "units_365d": 1176
             },
+            "36925": {
+                "site": "vapeandgo",
+                "variant_id": 36925,
+                "product_id": 7764,
+                "product_title": "Hayati Pro Ultra Plus 25K",
+                "variant_title": "Hayati Pro Ultra Plus Watermelon B Gum / Strawberry B Gum",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 14.99,
+                "sale_price": 10.99,
+                "permalink": "hayati-pro-ultra-plus-watermelon-b-gum-strawberry-b-gum/",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329014067
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Watermelon B Gum/Strawberry B GUM",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "25000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "850mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 22,
+                "units_365d": 518
+            },
+            "36968": {
+                "site": "vapeandgo",
+                "variant_id": 36968,
+                "product_id": 7819,
+                "product_title": "Bloody Bar Crystal 10K Kit",
+                "variant_title": "Bloody Bar Crystal 10K Kit | Strawberry Watermelon Bgum",
+                "brand": "Bloody Bar",
+                "brand_id": 5955,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 10.99,
+                "sale_price": 6.49,
+                "permalink": "bloody-bar-crystal-10k-disposable-vape/strawberry-watermelon-bgum/",
+                "product_permalink": null,
+                "barcodes": [
+                    5060949057249
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Strawberry Watermelon Bgum",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "10000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 2,
+                "units_365d": 18
+            },
             "36999": {
                 "site": "vapeandgo",
                 "variant_id": 36999,
@@ -4769,6 +5441,51 @@
                 ],
                 "units_30d": 50,
                 "units_365d": 642
+            },
+            "37248": {
+                "site": "vapeandgo",
+                "variant_id": 37248,
+                "product_id": 7838,
+                "product_title": "Hayati Pro Ultra Plus Pods",
+                "variant_title": "Hayati Pro Ultra Plus Prefilled Pods Watermelon B Gum / Strawberry B Gum",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 9.99,
+                "sale_price": 6.99,
+                "permalink": "hayati-pro-ultra-plus-prefilled-pods-watermelon-b-gum-strawberry-b-gum/",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329024103,
+                    6936329024462
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Watermelon B Gum / Strawberry B Gum",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "25000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 168,
+                "units_365d": 2164
             },
             "37353": {
                 "site": "vapeandgo",
@@ -5721,6 +6438,62 @@
                 "units_30d": 0,
                 "units_365d": 0
             },
+            "43180": {
+                "site": "vapeandgo",
+                "variant_id": 43180,
+                "product_id": 8762,
+                "product_title": "Vylo Duo 35K Kit",
+                "variant_title": "Straw B Gum / Green Apple B Gum Vylo Duo 35K Kit",
+                "brand": "Vylo",
+                "brand_id": 6022,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "From-Warehouse",
+                "price": 12.99,
+                "sale_price": 9.49,
+                "permalink": "vylo-duo-35k-straw-b-gum-green-apple-b-gum/",
+                "product_permalink": null,
+                "barcodes": [
+                    6923742023936
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Straw B Gum / Green Apple B Gum",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "850mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 28,
+                        "name": "Charging Type",
+                        "value": "USB Type-C",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "35000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 2
+            },
             "43435": {
                 "site": "vapeandgo",
                 "variant_id": 43435,
@@ -5940,6 +6713,68 @@
                 "units_30d": 681,
                 "units_365d": 2699
             },
+            "45730": {
+                "site": "vapeandgo",
+                "variant_id": 45730,
+                "product_id": 9017,
+                "product_title": "Hayati Pro Max Plus 6000",
+                "variant_title": "Hayati Pro Max Plus Blueberry B Gum",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 9.99,
+                "sale_price": 7.99,
+                "permalink": "hayati-pro-max-plus-blueberry-b-gum/",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329013572
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blueberry B Gum",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 37,
+                        "name": "E-Liquid Capacity",
+                        "value": "12ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 20,
+                        "name": "Battery Capacity",
+                        "value": "850mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 49,
+                        "name": "Battery Type",
+                        "value": "Integrated",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 8,
+                "units_365d": 45
+            },
             "45768": {
                 "site": "vapeandgo",
                 "variant_id": 45768,
@@ -6001,6 +6836,63 @@
                 ],
                 "units_30d": 30,
                 "units_365d": 89
+            },
+            "46162": {
+                "site": "vapeandgo",
+                "variant_id": 46162,
+                "product_id": 9024,
+                "product_title": "Hayati Pro Max Plus Pods 6000 Puffs",
+                "variant_title": "Blueberry B GumHayati Pro Max Plus Pods 6000 Puffs",
+                "brand": "Hayati",
+                "brand_id": 5995,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 7.99,
+                "sale_price": 5.39,
+                "permalink": "hayati-pro-max-plus-6000-pods-blueberry-b-gum/",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329013756,
+                    6936329013817
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 3,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 13,
+                        "name": "Flavour",
+                        "value": "Blueberry B Gum",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 36,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 22,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 37,
+                        "name": "E-Liquid Capacity",
+                        "value": "12ml",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 60,
+                "units_365d": 173
             },
             "46992": {
                 "site": "vapeandgo",
@@ -6083,6 +6975,36 @@
                 ],
                 "units_30d": 0,
                 "units_365d": 0
+            },
+            "280": {
+                "site": "electrofag",
+                "variant_id": 280,
+                "product_id": 25,
+                "product_title": "Apple XL Riot Squad BAR EDTN 10ml Nic Salt E Liquid",
+                "variant_title": "Apple XL Riot Squad BAR EDTN 10ml Nic Salt E Liquid - 5mg",
+                "brand": "Riot Squad",
+                "brand_id": 2028,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": null,
+                "permalink": "apple-xl-riot-squad-bar-edtn-10ml-nic-salt-e-liquid/5mg",
+                "product_permalink": "apple-xl-riot-squad-bar-edtn-10ml-nic-salt-e-liquid",
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 1
             },
             "461": {
                 "site": "electrofag",
@@ -6206,6 +7128,36 @@
                 "units_30d": 10,
                 "units_365d": 114
             },
+            "878": {
+                "site": "electrofag",
+                "variant_id": 878,
+                "product_id": 192,
+                "product_title": "Bloody Bar Crystal 10K Prefilled Pod Kit",
+                "variant_title": "Bloody Bar Crystal 10K Prefilled Pod Kit - Strawberry Watermelon Bubblegum",
+                "brand": "Bloody Bar",
+                "brand_id": 2043,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 8.99,
+                "sale_price": 6.49,
+                "permalink": "bloody-bar-crystal-10k-prefilled-pod-kit/strawberry-watermelon-bubblegum",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Strawberry Watermelon Bubblegum",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
             "886": {
                 "site": "electrofag",
                 "variant_id": 886,
@@ -6270,6 +7222,36 @@
                 ],
                 "units_30d": 8,
                 "units_365d": 15
+            },
+            "1077": {
+                "site": "electrofag",
+                "variant_id": 1077,
+                "product_id": 258,
+                "product_title": "Cherry XL Riot Squad BAR EDTN 10ml Nic Salt E Liquid",
+                "variant_title": "Cherry XL Riot Squad BAR EDTN 10ml Nic Salt E Liquid - 10mg",
+                "brand": "Riot Squad",
+                "brand_id": 2028,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": null,
+                "permalink": "cherry-xl-riot-squad-bar-edtn-10ml-nic-salt-e-liquid/10mg",
+                "product_permalink": "cherry-xl-riot-squad-bar-edtn-10ml-nic-salt-e-liquid",
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 1
             },
             "1345": {
                 "site": "electrofag",
@@ -6630,6 +7612,102 @@
                 "units_30d": 0,
                 "units_365d": 0
             },
+            "3352": {
+                "site": "electrofag",
+                "variant_id": 3352,
+                "product_id": 606,
+                "product_title": "Hayati Pro Max Plus 6000 Prefilled Pod Kit",
+                "variant_title": "Hayati Pro Max Plus 6000 Prefilled Pod Kit - Blueberry Bubblegum",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Bin",
+                "product_status": "Bin",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 9.99,
+                "sale_price": 7.99,
+                "permalink": "hayati-pro-max-plus-blueberry-bubblegum",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Blueberry Bubblegum",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 27,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 26,
+                        "name": "E-Liquid Capacity",
+                        "value": "12ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 30,
+                        "name": "Battery Capacity",
+                        "value": "850mAh",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 1
+            },
+            "3398": {
+                "site": "electrofag",
+                "variant_id": 3398,
+                "product_id": 607,
+                "product_title": "Hayati Pro Max Plus 6K Prefilled Pods",
+                "variant_title": "Hayati Pro Max Plus 6K Prefilled Pods - Blueberry Bubblegum",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Bin",
+                "product_status": "Bin",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 7.99,
+                "sale_price": 5.39,
+                "permalink": "hayati-pro-max-plus-6k-prefilled-pods/blueberry-bubblegum",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Blueberry Bubblegum",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 27,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 6
+            },
             "3648": {
                 "site": "electrofag",
                 "variant_id": 3648,
@@ -6680,6 +7758,56 @@
                 ],
                 "units_30d": 4,
                 "units_365d": 27
+            },
+            "3652": {
+                "site": "electrofag",
+                "variant_id": 3652,
+                "product_id": 675,
+                "product_title": "Hayati Pro Ultra Plus Prefilled Pod Kit",
+                "variant_title": "Hayati Pro Ultra Plus Prefilled Pod Kit - Strawberry Watermelon",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 14.99,
+                "sale_price": 10.99,
+                "permalink": "hayati-pro-ultra-plus-strawberry-watermelon",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329014050
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Strawberry Watermelon",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 30,
+                        "name": "Battery Capacity",
+                        "value": "850mAh",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 27,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Puff Count",
+                        "value": "25000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 7
             },
             "4026": {
                 "site": "electrofag",
@@ -7031,6 +8159,38 @@
                 "units_30d": 0,
                 "units_365d": 6
             },
+            "5820": {
+                "site": "electrofag",
+                "variant_id": 5820,
+                "product_id": 1033,
+                "product_title": "Mango XL Riot Squad BAR EDTN 10ml Nic Salt E Liquid",
+                "variant_title": "Mango XL Riot Squad BAR EDTN 10ml Nic Salt E Liquid - 5mg",
+                "brand": "Riot Squad",
+                "brand_id": 2028,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": null,
+                "permalink": "mango-xl-riot-squad-bar-edtn-10ml-nic-salt-e-liquid/5mg",
+                "product_permalink": "mango-xl-riot-squad-bar-edtn-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    5056059555324
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "5mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 2
+            },
             "5879": {
                 "site": "electrofag",
                 "variant_id": 5879,
@@ -7230,6 +8390,36 @@
                 "units_30d": 0,
                 "units_365d": 2
             },
+            "6484": {
+                "site": "electrofag",
+                "variant_id": 6484,
+                "product_id": 1117,
+                "product_title": "Peach XL Riot Squad BAR EDTN 10ml Nic Salt E Liquid",
+                "variant_title": "Peach XL Riot Squad BAR EDTN 10ml Nic Salt E Liquid - 10mg",
+                "brand": "Riot Squad",
+                "brand_id": 2028,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": null,
+                "permalink": "peach-xl-riot-squad-bar-edtn-10ml-nic-salt-e-liquid/10mg",
+                "product_permalink": "peach-xl-riot-squad-bar-edtn-10ml-nic-salt-e-liquid",
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "10mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 1,
+                "units_365d": 1
+            },
             "6597": {
                 "site": "electrofag",
                 "variant_id": 6597,
@@ -7426,6 +8616,38 @@
                 ],
                 "units_30d": 0,
                 "units_365d": 5
+            },
+            "7966": {
+                "site": "electrofag",
+                "variant_id": 7966,
+                "product_id": 1383,
+                "product_title": "Sour Cherry Apple Riot Squad BAR EDTN 10ml Nic Salt E Liquid",
+                "variant_title": "Sour Cherry Apple Riot Squad BAR EDTN 10ml Nic Salt E Liquid - 20mg",
+                "brand": "Riot Squad",
+                "brand_id": 2028,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 2.99,
+                "sale_price": null,
+                "permalink": "sour-cherry-apple-riot-squad-bar-edtn-10ml-nic-salt-e-liquid/20mg",
+                "product_permalink": "sour-cherry-apple-riot-squad-bar-edtn-10ml-nic-salt-e-liquid",
+                "barcodes": [
+                    5056059546575
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 4,
+                        "name": "Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 2
             },
             "8182": {
                 "site": "electrofag",
@@ -7662,6 +8884,48 @@
                 "units_30d": 1,
                 "units_365d": 2
             },
+            "9867": {
+                "site": "electrofag",
+                "variant_id": 9867,
+                "product_id": 1733,
+                "product_title": "VYLO Duo 35K 2-in-1 Pod Vape Kit",
+                "variant_title": "VYLO Duo 35K 2-in-1 Pod Vape Kit - Straw Bubblegum / Green Apple Bubblegum",
+                "brand": "Vylo",
+                "brand_id": 2106,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 9.49,
+                "sale_price": null,
+                "permalink": "vylo-duo-35k-2-in-1-pod-vape-kit/straw-bubblegum-/-green-apple-bubblegum",
+                "product_permalink": null,
+                "barcodes": [],
+                "attributes": [
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Straw Bubblegum / Green Apple Bubblegum",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 27,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Puff Count",
+                        "value": "35000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 0
+            },
             "10952": {
                 "site": "electrofag",
                 "variant_id": 10952,
@@ -7773,6 +9037,63 @@
                 ],
                 "units_30d": 0,
                 "units_365d": 1
+            },
+            "12256": {
+                "site": "electrofag",
+                "variant_id": 12256,
+                "product_id": 2042,
+                "product_title": "Hayati Pro Max Plus 6K Prefilled Pods",
+                "variant_title": "Hayati Pro Max Plus 6K Prefilled Pods - 20mg | Blueberry B Gum",
+                "brand": "Hayati",
+                "brand_id": 2035,
+                "product_type": "variable",
+                "variant_status": "Published",
+                "product_status": "Published",
+                "is_landing": 0,
+                "is_default": 0,
+                "stock_mode": "In-Stock",
+                "price": 7.99,
+                "sale_price": 5.39,
+                "permalink": "hayati-pro-max-plus-6k-prefilled-pods-20mg-blueberry-b-gum",
+                "product_permalink": null,
+                "barcodes": [
+                    6936329013756,
+                    6936329013817
+                ],
+                "attributes": [
+                    {
+                        "attr_id": 27,
+                        "name": "Nicotine Strength",
+                        "value": "20mg",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 2,
+                        "name": "Flavour",
+                        "value": "Blueberry B Gum",
+                        "is_variable": 1
+                    },
+                    {
+                        "attr_id": 34,
+                        "name": "Made In",
+                        "value": "China",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 26,
+                        "name": "E-Liquid Capacity",
+                        "value": "12ml",
+                        "is_variable": 0
+                    },
+                    {
+                        "attr_id": 29,
+                        "name": "Puff Count",
+                        "value": "6000",
+                        "is_variable": 0
+                    }
+                ],
+                "units_30d": 0,
+                "units_365d": 7
             },
             "13130": {
                 "site": "electrofag",

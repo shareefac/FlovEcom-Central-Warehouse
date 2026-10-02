@@ -35,6 +35,8 @@ $want = [
         10952, 11850,
         // pilot-1 misses (run1 pilot_eval): Bar Juice 5000, ELFLIQ, IVG Original, Lost Mary BM600, Elux Legend, Hayati Pro Max
         536, 551, 613, 2261, 2265, 3296, 3302, 5320, 5326, 5879, 6072, 6073, 8334, 13130,
+        // run3 follow-ups (docs/decisions.md M29): Riot Squad "<Flavour> XL ... BAR EDTN" (a), "Bubblegum" vs "B Gum" (b)
+        280, 1077, 5820, 6484, 7966, 878, 3352, 3398, 3652, 9867, 12256,
     ],
     'vapeandgo' => [
         48, 51, 750, 847, 8553, 8554, 11714, 12937, 12938, 12939, 13420, 27424, 28198, 29380, 29794, 30201,
@@ -45,6 +47,8 @@ $want = [
         9700, 10740, 10851, 11706, 11708, 12721, 12724, 12730, 12773, 26525, 26646, 27583, 28034, 28173, 28194, 28215,
         28223, 28262, 28673, 29364, 29515, 30464, 30514, 33145, 35274, 36306, 36307, 36318, 36572, 36999, 37702, 42419,
         42424, 42426, 46992,
+        // run3 follow-ups: Riot Bar Edition XL items (a); "B Gum" / "Bgum" items (b)
+        30781, 34556, 34596, 34599, 34601, 34603, 36925, 36968, 37248, 43180, 45730, 46162,
     ],
 ];
 $keep = ['site', 'variant_id', 'product_id', 'product_title', 'variant_title', 'brand', 'brand_id', 'product_type',

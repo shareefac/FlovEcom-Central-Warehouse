@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /**
  * First-time match, assembly of a full judge run (plan §7.3 steps 6→7): joins the barcode-blind judges' answers to
- * real ids through the private ref maps, scores the canaries, bands every listing with CW\Matching\Band (b2.0) and
+ * real ids through the private ref maps, scores the canaries, bands every listing with CW\Matching\Band (b2.1) and
  * writes the staff proposals. Nothing is linked: every output is a proposal a person confirms.
  *
  *   nice -n 19 php -d memory_limit=2G tools/first_match/assemble.php --run=/root/cw_work/first_match/run3 \
@@ -24,8 +24,9 @@ declare(strict_types=1);
  * Writes: <run>/judge_raw.jsonl, <run>/judgements.jsonl, <run>/proposals.jsonl, <run>/proposals.csv,
  *         <run>/proposals_summary.json; <private>/<run>_canary_results.json (canary truths stay outside the run folder).
  *
- * Band rules (Band::final b2.0, then two routing rules on top that can only lower a band):
- *  - Key only on the barcode/transfer lane when the judge picks the lane target at confidence >= 90, units 1, the
+ * Band rules (Band::final, b2.1 since 2 Oct 2026 (docs/decisions.md M26; b2.0 until then), then two routing rules on top that
+ * can only lower a band; CW\Matching\StoredBand replays the same on a stored proposal):
+ *  - Key only on the barcode/transfer lane when the judge picks the lane target at confidence >= 85 (b2.0: 90), units 1, the
  *    target carries no veto or soft flag, and no line relabel is pending (Band + the answer file's key_possible);
  *  - the four pending line relabels (Veto::PENDING_LINE_ALIASES) are never Key: a listing whose lane target differs by a
  *    pending relabel, a judge pick on a relabel partner, or a non-match whose closest item (or, on the candidates lane,
@@ -33,11 +34,14 @@ declare(strict_types=1);
  *  - an answer whose listing_extract quote is not verbatim is capped at Check;
  *  - a chunk that fails validation or a canary (wrong-ref pair match, leave-one-out match) is not used: its listings are
  *    "Not judged" until the chunk is re-run.
+ * The summary's listing_extract_form counts the judges' form answers against the enum (CW\Matching\Form; M29): in the
+ * enum, a known spelling normalised ("prefilled pod kit -> pod_kit/prefilled"), or unrecognised. Information only.
  */
 
 require __DIR__ . '/../../src/Matching/autoload.php';
 
 use CW\Matching\Band;
+use CW\Matching\Form;
 
 ini_set('memory_limit', '2G');
 $t0 = microtime(true);
@@ -137,8 +141,10 @@ $promptSha = (string) $answers['prompt_version'];
 $promptFile = __DIR__ . '/prompts/' . basename((string) $answers['prompt']);
 $promptShaFile = is_file($promptFile) ? hash_file('sha256', $promptFile) : null;
 $engine = (string) $answers['engine'];
-if (!str_contains($engine, '/' . Band::VERSION . '/')) {
-    fwrite(STDERR, "engine $engine was not built with Band " . Band::VERSION . "\n");
+// The engine's Band version must be one this Band knows. b2.0 -> b2.1 (M26) changed only final()'s Key threshold, not
+// provisional(), so answers built with b2.0 assemble under the current rules (the threshold of Band::VERSION).
+if (Band::versionOf($engine) === null) {
+    fwrite(STDERR, "engine $engine was not built with a known Band version (" . implode(', ', array_keys(Band::KEY_MIN_BY_VERSION)) . ")\n");
     exit(2);
 }
 $manifestBy = array_column($manifest['chunks'], null, 'chunk');
@@ -434,11 +440,8 @@ foreach ($need as $id => [$ch, $L]) {
             'separating_field_missing' => $sep, 'pending_alias' => $a['relabel_pending'] !== null];
         $bandV2 = Band::final($ev, ['outcome' => $outcome, 'chosen_id' => $chosenVid, 'confidence' => (int) $j['confidence'], 'units_per_item' => $j['units_per_item']]);
         $band = $bandV2['band'];
+        // a key-lane no-match below 80 is labelled by Band itself since b2.1 (ai_no_match_on_key_below_80_<conf>; M29)
         $reasons = $bandV2['reasons'];
-        if ($reasons === ['unrecognised_outcome'] && $keyLane && $outcome === 'no_match_in_list') {
-            // Band b2.0 has no own label for a key-lane no-match below 80 (not a Conflict yet); same band, clearer reason
-            $reasons = ['ai_no_match_on_key_below_80_' . $j['confidence']];
-        }
         // routing on top of Band: pending relabels are mapped by hand, never Key
         $why = null;
         if ($a['relabel_pending'] !== null) {
@@ -641,6 +644,24 @@ foreach ($canaryRows as $c) {
     $canarySummary[$c['kind']][$c['status']] = ($canarySummary[$c['kind']][$c['status']] ?? 0) + 1;
 }
 $relabelRows = array_values(array_filter($proposals, fn ($p) => $p['band'] === MANUAL));
+// the judges' listing_extract.form against the form enum (Form::ALL; M29): run3's judges wrote 22 spellings for 14 values
+$extractForm = ['in_enum' => 0, 'null' => 0, 'normalised' => [], 'unrecognised' => []];
+foreach ($judged as $its) {
+    foreach ($its as $it) {
+        $raw = $it['listing_extract']['form']['value'] ?? null;
+        if (!is_string($raw)) {
+            $extractForm['null']++;
+        } elseif (Form::isForm($raw)) {
+            $extractForm['in_enum']++;
+        } elseif (($c = Form::canonical($raw)) !== null) {
+            $extractForm['normalised'][$raw . ' -> ' . Form::label($c['form'], $c['form_sub'])] = ($extractForm['normalised'][$raw . ' -> ' . Form::label($c['form'], $c['form_sub'])] ?? 0) + 1;
+        } else {
+            $extractForm['unrecognised'][$raw] = ($extractForm['unrecognised'][$raw] ?? 0) + 1;
+        }
+    }
+}
+ksort($extractForm['normalised']);
+ksort($extractForm['unrecognised']);
 $summary = [
     'run_id' => $runId, 'generated_at_utc' => gmdate('Y-m-d\TH:i:s\Z'), 'engine' => $engine, 'band_version' => Band::VERSION,
     'prompt' => ['file' => (string) $answers['prompt'], 'sha256' => $promptSha, 'file_sha256_now' => $promptShaFile, 'matches' => $promptSha === $promptShaFile],
@@ -668,6 +689,7 @@ $summary = [
         'ai_item' => ($p['evidence']['ai']['chosen'] ?? $p['evidence']['ai']['closest'] ?? null) !== null ? ($p['evidence']['ai']['chosen'] ?? $p['evidence']['ai']['closest'])['cw_id'] . ' ' . ($p['evidence']['ai']['chosen'] ?? $p['evidence']['ai']['closest'])['title'] : null,
         'band_v2' => $p['band_v2'], 'reason' => $p['band_reasons'][0]], $relabelRows),
     'key_rule_invariants' => $checks,
+    'listing_extract_form' => $extractForm,
     'files' => ['judge_raw' => $rawFile, 'judgements' => "$runDir/judgements.jsonl", 'proposals' => "$runDir/proposals.jsonl", 'csv' => "$runDir/proposals.csv"],
     'seconds' => round(microtime(true) - $t0, 1),
 ];

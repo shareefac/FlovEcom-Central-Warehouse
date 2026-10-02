@@ -24,7 +24,8 @@ namespace CW\Matching;
  */
 final class TitlePattern
 {
-    public const VERSION = 'tp1.0';
+    /** tp1.1: line modifiers at the head of a flavour-first line stay in the flavour even when the lexicon holds them. */
+    public const VERSION = 'tp1.1';
 
     public const LEXICON_MIN_PRODUCTS = 3;
 
@@ -152,6 +153,25 @@ final class TitlePattern
         $k = $i;
         while ($k + 1 < $n && $isLine($head[$k + 1])) {
             $k++;
+        }
+        // tp1.1 (run3 follow-up (a)): in a flavour-first title, line modifiers at the head of the line still belong to the
+        // flavour when the brand's lexicon holds them. "xl" is on 3+ Riot Squad products on Electrofag, so "Mango XL Riot
+        // Squad BAR EDTN" started its line at "xl" (flavour "mango", modifier "xl") while Vape and Go's "Mango XL Nic Salt
+        // by Riot Bar Edition" has the flavour "mango xl": a one-sided "xl" and a false line_modifier veto on the true pair.
+        // Only when a brand/lexicon word that is not a modifier is left in the line (else the line would be modifiers only).
+        if ($j > 0) {
+            $m = $j;
+            while ($m < $k && in_array($head[$m], Normalizer::LINE_MODIFIERS, true)) {
+                $m++;
+            }
+            if ($m > $j) {
+                for ($x = $m; $x <= $k; $x++) {
+                    if (isset($strongSet[$head[$x]]) && !in_array($head[$x], Normalizer::LINE_MODIFIERS, true)) {
+                        $j = $m;
+                        break;
+                    }
+                }
+            }
         }
         if ($j === 0) {
             $line = array_slice($head, 0, $k + 1);

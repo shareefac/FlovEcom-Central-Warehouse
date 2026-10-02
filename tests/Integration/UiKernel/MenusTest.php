@@ -113,7 +113,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringContainsString('Listings waiting for a decision', $dash->text());
         $nav = self::nav($dash);
         self::assertSame(['Linking', 'Items', 'Reference'], array_keys($nav));
-        self::assertSame(['/ui/', '/ui/review?queue=Key', '/ui/review?queue=pending'], array_column($nav['Linking'], 'href'));
+        self::assertSame(['/ui/', '/ui/review?queue=Key', '/ui/review?queue=pending', '/ui/review/samples'], array_column($nav['Linking'], 'href'));
         $current = (new \DOMXPath($dash->dom()))->query('//nav[@aria-label="Main"]//a[@aria-current="page"]');
         self::assertSame(1, $current->length);
         self::assertSame('Dashboard', trim((string) $current->item(0)?->textContent));
@@ -149,7 +149,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString('class="badge"', $reviewer->get('/ui/')->body, 'no linking.view, no linking count');
         $auditor = $this->signIn($this->uiUser('auditor'));
         self::assertSame(['Linking', 'Items', 'Purchasing', 'Documents', 'Accounts', 'Reference', 'Admin'], array_keys(self::nav($auditor->get('/ui/'))));
-        self::assertSame(['/ui/', '/ui/review?queue=Key', '/ui/review?queue=pending'], array_column(self::nav($auditor->get('/ui/'))['Linking'], 'href'));
+        self::assertSame(['/ui/', '/ui/review?queue=Key', '/ui/review?queue=pending', '/ui/review/samples'], array_column(self::nav($auditor->get('/ui/'))['Linking'], 'href'));
     }
 
     public function testARoleTakenAwayStopsWorkingOnTheNextRequest(): void

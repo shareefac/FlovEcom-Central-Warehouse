@@ -31,9 +31,12 @@ final class Grants
      * can add but never rewrite, so a posted document changed afterwards is found even when its own columns were (I33).
      * supplier_item_price: a supplier item's price history (I-2, I43): prices are added, never rewritten.
      * po_posting: the write-once anchor of an approved PO's module content (I-2, I50; invariant P2, like I33).
+     * match_proposal_basis / key_sample / key_sample_member: what a proposal was made against, and a spot-check sample with
+     * the population it was drawn from: the bulk confirm trusts them, so the app login can add them but never rewrite them (M27, M28).
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
-        'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting'];
+        'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
+        'key_sample_member'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value

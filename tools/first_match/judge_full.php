@@ -30,12 +30,19 @@ declare(strict_types=1);
  *
  * Writes <out>/judge/<run>_cNNN.json (the only files a judge reads, with the prompt) and <out>/judge_manifest.json;
  * under --private (outside the run folder): <run>_cNNN.refmap.json, <run>_answers.json, <run>_canary_pool.json,
- * <run>_chunks.json (chunk list with canary refs).
+ * <run>_chunks.json (chunk list with canary refs and each chunk's scratch_dir).
+ *
+ * Scratch (run3 follow-up (c), docs/decisions.md M29): every chunk gets its own empty directory (mode 0700) under --scratch
+ * (default <parent of --out>/judge_scratch/<run>), named in the chunk file (`scratch_dir`, with the instruction in
+ * `purpose`) and in <run>_chunks.json, so the orchestrator can hand each judge its own. run3's judges, running in
+ * parallel, all wrote into one session scratchpad under the same file names. The build refuses a scratch directory that
+ * already holds files.
  */
 
 use CW\Matching\Band;
 use CW\Matching\Candidates;
 use CW\Matching\JudgeCard;
+use CW\Matching\JudgeScratch;
 use CW\Matching\Text;
 use CW\Matching\Veto;
 
@@ -118,6 +125,11 @@ foreach ([['barcode_transfer', $mainBT], ['candidates', $mainC]] as [$part, $ids
 }
 $nChunks = count($plan);
 logmsg(sprintf('judge %s: %d barcode+transfer + %d candidates listings -> %d chunks', $scopeName, count($mainBT), count($mainC), $nChunks));
+$chunkName = fn (int $k): string => sprintf('%s_c%03d', $run, $k + 1);
+// one scratch directory per judge, made before any chunk is written (refuses one that already holds files)
+$scratchRoot = rtrim((string) ($opt['scratch'] ?? JudgeScratch::defaultRoot($out)), '/');
+$scratchDirs = JudgeScratch::prepare($scratchRoot, array_map($chunkName, array_keys($plan)), [$out, $private]);
+logmsg("scratch: $nChunks directories under $scratchRoot");
 
 // ── one real listing: its search list (top 15) with the lane evidence shuffled in
 $stats = ['lane_target_in_top15' => 0, 'lane_target_shuffled_in' => 0, 'barcode_items_shuffled_in' => 0, 'transfer_items_shuffled_in' => 0,
@@ -328,7 +340,7 @@ $answers = ['run' => $run, 'scope' => $scopeName, 'prompt_version' => $promptVer
     'design' => 'full run, sold scope: open style (top 15 search candidates, lane evidence shuffled in), 27 listings + 1 pair and 2 leave-one-out canaries per chunk at random refs',
     'key_rule' => [
         'Key only when the lane is barcode/transfer, key_possible is true, and the judge matches lane_target_ref with confidence >= ' . Band::KEY_MIN_CONFIDENCE
-            . ' and units_per_item 1 (Band::final b2.0); every other match is at most Check; a person confirms every link',
+            . ' and units_per_item 1 (Band::final ' . Band::VERSION . '); every other match is at most Check; a person confirms every link',
         'relabel_pending (Crystal Pro Max/Hayati Pro Max, Oxbar/Oxva, SKE Crystal Original/Crystal Bar, Bash Echo/Eco) is never Key: the business maps those listings manually',
         'candidates lane: at most Check (no second signal)',
     ],
@@ -341,7 +353,7 @@ $manifest = [];
 $blindChecked = 0;
 $forbidTotal = 0;
 foreach ($plan as $k => $p) {
-    $name = sprintf('%s_c%03d', $run, $k + 1);
+    $name = $chunkName($k);
     $items = [];
     foreach ($p['ids'] as $id) {
         $items[] = $mainItem($id);
@@ -481,7 +493,8 @@ foreach ($plan as $k => $p) {
         'chunk' => $name,
         'prompt_version' => $promptVersion,
         'instructions' => $promptRel,
-        'purpose' => 'Judge each listing against its own candidates only, following the instructions file.',
+        'purpose' => 'Judge each listing against its own candidates only, following the instructions file. ' . JudgeScratch::INSTRUCTION,
+        'scratch_dir' => $scratchDirs[$name],
         'context' => $context,
         'items' => $cards,
     ];
@@ -505,7 +518,7 @@ foreach ($plan as $k => $p) {
     file_put_contents("$private/$name.refmap.json", json_encode(['chunk' => $name, 'prompt_version' => $promptVersion, 'refs' => $refmap],
         JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     $answers['chunks'][$name] = ['lane' => $p['lane'], 'n_listings' => count($p['ids']), 'items' => $ans];
-    $chunkList[] = ['path' => $file, 'n_listings' => count($p['ids']), 'lane' => $p['lane'], 'canaries' => $canaryOut];
+    $chunkList[] = ['path' => $file, 'scratch_dir' => $scratchDirs[$name], 'n_listings' => count($p['ids']), 'lane' => $p['lane'], 'canaries' => $canaryOut];
     $manifest[] = ['chunk' => $name, 'file' => $file, 'lane' => $p['lane'], 'items' => count($items), 'bytes' => strlen($json), 'sha256' => hash('sha256', $json)];
     if (($k + 1) % 10 === 0) {
         logmsg('chunks written: ' . ($k + 1));
@@ -543,7 +556,8 @@ $totals = [
     'assert_blind' => "passed on $blindChecked/$nChunks chunks (before and after writing; $forbidTotal forbidden barcode/permalink values)",
     'prompt_sha256' => $promptVersion, 'engine' => $engine, 'rng_seed' => $RNG_SEED,
 ];
-$orchestrator = ['chunks' => $chunkList, 'totals' => $totals, 'private_dir' => $private];
+$orchestrator = ['chunks' => $chunkList, 'totals' => $totals, 'private_dir' => $private, 'scratch_root' => $scratchRoot,
+    'judge_task' => 'give each judge its chunk path, the prompt, and its own scratch_dir (judges run in parallel; never a shared directory)'];
 file_put_contents("$private/{$run}_chunks.json", json_encode($orchestrator, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
 // ── run folder: manifest and summary (no refs, ids or canary positions)
