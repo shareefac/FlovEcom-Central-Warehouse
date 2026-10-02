@@ -324,6 +324,43 @@ Orders already committed through the normal path are skipped. Each order becomes
 reservation with `origin = opening`. The opening **on_hand estimate** (site stock × u + open paid
 units) is a separate `adjustment` movement, noted as the estimate.
 
+**D40a. The opening estimate as booked, and its rebase at T0 (2 Oct 2026; amends D40).**
+`bin/import_opening_estimate.php` (CW\Ops\OpeningEstimate) books the *site-stock term* of D40:
+per item, the sum over its `mapped` listings of max(site figure as of `--as-of`, 0) x u. That is one
+`adjustment` per item, actor `system:opening_estimate`, under a `doc_ref` that names the opening, with
+Idempotency-Key `<doc_ref>:<sku_id>`.
+- It never touches `counted_at`. A count replaces the figure.
+- It leaves an item alone when the item was counted, carries an opening under another doc_ref (any
+  spelling, compared byte for byte), or has on_hand movements recorded before the as-of moment.
+- A `quarantined` listing with stock stops the run.
+- Re-runs and resumes book only what is missing. A different file under the same doc_ref is refused
+  (`opening_conflict`).
+
+*Not in it:* the open paid-not-shipped units. `/v1/opening_orders` adds them to `allocated` only, never
+to `on_hand` (Reservations::applyCommit, "fresh unit" branch). So after the opening orders, available
+would sit below the site's figure by those units, and an item whose site figure is <= 0 would go
+negative when its open units ship.
+
+**Rule at a site's T0:** rebase every item whose on_hand history is opening estimates only.
+- Target: max(site stock read in the SAME read-only snapshot as the T0 watermarks, 0) x u, plus the
+  units of that channel's `origin = 'opening'` reservation_units, in every state, x u.
+- Delta: target minus the sum of the item's earlier opening rows. Book it as a signed `adjustment`
+  under a new doc_ref after the final opening_orders batch, noted as the rebase.
+- Counted items are not rebased.
+- The tool has no rebase mode yet. It must be built and tested (estimate → opening_orders → some ships
+  → rebase ⇒ available equals the site figure at T0, and on_hand equals max(S_T0, 0) once all opening
+  units have shipped) before Phase 3/P reaches T0.
+- Until then, nobody books CW counts or adjustments on a site's items between its estimate and its T0.
+
+*Booked so far:* only `cw_staging`, on 2 Oct 2026. The owner chose the "duty-day stock": Vape and Go's
+figure at 00:00 BST on 1 Oct 2026, from the archived VPD workbook (xlsx sha256 aecf0178…, input CSV
+sha256 3561293a…). 8,199 items, 296,599 units, doc_ref `opening:vapeandgo:2026-10-01T00:00+01:00`.
+- Excluded: 20,031 rows at or below zero, 897 rows of unlinked (mostly deleted or draft) listings
+  holding 26,191 units, the open paid units, and every movement between 1 Oct and T0.
+- It is provisional: the T0 rebase above replaces it in effect.
+*Why the actor is a system job:* the booking is mechanical, from an archived file. The approver is
+named in the note (`--approved-by`) and here.
+
 **D41. Movements.**
 - The sign comes from the type, whatever sign the sender used: `goods_in`/`transfer_in` +|q|;
   `supplier_return`/`erp_sale`/`write_off`/`transfer_out` −|q|; `adjustment` takes a signed,

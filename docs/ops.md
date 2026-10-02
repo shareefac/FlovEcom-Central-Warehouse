@@ -197,6 +197,38 @@ DELETE grants changed):
   the 65 New item proposals with a barcode are in that case; the review screen lists them under "This listing's barcode is also on"
   and does not preselect "Mark as a new item" there (U18, U20).
 
+## Opening stock (`bin/import_opening_estimate.php`, `docs/decisions.md` D40, D40a)
+
+The estimate of a site's stock, before counts. Run it on the CW server. Always do a dry run first:
+
+    php bin/import_opening_estimate.php --csv=<file> --as-of=<ISO time with offset> --doc-ref=opening:<channel>:<as-of> \
+        --source="<where the figures come from>" --sha256=<hash of the archived file> [--approved-by=<who>] [--channel=<code>] [--dry-run]
+
+The CSV has 2 columns, the variant id and the figure, under a header like
+`vapeandgo_variant_id,site_qty_at_...`.
+
+The dry run reports:
+- rows at or below zero, which are skipped;
+- unknown variants;
+- unlinked listings, by status;
+- items left alone (`counted` / `earlier_opening` / `moved_before_as_of`);
+- items already booked by this opening;
+- what it would book.
+
+A `quarantined` listing with stock stops the run: decide its link first. If a run stops halfway, run
+the same command again; it books only the missing items. A different file under the same doc_ref is
+refused (`opening_conflict`).
+
+**At a site's T0 the estimate must be rebased** (D40a: site stock at T0 + open paid units). The tool
+has no rebase mode yet, so this is a Phase 3 prerequisite. Until T0, book no counts or adjustments on
+that site's items.
+
+**On `cw_staging`:** Vape and Go's duty-day stock (00:00 BST, 1 Oct 2026) was booked on 2 Oct 2026.
+That is 8,199 items and 296,599 units. The input is
+`/srv/cw-import/opening_input_vapeandgo_duty_start_2026-10-01.csv` (sha256 3561293a…), derived from the
+archived duty workbook. Checks: invariants hold; all 14,856 linked listings match the file; a re-run
+books nothing.
+
 ## The staff UI (`/ui`, linking backend front end; `docs/decisions.md` U1-U17)
 
 Server-rendered PHP, no JavaScript framework and nothing from a third party: two static files
