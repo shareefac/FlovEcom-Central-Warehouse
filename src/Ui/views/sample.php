@@ -56,6 +56,58 @@
 </table>
 
 <section>
+  <h2>Held back from the bulk confirm</h2>
+<?php if ($holds === []): ?>
+  <p class="muted">None. A mapping lead holds listings of this sample's population back for one-at-a-time review on the server
+    (<code>bin/key_bulk_hold.php --sample=<?= $e($s['name']) ?></code>); no bulk confirm then links them.</p>
+<?php else: ?>
+  <p>Held back now: <strong><?= $n($held_open) ?></strong> of this sample's population still waiting. No bulk confirm links them,
+    whatever their proposal (a newer run's included); they stay in the Key queue, to be decided one at a time on their review screens.
+<?php if (count($holds) > $held_open): ?>
+    <?= $n(count($holds) - $held_open) ?> more held <?= $e(count($holds) - $held_open === 1 ? 'listing was' : 'listings were') ?> decided since.
+<?php endif; ?>
+  </p>
+  <table class="held">
+    <thead>
+      <tr>
+        <th scope="col">Listing</th>
+        <th scope="col">Why</th>
+        <th scope="col">Held by</th>
+        <th scope="col">Now</th>
+      </tr>
+    </thead>
+    <tbody>
+<?php foreach ($holds as $h): ?>
+      <tr<?php if ($h['linked_by_batch'] !== null): ?> class="differs"<?php endif; ?>>
+        <td>
+          <a href="<?= $e($h['link']) ?>"><?= $e($h['title'] ?? '(no title)') ?></a>
+<?php if ($h['variant_title'] !== null): ?>
+          <span class="muted">&middot; <?= $e($h['variant_title']) ?></span>
+<?php endif; ?>
+          <div class="muted"><?= $e($h['channel']) ?> <?= $e($h['variant']) ?> &middot; listing #<?= $e($h['listing_id']) ?> &middot; proposal #<?= $e($h['proposal_id']) ?></div>
+        </td>
+        <td><?= $e($h['reason']) ?></td>
+        <td><?= $e($h['by'] ?? '') ?> <span class="muted"><?= $dt($h['at']) ?></span></td>
+<?php if ($h['linked_by_batch'] !== null): ?>
+<?php if (str_starts_with($h['linked_by_batch'], 'key_bulk:')): ?>
+        <td><span class="tag bad">Linked by the bulk confirm <?= $e($h['linked_by_batch']) ?></span> A held listing should never be: check it on
+          its review screen (undo: <code>bin/bulk_unlink.php --batch=<?= $e($h['linked_by_batch']) ?></code>).</td>
+<?php else: ?>
+        <td><span class="tag bad">Linked by the bulk batch <?= $e($h['linked_by_batch']) ?></span> Check it on its review screen.</td>
+<?php endif; ?>
+<?php elseif ($h['open']): ?>
+        <td>waiting for a decision<?php if ($h['newer']): ?> <span class="muted">(now proposal #<?= $e($h['open_proposal_id']) ?>: still held)</span><?php endif; ?></td>
+<?php else: ?>
+        <td>decided since: listing <?= $e($h['listing_status']) ?></td>
+<?php endif; ?>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+<?php endif; ?>
+</section>
+
+<section>
   <h2>How this sample was drawn</h2>
   <dl class="wide">
     <dt>Drawn by</dt><dd><?= $e($s['created_by'] ?? '') ?> <span class="muted"><?= $dt($s['created_at']) ?></span></dd>

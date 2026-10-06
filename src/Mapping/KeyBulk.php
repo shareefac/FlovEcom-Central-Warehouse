@@ -24,8 +24,9 @@ use CW\Idempotency;
  * basis, M27: DecisionService refuses 409 when the listing moved since), bulk_batch_id `key_bulk:<sample>`, attributed to
  * the owner. A decision that would need a second person is rolled back (never left pending). After the link (inside the
  * same transaction, under the locks it holds) the item, its origin, the lane target's link and the rejects are checked
- * again. Dry run by default; re-runs link only what is left; --limit links a first few (a canary; only links count).
- * Every row of the check (eligible or not, with its reasons) is in the result for a report.
+ * again, and that no hold of the LISTING arrived meanwhile (KeyHold, M30: a held listing is never linked by any sample's
+ * bulk confirm, `held_for_review`). Dry run by default; re-runs link only what is left; --limit links a first few (a canary;
+ * only links count). Every row of the check (eligible or not, with its reasons and its hold) is in the result for a report.
  *
  * undo(): for a `key_bulk:` batch only, every listing still linked by a decision of the batch is unlinked through
  * DecisionService (bulk_batch_id `undo:<batch>`, any mapping lead) and its proposal re-opened as a new proposal (run
@@ -51,8 +52,10 @@ final class KeyBulk
     }
 
     /**
-     * @return array<string, mixed> sample (status without members), lead, batch, population, eligible, excluded, units_30d, units_365d,
-     *         already_in_batch, applied, skipped, failed, limit, refused (null or why), problems, checked (proposal id => KeyEligibility row)
+     * @return array<string, mixed> sample (status without members), lead, batch, population, eligible, excluded, held (proposals of the
+     *         population whose listing is held now and still waiting, unmapped or suggested, whatever their first reason: the
+     *         number the hold tool's held_after gave), units_30d, units_365d, already_in_batch, applied, skipped, failed, limit,
+     *         refused (null or why), problems, checked (proposal id => KeyEligibility row)
      */
     public function confirm(Caller $lead, string $sampleName, bool $apply, ?int $limit = null): array
     {
@@ -66,7 +69,7 @@ final class KeyBulk
         $batch = self::batchOf($st['name']);
         $members = $st['members'];
         unset($st['members']);
-        $report = ['sample' => $st, 'lead' => $staff['id'], 'batch' => $batch, 'population' => 0, 'eligible' => 0, 'excluded' => [],
+        $report = ['sample' => $st, 'lead' => $staff['id'], 'batch' => $batch, 'population' => 0, 'eligible' => 0, 'excluded' => [], 'held' => 0,
             'units_30d' => 0, 'units_365d' => 0, 'already_in_batch' => 0, 'applied' => 0, 'skipped' => [], 'failed' => [], 'limit' => $limit,
             'refused' => null, 'problems' => [], 'checked' => []];
         if ($st['verdict'] !== 'complete') {
@@ -92,6 +95,8 @@ final class KeyBulk
         $report['checked'] = $checked;
         $report['eligible'] = count($sum['eligible']);
         $report['excluded'] = $sum['excluded'];
+        $report['held'] = count(array_filter($checked, static fn (array $c): bool => $c['hold'] !== null
+            && in_array($c['listing_status'], KeyEligibility::OPEN_LISTING, true)));
         $report['units_30d'] = $sum['units_30d'];
         $report['units_365d'] = $sum['units_365d'];
         if (!$apply) {
@@ -128,7 +133,13 @@ final class KeyBulk
                     if ($r['state'] !== 'applied') {
                         throw new CwException('needs_second', 'the link would need a second person: ' . implode(', ', $r['needs_second']), 409);
                     }
-                    // Under the locks the decision holds (listing X, item S, lane target S): item, origin, key target and rejects as checked.
+                    // Under the locks the decision holds (listing X, item S, lane target S): no hold of X, and item, origin, key target
+                    // and rejects as checked. A hold is written under the listing's lock (KeyHold reads it FOR SHARE): one that
+                    // committed after the check above is seen here (READ COMMITTED), one still to come waits for this decision and
+                    // then refuses. By the listing, so a hold written for an older proposal of X, in any sample, counts too.
+                    if (KeyHold::activeForListings($db, [$c['listing_id']]) !== []) {
+                        throw new CwException('held_meanwhile', 'the listing was held back for one-at-a-time review while it was being linked', 409);
+                    }
                     $b = $c['basis'];
                     $now = ProposalBasis::current($db, $c['listing_id'], $c['sku_id']);
                     if ($now['item_hash'] !== $b['item_hash'] || $now['origin_identity_hash'] !== $b['origin_identity_hash']) {
@@ -158,7 +169,7 @@ final class KeyBulk
         ksort($report['failed']);
         Audit::write($this->db, $lead, 'mapping.key_bulk', 'key_sample', (string) $st['id'], null, [
             'sample' => $st['name'], 'batch' => $batch, 'population' => $report['population'], 'eligible' => $report['eligible'],
-            'excluded' => $report['excluded'], 'applied' => $report['applied'], 'skipped' => $report['skipped'], 'failed' => $report['failed'],
+            'excluded' => $report['excluded'], 'held' => $report['held'], 'applied' => $report['applied'], 'skipped' => $report['skipped'], 'failed' => $report['failed'],
             'limit' => $limit, 'already_in_batch' => $report['already_in_batch'], 'units_30d' => $report['units_30d'], 'units_365d' => $report['units_365d'],
             'refused' => $report['refused'],
         ]);

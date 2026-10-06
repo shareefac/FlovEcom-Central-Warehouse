@@ -13,6 +13,7 @@ use CW\Files\LocalFileStorage;
 use CW\Invariants;
 use CW\Mapping\DecisionService;
 use CW\Mapping\KeyBulk;
+use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
 use CW\Mapping\ListingIngestService;
 use CW\Mapping\Proposals;
@@ -160,6 +161,10 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame([], Grants::desiredColumns('company_profile'));
         self::assertContains('company_profile', Grants::APPEND_ONLY);
         self::assertSame(['Select'], Grants::desired('app_setting'), 'still read-only: the company details left it, nothing gained a write path');
+        // 0014 (M30): a hold and its release are rows of their own, never rewritten or removed.
+        self::assertSame(['Select', 'Insert'], Grants::desired('key_bulk_hold'));
+        self::assertSame([], Grants::desiredColumns('key_bulk_hold'));
+        self::assertContains('key_bulk_hold', Grants::APPEND_ONLY);
     }
 
     public function testApplyConvergesAndTheAppLoginIsLimited(): void
@@ -669,7 +674,8 @@ final class GrantsTest extends IntegrationTestCase
 
     /**
      * M26-M28 as the app login: re-banding (a new proposal and its basis), the proved basis of an older proposal, the
-     * sample and its population, the bulk confirm and its undo; and the three new tables are append-only for it.
+     * sample and its population, a hold and its release (M30), the bulk confirm and its undo; and the four new tables are
+     * append-only for it.
      */
     public function testTheKeyBulkFlowRunsAsTheAppLogin(): void
     {
@@ -710,13 +716,19 @@ final class GrantsTest extends IntegrationTestCase
             $ds->decide($lead, ['action' => 'link', 'listing_id' => (int) $p['listing_id'], 'sku_id' => (int) $p['proposed_sku_id'], 'proposal_id' => $m['proposal_id'],
                 'expected_map_version' => (int) $app->value('SELECT map_version FROM channel_listing WHERE id = ?', [$p['listing_id']])]);
         }
+        // A hold (its listing read FOR SHARE as the app login) keeps one of the two out of the bulk until it is released.
+        $rest = $app->one('SELECT proposal_id, listing_id FROM key_sample_member WHERE position IS NULL ORDER BY proposal_id LIMIT 1');
+        $file = KeyHold::parse("proposal_id,listing_id,reason\n{$rest['proposal_id']},{$rest['listing_id']},why\n");
+        self::assertSame(1, (new KeyHold($app))->run($lead, 'grants', $file, false, true)['written']);
         $bulk = new KeyBulk($app, $ds, $proposals);
+        self::assertSame([1, ['held_for_review' => 1]], [$bulk->confirm($lead, 'grants', false)['eligible'], $bulk->confirm($lead, 'grants', false)['excluded']]);
+        self::assertSame(1, (new KeyHold($app))->run($lead, 'grants', $file, true, true)['written']);
         self::assertSame(2, $bulk->confirm($lead, 'grants', true)['applied']);
         $undo = $bulk->undo($lead, 'key_bulk:grants', true);
         self::assertSame([2, 2, []], [$undo['applied'], $undo['reopened'], $undo['failed']]);
         foreach ([
             'DELETE FROM match_proposal_basis', 'UPDATE match_proposal_basis SET map_version = 0', 'DELETE FROM key_sample', "UPDATE key_sample SET seed = 2",
-            'DELETE FROM key_sample_member', 'UPDATE key_sample_member SET position = NULL',
+            'DELETE FROM key_sample_member', 'UPDATE key_sample_member SET position = NULL', 'DELETE FROM key_bulk_hold', "UPDATE key_bulk_hold SET reason = 'x'",
         ] as $sql) {
             self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
         }

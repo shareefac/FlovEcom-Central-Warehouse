@@ -27,6 +27,18 @@
   Leave it to them: a decision by anyone else makes the spot-check fail.</p>
 <?php endif; ?>
 <?php endif; ?>
+<?php if ($held !== null): ?>
+<p class="notice held-back">Held back from the bulk confirm: <?= $e($held['reason']) ?></p>
+<p class="muted held-back">Set aside for one-at-a-time review by <?= $e($held['by'] ?? 'a mapping lead') ?> on <?= $dt($held['at']) ?>
+  (<a href="<?= $e($held['url']) ?>">Key spot-check <?= $e($held['sample']) ?></a>, proposal #<?= $e($held['proposal_id']) ?>).
+<?php if (!$held['waiting']): ?>
+  This listing was decided since; the hold stays on record.</p>
+<?php elseif ($held['newer']): ?>
+  The hold is on this listing, so it covers its newer proposal too. Decide it here as usual: no bulk confirm links this listing.</p>
+<?php else: ?>
+  Decide it here as usual: no bulk confirm links this listing.</p>
+<?php endif; ?>
+<?php endif; ?>
 
 <div class="cols">
   <section class="card" aria-labelledby="listing-h">

@@ -6,6 +6,8 @@ namespace CW\Ui\Controller;
 
 use CW\CwException;
 use CW\Mapping\DecisionService;
+use CW\Mapping\KeyEligibility;
+use CW\Mapping\KeyHold;
 use CW\Mapping\Proposals;
 use CW\Ui\Compare;
 use CW\Ui\Context;
@@ -270,6 +272,15 @@ final class ReviewController
                     'owner' => self::s($m['display_name']), 'mine' => (int) $m['created_by'] === $me->id, 'url' => '/ui/review/samples/' . (int) $m['id']];
             }
         }
+        // Held back from every Key bulk confirm for one-at-a-time review (M30): the hold is on the LISTING, whatever its open
+        // proposal is now (a newer run's or a re-band's too); the listing stays in its queue, and the page says why.
+        $held = null;
+        $h = KeyHold::activeForListings($ctx->db, [$id])[$id] ?? null;
+        if ($h !== null) {
+            $held = ['reason' => $h['reason'], 'by' => $h['by'], 'at' => $h['at'], 'sample' => $h['sample'], 'url' => '/ui/review/samples/' . $h['sample_id'],
+                'proposal_id' => $h['proposal_id'], 'newer' => $proposal !== null && (int) $proposal['id'] !== $h['proposal_id'],
+                'waiting' => in_array($l['status'], KeyEligibility::OPEN_LISTING, true)];
+        }
         $qq = $qc !== null ? $qc->query() : ($sample !== null ? ['sample' => $sample['id']] : []);
         $pickUrl = static fn (int $sid): string => Html::url('/ui/review/listing/' . $id, $qq + ['pick' => $sid]) . '#decide';
         $usable = static fn (?int $sid): bool => $sid !== null && isset($skus[$sid]) && $skus[$sid]['merged_into_sku_id'] === null;
@@ -402,6 +413,7 @@ final class ReviewController
             'queue_link' => $qc !== null ? Html::url('/ui/review', $qc->pageQuery()) : null,
             'sample' => $sample,
             'spot' => $spot,
+            'held' => $held,
             'queue_label' => $qc !== null ? Queries::bandLabel($qc->band) : null,
             'next_link' => $next !== null ? Html::url('/ui/review/listing/' . $next, $qq) : null,
             'pending' => $pending === null ? null : $this->pendingView($pending, $me->id, $lead),

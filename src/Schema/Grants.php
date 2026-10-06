@@ -35,10 +35,12 @@ final class Grants
      * the population it was drawn from: the bulk confirm trusts them, so the app login can add them but never rewrite them (M27, M28).
      * company_profile: the company details printed on POs, one row per saved or confirmed version (0013, I91): a version is
      * added, never rewritten or removed, so who changed and who confirmed what stays readable.
+     * key_bulk_hold: a listing held back from every Key bulk confirm, and the release of a hold (0014, M30): a release is a row
+     * of its own, so the bulk confirm trusts the holds and who held or released what and why stays readable.
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
         'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
-        'key_sample_member', 'company_profile'];
+        'key_sample_member', 'company_profile', 'key_bulk_hold'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value

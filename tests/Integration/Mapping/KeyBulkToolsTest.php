@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration\Mapping;
 
+use CW\Caller;
+use CW\Mapping\KeySample;
 use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\MappingTestCase;
 use CW\Tests\Support\TestDb;
@@ -13,7 +15,8 @@ use CW\Tests\Support\TestDb;
  * test schema: bin/reband_proposals.php (attributed with --by), bin/sample_proposals.php (a dry run that draws nothing, a
  * server seed on --apply, --verify), the owner confirming the 20 on the review screen (here: DecisionService),
  * bin/bulk_confirm_key.php (only by the sample's owner; --report) and its undo bin/bulk_unlink.php; dry runs first,
- * re-runs, refusals and exit codes.
+ * re-runs, refusals and exit codes. And the hold of screened proposals before the bulk runs (bin/key_bulk_hold.php, M30):
+ * from the --report file itself, a re-run without any file, the release.
  */
 final class KeyBulkToolsTest extends MappingTestCase
 {
@@ -100,10 +103,10 @@ final class KeyBulkToolsTest extends MappingTestCase
             self::assertStringContainsString("report: 2 proposals written to {$csv}", $r['out']);
             $rows = array_map('str_getcsv', file($csv, FILE_IGNORE_NEW_LINES) ?: []);
             self::assertSame(['outcome', 'first_reason', 'all_reasons', 'proposal_id', 'listing_id', 'channel', 'variant', 'title', 'item_id', 'item_code',
-                'item_name', 'confidence', 'stratum', 'units_30d', 'units_365d', 'lane_target_listing_id'], $rows[0]);
+                'item_name', 'confidence', 'stratum', 'units_30d', 'units_365d', 'lane_target_listing_id', 'hold_reason', 'held_by', 'held_at'], $rows[0]);
             self::assertCount(3, $rows);
             foreach (array_slice($rows, 1) as $row) {
-                self::assertSame(['eligible', '', 'alt'], [$row[0], $row[1], $row[5]]);
+                self::assertSame(['eligible', '', 'alt', '', '', ''], [$row[0], $row[1], $row[5], $row[16], $row[17], $row[18]]);
                 self::assertStringStartsWith('Electrofag listing ', $row[7]);
                 self::assertSame((string) self::$db->value('SELECT code FROM sku WHERE id = ?', [(int) $row[8]]), $row[9]);
             }
@@ -134,6 +137,128 @@ final class KeyBulkToolsTest extends MappingTestCase
         $bad = self::tool('bulk_unlink', '--batch=vpg_mint:test', "--lead={$email}");
         self::assertSame(2, $bad['code']);
         self::assertStringContainsString('bad_batch', $bad['err']);
+    }
+
+    public function testTheScreenedProposalsAreHeldBeforeTheBulkConfirm(): void
+    {
+        $this->keySetup();
+        $owner = $this->staffUser(['mapping_lead', 'reviewer']);
+        $email = (string) self::$db->value('SELECT email FROM staff_user WHERE id = ?', [$owner->staffUserId]);
+        $mapperEmail = (string) self::$db->value('SELECT email FROM staff_user WHERE id = ?', [$this->staffUser('mapper')->staffUserId]);
+        for ($i = 0; $i < 25; $i++) {
+            $this->firstMatch($this->vpgItem(), 90 + $i % 10);
+        }
+        $s = (new KeySample(self::$db))->create($owner, 'held', 20, true);
+        foreach ($s['members'] as $m) {
+            $this->confirm($owner, $m['proposal_id']);
+        }
+        $dir = sys_get_temp_dir() . '/cw_key_hold_' . bin2hex(random_bytes(6));
+        self::assertTrue(mkdir($dir, 0700));
+        try {
+            // 1. The report to screen; the screener copies it and adds a reason to the rows to hold back.
+            $r = self::tool('bulk_confirm_key', '--sample=held', "--lead={$email}", "--report={$dir}/screen.csv");
+            self::assertSame(0, $r['code'], $r['err']);
+            self::assertStringContainsString('population=5 eligible=5 excluded={} held=0', $r['out']);
+            $report = array_map('str_getcsv', file("{$dir}/screen.csv", FILE_IGNORE_NEW_LINES) ?: []);
+            $held = [$report[1], $report[3]];
+            $reasons = ['-2 x 10ml on the Electrofag page', 'Flavour: "mango ice" vs mango'];
+            $fh = fopen("{$dir}/hold.csv", 'xb');
+            self::assertIsResource($fh);
+            fputcsv($fh, [...$report[0], 'reason'], ',', '"', '');
+            foreach ($held as $i => $row) {
+                fputcsv($fh, [...$row, $reasons[$i]], ',', '"', '');
+            }
+            fclose($fh);
+            [$p1, $l1, $p2, $l2] = [(int) $held[0][3], (int) $held[0][4], (int) $held[1][3], (int) $held[1][4]];
+
+            // 2. Hold them: a dry run, then --apply; a re-run writes nothing.
+            $r = self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/hold.csv", "--by={$email}");
+            self::assertSame(0, $r['code'], $r['err']);
+            self::assertStringContainsString("sample held (drawn by {$email}, verdict complete): 2 rows in hold.csv (sha256 ", $r['out']);
+            self::assertStringContainsString("  row 2 proposal {$p1} listing {$l1}: to hold: -2 x 10ml on the Electrofag page", $r['out']);
+            self::assertStringContainsString("DRY RUN (nothing written) mode=hold sample=held by={$email} rows=2 hold=2 already=0 refused={} held_before=0 held_after=2", $r['out']);
+            self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM key_bulk_hold'));
+            $r = self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/hold.csv", "--by={$email}", '--apply');
+            self::assertSame(0, $r['code'], $r['err']);
+            self::assertStringContainsString("  row 3 proposal {$p2} listing {$l2}: held: Flavour: \"mango ice\" vs mango", $r['out']);
+            self::assertStringContainsString("mode=hold sample=held by={$email} rows=2 hold=2 already=0 refused={} held_before=0 held_after=2", $r['out']);
+            $r = self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/hold.csv", "--by={$email}", '--apply');
+            self::assertSame(0, $r['code'], $r['err']);
+            self::assertStringContainsString('hold=0 already=2 refused={} held_before=2 held_after=2', $r['out']);
+            self::assertSame([2, 1], [(int) self::$db->value('SELECT COUNT(*) FROM key_bulk_hold'),
+                (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'mapping.key_hold'")]);
+
+            // Refusals: a row that names one of the 20 (the rest still go ahead), a file without the columns, no file, not a lead.
+            file_put_contents("{$dir}/member.csv", "proposal_id,listing_id,reason\n{$s['members'][0]['proposal_id']},{$s['members'][0]['listing_id']},one of the 20\n");
+            $r = self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/member.csv", "--by={$email}", '--apply');
+            self::assertSame(1, $r['code']);
+            self::assertStringContainsString('REFUSED sample_member', $r['out']);
+            self::assertStringContainsString('1 rows refused (listed above, REFUSED): they are NOT held', $r['err']);
+            file_put_contents("{$dir}/bad.csv", "proposal,listing,why\n1,2,x\n");
+            $r = self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/bad.csv", "--by={$email}");
+            self::assertSame(2, $r['code']);
+            self::assertStringContainsString('bad_file', $r['err']);
+            self::assertSame(2, self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/none.csv", "--by={$email}")['code']);
+            self::assertSame(2, self::tool('key_bulk_hold', '--sample=nope', "--file={$dir}/hold.csv", "--by={$email}")['code']);
+            $r = self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/hold.csv", "--by={$mapperEmail}", '--apply');
+            self::assertSame(2, $r['code']);
+            self::assertStringContainsString('lead_required', $r['err']);
+            self::assertSame(2, self::tool('key_bulk_hold', '--sample=held', "--by={$email}")['code'], '--file is required');
+
+            // 3. The bulk dry run says what is held and why (and the report carries it); then the bulk links the rest only.
+            $r = self::tool('bulk_confirm_key', '--sample=held', "--lead={$email}", "--report={$dir}/dry.csv");
+            self::assertSame(0, $r['code'], $r['err']);
+            self::assertStringContainsString('population=5 eligible=3 excluded={"held_for_review":2} held=2', $r['out']);
+            self::assertStringContainsString("  held: proposal {$p1} listing {$l1} (by {$email}, ", $r['out']);
+            self::assertStringContainsString('): -2 x 10ml on the Electrofag page', $r['out']);
+            $dry = [];
+            foreach (array_slice(array_map('str_getcsv', file("{$dir}/dry.csv", FILE_IGNORE_NEW_LINES) ?: []), 1) as $row) {
+                $dry[(int) $row[3]] = [$row[0], $row[1], $row[16], $row[17]];
+            }
+            self::assertSame(['excluded', 'held_for_review', "'-2 x 10ml on the Electrofag page", $email], $dry[$p1], 'a cell a spreadsheet would run is escaped');
+            self::assertSame(['excluded', 'held_for_review', 'Flavour: "mango ice" vs mango', $email], $dry[$p2]);
+            self::assertSame(3, count(array_filter($dry, static fn (array $d): bool => $d[0] === 'eligible' && $d[2] === '')));
+            $r = self::tool('bulk_confirm_key', '--sample=held', "--lead={$email}", '--apply');
+            self::assertSame(0, $r['code'], $r['err']);
+            self::assertStringContainsString('applied=3 skipped={} failed={}', $r['out']);
+            self::assertSame(['suggested', 'suggested'], [$this->link($l1)['status'], $this->link($l2)['status']]);
+
+            // 4. A lead releases one (and only a lead); the next run links it.
+            file_put_contents("{$dir}/release.csv", "proposal_id,listing_id,reason\n{$p2},{$l2},Checked on the page: same flavour\n");
+            self::assertSame(2, self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/release.csv", "--by={$mapperEmail}", '--release', '--apply')['code']);
+            $r = self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/release.csv", "--by={$email}", '--release', '--apply');
+            self::assertSame(0, $r['code'], $r['err']);
+            self::assertStringContainsString("  row 2 proposal {$p2} listing {$l2}: released: Checked on the page: same flavour (held for: Flavour: \"mango ice\" vs mango)", $r['out']);
+            self::assertStringContainsString("mode=release sample=held by={$email} rows=1 release=1 already=0 refused={} held_before=2 held_after=1", $r['out']);
+            self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'mapping.key_hold_release'"));
+            $r = self::tool('bulk_confirm_key', '--sample=held', "--lead={$email}", '--apply');
+            self::assertStringContainsString('excluded={"held_for_review":1,"proposal_decided":3} held=1', $r['out']);
+            self::assertStringContainsString('applied=1 skipped={} failed={}', $r['out']);
+            self::assertSame(['suggested', 'mapped'], [$this->link($l1)['status'], $this->link($l2)['status']]);
+
+            // 5. A new matching run replaces the held proposal: the listing stays held (the hold is on the listing), and a
+            //    release must name the proposal the hold was written for (the tool says which).
+            $run4 = $this->proposals->run('run4-sold', 'first_match', null, 'n2.1/c1.0/v2.1/b2.1', null, ['band_version' => 'b2.1']);
+            $old = self::proposalRow($p1);
+            $newer = $this->proposals->add(Caller::system('import_proposals'), $l1, $run4, ['band' => 'Key', 'proposed_sku_id' => (int) $old['proposed_sku_id'],
+                'lane' => 'barcode', 'ai_outcome' => 'match', 'ai_confidence' => (int) $old['ai_confidence'], 'ai_units_per_item' => 1,
+                'evidence' => json_decode((string) $old['evidence'], true)])['proposal_id'];
+            $r = self::tool('bulk_confirm_key', '--sample=held', "--lead={$email}");
+            self::assertStringContainsString('excluded={"proposal_decided":4,"proposal_superseded":1} held=1', $r['out']);
+            self::assertStringContainsString("  held: proposal {$p1} listing {$l1} (by {$email}, ", $r['out']);
+            file_put_contents("{$dir}/release2.csv", "proposal_id,listing_id,reason
+{$newer},{$l1},the newer one
+");
+            $r = self::tool('key_bulk_hold', '--sample=held', "--file={$dir}/release2.csv", "--by={$email}", '--release');
+            self::assertSame(1, $r['code'], $r['err']);
+            self::assertStringContainsString("  row 2 proposal {$newer} listing {$l1}: REFUSED not_in_population (held for: -2 x 10ml on the Electrofag page "
+                . "(the listing is held under proposal {$p1} of the sample held))", $r['out']);
+        } finally {
+            foreach (glob("{$dir}/*") ?: [] as $f) {
+                @unlink($f);
+            }
+            @rmdir($dir);
+        }
     }
 
     /** @return array{code: int, out: string, err: string} */

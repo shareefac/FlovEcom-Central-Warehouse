@@ -17,6 +17,9 @@ use CW\Matching\Text;
  *   not_key                                  its stored band is not Key
  *   listing_<status>                         the listing is linked, ignored or quarantined (only unmapped / suggested)
  *   pending_decision                         a decision on the listing waits for a second person
+ *   held_for_review                          its LISTING is held back from every bulk confirm for one-at-a-time review
+ *                                            (KeyHold, M30), whatever sample or proposal the hold was written for (a newer
+ *                                            proposal of a held listing too); the row's `hold` says why, who and when
  *   no_item / item_merged / protected_item   no proposed item, or it was merged away, or it is protected (sell policy
  *                                            not legacy, or sku.counted_at set)
  *   counted_item                             counted at a warehouse (stock_balance.counted_at, or a `count` movement)
@@ -74,7 +77,8 @@ final class KeyEligibility
      * @param array<int, array<string, mixed>> $virtualBases proposal id => a proved basis not written yet (dry runs)
      * @return array<int, array{proposal_id: int, listing_id: int, sku_id: ?int, confidence: ?int, units_30d: int, units_365d: int,
      *         reasons: list<string>, basis: ?array<string, mixed>, map_version: int, channel_id: int, variant: string, title: string,
-     *         item_code: ?string, item_name: ?string, target_listing_id: ?int, created_at: string}>
+     *         item_code: ?string, item_name: ?string, target_listing_id: ?int, created_at: string, listing_status: string,
+     *         hold: ?array{hold_id: int, sample_id: int, sample: string, proposal_id: int, reason: string, by: ?string, by_email: ?string, at: string}}>
      */
     public function check(array $proposalIds, array $virtualBases = []): array
     {
@@ -117,6 +121,7 @@ final class KeyEligibility
                 $chunk,
             );
             $undone = $this->set("SELECT DISTINCT listing_id FROM match_decision WHERE listing_id IN (%s) AND bulk_batch_id LIKE 'undo:%%'", $listingIds);
+            $held = KeyHold::activeForListings($this->db, $listingIds);
             // spot-check populations the listings (or the proposals) are in, and those samples' verdicts (M28)
             $samplesOfListing = [];
             $samplesOfProposal = [];
@@ -184,6 +189,10 @@ final class KeyEligibility
                 }
                 if (isset($pending[$lid])) {
                     $reasons[] = 'pending_decision';
+                }
+                $hold = $held[$lid] ?? null;
+                if ($hold !== null) {
+                    $reasons[] = 'held_for_review';
                 }
                 if ($sku === null || $item === null) {
                     $reasons[] = 'no_item';
@@ -269,7 +278,10 @@ final class KeyEligibility
                     'channel_id' => (int) $r['channel_id'], 'variant' => (string) $r['external_variant_id'],
                     'title' => $vt !== '' ? $vt : Text::clean($r['product_title']),
                     'item_code' => $item === null ? null : (string) $item['code'], 'item_name' => $item === null ? null : (string) $item['name'],
-                    'target_listing_id' => $targetId === null ? null : (int) $targetId, 'created_at' => (string) $r['created_at']];
+                    'target_listing_id' => $targetId === null ? null : (int) $targetId, 'created_at' => (string) $r['created_at'],
+                    'listing_status' => (string) $r['listing_status'],
+                    'hold' => $hold === null ? null : ['hold_id' => $hold['hold_id'], 'sample_id' => $hold['sample_id'], 'sample' => $hold['sample'],
+                        'proposal_id' => $hold['proposal_id'], 'reason' => $hold['reason'], 'by' => $hold['by'], 'by_email' => $hold['by_email'], 'at' => $hold['at']]];
             }
         }
         return $out;

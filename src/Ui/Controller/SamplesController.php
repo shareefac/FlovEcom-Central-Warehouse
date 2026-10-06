@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Ui\Controller;
 
 use CW\CwException;
+use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
 use CW\Ui\Context;
 use CW\Ui\Html;
@@ -15,7 +16,9 @@ use CW\Ui\HtmlResponse;
  * members with what became of each, "n of 20 decided", and whether the bulk confirm may run (every member confirmed by
  * the sample's owner, and the sample fit: 20 or more, every stratum represented, its seed's draw). Read-only: the owner
  * confirms or rejects each member on the normal review screen (each row links there, and that page links back), and
- * the bulk confirm itself is a CLI step (bin/bulk_confirm_key.php), never a button.
+ * the bulk confirm itself is a CLI step (bin/bulk_confirm_key.php), never a button. The listings of the population held
+ * back from every bulk confirm for one-at-a-time review (bin/key_bulk_hold.php, M30) are listed with why, by whom and when,
+ * and what became of each since (a listing a bulk confirm linked is flagged: it never should have been).
  */
 final class SamplesController
 {
@@ -64,6 +67,13 @@ final class SamplesController
         }
         $fit = array_map(static fn (string $f): string => self::FIT_LABELS[$f]
             ?? (str_starts_with($f, 'stratum_short:') ? 'too few proposals from stratum ' . substr($f, strlen('stratum_short:')) : $f), $s['fit']);
-        return $ctx->page('sample', ['s' => $s, 'members' => $members, 'fit' => $fit], 200, ['title' => 'Key spot-check ' . $s['name'], 'active' => 'samples']);
+        $holds = [];
+        foreach (KeyHold::ofSample($ctx->db, $s['id']) as $h) {
+            $holds[] = $h + ['link' => Html::url('/ui/review/listing/' . $h['listing_id'], ['sample' => $s['id']]),
+                'newer' => $h['open_proposal_id'] !== null && $h['open_proposal_id'] !== $h['proposal_id']];
+        }
+        $heldOpen = count(array_filter($holds, static fn (array $h): bool => $h['open']));
+        return $ctx->page('sample', ['s' => $s, 'members' => $members, 'fit' => $fit, 'holds' => $holds, 'held_open' => $heldOpen], 200,
+            ['title' => 'Key spot-check ' . $s['name'], 'active' => 'samples']);
     }
 }

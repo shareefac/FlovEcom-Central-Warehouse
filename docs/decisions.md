@@ -3747,3 +3747,141 @@ together (I93, I94, I97). Rejected, with reasons:
   opens a downloaded PDF in one tap.
 - *Refuse the rejecting reviewer too:* no. A rejection needs a second reviewer; refusing them as well would leave nobody able to
   confirm the change if it was right after all. Their confirmation is recorded and lifts the rejection (I98).
+
+
+## Holding screened listings back from the Key bulk confirm (slots `ksa1`, `ksa3`, 6 Oct 2026)
+
+Before the bulk confirm runs, someone screens its dry-run report (`--report`) and finds proposals that a person should decide
+one at a time: the titles show another pack size, a flavour that only looks the same, a strength. Until now nothing kept them
+out. The bulk confirm links every proposal of the population that qualifies, so the only way was to decide each one on the screen
+first. A list passed to one run would not have been enough: a re-run without it, or with an older copy, links them after all.
+Numbered M30. Code: `migrations/0014_key_bulk_hold.sql`, `src/Mapping/KeyHold.php` (new), `src/Mapping/{KeyEligibility,KeyBulk}.php`,
+`src/Schema/Grants.php`, `bin/key_bulk_hold.php` (new), `bin/bulk_confirm_key.php`, `src/Ui/Controller/{ReviewController,SamplesController}.php`,
+`src/Ui/views/{listing,sample}.php`. Tests: `tests/Integration/Mapping/KeyBulkHoldTest.php` (new), new cases in `KeyBulkToolsTest`,
+`tests/Integration/UiKernel/KeySampleScreenTest.php` and `GrantsTest`. Runbook: `docs/ops.md`, "Key spot-check and bulk confirm",
+step 5.
+
+**M30. A durable hold of screened listings (amends M28 for the bulk confirm and the sample's population).**
+- **The hold is on the LISTING.** The file names each row by its proposal of the sample's population, because that is what the
+  screened report lists, but what is held is that proposal's listing:
+  - every proposal of the listing is held: the one the hold was written for, and any newer one (a new matching run's, a re-band's,
+    or the undo's re-opened copy), whatever item it proposes;
+  - for every sample: the hold keeps the listing out of the bulk confirm of the sample it was written for, out of every later
+    sample's population, and out of the bulk confirm of a sample drawn before the hold.
+
+  A hold keyed on the proposal was not enough (review blocker, below): a new matching run replaces every open proposal (M29's next
+  run will), the replacement is in no population, so the next sample drew it and its bulk confirm linked the held listing.
+- **Where the hold lives: `key_bulk_hold` (0014).** The table is append-only for the app login (SELECT, INSERT). A HOLD row names
+  the sample, the proposal, its listing, the reason and the mapping lead. A RELEASE row names the hold it ends
+  (`released_hold_id`). A listing is held while some hold row of it has no release row (`KeyHold::activeForListings`). Why a table:
+  - A status on `match_proposal` is out. The app login may change only `match_proposal.status` (M16), and any status other than
+    `open` would take the proposal out of the Key queue, the opposite of what is wanted. A proposal status would also not survive
+    the proposal being replaced.
+  - A file given to each bulk run is not durable.
+  - The hold must outlive the process, be the same for every run and every screen, and show who let it go and why. A release is a
+    row of its own for that reason, as `match_proposal_basis` and `key_sample` are.
+
+  The schema checks what it can:
+  - the foreign key `(sample_id, proposal_id)` → `key_sample_member` allows only a proposal of that sample's population;
+  - `(released_hold_id, released_kind, sample_id, proposal_id)` → `key_bulk_hold (id, kind, sample_id, proposal_id)` makes a
+    release end a HOLD row (never another release) of the same proposal. `released_kind` is a stored generated column, `hold` on a
+    release and NULL on a hold, so nobody can write it;
+  - the unique key on `released_hold_id` allows one release per hold;
+  - CHECKs: a hold ends nothing, a release ends a row, and the reason is not blank.
+- **Eligibility (`KeyEligibility`).** A new reason `held_for_review` comes right after `pending_decision`. It is given to every
+  proposal whose listing is held, and each row carries `hold` (the sample and proposal it was written for, the reason, who and
+  when) and `listing_status`. A held listing is not otherwise touched: its proposal stays `open` and Key, the listing stays
+  `suggested` and in the Key queue, and anyone may decide it on the screen as usual. `KeySample::create` draws its population
+  through the same check, so a held listing is never drawn (`excluded` counts it as `held_for_review`). The re-band does not treat
+  a hold as a blocker: its new proposal is on the same listing, so it is held too (test: Key>Check, then Check>Key by the real
+  re-band under b2.1).
+- **The bulk confirm (`KeyBulk::confirm`, `bin/bulk_confirm_key.php`).** It reports `held=N`: the proposals of the population whose
+  listing is held and still waiting (unmapped or suggested), whatever their first reason. That is the number the hold tool's
+  `held_after` gave, unless a held listing was decided since (the sample's page then shows it as decided). It prints one line per
+  such proposal: proposal, listing, who, when and why, and the sample and proposal the hold was written for when that is another.
+  The `--report` CSV gains `hold_reason`, `held_by` and `held_at`, with cells escaped against formulas as before. `held` is audited
+  too. Under the locks of each link it reads the holds of the LISTING again. If one arrived since the check, the link is rolled
+  back (`failed`: `held_meanwhile`).
+- **The race with a running bulk confirm (of any sample).** `KeyHold` writes its holds in one transaction. That transaction first
+  reads the file's listings FOR SHARE, in id order, and only then checks every row. DecisionService locks the listing FOR UPDATE
+  for a link. So either the bulk link commits first, and the hold then refuses that row (`listing_mapped`), or the link waits for
+  the hold to commit, then finds it under its own lock, by the listing, and rolls back. Both run READ COMMITTED (Db). The test
+  runs the bulk confirm as its own process, holds the listing's proposal in an open transaction, and commits once the bulk waits
+  for the listing: `applied=11 failed={"held_meanwhile":1}`. With the check after the link removed, the same test links all 12.
+- **The tool (`bin/key_bulk_hold.php --sample --file --by [--release] [--apply]`, `KeyHold::run`).**
+  - **The file.** A header row names `proposal_id`, `listing_id` and `reason`, in any order. Other columns are ignored, so the
+    `--report` CSV with a `reason` column added is a valid file. A BOM, blank rows, quotes and line breaks in a cell are handled.
+    The reason has its spaces collapsed and is 1-500 characters with no control characters.
+  - **Each row is checked and listed.** A row is refused when:
+    - it cannot be read (`bad_proposal_id`, `bad_listing_id`, `no_reason`, `bad_reason`, `reason_too_long`);
+    - it repeats a proposal (`duplicate_in_file`);
+    - its proposal is outside the population (`not_in_population`). When its listing is held, the row says under which
+      proposal and sample, e.g. a release that names the newer proposal instead of the one the hold was written for;
+    - its proposal is one of the sample's own members (`sample_member`): the owner confirms those one at a time, and their state
+      decides whether the bulk runs at all;
+    - it names a listing that is not the proposal's (`listing_mismatch`, which catches a typo in either id);
+    - a hold names a listing that is no longer waiting (`listing_mapped`, `listing_ignored`, `listing_quarantined`): a hold could
+      not change it, and the operator must know it is linked already. A proposal that was replaced by a newer one, on a listing
+      that still waits, IS held: the hold covers the newer proposal, which may already be in a later sample's population;
+    - a release names a proposal that was never held (`not_held`).
+  - **The rows that pass still go ahead,** and the run exits 1, listing the refused rows. A hold only takes listings out of the
+    bulk, so holding the good rows is never less safe than holding none. Refusing the whole file would leave them unheld if the
+    bulk were run anyway. The exit code 1 stops the runbook until the file is fixed.
+  - **A re-run of the same file writes nothing.** A row whose listing is held already, by this proposal's hold or by another hold
+    of the listing, is `already_held`; a released one is `already_released`. Neither is a refusal. The hold is checked before the
+    listing's state, so a held listing that a person decided since is still `already_held`. A listing has at most one hold in force
+    this way, so one release frees it.
+  - **The counts.** `held_before` and `held_after` are the sample's holds in force on a listing still waiting (the dry run gives
+    what `--apply` would leave).
+  - **One run at a time.** A second run at the same moment exits 1 ("busy"), not with the job frame's silent "skipped": the
+    caller relies on the holds.
+  - **The dry run is the default.** It writes nothing, and with `--apply` an audit row is written only when something changed:
+    `mapping.key_hold` / `mapping.key_hold_release`, entity `key_sample`, with each row written (hold or release id, proposal,
+    listing, reason), the file's name and sha256, the refused rows and the count of `already` rows.
+  - **The release** names the proposal the hold was written for, of the same sample, even after a newer proposal replaced it
+    (the listing page and the sample's page show that proposal's number). Once released, the listing's current proposal may go
+    into a later sample's population and bulk confirm.
+- **Who.** Both the hold and the release need an active mapping lead (`--by`). Any mapping lead may do either, as with the undo, not
+  only the sample's owner. Provisional: the release is not reserved to another person than the one who held. A hold is the safe
+  direction; the release puts listings back into the bulk, so it is audited with its own reason.
+- **The screens.** The listing's review page looks the hold up by the listing. It says "Held back from the bulk confirm:
+  <reason>", then by whom, when, which spot-check (a link) and the proposal it was written for. Under a newer proposal it says
+  that the hold covers it; on a listing decided since, that the hold stays on record. Its decision forms are there as usual. The
+  sample's page has a section "Held back from the bulk confirm": the number still waiting, each held listing (a link), why, by
+  whom and when, and what became of it: waiting (and its newer proposal, if any), decided since, or, flagged, linked by a bulk
+  confirm (with the undo command; that should never happen). There is no hold or release button: like the bulk confirm, it is a
+  server step (U20).
+- **What a hold does not do.**
+  - It does not stop a person's decision.
+  - It does not look at the item: a newer proposal of a held listing for another item is held too, and a person decides it.
+  - It does not undo a bulk link already made: for that, use `bin/bulk_unlink.php`, whose re-opened proposals are never bulk-linked
+    again (`bulk_undone_before`).
+
+**Review of M30 (6 Oct 2026, slot ksa2; fixed in slot ksa3).** One blocker, one minor finding and one nit, all applied:
+- Blocker: the hold was keyed on the proposal. Probe: proposal 2 of sample pa held, a new first-match run replaced it with
+  proposal 25, sample pb (another lead) drew 25 into its population, and pb's bulk confirm linked the listing
+  (`key_bulk:pb`). Fixed as above: `KeyHold::activeForListings`, `held_for_review` by listing in `KeyEligibility` (and so in
+  `KeySample::create`), the check after the link by listing, the review page by listing. Beyond the fix asked for, a hold of a
+  replaced proposal whose listing still waits is now accepted (it was refused as `proposal_superseded`): with the hold on the
+  listing it covers the newer proposal, which may already be in a later sample's population, and refusing it left that listing
+  impossible to hold. Tests: `KeyBulkHoldTest` (a new run on all 12 listings; a later sample of another lead drawn without the held
+  listing; a hold written for a replaced proposal after the later sample drew the listing, which that sample's bulk then leaves
+  out; the release by the replaced proposal; a re-band round trip). Both new tests fail with the eligibility keyed on the proposal.
+- `held`, the sample page and runbook step 6 counted holds whose listing was decided since: `held` and `held_before`/`held_after`
+  now count holds on listings still waiting, the runbook compares `held` with step 5's `held_after`, and the sample page shows a
+  decided listing as such and flags one a bulk batch linked.
+- Nit: the schema let a release name another release. `released_kind` (above) makes the self foreign key accept a hold row only
+  (test: 1452).
+
+Tests (6 Oct 2026): the full suite in slot `ksa3`: `OK, but some tests were skipped! Tests: 749, Assertions: 15715, Skipped: 75`
+(747 tests in `ksa1`, plus the two new `KeyBulkHoldTest` cases). The 75 skipped are the HTTP screen and API tests, which run only in
+slots `ui` and `api`. In slot `ui`, `UiAuthTest`, `UiReviewFlowTest`, `UiSecurityTest` and `KeySampleScreenTest` gave `OK (41 tests)`.
+One earlier full run in `ksa3`, made while slot `ui` ran its tests on the same droplet and cluster, failed only the timing bound of
+`LockOrderTest::testALargeMovementDoesNotHoldTheFeedClockForOneRoundTripPerItem` (256 ms against 250 ms; 55 ms in the run before).
+That test does not touch this change, and the run alone was green.
+
+Open after M30 (nothing was run on `cw_staging`):
+- Deploy `0014_key_bulk_hold.sql` with this code in one `install_cron.sh --migrate` run, never the code first. The review screen
+  reads `key_bulk_hold` for every listing it shows, and the bulk, sample and re-band tools read it through the eligibility (the CLI
+  tools refuse a schema behind the code with exit 3; the screens do not check). 0014 applies after 0012 and 0013 in name order;
+  on `cw_staging` (at 0013 since 3 Oct) it is the only pending file.
