@@ -12,6 +12,129 @@
 <p class="muted dup-groups">Duplicates: <?php foreach ($dup_groups as $gid): ?><a href="/ui/review/duplicates/<?= $e($gid) ?>">group <?= $e($gid) ?></a> <?php endforeach; ?>(what was decided, and the undo of a wrong merge).</p>
 <?php endif; ?>
 
+<?php if ($error !== null): ?>
+<p class="error" role="alert"><?= $e($error) ?><?php if ($errorCode === 'barcode_on_other_item' && isset($errorDetail['sku_id'])): ?>
+  <a href="<?= $u('/ui/items/' . (int) $errorDetail['sku_id']) ?>">Open <?= $e($errorDetail['code'] ?? 'that item') ?></a><?php endif; ?></p>
+<?php endif; ?>
+
+<section class="card item-card<?php if ($rules['level'] === 'block'): ?> blocked<?php elseif ($rules['level'] === 'warn'): ?> warned<?php endif; ?>" id="card" aria-labelledby="card-h">
+  <h2 id="card-h">Item card <span class="muted">legal and buying fields</span></h2>
+<?php if ($card['state'] === 'none'): ?>
+  <p class="card-state"><span class="tag">no card yet</span> Nothing has been entered for this item yet.</p>
+<?php elseif ($card['state'] === 'confirmed'): ?>
+  <p class="card-state"><span class="tag ok">confirmed</span> by <?= $e($card['confirmed_by']) ?> on <?= $dt($card['confirmed_at']) ?> (UTC).</p>
+<?php elseif ($card['state'] === 'changed'): ?>
+  <p class="card-state"><span class="tag warn">changed since it was confirmed</span> Last changed by <?= $e($card['updated_by']) ?> on <?= $dt($card['updated_at']) ?>: confirm it again.
+    A rule the last confirmation blocked keeps blocking the item until then, whatever the fields say now; a rule broken since is a warning until then.</p>
+<?php else: ?>
+  <p class="card-state"><span class="tag warn">not confirmed</span> Last changed by <?= $e($card['updated_by']) ?> on <?= $dt($card['updated_at']) ?>. Until a person confirms
+    the fields, a rule they break is a warning only.</p>
+<?php endif; ?>
+<?php if ($rules['blocked'] !== []): ?>
+  <div class="rules block" role="status">
+    <p><strong>BLOCKED: <?= $e($rules['blockEffect']) ?></strong></p>
+    <ul class="plain">
+<?php foreach ($rules['blocked'] as $b): ?>
+      <li><span class="tag bad"><?= $e($b['label']) ?></span> <?= $e($b['why']) ?><?php if (!$b['still']): ?> <span class="muted">(the fields no longer say so: the block stays until someone confirms the card again)</span><?php endif; ?></li>
+<?php endforeach; ?>
+    </ul>
+  </div>
+<?php endif; ?>
+<?php if ($rules['warnings'] !== []): ?>
+  <div class="rules warn" role="status">
+    <p><strong>Warning: if these fields are right, confirming them blocks the item.</strong></p>
+    <ul class="plain">
+<?php foreach ($rules['warnings'] as $b): ?>
+      <li><span class="tag warn"><?= $e($b['label']) ?></span> <?= $e($b['why']) ?></li>
+<?php endforeach; ?>
+    </ul>
+  </div>
+<?php endif; ?>
+  <dl class="item-card-fields">
+<?php foreach ($card['values'] as $f): ?>
+    <dt><?= $e(ucfirst($f['label'])) ?></dt>
+    <dd><?php if ($f['shown'] === null): ?><span class="muted">not known</span><?php else: ?><?= $e($f['shown']) ?><?php endif; ?></dd>
+<?php endforeach; ?>
+  </dl>
+<?php foreach ($rules['advice'] as $a): ?>
+  <p class="note"><?= $e($a) ?></p>
+<?php endforeach; ?>
+<?php if ($canEditCard): ?>
+  <p class="actions"><a class="button" href="<?= $u('/ui/items/' . $sku['id'] . '/card') ?>"><?php if ($card['exists']): ?>Change the item card<?php else: ?>Fill in the item card<?php endif; ?></a></p>
+<?php if ($rules['missing'] !== [] && $card['state'] !== 'confirmed'): ?>
+  <p class="muted">Before the card can be confirmed, fill in: <?= $e(implode(', ', $rules['missing'])) ?>.</p>
+<?php elseif ($confirmKey !== null): ?>
+  <form class="confirm-card" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/card/confirm') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="form_key" value="<?= $e($confirmKey) ?>">
+    <input type="hidden" name="version" value="<?= $e($card['version']) ?>">
+<?php if ($rules['warnings'] !== [] || array_filter($rules['blocked'], static fn (array $b): bool => $b['still']) !== []): ?>
+    <label class="choice dup-confirm"><input type="checkbox" name="acknowledge_block" value="1"> I checked the packaging: these fields are right, and the item breaks the rules
+      above, so it will be blocked.</label>
+<?php endif; ?>
+    <button type="submit">Confirm the card: these fields are right</button>
+  </form>
+<?php endif; ?>
+<?php if ($fileFlavour !== null): ?>
+  <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/card/accept') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="form_key" value="<?= $e($fileFlavour['formKey']) ?>">
+    <input type="hidden" name="version" value="<?= $e($card['version']) ?>">
+    <input type="hidden" name="field" value="flavour">
+    <input type="hidden" name="value" value="<?= $e($fileFlavour['value']) ?>">
+    <span>The flavour "<?= $e($fileFlavour['value']) ?>" came from a file.</span> <button type="submit">Confirm this flavour</button>
+  </form>
+<?php endif; ?>
+<?php if ($proposals !== null): ?>
+  <h3>Suggestions</h3>
+<?php if ($proposals === []): ?>
+  <p class="muted">Nothing to suggest: the matcher and the linked listings say nothing the card does not already have.</p>
+<?php else: ?>
+  <p class="muted">From the item's identity card and its linked listings. Nothing is used until you press "Use this"<?php if ($disagree !== []): ?>; the sources
+    disagree on the <?= $e(implode(', ', $disagree)) ?>: check the box<?php endif; ?>.</p>
+  <div class="scroll">
+  <table class="stack proposals">
+    <thead><tr><th scope="col">Field</th><th scope="col">Suggestion</th><th scope="col">Says so</th><th scope="col"><span class="visually-hidden">Use</span></th></tr></thead>
+    <tbody>
+<?php foreach ($proposals as $p): ?>
+      <tr>
+        <td data-label="Field"><?= $e($p['label']) ?></td>
+        <td data-label="Suggestion"><strong><?= $e($p['shown']) ?></strong></td>
+        <td data-label="Says so"><ul class="plain"><?php foreach ($p['sources'] as $src): ?><li><?= $e($src) ?></li><?php endforeach; ?></ul></td>
+        <td>
+          <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/card/accept') ?>">
+            <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+            <input type="hidden" name="form_key" value="<?= $e($p['formKey']) ?>">
+            <input type="hidden" name="version" value="<?= $e($card['version']) ?>">
+            <input type="hidden" name="field" value="<?= $e($p['field']) ?>">
+            <input type="hidden" name="value" value="<?= $e($p['value']) ?>">
+            <button type="submit">Use this</button>
+          </form>
+        </td>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+<?php endif; ?>
+<?php if ($disposableSources !== []): ?>
+  <p class="note">Called a "disposable" by: <?= $e(implode('; ', $disposableSources)) ?>. Whether it is SINGLE-USE is for a person to answer from the box (many
+    "disposable-style" devices sold since June 2025 are rechargeable and refillable): it is never filled in from this.</p>
+<?php endif; ?>
+<?php endif; ?>
+<?php endif; ?>
+<?php if ($cardHistory !== []): ?>
+  <details class="card-history">
+    <summary>History of the card (<?= $n(count($cardHistory)) ?>)</summary>
+    <ol class="plain">
+<?php foreach ($cardHistory as $h): ?>
+      <li>Version <?= $e($h['version']) ?> · <?= $dt($h['at']) ?> · <?= $e($h['who']) ?>: <?= $e($h['what']) ?></li>
+<?php endforeach; ?>
+    </ol>
+  </details>
+<?php endif; ?>
+</section>
+
 <div class="cols">
   <section class="card" aria-labelledby="id-h">
     <h2 id="id-h">Identity</h2>
@@ -32,24 +155,77 @@
     </dl>
   </section>
 
-  <section class="card" aria-labelledby="bc-h">
+  <section class="card" id="barcodes" aria-labelledby="bc-h">
     <h2 id="bc-h">Barcodes</h2>
 <?php if ($barcodes === []): ?>
     <p class="muted">No barcode is known for this item.</p>
 <?php else: ?>
-    <table>
-      <thead><tr><th scope="col">Barcode</th><th scope="col" class="num">Units per scan</th><th scope="col">Source</th><th scope="col">Usable</th></tr></thead>
+    <div class="scroll">
+    <table class="stack barcodes">
+      <thead><tr><th scope="col">Barcode</th><th scope="col" class="num">Units per scan</th><th scope="col">Source</th><th scope="col">Usable</th><?php if ($canEditBarcodes): ?><th scope="col"><span class="visually-hidden">Remove</span></th><?php endif; ?></tr></thead>
       <tbody>
 <?php foreach ($barcodes as $b): ?>
         <tr>
-          <td><?= $e($b['barcode']) ?></td>
-          <td class="num"><?= $e($b['units']) ?></td>
-          <td><?= $e($b['source']) ?></td>
-          <td><?php if ($b['usable']): ?>yes<?php else: ?>no<?php endif; ?></td>
+          <td data-label="Barcode"><?= $e($b['barcode']) ?></td>
+          <td data-label="Units per scan" class="num">
+<?php if ($canEditBarcodes && $b['stored']): ?>
+            <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/units') ?>">
+              <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+              <input type="hidden" name="form_key" value="<?= $e($b['unitsKey']) ?>">
+              <input type="hidden" name="barcode" value="<?= $e($b['barcode']) ?>">
+              <input type="hidden" name="units_was" value="<?= $e($b['units']) ?>">
+              <label class="visually-hidden" for="units-<?= $e($b['barcode']) ?>">Units per scan of <?= $e($b['barcode']) ?></label>
+              <input class="units" id="units-<?= $e($b['barcode']) ?>" type="number" name="units" min="1" max="10000" step="1" inputmode="numeric" value="<?= $e($b['units']) ?>">
+              <button type="submit">Save</button>
+            </form>
+<?php else: ?>
+            <?= $e($b['units']) ?><?php if ($b['units'] > 1): ?> <span class="tag">outer case</span><?php endif; ?>
+<?php endif; ?>
+          </td>
+          <td data-label="Source"><?= $e($b['source']) ?><?php if ($b['note'] !== null): ?> <span class="muted"><?= $e($b['note']) ?></span><?php endif; ?></td>
+          <td data-label="Usable"><?php if ($b['usable']): ?>yes<?php else: ?><span class="tag bad">no</span><?php endif; ?></td>
+<?php if ($canEditBarcodes): ?>
+          <td>
+<?php if ($b['stored']): ?>
+            <details class="remove-barcode">
+              <summary>Remove…</summary>
+              <form method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/remove') ?>">
+                <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+                <input type="hidden" name="form_key" value="<?= $e($b['removeKey']) ?>">
+                <input type="hidden" name="barcode" value="<?= $e($b['barcode']) ?>">
+                <p class="muted">Removes <?= $e($b['barcode']) ?> from <?= $e($sku['code']) ?>. The barcode sync will not add it back to this item (adding it by hand stays possible).</p>
+                <label for="why-<?= $e($b['barcode']) ?>">Why <span class="muted">(optional)</span></label>
+                <input id="why-<?= $e($b['barcode']) ?>" type="text" name="reason" maxlength="500">
+                <button type="submit">Remove this barcode</button>
+              </form>
+            </details>
+<?php endif; ?>
+          </td>
+<?php endif; ?>
         </tr>
 <?php endforeach; ?>
       </tbody>
     </table>
+    </div>
+<?php endif; ?>
+<?php if ($barcodeReviews !== []): ?>
+    <p class="note">Barcode review open:
+<?php foreach ($barcodeReviews as $br): ?>
+      <?php if ($canSeeReviews): ?><a href="<?= $u('/ui/items/barcodes', ['barcode' => $br['barcode']]) ?>"><?= $e($br['barcode']) ?></a><?php else: ?><?= $e($br['barcode']) ?><?php endif; ?> (<?= $e($br['reason']) ?>)
+<?php endforeach; ?>
+    </p>
+<?php endif; ?>
+<?php if ($canEditBarcodes): ?>
+    <form class="add-barcode" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes') ?>">
+      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="form_key" value="<?= $e($barcodeAddKey) ?>">
+      <label for="new-barcode">Add a barcode</label>
+      <input id="new-barcode" type="text" name="barcode" inputmode="numeric" autocomplete="off" maxlength="40" value="<?= $e($typedBarcode) ?>" placeholder="scan or type">
+      <label for="new-units">Units per scan</label>
+      <input id="new-units" class="units" type="number" name="units" min="1" max="10000" step="1" inputmode="numeric" value="<?= $e($typedUnits) ?>">
+      <button type="submit">Add barcode</button>
+      <p class="muted">An outer case: its own barcode with the units it holds ("this barcode = 10 units"). A barcode belongs to one item.</p>
+    </form>
 <?php endif; ?>
   </section>
 </div>

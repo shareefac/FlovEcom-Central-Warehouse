@@ -8,6 +8,8 @@ use CW\Auth\Csrf;
 use CW\Auth\Permissions;
 use CW\Auth\StaffIdentity;
 use CW\Caller;
+use CW\Catalogue\BarcodeReviews;
+use CW\Catalogue\ItemCards;
 use CW\Company\CompanyDetails;
 use CW\Config;
 use CW\Db;
@@ -34,6 +36,7 @@ final class Context
     private ?Suppliers $suppliers = null;
     private ?SupplierItems $supplierItems = null;
     private ?CompanyDetails $company = null;
+    private ?ItemCards $itemCards = null;
 
     /**
      * @param array<string, string> $params route parameters
@@ -111,6 +114,12 @@ final class Context
         return $this->company ??= new CompanyDetails($this->db);
     }
 
+    /** The item cards (IM3, I100-I105). */
+    public function itemCards(): ItemCards
+    {
+        return $this->itemCards ??= new ItemCards($this->db);
+    }
+
     /** The file store app.env names (file_store_dir / CW_FILE_STORE_DIR); 503 file_store_unconfigured without one. */
     public function files(): FileStore
     {
@@ -169,7 +178,8 @@ final class Context
      *         reviews_open (open review and approval tasks this
      *         person may decide: not opened by them, not on a document they created, submitted or posted, I19; plus the
      *         open supplier tasks they may decide: not on a supplier they created, asked for or last changed, I40; plus the
-     *         open reviews of a change of the company details they did not make, I94)
+     *         open reviews of a change of the company details they did not make, I94), barcodes_open (open barcode reviews,
+     *         for catalogue.edit, I107)
      */
     public function badges(): array
     {
@@ -177,6 +187,10 @@ final class Context
         if ($this->who !== null && $this->who->can('linking.view')) {
             $out['linking_pending'] = $this->queries()->pendingCount();
             $out['linking_duplicates'] = (new Duplicates($this->db))->openCount();
+        }
+        if ($this->who !== null && $this->who->can('catalogue.edit')) {
+            // The barcode review queue (IM3, I107): open rows, for the people who decide them.
+            $out['barcodes_open'] = (new BarcodeReviews($this->db))->openCount();
         }
         if ($this->who !== null && ($this->who->can('documents.review') || $this->who->can('suppliers.approve') || $this->who->can('company.confirm'))) {
             // Documents, suppliers and the company details share the review queue (I40, I94): the open tasks this person may decide.

@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace CW\Tests\Integration;
 
 use CW\Caller;
+use CW\Catalogue\BarcodeReviews;
+use CW\Catalogue\BarcodeSync;
+use CW\Catalogue\ItemBarcodes;
+use CW\Catalogue\ItemCardCsv;
+use CW\Catalogue\ItemCards;
+use CW\Catalogue\ItemCompliance;
 use CW\Db;
 use CW\Documents\DocumentHandlers;
 use CW\Documents\Documents;
@@ -165,6 +171,15 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame(['Select', 'Insert'], Grants::desired('key_bulk_hold'));
         self::assertSame([], Grants::desiredColumns('key_bulk_hold'));
         self::assertContains('key_bulk_hold', Grants::APPEND_ONLY);
+        // 0016 (I101, I107): an item card is changed, never removed; its history is append-only; a barcode review keeps what was found
+        // and changes only its decision; sku_barcode keeps FULL rights (a person removes a barcode from an item).
+        self::assertSame(['Select', 'Insert', 'Update'], Grants::desired('item_card'));
+        self::assertContains('item_card', Grants::NO_DELETE);
+        self::assertSame(['Select', 'Insert'], Grants::desired('item_card_change'));
+        self::assertSame([], Grants::desiredColumns('item_card_change'));
+        self::assertSame(['Select', 'Insert'], Grants::desired('barcode_review'));
+        self::assertSame(['status', 'decision', 'decided_units', 'decided_by', 'decided_actor', 'decided_at', 'note'], array_keys(Grants::desiredColumns('barcode_review')));
+        self::assertSame(Grants::FULL, Grants::desired('sku_barcode'));
     }
 
     public function testApplyConvergesAndTheAppLoginIsLimited(): void
@@ -731,6 +746,49 @@ final class GrantsTest extends IntegrationTestCase
             'DELETE FROM key_sample_member', 'UPDATE key_sample_member SET position = NULL', 'DELETE FROM key_bulk_hold', "UPDATE key_bulk_hold SET reason = 'x'",
         ] as $sql) {
             self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+        }
+    }
+
+    /** IM3 (0016): item cards, the barcode sync and its review, the CSV import, run with exactly the app login's rights. */
+    public function testTheItemCardFlowAsTheAppLogin(): void
+    {
+        Grants::apply(self::$db, TestDb::name(), self::$user);
+        $app = $this->appSession();
+        $vpg = self::makeChannel('vpg', 'shadow');
+        $editor = Caller::staff(self::$db->insert("INSERT INTO staff_user (username, display_name, email, password_hash) VALUES ('ce', 'ce', 'ce@test.invalid', 'x')"));
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'stock_controller')", [$editor->staffUserId]);
+        $a = self::makeSku();
+        $b = self::makeSku();
+        $cards = new ItemCards($app);
+        $cards->save($editor, $a, 0, ['product_type' => 'tank', 'liquid_ml' => '5', 'duty_liable' => 'no']);
+        self::assertSame('confirmed', $cards->confirm($editor, $a, 1, true)['result']);
+        self::assertSame(['trpr_tank_ml'], (new ItemCompliance($app))->blocked([$a, $b])[$a]);
+        // Two listings carry one barcode: the second item's goes to review, the first's becomes unusable.
+        foreach ([[$a, 'G1'], [$b, 'G2']] as [$sku, $variant]) {
+            $l = self::$db->insert("INSERT INTO channel_listing (channel_id, external_variant_id, sku_id, status) VALUES (?, ?, ?, 'mapped')", [$vpg, $variant, $sku]);
+            self::$db->exec("INSERT INTO listing_profile (listing_id, product_title, barcodes) VALUES (?, 'x', '[\"5012345678900\"]')", [$l]);
+        }
+        $sync = (new BarcodeSync($app))->run(Caller::system('sync_barcodes'), true);
+        self::assertSame([1, 1, 1], [$sync['added'], $sync['review_on_another_item'], $sync['made_unusable']]);
+        $review = (int) self::$db->value("SELECT id FROM barcode_review WHERE status = 'open'");
+        (new BarcodeReviews($app))->decide($editor, $review, 'keep_holder');
+        (new ItemBarcodes($app))->add($editor, $b, '96385074', 10);
+        (new ItemBarcodes($app))->setUnits($editor, $b, '96385074', 10, 12);
+        (new ItemBarcodes($app))->remove($editor, $b, '96385074', 'wrong code');
+        $file = tempnam(sys_get_temp_dir(), 'cwic');
+        file_put_contents($file, "code,nicotine_mg
+CW-" . sprintf('%06d', $b) . ",20
+");
+        self::assertTrue((new ItemCardCsv($app))->import($editor, $file, 'cards.csv', true)['applied']);
+        unlink($file);
+        self::assertSame([], Invariants::check(self::$db));
+        foreach ([
+            'DELETE FROM item_card', 'DELETE FROM item_card_change', 'UPDATE item_card_change SET version = 9', 'DELETE FROM barcode_review',
+        ] as $sql) {
+            self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+        }
+        foreach (['UPDATE barcode_review SET barcode = 12345670', 'UPDATE barcode_review SET claimant_sku_id = 1', "UPDATE barcode_review SET reason = 'removed'"] as $sql) {
+            self::assertSame(self::COLUMN_DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
         }
     }
 

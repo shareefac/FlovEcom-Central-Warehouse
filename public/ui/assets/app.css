@@ -239,3 +239,39 @@ p.pager a { margin-right: 1rem; }
   table.stack td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
   form.dup-decide .actions button { width: 100%; }
 }
+
+/* IM3 item card and barcodes (docs/decisions.md I109): a blocked card in red, a warned one in amber; the barcode forms and the
+   lists stack to one column at phone width (table.stack, the scroll wrappers, the forms below). */
+section.item-card { margin: .8rem 0 1rem; }
+section.item-card.blocked { border: 2px solid var(--bad-ink); }
+section.item-card.warned { border: 2px solid var(--warn-ink); }
+.card-state { margin: .2rem 0 .6rem; }
+.rules { padding: .45rem .8rem; border-radius: 6px; margin: .4rem 0 .6rem; }
+.rules p { margin: 0 0 .3rem; }
+.rules.block { background: var(--bad-bg); color: var(--bad-ink); }
+.rules.warn { background: var(--warn-bg); color: var(--warn-ink); }
+dl.item-card-fields { grid-template-columns: max-content 1fr; }
+form.confirm-card { display: grid; gap: .5rem; margin: .6rem 0; max-width: 640px; }
+table.proposals td ul.plain li { margin: 0 0 .15rem; overflow-wrap: anywhere; }
+details.card-history { margin-top: .6rem; }
+input.units { width: 6rem; }
+form.add-barcode { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; margin: .7rem 0 0; }
+form.add-barcode p { flex-basis: 100%; margin: 0; }
+tr.blocked > * { background: var(--bad-bg); }
+ul.summary-line { display: flex; flex-wrap: wrap; gap: .2rem 1.5rem; margin: 0 0 .8rem; font-size: .95rem; }
+article.barcode-review { margin: .8rem 0; }
+article.barcode-review h2 { margin-top: 0; overflow-wrap: anywhere; }
+form.barcode-decide { max-width: 640px; margin-top: .6rem; }
+form.item-card-form input[type="text"], form.item-card-form select { width: 100%; max-width: 32rem; }
+ul.import-errors li { margin: .15rem 0; overflow-wrap: anywhere; }
+details.remove-barcode summary { cursor: pointer; }
+details.remove-barcode form { display: grid; gap: .35rem; margin-top: .35rem; max-width: 22rem; }
+details.remove-barcode p { margin: 0; }
+@media (max-width: 600px) {
+  dl.item-card-fields { grid-template-columns: 1fr; }
+  dl.item-card-fields dt { margin-top: .35rem; }
+  form.add-barcode input[type="text"] { flex: 1 1 100%; }
+  form.add-barcode button, form.confirm-card button, form.barcode-decide button { width: 100%; }
+  table.barcodes form.inline { flex-wrap: wrap; }
+  details.remove-barcode button { width: 100%; }
+}

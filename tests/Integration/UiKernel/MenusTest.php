@@ -32,7 +32,8 @@ final class MenusTest extends KernelUiTestCase
         foreach ([$b, $d, $r] as $nav) {
             self::assertArrayNotHasKey('Linking', $nav);
             self::assertArrayNotHasKey('Admin', $nav);
-            self::assertSame([['label' => 'Search', 'href' => '/ui/search']], $nav['Items']);
+            self::assertSame([['label' => 'Search', 'href' => '/ui/search'], ['label' => 'Item cards', 'href' => '/ui/items/cards']], $nav['Items'],
+                'the item cards list for everyone; the barcode review only for catalogue.edit (I109)');
         }
         self::assertSame([
             ['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'],
@@ -103,7 +104,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString('coming in Phase I-2', $home->text());
         $xp = new \DOMXPath($home->dom());
         self::assertSame(4, $xp->query('//main//section[contains(@class, "card")]')->length, 'one card per menu section');
-        self::assertSame(['/ui/search', '/ui/purchasing/suppliers', '/ui/purchasing/orders', '/ui/purchasing/reorder', '/ui/purchasing/sales-history', '/ui/documents',
+        self::assertSame(['/ui/search', '/ui/items/cards', '/ui/purchasing/suppliers', '/ui/purchasing/orders', '/ui/purchasing/reorder', '/ui/purchasing/sales-history', '/ui/documents',
             '/ui/reference/reasons', '/ui/reference/series', '/ui/reference/settings', '/ui/reference/company'], array_values(array_filter(array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array($xp->query('//main//a'))))), 'the live links of a buyer after the I-2 reorder task');
         self::assertSame(1, $xp->query('//header//form[@action="/ui/search"]')->length, 'the quick search box: catalogue.view');

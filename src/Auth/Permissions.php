@@ -21,7 +21,8 @@ use CW\CwException;
  * admin SQL) is read fail-closed: the conflicting roles grant nothing while admin is held (effective()).
  *
  * The posting permissions (doc.<TYPE>.post) are proposals pending the owner's decisions 3 and 11 (I16); the Phase I-2
- * purchasing permissions (suppliers.*, purchasing.view, reorder.*) likewise (I40), and the company details' (company.*, I90).
+ * purchasing permissions (suppliers.*, purchasing.view, reorder.*) likewise (I40), the company details' (company.*, I90), and the
+ * item card's (catalogue.edit, I109).
  */
 final class Permissions
 {
@@ -95,13 +96,17 @@ final class Permissions
         // reviewer (the owner's role) adds, changes and confirms them and reviews another reviewer's change; never admin (I12).
         'company.edit' => ['reviewer'],
         'company.confirm' => ['reviewer'],
+        // The item card (IM3, I100-I112; provisional, owner to confirm): everyone reads cards and barcodes (catalogue.view); the
+        // catalogue work (the legal fields, accepting proposals, confirming a card, the barcodes, the barcode review, the CSV
+        // import) is mapping_lead, stock_controller and purchasing_manager; never admin (I12).
+        'catalogue.edit' => ['mapping_lead', 'stock_controller', 'purchasing_manager'],
     ];
 
     /**
      * The navigation, grouped. An item has either a `path` (a live GET route; `query` is added to its URL) or a
      * `phase` (shown as "<label> · coming in Phase <phase>", never a link: the screen does not exist yet, I14).
      * `key` marks the item as the current page (layout `active`); `badge` names a count of Ui\Context::badges()
-     * (linking_pending, linking_duplicates, reviews_open). Document reviews, Documents and Reference are live since the documents task
+     * (linking_pending, linking_duplicates, reviews_open, barcodes_open). Document reviews, Documents and Reference are live since the documents task
      * (0008, I27): real screens, empty until a phase registers a document type.
      */
     public const MENU = [
@@ -113,8 +118,11 @@ final class Permissions
             ['label' => 'Key spot-check', 'perm' => 'linking.view', 'key' => 'samples', 'path' => '/ui/review/samples'],
             ['label' => 'Duplicates', 'perm' => 'linking.view', 'key' => 'duplicates', 'path' => '/ui/review/duplicates', 'badge' => 'linking_duplicates'],
         ]],
+        // IM3 (I109): the item cards list (everyone) and the barcode review queue (the people who decide it).
         ['section' => 'Items', 'items' => [
             ['label' => 'Search', 'perm' => 'catalogue.view', 'key' => 'search', 'path' => '/ui/search'],
+            ['label' => 'Item cards', 'perm' => 'catalogue.view', 'key' => 'cards', 'path' => '/ui/items/cards'],
+            ['label' => 'Barcode review', 'perm' => 'catalogue.edit', 'key' => 'barcodes', 'path' => '/ui/items/barcodes', 'badge' => 'barcodes_open'],
         ]],
         // Phase I-2: Suppliers (the suppliers task), Purchase orders (the pos task), Reorder list and Sales history (the reorder task).
         ['section' => 'Purchasing', 'items' => [

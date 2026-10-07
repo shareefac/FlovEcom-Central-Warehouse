@@ -91,7 +91,7 @@ final class PermissionsTest extends TestCase
                     self::assertArrayNotHasKey('badge', $item, $what);
                 }
                 if (isset($item['badge'])) {
-                    self::assertContains($item['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open'], "{$what}: a count Ui\\Context::badges() computes");
+                    self::assertContains($item['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open'], "{$what}: a count Ui\\Context::badges() computes");
                 }
             }
         }
@@ -133,16 +133,33 @@ final class PermissionsTest extends TestCase
             [end($reference)['label'], end($reference)['perm'], end($reference)['key'], end($reference)['path']]);
     }
 
+    /** The item card (IM3, I109, provisional): everyone reads cards and barcodes; the catalogue team changes them; never admin. */
+    public function testTheItemCardPermissions(): void
+    {
+        self::assertSame(['mapping_lead', 'stock_controller', 'purchasing_manager'], Permissions::MAP['catalogue.edit']);
+        foreach (Permissions::ROLES as $role) {
+            self::assertSame(in_array($role, ['mapping_lead', 'stock_controller', 'purchasing_manager'], true), Permissions::can([$role], 'catalogue.edit'), $role);
+            self::assertTrue(Permissions::can([$role], 'catalogue.view'), "{$role} reads item cards");
+        }
+        self::assertFalse(Permissions::can(['admin', 'stock_controller'], 'catalogue.edit'), 'a set breaking the admin rule is read fail-closed');
+        $items = array_values(array_filter(Permissions::MENU, static fn (array $s): bool => $s['section'] === 'Items'))[0]['items'];
+        self::assertSame([['Search', 'catalogue.view', '/ui/search'], ['Item cards', 'catalogue.view', '/ui/items/cards'],
+            ['Barcode review', 'catalogue.edit', '/ui/items/barcodes']], array_map(static fn (array $i): array => [$i['label'], $i['perm'], $i['path']], $items));
+        self::assertSame('barcodes_open', $items[2]['badge']);
+        self::assertSame(['Search', 'Item cards'], array_column(Permissions::menu(['buyer'])[0]['items'], 'label'), 'the barcode review is for the people who decide it');
+        self::assertSame(['Search', 'Item cards', 'Barcode review'], array_column(Permissions::menu(['stock_controller'])[0]['items'], 'label'));
+    }
+
     public function testAdminNeverPostsReviewsOrDecides(): void
     {
         $sets = [['admin'], ['admin', 'viewer'], ['admin', 'accountant'], ['admin', 'auditor'], ['admin', 'viewer', 'accountant', 'auditor']];
         foreach ($sets as $set) {
             foreach (Permissions::permissionsOf($set) as $perm) {
-                self::assertDoesNotMatchRegularExpression('/^(doc\.|mapping\.|documents\.(review|approve)$|suppliers\.(manage|approve)$|reorder\.manage$|company\.)/',
+                self::assertDoesNotMatchRegularExpression('/^(doc\.|mapping\.|documents\.(review|approve)$|suppliers\.(manage|approve)$|reorder\.manage$|company\.|catalogue\.edit$)/',
                     $perm, implode('+', $set));
             }
             self::assertTrue(Permissions::can($set, 'staff.manage'));
-            foreach (['suppliers.manage', 'suppliers.approve', 'reorder.manage', 'doc.PO.post', 'company.edit', 'company.confirm'] as $perm) {
+            foreach (['suppliers.manage', 'suppliers.approve', 'reorder.manage', 'doc.PO.post', 'company.edit', 'company.confirm', 'catalogue.edit'] as $perm) {
                 self::assertFalse(Permissions::can($set, $perm), implode('+', $set) . " never holds {$perm}");
             }
         }

@@ -23,8 +23,8 @@ exit(Cli::main('seed_barcodes', ['dry-run'], 'usage: php bin/seed_barcodes.php [
         $dry = array_key_exists('dry-run', $opts);
         $t0 = hrtime(true);
         $c = (new BarcodeSeeder($cli->db))->seed(Caller::system('seed_barcodes'), null, $dry);
-        $cli->log(sprintf('%sitems=%d with_barcodes=%d %s=%d already=%d unusable_codes=%d clashes=%d rows_now=%d ms=%d',
+        $cli->log(sprintf('%sitems=%d with_barcodes=%d %s=%d already=%d unusable_codes=%d clashes=%d rows_now=%d skipped_decided=%d ms=%d',
             $dry ? 'DRY RUN (nothing written) ' : '', $c['items'], $c['with_barcodes'], $dry ? 'would_add' : 'added', $c['added'], $c['already'],
-            $c['unusable_codes'], $c['clashes'], (int) $cli->db->value('SELECT COUNT(*) FROM sku_barcode'), intdiv(hrtime(true) - $t0, 1_000_000)));
+            $c['unusable_codes'], $c['clashes'], (int) $cli->db->value('SELECT COUNT(*) FROM sku_barcode'), $c['skipped_decided'], intdiv(hrtime(true) - $t0, 1_000_000)));
         return Cli::OK;
     }));

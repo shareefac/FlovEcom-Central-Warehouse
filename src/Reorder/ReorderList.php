@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Reorder;
 
+use CW\Catalogue\ItemRules;
 use CW\Clock;
 use CW\Db;
 use CW\PurchaseOrders\PoMath;
@@ -25,7 +26,9 @@ use CW\Settings;
  * vapeandgo listings of u × its usable site stock (sellable: max(0, stock); unsellable: 0; In-Stock mode or negative
  * flagged site_stock_unreliable, I78), labelled with its snapshot date. On order O = PurchaseOrders::onOrder;
  * in drafts D = PurchaseOrders::inDrafts (shown, never counted). Never suggested (k = 0, shown only with show=all):
- * do_not_reorder, merged items.
+ * do_not_reorder, merged items, and from the item card (IM3, docs/decisions.md I103, I105, I113): a discontinued item and an item
+ * its card BLOCKS (a person confirmed it breaks a TRPR or the single-use rule; until a person confirms the card again). A rule
+ * no confirmation stands behind is flagged `card_warning` and the item is still suggested.
  */
 final class ReorderList
 {
@@ -117,11 +120,13 @@ final class ReorderList
             . 'r.safety_days, r.lead_days_override, r.min_stock, r.max_stock, r.demand_factor, r.pack_rounding, r.do_not_reorder, '
             . 'rb.demand_factor AS brand_factor, rb.safety_days AS brand_safety, si.id AS si_id, si.supplier_id, si.supplier_code, si.purchase_unit, si.units_per_pack, '
             . 'si.moq_packs, si.order_multiple_packs, si.lead_days AS si_lead, si.last_pack_price, sup.code AS supplier_code_cw, sup.name AS supplier_name, '
-            . 'sup.status AS supplier_status, sup.default_lead_days, sup.review_days '
+            . 'sup.status AS supplier_status, sup.default_lead_days, sup.review_days, ic.product_type AS card_type, ic.liquid_ml AS card_ml, '
+            . 'ic.nicotine_mg AS card_mg, ic.single_use AS card_single_use, ic.discontinued AS card_discontinued, ic.first_confirmed_at AS card_first_confirmed, '
+            . 'ic.confirmed_at AS card_confirmed_at, ic.confirmed_breaches AS card_confirmed_breaches '
             . 'FROM (SELECT sku_id FROM reorder_demand UNION SELECT sku_id FROM item_reorder WHERE min_stock IS NOT NULL) base '
             . 'JOIN sku s ON s.id = base.sku_id LEFT JOIN sku m ON m.id = s.merged_into_sku_id LEFT JOIN reorder_demand d ON d.sku_id = s.id '
             . 'LEFT JOIN item_reorder r ON r.sku_id = s.id LEFT JOIN reorder_brand rb ON rb.brand = s.brand '
-            . 'LEFT JOIN supplier_item si ON si.preferred_sku_id = s.id LEFT JOIN supplier sup ON sup.id = si.supplier_id'
+            . 'LEFT JOIN supplier_item si ON si.preferred_sku_id = s.id LEFT JOIN supplier sup ON sup.id = si.supplier_id LEFT JOIN item_card ic ON ic.sku_id = s.id'
             . ($where === [] ? '' : ' WHERE ' . implode(' AND ', $where)),
             $params,
         );
@@ -142,9 +147,16 @@ final class ReorderList
             $lead = $r['lead_days_override'] ?? $r['si_lead'] ?? $r['default_lead_days'] ?? $p['lead'];
             $review = $r['review_days'] ?? $p['review'];
             $safety = $r['safety_days'] ?? $r['brand_safety'] ?? $p['safety'];
+            $card = ItemRules::status(['product_type' => $r['card_type'], 'liquid_ml' => $r['card_ml'], 'nicotine_mg' => $r['card_mg'],
+                'single_use' => $r['card_single_use'], 'first_confirmed_at' => $r['card_first_confirmed'], 'confirmed_at' => $r['card_confirmed_at'],
+                'confirmed_breaches' => $r['card_confirmed_breaches']]);
+            $cardLevel = $card['level'];
+            $discontinued = (int) ($r['card_discontinued'] ?? 0) === 1;
             $never = match (true) {
                 $r['merged_into_sku_id'] !== null => 'merged into ' . ($r['merged_code'] ?? 'another item'),
                 (int) ($r['do_not_reorder'] ?? 0) === 1 => 'marked "do not reorder"',
+                $discontinued => 'discontinued (item card)',
+                $cardLevel === 'block' => 'blocked by its item card: ' . ItemRules::labels($card['blocked']),
                 default => null,
             };
             $price = $r['last_pack_price'] === null ? null : PoMath::e4((string) $r['last_pack_price']);
@@ -176,6 +188,15 @@ final class ReorderList
             if ((int) ($r['do_not_reorder'] ?? 0) === 1) {
                 $flags[] = 'do_not_reorder';
             }
+            if ($discontinued) {
+                $flags[] = 'discontinued';
+            }
+            if ($card['blocked'] !== []) {
+                $flags[] = 'card_blocked';
+            }
+            if ($card['warnings'] !== []) {
+                $flags[] = 'card_warning';
+            }
             if ($r['rate'] === null) {
                 $flags[] = 'no_history';
             }
@@ -198,6 +219,7 @@ final class ReorderList
                 'min_stock' => $r['min_stock'] === null ? null : (int) $r['min_stock'], 'max_stock' => $r['max_stock'] === null ? null : (int) $r['max_stock'],
                 'available' => $a, 'on_order' => $onOrder[$id] ?? 0, 'in_drafts' => $inDrafts[$id] ?? 0, 'stock_source' => $f['stock'],
                 'site_date' => $stock[$id]['date'] ?? null, 'site_unreliable' => $stock[$id]['unreliable'] ?? false, 'site_channel' => self::SITE_CHANNEL, 'never' => $never, 'no_supplier' => !$hasSupplier, 'flags' => $flags,
+                'card_blocked' => $card['blocked'], 'card_warnings' => $card['warnings'], 'card_level' => $cardLevel,
                 'computed_at' => $r['computed_at'],
             ];
             if ($f['urgent'] && !$row['urgent']) {

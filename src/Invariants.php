@@ -42,6 +42,8 @@ namespace CW;
  * C1-C4. the company details (0013): versions 1..n, a confirmation changes nothing, one audit row per version by the actor
  *     that saved it, saved and confirmed by people who held company.edit / company.confirm then, checks decided by nobody
  *     involved (CW\Company\CompanyInvariants, I91, I94).
+ * IC1-IC3. the item cards (0016): history versions 1..n per card, each card equal to its latest history snapshot, a barcode with an
+ *     open review unusable (CW\Catalogue\CatalogueInvariants, I101, I107).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  */
@@ -161,6 +163,7 @@ final class Invariants
         array_push($v, ...Suppliers\SupplierInvariants::check($db));
         array_push($v, ...PurchaseOrders\PurchaseInvariants::check($db));
         array_push($v, ...Company\CompanyInvariants::check($db));
+        array_push($v, ...Catalogue\CatalogueInvariants::check($db));
         return $v;
     }
 

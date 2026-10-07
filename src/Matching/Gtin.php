@@ -49,6 +49,24 @@ final class Gtin
     }
 
     /**
+     * The GTIN check digit (mod 10, weights 3 and 1 from the right) of a code WITHOUT its last digit: 1 to 13 digits
+     * ("501234567890" -> 0 for the EAN-13 5012345678900). Used to tell people what the last digit should have been.
+     */
+    public static function checkDigit(string $body): int
+    {
+        if ($body === '' || !ctype_digit($body) || strlen($body) > 13) {
+            throw new \InvalidArgumentException('a GTIN body is 1 to 13 digits');
+        }
+        $sum = 0;
+        $n = strlen($body);
+        for ($i = 0; $i < $n; $i++) {
+            // the digit next to the check digit weighs 3, the next 1, and so on
+            $sum += (int) $body[$n - 1 - $i] * ($i % 2 === 0 ? 3 : 1);
+        }
+        return (10 - $sum % 10) % 10;
+    }
+
+    /**
      * @return array{raw:string,key:?string,gtin14:?string,usable:bool,reason:string}
      */
     public static function classify(mixed $raw): array

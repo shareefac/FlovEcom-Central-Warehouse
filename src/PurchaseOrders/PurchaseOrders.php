@@ -7,6 +7,8 @@ namespace CW\PurchaseOrders;
 use CW\Audit;
 use CW\Auth\Permissions;
 use CW\Caller;
+use CW\Catalogue\ItemCompliance;
+use CW\Catalogue\ItemRules;
 use CW\Clock;
 use CW\Company\CompanyDetails;
 use CW\CwException;
@@ -678,8 +680,9 @@ final class PurchaseOrders
             $out[] = 'The net total ' . PoMath::money(PoMath::e2((string) $po['net_total'])) . " is below {$s['code']}'s minimum order of "
                 . PoMath::money(PoMath::e2((string) $s['min_order_value'])) . '.';
         }
+        $cardOf = [];
         foreach ($this->db->all(
-            'SELECT pl.line_no, pl.kind, pl.pack_price, s.code, s.merged_into_sku_id, m.code AS merged_code, si.is_active AS si_active FROM po_line pl '
+            'SELECT pl.line_no, pl.kind, pl.pack_price, dl.sku_id, s.code, s.merged_into_sku_id, m.code AS merged_code, si.is_active AS si_active FROM po_line pl '
             . 'JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no LEFT JOIN sku s ON s.id = dl.sku_id '
             . 'LEFT JOIN sku m ON m.id = s.merged_into_sku_id LEFT JOIN supplier_item si ON si.id = pl.supplier_item_id WHERE pl.document_id = ? ORDER BY pl.line_no',
             [$id],
@@ -692,6 +695,24 @@ final class PurchaseOrders
             }
             if ($l['si_active'] !== null && (int) $l['si_active'] !== 1) {
                 $out[] = "Line {$l['line_no']}: the supplier item of {$l['code']} was switched off: remove the line or switch it on again.";
+            }
+            if ($l['sku_id'] !== null) {
+                $cardOf[(int) $l['sku_id']][] = $l;
+            }
+        }
+        // IM3 (I103, I105): what the item cards say about the lines' items.
+        foreach ((new ItemCompliance($this->db))->statusOf(array_keys($cardOf)) as $sku => $st) {
+            foreach ($cardOf[$sku] as $l) {
+                if ($st['blocked'] !== []) {
+                    $out[] = "Line {$l['line_no']}: {$l['code']} is blocked by its item card (" . ItemRules::labels($st['blocked']) . '): the order cannot be approved with it.';
+                }
+                if ($st['warnings'] !== []) {
+                    $out[] = "Line {$l['line_no']}: {$l['code']}'s item card, not confirmed " . ($st['enforced'] ? 'since it changed' : 'yet') . ', says '
+                        . ItemRules::labels($st['warnings']) . ': check it before ordering (once confirmed, it blocks the item).';
+                }
+                if ($st['discontinued']) {
+                    $out[] = "Line {$l['line_no']}: {$l['code']} is marked discontinued on its item card.";
+                }
             }
         }
         return $out;

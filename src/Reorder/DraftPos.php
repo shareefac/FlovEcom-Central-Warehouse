@@ -6,6 +6,7 @@ namespace CW\Reorder;
 
 use CW\Audit;
 use CW\Caller;
+use CW\Catalogue\ItemRules;
 use CW\CwException;
 use CW\Db;
 use CW\PurchaseOrders\PoMath;
@@ -16,7 +17,7 @@ use CW\PurchaseOrders\PurchaseOrders;
  * supplier, become one draft PO per supplier (source 'reorder'), each line the preferred supplier item with the packs the
  * buyer kept or typed and the list's suggestion in `suggested_units`; the price is the supplier item's last price and the
  * VAT code the supplier's (PurchaseOrders::saveDraft defaults). Items without a preferred supplier, with an inactive
- * supplier or merged are skipped and listed. Everything runs in ONE transaction (the caller's FormOnce transaction: the
+ * supplier, merged or blocked by their item card (IM3, I103) are skipped and listed. Everything runs in ONE transaction (the caller's FormOnce transaction: the
  * same form sent twice replays the same drafts). A draft whose net is below the supplier's minimum order is warned about.
  */
 final class DraftPos
@@ -67,6 +68,10 @@ final class DraftPos
                 $reason = match (true) {
                     $l === null => 'not on the reorder list',
                     in_array('merged', $l['flags'], true) => (string) $l['never'] . ': order that item instead',
+                    // A confirmed item card that breaks a TRPR or the single-use rule blocks ordering (IM3, I103); a discontinued item may
+                    // still be ordered on purpose (the buyer typed the packs).
+                    in_array('card_blocked', $l['flags'], true) => 'blocked by its item card: ' . ItemRules::labels($l['card_blocked'])
+                        . ': it cannot be ordered (correct the item card and confirm it again if it is wrong)',
                     $l['supplier_item_id'] === null => 'no preferred supplier: mark one of its supplier items as preferred',
                     $l['supplier_status'] === 'inactive' => "its preferred supplier {$l['supplier']} is inactive",
                     default => null,

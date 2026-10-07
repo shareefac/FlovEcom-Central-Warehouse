@@ -15,10 +15,12 @@ use CW\Tests\Support\UiTestCase;
 final class UiSecurityTest extends UiTestCase
 {
     private const GETS = ['/ui', '/ui/', '/ui/review?queue=Key', '/ui/review?queue=pending', '/ui/review/listing/1', '/ui/items/1', '/ui/search', '/ui/search?q=abc', '/ui/password',
-        '/ui/reference/company', '/ui/reference/company/edit', '/ui/reference/company/sample.pdf', '/ui/review/duplicates', '/ui/review/duplicates/1'];
+        '/ui/reference/company', '/ui/reference/company/edit', '/ui/reference/company/sample.pdf', '/ui/review/duplicates', '/ui/review/duplicates/1',
+        '/ui/items/cards', '/ui/items/cards.csv', '/ui/items/cards/import', '/ui/items/1/card', '/ui/items/barcodes'];
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw',
         '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',
-        '/ui/review/duplicates/1/decide', '/ui/review/duplicates/1/split'];
+        '/ui/review/duplicates/1/decide', '/ui/review/duplicates/1/split', '/ui/items/1/card', '/ui/items/1/card/accept', '/ui/items/1/card/confirm',
+        '/ui/items/1/barcodes', '/ui/items/1/barcodes/remove', '/ui/items/1/barcodes/units', '/ui/items/cards/import', '/ui/items/barcodes/1/decide'];
 
     public function testEveryScreenNeedsASignIn(): void
     {

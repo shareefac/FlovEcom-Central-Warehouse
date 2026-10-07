@@ -157,7 +157,7 @@
       <td class="num"><?= $dec($r['pack_price']) ?></td>
       <td class="num"><?= $e($r['show_value']) ?></td>
       <td class="num"><?= $e($r['show_cover']) ?></td>
-      <td><?php foreach ($r['flags'] as $fl): ?><span class="tag<?= $e(in_array($fl, ['urgent', 'supplier_inactive', 'merged'], true) ? ' bad' : (in_array($fl, ['no_supplier', 'supplier_draft', 'supplier_pending_approval', 'no_price', 'site_stock_unreliable', 'in_draft'], true) ? ' warn' : '')) ?>"><?= $e($flagText[$fl] ?? $fl) ?></span><?php endforeach; ?></td>
+      <td><?php foreach ($r['flags'] as $fl): ?><span class="tag<?= $e(in_array($fl, ['urgent', 'supplier_inactive', 'merged', 'card_blocked'], true) ? ' bad' : (in_array($fl, ['no_supplier', 'supplier_draft', 'supplier_pending_approval', 'no_price', 'site_stock_unreliable', 'in_draft', 'card_warning', 'discontinued'], true) ? ' warn' : '')) ?>"><?= $e($flagText[$fl] ?? $fl) ?><?php if (($r['flag_rules'][$fl] ?? '') !== ''): ?>: <?= $e($r['flag_rules'][$fl]) ?><?php endif; ?></span><?php endforeach; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

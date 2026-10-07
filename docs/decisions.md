@@ -4308,3 +4308,341 @@ merge. Tests: an opening unit of page B on F, F merged into K: F `no change`; wi
   `vpg_dup_sweep` run: the export of 6 Oct holds. Import the ds1.1 file after the deploy (`docs/ops.md`, "The wider duplicate sweep").
 - Open: the owner question of M31 (protected merges); the reorder demand and the rebase need nothing more for M40's multi-page undo
   (both read links at read time).
+
+## Inventory Phase I-3 (slot `im3a`, IM3 item card: legal and buying fields, barcodes)
+
+IM3 of `docs/inventory-modules-plan.md` §3 (and the I-3 row of §7; the owner's decisions of §10, 2 Oct 2026; plan §2.1 and §7;
+the memory note "flavour is not a field": propose, then a person confirms). Numbered I100–I112; the two code reviews' fixes are
+I113–I124 (I100–I112 are amended to match them). Nothing books stock. Code:
+`migrations/0016_item_cards.sql`, `src/Catalogue/` (`ItemRules`, `ItemCards`, `CardProposals`, `ItemCompliance`, `ItemBarcodes`,
+`BarcodeReviews`, `BarcodeSync`, `ItemCardList`, `ItemCardCsv`, `ImportRolledBack`, `CatalogueInvariants`),
+`src/Ui/Controller/{ItemCards,Barcodes}Controller.php` (new), `src/Ui/views/{item_card_form,item_cards,item_cards_import,
+barcode_reviews}.php` (new), `bin/{sync_barcodes,import_item_cards}.php` (new); changed: `src/Ui/Controller/ItemController.php`,
+`src/Ui/views/item.php`, `src/Ui/{Kernel,Context}.php`, `src/Auth/Permissions.php`, `src/Schema/Grants.php`, `src/Invariants.php`,
+`src/Matching/Gtin.php` (`checkDigit`), `src/Mapping/BarcodeSeeder.php`, `src/Reorder/{ReorderList,DraftPos}.php`,
+`src/Ui/Controller/ReorderController.php`, `src/Ui/views/reorder.php`, `src/PurchaseOrders/{PurchaseOrders,PurchaseOrderHandler}.php`,
+`public/ui/assets/app.css`; tests `tests/Unit/{ItemRules,Gtin,ItemCardCheck}Test.php`, `tests/Integration/Catalogue/`,
+`tests/Integration/Migration0016Test.php`, `tests/Integration/Reorder/ReorderItemCardTest.php`,
+`tests/Integration/UiKernel/ItemCardScreensTest.php`, and updates of `PermissionsTest`, `MenusTest`, `UiTemplatesTest`, `GrantsTest`.
+
+**I100. Design in one paragraph.** The legal card is a table of its own, `item_card`, one row per item, made on the first change:
+not more columns on `sku`. `sku`'s identity card (strength, form, flavour, volume ...; plan §2.1, M9) is the MATCHER's, filled when
+an item is minted and used to link listings; the legal card is a PERSON's, every value typed, accepted or imported by someone with
+`catalogue.edit`, and its confirmation is what turns a warning into a block. Keeping them apart keeps the provenance plain (the
+matcher's values become *suggestions* for the legal card, I104) and leaves `sku` (NO_DELETE, the stock core's FK target) alone.
+`sku.brand` stays the catalogue brand used for linking and the reorder brand settings; `item_card.brand` is the brand on the box.
+
+**I101. The tables and who may write them (0016).**
+- `item_card`: product type (ENUM `e_liquid`, `shortfill`, `nic_shot`, `prefilled_pod`, `device_kit`, `single_use`, `coil`, `tank`,
+  `accessory`), `liquid_ml` DECIMAL(6,1) (0 < ml ≤ 5000; a bottle's contents or what a tank, pod or device holds), `nicotine_mg`
+  DECIMAL(5,2) (0–100 mg/ml), `duty_liable` and `single_use` (1 / 0 / NULL = not said yet), `ecid` (letters, digits, single hyphens,
+  upper case), manufacturer, brand, flavour + `flavour_status` (proposed / confirmed; NULL iff no flavour), `discontinued` (0/1),
+  `version` (moves with every write), `confirmed_by/actor/at` + `confirmed_breaches` (the rules the LAST confirmation
+  acknowledged, kept until the next one, I113), `first_confirmed_at` (never cleared), `updated_*`. CHECKs hold the pairs together,
+  refuse a `single_use` product type without `single_use = 1` (`<=>`: a NULL must not pass) and 0 ml on anything but a device / kit
+  (I115). The app login: SELECT, INSERT, UPDATE (`Grants::NO_DELETE`).
+- `item_card_change`: one row per write (kind change / accept / import / confirm; UNIQUE (sku, version)), with what changed
+  (`changes`: field => before / after; NULL for a confirm, CHECK) and the whole card after it (`card`, `ItemCards::SNAPSHOT`, the
+  held `confirmed_breaches` included), and `detail` (the proposal's sources, the import run and row, the rules acknowledged, the
+  rules a confirmation lifted). APPEND_ONLY.
+- Every write is also an `audit_log` row: `item_card.change` {kind, version, changes, unconfirmed, detail}, `item_card.confirm`
+  {version, breaches, first, card}. `ItemCards` is the only writer (`grep` finds no other `item_card` writer in `src/` or `bin/`).
+- Optimistic concurrency: every write names the version the form or file row was drawn with (0 = no card); another is 409
+  `card_changed` with the current version; nothing changed writes nothing (`unchanged`). The item row is read FOR SHARE (a merge
+  cannot slip in: 409 `merged_item`; a merged item's card is never changed) and the card FOR UPDATE.
+- Who: a staff caller (403 `staff_required`), active (403 `staff_not_allowed`), never admin (403 `admin_cannot_edit`, I12, also
+  for an admin set only admin SQL can write), holding `catalogue.edit` (403 `role_not_allowed`), roles re-read in the transaction.
+
+**I102. The rules (`ItemRules`, pure).** TRPR 2016 reg 36 and the single-use ban (from 1 June 2025):
+`trpr_refill_ml` an e-liquid, shortfill or nic shot with nicotine > 0 and over 10 ml; `trpr_tank_ml` a tank, prefilled pod, device /
+kit or single-use vape holding over 2 ml; `trpr_nicotine` over 20 mg/ml, any type; `single_use` a person answered single-use (or the
+single-use product type, which needs that answer). "Over" is strictly over: 10.0 ml, 2.0 ml and 20 mg/ml pass. A rule needs its
+values: an unknown ml or strength breaks nothing, and the type-bound rules need the type, so data typed half-way never blocks by
+accident. Values are compared as integers (tenths of a ml, hundredths of a mg), never floats. `sqlBreach()` is the same rule in SQL
+for the list's "breaks a rule" filter and the summary; `ItemCardsTest::testTheSqlRuleMatchesThePhpRule` checks the two against each
+other on 17 cards. `missing()`: a confirmation needs the product type and the duty answer always; the ml and the strength for liquids,
+prefilled pods and single-use vapes; the capacity of a tank; the capacity of its tank or pod (0 = none, I115) and the single-use
+answer for a device / kit. `advice()` never blocks: duty
+"no" on a product that holds liquid (VPD covers nicotine-free liquid from 1 Oct 2026), duty "yes" on a coil, tank or accessory, an
+ECID not shaped 12345-16-12345.
+
+**I103. Warnings until a person confirms, blocks after (the IM3 rule, recorded as built; amended by I113, I119, I121).**
+- **Warning** while no confirmation stands behind a rule the values break: shown on the item page (amber), the item cards list,
+  the reorder list (flag `card_warning` with the rule, still suggested), the PO editor's warnings. Nothing is refused:
+  half-entered or wrong catalogue data must not stop buying. This is the IM3 rule ("WARNINGS until a person confirms the item's
+  fields, HARD BLOCKS after that"), in the spirit of the owner's decision 6 for the count screen ("warns first").
+- **Confirming** says "these fields are right". It needs `missing()` empty (422 `card_incomplete`, detail.missing) and, when the card
+  breaks a rule, the person's explicit acknowledgement (the box "I checked the packaging: these fields are right, and the item breaks
+  the rules above, so it will be blocked"; without it 422 `card_breaches`, detail.rules). Refusing the confirmation outright was
+  rejected: nothing could ever be blocked if a breaking card could not be confirmed.
+- **Block**: the rules a person confirmed the card breaks, from that confirmation until the next one (I113). A later change of a
+  legal field clears `confirmed_by/actor/at` ("changed since it was confirmed": confirm it again) but keeps `confirmed_breaches`,
+  so no edit lifts a block by itself (correcting, emptying, retyping); a new confirmation of the corrected card does (its result
+  and history say `lifted`). A rule an edit breaks on a card confirmed without it is a warning until someone confirms the card
+  with the acknowledgement: no block without one. `discontinued` is a buying flag and does not unconfirm.
+- **What a block stops** (`ItemCompliance`), TODAY: never suggested on the reorder list (k = 0, `never` "blocked by its item card:
+  ...", flag `card_blocked` with the rule); skipped by "create draft PO" (with the reason); a purchase order with the item is
+  refused at approval (`PurchaseOrderHandler::validate`: 422 `item_blocked`, detail.items CW code => rules, the cards read FOR
+  SHARE, I122; drafts may hold it, the editor's warnings say so). NOT YET: receiving (IM6, I-3, will call
+  `ItemCompliance::receiving()` / `assertAllowed($skus, 'receive', true)`) and the site stock writer (IM10, I-6, will call
+  `assertAllowed($skus, 'sell')` and set the item's listings Out-Of-Stock). The screens say exactly this (I121). Not done here: a
+  PO approved or sent before the block is not changed (receiving will refuse it).
+- **Duty for receiving (decision 8, "refuse all unstamped deliveries from 1 Jan 2027"):** `receiving()` says `stamp_required` for a
+  duty-liable item and for one whose card does not answer (no card, or `duty_liable` NULL: `duty_unknown`, fail closed), except a
+  card that names a product holding no liquid (coil, tank, accessory: `stamp_required` false, `duty_unknown` still true, I119).
+  I-Day is after 1 Apr 2027, so IM6 refuses or quarantines every unstamped duty-liable delivery; the "made before 1 Oct" logic
+  stays in the pre-go-live register (§6.2).
+
+**I104. Suggestions, never values (`CardProposals`; the memory note "flavour is not a field").** Computed when the item page is
+drawn and again when one is accepted (409 `proposal_gone` when it is no longer offered: the card or the listings changed), from:
+the item's identity card (`sku.strength_mg`, `volume_ml`, `form`, `flavour`, `brand`: the matcher's, M9); every listing LINKED to it
+(`mapped`): its stored features (`listing_profile.features`, M12), or the Normalizer on its titles when it has none, and its brand;
+and the card's own product type for the duty answer (liquids, pods, single-use: yes; coil, tank, accessory: no; a device / kit:
+nothing). Mapped: strength → nicotine; volume → ml (to 0.1); form → type (e_liquid and nic_salt → e-liquid; pod_kit, kit, battery →
+device / kit; a refill pod only when prefilled; **disposable → nothing**); flavour tokens → flavour in title case. **single-use,
+ECID and manufacturer are never proposed.** A source that calls the item a "disposable" is listed ("whether it is SINGLE-USE is for a
+person to answer from the box"): since June 2025 many "disposable-style" devices are rechargeable and refillable. Each suggestion
+shows every source that says it, the most-said first, and "the sources disagree" when they do; a value already on the card is not
+offered. Accepting writes kind `accept` with the sources in the history. Nothing is ever written by computing suggestions (tested).
+The flavour: a NEW value typed on the form, or one accepted on the page, is `confirmed`; from a CSV file it is `proposed` (the page
+offers "Confirm this flavour", the form marks it "proposed by a file, not confirmed"), and a form that sends it back unchanged
+keeps it proposed (I114); confirming the card confirms it. A flavour report must read confirmed values only.
+
+**I105. Discontinued and "do not reorder" (two flags, both honoured).** `item_card.discontinued` (catalogue.edit, a fact about the
+product) and `item_reorder.do_not_reorder` (reorder.manage, the buyer's setting, I66) both make the reorder list never suggest the item
+(`never` "discontinued (item card)" / "marked \"do not reorder\""). Neither stops a buyer ordering it on purpose ("create draft PO"
+with typed packs; the PO editor warns "marked discontinued on its item card"). Merging the two was rejected: different people own them.
+
+**I106. A person's barcodes (`ItemBarcodes`).** Add (8–14 digits with a valid GTIN check digit, stored as `Gtin::key`; a wrong check
+digit is 422 `bad_barcode` saying which digit it should be: `Gtin::checkDigit`), with **units per scan** 1–10,000 (an outer case: its
+own barcode, "this barcode = 10 units"; the PO scan lookup already picks the supplier's pack of that size, and IM6 will count a scan
+as that many units); change units per scan (the form carries the units it showed: 409 `barcode_changed`); remove (409 `barcode_gone`
+when it is not there). A barcode belongs to one item (`sku_barcode` is keyed by it): one already on another item is 409
+`barcode_on_other_item` naming it, never moved. A removal is recorded as a decided `barcode_review` row (reason and decision
+`removed`) so neither the sync nor the seeder adds the barcode back to that item (I118); adding it again by hand is allowed. The
+item page puts "Remove…" behind a second step with what it does (I123). A barcode with an open review is added unusable (manually,
+by the sync, and now by `BarcodeSeeder` too). Audit `sku_barcode.add` / `remove` / `units`.
+`sku_barcode` keeps FULL grants (the removal is a DELETE, recorded in `barcode_review` and `audit_log`).
+
+**I107. The barcode review queue (`BarcodeReviews`, `barcode_review`).** Reasons: `on_another_item` (a linked listing of item S
+carries a barcode item H has; H's row was made unusable: "a barcode on two items is unusable until fixed", plan §2.2) with the
+decisions keep_holder (usable again; the site's listing is wrong), move (to S, with units per scan: typed, else the row's; a decided
+`moved_away` row for (barcode, H) in the same transaction, I116), unusable (a shared box or catch-all code: stays on H, unusable);
+`multipack_listing` (a NEW barcode of a listing linked with u ≠ 1: the pack's barcode or the single unit's?) with add (units: typed,
+else the listing's u) and dismiss (a row added meanwhile, unusable only because of the review, is usable again, I117). A decision
+re-reads the barcode's row and
+refuses what no longer fits (409 `review_stale`: keep when the holder no longer has it, move when a third item has it, add when another
+item has it; it says where it is now). A barcode becomes usable again only when its LAST open review is decided ("(another review is
+open)" in the note otherwise) and no person has ruled it shared since its row was made (I117). At most one open row per (barcode, claiming item): the stored generated `open_key` UNIQUE. The app
+login: SELECT, INSERT and UPDATE of the decision columns only (`Grants::UPDATE_COLUMNS`). Audit `barcode_review.decide`. The queue
+(Items › Barcode review) is for catalogue.edit, with the open count as the menu badge `barcodes_open`; the item page links its open
+reviews.
+
+**I108. The barcode sync (`BarcodeSync`, `bin/sync_barcodes.php`; plan change 16).** For every usable GTIN key K (I118: no letters, no
+restricted-circulation number) of every LINKED listing L (item S, units per item u), in listing id order: K on S → `already`; the
+latest decided review of (K, S) is keep_holder, unusable, dismiss, removed or moved_away (`KEEPS_AWAY`) → `skipped_decided` (a person
+said so; never asked again; read again under the barcode's lock, I118); a review of (K, S) open →
+`in_review`; no item has K and u = 1 → added (source `listing_sync`, note "listing L"); no item has K and u ≠ 1 → a
+`multipack_listing` review; another item H has K → an `on_another_item` review and H's row made unusable. Unusable codes (text, shop
+codes, bad check digits) are counted and skipped. **Dry run by default** (reads only; an overlay of what the run would have written
+lets it count a key claimed twice within the run exactly as the real run does: tested equal); `--apply` writes one transaction per
+1,000 listings, reads the chunk's rows, decisions and open reviews in three queries, and locks and re-checks only the barcodes it
+writes (`FOR UPDATE`; a duplicate key from a concurrent writer is counted `raced`, the next run sees it); one audit row
+`sku_barcode.sync` with the counts. Idempotent: a second run is all `already` / `in_review` / `skipped_decided`. `--channel`,
+`--limit` (a canary). Exit 0 also when reviews were opened. **Not scheduled** (no cron line): the owner decides when it runs nightly,
+after the listing pushes.
+
+**I109. Screens and permissions (provisional, owner to confirm; screen changes of the review in I123).** `catalogue.edit` = mapping_lead, stock_controller,
+purchasing_manager (the catalogue team as the plan describes it: the mapping lead knows the items, the stock controller has the box in
+hand, the purchasing manager the supplier's papers); never admin. Items menu: Search, **Item cards** (`catalogue.view`, every role),
+**Barcode review** (`catalogue.edit`, badge). Routes: `/ui/items/cards` (+ `.csv`), `/ui/items/cards/import` (GET/POST, catalogue.edit),
+`/ui/items/{id}/card` (GET form, POST save), `/card/accept`, `/card/confirm`, `/ui/items/{id}/barcodes` (+ `/remove`, `/units`),
+`/ui/items/barcodes` (+ `/{id}/decide`). A page or POST outside a person's permission is 403 at the route (I11), checked again in the
+service. Every form carries a FormOnce key (the same form sent twice has one effect) and, for the card, the version (a stale form comes
+back 409 with what the person typed, the current version and what changed meanwhile, so saving again is a deliberate overwrite; an
+invalid one 422 with each field's reason). The item page: the Item card section (state, the rules with their reason, the fields, advice,
+"Change / Fill in the item card", the suggestions with "Use this", the confirm form with the acknowledgement box when a rule is broken,
+the history) above Identity and Barcodes (add / units / remove forms). The item cards list: every item not merged away, **ordered by the
+stock it holds** (Σ max(on_hand, 0) over all warehouses; then id) so the 8,199 items with stock come first, 100 a page; filters: words
+(code, name, brand, flavour), card state (no card / not confirmed / changed since confirmed / confirmed), holds stock, warned or
+blocked, blocked (I121), product type (or not set), discontinued; the summary line; CSV of the same filters. Phone width: every table is `table.stack` in a
+`div.scroll` with `data-label` cells, the definition lists and the barcode and confirm forms go to one column (app.css).
+
+**I110. CSV export and import (`ItemCardCsv`, `bin/import_item_cards.php`).** Export: the list rows (filters apply) with `code`, name,
+catalogue brand, stock held, the ten card columns (product type as its label), `flavour_status`, `card_version`, confirmed, confirmed by /
+at and the warnings, through `CsvWriter` (UTF-8 BOM, formula-safe, I25). Import (`CsvReader`, I45): `code` required; the card columns
+optional; `card_version`, when filled in, must be the card's version now (a row someone changed on the screen since the export is
+refused, never overwritten); the export's read-only columns are read past; **any other column is refused** (400 `bad_file`: a typo
+like "nicotine" must not be dropped silently); one row per item. **An empty cell changes nothing** (clearing is done on the item page:
+a spreadsheet cannot tell "empty" from "not filled in"). The apostrophe `CsvWriter` put before a would-be formula is read past
+(`cell()`), so an untouched export imports as no change (tested, `=1+1` and `@risk` included). **All or nothing, in two steps
+(I120):** every row is checked against the cards as they are (bulk reads, no lock, no write; `ItemCards::check` and `plan`, the rules
+of a save), and a dry run stops there; a real run with no refused row then saves the changing rows in one transaction, each through
+`ItemCards::save` (version re-checked under the card's lock: a card changed between the steps refuses the whole file). The report
+lists every problem as "row N (CW-...), column: message" (N = the data row, spreadsheet row N + 1; the first 200 shown, all counted).
+Dry run by default on both the screen ("Check only") and the CLI (`--apply`). Each changed card is an `ItemCards::save` of kind
+`import` (history, audit); a flavour from a file is proposed; **a file never confirms a card**. Every run, dry runs included, is an
+`import_run` row (kind `item_cards`, 0016) with its counts and its origin (screen, or cli with the OS user); a real run is audited
+`item_card.import` with the origin. Limits (I120): the screen 2 MiB and at most 2,000 CHANGED rows (unchanged rows cost almost
+nothing, so the whole "holds stock" download fits; a changed row costs about 11–14 ms, I112, inside the UI pool's 60-second
+request), up to 20,000 rows; the CLI 32 MiB / 20,000 rows, at most 5,000 changes unless `--max-changes` (the changed cards stay
+locked until the run ends). On the screen the real run is inside FormOnce's transaction (one import however often the form and file
+are sent: the request hash covers the file's sha256), so the import's second step uses a savepoint of its own there (a joined
+`transaction()` rolls nothing back); a file refused as a whole there is recorded after the rollback.
+
+**I111. Invariants IC1–IC3 (`CatalogueInvariants`, called by `Invariants::check`, so nightly, by the hammer and after every stock
+test).** IC1: every card has history rows for exactly versions 1..version, and no history row is without a card. IC2: every card's
+values are its latest history row's snapshot (the held `confirmed_breaches` included, so a block lifted with SQL is found), and a
+confirm row's snapshot carries a confirmation (a card rewritten with SQL by the app login, which may UPDATE item_card, is found:
+tested). IC3: a barcode with an open review is unusable. GrantsTest runs the whole flow as
+a throwaway login with exactly the app login's rights (cards, confirm, blocked, the sync, a decision, add / units / remove, a CSV
+import) and checks that it cannot delete a card or rewrite the history or what a review found.
+
+**I112. Deviations, measurements, open items.**
+- *Not as the brief says, or beyond it:* the confirmation of a card that breaks a rule is allowed with an explicit acknowledgement,
+  not refused (I103: otherwise nothing could ever be blocked); the PO approval refuses a blocked item (the brief named receiving and
+  selling; ordering an item that may not be sold or received is the same rule one step earlier); a CSV import is all or nothing and
+  an empty cell changes nothing (I110); the screen's import is capped at 2,000 changed rows (I110, I120); `discontinued` sits beside the reorder
+  settings' `do_not_reorder` rather than replacing it (I105); single-use is a person's answer and the single-use product type needs it
+  (a CHECK and a 422), and "disposable" is not accepted as a product type (I104); `BarcodeSeeder` now adds a barcode with an open review
+  unusable (IC3).
+- *Files outside the brief's list:* `src/PurchaseOrders/{PurchaseOrders,PurchaseOrderHandler}.php` (the approval block and the
+  warnings), `src/Reorder/{ReorderList,DraftPos}.php`, `src/Ui/{Controller/ReorderController,views/reorder}.php` (the flags),
+  `src/Mapping/BarcodeSeeder.php`, `src/Matching/Gtin.php` (`checkDigit`), `tests/Integration/UiSecurityTest.php` (the new routes need a
+  sign-in), `docs/HANDOFF.md` (the open decisions).
+- *Measurements* (7 Oct 2026, slot `im3a`, a scratch probe on the slot's schema, not kept: 15,000 items, 8,200 holding stock, 15,000
+  linked listings with one EAN-13 each and 50 shared, 2,000 cards): a card write through `ItemCards::save` about **14 ms** (2,000 in
+  28.7 s, from a process on the staging box); the item cards list page 1 **308 ms** (holds stock + not confirmed 136 ms, breaks a rule
+  284 ms), its count 80 ms, the summary 229 ms; the CSV of all 15,000 items **0.62 s** (1.4 MB); the suggestions of one item 42 ms; the
+  barcode sync dry run **1.1 s**, the first real run **77 s** (14,950 barcodes added, 50 reviews, 50 made unusable: about 5 ms a written
+  barcode, each locked and re-checked), a second run **1.3 s** (14,950 already, 50 in review); a 5,000-row CSV import 36 s as a dry run of
+  unchanged rows, **56 s** when every row changes (about 11 ms a row: hence the screen's 2,000-row cap); every invariant 0.68 s. On
+  `cw_staging` the first sync will mostly find "already": `BarcodeSeeder` put the 13,082 origin-listing barcodes in on 30 Sep (M25).
+- *Tests* (7 Oct 2026): the full suite in slot `im3a`: `OK, but some tests were skipped! Tests: 847, Assertions: 18473, Skipped: 75`
+  (796 before this task, plus 51: 19 unit in `ItemRulesTest`, `GtinTest`, `ItemCardCheckTest` and the new `PermissionsTest` case; 32
+  integration: `Catalogue/` 20 with the two race tests, `Migration0016Test` 3, `ReorderItemCardTest` 1, `ItemCardScreensTest` 7 and the
+  new `GrantsTest` case; the 75 skipped are the HTTP screen and API tests of slots `ui`/`api`). In slot `ui`: `UiAuthTest`,
+  `UiReviewFlowTest`, `UiSecurityTest` (with the IM3 routes) and every `UiKernel` test: `OK (114 tests, 21094 assertions)`; the race
+  tests three times more: OK. In slot `api`, the seven `Api*Test`: `OK (35 tests, 2453 assertions)`. The hammer
+  (`--seed=20261007`, slot `im3a`): `RESULT: PASS (59 checks passed, 0 failed)`, 94 s. The matching golden tests: `{"passed":59,"failed":0}`.
+- *Open:* deploy 0016 and the code to `cw_staging` and run the sync's dry run there (the owner's go; nothing in this task touched
+  `cw_staging`); a nightly sync (no cron); the owner to confirm `catalogue.edit`'s roles (I109); IM6 (receiving) and IM10 (the site stock
+  writer) call `ItemCompliance` when they are built; the count gate (plan §7.4) may confirm the card's fields from the box when counts
+  are built (IM2); the card's fields are not in the API yet (nothing outside CW asks for them).
+
+**Review fixes (two reviews of the uncommitted IM3 tree, 7 Oct 2026; slot `im3d`).** Every blocker and important finding is fixed,
+and every minor and nit, except where I124 says why not.
+
+**I113. A block follows the last confirmation (review blocker / important: "the block is not sticky").** As first built, the block
+was computed from the values now plus `first_confirmed_at`, and an unknown value breaks nothing, so emptying the nicotine of a
+confirmed 12 ml 20 mg/ml e-liquid, retyping a 5 ml tank as an accessory or answering single-use "not known" again lifted the block
+with no confirmation (probed by both reviews), while an edit adding a breach to a confirmed card blocked the item at once with no
+acknowledgement. Now (`ItemRules::status`): `confirmed_breaches` keeps the rules the LAST confirmation acknowledged (no longer cleared
+when the card is edited; a CHECK allows it only once the card was confirmed, as a non-empty array), and they block until a person
+confirms the card again; while the card is confirmed, every rule its values break blocks too (a rule made stricter later); every
+other rule the values break is a warning. So a block always rests on a person's acknowledged confirmation, and only another
+confirmation lifts it (`confirm()` returns and records `lifted`; the notice "no longer blocked"). Emptying a field a confirmation
+needs also means the next confirmation needs it again (`missing()`). The alternative (refusing to empty a needed field on an enforced
+card, b in review 2) was not taken: it would not stop the retyping case, and the held rules cover all three. `sqlBlocked()` and
+`sqlFlagged()` are the same rules in SQL (the list's summary and filters; tested against `status()` on confirmed and edited cards);
+`IC2` compares the held rules too. Tests: `ItemRulesTest::testWarningsUntilConfirmedThenBlocksThatFollowTheLastConfirmation`,
+`ItemCardsTest::testNoEditLiftsABlock` (the four probes), `testWarningsUntilAPersonConfirmsThenBlocks`, the reorder and screen tests.
+
+**I114. A form save keeps a proposed flavour proposed (review important).** The card form posts every field, so saving it for any
+reason re-sent the flavour a CSV file had proposed and `apply()` confirmed it: a confirmation nobody made (the memory note "flavour
+is not a field"). Now (`ItemCards::plan`) a flavour sent back unchanged keeps its status for kind `change` (and `import`); only a NEW
+typed value, an accept, or the card's confirmation confirms it. The form marks a proposed flavour "proposed by a file, not
+confirmed" and says saving leaves it so. Tests: `ItemCardsTest::testAFormSaveKeepsAProposedFlavourProposed`,
+`ItemCardScreensTest::testTheFormKeepsAFileFlavourProposed`.
+
+**I115. A device / kit needs its tank capacity; 0 ml = none (review important).** `missing()` asked a device / kit only for the
+single-use answer, so a kit with a 3–5 ml tank could be confirmed "compliant" and the 2 ml rule never applied to kits, the commonest
+TRPR problem. Now a kit needs `liquid_ml` too, and 0 is its answer "comes without a tank or pod" (a mod, a battery): the parser
+accepts 0, `ItemCards::plan` refuses 0 on any other type (422 `card_invalid`, also when a kit at 0 ml is retyped), the CHECK
+`ck_item_card_ml` allows 0 for `device_kit` only, and the screens show "0 ml (no tank)". Tests: `ItemCardsTest::
+testAKitNeedsItsTankCapacityAndZeroMeansNone`, `ItemRulesTest`, `Migration0016Test`.
+
+**I116. A "move" is not taken back by the old holder's own listing (both reviews, important).** `decide('move')` closed only the
+claimant's review; the holder usually got the barcode from its own linked listing, so the next sync opened a reverse review and made
+the moved barcode unusable again (probed). Now the move writes, in its transaction, a decided `on_another_item` row for (barcode,
+old holder) with the new decision `moved_away` (0016's ENUM; a CHECK keeps it to decided `on_another_item` rows), or closes the
+holder's own open claim with it, and `KEEPS_AWAY` includes `moved_away`. Test: `BarcodeSyncTest::
+testAMoveIsNotUndoneByTheOldHoldersListing` (the holder's listing carries the barcode; two syncs after the move: nothing reopened,
+still usable; and a three-way case where the move answers the holder's own open claim).
+
+**I117. A barcode ruled shared stays unusable (review important) and a dismissed review frees a row added meanwhile (nit b).**
+keep_holder (and move, add) made the barcode usable whenever no other review was open, undoing a person's earlier "Shared by both:
+keep it unusable" for another claimant (probed with three items). Now usability comes back only when no other review is open AND no
+decided `unusable` review of the barcode is newer than its `sku_barcode` row (`BarcodeReviews::ruledShared`; the row's `created_at`
+scopes the ruling, so removing the barcode and adding it by hand starts afresh); the note says "kept unusable: barcode review N ruled
+it shared". Dismissing the last open review of a barcode now makes a row usable again when it was unusable only because of the review
+(its note carries "in barcode review", what every writer puts there). Tests: `BarcodeSyncTest::
+testASharedRulingIsNotUndoneByALaterKeep`, `testDismissingTheLastReviewFreesARowAddedMeanwhile`.
+
+**I118. The barcode sync and the seeder (review minors).**
+- *A removal during a sync chunk* (minor): `writeLocked()` now reads the pair's latest decision again after locking the barcode row,
+  so a person's removal committed after the chunk's prefetch is honoured (`testARemovalDuringASyncChunkIsHonoured`).
+- *Junk codes* (minor): the sync reads a value with anything but digits, spaces and hyphens as junk ("SKU-12345670" is no longer the
+  GTIN-8 12345670), a decimal number likewise, and skips GS1 restricted-circulation numbers (GTIN-13 020–029, 040–049, 200–299;
+  GTIN-8 2…); counted `junk_codes` / `restricted_codes` in the dry run. The matcher's `Gtin::listingKeys` is unchanged (the golden
+  tests), and a person may still add such a code by hand. Test: `testJunkAndRestrictedCodesAreSkipped`.
+- *A listing unlinked later* (minor) and *after a merge* (minor): counted, never changed: `source_unlinked` (barcodes from a listing,
+  sources `listing_sync` and `origin_listing`, whose listing is no longer linked to their item, as found before the run; the CLI
+  lists the first 20; `unlinkedSources()`), `review_holder_merged` (reviews whose holder was merged into the claimant); the queue
+  says so on such a row and pre-selects "move". A new review reason was rejected: the owner first sees the volume in the dry run.
+  Test: `testUnlinkedSourcesAndMergedHoldersAreCounted`.
+- *The seeder ignored decisions* (review 2, minor): `BarcodeSeeder` now skips a pair whose latest decision is in `KEEPS_AWAY`
+  (`skipped_decided` in its counts and log line), so a re-run of `seed_barcodes` or `mint_vpg` never undoes a person (and no longer
+  marks a kept barcode unusable again). Its clashes still make a barcode unusable without a review: ops.md now says to use
+  `sync_barcodes`. Test: `testTheSeederHonoursDecisions`.
+
+**I119. Receiving: dry products with no duty answer (review minor).** `receiving()` said `stamp_required` for every item whose card
+does not answer duty-liable, coils, tanks and accessories included, so from 1 Jan 2027 IM6 would have refused unstamped hardware.
+Now a card that names a dry type with duty NULL gives `stamp_required` false (`duty_unknown` stays true). An item with NO card stays
+fail-closed (duty-liable), as decision 8 reads; **open for the owner** before IM6: give the hardware cards before 1 Jan 2027, or
+decide that IM6 asks the receiver. Test: `ItemCardsTest::testWhatReceivingAsks`.
+
+**I120. The CSV import (review 2 important; review 1 minor).** The screen refused any file over 2,000 rows, so the main job (the
+8,199 items holding stock) could not go through it, while the cost is in the rows that CHANGE a card. Now the import checks every row
+first without a lock or a write (bulk reads; `ItemCards::check` + `plan`), counts the changing rows, and refuses the whole file only
+when they exceed the cap (`too_many_changes`, 413, saying what to do): 2,000 on the screen (which now reads up to 20,000 rows within
+its 2 MiB), 5,000 by default on the CLI (`--max-changes`, up to 20,000). Only a real run takes locks, and only on the changing cards.
+In the screen's FormOnce transaction a deadlock is rethrown as itself (InnoDB rolled the whole transaction back, so the savepoint is
+gone; `ROLLBACK TO` would have replaced the 1213 with a 1305 and defeated the retry), and a lock wait (1205) on a row refuses the file
+with "import it again in a minute" instead of a 500. A file refused as a whole on the screen's "Save the changes" is recorded after
+FormOnce's rollback (nit c; `recordRefused`). Every run records its origin (`screen`, or `cli` with the OS user) in `import_run.summary`
+and the `item_card.import` audit (review 2 nit). Measured (7 Oct 2026, slot `im3d`, a scratch probe not kept: 15,000 items, 2,000
+cards): the export 0.62 s and 1.38 MB; the check of the untouched 15,000-row export **1.0 s** (dry run and real run alike; before,
+about 7 ms a row: 36 s for 5,000 rows); a real run changing 2,000 cards **28.9 s** (14 ms a card, inside the 60-second request).
+Tests: `ItemCardCsvTest::testTheCapCountsChangedRowsOnly`,
+`testACardChangedDuringTheImportRefusesTheFile`, `testTheCli`, `ItemCardScreensTest::testTheCsvImportScreen`.
+
+**I121. Say what a block stops today (review 2 important).** The banner, the confirm refusal and the notice said a blocked item
+"cannot be ordered, received or sold", but only the reorder list and PO approval refuse it until IM6 and IM10 exist, and the website
+keeps selling it. `ItemCards::BLOCK_EFFECT` is now the one sentence every screen uses: "it is never suggested for reorder, and a
+purchase order with it cannot be approved. CW does not stop receiving or website sales yet: take it off sale on the website by hand."
+Items › Item cards gains a **Blocked** filter (most stock first) for that hand work; `HANDOFF.md` is corrected. Change the sentence
+when IM6 and IM10 call `ItemCompliance`.
+
+**I122. PO approval reads the cards FOR SHARE (review minor).** `statusOf()`, `blocked()`, `assertAllowed()` and `receiving()` take
+`$lock`; `PurchaseOrderHandler::validate` passes true, so a confirmation committing during an approval is either seen or waits for it.
+IM6 (receiving) and IM10 (selling) are write paths and must pass true too.
+
+**I123. Smaller screen and parser changes (reviews' minors and nits).** "pod" / "pods" are no longer product-type spellings (in UK
+retail often an EMPTY refillable pod; "prefilled pod(s)" stays); removing a barcode is behind "Remove…" with what it does; the
+"barcode on another item" refusal links to that item; the reorder tags name the rule ("blocked by its item card: tank or pod over
+2 ml") and "create draft PO" names it in its skipped reason (nit a); the confirm box reads "I checked the packaging"; I103 cites the
+IM3 rule; two docblocks corrected; `ItemRules::scaled` refuses a float, a bool or an array (a computed value must never skip a rule
+silently) instead of reading it as "unknown".
+
+**I124. Not taken, and the tests.**
+- Not taken: committing the CLI import every N rows (a "partial" mode): it would break "a file with any refused row changes
+  nothing"; the changed-row cap and the lock-free check do the job. A new review reason for unlinked sources (I118). Refusing to
+  empty a needed field on a confirmed card (I113).
+- *Tests* (7 Oct 2026, slot `im3d`): the full suite: `OK, but some tests were skipped! Tests: 860, Assertions: 18652,
+  Skipped: 75` (847 after I112, plus 13: `ItemCardsTest` 3, `ItemCardCsvTest` 2, `BarcodeSyncTest` 7, `ItemCardScreensTest` 1; the 75
+  skipped are the HTTP screen and API tests of slots `ui`/`api`). In slot `ui`: `UiAuthTest` (13), `UiReviewFlowTest` (14),
+  `UiSecurityTest` (11) and every `UiKernel` test (77): `OK (115 tests)`. In slot `api`, the seven `Api*Test`: `OK (35 tests, 2453
+  assertions)`. The hammer (`--seed=20261007`, slot `im3d`): `RESULT: PASS (59 checks passed, 0 failed)`, 102 s. The matching golden
+  tests: `{"passed":59,"failed":0}`.
+

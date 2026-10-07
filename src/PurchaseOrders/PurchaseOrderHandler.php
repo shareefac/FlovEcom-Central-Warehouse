@@ -6,6 +6,7 @@ namespace CW\PurchaseOrders;
 
 use CW\Audit;
 use CW\Caller;
+use CW\Catalogue\ItemCompliance;
 use CW\Clock;
 use CW\CwException;
 use CW\Db;
@@ -106,6 +107,17 @@ final class PurchaseOrderHandler implements DocumentHandler
         }
         if (count($poLines) !== count($lines)) {
             throw new CwException('po_line_missing', 'the purchase order details do not match its lines: save the draft again', 422);
+        }
+        // IM3 (I103, I113): an item a person confirmed breaks a TRPR or the single-use rule is not ordered (422 item_blocked). The cards
+        // are read FOR SHARE (I122): a confirmation committing during the approval is seen, or waits until the approval is done.
+        $skus = [];
+        foreach ($lines as $l) {
+            if (($l['sku_id'] ?? null) !== null) {
+                $skus[] = (int) $l['sku_id'];
+            }
+        }
+        if ($skus !== []) {
+            (new ItemCompliance($db))->assertAllowed($skus, 'order', true);
         }
     }
 

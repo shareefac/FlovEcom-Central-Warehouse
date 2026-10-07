@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Ui\Controller;
 
 use CW\Audit;
+use CW\Catalogue\ItemRules;
 use CW\CwException;
 use CW\Db;
 use CW\Documents\Documents;
@@ -49,7 +50,8 @@ final class ReorderController
     public const FLAG_TEXT = ['urgent' => 'urgent', 'no_supplier' => 'no preferred supplier', 'supplier_draft' => 'supplier not approved yet',
         'supplier_pending_approval' => 'supplier waiting for approval', 'supplier_inactive' => 'supplier inactive', 'no_price' => 'no last price', 'merged' => 'merged',
         'do_not_reorder' => 'do not reorder', 'no_history' => 'no sales history', 'site_stock_unreliable' => 'site stock not reliable',
-        'in_draft' => 'already in a draft order'];
+        'in_draft' => 'already in a draft order', 'discontinued' => 'discontinued (item card)', 'card_blocked' => 'blocked by its item card',
+        'card_warning' => 'item card warning'];
     public const SKIPPED_IN_URL = 50;
     /** The most linked items "Recalculate" rebuilds inside a UI request (I84); more: bin/reorder_demand.php. */
     public const UI_REBUILD_MAX_ITEMS = 3000;
@@ -272,7 +274,10 @@ final class ReorderController
         $pages = max(1, intdiv(count($all) + ReorderList::PAGE - 1, ReorderList::PAGE));
         $page = min($pages, max(1, (int) (UiRequest::id($ctx->req->param('page') ?? $ctx->req->field('page')) ?? 1)));
         $rows = array_map(static fn (array $l): array => $l + ['show_per_day' => ReorderList::perDay($l['d_e6']), 'show_value' => ReorderList::money($l['value_e4']),
-            'show_cover' => ReorderList::cover($l['cover_now_e1'])], $list->explain(array_slice($all, ($page - 1) * ReorderList::PAGE, ReorderList::PAGE)));
+            'show_cover' => ReorderList::cover($l['cover_now_e1']),
+            // The item card's tags name the rules (I123): "blocked by its item card: tank or pod over 2 ml".
+            'flag_rules' => ['card_blocked' => ItemRules::labels($l['card_blocked']), 'card_warning' => ItemRules::labels($l['card_warnings'])]],
+            $list->explain(array_slice($all, ($page - 1) * ReorderList::PAGE, ReorderList::PAGE)));
         $me = $ctx->me();
         $canDraft = Documents::mayPost($me->roles, 'PO');
         $notice = $this->notice($ctx);
@@ -319,6 +324,7 @@ final class ReorderController
             foreach ($this->list($ctx)->lines(ReorderList::filters(['show' => 'all']), $skus) as $l) {
                 $skipped[] = ['sku_id' => $l['sku_id'], 'code' => $l['code'], 'name' => $l['name'], 'reason' => match (true) {
                     $l['never'] !== null && in_array('merged', $l['flags'], true) => (string) $l['never'],
+                    in_array('card_blocked', $l['flags'], true) => 'blocked by its item card: ' . ItemRules::labels($l['card_blocked']),
                     $l['supplier_item_id'] === null => 'no preferred supplier',
                     $l['supplier_status'] === 'inactive' => "preferred supplier {$l['supplier']} is inactive",
                     default => 'skipped',

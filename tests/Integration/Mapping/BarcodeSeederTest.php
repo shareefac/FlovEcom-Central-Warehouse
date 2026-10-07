@@ -30,7 +30,7 @@ final class BarcodeSeederTest extends MappingTestCase
         self::assertSame(['items' => 3, 'with_barcodes' => 2, 'unusable_codes' => 3], array_intersect_key($dry, ['items' => 1, 'with_barcodes' => 1, 'unusable_codes' => 1]));
 
         $r = $seeder->seed(Caller::system('test'));
-        self::assertSame(['items' => 3, 'with_barcodes' => 2, 'added' => 2, 'already' => 0, 'unusable_codes' => 3, 'clashes' => 1], $r);
+        self::assertSame(['items' => 3, 'with_barcodes' => 2, 'added' => 2, 'already' => 0, 'unusable_codes' => 3, 'clashes' => 1, 'skipped_decided' => 0], $r);
         self::assertSame([
             ['barcode' => '4006381333931', 'sku_id' => $a, 'is_usable' => 1, 'source' => 'origin_listing'],
             ['barcode' => '5012345678900', 'sku_id' => $a, 'is_usable' => 0, 'source' => 'origin_listing'],

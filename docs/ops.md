@@ -131,6 +131,13 @@ write `action = 'split'`, which the old ENUM refuses; the CLI tools refuse a sch
 `php bin/migrate.php --status` lists no PENDING file; `SHOW CREATE TABLE match_decision` has `'split'` in the action ENUM and
 `ck_match_decision_split`; the Duplicates screen (Linking -> Duplicates) lists 145 groups.
 
+**`0016_item_cards.sql` (IM3 item cards and barcodes, I100–I124; not applied yet):** three new tables (`item_card`: cw_app SELECT,
+INSERT, UPDATE; `item_card_change`: SELECT, INSERT; `barcode_review`: SELECT, INSERT and UPDATE of its decision columns) and
+`import_run.kind` + `item_cards`; no seeds, no backfill. Deploy it with the code of the same change in one `install_cron.sh --migrate`
+run, never the code first (the item page, the reorder list and PO approval read `item_card`). On `cw_staging` (at 0015) it is the only
+PENDING file. Check afterwards: the three tables exist and are empty; `php bin/migrate.php --status` lists no PENDING file;
+`php bin/invariants.php` says `ok` (it now runs IC1–IC3 too). Then the dry run of the barcode sync ("Item cards and barcodes" below).
+
 ### API log rotation (staging)
 
 `install_api.sh` installs `/etc/cw/logrotate-cw-api.conf` (from `deploy/staging/logrotate-cw-api.conf`)
@@ -1495,3 +1502,137 @@ rm -rf data/rehearsal                                                         # 
 It builds `cw_test_<slot>_rh`, imports both listing exports, links only the Vape and Go listings of Elux, Lost Mary and
 Bar Juice 5000, loads both sales exports, builds the demand, checks the stockpiling window, Elux's promotion and its demand
 against the plain average, prints the numbers on stderr and drops the schema (about 8 minutes).
+
+## Item cards and barcodes, Phase I-3 (IM3; `docs/decisions.md` I100–I124)
+
+The legal and buying fields of every item (product type, liquid ml, nicotine mg/ml, duty-liable, single-use, ECID / GB-ID,
+manufacturer, brand, flavour, discontinued), the TRPR and single-use rules, outer-case barcodes, the barcode sync from the sites
+and its review queue. Nothing here books stock. **Not deployed to `cw_staging` yet:** it needs migration 0016 and the code
+together ("Deploying IM3 to staging" below), after the owner's go.
+
+### Who does what (provisional, owner to confirm: I109)
+
+| Screen | Permission | Roles |
+|---|---|---|
+| Items › **Item cards** (`/ui/items/cards`, `.csv`), the Item card and Barcodes sections of `/ui/items/{id}` | `catalogue.view` | all 14 roles |
+| the card form (`/ui/items/{id}/card`), "Use this" (a suggestion), "Confirm the card", add / remove a barcode, units per scan, the CSV import (`/ui/items/cards/import`), Items › **Barcode review** (`/ui/items/barcodes`) | `catalogue.edit` | mapping_lead, stock_controller, purchasing_manager (never admin) |
+
+### What the rules do (I102, I103, I113)
+
+- **TRPR** (reg 36): a nicotine refill (e-liquid, shortfill, nic shot) over 10 ml; a tank, prefilled pod, device / kit or
+  single-use vape holding over 2 ml; nicotine over 20 mg/ml. **Single-use**: a person answered "single-use: yes" (never assumed
+  from "disposable"). A device / kit cannot be confirmed without the capacity of its tank or pod: **0 ml = it comes without one**
+  (a mod or a battery; I115).
+- **Until a person confirms the card's fields: a warning** (the item page, the item cards list, the reorder list's flag
+  "item card warning: <rule>", the PO editor's warnings). Nothing is refused.
+- **What a person confirmed blocks, until a person confirms the card again.** Confirming a card that breaks a rule needs the box
+  "I checked the packaging: these fields are right, and the item will be blocked". Editing the card afterwards (correcting 5 ml to
+  2 ml, emptying a field, retyping the product type, "single-use: not known") makes it "changed since it was confirmed" but **does
+  not lift the block**: someone must confirm the corrected card. A rule an edit breaks on a card confirmed compliant is a warning
+  until someone confirms the card with it. So a block always rests on a person's acknowledged confirmation (I113).
+- **What a block stops today:** it is never suggested on the reorder list, "create draft PO" skips it, and a purchase order with it
+  is refused at approval (422 `item_blocked`). **CW does not stop receiving or website sales yet** (IM6 and IM10 will, through
+  `CW\Catalogue\ItemCompliance`): take a blocked item off sale on the website by hand. Items › Item cards › tick **Blocked**
+  lists them, most stock first (I121).
+- **Discontinued**: never suggested on the reorder list (as "do not reorder"); a buyer can still order it on purpose.
+- **Duty** (for receiving, IM6): an item whose card does not answer duty-liable is treated as duty-liable (an unstamped delivery
+  of it is refused, decision 8), except a card that names a coil, tank or accessory (no liquid). Items with no card at all are
+  treated as duty-liable: give the hardware a card before 1 Jan 2027 (I119).
+
+### The catalogue work
+
+1. Items › **Item cards**, ticked "Holds stock" and "Card: Not confirmed": the items holding stock, most stock first (8,199 on
+   staging). Download the CSV (the list's filters apply), fill in `product_type`, `liquid_ml`, `nicotine_mg`, `duty_liable`,
+   `single_use` (yes / no), `ecid`, `manufacturer`, `brand`, `flavour`, `discontinued` in Excel, save as CSV, and import it
+   (Items › Item cards › **Import a CSV file**): **Check only** first, then **Save the changes**.
+   - The screen takes the whole download (up to 2 MiB): unchanged rows cost almost nothing. **At most 2,000 items may change in
+     one import**; a file that would change more is refused whole (`too_many_changes`): delete the rows you did not change, or
+     import it in parts (filter the list, e.g. by product type or brand, and download each part) (I120).
+   - An empty cell changes nothing. A file with any refused row changes nothing at all: the page lists every problem
+     ("Row 12 (CW-000123), nicotine_mg: ..."; row 12 is spreadsheet row 13); correct them and import the whole file again.
+   - Keep `card_version` from the export: a row whose card someone changed on the screen since is refused, not overwritten.
+   - A flavour from a file is "proposed"; it becomes confirmed on the item page ("Confirm this flavour", or when the card is
+     confirmed). Saving the card form for another field leaves it proposed (I114). **A file never confirms a card.**
+   - Product types in a file: `e-liquid`, `shortfill`, `nicotine shot`, `prefilled pod`, `device / kit`, `single-use vape`,
+     `coil`, `tank`, `accessory`. A bare "pod" is refused (it may be an empty refillable pod: say `prefilled pod` or `accessory`).
+2. On each item's page: check the fields against the box, use the suggestions that are right ("Use this": from the matcher's
+   identity card and the linked listings), then **Confirm the card: these fields are right**.
+
+More than 2,000 changes, or a file over 2 MiB, goes through the CLI (up to 32 MiB / 20,000 rows; by default at most 5,000
+changes, `--max-changes` up to 20,000), on the staging box in `/opt/cw-staging` (app login; the slots:
+`scripts/remote.sh <slot> php bin/... --db=cw_test_<slot> --admin`). The cards a real run changes stay locked until it ends
+(about 14 ms a card), so a person saving one of them waits: run big files at a quiet time, or in parts.
+
+```bash
+php bin/import_item_cards.php --file=/srv/cw-import/cards.csv --staff=<e-mail of a catalogue.edit person>        # dry run (no lock, no write)
+php bin/import_item_cards.php --file=/srv/cw-import/cards.csv --staff=<e-mail> --apply --report=/tmp/cards-report.csv
+```
+
+Exit codes: 0 done · 1 refused rows or a refused file (nothing saved) · 2 usage, or `--staff` cannot change item cards · 3 cannot
+run. Every run, dry runs included, is an `import_run` row (kind `item_cards`; `summary.origin` says `screen` or `cli` with the
+OS user); each changed card has its history row and `item_card.change` audit row (kind `import`); a real run is audited
+`item_card.import` (with the origin). A file the screen refuses as a whole on "Save the changes" is recorded too (I120).
+
+### The barcode sync (`bin/sync_barcodes.php`, I106–I108, I116–I118)
+
+The barcodes the sites hold for linked listings (`listing_profile.barcodes`) into the items' barcodes. A barcode no item has is
+added (1 unit a scan); one already on another item, or a new one on a multipack listing (units per item ≠ 1), goes to Items ›
+**Barcode review** — never moved. A barcode found on two items is unusable on the item that has it until a person decides.
+Stricter than the matcher: a value with letters ("SKU-12345670") and GS1 restricted-circulation numbers (in-store and internal
+codes: GTIN-13 020–029, 040–049, 200–299; GTIN-8 2…) are skipped and counted.
+
+```bash
+# on the staging box, in /opt/cw-staging (app login), after the deploy with 0016
+php bin/sync_barcodes.php                          # DRY RUN: what it would do; writes nothing
+php bin/sync_barcodes.php --apply --limit=500      # a canary: the first 500 linked listings
+php bin/sync_barcodes.php --apply                  # the rest (idempotent: what is done is "already")
+php bin/sync_barcodes.php --apply --channel=electrofag
+```
+
+The log line: `listings`, `codes` (usable GTINs), `unusable_codes` (skipped; of which `junk` = letters in the value, `restricted`
+= restricted-circulation numbers), `already`, `skipped_decided` (a person decided that barcode for that item: kept elsewhere,
+unusable, not added, removed it, or moved it away), `in_review`, `added`, `review_on_another_item` (of which `holder_merged`: the
+item that has it was merged into the listing's item), `review_multipack_listing`, `made_unusable`, `raced` (another writer added
+it at the same moment: the next run sees it), `open_reviews_now`, `source_unlinked` (barcodes added earlier from a listing that
+is no longer linked to their item, as found before the run; the first 20 are listed under the line). The sync never changes
+those: a person checks each on the item page and removes what is wrong. Exit 0 also when reviews were opened (they are work for
+people). A real run writes one `sku_barcode.sync` audit row. **No cron is installed**: when the owner wants it nightly, after the
+listing pushes (`PUT /v1/listings` or `bin/import_listings.php`), add `php bin/sync_barcodes.php --apply` to the staging crontab,
+after a decision on who watches the review queue. Use `sync_barcodes`, not `seed_barcodes`, from now on: the seeder marks a clash
+unusable without opening a review (it does honour the decisions people made, I118).
+
+**The review queue** (Items › Barcode review; the menu shows the open count to the people who decide):
+- *on another item*: "It belongs to the item that has it" (the site's listing carries a wrong barcode: correct it on the
+  site), "It belongs to the listing's item: move it there" (with its units per scan; the item it leaves is recorded so its own
+  listing does not claim it back, I116), or "Shared by both: keep it unusable" (a box or catch-all code). When the item that has
+  it was merged into the listing's item, the queue says so and "move" is chosen for you.
+- *multipack listing*: "Add it to the listing's item" (units per scan: the listing's units per item unless typed: 10 for a
+  10-pack's own barcode, 1 when the listing carries the single unit's barcode), or "Do not add it".
+- A barcode becomes usable again only when its last open review is decided, and never after a person ruled it shared (a later
+  "keep" or "move" for another item keeps it unusable and says so; to use it again, remove it from the item and add it by hand,
+  I117). A decision that no longer fits (someone moved or removed the barcode meanwhile) is refused and says where it is now.
+
+**On an item's page** (Barcodes): add a barcode (8, 12, 13 or 14 digits with a valid check digit; the page says the right last
+digit when only that is wrong) with its **units per scan** (an outer case: "this barcode = 10 units"; receiving (I-3) will count
+a scan of it as 10; a purchase order line found by scanning it is the supplier's pack of that size when there is one), change the
+units per scan, or remove a barcode ("Remove…" opens the reason and the button; recorded, so neither the sync nor the seeder adds
+it back to that item; adding it by hand again is allowed). A barcode belongs to one item: one already on another item is refused
+with a link to that item.
+
+### Deploying IM3 to staging (the owner's go first)
+
+`0016_item_cards.sql` is the only PENDING file on `cw_staging` (at 0015): three new tables (`item_card`, `item_card_change`,
+`barcode_review`), and `import_run.kind` gains `item_cards`. No backfill, no seed. Deploy it with the code of the same commit in
+one run, never the code first (the item page reads `item_card`):
+
+```bash
+scripts/remote.sh <slot> vendor/bin/phpunit                                  # green first
+scripts/remote.sh hammer bash deploy/staging/install_cron.sh --migrate       # code to /opt/cw-staging + 0016 + grants + smoke-run
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/migrate.php --db=cw_staging --status'   # no PENDING file
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/invariants.php --db=cw_staging'         # ok (IC1-IC3 included)
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/sync_barcodes.php --db=cw_staging'      # the dry run: read it before --apply
+```
+
+Check afterwards: the three tables exist and are empty; cw_app holds SELECT, INSERT, UPDATE on `item_card` (no DELETE), SELECT,
+INSERT on `item_card_change`, SELECT, INSERT and UPDATE of the decision columns only on `barcode_review` (`bin/migrate.php`
+converges the grants); Items › Item cards opens (every item not merged away, 0 cards) and Items › Barcode review is empty.

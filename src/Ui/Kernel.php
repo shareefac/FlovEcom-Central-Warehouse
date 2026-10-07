@@ -11,11 +11,13 @@ use CW\ConfigException;
 use CW\CwException;
 use CW\Db;
 use CW\Ui\Controller\AuthController;
+use CW\Ui\Controller\BarcodesController;
 use CW\Ui\Controller\CompanyController;
 use CW\Ui\Controller\DashboardController;
 use CW\Ui\Controller\DocumentsController;
 use CW\Ui\Controller\DuplicatesController;
 use CW\Ui\Controller\FilesController;
+use CW\Ui\Controller\ItemCardsController;
 use CW\Ui\Controller\ItemController;
 use CW\Ui\Controller\PeopleController;
 use CW\Ui\Controller\PurchaseOrdersController;
@@ -266,6 +268,24 @@ final class Kernel
         $r->add('GET', '/ui/review/samples/{id}', 'linking.view', $samples->show(...));
         $r->add('GET', '/ui/items/{id}', 'catalogue.view', $items->show(...));
         $r->add('GET', '/ui/search', 'catalogue.view', $search->index(...));
+        // The item card and barcodes (IM3, I100-I112): everyone with catalogue.view reads the cards list and the item page; the
+        // catalogue team (catalogue.edit, checked again by CW\Catalogue\*, never admin) changes cards, barcodes and decides the
+        // barcode review.
+        $cards = new ItemCardsController();
+        $barcodes = new BarcodesController();
+        $r->add('GET', '/ui/items/cards', 'catalogue.view', $cards->index(...));
+        $r->add('GET', '/ui/items/cards.csv', 'catalogue.view', $cards->csv(...));
+        $r->add('GET', '/ui/items/cards/import', 'catalogue.edit', $cards->importForm(...));
+        $r->add('POST', '/ui/items/cards/import', 'catalogue.edit', $cards->import(...));
+        $r->add('GET', '/ui/items/{id}/card', 'catalogue.edit', $cards->form(...));
+        $r->add('POST', '/ui/items/{id}/card', 'catalogue.edit', $cards->save(...));
+        $r->add('POST', '/ui/items/{id}/card/accept', 'catalogue.edit', $cards->accept(...));
+        $r->add('POST', '/ui/items/{id}/card/confirm', 'catalogue.edit', $cards->confirm(...));
+        $r->add('POST', '/ui/items/{id}/barcodes', 'catalogue.edit', $barcodes->add(...));
+        $r->add('POST', '/ui/items/{id}/barcodes/remove', 'catalogue.edit', $barcodes->remove(...));
+        $r->add('POST', '/ui/items/{id}/barcodes/units', 'catalogue.edit', $barcodes->setUnits(...));
+        $r->add('GET', '/ui/items/barcodes', 'catalogue.edit', $barcodes->queue(...));
+        $r->add('POST', '/ui/items/barcodes/{id}/decide', 'catalogue.edit', $barcodes->decide(...));
         // People and roles (I13): admin and auditor look, admin changes.
         $r->add('GET', '/ui/people', 'staff.view', $people->index(...));
         $r->add('GET', '/ui/people/{id}', 'staff.view', $people->show(...));

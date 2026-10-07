@@ -37,10 +37,12 @@ final class Grants
      * added, never rewritten or removed, so who changed and who confirmed what stays readable.
      * key_bulk_hold: a listing held back from every Key bulk confirm, and the release of a hold (0014, M30): a release is a row
      * of its own, so the bulk confirm trusts the holds and who held or released what and why stays readable.
+     * item_card_change: the history of every item card write (0016, I101): the app login may UPDATE item_card itself, so the
+     * nightly invariants compare each card with its last history row, which the app login can add but never rewrite.
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
         'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
-        'key_sample_member', 'company_profile', 'key_bulk_hold'];
+        'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -48,7 +50,8 @@ final class Grants
      * last_seq; the item id is never rewritten and a clock row is never deleted, I3), a role grant's revocation
      * (who held which role when stays readable: a grant is revoked, never rewritten or deleted, I10), a number series'
      * last number (I20), a review task's decision (I19), and a document's state columns: its identity (id, type,
-     * creator, creation time, the document it reverses) is frozen and a document is never deleted (I17).
+     * creator, creation time, the document it reverses) is frozen and a document is never deleted (I17). A barcode review's
+     * decision (0016, I107): what was found (the barcode, the items, the listing) is frozen, a row is never deleted.
      */
     public const UPDATE_COLUMNS = [
         'match_proposal' => ['status'],
@@ -61,6 +64,7 @@ final class Grants
         'document' => ['number', 'status', 'version', 'external_ref', 'doc_date', 'warehouse_id', 'reason_code', 'note', 'updated_at',
             'submitted_by', 'submitted_at', 'posted_by', 'posted_actor', 'posted_at', 'posted_hash', 'cancelled_by', 'cancelled_at',
             'cancel_reason', 'review_state'],
+        'barcode_review' => ['status', 'decision', 'decided_units', 'decided_by', 'decided_actor', 'decided_at', 'note'],
     ];
     /**
      * reason_code / document_type: seeded reference lists, changed only by a migration (I22, I19). app_setting: changed by
@@ -77,10 +81,12 @@ final class Grants
      * with their document_line, ON DELETE CASCADE). A sales-history import batch (its row stays when a later batch replaces its
      * days: the history of what was loaded, I-2 I61) and an anomaly window (ended, never deleted: who excluded which days stays
      * readable, I66). The sales-history tables, the reorder settings and reorder_demand keep FULL rights: an import replaces
-     * its days, the demand is rebuilt (DELETE + INSERT in one transaction).
+     * its days, the demand is rebuilt (DELETE + INSERT in one transaction). An item card (0016, I101): changed, never removed.
+     * sku_barcode keeps FULL rights: a person removes a barcode from an item (the removal is recorded in barcode_review and
+     * audit_log, and the barcode can then go to another item: it is the table's key).
      */
     public const NO_DELETE = ['channel_listing', 'listing_profile', 'sku', 'staff_user', 'supplier', 'supplier_item', 'import_run', 'purchase_order',
-        'sales_import_batch', 'demand_anomaly'];
+        'sales_import_batch', 'demand_anomaly', 'item_card'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

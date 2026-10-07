@@ -6,6 +6,7 @@ namespace CW\Mapping;
 
 use CW\Audit;
 use CW\Caller;
+use CW\Catalogue\BarcodeReviews;
 use CW\Db;
 use CW\Matching\Gtin;
 
@@ -18,7 +19,10 @@ use CW\Matching\Gtin;
  *
  * Idempotent: a key already recorded for the item is left alone. A key already on ANOTHER item is not
  * added twice (sku_barcode is keyed by barcode): the existing row is marked unusable (is_usable = 0,
- * "0 while the barcode is found on 2 items") and the clash is counted, never resolved here.
+ * "0 while the barcode is found on 2 items") and the clash is counted, never resolved here (bin/sync_barcodes.php opens the
+ * barcode review for it). A key a person decided away from the item (the latest barcode review of the pair is in
+ * CW\Catalogue\BarcodeReviews::KEEPS_AWAY: removed by a person, kept on another item, ruled unusable, not added, moved away) is
+ * skipped and counted `skipped_decided`, as the sync does (IM3, I118): a re-run never undoes a person's decision.
  * One transaction per chunk of items; one audit row per run.
  */
 final class BarcodeSeeder
@@ -32,11 +36,11 @@ final class BarcodeSeeder
 
     /**
      * @param list<int>|null $skuIds only these items (null: every item that has an origin listing)
-     * @return array{items: int, with_barcodes: int, added: int, already: int, unusable_codes: int, clashes: int}
+     * @return array{items: int, with_barcodes: int, added: int, already: int, unusable_codes: int, clashes: int, skipped_decided: int}
      */
     public function seed(Caller $caller, ?array $skuIds = null, bool $dryRun = false): array
     {
-        $c = ['items' => 0, 'with_barcodes' => 0, 'added' => 0, 'already' => 0, 'unusable_codes' => 0, 'clashes' => 0];
+        $c = ['items' => 0, 'with_barcodes' => 0, 'added' => 0, 'already' => 0, 'unusable_codes' => 0, 'clashes' => 0, 'skipped_decided' => 0];
         $ids = $skuIds ?? array_map('intval', $this->db->column('SELECT id FROM sku WHERE origin_listing_id IS NOT NULL ORDER BY id'));
         foreach (array_chunk($ids, self::CHUNK) as $chunk) {
             $rows = $this->db->all(
@@ -69,16 +73,26 @@ final class BarcodeSeeder
                 continue;
             }
             $done = $this->db->transaction(function (Db $db) use ($work): array {
-                $n = ['added' => 0, 'already' => 0, 'clashes' => 0];
+                $n = ['added' => 0, 'already' => 0, 'clashes' => 0, 'skipped_decided' => 0];
                 foreach ($work as [$skuId, $code, $listingId, $keys]) {
                     foreach ($keys as $key) {
                         $have = $db->one('SELECT sku_id, is_usable FROM sku_barcode WHERE barcode = ? FOR UPDATE', [$key]);
-                        if ($have === null) {
-                            $db->exec('INSERT INTO sku_barcode (barcode, sku_id, is_usable, units_per_scan, source, note) VALUES (?, ?, 1, 1, ?, ?)',
-                                [$key, $skuId, self::SOURCE, "listing {$listingId}"]);
-                            $n['added']++;
-                        } elseif ((int) $have['sku_id'] === $skuId) {
+                        if ($have !== null && (int) $have['sku_id'] === $skuId) {
                             $n['already']++;
+                            continue;
+                        }
+                        $latest = $db->value("SELECT decision FROM barcode_review WHERE barcode = ? AND claimant_sku_id = ? AND status = 'decided' ORDER BY id DESC LIMIT 1",
+                            [$key, $skuId]);
+                        if ($latest !== null && in_array((string) $latest, BarcodeReviews::KEEPS_AWAY, true)) {
+                            $n['skipped_decided']++;
+                            continue;
+                        }
+                        if ($have === null) {
+                            // A barcode with an open barcode review (0016, I107) goes in unusable: the review decides.
+                            $inReview = $db->value("SELECT 1 FROM barcode_review WHERE barcode = ? AND status = 'open' LIMIT 1", [$key]) !== null;
+                            $db->exec('INSERT INTO sku_barcode (barcode, sku_id, is_usable, units_per_scan, source, note) VALUES (?, ?, ?, 1, ?, ?)',
+                                [$key, $skuId, $inReview ? 0 : 1, self::SOURCE, "listing {$listingId}" . ($inReview ? ' (in barcode review)' : '')]);
+                            $n['added']++;
                         } else {
                             $n['clashes']++;
                             if ((int) $have['is_usable'] === 1) {
