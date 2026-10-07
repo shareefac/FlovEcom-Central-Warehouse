@@ -1,7 +1,7 @@
 <h1>Item cards</h1>
 <p class="muted">The legal and buying fields of every item, the items holding the most stock first. A card that breaks a rule is a warning until a person
-  confirms its fields; after that it blocks the item until a person confirms the card again. A block stops reorder suggestions and purchase order approvals;
-  it does not stop receiving or website sales yet: take a blocked item off sale on the website by hand.</p>
+  confirms its fields; after that it blocks the item until a person confirms the card again. A block stops reorder suggestions, purchase order approvals
+  and receiving, and CW writes it Out-Of-Stock on every website whose site stock writer is on; on the others take a blocked item off sale by hand.</p>
 <ul class="plain summary-line">
   <li><?= $n($summary['items']) ?> items, <?= $n($summary['with_stock']) ?> holding stock</li>
   <li><?= $n($summary['cards']) ?> with a card, <?= $n($summary['confirmed']) ?> confirmed (<?= $n($summary['confirmed_with_stock']) ?> of the items holding stock)</li>

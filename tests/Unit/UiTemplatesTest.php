@@ -18,7 +18,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class UiTemplatesTest extends TestCase
 {
-    private const HELPERS = ['e', 'n', 'dec', 'dt', 'u', 'pct', 'partial'];
+    private const HELPERS = ['e', 'n', 'dec', 'dt', 'uk', 'u', 'pct', 'partial'];
 
     /** @return array<string, string> file name => source */
     private static function templates(): array
@@ -37,7 +37,7 @@ final class UiTemplatesTest extends TestCase
             'home', 'people', 'person', 'documents', 'document', 'reviews', 'reasons', 'series', 'settings', 'suppliers', 'supplier', 'supplier_form',
             'supplier_items', 'supplier_item', 'supplier_item_form', 'purchase_orders', 'purchase_order', 'purchase_order_edit', 'reorder', 'reorder_item',
             'reorder_brands', 'reorder_anomalies', 'sales_history', 'company', 'company_form', 'duplicates', 'duplicate_group', 'item_cards', 'item_card_form',
-            'item_cards_import', 'barcode_reviews'] as $t) {
+            'item_cards_import', 'barcode_reviews', 'receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents'] as $t) {
             self::assertContains($t . '.php', $names);
         }
         self::assertSame([], array_filter($names, static fn (string $n): bool => preg_match('/^[a-z][a-z_]*\.php$/', $n) !== 1), 'names View::render accepts');

@@ -27,6 +27,7 @@ final class ApiFeedTest extends ApiTestCase
         self::assertSame('in_stock', $views['V1']['state']);
         self::assertSame(self::code($sku), $views['V1']['sku_code']);
         self::assertSame($first['next_after'], $views['V1']['version']);
+        self::assertSame(['why' => 'writer_off', 'writer' => false], $views['V1']['site'], 'IM10: the site writes nothing while its switch is off (keys sorted: A1)');
         self::assertArrayNotHasKey('V9', $views, 'nothing changed for the unlinked listing');
         // Another site's feed never shows this site's listings.
         self::assertSame([], $this->call('GET', '/v1/changes?after=0', $otherKey)->data()['listings']);

@@ -30,8 +30,9 @@ final class Settings
 
     /**
      * Key-specific checks on top of the type (parse()): `min`/`max` (an int or a decimal string), `vat_code` (the code
-     * must exist in vat_code and be active), `email` (a valid address or empty). Every key ending in `_days` is a day
-     * count from 0 to 120 unless listed here.
+     * must exist in vat_code and be active), `email` (a valid address or empty), `in` (one of the listed values, exactly),
+     * `pattern` (a regular expression the text must match; `pattern_says` words it for the refusal).
+     * Every key ending in `_days` is a day count from 0 to 120 unless listed here.
      */
     public const RULES = [
         'suppliers.approval_due_days' => ['min' => 1, 'max' => 120],
@@ -49,6 +50,14 @@ final class Settings
         'reorder.long_window_days' => ['min' => 1, 'max' => 120, 'at_least' => ['reorder.short_window_days', 'reorder.min_valid_days_long']],
         'reorder.min_valid_days_short' => ['min' => 1, 'max' => 120, 'at_most' => ['reorder.short_window_days']],
         'reorder.min_valid_days_long' => ['min' => 1, 'max' => 120, 'at_most' => ['reorder.long_window_days']],
+        // Receiving (IM6, 0017; I125-I147): the duty rate behind the expected duty shown, how far back a paper sheet may be dated,
+        // the mode an Out-Of-Stock item gets when its previous mode is not known (never Out-Of-Stock: the delivery is for sale).
+        'receiving.duty_pence_per_ml' => ['min' => 1, 'max' => 1000],
+        'receiving.backdate_max_days' => ['min' => 0, 'max' => 120],
+        'receiving.mode_after_out_of_stock' => ['in' => ['In-Stock', 'From-Warehouse']],
+        // The site stock writer (IM10, 0018; I148-I166): the sites a receipt's selling mode lands on, as channel codes.
+        'site_writer.receipt_mode_sites' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
+            'pattern_says' => 'channel codes separated by commas, like vapeandgo,electrofag (empty: none)'],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];
@@ -232,6 +241,12 @@ final class Settings
         }
         if (($rule['email'] ?? false) === true && filter_var((string) $value, FILTER_VALIDATE_EMAIL) === false) {
             throw $bad('must be an e-mail address');
+        }
+        if (isset($rule['in']) && !in_array($value, $rule['in'], true)) {
+            throw $bad('must be one of ' . implode(', ', $rule['in']));
+        }
+        if (isset($rule['pattern']) && preg_match($rule['pattern'], (string) $value) !== 1) {
+            throw $bad('must be ' . ($rule['pattern_says'] ?? 'in the expected form'));
         }
         // Against other settings (whole numbers): at least / at most their current values.
         foreach (['at_least' => 1, 'at_most' => -1] as $kind => $sign) {

@@ -18,7 +18,8 @@ use CW\Ui\HtmlResponse;
 /**
  * /ui/items/{id}: who an item is, its item card (IM3: the legal and buying fields, the rules they break, suggestions to accept,
  * the confirmation, the history), its barcodes (with the forms to add, remove and set units per scan for catalogue.edit),
- * every listing linked to it (now or before), its stock and (suppliers.view) who supplies it. ItemCardsController's actions
+ * every listing linked to it (now or before), the selling mode CW writes on each website with the switch (IM10, SellingModeController),
+ * its stock and (suppliers.view) who supplies it. ItemCardsController's actions
  * redraw this page with their error (page()).
  */
 final class ItemController
@@ -42,14 +43,15 @@ final class ItemController
 
     public function show(Context $ctx): HtmlResponse
     {
-        return $this->page($ctx, 200, null, self::NOTICES[$ctx->req->param('notice') ?? ''] ?? null);
+        $notice = $ctx->req->param('notice') ?? '';
+        return $this->page($ctx, 200, null, self::NOTICES[$notice] ?? SellingModeController::NOTICES[$notice] ?? null);
     }
 
     /**
      * The item page, also after a refused card or barcode action ($error shown on top, answered under $status; $typed: what
      * the barcode forms had, so a refused add keeps it).
      *
-     * @param array<string, string> $typed
+     * @param array<string, mixed> $typed ('selling_mode': what a refused selling-mode form had)
      */
     public function page(Context $ctx, int $status, ?CwException $error, ?string $notice = null, array $typed = []): HtmlResponse
     {
@@ -178,6 +180,8 @@ final class ItemController
             'totals' => $totals,
             'ledger' => $ledger,
             'suppliers' => $suppliers,
+            // IM10 (I158): what CW writes on each website, and the selling-mode switch.
+            'sellingMode' => SellingModeController::vars($ctx, $id, $sku, is_array($typed['selling_mode'] ?? null) ? $typed['selling_mode'] : []),
         ], $status, ['title' => (string) $sku['code'], 'active' => 'search', 'notice' => $notice]);
     }
 

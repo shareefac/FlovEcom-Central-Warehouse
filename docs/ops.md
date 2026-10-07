@@ -1531,8 +1531,8 @@ together ("Deploying IM3 to staging" below), after the owner's go.
   not lift the block**: someone must confirm the corrected card. A rule an edit breaks on a card confirmed compliant is a warning
   until someone confirms the card with it. So a block always rests on a person's acknowledged confirmation (I113).
 - **What a block stops today:** it is never suggested on the reorder list, "create draft PO" skips it, and a purchase order with it
-  is refused at approval (422 `item_blocked`). **CW does not stop receiving or website sales yet** (IM6 and IM10 will, through
-  `CW\Catalogue\ItemCompliance`): take a blocked item off sale on the website by hand. Items › Item cards › tick **Blocked**
+  is refused at approval (422 `item_blocked`), and since IM6 a receipt of it is refused at posting. **CW does not stop website
+  sales yet** (IM10 will, through `CW\Catalogue\ItemCompliance`): take a blocked item off sale on the website by hand. Items › Item cards › tick **Blocked**
   lists them, most stock first (I121).
 - **Discontinued**: never suggested on the reorder list (as "do not reorder"); a buyer can still order it on purpose.
 - **Duty** (for receiving, IM6): an item whose card does not answer duty-liable is treated as duty-liable (an unstamped delivery
@@ -1613,8 +1613,8 @@ unusable without opening a review (it does honour the decisions people made, I11
   I117). A decision that no longer fits (someone moved or removed the barcode meanwhile) is refused and says where it is now.
 
 **On an item's page** (Barcodes): add a barcode (8, 12, 13 or 14 digits with a valid check digit; the page says the right last
-digit when only that is wrong) with its **units per scan** (an outer case: "this barcode = 10 units"; receiving (I-3) will count
-a scan of it as 10; a purchase order line found by scanning it is the supplier's pack of that size when there is one), change the
+digit when only that is wrong) with its **units per scan** (an outer case: "this barcode = 10 units"; receiving (IM6) counts a
+scan of it as a pack of 10; a purchase order line found by scanning it is the supplier's pack of that size when there is one), change the
 units per scan, or remove a barcode ("Remove…" opens the reason and the button; recorded, so neither the sync nor the seeder adds
 it back to that item; adding it by hand again is allowed). A barcode belongs to one item: one already on another item is refused
 with a link to that item.
@@ -1636,3 +1636,256 @@ ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/s
 Check afterwards: the three tables exist and are empty; cw_app holds SELECT, INSERT, UPDATE on `item_card` (no DELETE), SELECT,
 INSERT on `item_card_change`, SELECT, INSERT and UPDATE of the decision columns only on `barcode_review` (`bin/migrate.php`
 converges the grants); Items › Item cards opens (every item not merged away, 0 cards) and Items › Barcode review is empty.
+
+
+## Receiving, Phase I-3: Receive (+ invoice) with duty-stamp checks (IM6; `docs/decisions.md` I125–I147)
+
+One receipt per supplier invoice: the purchasing desk keys it, the goods-in bench checks the delivery on a tablet, the desk (or the
+bench) posts it, a second person reviews it within 3 days. Posting books the stock at once (goods_in at the line's provisional cost):
+accepted units into MAIN, damaged / wrong-item / over units into VERIFY, quarantined unstamped units into UNSTAMPED; an incident per
+exception; the PO's receipts; the items' selling modes for the site stock writer (IM10). **Not deployed to `cw_staging` yet:** it
+needs migration 0017 and the code together ("Deploying IM6" below), after the owner's go.
+
+### Who does what (provisional, owner to confirm: I126, I141)
+
+| Screen | Permission | Roles |
+|---|---|---|
+| Receiving › **Receive + invoice** (`/ui/receiving`), a receipt's page (`/ui/receiving/{id}`) | `receiving.view` | goods_in, purchasing_desk, purchasing_manager, stock_controller, reviewer, accountant, auditor, manager |
+| "New delivery", the receive editor (its creator), "receive all as ordered", the sheet import, files, post, cancel, reverse; Receiving › **Goods-in bench** (`/ui/receiving/bench`) and the bench check of a receipt | `doc.GRN.post` | goods_in, purchasing_desk, purchasing_manager (never admin) |
+| Receiving › **Incidents** (`/ui/receiving/incidents`) | `incidents.view` | goods_in, purchasing_desk, purchasing_manager, stock_controller, reviewer, auditor, manager |
+| closing an incident (resolved / dismissed, with a note) | `incidents.resolve` | purchasing_desk, purchasing_manager, stock_controller |
+| the review of a receipt (on its page; Document reviews, type "Goods received") | `documents.review` | reviewer, never the person who keyed, posted or **checked it at the bench** |
+
+### A delivery, step by step (the desk and the bench)
+
+1. **Desk:** Receiving › Receive + invoice › **New delivery**: the purchase order it is against (optional: the supplier follows),
+   or the supplier; the **supplier invoice number** (compulsory before posting; one receipt per supplier invoice, however it is
+   written: "inv 001" = "INV001"); "Receive all as ordered" copies the order's outstanding lines (in the order's packs, at its prices).
+2. **Desk:** change what arrived differently in the one form (packs, price, the order line, the selling mode), or add lines: scan a
+   barcode, type the supplier's code, a CW code or words of the name (with a pack price if you have it); or import the supplier's
+   invoice or packing list (CSV / XLSX; any header row in the first 30, the supplier's column names; rows without a code are
+   skipped and listed; anything else wrong imports nothing). **A barcode counts the units it stands for** (I173): a case barcode
+   marked "x5" adds 5 units (5 singles, or one pack of 5 when the supplier sells packs of 5, or a line "case of 5" when the supplier
+   only sells boxes of 10: check its price); one bottle's own barcode, when the supplier sells boxes, asks once "a box, or single
+   units?". The message after each scan names the line, the item and the units added. **Attach the supplier's invoice** (a PDF, or
+   a photo of a paper invoice; one invoice copy is the invoice of one receipt only, I171). Received at: when the goods arrived
+   (UK time). The invoice number is needed before posting, not before scanning.
+3. **Bench:** Receiving › Goods-in bench › the delivery ("Check: SUPPLIER, invoice ..."): "supplier and paperwork credible" (No = do
+   not post: refuse the delivery and cancel the receipt); if the desk keyed it before the goods came, tick "the goods arrived now"
+   (the duty rule goes by the arrival date shown at the top). Per line: tick **Counted** (or change one of its answers: that counts
+   it too); for duty-liable liquid the **duty stamp on the outer retail pack and sealing it** (yes / no: "no" means every unit
+   that arrived is unstamped), its type (digital / transitional), a scanned stamp code (the scanner's Enter moves on, it does not
+   save); what arrived differently, in units: short, over (more than the line itself: tick "the over count is right"), damaged,
+   wrong item (say what came instead in the note and photograph it), unstamped and what happens to the unstamped units (the
+   choice appears once some are unstamped). "Find a line": scan an item to jump to its card. "Every duty line here: stamp on the
+   pack, digital" and "Tick every line on this page as counted" only fill the form. Save the check (40 lines a page). Photos of
+   damage, a missing stamp, the supplier's certificate (a camera photo is made smaller before it is sent; save the check first:
+   attaching leaves the page). **The desk and the bench can work at once** (I175): a save that only crossed the other side's
+   (a price, a note; a bench answer) is saved anyway; a real clash (the same line's quantity changed) redraws the page with what
+   was typed. A line the desk adds or whose quantity changes after the check is counted again: the receipt cannot post before
+   (I168). Anyone who receives goods can set the supplier invoice of a receipt the bench started from the delivery note (its page,
+   "The supplier invoice", I172); they do not review it then.
+4. **Desk:** the receipt's page lists everything that still stops the posting ("Before posting") and what it will book where; **Save
+   and post**. A second person reviews it (Document reviews, or the receipt's page). Rejecting the review reverses the receipt (its
+   stock and its PO receipts taken back): key it again if the goods are here.
+5. **Incidents:** Receiving › Incidents lists the open ones (the menu shows how many): close each with what was done (credit asked,
+   goods returned, re-delivered) or dismiss it. The units stay in VERIFY / UNSTAMPED until a stock control document moves them
+   (Phase I-4); UNSTAMPED must be empty from 1 Apr 2027.
+6. **The selling mode** (I169): a receipt sets the mode only of an item it accepts something of into MAIN. A delivery that was all
+   short, refused unstamped at the door or quarantined leaves the item's mode as it was, so it never goes back on sale (nor e-mails
+   the waiting customers) without stock.
+
+### Duty stamps (owner decision 8; I134, I135)
+
+- Duty-liable liquid must arrive stamped. Before `receiving.unstamped_refusal_from` (1 Jan 2027, the day the goods **arrived**),
+  unstamped units are accepted only with the supplier's evidence that they were made or imported before 1 Oct 2026 (the evidence
+  typed on the bench, its certificate attached as "Duty evidence"): they must be sold, returned or destroyed by 31 Mar 2027. From
+  that date they are **refused at the door** (not booked) or **quarantined** (UNSTAMPED), with an incident. Anything made or imported
+  from 1 Oct 2026 that arrives unstamped is always refused or quarantined.
+- **An unstamped delivery's damaged and over units are unstamped too** (I167): with no stamp on the pack, or with unstamped units
+  refused or quarantined, the line's damaged and over units are refused or quarantined with them (never put in VERIFY as ordinary
+  stock); wrong-item units stay in VERIFY. Units accepted on the pre-October evidence keep going to VERIFY when damaged.
+- No stamp check for a card that names a coil, tank or accessory; an item with **no item card** is treated as duty-liable (give
+  the hardware a card).
+- The expected duty (ml x 22p, rounded down per unit) is shown for information only; it books nothing.
+
+### A delivery keyed later (CW was down: the paper receiving sheet)
+
+Fill in a paper receiving sheet at the bench (supplier, invoice number, each item and pack, what arrived, the stamp check, the time
+the goods arrived). When CW is back, key it as a normal receipt with **Received at** = the real time from the sheet, tick "Keyed
+from a paper receiving sheet" and say why in "Why it is keyed late" (compulsory for any delivery that arrived before the day the
+receipt is keyed). At most `receiving.backdate_max_days` (30) days back. Scan or photograph the paper sheet and attach it as a
+delivery note.
+
+### Settings (`bin/settings.php`, I38)
+
+| Setting | Default | |
+|---|---|---|
+| `receiving.unstamped_refusal_from` | 2027-01-01 | decision 8 (confirmed); from this received date unstamped duty-liable units are refused or quarantined |
+| `receiving.duty_pence_per_ml` | 22 | the expected duty's rate (£2.20 per 10 ml), for information |
+| `receiving.backdate_max_days` | 30 (provisional) | how far back a receipt may say the goods arrived |
+| `receiving.mode_after_out_of_stock` | From-Warehouse (provisional) | an Out-Of-Stock item's mode on receipt when its previous mode is not known (In-Stock or From-Warehouse) |
+| `po.over_delivery_tolerance_pct` | 10 (provisional) | how far over a PO line's ordered units a receipt may go |
+
+```bash
+php bin/settings.php --list                                                                   # list (app login)
+php bin/settings.php --set=receiving.backdate_max_days --value=14 --reason='owner: two weeks' --admin
+```
+
+### Deploying IM6 to staging (the owner's go first)
+
+`0017_receiving.sql` is the next file after 0016: five new tables (`goods_receipt`, `grn_line`, `grn_posting`, `incident`,
+`item_selling_mode` + `item_selling_mode_log`) and four `receiving.*` settings. No backfill. Deploy it with the code of the same
+commit in one run, never the code first (the receiving screens and the GRN handler read the new tables). **0017 and 0018 go
+together** (the commit that holds IM6 also holds IM10's 0018: `install_cron.sh --migrate` applies both, in order); the steps of
+"Deploying 0018 to staging" below are the same run:
+
+```bash
+scripts/remote.sh <slot> vendor/bin/phpunit && scripts/remote.sh ui vendor/bin/phpunit && scripts/remote.sh api vendor/bin/phpunit
+scripts/remote.sh hammer php tests/concurrency/hammer.php --seed=<n>                    # stock code booked by documents: green first
+scripts/remote.sh hammer bash deploy/staging/install_cron.sh --migrate                 # code to /opt/cw-staging + 0017 + grants + smoke-run
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/migrate.php --db=cw_staging --status'   # no PENDING file
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/invariants.php --db=cw_staging'         # ok (G1-G8 included)
+```
+
+Check afterwards: cw_app holds SELECT, INSERT, UPDATE on `goods_receipt` and `item_selling_mode` (no DELETE), FULL on `grn_line`,
+SELECT, INSERT on `grn_posting` and `item_selling_mode_log`, SELECT, INSERT and UPDATE of the resolution columns only on `incident`
+(`bin/migrate.php` converges the grants); Receiving › Receive + invoice opens (no receipt), Goods-in bench and Incidents are empty.
+The file store (`/srv/cw-docs`) must be there for the invoice copies and photos (it is, since 2 Oct). Staging has 0 suppliers: the
+owner's test needs real suppliers first (the ERPNext backup copy, or the 47 typed in; `docs/HANDOFF.md` step 4).
+
+### What to check when something looks wrong
+
+- A receipt that will not post: its page's "Before posting" list says every reason (the invoice number or copy, the supplier not
+  active, the PO not receivable, the bench check, a blocked item, a duty stamp, the tolerance, a selling mode conflict).
+- "is already on draft receipt #N": someone keyed that invoice already: open it (or cancel it if it was keyed by mistake).
+- `relay_route`: the item's goods-in comes from a site's ERPNext relay until I-Day (`bin/channel_set.php` shows the channel's
+  movement types); book it in ERPNext.
+- `po_closed` when reversing: the order was closed after the delivery; correct the stock with an adjustment (Phase I-4). The same
+  stops a review's rejection (a rejection reverses): the review box says so and shows no reject button (open owner question I176).
+- `line_not_checked`: a line was added or its quantity changed after the bench check: the bench counts it again.
+- `invoice_copy_elsewhere`: the attached invoice is the invoice of another live receipt of the supplier (typed with another number?).
+- Nightly: `bin/invariants.php` G1-G8 (`docs/decisions.md` I142) report a receipt changed after posting, stock that does not match
+  its lines, a missing incident, a PO line whose receipts do not add up, a review decided by the bench checker.
+
+## The site stock writer, Phase I-3 (IM10; `docs/decisions.md` I148–I166, SC6–SC14)
+
+From I-Day CW keeps each website's own stock figure, selling mode and low-stock threshold right, as ERPNext's pushes do today. CW
+never writes a site's database: every listing view of its feed says what the site writes (the `site` block), and the site's connector
+worker writes it, with one stock-log line per write and the site's own back-in-stock path when an item comes back.
+**Vape and Go proto only for now** (connector 0.4.1, committed locally in App_proto: `src/central_warehouse`, `src/app_modules/central_warehouse`;
+the hook lines in the admin files stay uncommitted); Electrofag and Vape Big are Phase I-6 (0.4.1 refuses to run the writer on a site
+whose profile declares no writer hooks, SC20).
+
+### The switches (all three are needed; each alone stops it)
+
+| Switch | Where | Default | Turned on by |
+|---|---|---|---|
+| CW's per-site switch, `channel.site_writer` | CW: `bin/channel_set.php --code=<site> --writer=on --apply` (audited `channel.site_writer`) | off | ops, at I-Day |
+| The site's own switch, `site_writer` | the site's `/etc/vpg/central_warehouse*.php`: `bin/cw_write_config.php --keep-key --site-writer=1` | off | ops, at I-Day |
+| The effective mode | min(site `CW_MODE`, CW's `channel.mode`) must be **live** | off | the go-live steps |
+| The site's scope, `writer_only` (0.4.1) | the site's config: `bin/cw_write_config.php --keep-key --writer-only=<prodt_id,...>` (empty = every writer listing) | every listing | the rehearsal names its test item; I-Day empties it |
+
+```bash
+# on the CW server (dry run first; --actor names the person)
+php bin/channel_set.php --code=vapeandgo --writer=on --actor="<who>"
+php bin/channel_set.php --code=vapeandgo --writer=on --actor="<who>" --apply
+# on the site's box, as root (the key is kept; nothing is printed)
+php src/central_warehouse/bin/cw_write_config.php --keep-key --site-writer=1
+php src/central_warehouse/bin/cw_status.php            # "writer": {"active": true, "listings": ..., "due": ...}
+```
+
+Turning either switch off is the rollback: the site keeps the last figures CW wrote and its own stock screens are the writers again
+(their refusals stop at once). Nothing is restored by itself; each listing's mode and back-order flag before CW first wrote them are
+kept in the site's `cw_listing_state.pre_cw_*`. Paid sales whose local decrement the site skipped and no writer pass will write any
+more (the switch went off between the sale and the next pass) are applied to the site's figure by the worker after a minute
+(`writer_unwound` in the log, SC15); the site only skips its decrement while the writer's last pass is under 30 s old, so a stopped
+worker never leaves sales off the figure (`decrement_skip_stale`).
+
+### What the site gets (I150, SC7)
+
+- **Counted items**: their policy on every site — strict = From-Warehouse, backorder = From-Warehouse + back-orders, stopped =
+  Out-Of-Stock (plan §6.5).
+- **Legacy items**: the mode CW set for that site (the item page's "Selling mode on the websites", or a receipt on Vape and Go:
+  setting `site_writer.receipt_mode_sites`), else the site keeps its own mode; the quantity is CW's in every case.
+- **A blocked item** (its item card), a quarantined listing, a stopped policy: Out-Of-Stock on every site whose writer is on. When
+  that ends and the site owns the mode again, the site's writer puts back the mode and back-order flag it overwrote (0.4.1, SC16).
+- **The figure** = CW's available units for the listing + this site's own unpaid checkouts CW holds − this site's paid orders CW does
+  not know yet (CW was down). So the site's figure still drops when an order is paid, not when a checkout starts.
+
+### The selling-mode switch (the item page)
+
+Items › an item › **Selling mode on the websites**: per website, whether its writer is on, the listings, the mode CW writes (with CW's
+meaning), the low-stock threshold, who set it. People with `modes.set` (purchasing desk, purchasing manager, stock controller, manager;
+provisional) pick a mode, tick the websites (or "All websites"), optionally a threshold, and say why. A counted item has no form
+(change its policy). Settings: `site_writer.receipt_mode_sites` (`vapeandgo`, provisional; channel codes separated by commas).
+
+### The owner's rehearsal on Vape and Go proto (I-3 test line)
+
+**EMAIL SAFETY:** the proto database is a copy of live (19 May): its back-in-stock sign-ups are real customers (15 pending on 7 Oct,
+9 of them on linked listings). From 0.4.1 the writer calls the site's back-in-stock path on proto only with `--only-test-addresses`
+(any real address waiting: nothing is called), and the site's own `email_stock_notify()` is a no-op on the proto tree (someone
+else's uncommitted change, 5 Oct; the grouped sweep sends). **CW's `--writer=on` is channel-wide**: without `writer_only` it makes
+all ~14,800 linked proto listings writer listings at the first pass.
+
+1. CW staging: deploy 0017 + 0018 (below). Pick a test item: Out-Of-Stock on proto, nobody real waiting (or use the connector test,
+   which does all of this on a fake product: `php src/central_warehouse/tests/run.php --filter='I-3 acceptance'`). Add your own
+   test sign-up for it (an `@example.com` address) to see the e-mail path.
+2. Proto: connector 0.4.1, SQL v4 applied (done 7 Oct 2026), then
+   `php src/central_warehouse/bin/cw_write_config.php --keep-key --writer-only=<the test item's prodt_id> --site-writer=1`;
+   site mode **shadow** → live only for the rehearsal window; CW: `vapeandgo` live and `bin/channel_set.php --code=vapeandgo
+   --writer=on --apply`. **First a dry run**, the site still in shadow: `php src/central_warehouse/bin/cw_sync_worker.php --once
+   --steps=feed` stores CW's views, then `php src/central_warehouse/bin/cw_sync_worker.php --once --dry-run --mode=live
+   --steps=writer` lists what would be written (`diffs`) and the Out-Of-Stock -> In-Stock flips with their waiting sign-ups
+   (`would_notify`): only the test item, only test sign-ups. The worker runs by hand (`bin/cw_sync_worker.php`), never from
+   supervisor or cron without the owner's go.
+3. Book a receipt of that item in CW (Receiving › Receive + invoice) with mode In-Stock, counted and posted. Within seconds proto
+   shows it In-Stock with the new figure; its stock log has "Central Warehouse CW-...: stock 0 -> N (+N): goods in GRN-..." (the
+   Mobile app shows it). A receipt that accepts nothing (all short, refused) leaves it Out-Of-Stock (I169).
+4. The back-in-stock email on proto is sent by the grouped sweep, never scheduled there: run it for one test address only, as a dry
+   run into an outbox: `php tools/stock_notify_sweep.php --dry-run --only-email=<test address> --outbox=/tmp/<dir> --wait=0`.
+5. Change the item's mode on Vape and Go only (the item page) and watch proto follow; try to change its stock in the proto admin
+   (refused, with "Open in CW"); block it on its item card (Out-Of-Stock), confirm the card again and watch the old mode come back;
+   turn `--writer=off` and check proto keeps the last values. Afterwards: `--writer-only=` stays set on proto.
+
+### Before I-Day on a site (the gates of `lib/sites.php`, 0.4.1)
+
+- The four direct writers of the site's stock that no hook sees (SC19): `api/stock_reconcillation.php`, `api/stock_reconcile.php`,
+  `api/erp_stock_pull_sync.php` and `api/erp_mode_sync.php` (the last two also from the command line: web-blocking is not enough;
+  their cron lines off, the scripts disabled). Until then the reconcile corrects them, and `cw_status` lists a listing it corrects
+  3 times a day (`writer.fought_over_today`).
+- The grouped back-in-stock sweep (`tools/stock_notify_sweep.php`) scheduled on the live site: the writer's call runs once per
+  flip and is not retried.
+- Returns and restocks of orders paid before the site's T0: the admin refuses the restock tick for them (H11, SC19): book the
+  units in CW (a stock adjustment, Phase I-4), then process the return without restocking. Tell the staff.
+- `writer_only` empty on the live config (every writer listing), `writer_notify_test_only` false.
+
+### Deploying 0018 to staging (the owner's go first)
+
+`0018_site_writer.sql`: `channel.site_writer` (every site off), `item_channel_mode` + `item_channel_mode_log`, the setting. Deploy it
+with the code of the same commit, never the code first (`Availability` reads `channel.site_writer`):
+
+```bash
+scripts/remote.sh <slot> vendor/bin/phpunit && scripts/remote.sh ui vendor/bin/phpunit && scripts/remote.sh api vendor/bin/phpunit
+scripts/remote.sh hammer php tests/concurrency/hammer.php --seed=<n>
+scripts/remote.sh hammer bash deploy/staging/install_cron.sh --migrate
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/invariants.php --db=cw_staging'         # ok (W1-W2 included)
+```
+
+Check afterwards: every channel shows `site_writer: off (unchanged)` in a `bin/channel_set.php --code=<site> --writer=off` dry run;
+cw_app holds SELECT, INSERT, UPDATE on `item_channel_mode` and SELECT, INSERT on `item_channel_mode_log`.
+
+### What to check when something looks wrong
+
+- The site does not follow: `bin/cw_status.php` on the site — `writer.active` (both switches and live), `writer.due` (listings waiting),
+  `writer.last_pass`; the connector log (`writer_pass`, `writer_wrote`, `writer_write_failed`). In CW, `/v1/availability?variant_ids=`
+  for the listing shows its `site` block and `why`.
+- A staff member cannot change a stock figure in the admin: the item is the writer's (refusal names the CW code); change it in CW.
+- A value keeps coming back after someone changed it on the site: the writer's reconcile (every 15 min) puts CW's back, with a line
+  "corrected: ... changed outside CW". Find the writer outside CW (the Mobile app's mode change, a script).
+- A return or restock refused with "the Central Warehouse does not know this order": the order was paid before the site's T0 (or
+  CW never confirmed it): book the returned units in CW (a stock adjustment), then restock here without the restock tick (SC19).
+- "The Central Warehouse connector could not check this item just now": the connector's own connection failed while the writer is
+  on; the admin refuses rather than write what the next reconcile would undo. Try again; `cw_status` shows the connection.
+- A sale that is not off the site's figure after the writer was switched off: the worker applies it a minute later (`writer_unwound`);
+  `cw_status` `writer.decrement_skips_open` counts the ones still waiting.

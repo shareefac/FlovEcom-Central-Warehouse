@@ -37,7 +37,8 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertSame(['PO-000001', 'GRN-000001', 'SINV-000001', 'DN-000001', 'CNT-000001', 'ADJ-000001', 'WO-000001', 'TRD-000001'], self::column($series, 4));
         self::assertSame(array_fill(0, 8, 'none yet'), self::column($series, 3));
         self::assertSame('live', self::column($series, 8)[0], 'PO since the I-2 pos task');
-        self::assertSame('coming in Phase I-3', self::column($series, 8)[1]);
+        self::assertSame('live', self::column($series, 8)[1], 'GRN since the I-3 receiving task (IM6)');
+        self::assertSame('coming in Phase I-4', self::column($series, 8)[2], 'SINV');
         self::assertSame('live', self::column($series, 8)[5], 'the fixture ADJ type of the tests');
         self::assertSame(['every document', 'net value above £10,000'], [self::column($series, 5)[0], self::column($series, 6)[0]]);
         self::assertSame('positive units without a supplier document above 10', self::column($series, 6)[5]);

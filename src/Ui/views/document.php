@@ -9,6 +9,9 @@
 <?php if ($poHref !== null): ?>
 <p class="actions"><a class="button" href="<?= $u($poHref) ?>">Open in Purchasing</a> <span class="muted">(the order's own page: lines, sending, cancelling, the PDF)</span></p>
 <?php endif; ?>
+<?php if ($grnHref !== null): ?>
+<p class="actions"><a class="button" href="<?= $u($grnHref) ?>">Open in Receiving</a> <span class="muted">(the receipt's own page: its lines, the bench check, the incidents, the files)</span></p>
+<?php endif; ?>
 
 <dl class="wide">
   <dt>Status</dt><dd><span class="status"><?= $e($statusText) ?></span></dd>

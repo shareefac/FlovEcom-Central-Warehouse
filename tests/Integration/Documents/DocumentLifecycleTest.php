@@ -80,10 +80,10 @@ final class DocumentLifecycleTest extends DocumentTestCase
         $sc = $this->staffUser('stock_controller');
         $other = $this->staffUser('stock_controller');
         $a = $this->item('strict', 10);
-        // A type without a handler (PO is live since the I-2 pos task; GRN arrives in I-3).
-        $e = self::refused(409, 'type_not_built', fn () => $this->docs->createDraft($this->staffUser('goods_in'), 'GRN', []));
-        self::assertSame(['type' => 'GRN', 'phase' => 'I-3'], $e->detail);
-        self::assertSame('Goods received documents arrive in Phase I-3', $e->getMessage());
+        // A type without a handler (PO is live since the I-2 pos task, GRN since IM6 in I-3; SINV arrives in I-4).
+        $e = self::refused(409, 'type_not_built', fn () => $this->docs->createDraft($this->staffUser('purchasing_desk'), 'SINV', []));
+        self::assertSame(['type' => 'SINV', 'phase' => 'I-4'], $e->detail);
+        self::assertSame('Supplier invoice documents arrive in Phase I-4', $e->getMessage());
         self::refused(403, 'admin_cannot_post', fn () => $this->docs->createDraft($this->staffUser('admin'), 'ADJ', []));
         self::refused(403, 'admin_cannot_post', fn () => $this->docs->createDraft($this->staffUser(['admin', 'stock_controller']), 'ADJ', []),
             'admin with a posting role (admin SQL only) is still refused');

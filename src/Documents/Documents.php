@@ -498,8 +498,33 @@ final class Documents
     }
 
     /**
+     * refusal() plus the people a type's handler names as having written part of the document (ReviewInvolvement: the
+     * goods-in bench check of a receipt, I133): what the screens show instead of the decide forms, and what approve() and
+     * reject() refuse with (403).
+     *
+     * @param list<string> $roles
+     * @return array{code: string, message: string}|null
+     */
+    public function refusalFor(int $staffId, array $roles, Document $doc, string $kind): ?array
+    {
+        $no = self::refusal($staffId, $roles, $doc, $kind);
+        if ($no !== null) {
+            return $no;
+        }
+        $h = $this->handlers[$doc->docType] ?? null;
+        if ($h instanceof ReviewInvolvement) {
+            $why = $h->involved($this->db, $doc)[$staffId] ?? null;
+            if ($why !== null) {
+                return ['code' => 'own_document', 'message' => $why];
+            }
+        }
+        return null;
+    }
+
+    /**
      * Open tasks this person may decide (the menu badge `reviews_open`): of the kinds their roles decide, not opened by
-     * them, not on a document they created, submitted or posted.
+     * them, not on a document they created, submitted or posted, nor on one a type's handler says they wrote part of
+     * (ReviewInvolvement, I133).
      *
      * @param list<string> $roles
      */
@@ -518,11 +543,19 @@ final class Documents
         if ($kinds === []) {
             return 0;
         }
+        $involved = '';
+        $params = [...$kinds, $staffId, $staffId, $staffId, $staffId];
+        foreach ($this->handlers as $type => $h) {
+            if ($h instanceof ReviewInvolvement) {
+                $involved .= ' AND NOT (d.doc_type = ? AND ' . $h->involvedSql() . ')';
+                array_push($params, $type, $staffId);
+            }
+        }
         return (int) $this->db->value(
             "SELECT COUNT(*) FROM review_task t JOIN document d ON d.id = t.subject_id WHERE t.subject_type = 'document' AND t.state = 'open' "
             . 'AND t.kind IN (' . implode(', ', array_fill(0, count($kinds), '?')) . ') AND NOT (t.opened_by <=> ?) '
-            . 'AND NOT (d.created_by <=> ?) AND NOT (d.submitted_by <=> ?) AND NOT (d.posted_by <=> ?)',
-            [...$kinds, $staffId, $staffId, $staffId, $staffId],
+            . 'AND NOT (d.created_by <=> ?) AND NOT (d.submitted_by <=> ?) AND NOT (d.posted_by <=> ?)' . $involved,
+            $params,
         );
     }
 
@@ -876,7 +909,7 @@ final class Documents
     /** @param array{id: int, roles: list<string>} $me */
     private function checkDecider(array $me, Document $doc, string $kind): void
     {
-        $no = self::refusal($me['id'], $me['roles'], $doc, $kind);
+        $no = $this->refusalFor($me['id'], $me['roles'], $doc, $kind);
         if ($no !== null) {
             throw new CwException($no['code'], $no['message'], 403);
         }

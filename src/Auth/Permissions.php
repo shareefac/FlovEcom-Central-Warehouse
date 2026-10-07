@@ -21,8 +21,9 @@ use CW\CwException;
  * admin SQL) is read fail-closed: the conflicting roles grant nothing while admin is held (effective()).
  *
  * The posting permissions (doc.<TYPE>.post) are proposals pending the owner's decisions 3 and 11 (I16); the Phase I-2
- * purchasing permissions (suppliers.*, purchasing.view, reorder.*) likewise (I40), the company details' (company.*, I90), and the
- * item card's (catalogue.edit, I109).
+ * purchasing permissions (suppliers.*, purchasing.view, reorder.*) likewise (I40), the company details' (company.*, I90), the
+ * item card's (catalogue.edit, I109), receiving's (receiving.view, incidents.*, I141) and the selling-mode switch's
+ * (modes.set, I158).
  */
 final class Permissions
 {
@@ -100,13 +101,24 @@ final class Permissions
         // catalogue work (the legal fields, accepting proposals, confirming a card, the barcodes, the barcode review, the CSV
         // import) is mapping_lead, stock_controller and purchasing_manager; never admin (I12).
         'catalogue.edit' => ['mapping_lead', 'stock_controller', 'purchasing_manager'],
+        // Receiving (IM6, I-3; docs/decisions.md I141; provisional, owner to confirm). doc.GRN.post (goods_in, purchasing_desk,
+        // purchasing_manager: I16) keys a receipt (its creator), does the goods-in bench check (anyone holding it) and posts;
+        // receiving.view reads the receipts; incidents.view reads the incident register, incidents.resolve closes an incident
+        // with a note (the units themselves leave VERIFY / UNSTAMPED through IM2's documents). Never admin (I12).
+        'receiving.view' => ['goods_in', 'purchasing_desk', 'purchasing_manager', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'manager'],
+        'incidents.view' => ['goods_in', 'purchasing_desk', 'purchasing_manager', 'stock_controller', 'reviewer', 'auditor', 'manager'],
+        'incidents.resolve' => ['purchasing_desk', 'purchasing_manager', 'stock_controller'],
+        // The selling-mode switch (IM10, I-3; docs/decisions.md I158; provisional, owner to confirm): the mode CW writes on each
+        // website for a legacy item (a receipt's line sets it too, doc.GRN.post). The people who set modes on ERPNext invoice lines
+        // and item saves today (the purchasing desk and managers), the stock controller, and the manager (sell policies). Never admin.
+        'modes.set' => ['purchasing_desk', 'purchasing_manager', 'stock_controller', 'manager'],
     ];
 
     /**
      * The navigation, grouped. An item has either a `path` (a live GET route; `query` is added to its URL) or a
      * `phase` (shown as "<label> · coming in Phase <phase>", never a link: the screen does not exist yet, I14).
      * `key` marks the item as the current page (layout `active`); `badge` names a count of Ui\Context::badges()
-     * (linking_pending, linking_duplicates, reviews_open, barcodes_open). Document reviews, Documents and Reference are live since the documents task
+     * (linking_pending, linking_duplicates, reviews_open, barcodes_open, incidents_open). Document reviews, Documents and Reference are live since the documents task
      * (0008, I27): real screens, empty until a phase registers a document type.
      */
     public const MENU = [
@@ -131,8 +143,12 @@ final class Permissions
             ['label' => 'Reorder list', 'perm' => 'reorder.view', 'key' => 'reorder', 'path' => '/ui/purchasing/reorder'],
             ['label' => 'Sales history', 'perm' => 'reorder.view', 'key' => 'sales_history', 'path' => '/ui/purchasing/sales-history'],
         ]],
+        // IM6 (I-3, I141): the receipts (keying and the read-only views), the goods-in bench's list of deliveries to check, and the
+        // incident register (badge: the open incidents).
         ['section' => 'Receiving', 'items' => [
-            ['label' => 'Receive + invoice', 'perm' => 'doc.GRN.post', 'phase' => 'I-3'],
+            ['label' => 'Receive + invoice', 'perm' => 'receiving.view', 'key' => 'receiving', 'path' => '/ui/receiving'],
+            ['label' => 'Goods-in bench', 'perm' => 'doc.GRN.post', 'key' => 'bench', 'path' => '/ui/receiving/bench'],
+            ['label' => 'Incidents', 'perm' => 'incidents.view', 'key' => 'incidents', 'path' => '/ui/receiving/incidents', 'badge' => 'incidents_open'],
             ['label' => 'Supplier invoices', 'perm' => 'doc.SINV.post', 'phase' => 'I-4'],
             ['label' => 'Supplier returns', 'perm' => 'doc.DN.post', 'phase' => 'I-4'],
         ]],

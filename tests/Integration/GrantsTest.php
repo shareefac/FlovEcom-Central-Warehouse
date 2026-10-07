@@ -11,6 +11,7 @@ use CW\Catalogue\ItemBarcodes;
 use CW\Catalogue\ItemCardCsv;
 use CW\Catalogue\ItemCards;
 use CW\Catalogue\ItemCompliance;
+use CW\ChannelAdmin;
 use CW\Db;
 use CW\Documents\DocumentHandlers;
 use CW\Documents\Documents;
@@ -180,6 +181,19 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame(['Select', 'Insert'], Grants::desired('barcode_review'));
         self::assertSame(['status', 'decision', 'decided_units', 'decided_by', 'decided_actor', 'decided_at', 'note'], array_keys(Grants::desiredColumns('barcode_review')));
         self::assertSame(Grants::FULL, Grants::desired('sku_barcode'));
+        // 0017 (I127-I138): a receipt's header and an item's selling mode are changed, never removed; the posting anchor and the mode
+        // log are append-only; an incident keeps what was found and changes only its resolution; grn_line keeps FULL rights (a draft's
+        // lines are replaced, its rows go with their document_line).
+        self::assertSame(['Select', 'Insert', 'Update'], Grants::desired('goods_receipt'));
+        self::assertSame(['Select', 'Insert', 'Update'], Grants::desired('item_selling_mode'));
+        self::assertSame(['Select', 'Insert'], Grants::desired('grn_posting'));
+        self::assertSame(['Select', 'Insert'], Grants::desired('item_selling_mode_log'));
+        self::assertSame(['Select', 'Insert'], Grants::desired('incident'));
+        self::assertSame(['status', 'resolution', 'resolved_by', 'resolved_actor', 'resolved_at'], array_keys(Grants::desiredColumns('incident')));
+        self::assertSame(Grants::FULL, Grants::desired('grn_line'));
+        // 0018 (IM10, I151): an item's mode on a site is changed, never removed; its log is append-only.
+        self::assertSame(['Select', 'Insert', 'Update'], Grants::desired('item_channel_mode'));
+        self::assertSame(['Select', 'Insert'], Grants::desired('item_channel_mode_log'));
     }
 
     public function testApplyConvergesAndTheAppLoginIsLimited(): void
@@ -789,6 +803,84 @@ CW-" . sprintf('%06d', $b) . ",20
         }
         foreach (['UPDATE barcode_review SET barcode = 12345670', 'UPDATE barcode_review SET claimant_sku_id = 1', "UPDATE barcode_review SET reason = 'removed'"] as $sql) {
             self::assertSame(self::COLUMN_DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+        }
+    }
+
+    /**
+     * 0017 as the app login (IM6, I125-I147): a receipt against a PO copied down, the bench check, the invoice copy stored and
+     * attached, the posting (stock with its cost and value seq, the PO's receipts, an incident, the selling mode, the anchor), the
+     * incident closed, the review rejected (the reversal), with exactly these rights, locking reads included; the anchor, the mode log
+     * and what an incident found are never rewritten, and nothing of a receipt is deleted.
+     */
+    public function testTheReceivingFlowAsTheAppLogin(): void
+    {
+        Grants::apply(self::$db, TestDb::name(), self::$user);
+        $app = $this->appSession();
+        $buyer = Caller::staff($this->staffWith('buyer'));
+        $desk = Caller::staff($this->staffWith('purchasing_desk'));
+        $bench = Caller::staff($this->staffWith('goods_in'));
+        $reviewer = Caller::staff($this->staffWith('reviewer'));
+        $sup = new Suppliers($app);
+        $s = $sup->create($buyer, ['name' => 'GRN App Supplier', 'address_line1' => '1 Road', 'postcode' => 'LS1 1AA', 'email' => 'o@grn.example',
+            'payment_terms' => '30 days', 'dd_checked_on' => gmdate('Y-m-d', time() - 5 * 86400), 'dd_checked_by' => (string) $buyer->staffUserId,
+            'dd_next_review_on' => gmdate('Y-m-d', time() + 300 * 86400)]);
+        $s = $sup->requestActivation($buyer, (int) $s['id'], (int) $s['version']);
+        $sup->approve($reviewer, (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND state = 'open'"), null);
+        $docs = new Documents($app, DocumentHandlers::all($app));
+        $pos = new PurchaseOrders($app, $docs);
+        $sku = self::makeSku('GRN app item');
+        $controller = Caller::staff($this->staffWith('stock_controller'));
+        (new ItemCards($app))->save($controller, $sku, 0, ['product_type' => 'coil', 'duty_liable' => 'no']);
+        $po = $pos->createDraft($buyer, (int) $s['id'], []);
+        $po = $pos->saveDraft($buyer, $po->id, $po->version, [], [['sku_id' => $sku, 'units_per_pack' => 6, 'packs' => 2, 'pack_price' => '12.00']]);
+        $po = $pos->approve($buyer, $po->id, $po->version);
+        $dir = sys_get_temp_dir() . '/cw_grants_grn_' . bin2hex(random_bytes(4));
+        mkdir($dir . '/store', 0700, true);
+        try {
+            $store = new FileStore($app, new LocalFileStorage($dir . '/store'));
+            $grns = new \CW\Receiving\GoodsReceipts($app, $docs, null, static fn (): FileStore => $store);
+            $d = $grns->createDraft($desk, (int) $s['id'], ['invoice_number' => 'APP-1'], $po->id, true);
+            file_put_contents($dir . '/inv.pdf', (new \CW\Output\PdfWriter('App invoice', 'grants', true))->output());
+            $grns->attach($desk, $d->id, $dir . '/inv.pdf', 'inv.pdf', 'supplier_invoice');
+            $d = $grns->bench($bench, $d->id, $docs->get($d->id)->version, ['paperwork_ok' => '1'], [1 => ['damaged_units' => '1']]);
+            $p = $grns->post($desk, $d->id, $d->version);
+            self::assertSame(['posted', 'GRN-000001'], [$p->status, $p->number]);
+            self::assertSame('part_received', self::$db->value('SELECT state FROM purchase_order WHERE document_id = ?', [$po->id]));
+            (new \CW\Receiving\Incidents($app))->resolve($desk, (int) self::$db->value('SELECT id FROM incident'), 'resolved', 'credit asked');
+            $docs->reject($reviewer, (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'document' AND subject_id = ? AND state = 'open'", [$p->id]),
+                'wrong supplier');
+            self::assertSame('reversed', self::$db->value('SELECT status FROM document WHERE id = ?', [$p->id]));
+            self::assertSame([], Invariants::check(self::$db));
+            foreach (['DELETE FROM goods_receipt', 'DELETE FROM item_selling_mode', 'DELETE FROM grn_posting', "UPDATE grn_posting SET content = '{}'",
+                'DELETE FROM item_selling_mode_log', 'UPDATE item_selling_mode_log SET version = 9', 'DELETE FROM incident'] as $sql) {
+                self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+            }
+            foreach (['UPDATE incident SET units = 9', 'UPDATE incident SET kind = \'short\'', 'UPDATE incident SET document_id = 1'] as $sql) {
+                self::assertSame(self::COLUMN_DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+            }
+        } finally {
+            exec('chmod -R u+w ' . escapeshellarg($dir) . ' 2>/dev/null; rm -rf ' . escapeshellarg($dir));
+        }
+    }
+
+    /** IM10 (I149, I151): the site writer switch, the selling-mode switch and the feed's site blocks, as the app login. */
+    public function testTheSiteWriterFlowAsTheAppLogin(): void
+    {
+        Grants::apply(self::$db, TestDb::name(), self::$user);
+        $app = $this->appSession();
+        $ch = self::makeChannel('vapeandgo', 'live');
+        self::$db->exec('INSERT INTO channel_warehouse (channel_id, warehouse_id, is_sellable) VALUES (?, ?, 1)', [$ch, self::warehouseId('MAIN')]);
+        $sku = self::makeSku('Writer app item');
+        self::$db->exec("INSERT INTO channel_listing (channel_id, external_variant_id, sku_id, units_per_item, status) VALUES (?, 'A1', ?, 1, 'mapped')", [$ch, $sku]);
+        $r = (new ChannelAdmin($app))->configure('vapeandgo', null, null, 'grants test', true, true);
+        self::assertSame([['site_writer'], true], [$r['changed'], $r['applied']]);
+        $set = (new \CW\SiteWriter\SiteModes($app))->set(Caller::staff($this->staffWith('purchasing_desk')), $sku, 'In-Stock', ['*'], '4', 'grants test');
+        self::assertSame(['vapeandgo'], $set['changed']);
+        $view = (new \CW\Availability($app))->forVariants($ch, ['A1'])[0];
+        self::assertSame([true, 'In-Stock', 4], [$view['site']['writer'], $view['site']['mode'], $view['site']['low_stock_threshold']]);
+        self::assertSame([], Invariants::check(self::$db));
+        foreach (['DELETE FROM item_channel_mode', 'DELETE FROM item_channel_mode_log', 'UPDATE item_channel_mode_log SET version = 9'] as $sql) {
+            self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
         }
     }
 

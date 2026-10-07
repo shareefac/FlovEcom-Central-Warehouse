@@ -173,8 +173,9 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $r = $web->post("/ui/items/{$sku}/card/confirm", ['acknowledge_block' => '1'] + $r->form('/card/confirm'));
         self::assertSame("/ui/items/{$sku}?notice=confirmed_blocked", $r->location(), $r->describe());
         $page = $web->follow($r);
-        self::assertStringContainsString('BLOCKED: it is never suggested for reorder, and a purchase order with it cannot be approved. CW does not stop receiving '
-            . 'or website sales yet: take it off sale on the website by hand.', $page->text(), 'what a block stops TODAY (I121)');
+        self::assertStringContainsString('BLOCKED: it is never suggested for reorder, a purchase order with it cannot be approved, and a delivery of it cannot be '
+            . 'received. A website whose site stock writer is on gets it written Out-Of-Stock by CW; on the others take it off sale by hand.', $page->text(),
+            'what a block stops TODAY (I121, I139, I160)');
         self::assertStringNotContainsString('cannot be ordered, received or sold', $page->text());
         self::assertStringContainsString('It stays blocked until someone corrects the card and confirms it again.', $page->text());
         // Corrected on the form: still blocked, and the page says why; confirmed again: lifted.

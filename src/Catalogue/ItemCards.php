@@ -10,6 +10,7 @@ use CW\Caller;
 use CW\Clock;
 use CW\CwException;
 use CW\Db;
+use CW\Stock;
 use CW\Staff\StaffRoles;
 
 /**
@@ -60,11 +61,12 @@ final class ItemCards
     public const TEXT_MAX = ['ecid' => 32, 'manufacturer' => 128, 'brand' => 128, 'flavour' => 255];
     public const HISTORY_LIMIT = 50;
     /**
-     * What a block stops TODAY, said wherever a block is announced (I121): the reorder list, "create draft PO" and the approval of
-     * a purchase order. Receiving (IM6) and the website stock (IM10) do not ask yet: the screens must not promise they do.
+     * What a block stops TODAY, said wherever a block is announced (I121): the reorder list, "create draft PO", the approval of a
+     * purchase order and, since IM6 (I-3, I139), the posting of a goods receipt. The website stock (IM10) does not ask yet: the
+     * screens must not promise it does.
      */
-    public const BLOCK_EFFECT = 'it is never suggested for reorder, and a purchase order with it cannot be approved. CW does not stop receiving '
-        . 'or website sales yet: take it off sale on the website by hand.';
+    public const BLOCK_EFFECT = 'it is never suggested for reorder, a purchase order with it cannot be approved, and a delivery of it cannot be '
+        . 'received. A website whose site stock writer is on gets it written Out-Of-Stock by CW; on the others take it off sale by hand.';
 
     /**
      * Spellings people type for a product type (a CSV file, the form's value) => the type. "disposable" is not one (I104), nor
@@ -79,6 +81,10 @@ final class ItemCards
     ];
 
     private readonly \Closure $clock;
+    /** Items whose block changed in this instance's writes, for their feed rows (IM10: the site writer writes them Out-Of-Stock). @var array<int, true> */
+    private array $feedSkus = [];
+    /** True while a caller writes many cards in one transaction (the CSV import): it writes the feed rows itself, at its end. */
+    private bool $deferFeed = false;
 
     /** @param (\Closure(): \DateTimeImmutable)|null $clock CW's clock (updated_at, confirmed_at) */
     public function __construct(private readonly Db $db, ?\Closure $clock = null)
@@ -178,7 +184,9 @@ final class ItemCards
         return $this->db->transaction(function (Db $db) use ($caller, $skuId, $expectedVersion, $values, $kind, $detail): array {
             self::editor($db, $caller);
             $cur = $this->lockCard($db, $skuId, $expectedVersion);
-            return $this->apply($db, $caller, $cur, $values, $kind, $detail);
+            $r = $this->apply($db, $caller, $cur, $values, $kind, $detail);
+            $this->feedUnlessDeferred($db);
+            return $r;
         });
     }
 
@@ -210,7 +218,9 @@ final class ItemCards
             if ($sources === null) {
                 throw new CwException('proposal_gone', 'That suggestion is no longer offered for this item (the card or its listings changed): look again.', 409);
             }
-            return $this->apply($db, $caller, $cur, [$field => $clean], 'accept', ['field' => $field, 'sources' => array_slice($sources, 0, 10)]);
+            $r = $this->apply($db, $caller, $cur, [$field => $clean], 'accept', ['field' => $field, 'sources' => array_slice($sources, 0, 10)]);
+            $this->feedUnlessDeferred($db);
+            return $r;
         });
     }
 
@@ -259,6 +269,8 @@ final class ItemCards
                 + ($lifted === [] ? [] : ['lifted' => $lifted]));
             Audit::write($db, $caller, 'item_card.confirm', 'item_card', (string) $skuId, null, ['version' => $next, 'breaches' => $breaches, 'first' => $first,
                 'lifted' => $lifted, 'card' => self::snapshot($after)]);
+            $this->noteBlock($cur, $after);
+            $this->feedUnlessDeferred($db);
             return ['result' => 'confirmed', 'version' => $next, 'breaches' => $breaches, 'first' => $first, 'lifted' => $lifted];
         });
     }
@@ -451,7 +463,55 @@ final class ItemCards
         $this->writeHistory($db, $caller, (int) $cur['sku_id'], $next, $kind, $changes, $after, $detail);
         Audit::write($db, $caller, 'item_card.change', 'item_card', (string) $cur['sku_id'], null, ['kind' => $kind, 'version' => $next, 'changes' => $changes,
             'unconfirmed' => $unconfirm] + ($detail === [] ? [] : ['detail' => $detail]));
+        $this->noteBlock($cur, $after);
         return ['result' => 'saved', 'version' => $next, 'changed' => array_keys($changes), 'unconfirmed' => $unconfirm];
+    }
+
+    /**
+     * Many writes in one transaction (the CSV import): no feed row per card; the caller calls writeFeed() at the end of its
+     * transaction, so the feed clock (the last lock of a transaction, D39) is held only from there to the commit.
+     */
+    public function deferFeed(bool $defer): void
+    {
+        $this->deferFeed = $defer;
+    }
+
+    /**
+     * The feed rows of the items whose block changed (IM10, I160): one Stock::skuChanged('card') each, so every linked listing's
+     * `site` block (Out-Of-Stock while blocked) reaches the sites. Call it last in the transaction.
+     */
+    public function writeFeed(Db $db): void
+    {
+        if ($this->feedSkus === []) {
+            return;
+        }
+        $skus = array_keys($this->feedSkus);
+        sort($skus);
+        $this->feedSkus = [];
+        $stock = new Stock($db);
+        foreach ($skus as $sku) {
+            $stock->skuChanged($sku, 'card');
+        }
+    }
+
+    private function feedUnlessDeferred(Db $db): void
+    {
+        if (!$this->deferFeed) {
+            $this->writeFeed($db);
+        }
+    }
+
+    /**
+     * Remembers an item whose blocked rules changed with this write (ItemRules::status before and after).
+     *
+     * @param array<string, mixed> $before
+     * @param array<string, mixed> $after
+     */
+    private function noteBlock(array $before, array $after): void
+    {
+        if (ItemRules::status($before)['blocked'] !== ItemRules::status($after)['blocked']) {
+            $this->feedSkus[(int) $after['sku_id']] = true;
+        }
     }
 
     /** @return array<string, mixed> the card row just written, typed */

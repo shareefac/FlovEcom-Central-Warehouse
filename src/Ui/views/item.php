@@ -322,6 +322,75 @@
 <?php endif; ?>
 </section>
 
+<section class="selling-mode" id="selling-mode" aria-labelledby="selling-mode-h">
+  <h2 id="selling-mode-h">Selling mode on the websites</h2>
+<?php $sm = $sellingMode; ?>
+<?php if (!$sm['legacy']): ?>
+  <p class="muted">This item is counted and protected (policy <?= $e($sm['policy']) ?>): every website sells it by that policy
+    (strict: From-Warehouse, sold while there is stock; backorder: From-Warehouse with back-orders; stopped: Out-Of-Stock).</p>
+<?php else: ?>
+  <p class="muted">Until the item is counted, each website can have its own selling mode. A website writes what CW says only once its site stock
+    writer is on (I-Day); until then this is what it will get.</p>
+<?php endif; ?>
+<?php if ($sm['blocked']): ?>
+  <p class="note">Blocked by its item card: every website whose writer is on gets it Out-Of-Stock, whatever the mode below.</p>
+<?php endif; ?>
+  <table class="stack">
+    <thead>
+      <tr>
+        <th scope="col">Website</th>
+        <th scope="col">Site stock writer</th>
+        <th scope="col">Listings</th>
+        <th scope="col">Selling mode CW writes</th>
+        <th scope="col" class="num">Low-stock threshold</th>
+        <th scope="col">Set by</th>
+      </tr>
+    </thead>
+    <tbody>
+<?php foreach ($sm['sites'] as $s): ?>
+      <tr>
+        <th scope="row" data-label="Website"><?= $e($s['name']) ?> <span class="muted"><?= $e($s['code']) ?></span><?php if ($s['receipts']): ?> <span class="tag">receipts set it</span><?php endif; ?></th>
+        <td data-label="Site stock writer"><?php if ($s['writer']): ?><span class="tag ok">on</span><?php else: ?><span class="tag">off</span><?php endif; ?>
+          <span class="muted">site <?= $e($s['channel_mode']) ?></span></td>
+        <td data-label="Listings"><?php if ($s['listings'] === []): ?><span class="muted">none linked</span><?php else: ?><?php foreach ($s['listings'] as $l): ?><?= $e($l['variant']) ?><?php if ($l['units'] !== 1): ?> <span class="muted">x<?= $e($l['units']) ?></span><?php endif; ?><?php if ($l['quarantined']): ?> <span class="tag warn">quarantined</span><?php endif; ?> <?php endforeach; ?><?php endif; ?></td>
+        <td data-label="Selling mode CW writes"><?php if ($s['mode'] === null): ?><span class="muted"><?= $e($s['why'] === 'unlinked' ? 'nothing (no listing linked)' : 'the site keeps its own') ?></span><?php else: ?><strong><?= $e($s['mode']) ?></strong><?php if ($s['backorders'] === 1): ?> + back-orders<?php endif; ?><?php endif; ?>
+          <?php if ($s['meaning'] !== null && $s['mode'] !== null): ?><span class="muted">(<?= $e($s['meaning']) ?>)</span><?php endif; ?>
+          <?php if ($s['previous'] !== null): ?><span class="muted">before: <?= $e($s['previous']) ?></span><?php endif; ?></td>
+        <td class="num" data-label="Low-stock threshold"><?php if ($s['threshold'] === null): ?><span class="muted">the site's own</span><?php else: ?><?= $n($s['threshold']) ?><?php endif; ?></td>
+        <td data-label="Set by"><?php if ($s['set_by'] === null): ?><span class="muted">never set in CW</span><?php else: ?><?= $e($s['set_source'] === 'receipt' ? 'a receipt' : 'the switch') ?>,
+          <?= $e($s['set_by']) ?>, <?= $dt($s['set_at']) ?><?php endif; ?></td>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+<?php if ($sm['canSet']): ?>
+  <form class="selling-mode-form" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/selling-mode') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="form_key" value="<?= $e($sm['formKey']) ?>">
+    <input type="hidden" name="stamp" value="<?= $e($sm['stamp']) ?>">
+    <fieldset>
+      <legend>Change the selling mode</legend>
+<?php foreach ($sm['modes'] as $m): ?>
+      <label class="choice"><input type="radio" name="mode" value="<?= $e($m['value']) ?>"<?php if ($sm['typed']['mode'] === $m['value']): ?> checked<?php endif; ?> required>
+        <?= $e($m['value']) ?> <span class="muted"><?= $e($m['meaning']) ?></span></label>
+<?php endforeach; ?>
+    </fieldset>
+    <fieldset>
+      <legend>On these websites</legend>
+      <label class="choice"><input type="checkbox" name="all_sites" value="1"<?php if ($sm['typed']['all']): ?> checked<?php endif; ?>> All websites</label>
+<?php foreach ($sm['sites'] as $s): ?>
+      <label class="choice"><input type="checkbox" name="site_<?= $e($s['code']) ?>" value="1"<?php if ($s['checked']): ?> checked<?php endif; ?>> <?= $e($s['name']) ?></label>
+<?php endforeach; ?>
+    </fieldset>
+    <p><label for="sm-threshold">Low-stock threshold <span class="muted">(optional: empty keeps it)</span></label>
+      <input id="sm-threshold" name="threshold" inputmode="numeric" pattern="[0-9]*" maxlength="6" value="<?= $e($sm['typed']['threshold']) ?>"></p>
+    <p><label for="sm-reason">Why</label>
+      <input id="sm-reason" name="reason" required minlength="3" maxlength="500" value="<?= $e($sm['typed']['reason']) ?>"></p>
+    <p class="actions"><button type="submit">Save the selling mode</button></p>
+  </form>
+<?php endif; ?>
+</section>
+
 <section aria-labelledby="stock-h">
   <h2 id="stock-h">Stock</h2>
 <?php if ($stock === []): ?>

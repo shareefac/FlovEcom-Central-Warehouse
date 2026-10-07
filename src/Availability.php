@@ -16,6 +16,10 @@ namespace CW;
  *               | backorder (backorder item)
  *   version   = MAX(seq) of the stock_change rows that affect the listing (D38): rows for the
  *               listing itself, for its item (sku rows), for its channel, and global rows.
+ *   site      = what the site stock writer writes for the listing (IM10; SiteWriter\SiteView): writer (the site's switch is on
+ *               and the listing linked), qty, mode, backorders, low_stock_threshold, why, meaning; on /v1/changes pages also
+ *               moves (the item's non-sale movements behind the change). The switch, a per-site mode, a threshold and a block of
+ *               the item card all write feed rows, so a listing's version moves with its `site` values too.
  *
  * Values are read AFTER the versions, so a value is never older than its version; a site applies
  * a value only when its version is newer than the one it holds.
@@ -59,7 +63,7 @@ final class Availability
         foreach ($variantIds as $v) {
             if (!isset($known[$v])) {
                 $out[] = ['variant_id' => $v, 'listing_id' => null, 'link' => 'unknown', 'sku_code' => null, 'policy' => null,
-                    'units_per_item' => 1, 'available' => null, 'state' => 'unlinked', 'version' => 0];
+                    'units_per_item' => 1, 'available' => null, 'state' => 'unlinked', 'version' => 0, 'site' => ['writer' => false, 'why' => 'unlinked']];
             }
         }
         return $out;
@@ -102,11 +106,11 @@ final class Availability
     {
         $limit = max(1, min($limit, self::MAX_CHANGE_ROWS));
         $new = $this->db->all(
-            'SELECT seq, sku_id, listing_id, channel_id FROM stock_change WHERE seq > ? ORDER BY seq LIMIT ?',
+            'SELECT seq, sku_id, listing_id, channel_id, created_at FROM stock_change WHERE seq > ? ORDER BY seq LIMIT ?',
             [$afterSeq, $limit],
         );
         $overlap = $overlapSec <= 0 ? [] : $this->db->all(
-            'SELECT seq, sku_id, listing_id, channel_id FROM stock_change '
+            'SELECT seq, sku_id, listing_id, channel_id, created_at FROM stock_change '
             . 'WHERE created_at >= UTC_TIMESTAMP(6) - INTERVAL ? SECOND AND seq <= ?',
             [$overlapSec, $afterSeq],
         );
@@ -114,8 +118,13 @@ final class Availability
         $resync = false;
         $listingIds = [];
         $skuIds = [];
+        $from = null;
+        $to = null;
         foreach ([...$overlap, ...$new] as $r) {
             $next = max($next, (int) $r['seq']);
+            $at = (string) $r['created_at'];
+            $from = $from === null || $at < $from ? $at : $from;
+            $to = $to === null || $at > $to ? $at : $to;
             if ($r['listing_id'] !== null) {
                 $listingIds[(int) $r['listing_id']] = true;
             } elseif ($r['sku_id'] !== null) {
@@ -141,6 +150,9 @@ final class Availability
         $ids = array_keys($ids);
         sort($ids);
         $views = $this->views($channelId, $ids);
+        if ($from !== null) {
+            $views = $this->withMoves($channelId, $views, $from, (string) $to);
+        }
         return [
             'listings' => $views,
             'next_after' => $next,
@@ -188,11 +200,46 @@ final class Availability
                     break;
                 }
             }
+            $site = SiteWriter\SiteView::blocks($this->db, $channelId, array_map(static fn (array $v): array => ['status' => $v['status'], 'sku_id' => $v['sku_id'],
+                'policy' => $v['policy'], 'qty' => $v['sku_id'] === null ? null : Reservations::listingUnits($v['avail'], $v['u'])], $values));
             foreach ($values as $id => $val) {
-                $out[] = self::view($val, $versions[$id] ?? 0);
+                $out[] = self::view($val, $versions[$id] ?? 0, $site[$id] ?? ['writer' => false, 'why' => 'writer_off']);
             }
         }
         return $out;
+    }
+
+    /**
+     * Adds `site.moves` (SiteView::moves) to the views the site writer looks after: the item's movements in the page's window
+     * [$from, $to] (the created_at of its feed rows) that the site does not log itself, so its stock-log line can say what changed.
+     *
+     * @param list<array<string, mixed>> $views
+     * @return list<array<string, mixed>>
+     */
+    private function withMoves(int $channelId, array $views, string $from, string $to): array
+    {
+        $skus = [];
+        $codes = [];
+        foreach ($views as $v) {
+            if (($v['site']['writer'] ?? false) === true && $v['sku_code'] !== null) {
+                $codes[(string) $v['sku_code']] = true;
+            }
+        }
+        if ($codes === []) {
+            return $views;
+        }
+        foreach (array_chunk(array_keys($codes), 1000) as $chunk) {
+            foreach ($this->db->all('SELECT id, code FROM sku WHERE code IN (' . self::marks($chunk) . ')', $chunk) as $r) {
+                $skus[(string) $r['code']] = (int) $r['id'];
+            }
+        }
+        $moves = SiteWriter\SiteView::moves($this->db, $channelId, array_values($skus), $from, $to);
+        foreach ($views as $i => $v) {
+            if (($v['site']['writer'] ?? false) === true && $v['sku_code'] !== null) {
+                $views[$i]['site']['moves'] = $moves[$skus[(string) $v['sku_code']] ?? 0] ?? [];
+            }
+        }
+        return $views;
     }
 
     /**
@@ -282,14 +329,17 @@ final class Availability
         return $out;
     }
 
-    /** @param array<string, mixed> $v */
-    private static function view(array $v, int $version): array
+    /**
+     * @param array<string, mixed> $v
+     * @param array<string, mixed> $site SiteView::rule()
+     */
+    private static function view(array $v, int $version, array $site): array
     {
         $linked = $v['sku_id'] !== null;
         $available = $linked ? Reservations::listingUnits($v['avail'], $v['u']) : null;
         $state = match (true) {
             !$linked => 'unlinked',
-            $v['policy'] === 'legacy' => 'legacy', // never refused, never written to the site (§2.3, R8)
+            $v['policy'] === 'legacy' => 'legacy', // never refused (§2.3, R8); its quantity (and a mode CW set) reach the site only through the site block (I150)
             $v['status'] === 'quarantined', $v['policy'] === 'stopped' => 'stopped',
             $available >= 1 => 'in_stock',
             $v['policy'] === 'backorder' => 'backorder',
@@ -305,6 +355,7 @@ final class Availability
             'available' => $available,
             'state' => $state,
             'version' => $version,
+            'site' => $site,
         ];
     }
 

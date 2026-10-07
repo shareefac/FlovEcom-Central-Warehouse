@@ -216,8 +216,8 @@ final class ReviewScreensTest extends KernelUiTestCase
         $sku = self::makeSku('PDF item');
         $doc = $this->post($poster, [['sku_id' => $sku, 'qty' => 4, 'unit_cost' => '2.25'], ['sku_id' => $sku, 'qty' => -1, 'warehouse' => 'VERIFY']],
             ['external_ref' => 'SUP-PDF', 'note' => 'Café delivery £12.50']);
-        // A type without screens yet (PO is live since the I-2 pos task: GRN arrives in I-3).
-        $draftGrn = self::$db->insert("INSERT INTO document (doc_type, created_actor, external_ref) VALUES ('GRN', 'staff:1', 'GRN-DRAFT-REF')");
+        // A type without screens yet (PO is live since the I-2 pos task, GRN since IM6 in I-3: SINV arrives in I-4).
+        $draftGrn = self::$db->insert("INSERT INTO document (doc_type, created_actor, external_ref) VALUES ('SINV', 'staff:1', 'SINV-DRAFT-REF')");
         $web = $this->signIn($this->uiUser('auditor'));
 
         $list = $web->get('/ui/documents');
@@ -225,13 +225,13 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertStringContainsString('2 documents, newest first.', $list->text());
         self::assertContains('/ui/documents/' . $doc->id, $list->hrefs());
         self::assertStringNotContainsString('No document type is live yet', $list->text(), 'the fixture ADJ is live in tests');
-        self::assertStringContainsString('1 document, newest first.', $web->get('/ui/documents', ['type' => 'GRN'])->text());
+        self::assertStringContainsString('1 document, newest first.', $web->get('/ui/documents', ['type' => 'SINV'])->text());
         self::assertStringContainsString('1 document', $web->get('/ui/documents', ['q' => 'SUP-PDF'])->text());
         self::assertStringContainsString('No document matches these filters.', $web->get('/ui/documents', ['status' => 'cancelled'])->text());
         self::assertSame(200, $web->get('/ui/documents', ['type' => '<script>', 'status' => 'nope', 'page' => '999'])->status, 'unknown filters are ignored');
 
         $grn = $web->get('/ui/documents/' . $draftGrn);
-        self::assertStringContainsString('Goods received screens arrive in Phase I-3.', $grn->text());
+        self::assertStringContainsString('Supplier invoice screens arrive in Phase I-4.', $grn->text());
         self::assertSame(404, $web->get('/ui/documents/999999')->status);
 
         $pdf = $web->get('/ui/documents/' . $doc->id . '/pdf');
@@ -252,8 +252,8 @@ final class ReviewScreensTest extends KernelUiTestCase
         $plain->cookies = $web->cookies;
         $live = $plain->get('/ui/documents');
         self::assertStringNotContainsString('No document type is live yet', $live->text());
-        self::assertStringContainsString('Live document types: Purchase order (PO), written in Purchasing;', $live->text());
-        self::assertStringContainsString('Goods received (GRN) in Phase I-3', $live->text());
+        self::assertStringContainsString('Live document types: Purchase order (PO), written in Purchasing; Goods received (GRN), written in Receiving;', $live->text());
+        self::assertStringContainsString('Supplier invoice (SINV) in Phase I-4', $live->text());
         self::assertStringContainsString('Stock adjustment (ADJ) in Phase I-4', $live->text());
         self::assertStringContainsString('Stock adjustment screens arrive in Phase I-4.', $plain->get('/ui/documents/' . $doc->id)->text());
     }

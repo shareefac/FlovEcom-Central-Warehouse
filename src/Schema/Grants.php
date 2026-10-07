@@ -39,10 +39,15 @@ final class Grants
      * of its own, so the bulk confirm trusts the holds and who held or released what and why stays readable.
      * item_card_change: the history of every item card write (0016, I101): the app login may UPDATE item_card itself, so the
      * nightly invariants compare each card with its last history row, which the app login can add but never rewrite.
+     * grn_posting: the write-once anchor of a posted goods receipt's module content (0017, I128; invariant G3, like po_posting).
+     * item_selling_mode_log: every write of an item's selling mode (0017, I137): the app login may UPDATE item_selling_mode, so
+     * the nightly invariants compare it with its last log row (G6).
+     * item_channel_mode_log: every write of an item's selling mode on one site (0018, IM10, I151): the app login may UPDATE
+     * item_channel_mode, so the nightly invariants compare it with its last log row (W1).
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
         'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
-        'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change'];
+        'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change', 'grn_posting', 'item_selling_mode_log', 'item_channel_mode_log'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -51,7 +56,9 @@ final class Grants
      * (who held which role when stays readable: a grant is revoked, never rewritten or deleted, I10), a number series'
      * last number (I20), a review task's decision (I19), and a document's state columns: its identity (id, type,
      * creator, creation time, the document it reverses) is frozen and a document is never deleted (I17). A barcode review's
-     * decision (0016, I107): what was found (the barcode, the items, the listing) is frozen, a row is never deleted.
+     * decision (0016, I107): what was found (the barcode, the items, the listing) is frozen, a row is never deleted. An incident's
+     * resolution (0017, I131): what was found (the receipt line, the item, the units, where they went) is frozen, a row is never
+     * deleted.
      */
     public const UPDATE_COLUMNS = [
         'match_proposal' => ['status'],
@@ -65,6 +72,7 @@ final class Grants
             'submitted_by', 'submitted_at', 'posted_by', 'posted_actor', 'posted_at', 'posted_hash', 'cancelled_by', 'cancelled_at',
             'cancel_reason', 'review_state'],
         'barcode_review' => ['status', 'decision', 'decided_units', 'decided_by', 'decided_actor', 'decided_at', 'note'],
+        'incident' => ['status', 'resolution', 'resolved_by', 'resolved_actor', 'resolved_at'],
     ];
     /**
      * reason_code / document_type: seeded reference lists, changed only by a migration (I22, I19). app_setting: changed by
@@ -83,10 +91,13 @@ final class Grants
      * readable, I66). The sales-history tables, the reorder settings and reorder_demand keep FULL rights: an import replaces
      * its days, the demand is rebuilt (DELETE + INSERT in one transaction). An item card (0016, I101): changed, never removed.
      * sku_barcode keeps FULL rights: a person removes a barcode from an item (the removal is recorded in barcode_review and
-     * audit_log, and the barcode can then go to another item: it is the table's key).
+     * audit_log, and the barcode can then go to another item: it is the table's key). A goods receipt's header (cancelled or
+     * reversed, never deleted: 0017, I127) and an item's selling mode (changed, never removed: its log keeps every write, I137), also
+     * per site (item_channel_mode, 0018, I151).
+     * grn_line keeps FULL rights: a draft's lines are replaced (its rows go with their document_line, ON DELETE CASCADE).
      */
     public const NO_DELETE = ['channel_listing', 'listing_profile', 'sku', 'staff_user', 'supplier', 'supplier_item', 'import_run', 'purchase_order',
-        'sales_import_batch', 'demand_anomaly', 'item_card'];
+        'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

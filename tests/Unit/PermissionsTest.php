@@ -91,7 +91,8 @@ final class PermissionsTest extends TestCase
                     self::assertArrayNotHasKey('badge', $item, $what);
                 }
                 if (isset($item['badge'])) {
-                    self::assertContains($item['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open'], "{$what}: a count Ui\\Context::badges() computes");
+                    self::assertContains($item['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open'],
+                        "{$what}: a count Ui\\Context::badges() computes");
                 }
             }
         }
@@ -196,6 +197,15 @@ final class PermissionsTest extends TestCase
         self::assertSame(['buyer', 'reviewer'], Permissions::checkRoleSet(['reviewer', 'buyer', 'reviewer']), 'deduped and sorted');
     }
 
+    /** IM10 (I158): the selling-mode switch, provisional: the desk, the purchasing manager, the stock controller, the manager; never admin. */
+    public function testTheSellingModeSwitch(): void
+    {
+        self::assertSame(['purchasing_desk', 'purchasing_manager', 'stock_controller', 'manager'], Permissions::MAP['modes.set']);
+        self::assertFalse(Permissions::can(['admin'], 'modes.set'));
+        self::assertFalse(Permissions::can(['buyer'], 'modes.set'));
+        self::assertTrue(Permissions::can(['manager'], 'modes.set'));
+    }
+
     public function testAnUnknownPermissionFailsLoudly(): void
     {
         $this->expectException(\InvalidArgumentException::class);
@@ -211,9 +221,10 @@ final class PermissionsTest extends TestCase
         $sections = static fn (array $roles): array => array_column(Permissions::menu($roles), 'section');
         self::assertSame(['Items', 'Purchasing', 'Documents', 'Reference'], $sections(['buyer']));
         self::assertSame(['Items', 'Purchasing', 'Receiving', 'Trade', 'Documents', 'Reference'], $sections(['purchasing_desk']));
-        self::assertSame(['Items', 'Purchasing', 'Document reviews', 'Documents', 'Reference'], $sections(['reviewer']));
+        self::assertSame(['Items', 'Purchasing', 'Receiving', 'Document reviews', 'Documents', 'Reference'], $sections(['reviewer']),
+            'the reviewer reads the receipts it reviews and the incidents (IM6, I141)');
         self::assertSame(['Linking', 'Items', 'Reference', 'Admin'], $sections(['admin']));
-        self::assertSame(['Linking', 'Items', 'Purchasing', 'Documents', 'Accounts', 'Reference', 'Admin'], $sections(['auditor']));
+        self::assertSame(['Linking', 'Items', 'Purchasing', 'Receiving', 'Documents', 'Accounts', 'Reference', 'Admin'], $sections(['auditor']));
         self::assertSame(['Linking', 'Items', 'Purchasing', 'Receiving', 'Trade', 'Document reviews', 'Documents', 'Reference'],
             $sections(['mapper', 'purchasing_manager', 'reviewer']), 'several roles: the union, in menu order');
         self::assertSame([], Permissions::menu([]), 'no roles, no menu');
@@ -226,8 +237,9 @@ final class PermissionsTest extends TestCase
         $desk = Permissions::menu(['purchasing_desk']);
         self::assertSame(['Suppliers', 'Purchase orders'], array_column($desk[1]['items'], 'label'), 'no reorder list for the desk');
         self::assertSame(['/ui/purchasing/suppliers', '/ui/purchasing/orders'], array_column($desk[1]['items'], 'path'), 'the desk reads the orders');
-        self::assertSame(['Receive + invoice', 'Supplier invoices', 'Supplier returns'], array_column($desk[2]['items'], 'label'));
-        self::assertSame(['I-3', 'I-4', 'I-4'], array_column($desk[2]['items'], 'phase'));
+        self::assertSame(['Receive + invoice', 'Goods-in bench', 'Incidents', 'Supplier invoices', 'Supplier returns'], array_column($desk[2]['items'], 'label'));
+        self::assertSame(['/ui/receiving', '/ui/receiving/bench', '/ui/receiving/incidents'], array_column($desk[2]['items'], 'path'), 'live since IM6 (I141)');
+        self::assertSame(['I-4', 'I-4'], array_column($desk[2]['items'], 'phase'));
         $reviewer = Permissions::menu(['reviewer']);
         self::assertSame(['Suppliers', 'Purchase orders', 'Reorder list', 'Sales history'], array_column($reviewer[1]['items'], 'label'));
         self::assertSame(['Reason codes', 'Number series', 'Settings', 'Company details'], array_column(Permissions::menu(['viewer'])[2]['items'], 'label'),

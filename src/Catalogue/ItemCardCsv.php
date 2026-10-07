@@ -276,6 +276,7 @@ final class ItemCardCsv
     private function write(Caller $caller, array $work, int $runId, array &$report): void
     {
         $cards = new ItemCards($this->db);
+        $cards->deferFeed(true); // one feed row per item whose block changed, written last (IM10, I160)
         $body = function (Db $db) use ($caller, $work, $runId, $cards, &$report): void {
             $report['applied'] = false; // a deadlock retry runs the whole unit again
             foreach ($work as $w) {
@@ -294,6 +295,7 @@ final class ItemCardCsv
             }
             Audit::write($db, $caller, 'item_card.import', 'import_run', (string) $runId, null, ['file' => $report['file'], 'sha256' => $report['sha256'],
                 'rows' => $report['rows'], 'changed' => $report['changed'], 'unchanged' => $report['unchanged'], 'origin' => $report['origin']]);
+            $cards->writeFeed($db); // LAST: the feed clock (D39)
             $report['applied'] = true;
         };
         $pdo = $this->db->pdo();

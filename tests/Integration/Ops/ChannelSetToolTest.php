@@ -140,8 +140,8 @@ final class ChannelSetToolTest extends ApiKernelTestCase
         $dry = $admin->configure('vpg', 'live', null, 'tester', false);
         self::assertSame(['mode'], $dry['changed']);
         self::assertFalse($dry['applied']);
-        self::assertSame(['mode' => 'shadow', 'allowed_ips' => ['203.0.113.7']], $dry['before']);
-        self::assertSame(['mode' => 'live', 'allowed_ips' => ['203.0.113.7']], $dry['after']);
+        self::assertSame(['mode' => 'shadow', 'allowed_ips' => ['203.0.113.7'], 'site_writer' => false], $dry['before']);
+        self::assertSame(['mode' => 'live', 'allowed_ips' => ['203.0.113.7'], 'site_writer' => false], $dry['after']);
         self::assertSame('shadow', self::$db->value("SELECT mode FROM channel WHERE code = 'vpg'"));
 
         $done = $admin->configure('vpg', 'live', [' 203.0.113.7 ', '203.0.113.7'], 'tester', true);
@@ -158,6 +158,46 @@ final class ChannelSetToolTest extends ApiKernelTestCase
             }
         }
         self::assertSame(1, $this->audits());
+    }
+
+    /**
+     * IM10 (I149): --writer=on|off turns CW's site stock writer on or off for one site: a dry run first, then written, audited
+     * channel.site_writer, and a channel-wide feed row (the site re-snapshots its listings' `site` blocks).
+     */
+    public function testTheSiteWriterSwitch(): void
+    {
+        [$site, $key] = $this->apiSite('vpg', 'shadow', [self::CLIENT_IP]);
+        $this->listing($site, 'W1', $this->item('strict', 3));
+        $after = (int) self::$db->value('SELECT MAX(seq) FROM stock_change');
+        [$code, $out, $err] = self::tool('--code=vpg', '--writer=on', '--actor=Hari');
+        self::assertSame(0, $code, $err);
+        self::assertStringContainsString("site_writer: off -> on\n", $out);
+        self::assertStringContainsString('warning: the channel is shadow: nothing is written on the site until it is live', $out);
+        self::assertStringContainsString('dry run', $out);
+        self::assertSame(0, (int) self::$db->value("SELECT site_writer FROM channel WHERE code = 'vpg'"));
+
+        [$code, $out, $err] = self::tool('--code=vpg', '--writer=on', '--actor=Hari', '--apply');
+        self::assertSame(0, $code, $err);
+        self::assertStringContainsString('audited: channel.site_writer', $out);
+        self::assertSame(1, (int) self::$db->value("SELECT site_writer FROM channel WHERE code = 'vpg'"));
+        self::assertSame(['by' => 'Hari', 'from' => false, 'to' => true], self::detail((string) self::$db->value(
+            "SELECT detail FROM audit_log WHERE action = 'channel.site_writer'")));
+        $c = self::data($this->call('GET', '/v1/changes?after=' . $after, $key));
+        self::assertTrue($c['resync']);
+        $view = self::data($this->call('GET', '/v1/availability?variant_ids=W1', $key))['listings'][0];
+        self::assertSame([true, 3, 'From-Warehouse', 0, 'strict'], [$view['site']['writer'], $view['site']['qty'], $view['site']['mode'], $view['site']['backorders'],
+            $view['site']['why']]);
+
+        [$code, $out] = self::tool('--code=vpg', '--writer=on', '--apply');
+        self::assertSame(0, $code);
+        self::assertStringContainsString('site_writer: on (unchanged)', $out);
+        [$code, $out] = self::tool('--code=vpg', '--writer=off', '--apply');
+        self::assertSame(0, $code);
+        self::assertStringContainsString('warning: site writer off', $out);
+        self::assertSame(0, (int) self::$db->value("SELECT site_writer FROM channel WHERE code = 'vpg'"));
+        [$code] = self::tool('--code=vpg', '--writer=maybe', '--apply');
+        self::assertSame(2, $code, 'a usage error');
+        self::assertSame(2, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'channel.site_writer'"));
     }
 
     /** An audit detail with its keys sorted (MySQL's JSON type re-orders them). @return array<string, mixed> */

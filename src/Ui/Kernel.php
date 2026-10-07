@@ -17,10 +17,12 @@ use CW\Ui\Controller\DashboardController;
 use CW\Ui\Controller\DocumentsController;
 use CW\Ui\Controller\DuplicatesController;
 use CW\Ui\Controller\FilesController;
+use CW\Ui\Controller\IncidentsController;
 use CW\Ui\Controller\ItemCardsController;
 use CW\Ui\Controller\ItemController;
 use CW\Ui\Controller\PeopleController;
 use CW\Ui\Controller\PurchaseOrdersController;
+use CW\Ui\Controller\ReceivingController;
 use CW\Ui\Controller\ReferenceController;
 use CW\Ui\Controller\ReorderController;
 use CW\Ui\Controller\ReviewController;
@@ -28,6 +30,7 @@ use CW\Ui\Controller\ReviewsController;
 use CW\Ui\Controller\SalesHistoryController;
 use CW\Ui\Controller\SamplesController;
 use CW\Ui\Controller\SearchController;
+use CW\Ui\Controller\SellingModeController;
 use CW\Ui\Controller\SupplierItemsController;
 use CW\Ui\Controller\SuppliersController;
 
@@ -282,6 +285,8 @@ final class Kernel
         $r->add('POST', '/ui/items/{id}/card/accept', 'catalogue.edit', $cards->accept(...));
         $r->add('POST', '/ui/items/{id}/card/confirm', 'catalogue.edit', $cards->confirm(...));
         $r->add('POST', '/ui/items/{id}/barcodes', 'catalogue.edit', $barcodes->add(...));
+        // IM10 (I158): the selling-mode switch of a legacy item, per website.
+        $r->add('POST', '/ui/items/{id}/selling-mode', 'modes.set', (new SellingModeController())->set(...));
         $r->add('POST', '/ui/items/{id}/barcodes/remove', 'catalogue.edit', $barcodes->remove(...));
         $r->add('POST', '/ui/items/{id}/barcodes/units', 'catalogue.edit', $barcodes->setUnits(...));
         $r->add('GET', '/ui/items/barcodes', 'catalogue.edit', $barcodes->queue(...));
@@ -371,6 +376,28 @@ final class Kernel
         $r->add('POST', '/ui/purchasing/reorder/anomalies/{id}/end', 'reorder.manage', $reorder->endAnomaly(...));
         $r->add('GET', '/ui/purchasing/sales-history', 'reorder.view', $sales->index(...));
         $r->add('GET', '/ui/purchasing/sales-history/unlinked.csv', 'reorder.view', $sales->unlinkedCsv(...));
+        // Receiving (IM6, I-3; I125-I147): receiving.view looks; doc.GRN.post (goods_in, purchasing_desk, purchasing_manager) keys,
+        // checks at the bench and posts, checked again by CW\Receiving\GoodsReceipts (the creator-only rule of a draft's lines);
+        // reviewers decide on the receipt's page through /ui/documents/reviews/{id}/*; incidents.view / incidents.resolve the register.
+        $recv = new ReceivingController();
+        $incidents = new IncidentsController();
+        $r->add('GET', '/ui/receiving', 'receiving.view', $recv->index(...));
+        $r->add('POST', '/ui/receiving', 'doc.GRN.post', $recv->create(...));
+        $r->add('GET', '/ui/receiving/template.csv', 'receiving.view', $recv->template(...));
+        $r->add('GET', '/ui/receiving/bench', 'doc.GRN.post', $recv->benchList(...));
+        $r->add('GET', '/ui/receiving/incidents', 'incidents.view', $incidents->index(...));
+        $r->add('POST', '/ui/receiving/incidents/{id}', 'incidents.resolve', $incidents->resolve(...));
+        $r->add('GET', '/ui/receiving/{id}', 'receiving.view', $recv->show(...));
+        $r->add('POST', '/ui/receiving/{id}/lines', 'doc.GRN.post', $recv->lines(...));
+        $r->add('POST', '/ui/receiving/{id}/copy', 'doc.GRN.post', $recv->copy(...));
+        $r->add('POST', '/ui/receiving/{id}/import', 'doc.GRN.post', $recv->import(...));
+        $r->add('POST', '/ui/receiving/{id}/files', 'doc.GRN.post', $recv->files(...));
+        $r->add('POST', '/ui/receiving/{id}/post', 'doc.GRN.post', $recv->post(...));
+        $r->add('POST', '/ui/receiving/{id}/cancel', 'doc.GRN.post', $recv->cancel(...));
+        $r->add('POST', '/ui/receiving/{id}/invoice', 'doc.GRN.post', $recv->invoice(...));
+        $r->add('POST', '/ui/receiving/{id}/reverse', 'doc.GRN.post', $recv->reverse(...));
+        $r->add('GET', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->benchForm(...));
+        $r->add('POST', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->bench(...));
         return $this->router = $r;
     }
 

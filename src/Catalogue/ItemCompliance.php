@@ -13,9 +13,10 @@ use CW\Db;
  *
  *  - BLOCKED (ItemRules::status): the rules a person confirmed the card breaks, until a person confirms it again. Refused TODAY
  *    by: the reorder list (never suggested, ReorderList), "create draft PO" (skipped, DraftPos), the approval of a purchase order
- *    (PurchaseOrderHandler::validate: 422 item_blocked). NOT YET by receiving (IM6, I-3, will call receiving() /
- *    assertAllowed('receive')) nor by the website stock (IM10, I-6, will call assertAllowed('sell')): until then a blocked item
- *    is taken off sale on the website by hand (the screens say so, I121).
+ *    (PurchaseOrderHandler::validate: 422 item_blocked), the posting of a goods receipt (IM6, I-3: receiving() through
+ *    CW\Receiving\ReceiptPlan, 422 item_blocked, I139) and the website stock (IM10, I-3: selling() through CW\SiteWriter\SiteView,
+ *    I160): every listing of a blocked item is written Out-Of-Stock on each site whose site stock writer is on (ItemCards writes a
+ *    feed row whenever the block changes). A site whose writer is off (every site until I-Day) still takes it off sale by hand.
  *  - WARNED: a rule the values break that no confirmation stands behind: shown everywhere (item page, item cards list, reorder
  *    flags, PO warnings), refused nowhere.
  *  - DISCONTINUED: never suggested on the reorder list; a buyer may still order it on purpose (a PO warning says so).
@@ -109,6 +110,19 @@ final class ItemCompliance
         }
         throw new CwException('item_blocked', 'Blocked by the item card, so it cannot be ' . self::ACTIONS[$action] . ': ' . implode('; ', $parts)
             . '. A person confirmed these fields; if they are wrong, correct the item card and confirm it again.', 422, ['items' => $codes]);
+    }
+
+    /**
+     * What the site stock writer (IM10, I-3; CW\SiteWriter\SiteView, I160) needs per item: the rules that block selling it (the
+     * 'sell' action of assertAllowed(), per item instead of a refusal: a blocked item is written Out-Of-Stock on the sites, never
+     * refused). Items that are not blocked are left out. $lock: as statusOf().
+     *
+     * @param list<int> $skuIds
+     * @return array<int, list<string>> item id => blocking rule codes
+     */
+    public function selling(array $skuIds, bool $lock = false): array
+    {
+        return $this->blocked($skuIds, $lock);
     }
 
     /**

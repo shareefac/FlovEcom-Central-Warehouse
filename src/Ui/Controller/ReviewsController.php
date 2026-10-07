@@ -22,7 +22,8 @@ use CW\Ui\HtmlResponse;
  * counts only the tasks they may decide. Every decision goes through CW\Documents\Documents, which checks it again.
  * Since the pos task (I-2, I53): `?type=PO` (a document type, or Supplier) narrows the queue (the reviewer's weekly PO
  * routine); the units of an over_value approval are whole GBP and shown as £; a PO and its cancellation are decided on
- * the order's page in Purchasing, where a decision comes back to. Since 0013 (I94) the checks of a person's confirmation of
+ * the order's page in Purchasing, where a decision comes back to (a goods receipt and its reversal on the receipt's page in
+ * Receiving since IM6, I141). Since 0013 (I94) the checks of a person's confirmation of
  * their own change of the company details are listed too (type "Company details", `?type=Company`, labelled with the
  * watched fields changed), decided on the Company details page.
  */
@@ -45,10 +46,16 @@ final class ReviewsController
             if ($type !== null && $doc->docType !== $type) {
                 continue;
             }
-            $no = Documents::refusal($me->id, $me->roles, $doc, (string) $r['kind']);
+            $no = $ctx->documents()->refusalFor($me->id, $me->roles, $doc, (string) $r['kind']);
             $lists[(string) $r['kind']][] = [
-                'task_id' => (int) $r['task_id'], 'document_id' => $doc->id, 'label' => $doc->label() . ($doc->isReversal() ? ' (cancellation)' : ''),
-                'type' => $doc->docType, 'href' => $doc->docType === 'PO' ? '/ui/purchasing/orders/' . ($doc->reversesId ?? $doc->id) : '/ui/documents/' . $doc->id,
+                'task_id' => (int) $r['task_id'], 'document_id' => $doc->id,
+                'label' => $doc->label() . ($doc->isReversal() ? ($doc->docType === 'PO' ? ' (cancellation)' : ' (reversal)') : ''),
+                'type' => $doc->docType, 'href' => match ($doc->docType) {
+                    'PO' => '/ui/purchasing/orders/' . ($doc->reversesId ?? $doc->id),
+                    // A receipt (IM6, I141) and its reversal are decided on the receipt's page in Receiving.
+                    'GRN' => '/ui/receiving/' . ($doc->reversesId ?? $doc->id),
+                    default => '/ui/documents/' . $doc->id,
+                },
                 'reason' => (string) $r['task_reason'], 'units' => $r['units'], 'money' => $r['task_reason'] === 'over_value', 'opened_by' => $r['opened_by_name'],
                 'opened_at' => $r['opened_at'], 'due_at' => $r['due_at'], 'overdue' => (string) $r['due_at'] < $now, 'refusal' => $no['message'] ?? null,
             ];
@@ -129,13 +136,15 @@ final class ReviewsController
             return $ctx->error(404, 'unknown_task', 'there is no such review task');
         }
         $docId = (int) $task['subject_id'];
-        // A PO (and its cancellation) is decided on the order's page in Purchasing, and the decision comes back there (I53).
+        // A PO (and its cancellation) is decided on the order's page in Purchasing, and the decision comes back there (I53); a
+        // receipt (and its reversal) on the receipt's page in Receiving (I141).
         $po = $task['doc_type'] === 'PO';
+        $grn = $task['doc_type'] === 'GRN';
         $note = $ctx->req->field('note');
         try {
             if ($approve) {
                 $ctx->documents()->approve($ctx->caller(), $taskId, $note);
-                $notice = $task['kind'] === 'approval' ? 'approved_posted' : ($po ? 'approved_review' : 'approved');
+                $notice = $task['kind'] === 'approval' ? 'approved_posted' : ($po || $grn ? 'approved_review' : 'approved');
             } else {
                 $ctx->documents()->reject($ctx->caller(), $taskId, $note ?? '');
                 $notice = match (true) {
@@ -146,10 +155,17 @@ final class ReviewsController
                 };
             }
         } catch (CwException $e) {
-            return $po ? (new PurchaseOrdersController())->page($ctx, $docId, $e->httpStatus, $e) : (new DocumentsController())->page($ctx, $docId, $e->httpStatus, $e);
+            return match (true) {
+                $po => (new PurchaseOrdersController())->page($ctx, $docId, $e->httpStatus, $e),
+                $grn => (new ReceivingController())->page($ctx, (int) ($task['reverses_id'] ?? $docId), $e->httpStatus, $e),
+                default => (new DocumentsController())->page($ctx, $docId, $e->httpStatus, $e),
+            };
         }
         if ($po) {
             return HtmlResponse::redirect(Html::url('/ui/purchasing/orders/' . ($task['reverses_id'] ?? $docId), ['notice' => $notice]));
+        }
+        if ($grn) {
+            return HtmlResponse::redirect(Html::url('/ui/receiving/' . ($task['reverses_id'] ?? $docId), ['notice' => $notice]));
         }
         return HtmlResponse::redirect(Html::url('/ui/documents/' . $docId, ['notice' => $notice]));
     }

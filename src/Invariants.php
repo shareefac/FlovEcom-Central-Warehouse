@@ -44,6 +44,11 @@ namespace CW;
  *     involved (CW\Company\CompanyInvariants, I91, I94).
  * IC1-IC3. the item cards (0016): history versions 1..n per card, each card equal to its latest history snapshot, a barcode with an
  *     open review unusable (CW\Catalogue\CatalogueInvariants, I101, I107).
+ * G1-G8. goods receipts (0017): headers and invoice keys, line pairs, the write-once posting anchor, the stock booked per line and
+ *     warehouse at the line's cost, incidents for every exception, selling modes equal to their log, PO receipts equal to what the
+ *     posted receipts applied, reviews never decided by a bench checker (CW\Receiving\ReceivingInvariants, I142).
+ *   - the per-site selling modes (0018, IM10): each row is its newest log row, the log's versions 1..n, every id names something
+ *     (CW\SiteWriter\SiteWriterInvariants W1-W2, I163).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  */
@@ -164,6 +169,8 @@ final class Invariants
         array_push($v, ...PurchaseOrders\PurchaseInvariants::check($db));
         array_push($v, ...Company\CompanyInvariants::check($db));
         array_push($v, ...Catalogue\CatalogueInvariants::check($db));
+        array_push($v, ...Receiving\ReceivingInvariants::check($db));
+        array_push($v, ...SiteWriter\SiteWriterInvariants::check($db));
         return $v;
     }
 

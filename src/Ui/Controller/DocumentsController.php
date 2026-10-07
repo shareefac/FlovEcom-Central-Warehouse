@@ -199,7 +199,8 @@ final class DocumentsController
         }
         $decide = null;
         if ($open !== null && ($me->can('documents.review') || $me->can('documents.approve'))) {
-            $no = Documents::refusal($me->id, $me->roles, $doc, (string) $open['kind']);
+            // refusalFor: also the people a type names as having written part of it (a receipt's bench check, I133).
+            $no = $ctx->documents()->refusalFor($me->id, $me->roles, $doc, (string) $open['kind']);
             $decide = ['task' => $open, 'refusal' => $no['message'] ?? null];
         }
         $reverse = null;
@@ -216,6 +217,8 @@ final class DocumentsController
             // A type whose rejected review is only recorded (PO, I49); a PO's own page is in Purchasing (I53).
             'rejectRecords' => ($data['type']['reject_action'] ?? 'reverse') === 'record',
             'poHref' => $doc->docType === 'PO' && $data['handler'] && $me->can('purchasing.view') ? '/ui/purchasing/orders/' . ($doc->reversesId ?? $doc->id) : null,
+            // A goods receipt's own page is in Receiving (IM6, I141): its lines, bench findings, incidents and files.
+            'grnHref' => $doc->docType === 'GRN' && $data['handler'] && $me->can('receiving.view') ? '/ui/receiving/' . ($doc->reversesId ?? $doc->id) : null,
             'decide' => $decide,
             'reverse' => $reverse,
             'statusText' => self::statusText($doc),

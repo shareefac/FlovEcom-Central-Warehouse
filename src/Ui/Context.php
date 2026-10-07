@@ -17,6 +17,8 @@ use CW\Documents\DocumentHandlers;
 use CW\Documents\Documents;
 use CW\Files\FileStore;
 use CW\Mapping\DecisionService;
+use CW\Receiving\GoodsReceipts;
+use CW\Receiving\Incidents;
 use CW\Settings;
 use CW\Staff\SecretBox;
 use CW\Suppliers\SupplierItems;
@@ -37,6 +39,7 @@ final class Context
     private ?SupplierItems $supplierItems = null;
     private ?CompanyDetails $company = null;
     private ?ItemCards $itemCards = null;
+    private ?GoodsReceipts $goodsReceipts = null;
 
     /**
      * @param array<string, string> $params route parameters
@@ -120,6 +123,12 @@ final class Context
         return $this->itemCards ??= new ItemCards($this->db);
     }
 
+    /** Goods receipts (IM6, I125-I147), with the file store when this server has one (attach() answers 503 otherwise). */
+    public function goodsReceipts(): GoodsReceipts
+    {
+        return $this->goodsReceipts ??= new GoodsReceipts($this->db, $this->documents(), $this->settings(), fn (): FileStore => $this->files());
+    }
+
     /** The file store app.env names (file_store_dir / CW_FILE_STORE_DIR); 503 file_store_unconfigured without one. */
     public function files(): FileStore
     {
@@ -179,7 +188,7 @@ final class Context
      *         person may decide: not opened by them, not on a document they created, submitted or posted, I19; plus the
      *         open supplier tasks they may decide: not on a supplier they created, asked for or last changed, I40; plus the
      *         open reviews of a change of the company details they did not make, I94), barcodes_open (open barcode reviews,
-     *         for catalogue.edit, I107)
+     *         for catalogue.edit, I107), incidents_open (open incidents of posted receipts, for incidents.view, I131)
      */
     public function badges(): array
     {
@@ -191,6 +200,10 @@ final class Context
         if ($this->who !== null && $this->who->can('catalogue.edit')) {
             // The barcode review queue (IM3, I107): open rows, for the people who decide them.
             $out['barcodes_open'] = (new BarcodeReviews($this->db))->openCount();
+        }
+        if ($this->who !== null && $this->who->can('incidents.view')) {
+            // The incident register (IM6, I131): the open incidents of posted receipts.
+            $out['incidents_open'] = (new Incidents($this->db))->openCount();
         }
         if ($this->who !== null && ($this->who->can('documents.review') || $this->who->can('suppliers.approve') || $this->who->can('company.confirm'))) {
             // Documents, suppliers and the company details share the review queue (I40, I94): the open tasks this person may decide.

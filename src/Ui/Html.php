@@ -48,6 +48,15 @@ final class Html
         return $v === null || $v === '' ? '' : substr($v, 0, 16);
     }
 
+    /** "7 Oct 2026 14:05" in UK time of a database DATETIME(6) in UTC, '' for null (the receiving screens: UK times only). */
+    public static function uk(?string $v): string
+    {
+        if ($v === null || $v === '') {
+            return '';
+        }
+        return \CW\Clock::fromDb($v)->setTimezone(new \DateTimeZone('Europe/London'))->format('j M Y H:i');
+    }
+
     /** Percentage with one decimal, '-' when there is nothing to divide. */
     public static function pct(int|float $part, int|float $whole): string
     {
