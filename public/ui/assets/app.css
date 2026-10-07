@@ -1011,51 +1011,77 @@ details.remove-barcode p { margin: 0; }
   .card, table { box-shadow: none; }
 }
 
-/* IM6 Receive (+ invoice) (docs/decisions.md I141): the receive editor's line table, the "before posting" checklist, the goods-in
-   bench (a tablet in the hand: big touch targets, one card per line, one column at phone width), the incident register. Merged into
-   design A as they were (their own plain-words pass is still to come); the colours are design A's tokens (--surface, --needs-line). */
+/* Deliveries (IM6, docs/decisions.md I141) in plain words and design A (U85-U90). The deliveries list and the bench list are B's list
+   cards; a delivery's page has its facts, the reviewer's box, "where the items went" as stat tiles, and its lines as cards on a phone
+   (the order editor's pattern); the incident register is one card per incident. The goods-in bench is TABLET FIRST (a tablet in the
+   hand at the bench): one card per line, the number fields two or three across on a tablet and one under the other on a phone, every
+   field, tick and button 48-52 px tall, the save bar kept in reach above the tab bar. Design A's tokens only. */
 form.receive-new { max-width: 760px; }
+section.new-delivery .hint a, .see-also a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 650; }
 ul.problems { margin: .4rem 0; padding-left: 1.2rem; }
-ul.error.problems { padding: .5rem .8rem .5rem 1.8rem; }
+ul.error.problems { padding: 12px 16px 12px 36px; }
 section.checklist dl { max-width: 40rem; }
 section.checklist .notice { margin-top: 0; }
+section.checklist .head-help > h3 { margin: 0; font-size: 1.0625rem; }
+section.checklist form.quick .btn.big { width: auto; flex: 1 1 18rem; }
+section.where-units .stats { margin-bottom: 0; }
+section.about-receipt dl { max-width: 52rem; }
 table.grn-lines td { vertical-align: top; }
 table.grn-lines select { max-width: 16rem; }
 table.grn-lines .field-error { display: block; margin-top: .2rem; }
+table.grn-lines .o-sub .chip, table.grn-lines td .chip { margin: 0 4px 4px 0; }
 details.skipped { margin: .6rem 0; }
-form.bench { display: grid; gap: .9rem; }
-form.bench fieldset { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .8rem; margin: 0; background: var(--surface); display: flex;
-  flex-wrap: wrap; gap: .7rem 1rem; align-items: flex-end; }
-form.bench legend { font-weight: 600; padding: 0 .3rem; color: var(--ink); }
-form.bench input[type="number"] { width: 6.5rem; font-size: 1.15rem; padding: .5rem .6rem; }
-form.bench select, form.bench input[type="text"] { font-size: 1.05rem; padding: .5rem .6rem; min-height: 2.6rem; }
-form.bench label.wide { flex-basis: 100%; }
-form.bench label.wide textarea { width: 100%; }
-form.bench .actions button { min-height: 3rem; font-size: 1.05rem; }
-article.bench-line { display: grid; gap: .5rem; }
-article.bench-line h2 { margin: 0; font-size: 1.1rem; overflow-wrap: anywhere; }
-article.bench-line.unchecked { border-left: 4px solid var(--needs-line); }
-article.bench-line p.expect { margin: 0; font-size: 1.02rem; overflow-wrap: anywhere; }
-article.incident { margin: .7rem 0; }
-article.incident h2 { margin: 0 0 .3rem; font-size: 1.05rem; overflow-wrap: anywhere; }
-article.incident form.inline { flex-wrap: wrap; }
-ul.files li { margin: .2rem 0; overflow-wrap: anywhere; }
-/* The save bar stays in reach on a long editor or bench page (I177); a scanned line is highlighted (bench "find a line"). */
-p.actions.sticky { position: sticky; bottom: 0; z-index: 2; margin: 0; padding: .6rem .4rem; background: var(--surface); border-top: 1px solid var(--line);
-  display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; }
-article.bench-line.found { outline: 3px solid var(--accent); outline-offset: 2px; }
-article.bench-line label.counted { display: flex; gap: .5rem; align-items: center; font-size: 1.02rem; color: var(--ink); }
-article.bench-line label.counted input { width: 1.4rem; height: 1.4rem; }
-form.bench fieldset.bench-tools .actions { flex-basis: 100%; margin: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+ul.files li, ul.incident-list li { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin: 0; padding: 4px 0; overflow-wrap: anywhere; }
+ul.files li a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 650; }
+ul.files .o-sub, ul.incident-list .o-sub { flex-basis: 100%; }
+ol.incident-list { list-style: none; margin: 0 0 1.5rem; padding: 0; display: grid; gap: 16px; }
+ol.incident-list > li { margin: 0; }
+article.incident { margin: 0; display: grid; gap: 8px; border-left: 6px solid var(--t-icon, var(--line)); }
+article.incident > * { margin: 0; }
+article.incident h2 { margin: 0; font-size: 1.125rem; overflow-wrap: anywhere; }
+article.incident a { display: inline-flex; align-items: center; min-height: 44px; font-weight: 650; overflow-wrap: anywhere; }
+form.close-incident fieldset { margin: 4px 0 0; }
+.note.duty-rule > .help { justify-self: start; }
+
+/* The goods-in bench */
+form.bench { display: grid; gap: 16px; }
+form.bench fieldset { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 12px 16px; align-items: end; margin: 0; }
+form.bench fieldset > legend { font-size: 1.0625rem; }
+form.bench fieldset > .help, form.bench .wide, form.bench fieldset .actions, form.bench fieldset > .hint, form.bench fieldset > label.choice,
+form.bench fieldset.bench-header > label { grid-column: 1 / -1; }
+form.bench input[type="number"] { font-size: 1.25rem; font-variant-numeric: tabular-nums; min-height: 52px; }
+form.bench select, form.bench input[type="text"], form.bench input[type="search"] { min-height: 52px; }
+form.bench label .hint { display: block; }
+form.bench .actions { margin: 0; }
+form.bench .actions button { min-height: 52px; }
 form.bench div.unstamped-only { display: contents; }
 form.bench div.unstamped-only[hidden] { display: none; }
-@media (max-width: 1100px) {
-  table.grn-lines select { max-width: 11rem; }
-}
-@media (max-width: 600px) {
-  form.bench fieldset { display: grid; grid-template-columns: 1fr 1fr; }
-  form.bench fieldset.stamp, form.bench fieldset.bench-header { grid-template-columns: 1fr; }
-  form.bench input[type="number"] { width: 100%; }
-  form.bench .actions button, form.receive-new button, article.incident button { width: 100%; }
+article.bench-line { display: grid; gap: 12px; border-left: 6px solid var(--done-icon); }
+article.bench-line.unchecked { border-left-color: var(--needs-icon); }
+article.bench-line > * { margin: 0; }
+article.bench-line.found { outline: 3px solid var(--accent); outline-offset: 2px; }
+.bench-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 6px 12px; }
+.bench-head h2 { margin: 0; font-size: 1.1875rem; overflow-wrap: anywhere; }
+.bench-head h2 .o-sub { display: inline; margin-left: 4px; }
+.bench-chips { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+article.bench-line p.expect { font-size: 1.0625rem; overflow-wrap: anywhere; }
+article.bench-line p.expect strong { font-size: 1.1875rem; }
+article.bench-line label.counted { min-height: 52px; font-size: 1.0625rem; font-weight: 650; }
+article.bench-line label.counted input { width: 28px; height: 28px; }
+
+/* The save bar (the editor, the bench) stays in reach on a long page, above the phone's tab bar. */
+.actions.sticky { position: sticky; bottom: 0; z-index: 2; margin: 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: var(--surface); border-top: 1px solid var(--line); box-shadow: var(--shadow-up); border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+@media (max-width: 899.98px) { body:has(.tabbar) .actions.sticky { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); padding-bottom: 10px; } }
+
+/* The selling mode on the websites (a product page, IM10) */
+table.selling-sites .o-sub { margin-top: 2px; }
+form.selling-mode-form { margin-top: 12px; }
+form.selling-mode-form .btn.big { width: auto; }
+
+@container (max-width: 640px) {
+  .actions.sticky button, form.receive-new button, form.close-incident button, form.selling-mode-form .btn.big, section.checklist form.quick .btn.big { width: 100%; }
+  table.grn-lines select, table.grn-lines input.short, table.grn-lines input[type="text"] { width: 100%; max-width: none; }
   form.grn-editor fieldset.scan input[type="search"] { min-width: 0; width: 100%; }
 }

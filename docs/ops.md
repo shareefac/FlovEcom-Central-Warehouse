@@ -874,8 +874,12 @@ are in `docs/dev.md`. Things the owner should know:
   confirmed member, waiting for a second OK), the spot check, Possible duplicates (two pages and three), the orders list,
   the draft order editor (scan, the two buttons under and over the limit, at 1,280 px with 10 lines: no sideways page
   scroll), one order as buyer and reviewer, What to buy with one product's Why, the suppliers pages, a person page; and the
-  Deliveries screens merged in from IM6 (Receive + invoice, a receipt's editor, the goods-in bench on a tablet width,
-  Incidents, a product's selling mode), which have not had their own plain-words pass yet.
+  Deliveries screens (U85-U90): Receive + invoice with "Start a new delivery", a delivery's editor (scan, "Save and book in" with
+  the save bar above the phone's tab bar, the lines as cards at 375 px), the read-only delivery as its keyer, as the bench and as a
+  reviewer (the "What each answer does" box), the goods-in bench list and the bench check **on a tablet (768 and 1,024 px, portrait
+  and landscape)** with 3 lines (find a line by scanning, the two fill buttons, the unstamped choice appearing, a camera photo),
+  Incidents (closing one), Home for goods in, the desk and a reviewer with a delivery in each state, and a product's "Selling mode
+  on the websites" (the cards, the "?", the form).
 - **Timing.** Home runs, for a matching lead, one spot-check status per own waiting spot check (at most 5) and one set-aside
   query per spot check with holds (at most 10); for `reorder.view`, the reorder header. Time `/ui/` and one ordinary page as
   the owner's working account, a lead and a reviewer on staging data before the deploy (plan budget: 100 ms over the old
@@ -1684,17 +1688,21 @@ needs migration 0017 and the code together ("Deploying IM6" below), after the ow
 
 | Screen | Permission | Roles |
 |---|---|---|
-| Receiving › **Receive + invoice** (`/ui/receiving`), a receipt's page (`/ui/receiving/{id}`) | `receiving.view` | goods_in, purchasing_desk, purchasing_manager, stock_controller, reviewer, accountant, auditor, manager |
-| "New delivery", the receive editor (its creator), "receive all as ordered", the sheet import, files, post, cancel, reverse; Receiving › **Goods-in bench** (`/ui/receiving/bench`) and the bench check of a receipt | `doc.GRN.post` | goods_in, purchasing_desk, purchasing_manager (never admin) |
-| Receiving › **Incidents** (`/ui/receiving/incidents`) | `incidents.view` | goods_in, purchasing_desk, purchasing_manager, stock_controller, reviewer, auditor, manager |
+| Deliveries › **Receive + invoice** (`/ui/receiving`), a delivery's page (`/ui/receiving/{id}`) | `receiving.view` | goods_in, purchasing_desk, purchasing_manager, stock_controller, reviewer, accountant, auditor, manager |
+| "Start a new delivery", the editor (its keyer), "Copy the order", the sheet import, files, book in, cancel, take back; Deliveries › **Goods-in bench** (`/ui/receiving/bench`) and the bench check of a delivery | `doc.GRN.post` | goods_in, purchasing_desk, purchasing_manager (never admin) |
+| Deliveries › **Incidents** (`/ui/receiving/incidents`) | `incidents.view` | goods_in, purchasing_desk, purchasing_manager, stock_controller, reviewer, auditor, manager |
 | closing an incident (resolved / dismissed, with a note) | `incidents.resolve` | purchasing_desk, purchasing_manager, stock_controller |
-| the review of a receipt (on its page; Document reviews, type "Goods received") | `documents.review` | reviewer, never the person who keyed, posted or **checked it at the bench** |
+| the check of a delivery (on its page; Waiting for me, or Home's "Deliveries booked in to check") | `documents.review` | reviewer, never the person who keyed, posted or **checked it at the bench** |
+
+The screens' words (U85-U90): a receipt is a **delivery**, posting it is **booking it in**, units are **items**; the stock places are
+**into stock** (MAIN), **set aside to check** (VERIFY) and **the unstamped quarantine** (UNSTAMPED; the "?" beside "Where the items
+went" names the codes for older notes). The menu section is **Deliveries**.
 
 ### A delivery, step by step (the desk and the bench)
 
-1. **Desk:** Receiving › Receive + invoice › **New delivery**: the purchase order it is against (optional: the supplier follows),
-   or the supplier; the **supplier invoice number** (compulsory before posting; one receipt per supplier invoice, however it is
-   written: "inv 001" = "INV001"); "Receive all as ordered" copies the order's outstanding lines (in the order's packs, at its prices).
+1. **Desk:** Deliveries › Receive + invoice › **Start a new delivery**: the purchase order it is against (optional: the supplier
+   follows), or the supplier; the **supplier invoice number** (compulsory before booking in; one delivery per supplier invoice, however
+   it is written: "inv 001" = "INV001"); "Copy the order's lines still to come" copies them (in the order's packs, at its prices).
 2. **Desk:** change what arrived differently in the one form (packs, price, the order line, the selling mode), or add lines: scan a
    barcode, type the supplier's code, a CW code or words of the name (with a pack price if you have it); or import the supplier's
    invoice or packing list (CSV / XLSX; any header row in the first 30, the supplier's column names; rows without a code are
@@ -1703,28 +1711,29 @@ needs migration 0017 and the code together ("Deploying IM6" below), after the ow
    only sells boxes of 10: check its price); one bottle's own barcode, when the supplier sells boxes, asks once "a box, or single
    units?". The message after each scan names the line, the item and the units added. **Attach the supplier's invoice** (a PDF, or
    a photo of a paper invoice; one invoice copy is the invoice of one receipt only, I171). Received at: when the goods arrived
-   (UK time). The invoice number is needed before posting, not before scanning.
-3. **Bench:** Receiving › Goods-in bench › the delivery ("Check: SUPPLIER, invoice ..."): "supplier and paperwork credible" (No = do
-   not post: refuse the delivery and cancel the receipt); if the desk keyed it before the goods came, tick "the goods arrived now"
-   (the duty rule goes by the arrival date shown at the top). Per line: tick **Counted** (or change one of its answers: that counts
-   it too); for duty-liable liquid the **duty stamp on the outer retail pack and sealing it** (yes / no: "no" means every unit
+   (UK time, "The goods arrived"). The invoice number is needed before booking in, not before scanning.
+3. **Bench:** Deliveries › Goods-in bench › **Check this delivery**: "Do the supplier and the paperwork look right?" (No = do not
+   book it in: refuse the delivery and cancel it); if the desk keyed it before the goods came, tick "The goods arrived now" (the
+   duty rule goes by the arrival date shown at the top). Per line: tick **Checked** (or change one of its answers: that checks it
+   too); for duty-liable liquid the **duty stamp on the outer retail pack and sealing it** (yes / no: "no" means every unit
    that arrived is unstamped), its type (digital / transitional), a scanned stamp code (the scanner's Enter moves on, it does not
    save); what arrived differently, in units: short, over (more than the line itself: tick "the over count is right"), damaged,
    wrong item (say what came instead in the note and photograph it), unstamped and what happens to the unstamped units (the
-   choice appears once some are unstamped). "Find a line": scan an item to jump to its card. "Every duty line here: stamp on the
-   pack, digital" and "Tick every line on this page as counted" only fill the form. Save the check (40 lines a page). Photos of
+   choice appears once some are unstamped). "Find a line": scan an item to jump to its card. "Every duty line on this page: stamp on
+   the pack, digital" and "Tick every line on this page as checked" only fill the form. Save the check (40 lines a page). Photos of
    damage, a missing stamp, the supplier's certificate (a camera photo is made smaller before it is sent; save the check first:
    attaching leaves the page). **The desk and the bench can work at once** (I175): a save that only crossed the other side's
    (a price, a note; a bench answer) is saved anyway; a real clash (the same line's quantity changed) redraws the page with what
    was typed. A line the desk adds or whose quantity changes after the check is counted again: the receipt cannot post before
    (I168). Anyone who receives goods can set the supplier invoice of a receipt the bench started from the delivery note (its page,
    "The supplier invoice", I172); they do not review it then.
-4. **Desk:** the receipt's page lists everything that still stops the posting ("Before posting") and what it will book where; **Save
-   and post**. A second person reviews it (Document reviews, or the receipt's page). Rejecting the review reverses the receipt (its
-   stock and its PO receipts taken back): key it again if the goods are here.
-5. **Incidents:** Receiving › Incidents lists the open ones (the menu shows how many): close each with what was done (credit asked,
-   goods returned, re-delivered) or dismiss it. The units stay in VERIFY / UNSTAMPED until a stock control document moves them
-   (Phase I-4); UNSTAMPED must be empty from 1 Apr 2027.
+4. **Desk:** Home's card "Checked deliveries to book in" (or the list's "Checked at the bench, not booked in yet") leads to it; the
+   delivery's page lists everything that still stops it ("Before it can be booked in") and where the items will go; **Save and book
+   in**. A second person checks it (Home's card "Deliveries booked in to check", or the delivery's page). "Not OK" takes the delivery
+   back (its stock and what it received against the order): key it again if the goods are here.
+5. **Incidents:** Deliveries › Incidents lists the open ones (the menu and Home show how many): close each with what was done
+   ("Dealt with": credit asked, goods returned, re-delivered) or "Nothing needed". The items stay set aside (VERIFY) or in the
+   unstamped quarantine (UNSTAMPED) until a stock control document moves them (Phase I-4); UNSTAMPED must be empty from 1 Apr 2027.
 6. **The selling mode** (I169): a receipt sets the mode only of an item it accepts something of into MAIN. A delivery that was all
    short, refused unstamped at the door or quarantined leaves the item's mode as it was, so it never goes back on sale (nor e-mails
    the waiting customers) without stock.

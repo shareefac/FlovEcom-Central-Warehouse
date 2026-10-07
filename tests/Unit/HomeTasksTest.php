@@ -225,6 +225,51 @@ final class HomeTasksTest extends TestCase
         self::assertSame([[], ['old_sales']], [self::keys($reviewer['jobs']), self::keys($reviewer['notes'])]);
     }
 
+    /**
+     * Deliveries (the plain-words pass of the delivery screens, U87): goods in and the purchasing desk see what waits for the
+     * goods-in bench and what is checked and waits to be booked in (holding the stock up, so before routine work); a reviewer sees
+     * the deliveries booked in to check as their own card, taken out of "Done work to check" so the two add up to the badge; the
+     * people who close incidents see the open ones.
+     */
+    public function testTheDeliveryCards(): void
+    {
+        self::assertSame(['company', 'receiving'], HomeTasks::needs(['goods_in']));
+        self::assertSame(['company', 'receiving', 'incidents'], HomeTasks::needs(['purchasing_desk']));
+        self::assertSame(['barcodes', 'incidents'], HomeTasks::needs(['stock_controller']));
+
+        $f = ['receiving' => ['bench' => 2, 'to_post' => 1], 'incidents' => 3, 'company' => ['confirmed' => true, 'missing' => []]];
+        $goodsIn = HomeTasks::build(5, ['goods_in'], $f);
+        self::assertSame(['bench', 'to_post'], self::keys($goodsIn['jobs']), 'goods in may book in too (doc.GRN.post), but closes no incident');
+        $desk = HomeTasks::build(6, ['purchasing_desk'], $f);
+        self::assertSame(['bench', 'to_post', 'incidents'], self::keys($desk['jobs']));
+        $by = array_column($desk['jobs'], null, 'key');
+        self::assertSame([2, 'deliveries', '/ui/receiving/bench'], [$by['bench']['count'], $by['bench']['unit'], $by['bench']['href']]);
+        self::assertSame([1, 'delivery', '/ui/receiving?state=checked'], [$by['to_post']['count'], $by['to_post']['unit'], $by['to_post']['href']]);
+        self::assertSame([3, 'incidents', '/ui/receiving/incidents'], [$by['incidents']['count'], $by['incidents']['unit'], $by['incidents']['href']]);
+        foreach ($desk['jobs'] as $card) {
+            self::assertOneButtonToAPageTheyMayOpen($card, ['purchasing_desk']);
+            self::assertArrayHasKey('what', $card);
+        }
+        self::assertSame(['incidents'], self::keys(HomeTasks::build(7, ['stock_controller'], $f)['jobs']));
+        self::assertSame([], HomeTasks::build(5, ['goods_in'], ['receiving' => ['bench' => 0, 'to_post' => 0]])['jobs'], 'nothing waiting: no card');
+        self::assertSame([], HomeTasks::build(8, ['reviewer'], $f)['jobs'], 'a reviewer neither checks at the bench nor closes incidents');
+
+        // The reviewer: 3 reviews, 2 of them deliveries booked in (the bench checker's own are never counted: Documents, I133).
+        $rev = HomeTasks::build(8, ['reviewer'], ['checks' => ['approval' => 0, 'review' => 3, 'deliveries' => 2]])['jobs'];
+        self::assertSame(['checks', 'deliveries_check'], self::keys($rev));
+        $by = array_column($rev, null, 'key');
+        self::assertSame([1, 2], [$by['checks']['count'], $by['deliveries_check']['count']], 'the two cards add up to the badge');
+        self::assertSame('/ui/documents/reviews?type=GRN#reviews', $by['deliveries_check']['href']);
+        self::assertOneButtonToAPageTheyMayOpen($by['deliveries_check'], ['reviewer']);
+        self::assertSame(['deliveries_check'], self::keys(HomeTasks::build(8, ['reviewer'], ['checks' => ['approval' => 0, 'review' => 2, 'deliveries' => 2]])['jobs']),
+            'only deliveries: no "Done work to check" card');
+        // The order: holding the stock up first, the checks after the owner's own, incidents with the routine work.
+        self::assertLessThan(HomeTasks::RANK['spot_check'], HomeTasks::RANK['bench']);
+        self::assertLessThan(HomeTasks::RANK['spot_check'], HomeTasks::RANK['to_post']);
+        self::assertGreaterThan(HomeTasks::RANK['checks'], HomeTasks::RANK['deliveries_check']);
+        self::assertGreaterThan(200, HomeTasks::RANK['incidents']);
+    }
+
     public function testAPersonWithNoJobIsToldWhoToAsk(): void
     {
         $home = HomeTasks::build(8, [], self::ownerToday());

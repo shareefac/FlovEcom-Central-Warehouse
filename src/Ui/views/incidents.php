@@ -1,52 +1,67 @@
-<h1>Incidents</h1>
-<p class="muted">What a posted receipt found: units short, over, damaged, the wrong item, or unstamped (quarantined in UNSTAMPED or refused at the door).
-  Close one with what was done (a credit asked for, the goods returned, the supplier re-delivered) or why nothing is needed. Closing moves no stock: units
-  leave VERIFY and UNSTAMPED with a stock control document (coming in Phase I-4).</p>
+<div class="head-help">
+  <h1><?= $word('MENU', 'incidents') ?></h1>
+  <?= $explain('where_units_go', \CW\Ui\Words::INCIDENTS['where_label']) ?>
+</div>
+<?= $intro('incidents', $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
 <form class="filters" method="get" action="/ui/receiving/incidents">
-  <label>Status
+  <label><?= $word('INCIDENTS', 'show') ?>
     <select name="status">
-<?php foreach (['open' => 'open', 'resolved' => 'resolved', 'dismissed' => 'dismissed', 'all' => 'any'] as $code => $label): ?>
-      <option value="<?= $e($code) ?>"<?php if ($status === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php foreach ($statuses as $code): ?>
+      <option value="<?= $e($code) ?>"<?php if ($status === $code): ?> selected<?php endif; ?>><?php if ($code === 'all'): ?><?= $word('INCIDENTS', 'all') ?><?php else: ?><?= $word('INCIDENT_STATE', $code) ?><?php endif; ?></option>
 <?php endforeach; ?>
     </select>
   </label>
-  <label>Kind
+  <label><?= $word('INCIDENTS', 'kind') ?>
     <select name="kind">
-      <option value="">Any</option>
+      <option value=""><?= $word('INCIDENTS', 'any_kind') ?></option>
 <?php foreach ($kinds as $code => $label): ?>
       <option value="<?= $e($code) ?>"<?php if ($kind === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
 <?php endforeach; ?>
     </select>
   </label>
-  <button type="submit">Filter</button>
+  <button type="submit"><?= $word('INCIDENTS', 'filter') ?></button>
 </form>
-<?php if ($rows === []): ?>
-<p class="note">No incident matches.</p>
+<?php if ($rows === [] && $status === 'open' && $kind === null): ?>
+<?= $empty(\CW\Ui\Words::INCIDENTS['none_open'], \CW\Ui\Words::INCIDENTS['none_open_text']) ?>
+<?php elseif ($rows === []): ?>
+<?= $empty(\CW\Ui\Words::INCIDENTS['none'], \CW\Ui\Words::INCIDENTS['none_text'], '/ui/receiving/incidents', \CW\Ui\Words::INCIDENTS['show_open']) ?>
 <?php else: ?>
+<p class="muted"><?php if (count($rows) === 1): ?><?= $word('INCIDENTS', 'total_one') ?><?php else: ?><?= $say('INCIDENTS', 'total_many', count($rows)) ?><?php endif; ?></p>
+<ol class="incident-list">
 <?php foreach ($rows as $r): ?>
-<article class="incident card<?php if ($r['status'] === 'open'): ?> waiting<?php endif; ?>">
-  <h2><?= $e($kinds[$r['kind']] ?? $r['kind']) ?>: <?= $n($r['units']) ?> units of <?= $e($r['sku_code']) ?> <span class="muted"><?= $e($r['sku_name']) ?></span></h2>
-  <p><a href="<?= $u('/ui/receiving/' . $r['document_id']) ?>"><?= $e($r['number']) ?></a> line <?= $n($r['line_no']) ?> &middot; invoice <?= $e($r['external_ref']) ?>
-    &middot; <?= $e($r['supplier_code']) ?> <?= $e($r['supplier_name']) ?> &middot; <?= $e($dispositions[$r['disposition']] ?? $r['disposition']) ?>
-    &middot; opened <?= $dt($r['opened_at']) ?> UTC by <?= $e($r['opened_by_name']) ?> <span class="status"><?= $e($r['status']) ?></span></p>
-<?php if ($r['status'] !== 'open'): ?>
-  <p class="muted"><?= $e($r['status']) ?> <?= $dt($r['resolved_at']) ?> UTC by <?= $e($r['resolved_by_name'] ?? $r['resolved_actor']) ?>: <?= $e($r['resolution']) ?></p>
+  <li>
+  <article class="incident card <?= $e(\CW\Ui\Words::tone('INCIDENT_STATE', $r['status'])) ?>" id="incident-<?= $e($r['id']) ?>">
+    <div class="task-head">
+      <h2><?= $e($r['title']) ?></h2>
+      <?= $stateChip('INCIDENT_STATE', $r['status']) ?>
+    </div>
+    <p><a href="<?= $u('/ui/receiving/' . $r['document_id']) ?>"><?= $e($r['from']) ?></a></p>
+    <p><strong><?= $e($r['where']) ?></strong></p>
+    <p class="hint"><?= $e($r['opened']) ?></p>
+<?php if ($r['closed'] !== null): ?>
+    <p class="hint"><?= $e($r['closed']) ?></p>
 <?php elseif ($canResolve): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/receiving/incidents/' . $r['id']) ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <label>
-      <select name="status">
-        <option value="resolved">Resolved</option>
-        <option value="dismissed">Dismissed (nothing needed)</option>
-      </select>
-    </label>
-    <label>What was done <input type="text" name="note" minlength="3" maxlength="500" required></label>
-    <button type="submit">Close</button>
-  </form>
+    <form class="record close-incident" method="post" action="<?= $u('/ui/receiving/incidents/' . $r['id']) ?>">
+      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <fieldset>
+        <legend><?= $word('INCIDENTS', 'close') ?></legend>
+        <label><?= $word('INCIDENTS', 'close_how') ?>
+          <select name="status">
+            <option value="resolved"><?= $word('INCIDENTS', 'resolved') ?></option>
+            <option value="dismissed"><?= $word('INCIDENTS', 'dismissed') ?></option>
+          </select>
+        </label>
+        <label><?= $word('INCIDENTS', 'close_note') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
+        <p class="actions"><button type="submit"><?= $word('INCIDENTS', 'close_button') ?></button></p>
+        <p class="hint"><?= $word('INCIDENTS', 'close_hint') ?></p>
+      </fieldset>
+    </form>
 <?php endif; ?>
-</article>
+  </article>
+  </li>
 <?php endforeach; ?>
+</ol>
 <?php endif; ?>

@@ -42,7 +42,7 @@ final class Context
     private ?GoodsReceipts $goodsReceipts = null;
     /** @var array<string, int>|null the badge counts of this request (computed once) */
     private ?array $badges = null;
-    /** @var array{approval: int, review: int}|null the review queue's tasks this person may decide, by kind (checks()) */
+    /** @var array{approval: int, review: int, deliveries: int}|null the review queue's tasks this person may decide, by kind (checks()) */
     private ?array $checks = null;
 
     /** Pages without a menu item of their own => the menu item that stays marked. */
@@ -256,9 +256,10 @@ final class Context
      * The open tasks of the review queue this person may decide, by kind (computed once per request; null when their jobs
      * decide none): `approval` (blocking: nothing goes ahead until a reviewer says yes) and `review` (done already, a
      * reviewer checks it). Documents, suppliers and the company details share the queue (I40, I94); a check of the company
-     * details is always a review. Their sum is the badge reviews_open; Home shows them as two cards.
+     * details is always a review. Their sum is the badge reviews_open; Home shows them as cards (approvals, done work to check, and
+     * the deliveries booked in to check: `deliveries`, the GRN part of `review`, U87).
      *
-     * @return array{approval: int, review: int}|null
+     * @return array{approval: int, review: int, deliveries: int}|null
      */
     public function checks(): ?array
     {
@@ -270,11 +271,14 @@ final class Context
             return $this->checks;
         }
         // One query per source (documents and suppliers by kind, the company details): the same three as the badge before Home.
-        $docs = $this->documents()->decidableCounts($who->id, $who->roles);
+        // `deliveries` is the part of `review` that is deliveries booked in (Home's own card for them, U87), not a fourth count.
+        $byType = $this->documents()->decidableCountsByType($who->id, $who->roles);
+        $docs = ['review' => array_sum(array_column($byType, 'review')), 'approval' => array_sum(array_column($byType, 'approval'))];
         $sups = $this->suppliers()->decidableCounts($who->id, $who->roles);
         return $this->checks = [
             'approval' => $docs['approval'] + $sups['approval'],
             'review' => $docs['review'] + $sups['review'] + $this->company()->decidableCount($who->id, $who->roles),
+            'deliveries' => $byType['GRN']['review'] ?? 0,
         ];
     }
 

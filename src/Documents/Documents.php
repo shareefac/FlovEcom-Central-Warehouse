@@ -534,7 +534,7 @@ final class Documents
     }
 
     /**
-     * decidableCount() by kind, in one query (the Home page's two cards and the badge come from one call per request).
+     * decidableCount() by kind, in one query (the Home page's cards and the badge come from one call per request).
      *
      * @param list<string> $roles
      * @return array{review: int, approval: int}
@@ -542,8 +542,24 @@ final class Documents
     public function decidableCounts(int $staffId, array $roles): array
     {
         $out = ['review' => 0, 'approval' => 0];
+        foreach ($this->decidableCountsByType($staffId, $roles) as $byKind) {
+            $out['review'] += $byKind['review'];
+            $out['approval'] += $byKind['approval'];
+        }
+        return $out;
+    }
+
+    /**
+     * decidableCounts() by document type, in the same one query (Home's "Deliveries booked in to check" card is the GRN part of the
+     * reviews, U87): document type => [review, approval]; a type with nothing decidable is absent.
+     *
+     * @param list<string> $roles
+     * @return array<string, array{review: int, approval: int}>
+     */
+    public function decidableCountsByType(int $staffId, array $roles): array
+    {
         if (in_array('admin', $roles, true)) {
-            return $out;
+            return [];
         }
         $kinds = [];
         if (Permissions::can($roles, 'documents.review')) {
@@ -553,7 +569,7 @@ final class Documents
             $kinds[] = 'approval';
         }
         if ($kinds === []) {
-            return $out;
+            return [];
         }
         // A type whose handler names other people who wrote part of the document (ReviewInvolvement: a receipt's goods-in bench
         // check, I133): its tasks are not offered to them either, so the badge and Home's cards never count what the person
@@ -566,13 +582,15 @@ final class Documents
                 array_push($params, $type, $staffId);
             }
         }
+        $out = [];
         foreach ($this->db->all(
-            "SELECT t.kind, COUNT(*) AS n FROM review_task t JOIN document d ON d.id = t.subject_id WHERE t.subject_type = 'document' AND t.state = 'open' "
+            "SELECT d.doc_type, t.kind, COUNT(*) AS n FROM review_task t JOIN document d ON d.id = t.subject_id WHERE t.subject_type = 'document' AND t.state = 'open' "
             . 'AND t.kind IN (' . implode(', ', array_fill(0, count($kinds), '?')) . ') AND NOT (t.opened_by <=> ?) '
-            . 'AND NOT (d.created_by <=> ?) AND NOT (d.submitted_by <=> ?) AND NOT (d.posted_by <=> ?)' . $involved . ' GROUP BY t.kind',
+            . 'AND NOT (d.created_by <=> ?) AND NOT (d.submitted_by <=> ?) AND NOT (d.posted_by <=> ?)' . $involved . ' GROUP BY d.doc_type, t.kind',
             $params,
         ) as $r) {
-            $out[(string) $r['kind']] = (int) $r['n'];
+            $out[(string) $r['doc_type']] ??= ['review' => 0, 'approval' => 0];
+            $out[(string) $r['doc_type']][(string) $r['kind']] = (int) $r['n'];
         }
         return $out;
     }

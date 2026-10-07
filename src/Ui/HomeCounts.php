@@ -51,7 +51,7 @@ final class HomeCounts
         foreach ($keys as $key) {
             $out[$key] = match ($key) {
                 'company' => $this->company(),
-                'checks' => $this->ctx->checks() ?? ['approval' => 0, 'review' => 0],
+                'checks' => $this->ctx->checks() ?? ['approval' => 0, 'review' => 0, 'deliveries' => 0],
                 'samples' => $this->samples(),
                 'held' => array_values($this->held()),
                 'duplicates' => (int) ($this->ctx->badges()['linking_duplicates'] ?? (new Duplicates($this->ctx->db))->openCount()),
@@ -63,6 +63,8 @@ final class HomeCounts
                 'sales' => $this->salesLate(),
                 'suppliers' => $this->suppliers(),
                 'staff' => $this->staff(),
+                'receiving' => $this->receiving(),
+                'incidents' => (int) ($this->ctx->badges()['incidents_open'] ?? 0),
                 default => throw new \InvalidArgumentException("no Home fact {$key}"),
             };
         }
@@ -162,6 +164,25 @@ final class HomeCounts
             'not_ok' => (int) $db->value("SELECT COUNT(*) FROM document d JOIN purchase_order po ON po.document_id = d.id "
                 . "WHERE d.doc_type = 'PO' AND d.status = 'posted' AND d.review_state = 'rejected' AND po.state IN ({$open})"),
         ];
+    }
+
+    /**
+     * Deliveries not booked in yet (IM6): `bench` = with products, still waiting for the goods-in bench (the paperwork not answered,
+     * or a line not checked; not one whose paperwork the bench found not right: that is the desk's to refuse); `to_post` = checked
+     * at the bench (the paperwork looks right, every line checked), waiting to be booked in. One query (the drafts are few).
+     *
+     * @return array{bench: int, to_post: int}
+     */
+    private function receiving(): array
+    {
+        $r = $this->ctx->db->one(
+            "SELECT COALESCE(SUM(x.lines_n > 0 AND NOT (x.paperwork_ok <=> 0) AND (x.paperwork_ok IS NULL OR x.unchecked > 0)), 0) AS bench, "
+            . 'COALESCE(SUM(x.lines_n > 0 AND x.paperwork_ok = 1 AND x.unchecked = 0), 0) AS to_post FROM (SELECT g.paperwork_ok, '
+            . '(SELECT COUNT(*) FROM grn_line l WHERE l.document_id = d.id) AS lines_n, '
+            . '(SELECT COUNT(*) FROM grn_line l WHERE l.document_id = d.id AND l.checked_at IS NULL) AS unchecked '
+            . "FROM document d JOIN goods_receipt g ON g.document_id = d.id WHERE d.doc_type = 'GRN' AND d.status = 'draft') x",
+        ) ?? [];
+        return ['bench' => (int) ($r['bench'] ?? 0), 'to_post' => (int) ($r['to_post'] ?? 0)];
     }
 
     /** Days the oldest late sales data is behind (What to buy's header: a website whose last day loaded is too old), or null. */

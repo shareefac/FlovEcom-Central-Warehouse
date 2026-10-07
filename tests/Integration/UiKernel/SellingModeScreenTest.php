@@ -7,6 +7,7 @@ namespace CW\Tests\Integration\UiKernel;
 use CW\ChannelAdmin;
 use CW\SiteWriter\SiteModes;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\Words;
 
 /**
  * The selling-mode switch on the item page through the real /ui kernel as cw_app (IM10; docs/decisions.md I158): per website, what
@@ -34,7 +35,8 @@ final class SellingModeScreenTest extends KernelUiTestCase
         self::assertStringContainsString('never set here', $text);
         self::assertTrue($page->hasForm('/selling-mode'));
         self::assertSame(['In-Stock', 'From-Warehouse', 'Out-Of-Stock'], $page->radios('mode'));
-        self::assertStringContainsString('sold whatever the figure', $text, 'CW\'s meaning beside each label');
+        self::assertStringContainsString(Words::MODE_MEANING['In-Stock'], $text, 'CW\'s meaning beside each label, in words (U89)');
+        self::assertStringContainsString('<table class="stack list selling-sites">', $page->body, 'one card per website on a phone');
 
         $f = $page->form("/ui/items/{$sku}/selling-mode");
         self::assertSame(['csrf', 'form_key', 'stamp', 'threshold', 'reason'], array_keys($f));
@@ -45,7 +47,7 @@ final class SellingModeScreenTest extends KernelUiTestCase
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM item_channel_mode_log WHERE sku_id = ?', [$sku]));
         $page = $web->follow($r);
         self::assertStringContainsString('Selling mode saved.', $page->text());
-        self::assertStringContainsString('In-Stock (sold whatever the figure)', $page->text());
+        self::assertStringContainsString('In-Stock ' . Words::MODE_MEANING['In-Stock'], $page->text());
         self::assertStringContainsString('the switch, Purchasing_desk', $page->text());
         $rows = (new SiteModes(self::$db))->current([$sku]);
         self::assertSame(['In-Stock', 3], [$rows[SiteModes::key($sku, (int) $vpg->channelId)]['mode'], $rows[SiteModes::key($sku, (int) $vpg->channelId)]['threshold']]);
@@ -56,14 +58,14 @@ final class SellingModeScreenTest extends KernelUiTestCase
         (new SiteModes(self::$db))->set($this->staffUser('manager'), $sku, 'From-Warehouse', ['*'], '', 'someone else');
         $r = $web->post("/ui/items/{$sku}/selling-mode", ['mode' => 'Out-Of-Stock', 'all_sites' => '1', 'reason' => 'typed text'] + $stale);
         self::assertSame(409, $r->status, $r->describe());
-        self::assertStringContainsString('Someone changed this item\'s selling mode a moment ago', $r->text());
+        self::assertStringContainsString(Words::SELLING_ERROR['selling_mode_changed'], $r->text());
         self::assertSame('typed text', $r->form("/ui/items/{$sku}/selling-mode")['reason']);
         self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM item_channel_mode_log WHERE sku_id = ?', [$sku]));
         // No website ticked: refused with the reason kept.
         $f = $web->get("/ui/items/{$sku}")->form("/ui/items/{$sku}/selling-mode");
         $r = $web->post("/ui/items/{$sku}/selling-mode", ['mode' => 'Out-Of-Stock', 'reason' => 'no site'] + $f);
         self::assertSame(422, $r->status);
-        self::assertStringContainsString('Tick the websites', $r->text());
+        self::assertStringContainsString(Words::SELLING_ERROR['no_sites'], $r->text());
     }
 
     public function testACountedItemHasNoFormAndABuyerMayNotSetIt(): void
@@ -76,12 +78,12 @@ final class SellingModeScreenTest extends KernelUiTestCase
         $desk = $this->signIn($this->uiUser('purchasing_desk'));
         $page = $desk->get("/ui/items/{$counted}");
         self::assertStringContainsString('counted and protected (Website sells warehouse stock only)', $page->text());
-        self::assertStringContainsString('From-Warehouse (sold while there is stock)', $page->text());
+        self::assertStringContainsString('From-Warehouse ' . Words::MODE_MEANING['From-Warehouse'], $page->text());
         self::assertFalse($page->hasForm('/selling-mode'));
         $f = $desk->get("/ui/items/{$legacy}")->form("/ui/items/{$legacy}/selling-mode");
         $r = $desk->post("/ui/items/{$counted}/selling-mode", ['mode' => 'In-Stock', 'all_sites' => '1', 'reason' => 'try anyway'] + $f);
         self::assertSame(409, $r->status);
-        self::assertStringContainsString('is counted and protected', $r->text());
+        self::assertStringContainsString(Words::SELLING_ERROR['protected_item'], $r->text());
 
         $buyer = $this->signIn($this->uiUser('buyer'));
         self::assertFalse($buyer->get("/ui/items/{$legacy}")->hasForm('/selling-mode'));

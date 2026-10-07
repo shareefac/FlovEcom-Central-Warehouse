@@ -103,6 +103,9 @@ final class ItemCardsController
                 => Words::say('CARD_ERROR', 'barcode_on_other_item', $e->detail['code'], $e->detail['code']),
             $code === 'bad_file' && is_array($e->detail['columns'] ?? null) && $e->detail['columns'] !== []
                 => Words::say('CARD_ERROR', 'unknown_columns', implode(', ', array_map('strval', $e->detail['columns']))),
+            // The selling-mode switch on the same page (IM10, SiteModes::set).
+            $code === 'bad_threshold' => Words::say('SELLING_ERROR', 'bad_threshold', \CW\SiteWriter\SiteModes::THRESHOLD_MAX),
+            isset(Words::SELLING_ERROR[$code]) && !str_contains(Words::SELLING_ERROR[$code], '%s') => Words::SELLING_ERROR[$code],
             isset(Words::ERROR[$code]) && !str_contains(Words::ERROR[$code], '%') => Words::ERROR[$code],
             isset(Words::CARD_ERROR[$code]) && !str_contains(Words::CARD_ERROR[$code], '%s') => Words::CARD_ERROR[$code],
             default => Words::say('BUY_ERROR', 'other', PurchaseOrdersController::sentence($e->getMessage())),

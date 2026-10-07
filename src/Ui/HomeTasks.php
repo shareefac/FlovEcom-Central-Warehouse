@@ -34,14 +34,18 @@ final class HomeTasks
         'reviewers' => 43,
         'not_ok' => 50,
         'not_sent' => 60,
+        'bench' => 65,
+        'to_post' => 70,
         'spot_check' => 100,
         'set_aside' => 110,
         'duplicates' => 120,
         'clues' => 130,
         'checks' => 140,
+        'deliveries_check' => 145,
         'drafts' => 200,
         'supplier_drafts' => 210,
         'checks_due' => 215,
+        'incidents' => 217,
         'to_buy' => 220,
         'strong' => 230,
         'other' => 240,
@@ -66,6 +70,8 @@ final class HomeTasks
         'sales' => ['reorder.view'],
         'suppliers' => ['suppliers.manage'],
         'staff' => ['staff.manage'],
+        'receiving' => ['doc.GRN.post'],
+        'incidents' => ['incidents.resolve'],
     ];
 
     /** The lists of "Other website products to match", in the order the button takes the first one with work. */
@@ -103,6 +109,9 @@ final class HomeTasks
      *  orders    {drafts: int (the person's own), not_sent: int, not_ok: int}   demand bool   sales ?int (days the oldest sales
      *            data is late, null when none is late)   suppliers {drafts: int, due: int}
      *  staff     {test: list<{id, name}>, reviewers: int, clashes: list<{id, name, off: list<string>}>}
+     *  receiving {bench: int (deliveries not booked in that wait for the goods-in bench), to_post: int (checked at the bench, not booked in)}
+     *  incidents int (open incidents, the badge's count)
+     *  checks    also `deliveries` (optional): the part of `review` that is deliveries booked in (their own card)
      *
      * @param list<string> $roles
      * @param array<string, mixed> $f
@@ -131,10 +140,13 @@ final class HomeTasks
             }
         }
 
-        // The review queue, split: blocking approvals, and done work to check.
+        // The review queue, split: blocking approvals, done work to check, and deliveries booked in to check (the reviews of goods
+        // receipts, never offered to their bench checker: Documents::decidableCountsByType, I133).
         if ($can('documents.review') && is_array($f['checks'] ?? null)) {
+            $deliveries = (int) ($f['checks']['deliveries'] ?? 0);
             $out[] = self::counted('approvals', (int) $f['checks']['approval'], '/ui/documents/reviews#approvals');
-            $out[] = self::counted('checks', (int) $f['checks']['review'], '/ui/documents/reviews#reviews');
+            $out[] = self::counted('checks', (int) $f['checks']['review'] - $deliveries, '/ui/documents/reviews#reviews');
+            $out[] = self::counted('deliveries_check', $deliveries, Html::url('/ui/documents/reviews', ['type' => 'GRN']) . '#reviews');
         }
 
         // Matching: the person's own spot checks, set-aside matches, duplicates, the second OK, the lists.
@@ -203,6 +215,15 @@ final class HomeTasks
         if ($can('suppliers.manage') && is_array($f['suppliers'] ?? null)) {
             $out[] = self::counted('supplier_drafts', (int) $f['suppliers']['drafts'], Html::url('/ui/purchasing/suppliers', ['status' => 'draft']));
             $out[] = self::counted('checks_due', (int) $f['suppliers']['due'], Html::url('/ui/purchasing/suppliers', ['due' => '1']));
+        }
+
+        // Deliveries: waiting for the goods-in bench, checked and waiting to be booked in, open incidents to close.
+        if ($can('doc.GRN.post') && is_array($f['receiving'] ?? null)) {
+            $out[] = self::counted('bench', (int) $f['receiving']['bench'], '/ui/receiving/bench');
+            $out[] = self::counted('to_post', (int) $f['receiving']['to_post'], Html::url('/ui/receiving', ['state' => 'checked']));
+        }
+        if ($can('incidents.resolve')) {
+            $out[] = self::counted('incidents', (int) ($f['incidents'] ?? 0), '/ui/receiving/incidents');
         }
 
         // Staff access (the admin): test accounts, too few reviewers, jobs that Admin switches off.

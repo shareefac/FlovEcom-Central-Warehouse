@@ -21,7 +21,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class UiTemplatesTest extends TestCase
 {
-    private const HELPERS = ['e', 'n', 'dec', 'dt', 'uk', 'u', 'pct', 'partial', 'word', 'say', 'money', 'day', 'when', 'jobs', 'chip', 'stateChip', 'intro', 'explain',
+    private const HELPERS = ['e', 'n', 'dec', 'dt', 'u', 'pct', 'partial', 'word', 'say', 'money', 'day', 'when', 'jobs', 'chip', 'stateChip', 'intro', 'explain',
         'cards', 'empty'];
 
     /** @return array<string, string> file name => source */
@@ -175,6 +175,37 @@ final class UiTemplatesTest extends TestCase
             $text = (string) preg_replace(['/<\?.*?\?>/s', '/<[^>]*>/', '/&[a-z]+;/'], ' ', $src);
             self::assertSame([], preg_match_all('/[A-Za-z]{2,}/', $text, $m) > 0 ? $m[0] : [], "{$name}: a word typed in the template instead of taken from Words");
         }
+    }
+
+    /**
+     * The delivery pages (IM6: Receive + invoice, a delivery and its editor, the goods-in bench, incidents; the plain-words pass of
+     * U85-U90): every table is a `table.stack` whose cells say what they are on a phone, times are UK time in the screens' one form
+     * ($when, not $dt or main's $uk), no "(GBP)", and no word is typed in the template: every word comes from Words.
+     */
+    public function testTheDeliveryPagesTurnIntoCardsAndTakeEveryWordFromWords(): void
+    {
+        $templates = self::templates();
+        foreach (['receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents'] as $name) {
+            $src = $templates[$name . '.php'];
+            preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
+            foreach ($tables as $t) {
+                self::assertMatchesRegularExpression('/class="[^"]*\bstack\b/', $t[2], "{$name}: {$t[0]} is cards on a phone");
+            }
+            preg_match_all('/<td\b[^>]*>/i', $src, $cells);
+            foreach ($cells[0] as $td) {
+                self::assertMatchesRegularExpression('/data-label=|class="[^"]*\bc-(status|next|head)\b/', $td, "{$name}: {$td} says what it is on a phone");
+            }
+            foreach (['(UTC)', '$dt(', '$uk(', '(GBP)', 'MiB'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old}");
+            }
+            $text = (string) preg_replace(['/<\?.*?\?>/s', '/<[^>]*>/', '/&[a-z]+;/'], ' ', $src);
+            self::assertSame([], preg_match_all('/[A-Za-z]{2,}/', $text, $m) > 0 ? $m[0] : [], "{$name}: a word typed in the template instead of taken from Words");
+        }
+        // The browser's prompts of these pages come from Words too (app.js reads them from data- attributes).
+        self::assertStringContainsString('data-unsaved-text=', $templates['receipt_edit.php']);
+        self::assertStringContainsString('data-unsaved-text=', $templates['receipt_bench.php']);
+        self::assertStringContainsString('data-not-here=', $templates['receipt_bench.php']);
+        self::assertStringContainsString('data-too-big=', $templates['receipt_files.php']);
     }
 
     public function testEveryPostFormCarriesTheCsrfToken(): void

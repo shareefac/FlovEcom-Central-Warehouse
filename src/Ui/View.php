@@ -57,7 +57,6 @@ final class View
             'n' => static fn (mixed $v): string => Html::e(Html::int($v)),
             'dec' => static fn (mixed $v): string => Html::e(Html::dec($v)),
             'dt' => static fn (mixed $v): string => Html::e(Html::dt($v === null ? null : (string) $v)),
-            'uk' => static fn (mixed $v): string => Html::e(Html::uk($v === null ? null : (string) $v)),
             'pct' => static fn (int|float $part, int|float $whole): string => Html::e(Html::pct($part, $whole)),
             'u' => static fn (string $path, array $query = []): string => Html::e(Html::url($path, $query)),
             'partial' => fn (string $name, array $v = []): string => $this->render($name, $v),

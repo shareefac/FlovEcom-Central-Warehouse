@@ -6125,3 +6125,100 @@ viewport of design A, a receipt editor's error without its code). In slot `ui`: 
 test `OK (103 tests, 5213 assertions)`. In slot `api`: the seven `Api*Test` `OK (35 tests, 2454 assertions)`. The hammer (`--seed=20261007`, slot
 `mrg2`): `RESULT: PASS (59 checks passed, 0 failed)`, 105 s. The matching golden tests: `{"passed":59,"failed":0}`. Not checked in a browser (none
 on this box or on staging): the Deliveries screens are on ops.md's list for the check before the deploy.
+
+## The delivery screens in plain words and design A (slots `mrg3`, `ui`, 7 Oct 2026)
+
+Code: `src/Ui/Words.php` (new groups `RECEIPT_STATE`, `BENCH_STATE`, `INCIDENT_WHERE`, `INCIDENT_KIND`, `INCIDENT_STATE`, `RECEIPT_FILE`, `STAMP_TYPE`,
+`UNSTAMPED_ACTION`, `MODE_SOURCE`, `MODE_MEANING`, `RECEIVING`, `RECEIPT`, `BENCH`, `INCIDENTS`, `RECEIPT_NOTICE`, `RECEIPT_ADDED`, `RECEIPT_ERROR`,
+`RECEIPT_PLAN`, `SELLING_ERROR`; `SELLING`, `PAGE_INTRO`, `HELP`, `TASK`, `TONE` grown), `src/Ui/ReceiptWords.php` (new),
+`src/Ui/Controller/{Receiving,Incidents,ItemCards,SellingMode}Controller.php`, `src/Ui/views/{receipts,receipt,receipt_edit,receipt_bench,
+receipt_files,bench_list,incidents,item}.php` (item.php: its "Selling mode on the websites" section), `src/Ui/{HomeTasks,HomeCounts,Context,Html,View}.php`,
+`src/Documents/Documents.php` (`decidableCountsByType()`, read only), `public/ui/assets/{app.css,app.js}`; tests `tests/Unit/{ReceivingWords (new),
+UiTemplates,HomeTasks}Test.php`, `tests/Integration/UiKernel/{ReceivingScreens,SellingModeScreen}Test.php`. The step U83 left open: main's seven
+receiving templates, the receiving controllers' notices and refusals, `app.js`'s receiving prompts and the product page's selling mode, done the way
+the redesign did the other pages (U53-U59). Words, layout, help, the Home cards and display only: no permission, route or service message changed
+(`Permissions::MAP`, the services and their tests are as they were).
+
+**U85. One place for the words of the deliveries (the glossary of these pages).** A receipt is a **delivery** (one supplier invoice; the menu
+section is Deliveries, U80), posting it is **booking it in**, units are **items** ("3 boxes of 5 = 15 items", as the order pages), an item is a
+**product**, the item card a **product card**; MAIN is **into stock**, VERIFY **set aside to check**, UNSTAMPED **the unstamped quarantine**, a
+refusal **refused at the door**, short **short (not delivered)**, over **extra**, a wrong item **the wrong product**; "credible" paperwork
+"looks right"; "duty evidence" is the supplier's **proof** it was made before 1 Oct 2026. The stock-place codes appear once, in the "?" beside
+"Where the items went" ("Older notes and the stock records call the two places VERIFY and UNSTAMPED.", as `HELP['how_sure']` names "Key"). Every
+word of the seven templates comes from `Words` (`UiTemplatesTest::testTheDeliveryPagesTurnIntoCardsAndTakeEveryWordFromWords`: no typed word, every
+table a `table.stack` with labelled cells, no "(UTC)", `$dt(`, `$uk(`, "(GBP)" or "MiB"); the controllers' `NOTICES` are the `Words` groups. Times
+are `$when` ("7 Oct 2026, 10:26"): main's `$uk` and `Html::uk()` ("7 Oct 2026 14:05", U79 point 5) had no other user and are removed, so a page has
+one UK-time form. The page intros: Receive + invoice, a delivery being keyed (its keyer; someone else), a delivery booked in, the goods-in bench, a
+bench check, Incidents; for a person who can only look, "You can look; <jobs> change this." (`Words::whoCan`). The "?" texts: what booking in does
+(`posting`), the duty stamp check (`duty_stamp`), the unstamped rule with **1 Jan 2027** and 31 Mar 2027 (`unstamped_rule`; the bench page still
+prints the dates of the setting itself), where the items go (`where_units_go`) and the selling modes (`selling_mode`). "Count" stays a shelf count
+(correction b): the bench's tick is **Checked**, not "Counted".
+
+**U86. The services' sentences, said again (the pattern of `Ui\PoWarnings`, U54).** The services keep their messages (they reach the tests, the
+posting's refusal and the logs). `Ui\ReceiptWords` (pure, unit-tested on every sentence of `Receiving\ReceiptPlan` and the scan's choice note)
+recognises the goods-in plan's 27 kinds of problem and its warnings and says them with the glossary's words, the product's name instead of its CW number,
+the website's name instead of its code, the order's state in words and the screens' UK time; a sentence it does not know is shown as the service
+wrote it. `ReceivingController::plain()` translates refusals by code (`RECEIPT_ERROR`; the kernel's codes by `Words::ERROR`): a refused booking in
+says how many things to settle and points to "Before it can be booked in" (the list itself is the plan's, in words), `duplicate_invoice` and
+`invoice_copy_elsewhere` name the other delivery in words, a code without words shows the service's sentence and "Nothing was saved."; the
+controller's own refusals (the scan box, nothing found, the truncated form, a stale page, the bench's stale save) are `Words`. The reviewer's
+refusal on a delivery says why in the page's words (`RECEIPT['refusal_posted' / 'refusal_created' / 'refusal_bench' / 'refusal_invoice']`; I133,
+I172). The selling-mode switch's refusals (`bad_mode`, `bad_reason`, `bad_threshold`, `no_sites`, `unknown_site`, `protected_item`,
+`selling_mode_changed`) are `Words::SELLING_ERROR`, through `ItemCardsController::plain` (the product page's one translator). `app.js`'s prompts
+(unsaved edits, a photo still shrinking, a file too big, "Not on this page") come from the page's `data-` attributes, English if a page has none
+(U76's pattern for "Show"/"Hide").
+
+**U87. Home cards for deliveries (plan §3.2's pattern; `Ui\HomeTasks`, `Ui\HomeCounts`).** Four cards, each with B's "What happens:" line and one
+button to a page the person may open: **Deliveries waiting for the goods-in bench** (`doc.GRN.post`: goods in, the desk, the purchasing manager;
+deliveries with products whose paperwork is not answered or whose lines are not all checked, not one whose paperwork the bench found not right)
+and **Checked deliveries to book in** (the same jobs; the paperwork looks right and every line is checked; the button opens the list's new "Checked
+at the bench, not booked in yet" filter), both before the owner's own checks (rank 65 and 70: the goods are in the building and cannot be sold);
+**Deliveries booked in to check** (reviewers; rank 145, after "Done work to check"), the GRN part of the reviews from
+`Documents::decidableCountsByType()` (one query by type and kind, behind `decidableCounts()` and the badge as before, so **ReviewInvolvement holds**:
+a bench checker, the person who set the invoice, its keyer and its booker are never counted, I133), taken out of "Done work to check" so the two
+cards add up to the "Waiting for me" badge (`Context::checks()['deliveries']`); **Open incidents from deliveries** (`incidents.resolve`: the desk,
+the purchasing manager, the stock controller; the badge's number; routine work, rank 217). One extra Home query for the people who key or check
+deliveries (the drafts' bench state, over the few draft receipts).
+
+**U88. Design A on the delivery pages.** The deliveries list and the bench list are B's list cards (`table.stack.list` in a `.table-wrap`: the
+supplier's name first, a line with the number, invoice and order, the state, bench and reviewer check as chips, one button). A delivery's page:
+its state chips, the intro, the reviewer's box first with **What each answer does** ("OK: it is right" / "Not OK: take the delivery back", what each
+does; "Not OK (recorded only)" on a reversal; no Not OK while its order is closed, I176), "Before it can be booked in" with the "?" and **Book this
+delivery in** saying what happens, the facts, **Where the items went** as stat tiles, the lines as cards, the problems found, the reviewer
+checks as sentences with chips, and "Take this delivery back…" folded, its reason list starting with "— choose a reason —" and required (U65's
+rule for Cancel and Correct; the controller already refused an empty reason). The editor follows the order editor (the lines as cards on a phone,
+the sheet import and "Cancel this delivery…" folded, a status chip or "N things to settle" beside the buttons). **The bench is tablet first:** one
+card per line with the product's name, what the paperwork says in large type, chips for the stamp and the check, the number fields two or three
+across on a tablet and one under another on a phone (`auto-fill, minmax(15rem, 1fr)`), every field, tick and button 48-52 px. The save bar
+(`.actions.sticky`, the editor's and the bench's) now sits **above the phone's tab bar**: main's sticky bar stuck to `bottom: 0` under the fixed tab
+bar below 900 px. Incidents are one card each with its state chip and a small "Close this incident" form ("How it ended": dealt with / nothing
+needed). Tap targets 44 px or more everywhere (file links, incident links, the sample-sheet link).
+
+**U89. The product page's "Selling mode on the websites" (IM10).** Its heading has the "?" (`selling_mode`); the table is B's list cards (one card
+per website: the stock link as a chip, the mode with its meaning in words (`Words::MODE_MEANING`, not `SellingModes::MEANING`), "how far the stock
+link is", the website products as "option 601 (1 sale = 10 products)", the low-stock warning, "the switch, <who>, <UK time>"); the form's mode
+choices are whole-row choices with the meaning, the threshold and the reason have hints, and the button says what happens ("Each ticked website
+whose stock link is on takes it the next time it reads the warehouse stock."). The mode names In-Stock, From-Warehouse and Out-Of-Stock stay (the
+websites' own labels, U83).
+
+**U90. Not done here, and open.** The sheet import's row errors (`ReceiptLinesFile`: "row 2, supplier code: …") and the skipped rows are shown as
+the service wrote them (they quote the supplier's own columns). The plan's unknown sentences are shown as written (a new problem is never lost).
+`Document::label()` ("draft #12") still names files and service messages. The owner's choices of U81 stand (the desk reaches Receive + invoice from
+More). Not checked in a browser (none on this box or on staging): the Deliveries screens on ops.md's list, the bench on a tablet first.
+
+*Tests* (7 Oct 2026): the full suite in slot `mrg3`: `OK, but some tests were skipped! Tests: 999, Assertions: 49977, Skipped: 75` (992 after the
+merge, plus 7: the new unit `ReceivingWordsTest` 4 (every code of the delivery pages has its words, the controllers' notices are the `Words` groups,
+every problem code of `ReceiptPlan` has words; sentences, "count", no stock-place code outside its "?"; `Ui\ReceiptWords` on every sentence of the
+plan; `ReceivingController::plain` and its row helpers, `IncidentsController::screenRow`), the delivery pages' test of
+`UiTemplatesTest`, `HomeTasksTest::testTheDeliveryCards` and `ReceivingScreensTest::testTheDeliveryPagesSpeakPlainWordsForEachJob` (14 pages for the
+desk, goods in, a reviewer, a stock controller, an auditor and an accountant: title, intro or "You can look;", no code / UTC / MiB / (GBP) / VERIFY /
+UNSTAMPED / MAIN / "receipt" / "units" outside the "?", tables as cards; Home's four delivery cards in each state, the bench checker never counted,
+the cards adding up to the badge, the list's "checked" filter); the 75 skipped are the HTTP tests of slots `ui`/`api`). Then two wording nits (a
+supplier item without a code in the scan's choices; "where the items are" in lower case) and the unit suite again: `OK (263 tests, 33993
+assertions)`. In slot `ui`: `UiAuthTest`, `UiSecurityTest`, `UiReviewFlowTest` `OK (38 tests, 26392 assertions)` and every `UiKernel` test `OK (104
+tests, 5564 assertions)`. Tests changed with the words: `ReceivingScreensTest` (the screens' words now asserted as `Words` constants: the empty
+list, the copied notice, "+5 items (now 4 packs of 5 = 20 items)", "= 15 items on the paperwork", the refusals, "13 into stock, 2 set aside to check",
+the bench checker's refusal, Home's "Deliveries booked in to check" card in place of "Done work to check" for the receipt's review, the incident's
+title, the reversal, the duplicate invoice, the truncated form, `table.stack.list`) and `SellingModeScreenTest` (the meanings and refusals as
+`Words`). `app.js` parses (esprima 4.0.1, run on this box: the merge's "no JavaScript engine" note meant node). Not checked in a real browser (none
+on this box or on staging): ops.md's list.

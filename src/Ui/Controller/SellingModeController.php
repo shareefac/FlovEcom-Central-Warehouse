@@ -115,7 +115,7 @@ final class SellingModeController
             'canSet' => $legacy && $ctx->me()->can('modes.set'),
             'stamp' => SiteModes::stamp($rows),
             'formKey' => $typed['form_key'] ?? FormOnce::newKey(),
-            'modes' => array_map(static fn (string $m): array => ['value' => $m, 'meaning' => SellingModes::MEANING[$m]], SellingModes::MODES),
+            'modes' => array_map(static fn (string $m): array => ['value' => $m, 'meaning' => Words::MODE_MEANING[$m]], SellingModes::MODES),
             'typed' => ['mode' => $typed['mode'] ?? '', 'all' => in_array('*', $typed['sites'] ?? [], true), 'threshold' => $typed['threshold'] ?? '',
                 'reason' => $typed['reason'] ?? ''],
         ];

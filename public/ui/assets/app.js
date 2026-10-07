@@ -42,7 +42,8 @@
   });
 
   // Unsaved edits (the receive editor, the bench check): another form on the page (attach, import, copy, cancel) leaves the page,
-  // so it asks first instead of throwing the typed edits away.
+  // so it asks first instead of throwing the typed edits away. The words come from the page (data-unsaved-text on the edited form,
+  // data-busy-text on the leaving one: Words::RECEIPT), English if a page has none.
   var guarded = document.querySelectorAll('form[data-unsaved]');
   each(guarded, function (form) {
     var mark = function () { form.setAttribute('data-dirty', '1'); };
@@ -55,11 +56,11 @@
       var dirty = document.querySelector('form[data-unsaved][data-dirty]');
       if (form.getAttribute('data-busy') === '1') {
         ev.preventDefault();
-        window.alert('The photo is still being made smaller: wait a moment and press the button again.');
+        window.alert(form.getAttribute('data-busy-text') || 'The photo is still being made smaller: wait a moment, then press the button again.');
         return;
       }
-      if (dirty && !window.confirm('You have unsaved changes in ' + dirty.getAttribute('data-unsaved') + '. They are lost if you go on: save them first? '
-          + '(OK goes on without them.)')) {
+      if (dirty && !window.confirm(dirty.getAttribute('data-unsaved-text') || 'You have changes on this page that are not saved. They are lost if you go on. '
+          + 'Press Cancel, then save them first. (OK goes on without them.)')) {
         ev.preventDefault();
       }
     });
@@ -86,7 +87,7 @@
   });
 
   // A file input with a size limit: a camera photo larger than the limit is made smaller in the browser (JPEG, at most 2400 px),
-  // anything else too large is refused here instead of by the server after the upload.
+  // anything else too large is refused here instead of by the server after the upload (its words: data-too-big, English if none).
   each(document.querySelectorAll('input[type="file"][data-max-bytes]'), function (input) {
     var max = parseInt(input.getAttribute('data-max-bytes'), 10) || 2097152;
     input.addEventListener('change', function () {
@@ -95,7 +96,7 @@
         return;
       }
       var tooBig = function () {
-        window.alert('The file is ' + (file.size / 1048576).toFixed(1) + ' MiB: at most ' + (max / 1048576).toFixed(0) + ' MiB is taken. Choose a smaller one.');
+        window.alert(input.getAttribute('data-too-big') || ('This file is too big: at most ' + (max / 1048576).toFixed(0) + ' MB. Choose a smaller one.'));
         input.value = '';
       };
       // createImageBitmap decodes the file without a blob: or data: URL (the CSP allows images from this site only).
@@ -153,7 +154,8 @@
     });
   });
 
-  // The bench: find a line by scanning its barcode (or typing a code): it is highlighted and its "counted" box focused.
+  // The bench: find a line by scanning its barcode (or typing a code): it is highlighted and its "checked" box focused. "Not on this
+  // page" comes from the field's data-not-here (Words::BENCH, %s = what was scanned).
   var find = document.getElementById('bench-find');
   if (find) {
     var result = document.getElementById('bench-find-result');
@@ -181,7 +183,7 @@
         if (box) { box.focus(); }
         if (result) { result.textContent = (hit.querySelector('h2') || hit).textContent.trim(); }
       } else if (result) {
-        result.textContent = 'Not on this page: ' + find.value.trim();
+        result.textContent = (find.getAttribute('data-not-here') || 'Not on this page: %s').replace('%s', find.value.trim());
       }
       find.value = '';
     });
