@@ -61,6 +61,13 @@ final class UiResponse
         return trim((string) preg_replace('/\s+/u', ' ', $this->dom()->textContent ?? ''));
     }
 
+    /** The error code of an error page (its data-code: the code is no longer printed, plan F041), or null. */
+    public function errorCode(): ?string
+    {
+        $n = (new \DOMXPath($this->dom()))->query('//*[@data-code]');
+        return $n !== false && $n->length > 0 && $n->item(0) instanceof \DOMElement ? $n->item(0)->getAttribute('data-code') : null;
+    }
+
     /** Every href of the page, in order. @return list<string> */
     public function hrefs(): array
     {

@@ -8,6 +8,7 @@ use CW\Caller;
 use CW\Mapping\BarcodeSeeder;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
+use CW\Ui\Words;
 
 /**
  * What the review screen shows of a proposal's evidence, so a person can check it (review findings,
@@ -44,12 +45,15 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         $rows = $this->rows($page, 'candidates');
         self::assertCount(15, $rows, 'every candidate the judge saw, not the first 10');
         self::assertSame(array_map(static fn (int $i): string => "C{$i}", range(1, 15)), array_map(static fn (array $r): string => $r[0], $rows), 'in judge order');
-        self::assertStringContainsString('AI picked', $rows[12][1]);
-        self::assertStringContainsString('proposed', $rows[12][1]);
-        self::assertStringContainsString('veto: strength', $rows[1][4]);
-        self::assertStringContainsString('price_outlier', $rows[2][4]);
-        self::assertSame($this->skuCode($items[13]) . ' Candidate item 13 (the item shown above)', $this->dd($page, 'AI picked'));
-        self::assertStringContainsString('(C1, C2, … are the rows of the candidates table below)', $this->dd($page, 'Reason'));
+        self::assertStringContainsString(Words::LISTING['tag_ai'], $rows[12][1]);
+        self::assertStringContainsString(Words::LISTING['tag_suggested'], $rows[12][1]);
+        self::assertStringContainsString(Words::say('LISTING', 'cannot_be', Words::VETO['strength']), $rows[1][3], 'a rule against it, in words (F196)');
+        self::assertStringContainsString(Words::FLAG['price_outlier'], $rows[2][3]);
+        self::assertSame($this->skuCode($items[13]) . ' Candidate item 13 ' . Words::LISTING['ai_pick_same'], $this->dd($page, Words::LISTING['ai_pick']));
+        self::assertStringContainsString('(' . Words::LISTING['ai_refs'] . ')', $this->dd($page, Words::LISTING['ai_reason']));
+        self::assertContains('#cand-C13', $page->hrefs(), 'the C-refs of the reason lead to their rows (F225)');
+        self::assertContains('#cand-C2', $page->hrefs());
+        self::assertSame('cand-C13', (new \DOMXPath($page->dom()))->query('//table[contains(@class, "candidates")]/tbody/tr[13]')->item(0)?->getAttribute('id'));
 
         // A Conflict proposal names no item; the AI's pick is still on the page, as a row and a line.
         $x = $this->item('legacy', 0, 'The chosen one');
@@ -59,9 +63,14 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         ]]);
         $p2 = $web->get('/ui/review/listing/' . $l2);
         $rows = $this->rows($p2, 'candidates');
-        self::assertSame(['', $this->skuCode($x) . ' The chosen one AI picked'], [$rows[0][0], $rows[0][1]]);
-        self::assertSame($this->skuCode($x) . ' The chosen one · use this item', $this->dd($p2, 'AI picked'));
-        self::assertContains('/ui/review/listing/' . $l2 . '?pick=' . $x . '#decide', $p2->hrefs());
+        self::assertSame(['', $this->skuCode($x) . ' The chosen one ' . Words::LISTING['tag_ai']], [$rows[0][0], $rows[0][1]]);
+        // A matcher looks at a Clues-disagree product but does not pick for it (F205); a matching lead does.
+        self::assertSame($this->skuCode($x) . ' The chosen one', $this->dd($p2, Words::LISTING['ai_pick']));
+        self::assertStringContainsString(Words::LISTING['lead_only'], $p2->text());
+        self::assertFalse($p2->hasForm('/decide'));
+        $lead = $this->signIn($this->uiUser('mapping_lead'), $this->browser('198.51.100.23'))->get('/ui/review/listing/' . $l2);
+        self::assertSame($this->skuCode($x) . ' The chosen one · ' . Words::LISTING['use'], $this->dd($lead, Words::LISTING['ai_pick']));
+        self::assertContains('/ui/review/listing/' . $l2 . '?pick=' . $x . '#decide', $lead->hrefs());
     }
 
     public function testFieldsThatDoNotAgreeAreNamedConflictsFirstAndFlagsAreGroupedByWeight(): void
@@ -75,16 +84,29 @@ final class ReviewEvidenceTest extends KernelUiTestCase
                     'vetoes_on_chosen' => ['form'], 'soft_flags_on_chosen' => ['modifier_extra'], 'warnings' => ['quote_not_verbatim']]],
         ]);
         $page = $this->signIn($this->uiUser('mapper'))->get('/ui/review/listing/' . $l);
-        self::assertSame('brand_line: conflict pack: unknown volume: unknown', $this->dd($page, 'Fields that do not agree'));
-        self::assertSame("veto: strength (proposed item) veto: form (AI's pick)", $this->dd($page, 'Blocks a link'));
-        self::assertSame("price_outlier (proposed item) modifier_extra (AI's pick)", $this->dd($page, 'Check'));
-        self::assertSame('ceiling:Check', $this->dd($page, 'Other flags'));
-        self::assertSame('quote_not_verbatim', $this->dd($page, 'AI warnings'));
+        // "Watch out" in words (F175-F177): what rules it out first, then the fields that do not agree (conflicts first), then the warnings.
+        self::assertSame(implode(' ', [
+            Words::say('LISTING', 'cannot', $this->skuCode($sku), Words::VETO['strength']),
+            Words::say('LISTING', 'cannot_ai', Words::VETO['form']),
+            sprintf(Words::AI_FIELD_STATE['conflict'], Words::AI_FIELD['brand_line']),
+            sprintf(Words::AI_FIELD_STATE['unknown'], Words::AI_FIELD['pack']),
+            sprintf(Words::AI_FIELD_STATE['unknown'], Words::AI_FIELD['volume']),
+            Words::FLAG['price_outlier'], Words::FLAG['modifier_extra'],
+        ]), $this->dd($page, Words::LISTING['watch']));
         $xp = new \DOMXPath($page->dom());
-        self::assertSame('brand_line: conflict', trim((string) $xp->evaluate('string(//span[contains(@class,"tag") and contains(@class,"bad")][1])')));
+        self::assertSame(Words::say('LISTING', 'cannot', $this->skuCode($sku), Words::VETO['strength']),
+            trim((string) $xp->evaluate('string(//span[contains(@class,"tag") and contains(@class,"bad")][1])')));
+        // The codes are kept for the team, folded away (F194).
+        $tech = trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(//details[contains(@class, "tech-details")])')));
+        foreach (['ceiling:Check', 'quote_not_verbatim', 'brand_line: conflict'] as $code) {
+            self::assertStringContainsString($code, $tech);
+        }
+        $main = (string) $xp->evaluate('string(//main)');
+        self::assertSame(1, substr_count($main, 'ceiling:Check'), 'only in Technical details');
         // An old-style list still reads.
         $l2 = $this->queued($alt, 'E2', 'Check', $sku, [], ['evidence' => ['ai' => ['fields_not_agree' => ['flavour']]]]);
-        self::assertSame('flavour', $this->dd($this->signIn($this->uiUser('mapper'))->get('/ui/review/listing/' . $l2), 'Fields that do not agree'));
+        self::assertSame(sprintf(Words::AI_FIELD_STATE['none'], Words::AI_FIELD['flavour']),
+            $this->dd($this->signIn($this->uiUser('mapper'))->get('/ui/review/listing/' . $l2), Words::LISTING['watch']));
     }
 
     public function testTheRelabelQueueIsNamedAndShowsTheRenameAndThePairedItems(): void
@@ -100,21 +122,26 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         ]);
         $web = $this->signIn($this->uiUser('mapper'));
         $dash = $web->get('/ui/');
-        self::assertStringContainsString('Relabel (alias) 1 1', $dash->text());
+        self::assertStringContainsString(Words::BAND['Manual'] . ' ' . Words::BAND_HELP['Manual'] . ' 1 1', $dash->text(), 'Home\'s matching progress names the list');
         self::assertStringNotContainsString('Manual', $dash->text());
         $queue = $web->get('/ui/review', ['queue' => 'Manual']);
-        self::assertStringContainsString('Relabel (alias) queue', $queue->text());
-        self::assertStringContainsString('The rename itself (an alias) is not recorded on these screens', $queue->text());
+        self::assertSame(Words::BAND_TITLE['Manual'], trim((string) (new \DOMXPath($queue->dom()))->evaluate('string(//main//h1)')), 'one name for the list (F154, F170)');
+        self::assertStringContainsString(Words::QUEUE['renamed_note'], $queue->text());
         $row = $this->rows($queue, 'queue')[0];
-        self::assertSame('cannot_tell', $row[5], 'no "85%" next to "Proposal: none"');
-        self::assertStringContainsString('none', $row[4]);
+        self::assertSame(Words::AI['cannot_tell'], $row[5], 'no "85%" next to "no product"');
+        self::assertStringContainsString(Words::QUEUE['none'], $row[4]);
 
         $page = $web->get('/ui/review/listing/' . $l, ['queue' => 'Manual']);
-        self::assertSame('Relabel (alias) (the run says Manual (relabel))', $this->dd($page, 'Band'));
-        self::assertStringStartsWith('relabel pending ' . $note, $this->dd($page, 'Rename'));
-        self::assertStringStartsWith($this->skuCode($p1) . ' Mad Blue Hayati Pro Max 10mg · use this item ' . $this->skuCode($p2), $this->dd($page, 'Paired items'));
+        self::assertStringStartsWith(Words::BAND['Manual'] . ' – ' . Words::BAND_HELP['Manual'], $this->dd($page, Words::LISTING['how_sure']));
+        self::assertStringNotContainsString('(the run says', $page->text(), 'one name, no "the run says" (F170)');
+        self::assertStringContainsString('<code>Manual (relabel)</code>', $page->body, 'the run\'s own name: Technical details only');
+        self::assertSame('Electrofag calls it "Crystal Pro Max", Vape and Go calls it "Hayati Pro Max". ' . Words::LISTING['renamed_text'],
+            $this->dd($page, Words::LISTING['renamed']), 'F195');
+        self::assertStringStartsWith($this->skuCode($p1) . ' Mad Blue Hayati Pro Max 10mg · ' . Words::LISTING['use'] . ' ' . $this->skuCode($p2),
+            $this->dd($page, Words::LISTING['partners']));
         self::assertContains('/ui/review/listing/' . $l . '?queue=Manual&pick=' . $p2 . '#decide', $page->hrefs());
-        self::assertStringContainsString('← Relabel (alias) queue', $page->text());
+        $back = (new \DOMXPath($page->dom()))->query('//p[@class="crumbs"]/a[1]')->item(0);
+        self::assertSame([Words::BAND_TITLE['Manual'], '/ui/review?queue=Manual'], [trim((string) $back?->textContent), $back instanceof \DOMElement ? $back->getAttribute('href') : '']);
     }
 
     public function testItemBarcodesShowFromTheMintingListingThenFromSkuBarcodeAndAreCompared(): void
@@ -135,18 +162,19 @@ final class ReviewEvidenceTest extends KernelUiTestCase
             $page = $web->get('/ui/review/listing/' . $l, ['queue' => 'Key']);
             $xp = new \DOMXPath($page->dom());
             $card = trim(preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(//section[@aria-labelledby="item-h"])')) ?? '');
-            self::assertSame(self::GTIN_A, $this->dd($page, 'Barcodes', '//section[@aria-labelledby="item-h"]'), $when);
-            self::assertStringContainsString('CWP-4711', $card, 'the first-match id of the item');
+            self::assertSame(self::GTIN_A, $this->dd($page, Words::LISTING['barcodes'], '//section[@aria-labelledby="item-h"]'), $when);
+            self::assertStringNotContainsString('CWP-4711', $card, 'the first-match id is for the matching files (F189)');
+            self::assertStringContainsString('CWP-4711', (string) $xp->evaluate('string(//details[contains(@class, "tech-details")])'), 'in Technical details');
             $compare = [];
             foreach ($this->rows($page, 'compare') as $r) {
                 $compare[$r[0]] = $r[3];
             }
-            self::assertSame('same', $compare['Barcodes'], $when);
-            self::assertSame('spelt differently', $compare['Brand'], 'a brand spelt differently is not a difference');
+            self::assertSame(Words::FIELD_STATE['same'], $compare[Words::FIELD['barcodes']], $when);
+            self::assertSame(Words::FIELD_STATE['alike'], $compare[Words::FIELD['brand']], 'a brand spelt differently is not a difference');
             $item = $web->get('/ui/items/' . $sku);
             self::assertStringContainsString(self::GTIN_A, $item->text());
-            self::assertStringContainsString($seed ? 'origin_listing' : 'listing it was minted from', $item->text());
-            self::assertStringNotContainsString('No barcode is known', $item->text());
+            self::assertStringContainsString($seed ? Words::BARCODE_SOURCE['origin_listing'] : ucfirst(Words::ITEM['minted_from']), $item->text());
+            self::assertStringNotContainsString(Words::BARCODE['none'], $item->text());
         }
         // A scanned code with a leading zero finds the item.
         self::assertStringContainsString($this->skuCode($sku), $web->get('/ui/search', ['q' => '0' . self::GTIN_A])->text());
@@ -163,11 +191,12 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
 
         $page = $web->get('/ui/review/listing/' . $clash, ['queue' => 'New item']);
-        self::assertStringContainsString("This listing's barcode is also on vpg listing 9001 Old Kit Old Kit Black (unmapped, on the site: Bin)", $page->text());
+        self::assertStringContainsString(Words::LISTING['elsewhere'] . ' ' . Words::say('LISTING', 'elsewhere_listing', 'VPG test site') . ' Old Kit Old Kit Black ('
+            . Words::LISTING_STATUS['unmapped'] . '; ' . Words::say('LISTING', 'elsewhere_site', 'Bin') . ')', $page->text());
         self::assertContains('/ui/review/listing/' . $binned, $page->hrefs());
         self::assertArrayNotHasKey('action', $page->form('/decide'), 'a possible duplicate is not preselected');
         $ok = $web->get('/ui/review/listing/' . $fresh, ['queue' => 'New item']);
-        self::assertStringNotContainsString("This listing's barcode is also on", $ok->text());
+        self::assertStringNotContainsString(Words::LISTING['elsewhere'], $ok->text());
         self::assertSame('new_item', $ok->form('/decide')['action'] ?? null, 'a New item proposal without a clash is preselected');
     }
 
@@ -182,7 +211,7 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         $queue = $web->get('/ui/review', ['queue' => 'Key']);
         self::assertSame([$l1, $l2, $l3], $this->listed($queue), '365 days first, then 30 days');
-        self::assertStringContainsString('best sellers first (units in 365 days, then 30 days)', $queue->text());
+        self::assertStringContainsString(Words::say('QUEUE', 'total_many', 3), $queue->text());
         $lanes = [];
         foreach ((new \DOMXPath($queue->dom()))->query('//select[@name="lane"]/option') ?: [] as $o) {
             $lanes[] = $o instanceof \DOMElement ? $o->getAttribute('value') : '';
@@ -198,7 +227,7 @@ final class ReviewEvidenceTest extends KernelUiTestCase
             }
         }
         self::assertNotNull($quick);
-        self::assertStringContainsString('Confirm link to ' . $this->skuCode($a) . ' and open the next listing', trim(preg_replace('/\s+/', ' ', $quick->textContent) ?? ''));
+        self::assertStringContainsString(Words::LISTING['quick'], trim(preg_replace('/\s+/', ' ', $quick->textContent) ?? ''));
         $form = $page->form('/decide'); // both forms post to it; the first is the quick one
         self::assertSame(['link', (string) $a, '1'], [$form['action'], $form['sku_id'], $form['units_per_item']]);
         $r = $web->post('/ui/review/listing/' . $l1 . '/decide', $form);
@@ -206,11 +235,11 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         self::assertStringStartsWith('/ui/review/listing/' . $l2 . '?', (string) $r->location());
         self::assertSame(['mapped', $a], [$this->link($l1)['status'], $this->link($l1)['sku_id']]);
 
-        // Merge suggestions between Vape and Go items are counted on the dashboard, not queued: they have their own screen (M34).
+        // Merge suggestions between Vape and Go items are counted on Home, not queued: they have their own screen (M34).
         $v1 = $this->listing($vpg, 'D1', $this->item('legacy', 0, 'Item A again'));
         $this->propose($v1, 'Manual', $a, ['lane' => 'vpg_duplicate'], false, 'dups');
         $dash = $web->get('/ui/');
-        self::assertStringContainsString('1 group of possible duplicate Vape and Go listings (the same product on two pages) waits on the Duplicates screen', $dash->text());
+        self::assertStringContainsString(sprintf(Words::HOME['duplicates'], '1') . ' ' . Words::HOME['duplicates_note'], $dash->text());
         self::assertContains('/ui/review/duplicates', $dash->hrefs());
     }
 

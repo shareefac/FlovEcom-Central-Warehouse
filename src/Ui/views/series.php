@@ -1,32 +1,32 @@
-<h1>Number series</h1>
-<p class="muted">Every document type has one continuous series (no yearly restart). A number is given when a document is posted, inside the
-  same transaction, so the numbers of a series are always 1, 2, 3 ... without a gap; drafts and cancelled requests have none. The review and
-  approval limits are placeholders until the owner decides them (decision 11).</p>
-<table class="series">
+<p class="crumbs"><a href="/ui/reference/settings"><?= $word('MENU', 'settings') ?></a></p>
+<h1><?= $word('PAGE_TITLE', 'series') ?></h1>
+<?= $intro('series') ?>
+<p class="muted"><?= $word('SETTINGS_PAGE', 'series_text') ?></p>
+<div class="table-wrap">
+<table class="stack series">
   <thead>
     <tr>
-      <th scope="col">Document type</th>
-      <th scope="col">Prefix</th>
-      <th scope="col">Last number given</th>
-      <th scope="col">Next number</th>
-      <th scope="col">Second-person review</th>
-      <th scope="col">Approval before posting</th>
-      <th scope="col" class="num">Review due (days)</th>
-      <th scope="col">Screens</th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'kind') ?></th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'screens') ?></th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'last') ?></th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'next') ?></th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'checks') ?></th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'ok_first') ?></th>
+      <th scope="col" class="num"><?= $word('SETTINGS_PAGE', 'days') ?></th>
     </tr>
   </thead>
   <tbody>
 <?php foreach ($series as $s): ?>
-    <tr>
-      <th scope="row"><?= $e($s['name']) ?> (<?= $e($s['code']) ?>)</th>
-      <td><code><?= $e($s['prefix']) ?></code></td>
-      <td><?php if ($s['last'] === null): ?><span class="muted">none yet</span><?php else: ?><code><?= $e($s['last']) ?></code><?php endif; ?></td>
-      <td><code><?= $e($s['next']) ?></code></td>
-      <td><?= $e($s['review']) ?></td>
-      <td><?= $e($s['approval']) ?></td>
-      <td class="num"><?= $n($s['due_days']) ?></td>
-      <td><?php if ($s['live']): ?>live<?php else: ?><span class="soon">coming in Phase <?= $e($s['phase']) ?></span><?php endif; ?></td>
+    <tr class="<?php if ($s['live']): ?>done<?php else: ?>off<?php endif; ?>">
+      <th scope="row" class="c-head"><?= $e($s['kind']) ?></th>
+      <td class="c-status"><?php if ($s['live']): ?><?= $chip('done', \CW\Ui\Words::SETTINGS_PAGE['live']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::SETTINGS_PAGE['later']) ?><?php endif; ?></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'last') ?>"><?php if ($s['last'] === null): ?><span class="muted"><?= $word('SETTINGS_PAGE', 'none_yet') ?></span><?php else: ?><code><?= $e($s['last']) ?></code><?php endif; ?></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'next') ?>"><code><?= $e($s['next']) ?></code></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'checks') ?>"><?= $e($s['review']) ?></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'ok_first') ?>"><?= $e($s['approval']) ?></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'days') ?>" class="num"><?= $n($s['due_days']) ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
 </table>
+</div>

@@ -1,229 +1,246 @@
-<p class="crumbs"><a href="/ui/purchasing/suppliers">Suppliers</a></p>
-<h1><?= $e($s['code']) ?> <span class="muted"><?= $e($s['name']) ?></span> <span class="status status-<?= $e($s['status']) ?>"><?= $e($statusLabel) ?></span></h1>
+<p class="crumbs"><a href="/ui/purchasing/suppliers"><?= $word('MENU', 'suppliers') ?></a></p>
+<h1><?= $e($title) ?></h1>
+<p class="eyebrow"><?= $stateChip('SUPPLIER_STATUS', (string) $s['status']) ?></p>
+<?= $intro('supplier') ?>
 <?php if ($error !== null): ?>
-<p class="error" role="alert"><?= $e($error) ?><?php if ($errorMissing !== null): ?> <span class="muted">(missing: <?= $e($errorMissing) ?>)</span><?php endif; ?></p>
+<p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
 <?php if ($ddOverdue): ?>
-<p class="note">Due diligence is overdue: the next review was due on <?= $e($s['dd_next_review_on']) ?>. Purchase orders show this warning.</p>
+<p class="note"><?= $say('SUPPLIER', 'dd_overdue', \CW\Ui\Html::day((string) $s['dd_next_review_on'])) ?></p>
 <?php endif; ?>
 <?php if ($routeUnapproved && $s['status'] === 'active'): ?>
-<p class="note">Overseas supplier: its import route (how and where UK duty stamps are applied) is not approved, so purchase orders are refused until a
-  second person approves it.</p>
+<p class="note"><?= $word('SUPPLIER', 'route_unapproved') ?></p>
 <?php endif; ?>
 <?php if ($s['last_decision_note'] !== null): ?>
-<p class="muted">Last decision note: <?= $e($s['last_decision_note']) ?></p>
+<p class="muted"><?= $say('SUPPLIER', 'last_note', (string) $s['last_decision_note']) ?></p>
 <?php endif; ?>
 
-<section aria-labelledby="activation-h" class="card box">
-  <h2 id="activation-h">Activation</h2>
-<?php if ($s['status'] === 'active'): ?>
-  <p>Active since <?= $dt($s['approved_at']) ?> UTC, approved by <?= $e($people['approved']) ?>.</p>
-<?php if ($canDeactivate): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/deactivate') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
-    <label>Why it is deactivated (required) <input type="text" name="reason" minlength="3" maxlength="500" required></label>
-    <button type="submit">Deactivate</button>
-  </form>
-  <p class="muted">A deactivated supplier gets no new purchase orders; orders already approved are not affected. Activating it again needs a second
-    person's approval.</p>
-<?php endif; ?>
-<?php elseif ($s['status'] === 'pending_approval'): ?>
-  <p><strong>Waiting for a second person</strong> to approve this supplier<?php if ($open['activation'] !== null): ?>
-    (<?= $e(str_replace('_', ' ', $open['activation']['reason'])) ?>, asked by <?= $e($open['activation']['opened_by_name']) ?> on <?= $dt($open['activation']['opened_at']) ?> UTC,
-    due <?= $dt($open['activation']['due_at']) ?> UTC<?php if ($open['activation']['overdue']): ?>, <span class="tag bad">overdue</span><?php endif; ?>)<?php endif; ?>.
-    It cannot be changed while it waits.</p>
-<?php else: ?>
-  <p>This supplier is <?= $e($statusLabel) ?><?php if ($s['status'] === 'inactive'): ?> since <?= $dt($s['deactivated_at']) ?> UTC (<?= $e($people['deactivated']) ?>: <?= $e($s['deactivate_reason']) ?>)<?php endif; ?>.
-    It is used for purchase orders only after a second person approves it.</p>
-<?php if ($canRequest && $missing !== []): ?>
-  <p class="note">Before asking for activation, fill in: <?= $e($missingText) ?>.</p>
-<?php elseif ($canRequest): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/request-activation') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
-    <button type="submit" class="primary"><?php if ($s['approved_at'] === null): ?>Ask a second person to activate it<?php else: ?>Ask a second person to activate it again<?php endif; ?></button>
-  </form>
-<?php endif; ?>
-<?php endif; ?>
-</section>
-
-<?php foreach (['activation' => 'Activation approval (blocking)', 'route' => 'Import route approval (blocking)', 'review' => 'Change review (does not block orders)'] as $slot => $title): ?>
+<?php foreach (['activation', 'route', 'review'] as $slot): ?>
 <?php if ($open[$slot] !== null): ?>
-<section aria-labelledby="task-<?= $e($slot) ?>-h" class="card box waiting">
-  <h2 id="task-<?= $e($slot) ?>-h"><?= $e($title) ?></h2>
-<?php if ($slot === 'route' && (int) $s['is_overseas'] !== 1): ?>
-  <p>This supplier was marked as no longer overseas on <?= $dt($open[$slot]['opened_at']) ?> UTC (<?= $e($open[$slot]['opened_by_name']) ?>): purchase orders
-    are refused until a second person confirms it needs no import route. Rejecting deactivates the supplier.</p>
-<?php elseif ($slot === 'route'): ?>
-  <p>The import route changed on <?= $dt($open[$slot]['opened_at']) ?> UTC (<?= $e($open[$slot]['opened_by_name']) ?>): purchase orders are refused until it is approved.</p>
-<?php elseif ($slot === 'review'): ?>
-  <p>Details that matter for approval changed on <?= $dt($open[$slot]['opened_at']) ?> UTC (<?= $e($open[$slot]['opened_by_name']) ?>). Approving acknowledges the
-    change; rejecting deactivates the supplier.</p>
-<?php endif; ?>
-  <p class="muted">Due <?= $dt($open[$slot]['due_at']) ?> UTC<?php if ($open[$slot]['overdue']): ?> <span class="tag bad">overdue</span><?php endif; ?>.</p>
-<?php if ($open[$slot]['may_decide']): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $open[$slot]['id'] . '/approve') ?>">
+<?php $t = $open[$slot]; ?>
+<section class="card decide-box<?php if ($t['may_decide']): ?> waiting<?php endif; ?>" aria-labelledby="task-<?= $e($slot) ?>-h">
+  <div class="head-help">
+    <h2 id="task-<?= $e($slot) ?>-h"><?= $e($t['title']) ?></h2>
+    <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
+  </div>
+  <p><?= $e($t['text']) ?> <?= $e($t['check_by']) ?><?php if ($t['overdue']): ?> <?= $chip('blocked', \CW\Ui\Words::SUPPLIER['late']) ?><?php endif; ?></p>
+<?php if ($t['may_decide']): ?>
+  <div class="answers">
+    <h3 class="section-title"><?= $word('UI', 'what_each_answer_does') ?></h3>
+    <dl class="answer-list">
+      <div class="answer done">
+        <dt><?= $e($t['ok']) ?></dt>
+        <dd><?= $e($t['ok_does']) ?></dd>
+      </div>
+      <div class="answer blocked">
+        <dt><?= $word('SUPPLIER', 'not_ok') ?></dt>
+        <dd><?= $e($t['not_ok_does']) ?></dd>
+      </div>
+    </dl>
+  </div>
+  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/approve') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <label>Note (optional) <input type="text" name="note" maxlength="500"></label>
-    <button type="submit" class="primary">Approve</button>
+    <label><?= $word('SUPPLIER', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
+    <button type="submit" class="primary"><?= $e($t['ok']) ?></button>
   </form>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $open[$slot]['id'] . '/reject') ?>">
+  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/reject') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <label>Why it is rejected (required) <input type="text" name="note" minlength="3" maxlength="500" required></label>
-    <button type="submit">Reject</button>
+    <label><?= $word('SUPPLIER', 'why_not_ok') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
+    <button type="submit"><?= $word('SUPPLIER', 'not_ok') ?></button>
   </form>
 <?php else: ?>
-  <p class="note read-only"><?= $e($open[$slot]['refusal']) ?></p>
+  <p class="note read-only"><?= $e($t['refusal']) ?></p>
 <?php endif; ?>
-<?php if ($open[$slot]['may_withdraw']): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $open[$slot]['id'] . '/withdraw') ?>">
+<?php if ($t['may_withdraw']): ?>
+  <form class="quick" method="post" action="<?= $u('/ui/purchasing/suppliers/tasks/' . $t['id'] . '/withdraw') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit">Withdraw the request</button>
+    <button type="submit" class="btn big secondary"><span class="btn-title"><?= $word('SUPPLIER', 'withdraw') ?></span> <span class="sub"><?= $word('SUPPLIER', 'withdraw_does') ?></span></button>
   </form>
 <?php endif; ?>
 </section>
 <?php endif; ?>
 <?php endforeach; ?>
 
-<?php if ($canEdit): ?>
-<p class="actions"><a class="button" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/edit') ?>">Edit</a></p>
+<section class="card box" aria-labelledby="activation-h">
+  <h2 id="activation-h"><?= $word('SUPPLIER', 'can_order') ?></h2>
+<?php if ($s['status'] === 'active'): ?>
+  <p><?= $say('SUPPLIER', 'yes_since', \CW\Ui\Html::day((string) $s['approved_at']), (string) ($people['approved'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?></p>
+<?php if ($canDeactivate): ?>
+  <details class="action">
+    <summary><?= $word('SUPPLIER', 'stop') ?></summary>
+    <p class="hint"><?= $word('SUPPLIER', 'stop_does') ?></p>
+    <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/deactivate') ?>">
+      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
+      <label><?= $word('SUPPLIER', 'stop_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
+      <p class="actions"><button type="submit" class="danger"><?= $word('SUPPLIER', 'stop_button') ?></button></p>
+    </form>
+  </details>
 <?php endif; ?>
+<?php elseif ($s['status'] === 'pending_approval'): ?>
+  <p><strong><?= $word('SUPPLIER', 'waiting') ?></strong> <?= $word('SUPPLIER', 'waiting_locked') ?></p>
+<?php else: ?>
+<?php if ($s['status'] === 'inactive'): ?>
+  <p><?php if ($s['deactivated_at'] !== null): ?><?= $say('SUPPLIER', 'stopped', \CW\Ui\Html::day((string) $s['deactivated_at']), (string) ($people['deactivated'] ?? \CW\Ui\Words::ANOMALIES['set_up']), (string) $s['deactivate_reason']) ?><?php else: ?><?= $word('SUPPLIER', 'stopped_plain') ?><?php endif; ?> <?= $word('SUPPLIER', 'stopped_again') ?></p>
+<?php else: ?>
+  <p><?= $word('SUPPLIER', 'draft') ?><?php if ($canRequest): ?> <?= $word('SUPPLIER', 'draft_todo') ?><?php endif; ?></p>
+<?php endif; ?>
+<?php if ($canRequest && $missing !== []): ?>
+  <p class="note"><?= $say('SUPPLIER', 'missing', $missingText) ?></p>
+<?php elseif ($canRequest): ?>
+  <form class="quick" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/request-activation') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
+    <button type="submit" class="primary btn big"><span class="btn-title"><?php if ($s['approved_at'] === null): ?><?= $word('SUPPLIER', 'ask') ?><?php else: ?><?= $word('SUPPLIER', 'ask_again') ?><?php endif; ?></span> <span class="sub"><?= $word('SUPPLIER', 'ask_does') ?></span></button>
+  </form>
+<?php endif; ?>
+<?php endif; ?>
+<?php if ($canEdit): ?>
+  <p class="actions"><a class="btn secondary" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/edit') ?>"><?= $word('SUPPLIER', 'change') ?></a></p>
+<?php endif; ?>
+</section>
 
 <div class="cols">
   <section class="card" aria-labelledby="details-h">
-    <h2 id="details-h">Details</h2>
+    <h2 id="details-h"><?= $word('SUPPLIER', 'details') ?></h2>
     <dl>
-      <dt>Legal name</dt><dd><?= $e($s['legal_name']) ?></dd>
-      <dt>Company number</dt><dd><?= $e($s['company_number']) ?></dd>
-      <dt>VAT number</dt><dd><?= $e($s['vat_number']) ?></dd>
-      <dt>Address</dt><dd><?= $e($s['address_line1']) ?><?php if ($s['address_line2'] !== null): ?>, <?= $e($s['address_line2']) ?><?php endif; ?><?php if ($s['city'] !== null): ?>, <?= $e($s['city']) ?><?php endif; ?> <?= $e($s['postcode']) ?> <?= $e($s['country']) ?></dd>
-      <dt>Contact</dt><dd><?= $e($s['contact_name']) ?></dd>
-      <dt>E-mail (orders)</dt><dd><?= $e($s['email']) ?></dd>
-      <dt>Phone</dt><dd><?= $e($s['phone']) ?></dd>
-      <dt>Other contacts</dt><dd><?= $e($s['contacts_note']) ?></dd>
-      <dt>Payment terms</dt><dd><?= $e($s['payment_terms']) ?><?php if ($s['payment_terms_days'] !== null): ?> (<?= $n($s['payment_terms_days']) ?> days)<?php endif; ?></dd>
-      <dt>Lead days</dt><dd><?= $e($s['default_lead_days']) ?></dd>
-      <dt>Order cycle (days)</dt><dd><?= $e($s['review_days']) ?></dd>
-      <dt>Minimum order (GBP)</dt><dd><?= $e($s['min_order_value']) ?></dd>
-      <dt>Default VAT code</dt><dd><?= $e($s['default_vat_code']) ?></dd>
-      <dt>Currency</dt><dd><?= $e($s['currency']) ?></dd>
-      <dt>ERPNext name</dt><dd><?= $e($s['erp_name']) ?></dd>
-      <dt>Notes</dt><dd><?= $e($s['notes']) ?></dd>
-      <dt>Created (UTC)</dt><dd><?= $dt($s['created_at']) ?> by <?= $e($people['created']) ?></dd>
-      <dt>Last changed (UTC)</dt><dd><?= $dt($s['updated_at']) ?> by <?= $e($people['updated']) ?></dd>
-<?php if ($people['changed'] !== null): ?>
-      <dt>Details last changed (UTC)</dt><dd><?= $dt($s['details_changed_at']) ?> by <?= $e($people['changed']) ?></dd>
+<?php if ($s['legal_name'] !== null && $s['legal_name'] !== ''): ?>
+      <dt><?= $word('SUPPLIER', 'legal_name') ?></dt><dd><?= $e($s['legal_name']) ?></dd>
+<?php endif; ?>
+<?php if ($s['company_number'] !== null && $s['company_number'] !== ''): ?>
+      <dt><?= $word('SUPPLIER', 'company_number') ?></dt><dd><?= $e($s['company_number']) ?></dd>
+<?php endif; ?>
+<?php if ($s['vat_number'] !== null && $s['vat_number'] !== ''): ?>
+      <dt><?= $word('SUPPLIER', 'vat_number') ?></dt><dd><?= $e($s['vat_number']) ?></dd>
+<?php endif; ?>
+      <dt><?= $word('SUPPLIER', 'address') ?></dt><dd><?= $e($s['address_line1']) ?><?php if ($s['address_line2'] !== null): ?>, <?= $e($s['address_line2']) ?><?php endif; ?><?php if ($s['city'] !== null): ?>, <?= $e($s['city']) ?><?php endif; ?> <?= $e($s['postcode']) ?> <?= $e($s['country']) ?></dd>
+<?php if ($s['contact_name'] !== null && $s['contact_name'] !== ''): ?>
+      <dt><?= $word('SUPPLIER', 'contact') ?></dt><dd><?= $e($s['contact_name']) ?></dd>
+<?php endif; ?>
+      <dt><?= $word('SUPPLIER', 'email') ?></dt><dd><?= $e($s['email']) ?></dd>
+<?php if ($s['phone'] !== null && $s['phone'] !== ''): ?>
+      <dt><?= $word('SUPPLIER', 'phone') ?></dt><dd><?= $e($s['phone']) ?></dd>
+<?php endif; ?>
+<?php if ($s['contacts_note'] !== null && $s['contacts_note'] !== ''): ?>
+      <dt><?= $word('SUPPLIER', 'contacts_note') ?></dt><dd class="pre"><?= $e($s['contacts_note']) ?></dd>
+<?php endif; ?>
+<?php if ($s['payment_terms'] !== null && $s['payment_terms'] !== ''): ?>
+      <dt><?= $word('SUPPLIER', 'payment') ?></dt><dd><?php if ($s['payment_terms_days'] !== null): ?><?= $say('SUPPLIER', 'payment_days', (string) $s['payment_terms'], (int) $s['payment_terms_days']) ?><?php else: ?><?= $e($s['payment_terms']) ?><?php endif; ?></dd>
+<?php endif; ?>
+<?php if ($s['default_lead_days'] !== null): ?>
+      <dt><?= $word('SUPPLIER', 'lead') ?></dt><dd><?= $n($s['default_lead_days']) ?></dd>
+<?php endif; ?>
+<?php if ($s['review_days'] !== null): ?>
+      <dt><?= $word('SUPPLIER', 'every') ?></dt><dd><?= $n($s['review_days']) ?></dd>
+<?php endif; ?>
+<?php if ($s['min_order_value'] !== null): ?>
+      <dt><?= $word('SUPPLIER', 'min_order') ?></dt><dd><?= $money($s['min_order_value']) ?></dd>
+<?php endif; ?>
+      <dt><?= $word('SUPPLIER', 'vat') ?></dt><dd><?= $e($s['default_vat_code']) ?></dd>
+      <dt><?= $word('SUPPLIER', 'currency') ?></dt><dd><?= $e($s['currency']) ?></dd>
+<?php if ($s['erp_name'] !== null): ?>
+      <dt><?= $word('SUPPLIER', 'erp') ?></dt><dd><?= $e($s['erp_name']) ?></dd>
+<?php endif; ?>
+<?php if ($s['notes'] !== null && $s['notes'] !== ''): ?>
+      <dt><?= $word('SUPPLIER', 'notes') ?></dt><dd class="pre"><?= $e($s['notes']) ?></dd>
 <?php endif; ?>
     </dl>
+<?php if ($emptyText !== ''): ?>
+    <p class="hint"><?= $say('SUPPLIER', 'not_filled', $emptyText) ?></p>
+<?php endif; ?>
+    <p class="hint"><?= $say('SUPPLIER', 'created', \CW\Ui\Html::when((string) $s['created_at']), (string) $people['created']) ?> · <?= $say('SUPPLIER', 'last_changed', \CW\Ui\Html::when((string) $s['updated_at']), (string) $people['updated']) ?></p>
   </section>
 
   <section class="card" aria-labelledby="dd-h">
-    <h2 id="dd-h">Due diligence</h2>
+    <h2 id="dd-h"><?= $word('SUPPLIER', 'dd') ?></h2>
     <dl>
-      <dt>Checked on</dt><dd><?= $e($s['dd_checked_on']) ?></dd>
-      <dt>Checked by</dt><dd><?= $e($people['dd']) ?></dd>
-      <dt>Evidence</dt><dd><?= $e($s['dd_evidence']) ?></dd>
-      <dt>Evidence file</dt><dd><?php if ($files['dd'] !== null): ?><a href="<?= $u('/ui/files/' . $files['dd']['id']) ?>"><?= $e($files['dd']['original_name']) ?></a> <span class="muted"><?= $e($files['dd']['mime']) ?>, <?= $n($files['dd']['size_bytes']) ?> bytes</span><?php else: ?><span class="muted">none</span><?php endif; ?></dd>
-      <dt>Next review</dt><dd><?= $e($s['dd_next_review_on']) ?><?php if ($ddOverdue): ?> <span class="tag bad">overdue</span><?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER', 'dd_on') ?></dt><dd><?php if ($s['dd_checked_on'] !== null): ?><?= $day($s['dd_checked_on']) ?><?php else: ?><span class="muted"><?= $word('SUPPLIER', 'not_yet') ?></span><?php endif; ?></dd>
+<?php if ($people['dd'] !== null): ?>
+      <dt><?= $word('SUPPLIER', 'dd_by') ?></dt><dd><?= $e($people['dd']) ?></dd>
+<?php endif; ?>
+<?php if ($s['dd_evidence'] !== null && $s['dd_evidence'] !== ''): ?>
+      <dt><?= $word('SUPPLIER', 'dd_what') ?></dt><dd class="pre"><?= $e($s['dd_evidence']) ?></dd>
+<?php endif; ?>
+      <dt><?= $word('SUPPLIER', 'dd_file') ?></dt><dd><?php if ($files['dd'] !== null): ?><a href="<?= $u('/ui/files/' . $files['dd']['id']) ?>"><?= $e($files['dd']['original_name']) ?></a> <span class="muted">(<?= $e($files['dd']['size']) ?>)</span><?php else: ?><span class="muted"><?= $word('SUPPLIER', 'none_uploaded') ?></span><?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER', 'dd_next') ?></dt><dd><?php if ($s['dd_next_review_on'] !== null): ?><?= $day($s['dd_next_review_on']) ?><?php endif; ?><?php if ($ddOverdue): ?> <?= $chip('blocked', \CW\Ui\Words::SUPPLIERS['overdue']) ?><?php endif; ?></dd>
     </dl>
-    <h3>Import route</h3>
+    <h3><?= $word('SUPPLIER', 'route') ?></h3>
     <dl>
-      <dt>Overseas</dt><dd><?php if ((int) $s['is_overseas'] === 1): ?>yes<?php else: ?>no (UK supplier)<?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER', 'abroad') ?></dt><dd><?php if ((int) $s['is_overseas'] === 1): ?><?= $word('SUPPLIER', 'yes') ?><?php else: ?><?= $word('SUPPLIER', 'no_uk') ?><?php endif; ?></dd>
 <?php if ((int) $s['is_overseas'] === 1 || $s['import_route'] !== null): ?>
-      <dt>Route</dt><dd><?= $e($s['import_route']) ?></dd>
-      <dt>Route evidence</dt><dd><?php if ($files['import_route'] !== null): ?><a href="<?= $u('/ui/files/' . $files['import_route']['id']) ?>"><?= $e($files['import_route']['original_name']) ?></a><?php else: ?><span class="muted">none</span><?php endif; ?></dd>
-      <dt>Approved</dt><dd><?php if ($s['import_route_approved_at'] !== null): ?><?= $dt($s['import_route_approved_at']) ?> UTC by <?= $e($people['route']) ?><?php else: ?><span class="tag warn">not approved</span><?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER', 'route_how') ?></dt><dd class="pre"><?= $e($s['import_route']) ?></dd>
+      <dt><?= $word('SUPPLIER', 'route_file') ?></dt><dd><?php if ($files['import_route'] !== null): ?><a href="<?= $u('/ui/files/' . $files['import_route']['id']) ?>"><?= $e($files['import_route']['original_name']) ?></a><?php else: ?><span class="muted"><?= $word('SUPPLIER', 'none_uploaded') ?></span><?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER', 'route_ok') ?></dt><dd><?php if ($s['import_route_approved_at'] !== null): ?><?= $say('SUPPLIER', 'route_ok_line', \CW\Ui\Html::when((string) $s['import_route_approved_at']), (string) ($people['route'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?><?php else: ?><?= $chip('needs', \CW\Ui\Words::SUPPLIER['not_yet']) ?><?php endif; ?></dd>
 <?php endif; ?>
     </dl>
 <?php if ($canEdit): ?>
-    <form class="upload" method="post" enctype="multipart/form-data" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/evidence') ?>">
-      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-      <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
-      <label>Evidence of
-        <select name="kind">
-          <option value="dd">the due-diligence check</option>
-          <option value="import_route">the import route</option>
-        </select>
-      </label>
-      <label>File (PDF, image, CSV, text or XLSX; at most 2 MiB) <input type="file" name="file" required></label>
-      <button type="submit">Upload</button>
-    </form>
+    <details class="action">
+      <summary><?= $word('SUPPLIER', 'upload') ?></summary>
+      <form class="upload" method="post" enctype="multipart/form-data" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/evidence') ?>">
+        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+        <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
+        <label><?= $word('SUPPLIER', 'upload_of') ?>
+          <select name="kind">
+            <option value="dd"><?= $word('SUPPLIER', 'upload_dd') ?></option>
+            <option value="import_route"><?= $word('SUPPLIER', 'upload_route') ?></option>
+          </select>
+        </label>
+        <label><?= $say('SUPPLIER', 'upload_file', $maxMb) ?> <input type="file" name="file" required></label>
+        <p class="actions"><button type="submit"><?= $word('SUPPLIER', 'upload_button') ?></button></p>
+      </form>
+    </details>
 <?php endif; ?>
   </section>
 </div>
 
 <section aria-labelledby="items-h">
-  <h2 id="items-h">Items</h2>
-  <p><?= $n($items['active']) ?> active supplier items (<?= $n($items['n']) ?> in all), <?= $n($items['preferred']) ?> of them the preferred supply of their item<?php if ($items['no_price'] > 0): ?>,
-    <?= $n($items['no_price']) ?> without a price<?php endif; ?>.
-    <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items') ?>">Open the items</a><?php if ($canManage): ?> &middot;
-    <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items/new') ?>">Add an item</a><?php endif; ?></p>
+  <h2 id="items-h"><?= $word('SUPPLIER', 'products') ?></h2>
+  <p><?= $say('SUPPLIER', 'products_line', $items['active'], $items['preferred']) ?><?php if ($items['no_price'] > 0): ?> <?= $say('SUPPLIER', 'products_no_price', $items['no_price']) ?><?php endif; ?></p>
+  <p class="actions"><a class="btn secondary" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items') ?>"><?= $word('SUPPLIER', 'products_open') ?></a><?php if ($canManage): ?>
+    <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items/new') ?>"><?= $word('SUPPLIER', 'products_add') ?></a><?php endif; ?></p>
 </section>
 
 <?php if ($recentPos !== null): ?>
 <section aria-labelledby="pos-h">
-  <h2 id="pos-h">Recent purchase orders</h2>
+  <h2 id="pos-h"><?= $word('SUPPLIER', 'orders') ?></h2>
 <?php if ($recentPos === []): ?>
-  <p class="muted">No purchase order yet.</p>
+  <p class="muted"><?= $word('SUPPLIER', 'no_orders') ?></p>
 <?php else: ?>
-  <table class="orders">
+  <div class="table-wrap">
+  <table class="stack list orders">
     <thead>
-      <tr><th scope="col">Order</th><th scope="col">Order date</th><th scope="col">Expected</th><th scope="col">State</th><th scope="col" class="num">Net (GBP)</th><th scope="col">Review</th></tr>
+      <tr><th scope="col"><?= $word('SUPPLIER', 'order') ?></th><th scope="col"><?= $word('SUPPLIER', 'status') ?></th><th scope="col"><?= $word('SUPPLIER', 'dated') ?></th>
+        <th scope="col"><?= $word('SUPPLIER', 'expected') ?></th><th scope="col" class="num"><?= $word('SUPPLIER', 'total') ?></th><th scope="col"><?= $word('SUPPLIER', 'check') ?></th></tr>
     </thead>
     <tbody>
 <?php foreach ($recentPos as $p): ?>
-      <tr>
-        <th scope="row"><a href="<?= $u('/ui/purchasing/orders/' . $p['id']) ?>"><?= $e($p['number'] ?? str_replace('_', ' ', $p['status']) . ' #' . $p['id']) ?></a></th>
-        <td><?= $e($p['doc_date']) ?></td>
-        <td><?= $e($p['expected_date']) ?></td>
-        <td><?= $e($p['state'] === null ? str_replace('_', ' ', $p['status']) : str_replace('_', ' ', $p['state'])) ?></td>
-        <td class="num"><?= $dec($p['net_total']) ?></td>
-        <td><?= $e($p['review_state'] === null ? '' : str_replace('_', ' ', $p['review_state'])) ?></td>
+      <tr class="<?= $e($p['state_tone']) ?>">
+        <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/purchasing/orders/' . $p['id']) ?>"><?= $e($p['number_line']) ?></a></th>
+        <td class="c-status"><?= $chip($p['state_tone'], $p['state_word']) ?></td>
+        <td data-label="<?= $word('SUPPLIER', 'dated') ?>"><?php if ($p['doc_date'] !== null): ?><?= $day($p['doc_date']) ?><?php endif; ?></td>
+        <td data-label="<?= $word('SUPPLIER', 'expected') ?>"><?php if ($p['expected_date'] !== null): ?><?= $day($p['expected_date']) ?><?php endif; ?></td>
+        <td class="num" data-label="<?= $word('SUPPLIER', 'total') ?>"><?= $e($p['total']) ?></td>
+        <td data-label="<?= $word('SUPPLIER', 'check') ?>"><?php if ($p['check'] !== null): ?><?= $chip($p['check_tone'], $p['check']) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>
   </table>
+  </div>
 <?php endif; ?>
-  <p><a href="<?= $u('/ui/purchasing/orders', ['supplier' => $s['id']]) ?>">All of this supplier's orders</a><?php if ($canOrder): ?> &middot;
-    <a href="<?= $u('/ui/purchasing/orders', ['supplier' => $s['id']]) ?>#new">New purchase order</a><?php endif; ?></p>
+  <p class="actions"><a href="<?= $u('/ui/purchasing/orders', ['supplier' => $s['id']]) ?>"><?= $word('SUPPLIER', 'all_orders') ?></a><?php if ($canOrder): ?>
+    <a href="<?= $u('/ui/purchasing/orders', ['supplier' => $s['id']]) ?>#new"><?= $word('SUPPLIER', 'new_order') ?></a><?php endif; ?></p>
 </section>
 <?php endif; ?>
 
 <section aria-labelledby="history-h">
-  <h2 id="history-h">Approvals and reviews</h2>
-<?php if ($tasks === []): ?>
-  <p class="muted">Nothing was asked for yet.</p>
+  <h2 id="history-h"><?= $word('SUPPLIER', 'history') ?></h2>
+<?php if ($history === []): ?>
+  <p class="muted"><?= $word('SUPPLIER', 'no_history') ?></p>
 <?php else: ?>
-  <table class="history">
-    <thead>
-      <tr>
-        <th scope="col">Kind</th>
-        <th scope="col">Why</th>
-        <th scope="col">Opened (UTC)</th>
-        <th scope="col">By</th>
-        <th scope="col">Due (UTC)</th>
-        <th scope="col">Outcome</th>
-        <th scope="col">Decided (UTC)</th>
-        <th scope="col">By</th>
-        <th scope="col">Note</th>
-      </tr>
-    </thead>
-    <tbody>
-<?php foreach ($tasks as $t): ?>
-      <tr>
-        <td><?= $e($t['kind']) ?></td>
-        <td><?= $e(str_replace('_', ' ', $t['reason'])) ?></td>
-        <td><?= $dt($t['opened_at']) ?></td>
-        <td><?= $e($t['opened_by_name']) ?></td>
-        <td><?= $dt($t['due_at']) ?><?php if ($t['overdue']): ?> <span class="tag bad">overdue</span><?php endif; ?></td>
-        <td><?= $e($t['state']) ?></td>
-        <td><?= $dt($t['decided_at']) ?></td>
-        <td><?= $e($t['decided_by_name']) ?></td>
-        <td><?= $e($t['decision_note']) ?></td>
-      </tr>
+  <ol class="plain checks-history">
+<?php foreach ($history as $h): ?>
+    <li><p><?= $e($h['asked']) ?></p><p class="muted"><?= $e($h['outcome']) ?></p></li>
 <?php endforeach; ?>
-    </tbody>
-  </table>
+  </ol>
 <?php endif; ?>
 </section>

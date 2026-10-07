@@ -1,84 +1,72 @@
-<h1>Settings</h1>
+<h1><?= $word('MENU', 'settings') ?></h1>
+<?= $intro('settings') ?>
+<p class="see-also"><a href="/ui/reference/reasons"><?= $word('PAGE_TITLE', 'reasons') ?></a> <a href="/ui/reference/series"><?= $word('PAGE_TITLE', 'series') ?></a></p>
 <section class="card company-summary<?php if (!$company['confirmed']): ?> waiting<?php endif; ?>" aria-labelledby="company-h">
-  <h2 id="company-h">Company details</h2>
-  <p>The company name, numbers and addresses printed on every purchase order<?php if ($company['legal_name'] !== ''): ?>: <strong><?= $e($company['legal_name']) ?></strong><?php endif; ?>.
+  <h2 id="company-h"><?= $word('MENU', 'company') ?></h2>
+  <p><?= $word('SETTINGS_PAGE', 'company_text') ?><?php if ($company['legal_name'] !== ''): ?>: <strong><?= $e($company['legal_name']) ?></strong><?php endif; ?>.
 <?php if ($company['confirmed']): ?>
-    <span class="tag ok">Confirmed</span></p>
+    <?= $chip('done', \CW\Ui\Words::COMPANY['confirmed']) ?></p>
 <?php else: ?>
-    <span class="tag bad">Not confirmed</span> Every purchase order PDF says "do not send" until they are confirmed.<?php if ($company['missing'] !== []): ?> Still missing: <?= $e(implode(', ', $company['missing'])) ?>.<?php endif; ?></p>
+    <?= $chip('blocked', \CW\Ui\Words::COMPANY['not_confirmed']) ?> <?= $word('SETTINGS_PAGE', 'not_confirmed_text') ?><?php if ($company['missing'] !== []): ?> <?= $say('COMPANY', 'missing', implode(', ', $company['missing'])) ?><?php endif; ?></p>
 <?php endif; ?>
-  <p><?php if ($company['canEdit']): ?><a class="button primary-link" href="/ui/reference/company">Add or change the company details</a><?php else: ?><a href="/ui/reference/company">See the company details</a><?php endif; ?></p>
+  <p><?php if ($company['canEdit']): ?><a class="button primary-link" href="/ui/reference/company"><?= $word('SETTINGS_PAGE', 'edit_company') ?></a><?php else: ?><a href="/ui/reference/company"><?= $word('SETTINGS_PAGE', 'see_company') ?></a><?php endif; ?></p>
 </section>
 
-<h2>Settings</h2>
-<p class="muted">How CW is set up. A setting marked <span class="tag warn">provisional</span> is a default the owner has not confirmed yet (the decision
-  number refers to the owner's decisions in the inventory plan). Settings are changed on the server by an engineer with
-  <code>bin/settings.php --set=&lt;key&gt; --value=&lt;value&gt; --reason="..." --admin</code>; every change is audited. The company details are
-  changed on their own screen, above.</p>
-<table class="settings">
+<h2><?= $word('SETTINGS_PAGE', 'settings') ?></h2>
+<p class="muted"><?= $word('SETTINGS_PAGE', 'settings_text') ?></p>
+<?php foreach ($topics as $topic => $rows): ?>
+<h3><?= $e($topic) ?></h3>
+<div class="table-wrap">
+<table class="stack settings">
   <thead>
     <tr>
-      <th scope="col">Setting</th>
-      <th scope="col">Value</th>
-      <th scope="col">Status</th>
-      <th scope="col">Decision</th>
-      <th scope="col">What it does</th>
-      <th scope="col">Changed (UTC)</th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'setting') ?></th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'status') ?></th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'value') ?></th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'what') ?></th>
+      <th scope="col"><?= $word('SETTINGS_PAGE', 'changed') ?></th>
     </tr>
   </thead>
   <tbody>
-<?php foreach ($settings as $s): ?>
-    <tr>
-      <th scope="row"><code><?= $e($s['key']) ?></code></th>
-      <td class="pre"><?php if ($s['display'] === '(not set)'): ?><span class="muted">(not set)</span><?php else: ?><?= $e($s['display']) ?><?php endif; ?></td>
-      <td><?php if ($s['provisional']): ?><span class="tag warn">provisional</span><?php else: ?>confirmed<?php endif; ?></td>
-      <td><?= $e($s['decision']) ?></td>
-      <td><?= $e($s['description']) ?></td>
-      <td><?= $dt($s['updated_at']) ?> <span class="muted"><?= $e($s['updated_actor']) ?></span></td>
+<?php foreach ($rows as $s): ?>
+    <tr class="<?php if ($s['agreed']): ?>done<?php else: ?>needs<?php endif; ?>">
+      <th scope="row" class="c-head"><?= $e($s['name']) ?> <small class="muted"><code><?= $e($s['key']) ?></code></small></th>
+      <td class="c-status"><?php if ($s['agreed']): ?><?= $chip('done', \CW\Ui\Words::SETTINGS_PAGE['agreed']) ?><?php else: ?><?= $chip('needs', \CW\Ui\Words::SETTINGS_PAGE['not_agreed']) ?><?php endif; ?></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'value') ?>" class="pre"><?php if ($s['value'] === null): ?><span class="muted"><?= $word('SETTINGS_PAGE', 'not_set') ?></span><?php else: ?><?= $e($s['value']) ?><?php endif; ?></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'what') ?>"><?= $e($s['help']) ?></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'changed') ?>"><?= $e($s['changed']) ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
 </table>
+</div>
+<?php endforeach; ?>
 
-<h2>Document rules</h2>
-<p class="muted">Post first, a second person reviews; a few things wait for a blocking approval before anything is booked. The limits are placeholders
-  until the owner decides them (decision 11).</p>
-<table class="rules">
-  <thead>
-    <tr>
-      <th scope="col">Document type</th>
-      <th scope="col">Second-person review</th>
-      <th scope="col" class="num">Review due (days)</th>
-      <th scope="col">Approval before posting</th>
-      <th scope="col">Rejected at review</th>
-    </tr>
-  </thead>
-  <tbody>
+<div class="head-help">
+  <h2><?= $word('SETTINGS_PAGE', 'rules') ?></h2>
+  <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
+</div>
+<p class="muted"><?= $word('SETTINGS_PAGE', 'rules_text') ?></p>
+<ul class="plain rules-list">
 <?php foreach ($rules as $r): ?>
-    <tr>
-      <th scope="row"><?= $e($r['name']) ?> (<?= $e($r['code']) ?>)</th>
-      <td><?= $e($r['review']) ?></td>
-      <td class="num"><?= $n($r['due_days']) ?></td>
-      <td><?= $e($r['approval']) ?></td>
-      <td><?= $e($r['reject']) ?></td>
-    </tr>
+  <li><strong><?= $e($r['name']) ?>:</strong> <?= $e($r['review']) ?><?php if ($r['approval'] !== null): ?> <?= $e($r['approval']) ?><?php endif; ?> <?= $e($r['reject']) ?></li>
 <?php endforeach; ?>
-  </tbody>
-</table>
+</ul>
 
-<h2>VAT codes</h2>
-<table class="vat">
-  <thead><tr><th scope="col">Code</th><th scope="col">Meaning</th><th scope="col" class="num">Rate %</th><th scope="col">In use</th></tr></thead>
+<h2><?= $word('SETTINGS_PAGE', 'vat') ?></h2>
+<div class="table-wrap">
+<table class="stack vat">
+  <thead><tr><th scope="col"><?= $word('SETTINGS_PAGE', 'meaning') ?></th><th scope="col"><?= $word('SETTINGS_PAGE', 'code') ?></th><th scope="col" class="num"><?= $word('SETTINGS_PAGE', 'rate') ?></th><th scope="col"><?= $word('SETTINGS_PAGE', 'in_use') ?></th></tr></thead>
   <tbody>
 <?php foreach ($vat as $c): ?>
     <tr>
-      <th scope="row"><code><?= $e($c['code']) ?></code></th>
-      <td><?= $e($c['label']) ?></td>
-      <td class="num"><?= $dec($c['rate_percent']) ?></td>
-      <td><?php if ((int) $c['is_active'] === 1): ?>yes<?php else: ?>no<?php endif; ?></td>
+      <th scope="row" class="c-head"><?= $e($c['label']) ?></th>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'code') ?>"><code><?= $e($c['code']) ?></code></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'rate') ?>" class="num"><?= $dec($c['rate_percent']) ?>%</td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'in_use') ?>"><?php if ((int) $c['is_active'] === 1): ?><?= $word('SETTINGS_PAGE', 'yes') ?><?php else: ?><?= $word('SETTINGS_PAGE', 'no') ?><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
 </table>
-<p class="muted">Suppliers: a new or re-activated supplier is used only after a second person approves it, and so is an overseas supplier's import
-  route (decision 11). No supplier bank details are kept in CW (decision 25). CW does not write its costs into the sites (decision 12).</p>
+</div>
+<p class="muted"><?= $word('SETTINGS_PAGE', 'footer') ?></p>

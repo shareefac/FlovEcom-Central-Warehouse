@@ -8,6 +8,7 @@ use CW\Tests\Integration\Reorder\ReorderFixtures;
 use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
+use CW\Ui\Words;
 
 /**
  * The reorder screens through the real /ui kernel as cw_app (spec §8.1, §9.3; I68) — the owner's step "a reorder list for a
@@ -39,7 +40,7 @@ final class ReorderScreensTest extends KernelUiTestCase
     private static function codes(UiResponse $r): array
     {
         $out = [];
-        foreach ((new \DOMXPath($r->dom()))->query('//table[contains(@class, "reorder")]/tbody/tr/th/a') ?: [] as $a) {
+        foreach ((new \DOMXPath($r->dom()))->query('//table[contains(@class, "reorder")]/tbody/tr/th/a[contains(@class, "o-name")]') ?: [] as $a) {
             $out[] = trim((string) $a->textContent);
         }
         return $out;
@@ -57,10 +58,13 @@ final class ReorderScreensTest extends KernelUiTestCase
         $page = $web->get('/ui/purchasing/reorder', ['brand' => 'Elux']);
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame([self::skuCode($s['b']), self::skuCode($s['d']), self::skuCode($s['a'])], self::codes($page), 'Elux lines to order: B and D urgent, then A');
-        self::assertStringContainsString('9 excluded: Pre-duty stockpiling 14–22 Sep', $page->text(), 'Why names the stockpiling window');
-        self::assertStringContainsString('vapeandgo: sales history 2026-06-01 to 2026-10-01', $page->text());
-        self::assertSame([['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'], ['label' => 'Purchase orders', 'href' => '/ui/purchasing/orders'],
-            ['label' => 'Reorder list', 'href' => '/ui/purchasing/reorder'], ['label' => 'Sales history', 'href' => '/ui/purchasing/sales-history']], self::nav($page)['Purchasing']);
+        self::assertStringContainsString('9 excluded: Pre-duty stockpiling 14–22 Sep', $page->text(), 'Show the maths names the stockpiling window');
+        self::assertStringContainsString('Left out: Pre-duty stockpiling 14–22 Sep', $page->text(), 'the plain Why names it too (F308)');
+        self::assertStringContainsString(Words::say('REORDER', 'data_from', (string) self::$db->value("SELECT name FROM channel WHERE code = 'vapeandgo'"), '1 Jun 2026',
+            '1 Oct 2026'), $page->text());
+        self::assertStringNotContainsString('∞', $page->text(), 'no sales: "no sales", never ∞ (F318)');
+        self::assertSame([['label' => 'What to buy', 'href' => '/ui/purchasing/reorder'], ['label' => 'Purchase orders', 'href' => '/ui/purchasing/orders'],
+            ['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'], ['label' => 'Sales data', 'href' => '/ui/purchasing/sales-history']], self::nav($page)['Buying']);
         $form = $page->form('/ui/purchasing/reorder/draft');
         self::assertSame('3', $form['row_count']);
         self::assertSame(['pick_' . $s['b'], 'pick_' . $s['d'], 'pick_' . $s['a']], array_values(array_filter(array_keys($form), static fn (string $k): bool => str_starts_with($k, 'pick_'))),
@@ -73,9 +77,9 @@ final class ReorderScreensTest extends KernelUiTestCase
         self::assertMatchesRegularExpression('#^/ui/purchasing/reorder\?notice=drafts&drafts=\d+&skipped=' . $s['d'] . '&brand=Elux$#', (string) $r->location());
         $done = $web->follow($r);
         self::assertSame(200, $done->status);
-        self::assertStringContainsString('Draft purchase orders created from the ticked lines', $done->text());
-        self::assertStringContainsString('2 lines, £294 net', $done->text(), 'A 6 boxes × £45 + B 3 packs × £8');
-        self::assertStringContainsString(self::skuCode($s['d']) . ' Elux Legend Mint: no preferred supplier', $done->text());
+        self::assertStringContainsString(Words::REORDER_NOTICE['drafts'], $done->text());
+        self::assertStringContainsString('– 2 products, £294.00', $done->text(), 'A 6 boxes × £45 + B 3 packs × £8');
+        self::assertStringContainsString('Elux Legend Mint ' . self::skuCode($s['d']) . ' – ' . Words::REORDER['skip_no_supplier'], $done->text());
         // The same form again: the same drafts (one effect).
         $again = $web->post('/ui/purchasing/reorder/draft', $form);
         self::assertSame($r->location(), $again->location());
@@ -102,7 +106,7 @@ final class ReorderScreensTest extends KernelUiTestCase
         unset($form['packs_' . $s['a']]);
         $r = $web->post('/ui/purchasing/reorder/draft', $form);
         self::assertSame(400, $r->status);
-        self::assertStringContainsString('form_truncated', $r->text());
+        self::assertSame('form_truncated', $r->errorCode());
         $form = $web->get('/ui/purchasing/reorder')->form('/ui/purchasing/reorder/draft');
         foreach (array_keys($form) as $k) {
             if (str_starts_with($k, 'pick_')) {
@@ -111,7 +115,7 @@ final class ReorderScreensTest extends KernelUiTestCase
         }
         $r = $web->post('/ui/purchasing/reorder/draft', $form);
         self::assertSame(422, $r->status);
-        self::assertStringContainsString('tick at least one line', $r->text());
+        self::assertStringContainsString(Words::BUY_ERROR['nothing_picked'], $r->text());
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM purchase_order'));
 
         $reviewer = $this->signIn($this->uiUser('reviewer'));
@@ -139,9 +143,10 @@ final class ReorderScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('buyer'));
         $page = $web->get('/ui/purchasing/reorder/items/' . $s['a']);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertStringContainsString('Day by day (computed now)', $page->text());
-        self::assertStringContainsString('no: Pre-duty stockpiling (+43% units/day)', $page->text());
-        self::assertStringContainsString('Need 120 → 5 × box of 24 = 120', $page->text());
+        self::assertStringContainsString(Words::REORDER_ITEM['days'], $page->text());
+        self::assertStringContainsString(Words::say('REORDER_ITEM', 'no', 'Pre-duty stockpiling (+43% units/day)'), $page->text());
+        self::assertStringContainsString('Need 120 → 5 × box of 24 = 120', $page->text(), 'the maths');
+        self::assertStringContainsString('So buy 120 → 5 packs of 24 = 120.', $page->text(), 'the plain Why (F308)');
         $form = $page->form('/ui/purchasing/reorder/items/' . $s['a']);
         self::assertSame('0', $form['version']);
         $form['demand_factor'] = '0.85';
@@ -149,15 +154,16 @@ final class ReorderScreensTest extends KernelUiTestCase
         $r = $web->post('/ui/purchasing/reorder/items/' . $s['a'], $form);
         self::assertSame(303, $r->status, $r->describe());
         $after = $web->follow($r);
-        self::assertStringContainsString('Item settings saved', $after->text());
+        self::assertStringContainsString(Words::REORDER_NOTICE['item_saved'], $after->text());
         self::assertStringContainsString('item factor 0.85 → 10.2/day', $after->text());
+        self::assertStringContainsString('Expected to sell 15% fewer (this product\'s setting): about 10.2 a day.', $after->text());
         self::assertSame(['0.85', 7, 1], array_values(array_map(static fn (mixed $v): mixed => is_int($v) ? $v : (string) $v,
             (array) self::$db->one('SELECT demand_factor, safety_days, version FROM item_reorder WHERE sku_id = ?', [$s['a']]))));
         // The same (stale) form again: 409, the page redrawn with the current values.
         $form['safety_days'] = '9';
         $r = $web->post('/ui/purchasing/reorder/items/' . $s['a'], $form);
         self::assertSame(409, $r->status);
-        self::assertStringContainsString('These settings were changed since you opened them', $r->text());
+        self::assertStringContainsString(Words::BUY_ERROR['version_conflict_settings'], $r->text());
         self::assertSame('7', $r->form('/ui/purchasing/reorder/items/' . $s['a'])['safety_days']);
         // A bad value: 422, what was typed is kept.
         $form = $r->form('/ui/purchasing/reorder/items/' . $s['a']);
@@ -165,7 +171,7 @@ final class ReorderScreensTest extends KernelUiTestCase
         $form['min_stock'] = '5';
         $bad = $web->post('/ui/purchasing/reorder/items/' . $s['a'], $form);
         self::assertSame(422, $bad->status);
-        self::assertStringContainsString('the maximum stock is below the minimum stock', $bad->text());
+        self::assertStringContainsString('The maximum stock is below the minimum stock. Nothing was saved.', $bad->text());
         self::assertSame('1', $bad->form('/ui/purchasing/reorder/items/' . $s['a'])['max_stock']);
     }
 
@@ -180,7 +186,7 @@ final class ReorderScreensTest extends KernelUiTestCase
         $form['demand_factor'] = '0.80';
         $r = $web->post('/ui/purchasing/reorder/brands', $form);
         self::assertSame(303, $r->status, $r->describe());
-        self::assertStringContainsString('Brand settings saved', $web->follow($r)->text());
+        self::assertStringContainsString(Words::REORDER_NOTICE['brand_saved'], $web->follow($r)->text());
         self::assertSame('0.80', (string) self::$db->value("SELECT demand_factor FROM reorder_brand WHERE brand = 'Elux'"));
         self::assertSame(409, $web->post('/ui/purchasing/reorder/brands', $form)->status, 'version 0 again');
 
@@ -198,14 +204,14 @@ final class ReorderScreensTest extends KernelUiTestCase
         $bad = $web->post('/ui/purchasing/reorder/anomalies', ['date_from' => '2026-01-01', 'date_to' => '2026-12-31', 'label' => 'too long', 'csrf' => $fresh['csrf'],
             'form_key' => $fresh['form_key']] + $add);
         self::assertSame(422, $bad->status);
-        self::assertStringContainsString('a window covers at most 93 days', $bad->text());
+        self::assertStringContainsString('A window covers at most 93 days. Nothing was saved.', $bad->text());
         $t = $this->token($web);
         $end = $web->post("/ui/purchasing/reorder/anomalies/{$id}/end", ['csrf' => $t]);
         self::assertSame(303, $end->status);
-        self::assertStringContainsString('Window ended', $web->follow($end)->text());
+        self::assertStringContainsString(Words::REORDER_NOTICE['anomaly_ended'], $web->follow($end)->text());
         $again = $web->post("/ui/purchasing/reorder/anomalies/{$id}/end", ['csrf' => $t]);
         self::assertSame(409, $again->status);
-        self::assertStringContainsString('already ended', $again->text());
+        self::assertStringContainsString(Words::BUY_ERROR['anomaly_ended'], $again->text());
 
         // Recalculate, then the CSV with every line and its Why.
         $r = $web->post('/ui/purchasing/reorder/recalculate', ['csrf' => $t]);
@@ -233,7 +239,9 @@ final class ReorderScreensTest extends KernelUiTestCase
             . "FROM sku WHERE name LIKE 'Bulk item %'", [$vpg]);
         $big = $web->post('/ui/purchasing/reorder/recalculate', ['csrf' => $t]);
         self::assertSame(409, $big->status, $big->describe());
-        self::assertStringContainsString('bin/reorder_demand.php', $big->text());
+        self::assertStringContainsString(Words::REORDER['demand'], Words::BUY_ERROR['rebuild_on_server']);
+        self::assertStringContainsString('Too many products to work this out here', $big->text());
+        self::assertStringNotContainsString('bin/', $big->text(), 'no server command on a screen (rule 12)');
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'reorder.recalculate'"), 'nothing rebuilt');
     }
 
@@ -242,8 +250,8 @@ final class ReorderScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('purchasing_manager'));
         $page = $web->get('/ui/purchasing/reorder');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertStringContainsString('No sales history is loaded yet', $page->text());
-        self::assertStringContainsString('No line matches', $page->text());
+        self::assertStringContainsString(Words::REORDER['no_data'], $page->text());
+        self::assertStringContainsString(Words::REORDER['none'], $page->text());
         self::assertTrue($page->hasForm('/ui/purchasing/reorder/recalculate'));
         self::assertInstanceOf(KernelBrowser::class, $web);
     }

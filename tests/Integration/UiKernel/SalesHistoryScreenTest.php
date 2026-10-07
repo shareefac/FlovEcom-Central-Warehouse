@@ -8,6 +8,7 @@ use CW\Caller;
 use CW\Reorder\SalesHistoryImport;
 use CW\Tests\Integration\Reorder\ReorderFixtures;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\Words;
 
 /**
  * The sales-history screen through the real /ui kernel as cw_app (spec §8.1, §9.3; I68): coverage, the import batches with
@@ -56,9 +57,11 @@ final class SalesHistoryScreenTest extends KernelUiTestCase
         $page = $buyer->get('/ui/purchasing/sales-history');
         self::assertSame(200, $page->status, $page->describe());
         $text = $page->text();
-        self::assertStringContainsString('Coverage 2026-07-01 to 2026-09-30', $text);
-        self::assertStringContainsString('Stock snapshot days 2 (2026-09-29 to 2026-09-30)', $text);
-        self::assertStringContainsString('Site stock (latest) 1 variants on 2026-09-30', $text);
+        self::assertStringContainsString(Words::SALES['loaded'] . ' 1 Jul 2026 – 30 Sep 2026', $text);
+        self::assertStringContainsString(Words::SALES['stock_days'] . ' 2 days (29 Sep 2026 – 30 Sep 2026)', $text);
+        self::assertStringContainsString(Words::SALES['latest'] . ' 1 products on 30 Sep 2026', $text);
+        self::assertStringNotContainsString('bin/', $text, 'no server command (F344)');
+        self::assertStringNotContainsString('docs/', $text);
         // The batch: 92 + 30 + 11 rows; units 460 + 60 + 77; unknown 77 (104, no listing) = 12.9%; unlinked 60 (102) = 10.1%.
         self::assertStringContainsString('133 597 77 12.9% 60 10.1%', preg_replace('/,/', '', $text) ?? '');
         $xp = new \DOMXPath($page->dom());
@@ -66,10 +69,11 @@ final class SalesHistoryScreenTest extends KernelUiTestCase
         foreach ($xp->query('//table[contains(@class, "unlinked")]/tbody/tr') ?: [] as $tr) {
             $top[] = trim((string) preg_replace('/\s+/u', ' ', (string) $tr->textContent));
         }
-        self::assertSame(['104 77 2026-09-30 unknown', '102 60 2026-09-30 unlinked (unmapped) Hayati Pro Max 4000 Blue Razz Ice <b> Hayati'], $top,
-            'most units first; titles from the listing profile (escaped)');
+        self::assertSame(['104 option 104 ' . Words::SALES['unknown'] . ' 77 30 Sep 2026',
+            'Hayati Pro Max 4000 Blue Razz Ice <b> · option 102 · Hayati ' . Words::SALES['not_matched'] . ' 60 30 Sep 2026'], $top,
+            'most units first; titles from the listing profile (escaped); the problem in words (F347)');
         self::assertNotContains('/ui/review/listing/' . $l['unlinked'], $page->hrefs(), 'no link without linking.view');
-        self::assertSame(['Suppliers', 'Purchase orders', 'Reorder list', 'Sales history'], array_column(self::nav($page)['Purchasing'], 'label'));
+        self::assertSame(['What to buy', 'Purchase orders', 'Suppliers', 'Sales data'], array_column(self::nav($page)['Buying'], 'label'));
 
         $auditor = $this->signIn($this->uiUser('auditor'));
         $page = $auditor->get('/ui/purchasing/sales-history');
@@ -91,7 +95,7 @@ final class SalesHistoryScreenTest extends KernelUiTestCase
         $reviewer = $this->signIn($this->uiUser('reviewer'));
         $page = $reviewer->get('/ui/purchasing/sales-history');
         self::assertSame(200, $page->status);
-        self::assertStringContainsString('No sales history is loaded yet', $page->text());
+        self::assertStringContainsString(Words::SALES['none'], $page->text());
         foreach (['purchasing_desk', 'goods_in', 'stock_controller', 'mapper'] as $role) {
             self::assertSame(403, $this->signIn($this->uiUser($role))->get('/ui/purchasing/sales-history')->status, $role);
         }

@@ -9,11 +9,13 @@ use CW\Auth\Sessions;
 use CW\Tests\Support\UiClient;
 use CW\Tests\Support\UiResponse;
 use CW\Tests\Support\UiTestCase;
+use CW\Ui\Controller\DashboardController;
+use CW\Ui\Words;
 
 /**
  * Sign-in, sessions and sign-out of the staff screens, over HTTP against the real vhost (plan §11):
  * e-mail + password + TOTP in one step, one generic failure, hashed session ids, rotation, the
- * idle and absolute limits, POST-only sign-out and the failed-login lock.
+ * idle and absolute limits, sign-out by POST only (the address opened by GET leads on and signs nobody out) and the failed-login lock.
  */
 final class UiAuthTest extends UiTestCase
 {
@@ -63,7 +65,7 @@ final class UiAuthTest extends UiTestCase
 
         $home = $web->follow($login);
         self::assertSame(200, $home->status);
-        self::assertStringContainsString('Dashboard', $home->text());
+        self::assertStringContainsString(Words::HOME['needs'], $home->text(), 'Home: what needs doing');
         self::assertSame('no-store', $home->header('cache-control'));
 
         self::assertSame(1, self::auditCount('login.ok', $user['id']));
@@ -118,7 +120,7 @@ final class UiAuthTest extends UiTestCase
         self::$db->exec('UPDATE staff_user SET is_active = 0 WHERE id = ?', [$user['id']]);
         $r = $web->get('/ui/');
         self::assertSame(303, $r->status);
-        self::assertSame('/ui/login', $r->location());
+        self::assertSame('/ui/login?why=signed_out', $r->location(), 'the sign-in page says why (plan F056)');
         self::assertSame(1, (int) self::$db->value('SELECT revoked FROM staff_session'));
 
         $r = $this->attemptLogin($this->browser(), $user['email'], $user['password'], self::code($user['secret']));
@@ -164,7 +166,8 @@ final class UiAuthTest extends UiTestCase
         self::assertSame(0, (int) self::$db->value('SELECT revoked FROM staff_session WHERE id = ?', [hash('sha256', $second->cookies['cw_session'])]));
         $stale = $first->get('/ui/');
         self::assertSame(303, $stale->status);
-        self::assertSame('/ui/login', $stale->location());
+        self::assertSame('/ui/login?why=signed_out', $stale->location());
+        self::assertStringContainsString(Words::UI['signed_out'], $first->follow($stale)->text());
         self::assertNotNull($stale->setCookie('cw_session'), 'the stale cookie is cleared');
         self::assertArrayNotHasKey('cw_session', $first->cookies);
         self::assertSame(200, $second->get('/ui/')->status);
@@ -177,9 +180,10 @@ final class UiAuthTest extends UiTestCase
         $token = $this->token($web);
         $kept = $web->cookies['cw_session'];
 
+        // The sign-out address opened from the history (behaviour item 2, F043): Home while signed in, never a sign-out.
         $get = $web->get('/ui/logout');
-        self::assertSame(405, $get->status);
-        self::assertSame('POST', $get->header('allow'));
+        self::assertSame(303, $get->status);
+        self::assertSame('/ui/', $get->location());
         self::assertSame(200, $web->get('/ui/')->status, 'a GET never signs anybody out');
 
         $forged = $web->post('/ui/logout', ['csrf' => 'nope']);
@@ -193,6 +197,11 @@ final class UiAuthTest extends UiTestCase
         self::assertStringContainsString('cw_session=;', (string) $out->setCookie('cw_session'));
         self::assertSame(1, self::auditCount('logout', $user['id']));
         self::assertSame(1, (int) self::$db->value('SELECT revoked FROM staff_session'));
+
+        // Signed out, the same address shows the sign-in page.
+        $again = $web->get('/ui/logout');
+        self::assertSame([303, '/ui/login'], [$again->status, $again->location()]);
+        self::assertSame(200, $web->follow($again)->status);
 
         // The token, replayed by somebody who kept a copy, is dead.
         $thief = $this->browser();
@@ -213,7 +222,7 @@ final class UiAuthTest extends UiTestCase
         self::$db->exec('UPDATE staff_session SET last_seen_at = NOW(6) - INTERVAL 31 MINUTE');
         $r = $web->get('/ui/');
         self::assertSame(303, $r->status, 'idle for 31 minutes');
-        self::assertSame('/ui/login', $r->location());
+        self::assertSame('/ui/login?why=signed_out', $r->location());
         self::assertSame(1, (int) self::$db->value('SELECT revoked FROM staff_session'), 'an expired session can never come back');
 
         $web = $this->signIn($user);
@@ -222,7 +231,7 @@ final class UiAuthTest extends UiTestCase
         self::$db->exec('UPDATE staff_session SET created_at = NOW(6) - INTERVAL 12 HOUR - INTERVAL 1 MINUTE WHERE revoked = 0');
         $r = $web->get('/ui/');
         self::assertSame(303, $r->status, 'older than 12 hours, however active');
-        self::assertSame('/ui/login', $r->location());
+        self::assertSame('/ui/login?why=signed_out', $r->location());
 
         self::assertSame(Sessions::IDLE_SECONDS, 1800);
         self::assertSame(Sessions::ABSOLUTE_SECONDS, 43200);
@@ -243,7 +252,7 @@ final class UiAuthTest extends UiTestCase
         $locked = $this->attemptLogin($this->browser(), $user['email'], $user['password'], self::code($user['secret']));
         self::assertSame(429, $locked->status);
         self::assertSame('900', $locked->header('retry-after'));
-        self::assertStringContainsString('Too many failed attempts', $locked->text());
+        self::assertStringContainsString(Words::SIGN_IN['locked'], $locked->text());
         self::assertSame(10, (int) self::$db->value('SELECT COUNT(*) FROM login_attempt WHERE login = ?', [$user['email']]), 'refused attempts do not extend the lock');
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM staff_session'));
 
@@ -301,14 +310,14 @@ final class UiAuthTest extends UiTestCase
         }
         $page = $web->get('/ui/password');
         self::assertSame(200, $page->status);
-        self::assertStringContainsString('choose a new password', $page->text());
+        self::assertStringContainsString('First choose your own password', $page->text());
         $token = $page->form('/ui/password')['csrf'];
 
         $refusals = [
-            'wrong current' => [['current' => 'not it', 'new' => 'A brand new password 1', 'again' => 'A brand new password 1'], 'not right'],
-            'too short' => [['current' => $user['password'], 'new' => 'short', 'again' => 'short'], '12 to 200'],
+            'wrong current' => [['current' => 'not it', 'new' => 'A brand new password 1', 'again' => 'A brand new password 1'], Words::SIGN_IN['wrong_current']],
+            'too short' => [['current' => $user['password'], 'new' => 'short', 'again' => 'short'], 'at least 12 characters'],
             'mismatch' => [['current' => $user['password'], 'new' => 'A brand new password 1', 'again' => 'A brand new password 2'], 'not the same'],
-            'unchanged' => [['current' => $user['password'], 'new' => $user['password'], 'again' => $user['password']], 'must differ'],
+            'unchanged' => [['current' => $user['password'], 'new' => $user['password'], 'again' => $user['password']], 'must be different from the old one'],
             'the e-mail address' => [['current' => $user['password'], 'new' => strtoupper($user['email']), 'again' => strtoupper($user['email'])], 'e-mail address'],
         ];
         foreach ($refusals as $what => [$fields, $text]) {
@@ -323,7 +332,7 @@ final class UiAuthTest extends UiTestCase
         $done = $web->post('/ui/password', ['csrf' => $token, 'current' => $user['password'], 'new' => $new, 'again' => $new]);
         self::assertSame(303, $done->status, $done->describe());
         self::assertSame('/ui/?notice=password_changed', $done->location());
-        self::assertStringContainsString('Your password was changed.', $web->follow($done)->text());
+        self::assertStringContainsString(DashboardController::NOTICES['password_changed'], $web->follow($done)->text());
         self::assertSame(0, (int) self::$db->value('SELECT password_must_change FROM staff_user WHERE id = ?', [$user['id']]));
         self::assertTrue(password_verify($new, (string) self::$db->value('SELECT password_hash FROM staff_user WHERE id = ?', [$user['id']])));
         self::assertSame(1, self::auditCount('password.change', $user['id']));
@@ -345,7 +354,8 @@ final class UiAuthTest extends UiTestCase
 
         $nothing = $web->get('/ui/no-such-page');
         self::assertSame(404, $nothing->status);
-        self::assertStringContainsString('no such page', $nothing->text());
+        self::assertStringContainsString(Words::ERROR['not_found'], $nothing->text());
+        self::assertSame('not_found', $nothing->errorCode());
         self::assertSame(404, $web->get('/ui/review/listing/abc')->status);
         self::assertSame(404, $web->get('/ui/items/0')->status);
     }

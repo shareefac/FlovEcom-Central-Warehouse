@@ -12,10 +12,12 @@ use CW\PurchaseOrders\PurchaseOrderPdf;
 use CW\Ui\Context;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
+use CW\Auth\Permissions;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Words;
 
 /**
- * The Company details screen (Reference > Company details; linked from Settings and from a PO whose PDF says "do not send";
+ * The Company details screen (Settings > Company details; linked from Settings and lists and from a PO whose PDF says "do not send";
  * docs/decisions.md I90-I99): the details every purchase order prints, whether they are confirmed, what is still missing,
  * the checks of a confirmation, the orders that carry a rejected change, every version with what changed, and a sample PDF.
  *
@@ -29,22 +31,12 @@ use CW\Ui\HtmlResponse;
  */
 final class CompanyController
 {
-    public const NOTICES = [
-        'saved' => 'Saved. The details are not confirmed yet: until someone confirms them, every purchase order PDF says "do not send".',
-        'unchanged' => 'Nothing changed.',
-        'confirmed' => 'Confirmed: purchase orders now print these details without the "do not send" banner.',
-        'confirmed_review' => 'Confirmed: purchase orders now print these details without the "do not send" banner. You confirmed your own change of the '
-            . 'legal name, company number, VAT, purchasing e-mail or delivery address, so another reviewer is asked to check it (it stops nothing).',
-        'already' => 'These details were already confirmed.',
-        'review_approved' => 'Recorded: you checked the change.',
-        'review_rejected' => 'Recorded: you rejected the change. The details in use carried it, so they are not confirmed any more: new purchase order PDFs '
-            . 'say "do not send" until someone corrects and confirms them.',
-        'review_rejected_kept' => 'Recorded: you rejected the change. The details in use are not confirmed with it, so nothing else changed.',
-    ];
+    /** notice key => text (Ui\Words). Only these can be shown: a notice never comes from the URL as text. */
+    public const NOTICES = Words::COMPANY_NOTICE;
     /** The form's fields (CompanyDetails::FIELDS with vat_registered as yes / no / ''), and the reason. */
     public const FORM_FIELDS = ['legal_name', 'trading_name', 'company_number', 'address', 'vat_registered', 'vat_number', 'phone', 'email', 'delivery_address'];
     /** How the history names the set-up's actors (people never see system:*). */
-    private const ACTORS = ['system:migrate' => 'the set-up (copied from the old settings)', 'system:settings' => 'the old settings'];
+    private const ACTORS = ['system:migrate' => Words::COMPANY['set_up'], 'system:settings' => Words::COMPANY['old_settings']];
 
     public function show(Context $ctx): HtmlResponse
     {
@@ -77,19 +69,19 @@ final class CompanyController
             if ($e->errorCode === 'company_changed') {
                 // What the person typed stays; the form now carries the current version and says what changed meanwhile.
                 $cur = $ctx->company()->current();
-                return $this->form($ctx, $typed, $cur['version'], $key, $reason, 409, $e, $ctx->company()->changesSince($version));
+                return $this->form($ctx, $typed, $cur['version'], $key, $reason, 409, self::plain($ctx, $e, 'changed_saved'), $ctx->company()->changesSince($version));
             }
             if ($e->errorCode === 'idempotency_key_reused') {
                 // This form was saved already and is sent again with other values (the back button): keep them, draw a fresh
                 // form at the current version, so pressing Save again works.
                 $cur = $ctx->company()->current();
                 return $this->form($ctx, $typed, $cur['version'], FormOnce::newKey(), $reason, 409, new CwException('form_already_saved',
-                    'You already saved this form once. What you typed is kept below: check it and press Save again.', 409));
+                    Words::COMPANY['saved_twice'], 409));
             }
             if (in_array($e->errorCode, ['company_invalid', 'bad_form_key'], true)) {
                 return $this->form($ctx, $typed, $version, $e->errorCode === 'company_invalid' ? $key : FormOnce::newKey(), $reason, $e->httpStatus, $e);
             }
-            return $this->page($ctx, $e->httpStatus, $e);
+            return $this->page($ctx, $e->httpStatus, self::plain($ctx, $e, 'changed_saved'));
         }
         return FormOnce::redirect($r);
     }
@@ -112,9 +104,10 @@ final class CompanyController
             });
         } catch (CwException $e) {
             if ($e->errorCode === 'company_changed') {
-                $e = new CwException('company_changed', $e->getMessage() . ' Here are the details as they are now: check them, then confirm again.', 409);
+                return $this->page($ctx, 409, new CwException('company_changed', self::plain($ctx, $e, 'changed_confirmed')->getMessage() . ' '
+                    . Words::COMPANY['now_details'], 409));
             }
-            return $this->page($ctx, $e->httpStatus, $e);
+            return $this->page($ctx, $e->httpStatus, self::plain($ctx, $e, 'changed_confirmed'));
         }
         return FormOnce::redirect($r);
     }
@@ -144,7 +137,7 @@ final class CompanyController
         try {
             $d = $ctx->company()->decideReview($ctx->caller(), $ctx->id(), $approve, $ctx->req->field('note'));
         } catch (CwException $e) {
-            return $this->page($ctx, $e->httpStatus, $e);
+            return $this->page($ctx, $e->httpStatus, self::plain($ctx, $e, 'changed_saved'));
         }
         $notice = $approve ? 'review_approved' : ($d['unconfirmed_version'] !== null ? 'review_rejected' : 'review_rejected_kept');
         return HtmlResponse::redirect(Html::url('/ui/reference/company', ['notice' => $notice]));
@@ -167,9 +160,10 @@ final class CompanyController
             $t['may_decide'] = false;
             if ($t['open']) {
                 $no = $svc->refusal($me->id, $me->roles, $t);
-                $t['refusal'] = $no['message'] ?? null;
+                $t['refusal'] = Words::refusal($no);
                 $t['may_decide'] = $no === null;
             }
+            $t['who'] = (string) ($t['opened_by_name'] ?? self::actor(null, $t['opened_actor'] ?? null));
             $reviews[] = $t;
         }
         $missing = CompanyDetails::missing($p);
@@ -180,15 +174,32 @@ final class CompanyController
         $purchasing = $me->can('purchasing.view');
         // Approved orders not sent yet that carry unconfirmed details: their PDF keeps saying "do not send" (they keep the details
         // they were approved with); the buyer amends them once the details are confirmed (I96).
-        $stale = $purchasing ? (int) $ctx->db->value(
-            "SELECT COUNT(*) FROM purchase_order WHERE state = 'approved' AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(company_snapshot, '$.confirmed')), 'false') <> 'true'",
-        ) : null;
+        // Each such order is named, with a link to it (plan F140).
+        $stale = $purchasing ? $ctx->db->all(
+            "SELECT p.document_id, d.number FROM purchase_order p JOIN document d ON d.id = p.document_id WHERE p.state = 'approved' "
+            . "AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.company_snapshot, '$.confirmed')), 'false') <> 'true' ORDER BY d.number",
+        ) : [];
         $history = [];
         foreach ($svc->history() as $h) {
             $h['saved_label'] = self::actor($h['saved_by_name'], $h['saved_actor']);
             $h['confirmed_label'] = self::actor($h['confirmed_by_name'], $h['confirmed_actor']);
+            // One sentence per version, no version numbers (plan F142): "Sam confirmed them (another reviewer still has to check this change)".
+            $h['what'] = match ($h['kind']) {
+                'seed' => Words::COMPANY['h_seed'],
+                'confirm' => Words::say('COMPANY', 'h_confirm', ucfirst($h['confirmed_label'])),
+                'unconfirm' => Words::say('COMPANY', 'h_unconfirm', ucfirst($h['saved_label'])),
+                default => Words::say('COMPANY', 'h_change', ucfirst($h['saved_label'])),
+            };
+            $h['check'] = $h['review'] === null ? null : Words::COMPANY[match ($h['review']['state']) {
+                'open' => 'h_check_open',
+                'approved' => 'h_check_ok',
+                'rejected' => 'h_check_wrong',
+                default => 'h_check_closed',
+            }];
             $history[] = $h;
         }
+        // Who may change them: a reviewer; for an account whose Reviewer job Admin switches off, say so (plan F034, F141).
+        $lookOnly = $canEdit ? null : Words::COMPANY[Permissions::blockedByAdmin($me->roles, 'company.edit') ? 'look_admin' : 'look_reviewer'];
         return $ctx->page('company', [
             'p' => $p,
             'show' => self::shownValues($p),
@@ -206,9 +217,11 @@ final class CompanyController
             'history' => $history,
             'staleOrders' => $stale,
             'rejectedOrders' => $purchasing ? $svc->ordersWithRejectedDetails() : [],
-            'error' => $error?->getMessage(),
+            'lookOnly' => $lookOnly,
+            'error' => $error === null ? null : (isset(Words::REFUSAL[$error->errorCode]) && $error->errorCode !== 'role_not_allowed'
+                ? Words::REFUSAL[$error->errorCode] : Words::error($error->errorCode, $error->getMessage())),
             'errorMissing' => $error !== null && is_array($error->detail['missing'] ?? null) ? $error->detail['missing'] : null,
-        ], $status, ['title' => 'Company details', 'active' => 'company', 'notice' => $notice]);
+        ], $status, ['title' => Words::MENU['company'], 'active' => 'company', 'notice' => $notice]);
     }
 
     /**
@@ -233,7 +246,7 @@ final class CompanyController
             'version' => $version,
             'formKey' => $formKey,
             'confirmed' => $p['confirmed'],
-            'error' => $error?->getMessage(),
+            'error' => $error === null ? null : Words::error($error->errorCode, $error->getMessage()),
             'errorCode' => $error?->errorCode,
             'errors' => $errors,
             'changes' => $changes,
@@ -241,7 +254,7 @@ final class CompanyController
                 'lines' => CompanyDetails::ADDRESS_LINES, 'line' => CompanyDetails::ADDRESS_LINE_MAX, 'reason' => CompanyDetails::REASON_MAX,
                 'address' => CompanyDetails::ADDRESS_LINES * (CompanyDetails::ADDRESS_LINE_MAX + 1)],
             'help' => ['company_number' => CompanyDetails::COMPANY_NUMBER_HELP, 'vat' => CompanyDetails::VAT_HELP, 'phone' => CompanyDetails::PHONE_HELP],
-        ], $status, ['title' => 'Change the company details', 'active' => 'company']);
+        ], $status, ['title' => Words::title('company_edit'), 'active' => 'company']);
     }
 
     /** @return array<string, string> the form's fields as posted (a missing field is empty; vat_registered yes | no | '') */
@@ -292,7 +305,27 @@ final class CompanyController
     /** A person's name, or what people read for a set-up actor (never "system:..."). */
     private static function actor(?string $name, ?string $actor): string
     {
-        return $name ?? self::ACTORS[(string) $actor] ?? (str_starts_with((string) $actor, 'system:') ? 'the set-up' : (string) $actor);
+        return $name ?? self::ACTORS[(string) $actor] ?? (str_starts_with((string) $actor, 'system:') ? Words::COMPANY['set_up_short'] : (string) $actor);
+    }
+
+    /**
+     * A refusal of the service in the page's words, by its code (the service's message is the API's and stays as it is): a
+     * stale form names who saved the details and when (UK time); a refusal for a job says who may.
+     */
+    private static function plain(Context $ctx, CwException $e, string $changedKey): CwException
+    {
+        $text = match ($e->errorCode) {
+            'company_changed' => (static function () use ($ctx, $e, $changedKey): string {
+                $cur = $ctx->company()->current();
+                if (!isset($e->detail['version'])) {
+                    return Words::COMPANY['changed_same_time'];
+                }
+                return Words::say('COMPANY', $changedKey, self::actor($cur['saved_by_name'], $cur['saved_actor']), Html::when((string) $cur['saved_at']));
+            })(),
+            'role_not_allowed', 'admin_cannot_edit' => Words::COMPANY['not_reviewer'],
+            default => null,
+        };
+        return $text === null ? $e : new CwException($e->errorCode, $text, $e->httpStatus, $e->detail);
     }
 
     /** The version a form carries: 0 (no details yet) or a positive whole number. */

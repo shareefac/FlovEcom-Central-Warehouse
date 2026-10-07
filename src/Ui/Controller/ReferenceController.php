@@ -8,7 +8,9 @@ use CW\Company\CompanyDetails;
 use CW\Documents\NumberSeries;
 use CW\Output\CsvWriter;
 use CW\Ui\Context;
+use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Words;
 
 /**
  * Reference lists (reference.view, every role): the reason codes (I22; also as CSV for Excel), the number series
@@ -24,7 +26,14 @@ final class ReferenceController
 
     public function reasons(Context $ctx): HtmlResponse
     {
-        return $ctx->page('reasons', ['reasons' => self::reasonRows($ctx)], 200, ['title' => 'Reason codes', 'active' => 'reasons']);
+        $rows = [];
+        foreach (self::reasonRows($ctx) as $r) {
+            // The screen's words for where a reason is used and which way it moves stock (the CSV keeps the codes).
+            $r['used_for'] = ucfirst(implode(', ', array_map(static fn (string $u): string => Words::of('REASON_USE', trim($u)), explode(',', (string) $r['applies_to']))));
+            $r['way'] = Words::of('REASON_USE', (string) $r['direction']);
+            $rows[] = $r;
+        }
+        return $ctx->page('reasons', ['reasons' => $rows], 200, ['title' => Words::title('reasons'), 'active' => 'reasons']);
     }
 
     public function reasonsCsv(Context $ctx): HtmlResponse
@@ -51,62 +60,99 @@ final class ReferenceController
                 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'prefix' => (string) $r['prefix'],
                 'last' => $last > 0 ? NumberSeries::format((string) $r['prefix'], $last, (int) $r['pad']) : null,
                 'next' => NumberSeries::format((string) $r['prefix'], $last + 1, (int) $r['pad']),
+                'kind' => Words::docType((string) $r['code'], true, (string) $r['name']),
                 'review' => match ($r['review_rule']) {
-                    'all' => 'every document',
-                    'over_limit' => 'above ' . (int) $r['review_limit_units'] . ' units',
-                    default => 'none',
+                    'all' => Words::SETTINGS_PAGE['every'],
+                    'over_limit' => Words::say('SETTINGS_PAGE', 'over_items', (int) $r['review_limit_units']),
+                    default => Words::SETTINGS_PAGE['none'],
                 },
                 'approval' => match ($r['approval_rule']) {
-                    'none' => 'none',
-                    'over_value' => 'net value above £' . number_format((int) $r['approval_limit_units']),
-                    default => 'positive units without a supplier document above ' . (int) $r['approval_limit_units'],
+                    'none' => Words::SETTINGS_PAGE['none'],
+                    'over_value' => Words::say('SETTINGS_PAGE', 'over_value', (int) $r['approval_limit_units']),
+                    default => Words::say('SETTINGS_PAGE', 'over_units', (int) $r['approval_limit_units']),
                 },
                 'due_days' => (int) $r['review_due_days'],
                 'live' => $docs->handler((string) $r['code']) !== null,
-                'phase' => (string) $r['phase'],
             ];
         }
         uksort($rows, static fn (string $a, string $b): int => array_search($a, self::TYPE_ORDER, true) <=> array_search($b, self::TYPE_ORDER, true));
-        return $ctx->page('series', ['series' => array_values($rows)], 200, ['title' => 'Number series', 'active' => 'series']);
+        return $ctx->page('series', ['series' => array_values($rows)], 200, ['title' => Words::title('series'), 'active' => 'series']);
     }
 
     /**
-     * The settings (app_setting, I38-I41): every setting with its value, whether the owner has confirmed it (provisional),
-     * the owner decision it implements and when it changed; the document types' review and approval rules; the VAT codes.
-     * Read-only: settings change with bin/settings.php --admin on the server, document rules by migration and
-     * bin/document_rules.php --admin (I57), VAT codes by migration.
+     * Settings and lists (app_setting, I38-I41; plan §6.33): every setting by topic with its plain name, value, whether the
+     * owner has agreed it and when it changed (UK time; "when CW was set up" for the set-up's own rows); "Who checks what" for
+     * the kinds of record in use; the VAT codes. Read-only: settings change with bin/settings.php --admin on the server,
+     * document rules by migration and bin/document_rules.php --admin (I57), VAT codes by migration. The screen never names
+     * those tools: it says to ask the admin.
      */
     public function settings(Context $ctx): HtmlResponse
     {
+        $docs = $ctx->documents();
         $rules = [];
         foreach ($ctx->db->all('SELECT * FROM document_type') as $r) {
-            $rules[(string) $r['code']] = [
-                'code' => (string) $r['code'], 'name' => (string) $r['name'],
+            $code = (string) $r['code'];
+            if ($docs->handler($code) === null) {
+                continue; // only the kinds in use today (plan F421)
+            }
+            $limit = (int) $r['approval_limit_units'];
+            $rules[$code] = [
+                'code' => $code,
+                'name' => Words::docType($code, true, (string) $r['name']),
                 'review' => match ($r['review_rule']) {
-                    'all' => 'every document',
-                    'over_limit' => 'above ' . (int) $r['review_limit_units'] . ' units',
-                    default => 'none',
+                    'all' => Words::say('SETTINGS_PAGE', 'rule_all', (int) $r['review_due_days']),
+                    'over_limit' => Words::say('SETTINGS_PAGE', 'rule_over', (int) $r['review_limit_units'], (int) $r['review_due_days']),
+                    default => Words::SETTINGS_PAGE['rule_none'],
                 },
-                'due_days' => (int) $r['review_due_days'],
                 'approval' => match ($r['approval_rule']) {
-                    'none' => 'none',
-                    'positive_without_supplier_doc' => 'positive units without a supplier document above ' . (int) $r['approval_limit_units'],
-                    'over_value' => 'net value above £' . number_format((int) $r['approval_limit_units']),
-                    default => str_replace('_', ' ', (string) $r['approval_rule']) . ' above ' . (int) $r['approval_limit_units'],
+                    'none' => null,
+                    'over_value' => Words::say('SETTINGS_PAGE', 'rule_value', $limit),
+                    default => Words::say('SETTINGS_PAGE', 'rule_units', $limit),
                 },
                 // reject_action (0010, I49): 'reverse' (I19) or 'record' (PO: the rejection is recorded, the order stands).
-                'reject' => ($r['reject_action'] ?? 'reverse') === 'record' ? 'recorded only (the document stands)' : 'the document is reversed',
+                'reject' => ($r['reject_action'] ?? 'reverse') === 'record' ? Words::SETTINGS_PAGE[$code === 'PO' ? 'rule_record_po' : 'rule_record']
+                    : Words::SETTINGS_PAGE['rule_reverse'],
             ];
         }
         uksort($rules, static fn (string $a, string $b): int => array_search($a, self::TYPE_ORDER, true) <=> array_search($b, self::TYPE_ORDER, true));
+        $topics = [];
+        foreach ($ctx->settings()->all() as $s) {
+            $key = (string) $s['key'];
+            $value = $s['value'];
+            $topics[Words::settingTopic($key)][] = [
+                'key' => $key,
+                'name' => Words::settingName($key),
+                'help' => Words::settingHelp($key, (string) $s['description']),
+                'value' => match (true) {
+                    is_bool($value) => Words::SETTINGS_PAGE[$value ? 'yes' : 'no'],
+                    $value === null, $value === '' => null,
+                    default => (string) $s['display'],
+                },
+                'agreed' => !$s['provisional'],
+                'changed' => str_starts_with((string) $s['updated_actor'], 'system:')
+                    ? Words::say('SETTINGS_PAGE', 'set_up', Html::day((string) $s['updated_at']))
+                    : Words::say('SETTINGS_PAGE', 'on_server', Html::when((string) $s['updated_at'])),
+            ];
+        }
+        // Topics in the order of Words::SETTING_TOPIC, and the settings of a topic in the order of Words::SETTING (the
+        // promotion checks together, in the order they are read), any setting without a word last.
+        $topicOrder = array_values(Words::SETTING_TOPIC);
+        uksort($topics, static fn (string $a, string $b): int => [array_search($a, $topicOrder, true) === false, array_search($a, $topicOrder, true)]
+            <=> [array_search($b, $topicOrder, true) === false, array_search($b, $topicOrder, true)]);
+        $keyOrder = array_keys(Words::SETTING);
+        foreach ($topics as &$rows) {
+            usort($rows, static fn (array $x, array $y): int => [array_search($x['key'], $keyOrder, true) === false, array_search($x['key'], $keyOrder, true), $x['key']]
+                <=> [array_search($y['key'], $keyOrder, true) === false, array_search($y['key'], $keyOrder, true), $y['key']]);
+        }
+        unset($rows);
         $company = $ctx->company()->current();
         return $ctx->page('settings', [
             'company' => ['legal_name' => $company['legal_name'], 'confirmed' => $company['confirmed'], 'version' => $company['version'],
                 'missing' => CompanyDetails::missing($company), 'canEdit' => $ctx->me()->can('company.edit')],
-            'settings' => $ctx->settings()->all(),
+            'topics' => $topics,
             'rules' => array_values($rules),
             'vat' => $ctx->db->all('SELECT code, label, rate_percent, is_active FROM vat_code ORDER BY sort_order, code'),
-        ], 200, ['title' => 'Settings', 'active' => 'settings']);
+        ], 200, ['title' => Words::MENU['settings'], 'active' => 'settings']);
     }
 
     /** @return list<array<string, mixed>> */

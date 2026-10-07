@@ -12,6 +12,7 @@ use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\UiRequest;
+use CW\Ui\Words;
 
 /**
  * The documents screens (IM1, documents.view): the list with filters, one document (header, status, review state,
@@ -31,20 +32,11 @@ final class DocumentsController
     public const PER_PAGE = 50;
     /** Reversal reasons that only make sense for a purchase order (0010). */
     public const PO_REASONS = ['po_amended', 'supplier_cannot_supply', 'not_needed'];
-    /** notice key => text. Only these can be shown: a notice never comes from the URL as text. */
-    public const NOTICES = [
-        'approved' => 'Review approved.',
-        'approved_posted' => 'Approved: the document is posted now, as the requester\'s posting.',
-        'rejected_review' => 'Rejected: the document was reversed (its reversal is linked below).',
-        'rejected_reversal' => 'Rejected: the rejection is recorded and nothing was booked, because a reversal is never reversed. '
-            . 'The original stays reversed: if it was right, its poster posts it again as a new document.',
-        'rejected_approval' => 'Rejected: the request was cancelled; nothing was booked.',
-        'rejected_recorded' => 'Rejected: the rejection is recorded and the document stands (its type records a rejection instead of reversing: '
-            . 'a purchase order may already be with the supplier). Its poster cancels or amends it.',
-        'reversed' => 'Reversal posted: the stock of the original document is booked back.',
-        'reversal_submitted' => 'Reversal requested: it puts stock back on hand without a supplier document above the limit, so a reviewer '
-            . 'approves it before it is posted (nothing is numbered or booked until then).',
-    ];
+    /** Service error code => its words on this page (Words::RECORD). */
+    private const ERRORS = ['not_reversible' => 'e_not_reversible', 'reversal_pending' => 'e_reversal_pending', 'not_reviewable' => 'e_done',
+        'not_awaiting_approval' => 'e_done'];
+    /** notice key => text (Ui\Words). Only these can be shown: a notice never comes from the URL as text. */
+    public const NOTICES = Words::RECORD_NOTICE;
 
     public function index(Context $ctx): HtmlResponse
     {
@@ -81,28 +73,40 @@ final class DocumentsController
         $sqlWhere = $where === [] ? '' : ' WHERE ' . implode(' AND ', $where);
         $total = (int) $ctx->db->value('SELECT COUNT(*) FROM document d' . $sqlWhere, $params);
         $rows = $ctx->db->all(
-            'SELECT d.id, d.doc_type, d.number, d.status, d.review_state, d.doc_date, d.external_ref, d.created_at, d.posted_at, w.code AS warehouse, '
-            . 'cu.display_name AS created_by_name, pu.display_name AS posted_by_name FROM document d '
-            . 'LEFT JOIN warehouse w ON w.id = d.warehouse_id LEFT JOIN staff_user cu ON cu.id = d.created_by LEFT JOIN staff_user pu ON pu.id = d.posted_by'
+            'SELECT d.id, d.doc_type, d.number, d.status, d.review_state, d.doc_date, d.external_ref, d.created_at, d.posted_at, d.reverses_id, '
+            . 'cu.display_name AS created_by_name, od.number AS cancels_number, s.name AS supplier_name FROM document d '
+            . 'LEFT JOIN staff_user cu ON cu.id = d.created_by LEFT JOIN document od ON od.id = d.reverses_id '
+            . 'LEFT JOIN purchase_order po ON po.document_id = COALESCE(d.reverses_id, d.id) LEFT JOIN supplier s ON s.id = po.supplier_id'
             . $sqlWhere . ' ORDER BY d.id DESC LIMIT ' . self::PER_PAGE . ' OFFSET ' . (($page - 1) * self::PER_PAGE),
             $params,
         );
+        $names = array_column($types, 'name', 'code');
         $live = array_values(array_filter(array_column($types, 'code'), static fn (string $c): bool => $docs->handler($c) !== null));
         foreach ($rows as &$r) {
-            $r['label'] = $r['number'] ?? str_replace('_', ' ', (string) $r['status']) . ' #' . $r['id'];
+            // "What": a cancellation record says what it cancels (plan F408); an order names its supplier.
+            $r['what'] = match (true) {
+                $r['reverses_id'] !== null => Words::say('CHECKS', 'cancellation', (string) ($r['cancels_number'] ?? '#' . $r['reverses_id'])),
+                $r['doc_type'] === 'PO' && $r['supplier_name'] !== null => Words::say('RECORDS', 'order_for', (string) $r['supplier_name']),
+                default => Words::docType((string) $r['doc_type'], false, $names[$r['doc_type']] ?? null),
+            };
         }
         unset($r);
+        // The filter lists the kinds in use (and the one asked for); the note says which kinds are in use and which come later (F406).
+        $kinds = array_values(array_filter($types, static fn (array $t): bool => in_array($t['code'], $live, true) || $f['type'] === $t['code']));
+        $later = array_values(array_filter($types, static fn (array $t): bool => !in_array($t['code'], $live, true)));
         return $ctx->page('documents', [
             'rows' => $rows,
             'total' => $total,
             'filters' => $f,
-            'types' => $types,
+            'kinds' => array_map(static fn (array $t): array => ['code' => $t['code'], 'name' => Words::docType((string) $t['code'], true, (string) $t['name'])], $kinds),
+            'today' => Words::andList(array_map(static fn (string $c): string => mb_strtolower(Words::docType($c, true, $names[$c] ?? $c)), $live)),
+            'later' => ucfirst(mb_strtolower(Words::andList(array_map(static fn (array $t): string => Words::docType((string) $t['code'], true, (string) $t['name']), $later)))),
+            'poHidden' => !$ctx->me()->can('purchasing.view'),
             'statuses' => Document::STATUSES,
             'reviewStates' => Document::REVIEW_STATES,
-            'live' => $live,
             'page' => $page,
             'pages' => max(1, (int) ceil($total / self::PER_PAGE)),
-        ], 200, ['title' => 'Documents', 'active' => 'documents']);
+        ], 200, ['title' => Words::MENU['documents'], 'active' => 'documents']);
     }
 
     public function show(Context $ctx): HtmlResponse
@@ -116,11 +120,15 @@ final class DocumentsController
         $reason = trim($ctx->req->field('reason_code') ?? '');
         $note = $ctx->req->field('note');
         if ($reason === '') {
-            return $this->page($ctx, $id, 400, new CwException('reason_required', 'choose why the document is reversed', 400));
+            return $this->page($ctx, $id, 400, new CwException('reason_required', Words::RECORD['reason_required'], 400));
         }
         try {
             $rev = $ctx->documents()->reverse($ctx->caller(), $id, $reason, $note);
         } catch (CwException $e) {
+            if ($e->errorCode === 'role_not_allowed' || $e->errorCode === 'admin_cannot_post') {
+                // The service says which documents the person cannot post (the API's words); the page says what it means here.
+                $e = new CwException($e->errorCode, Words::RECORD['cancel_not_allowed'], $e->httpStatus);
+            }
             return $this->page($ctx, $id, $e->httpStatus, $e);
         }
         return HtmlResponse::redirect(Html::url('/ui/documents/' . $rev->id, ['notice' => $rev->status === 'awaiting_approval' ? 'reversal_submitted' : 'reversed']));
@@ -177,7 +185,8 @@ final class DocumentsController
 
     /**
      * The document page, also after a refused form (ReviewsController, reverse()): the error is shown and the page
-     * answered under its status.
+     * answered under its status. The words are Ui\Words' (plan §6.32): the decision first, with what each answer does;
+     * the fingerprint in a "Technical details" fold; the checks as sentences in UK time.
      */
     public function page(Context $ctx, int $id, int $status, ?CwException $error, ?string $notice = null): HtmlResponse
     {
@@ -197,10 +206,32 @@ final class DocumentsController
                 $open = $t;
             }
         }
+        $rejectRecords = ($data['type']['reject_action'] ?? 'reverse') === 'record';
+        $kind = mb_strtolower(Words::docType($doc->docType, false, (string) $data['type']['name']));
+        $size = $data['value'] !== null ? Html::money($data['value']) : Words::say('CHECKS', 'items', (int) ($open['units'] ?? 0));
         $decide = null;
         if ($open !== null && ($me->can('documents.review') || $me->can('documents.approve'))) {
             $no = Documents::refusal($me->id, $me->roles, $doc, (string) $open['kind']);
-            $decide = ['task' => $open, 'refusal' => $no['message'] ?? null];
+            $approval = $open['kind'] === 'approval';
+            $decide = [
+                'task' => $open,
+                'refusal' => Words::refusal($no),
+                'text' => Words::say('RECORD', $approval ? 'approval_text' : 'review_text', $kind, $size, Html::day((string) $open['due_at'])),
+                'ok' => Words::RECORD[$approval ? 'ok_approval' : 'ok_review'],
+                // What each answer does (design B), and which is the safer one: refusing a request books nothing.
+                'okDoes' => Words::RECORD[match (true) {
+                    $approval && $doc->isReversal() => 'does_ok_cancel',
+                    $approval => 'does_ok_approval',
+                    default => 'does_ok_review',
+                }],
+                'notOkDoes' => Words::RECORD[match (true) {
+                    $approval => 'does_not_ok_approval',
+                    $doc->isReversal() => 'does_not_ok_cancel',
+                    $rejectRecords => 'does_not_ok_record',
+                    default => 'does_not_ok_review',
+                }],
+                'safer' => $approval,
+            ];
         }
         $reverse = null;
         // A PO is cancelled or amended on its own page in Purchasing (I53), not with the generic reversal form.
@@ -212,24 +243,77 @@ final class DocumentsController
                 . 'ORDER BY sort_order, code',
             ), static fn (array $r): bool => $doc->docType === 'PO' || !in_array($r['code'], self::PO_REASONS, true)))];
         }
+        // Lines: a column nobody filled in is left out (plan F415).
+        $cols = [];
+        foreach (['warehouse', 'unit_cost', 'amount', 'reason_code', 'description'] as $c) {
+            $cols[$c] = array_filter($data['lines'], static fn (array $l): bool => $l[$c] !== null && $l[$c] !== '') !== [];
+        }
+        // People by name; a set-up actor ("system:…") is never shown as a code (plan rule 10).
+        $data['people'] = array_map(static fn (?string $p): ?string => $p !== null && str_starts_with($p, 'system:') ? Words::RECORD['by_cw'] : $p, $data['people']);
+        $message = null;
+        if ($error !== null) {
+            // The service's refusals in the page's words, by code (plan F055); a code without words keeps the service's message.
+            $message = match (true) {
+                isset(self::ERRORS[$error->errorCode]) => Words::RECORD[self::ERRORS[$error->errorCode]],
+                $error->errorCode === 'note_required' => Words::noteRequired($error->detail),
+                isset(Words::REFUSAL[$error->errorCode]) && $error->errorCode !== 'role_not_allowed' => Words::REFUSAL[$error->errorCode],
+                default => Words::error($error->errorCode, $error->getMessage()),
+            };
+        }
         return $ctx->page('document', $data + [
-            // A type whose rejected review is only recorded (PO, I49); a PO's own page is in Purchasing (I53).
-            'rejectRecords' => ($data['type']['reject_action'] ?? 'reverse') === 'record',
+            'title' => Words::docTitle($doc->docType, $doc->number, null, null, (string) $data['type']['name']),
+            'kindName' => Words::docType($doc->docType, false, (string) $data['type']['name']),
+            'kindMany' => mb_strtolower(Words::docType($doc->docType, true, (string) $data['type']['name'])),
+            'rejectRecords' => $rejectRecords,
             'poHref' => $doc->docType === 'PO' && $data['handler'] && $me->can('purchasing.view') ? '/ui/purchasing/orders/' . ($doc->reversesId ?? $doc->id) : null,
             'decide' => $decide,
             'reverse' => $reverse,
-            'statusText' => self::statusText($doc),
-            'error' => $error?->getMessage(),
+            'cols' => $cols,
+            'history' => self::history($data['tasks']),
+            'error' => $message,
             'errorCode' => $error?->errorCode,
             'waiting' => $open !== null,
-        ], $status, ['title' => $doc->label(), 'active' => 'documents', 'notice' => $notice]);
+        ], $status, ['title' => Words::docTitle($doc->docType, $doc->number, null, null, (string) $data['type']['name']), 'active' => 'documents', 'notice' => $notice]);
+    }
+
+    /**
+     * The checks of a record as sentences (plan F416): "7 Oct 2026: Reviewer check asked for by Buyer 1." then what came of it
+     * ("OK by Sam on 8 Oct 2026: note", "Closed: the record was cancelled (PO-000004).").
+     *
+     * @param list<array<string, mixed>> $tasks
+     * @return list<array{asked: string, reason: string, outcome: string, tone: string, note: ?string}>
+     */
+    public static function history(array $tasks): array
+    {
+        $out = [];
+        foreach ($tasks as $t) {
+            $state = (string) $t['state'];
+            $note = $t['decision_note'] === null || $t['decision_note'] === '' ? null : (string) $t['decision_note'];
+            $outcome = match (true) {
+                $state === 'open' => Words::say('RECORD', 'open_until', Html::day((string) $t['due_at'])),
+                $state === 'withdrawn' && $note !== null && preg_match('/^reversed by (\S+)$/', $note, $m) === 1 => Words::say('RECORD', 'closed_cancelled', $m[1]),
+                $state === 'withdrawn' && $note !== null && str_contains($note, 'withdrawn by the requester') => Words::RECORD['closed_withdrawn'],
+                $state === 'withdrawn' => Words::say('RECORD', 'closed', Html::day((string) $t['decided_at'])),
+                default => Words::say('RECORD', 'decided', Words::of('TASK_STATE', $state), (string) ($t['decided_by_name'] ?? ''), Html::day((string) $t['decided_at'])),
+            };
+            $out[] = [
+                'asked' => Words::say('RECORD', 'asked_line', Html::day((string) $t['opened_at']), Words::RECORD[$t['kind'] === 'approval' ? 'kind_approval' : 'kind_review'],
+                    (string) ($t['opened_by_name'] ?? '')),
+                'reason' => Words::say('RECORD', 'why_line', Words::of('CHECK_REASON', (string) $t['reason'])),
+                'outcome' => $outcome,
+                'tone' => Words::tone('TASK_STATE', $state),
+                // A withdrawal's note is the system's own words: the outcome already says it.
+                'note' => $state === 'withdrawn' || $state === 'open' ? null : $note,
+            ];
+        }
+        return $out;
     }
 
     /** 403 for a purchase order shown to someone without purchasing.view (I85), else null. */
     private static function poRefusal(Context $ctx, Document $doc): ?HtmlResponse
     {
         if ($doc->docType === 'PO' && !$ctx->me()->can('purchasing.view')) {
-            return $ctx->error(403, 'role_not_allowed', 'purchase orders (their prices and suppliers) are shown to people with access to Purchasing');
+            return $ctx->error(403, 'role_not_allowed', Words::RECORDS['po_hidden']);
         }
         return null;
     }
@@ -255,8 +339,9 @@ final class DocumentsController
         }
         $name = static fn (?int $uid): ?string => $uid === null ? null : ($names[$uid] ?? '#' . $uid);
         $lines = $db->all(
-            'SELECT l.line_no, l.sku_id, s.code AS sku_code, s.name AS sku_name, w.code AS warehouse, l.qty, l.unit_cost, l.amount, l.reason_code, l.description '
-            . 'FROM document_line l LEFT JOIN sku s ON s.id = l.sku_id LEFT JOIN warehouse w ON w.id = l.warehouse_id WHERE l.document_id = ? ORDER BY l.line_no',
+            'SELECT l.line_no, l.sku_id, s.code AS sku_code, s.name AS sku_name, w.code AS warehouse, w.name AS warehouse_name, l.qty, l.unit_cost, l.amount, l.reason_code, l.description, '
+            . 'rc.label AS reason_label FROM document_line l LEFT JOIN sku s ON s.id = l.sku_id LEFT JOIN warehouse w ON w.id = l.warehouse_id '
+            . 'LEFT JOIN reason_code rc ON rc.code = l.reason_code WHERE l.document_id = ? ORDER BY l.line_no',
             [$id],
         );
         $tasks = $db->all(
@@ -271,14 +356,21 @@ final class DocumentsController
             $t['overdue'] = $t['state'] === 'open' && (string) $t['due_at'] < $now;
         }
         unset($t);
+        $po = $doc->docType !== 'PO' ? null : $db->one('SELECT po.net_total, s.name AS supplier_name FROM purchase_order po JOIN supplier s ON s.id = po.supplier_id '
+            . 'WHERE po.document_id = ?', [$doc->reversesId ?? $doc->id]);
         return [
             'doc' => $doc,
             'type' => $type,
             'handler' => $docs->handler($doc->docType) !== null,
             'warehouse' => $doc->warehouseId === null ? null : $db->value('SELECT code FROM warehouse WHERE id = ?', [$doc->warehouseId]),
+            'warehouseName' => $doc->warehouseId === null ? null : $db->value('SELECT name FROM warehouse WHERE id = ?', [$doc->warehouseId]),
             'people' => ['created' => $name($doc->createdBy) ?? $doc->createdActor, 'submitted' => $name($doc->submittedBy),
                 'posted' => $doc->postedBy === null ? $doc->postedActor : $name($doc->postedBy), 'cancelled' => $name($doc->cancelledBy)],
             'reverses' => $doc->reversesId === null ? null : $db->one('SELECT id, number FROM document WHERE id = ?', [$doc->reversesId]),
+            // An order (or its cancellation record, which has no purchase_order row) is shown with its supplier and net value.
+            'value' => $po === null ? null : (string) $po['net_total'],
+            'supplier' => $po === null ? null : (string) $po['supplier_name'],
+            'reasonLabel' => $doc->reasonCode === null ? null : ($db->value('SELECT label FROM reason_code WHERE code = ?', [$doc->reasonCode]) ?? $doc->reasonCode),
             // the live reversal (posted, or a request waiting for approval: I32); cancelled requests are in the list
             'reversedBy' => $db->one("SELECT id, number, status FROM document WHERE reverses_id = ? AND status <> 'cancelled'", [$id]),
             'lines' => $lines,

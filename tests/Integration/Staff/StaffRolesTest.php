@@ -174,7 +174,7 @@ final class StaffRolesTest extends KernelUiTestCase
         $off = $staff->setActive(Caller::staff($adm['id']), $p['id'], false);
         self::assertSame(['active' => false, 'sessions_ended' => 1, 'result' => 'changed'], array_intersect_key($off, ['active' => 1, 'sessions_ended' => 1, 'result' => 1]));
         self::assertSame(0, (int) self::$db->value('SELECT is_active FROM staff_user WHERE id = ?', [$p['id']]));
-        self::assertSame('/ui/login', $web->get('/ui/')->location(), 'the session ended');
+        self::assertSame('/ui/login?why=signed_out', $web->get('/ui/')->location(), 'the session ended');
         self::refused(403, 'staff_not_allowed', fn () => StaffRoles::active(self::$db, $p['id']));
         self::assertSame(['reviewer'], StaffRoles::of(self::$db, $p['id']), 'the roles stay; only the account is off');
         self::assertSame(0, StaffRoles::activeCount(self::$db, 'reviewer'));
@@ -260,7 +260,7 @@ final class StaffRolesTest extends KernelUiTestCase
         self::assertStringContainsString('(unchanged)', $again['err']);
         self::assertStringContainsString('roles stock_controller)', $again['err']);
         self::assertStringContainsString('active=no', $again['err']);
-        self::assertSame('/ui/login', $web->get('/ui/')->location());
+        self::assertSame('/ui/login?why=signed_out', $web->get('/ui/')->location());
         self::assertSame(1, self::tool('reset_staff', '--email=' . $p['email'], '--roles=admin,buyer')['code'], 'refused by the rules');
         self::assertSame(1, self::tool('reset_staff', '--email=nobody@test.invalid', '--roles=viewer')['code']);
         self::assertSame(['stock_controller'], StaffRoles::of(self::$db, $p['id']));

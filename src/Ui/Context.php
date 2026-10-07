@@ -37,6 +37,13 @@ final class Context
     private ?SupplierItems $supplierItems = null;
     private ?CompanyDetails $company = null;
     private ?ItemCards $itemCards = null;
+    /** @var array<string, int>|null the badge counts of this request (computed once) */
+    private ?array $badges = null;
+    /** @var array{approval: int, review: int}|null the review queue's tasks this person may decide, by kind (checks()) */
+    private ?array $checks = null;
+
+    /** Pages without a menu item of their own => the menu item that stays marked. */
+    private const ACTIVE_ALIAS = ['reasons' => 'settings', 'series' => 'settings'];
 
     /**
      * @param array<string, string> $params route parameters
@@ -55,6 +62,8 @@ final class Context
         #[\SensitiveParameter] private readonly string $secretKey = '',
         private readonly ?\Closure $handlers = null,
         private readonly ?\Closure $log = null,
+        /** app.env says environment=staging: every page carries the "TEST SYSTEM" strip. */
+        public readonly bool $testSystem = false,
     ) {
     }
 
@@ -149,9 +158,7 @@ final class Context
     }
 
     /**
-     * A page in the layout. The layout gets the person's menu (Permissions::menu of the roles read for this
-     * request, I14), the badge counts their menu shows (only those they may see: the second-approval count needs
-     * linking.view, the review count documents.review) and whether the quick search box is theirs (catalogue.view).
+     * A page in the layout (frame()).
      *
      * @param array<string, mixed> $vars
      * @param array<string, mixed> $layout title, active (nav key), notice ...
@@ -161,50 +168,112 @@ final class Context
         $token = $this->token();
         $shared = ['csrf' => $token, 'who' => $this->who];
         $view = new View(View::defaultDir(), $shared);
-        $html = $view->page($template, $vars, $layout + ['title' => 'Central Warehouse', 'active' => '', 'notice' => null,
-            'menu' => $this->menu(), 'badges' => $this->badges(), 'searchBox' => $this->who?->can('catalogue.view') ?? false]);
-        return new HtmlResponse($status, $html);
+        $layout += $this->frame();
+        $layout['active'] = self::ACTIVE_ALIAS[$layout['active']] ?? $layout['active'];
+        return new HtmlResponse($status, $view->page($template, $vars, $layout));
     }
 
-    /** @return list<array{section: string, items: list<array<string, mixed>>}> the signed-in person's menu ([] when nobody) */
+    /**
+     * The layout's variables for this person: their menu (Permissions::menu of the roles read for this request, I14), the
+     * badge counts it shows, the phone tab bar (Tabs), whether the find box is theirs (catalogue.view), the test-system strip
+     * and the strip that says which jobs Admin switches off. During the forced password change there is no menu, no tab bar
+     * and no find box (every link would lead back to the password page): only Sign out.
+     *
+     * @return array<string, mixed>
+     */
+    public function frame(): array
+    {
+        $who = $this->who;
+        $forced = $who !== null && $who->mustChangePassword;
+        $menu = $forced ? [] : $this->menu();
+        return [
+            'title' => Words::UI['brand'],
+            'active' => '',
+            'notice' => null,
+            'menu' => $menu,
+            'badges' => $forced ? [] : $this->badges(),
+            'searchBox' => !$forced && ($who?->can('catalogue.view') ?? false),
+            'tabs' => Tabs::of($menu),
+            'testSystem' => $this->testSystem,
+            'switchedOff' => $who === null ? null : Words::switchedOffNote($who->roles),
+        ];
+    }
+
+    /** @return list<array{section: string, key: string, items: list<array<string, mixed>>}> the signed-in person's menu ([] when nobody) */
     public function menu(): array
     {
         return $this->who === null ? [] : Permissions::menu($this->who->roles);
     }
 
     /**
-     * @return array<string, int> badge name (Permissions::MENU `badge`) => count, for what the person may see:
-     *         linking_pending (decisions waiting for a second approval), linking_duplicates (open duplicate groups, M34),
-     *         reviews_open (open review and approval tasks this
+     * Badge counts, only of work this person can act on (plan F007), computed once per request:
+     *         linking_pending (decisions waiting for a second approval that this matching lead did not make), linking_duplicates
+     *         (open duplicate groups, M34, for a matching lead: they decide them), reviews_open (open review and approval tasks this
      *         person may decide: not opened by them, not on a document they created, submitted or posted, I19; plus the
      *         open supplier tasks they may decide: not on a supplier they created, asked for or last changed, I40; plus the
-     *         open reviews of a change of the company details they did not make, I94), barcodes_open (open barcode reviews,
-     *         for catalogue.edit, I107)
+     *         open reviews of a change of the company details they did not make, I94; the sum of checks()), barcodes_open (open
+     *         barcode reviews, for catalogue.edit, I107). Home's cards (Ui\HomeCounts) use the same numbers.
+     *
+     * @return array<string, int> badge name (Permissions::MENU `badge`) => count
      */
     public function badges(): array
     {
+        if ($this->badges !== null) {
+            return $this->badges;
+        }
         $out = [];
-        if ($this->who !== null && $this->who->can('linking.view')) {
-            $out['linking_pending'] = $this->queries()->pendingCount();
+        if ($this->who !== null && $this->who->can('mapping.approve')) {
+            $out['linking_pending'] = $this->queries()->pendingCountFor($this->who->id);
             $out['linking_duplicates'] = (new Duplicates($this->db))->openCount();
         }
         if ($this->who !== null && $this->who->can('catalogue.edit')) {
             // The barcode review queue (IM3, I107): open rows, for the people who decide them.
             $out['barcodes_open'] = (new BarcodeReviews($this->db))->openCount();
         }
-        if ($this->who !== null && ($this->who->can('documents.review') || $this->who->can('suppliers.approve') || $this->who->can('company.confirm'))) {
-            // Documents, suppliers and the company details share the review queue (I40, I94): the open tasks this person may decide.
-            $out['reviews_open'] = $this->documents()->decidableCount($this->who->id, $this->who->roles)
-                + $this->suppliers()->decidableCount($this->who->id, $this->who->roles)
-                + $this->company()->decidableCount($this->who->id, $this->who->roles);
+        $checks = $this->checks();
+        if ($checks !== null) {
+            $out['reviews_open'] = $checks['approval'] + $checks['review'];
         }
-        return $out;
+        return $this->badges = $out;
     }
 
-    /** An error page (with the navigation when signed in). */
-    public function error(int $status, string $code, string $message): HtmlResponse
+    /**
+     * The open tasks of the review queue this person may decide, by kind (computed once per request; null when their jobs
+     * decide none): `approval` (blocking: nothing goes ahead until a reviewer says yes) and `review` (done already, a
+     * reviewer checks it). Documents, suppliers and the company details share the queue (I40, I94); a check of the company
+     * details is always a review. Their sum is the badge reviews_open; Home shows them as two cards.
+     *
+     * @return array{approval: int, review: int}|null
+     */
+    public function checks(): ?array
     {
-        return $this->page('error', ['status' => $status, 'code' => $code, 'message' => $message, 'rid' => $this->rid],
-            $status, ['title' => 'Error ' . $status]);
+        $who = $this->who;
+        if ($who === null || !($who->can('documents.review') || $who->can('suppliers.approve') || $who->can('company.confirm'))) {
+            return null;
+        }
+        if ($this->checks !== null) {
+            return $this->checks;
+        }
+        // One query per source (documents and suppliers by kind, the company details): the same three as the badge before Home.
+        $docs = $this->documents()->decidableCounts($who->id, $who->roles);
+        $sups = $this->suppliers()->decidableCounts($who->id, $who->roles);
+        return $this->checks = [
+            'approval' => $docs['approval'] + $sups['approval'],
+            'review' => $docs['review'] + $sups['review'] + $this->company()->decidableCount($who->id, $who->roles),
+        ];
+    }
+
+    /**
+     * An error page (with the navigation when signed in): the heading by status, the message by error code (Words::ERROR; a
+     * service's own message where the code has none: those messages are the API's and stay as they are). $back, when given,
+     * is the page to go back to ([path, its name], plan F048) besides Home.
+     *
+     * @param array{0: string, 1: string}|null $back
+     */
+    public function error(int $status, string $code, string $message, ?array $back = null): HtmlResponse
+    {
+        $heading = Words::errorTitle($status, $this->req->method === 'POST');
+        return $this->page('error', ['status' => $status, 'code' => $code, 'heading' => $heading,
+            'message' => Words::error($code, $message), 'rid' => $this->rid, 'back' => $back], $status, ['title' => $heading]);
     }
 }

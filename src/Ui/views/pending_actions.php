@@ -1,19 +1,20 @@
+<div class="pending-actions">
 <?php if ($can_approve): ?>
 <form class="inline" method="post" action="/ui/review/decision/<?= $e($id) ?>/approve">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="from" value="<?= $e($from) ?>">
-  <input type="text" name="reason" placeholder="Note (optional)" maxlength="500" aria-label="Note for the approval">
-  <button type="submit" class="primary">Approve</button>
+  <input type="text" name="reason" placeholder="<?= $word('PENDING', 'note') ?>" maxlength="500" aria-label="<?= $word('PENDING', 'note_label') ?>">
+  <button type="submit" class="primary"><?= $word('PENDING', 'approve') ?></button>
 </form>
-<?php elseif ($own): ?>
-<span class="muted">Waiting for another mapping lead.</span>
-<?php else: ?>
-<span class="muted">Waiting for a mapping lead.</span>
+<?php elseif ($say_wait ?? true): ?>
+<p class="muted"><?= $word('PENDING', 'wait') ?></p>
 <?php endif; ?>
 <?php if ($can_withdraw): ?>
 <form class="inline" method="post" action="/ui/review/decision/<?= $e($id) ?>/withdraw">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="from" value="<?= $e($from) ?>">
-  <button type="submit">Withdraw</button>
+  <button type="submit"><?php if (!$own && $from === 'pending' && ($decider ?? null) !== null): ?><?= $say('PENDING', 'cancel_named', (string) $decider) ?><?php else: ?><?= $word('PENDING', 'cancel') ?><?php endif; ?></button>
 </form>
+<p class="muted small"><?= $word('PENDING', 'cancel_does') ?></p>
 <?php endif; ?>
+</div>

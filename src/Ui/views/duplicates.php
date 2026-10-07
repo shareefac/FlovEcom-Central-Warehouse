@@ -1,54 +1,59 @@
-<h1>Duplicates</h1>
-<p class="muted">Vape and Go sometimes sells one product on two (or more) pages. When they are the same product, both pages share one
-  warehouse item, so their sales and deliveries count once and the stock is not split between them. Nothing changes on the website:
-  each page keeps its own price and reviews until Vape and Go switches to the warehouse system. When they are different products,
-  keep them separate: they will not be suggested again.</p>
+<div class="head-help">
+  <h1><?= $word('MENU', 'duplicates') ?></h1>
+  <?= $explain('join_undo', \CW\Ui\Words::DUPS['undo_button']) ?>
+</div>
+<?= $intro('duplicates', $lookOnly) ?>
+<?php if ($look !== null): ?>
+<p class="note read-only"><?= $e($look) ?></p>
+<?php endif; ?>
 
 <?php if ($rows === []): ?>
-<p>No duplicate suggestions are waiting.</p>
+<?= $empty(\CW\Ui\Words::DUPS['none'], \CW\Ui\Words::DUPS['none_text']) ?>
 <?php else: ?>
-<p><?= $n($total) ?> group<?php if ($total !== 1): ?>s<?php endif; ?> to decide, the biggest sellers first. Many suggestions are not the same
-  product: "What the rules say" lists the reasons against merging that the rules see (a different VG/PG, barcode, option, size ...).</p>
-<table class="stack dups">
+<p><strong><?php if ($total === 1): ?><?= $word('DUPS', 'total_one') ?><?php else: ?><?= $say('DUPS', 'total_many', $total) ?><?php endif; ?></strong> <?= $word('DUPS', 'many_differ') ?></p>
+<p class="actions"><a class="btn primary" href="/ui/review/duplicates/<?= $e($rows[0]['id']) ?>"><?= $word('DUPS', 'start') ?> &rarr;</a></p>
+<div class="table-wrap">
+<table class="stack list dups">
   <thead>
     <tr>
-      <th scope="col">Suggested keeper</th>
-      <th scope="col" class="num">Pages</th>
-      <th scope="col" class="num">Sold, 365 days</th>
-      <th scope="col" class="num">Sold, 30 days</th>
-      <th scope="col">What the rules say</th>
+      <th scope="col"><?= $word('DUPS', 'keeper') ?></th>
+      <th scope="col" class="num"><?= $word('DUPS', 'pages') ?></th>
+      <th scope="col" class="num"><?= $word('DUPS', 'sold_365') ?></th>
+      <th scope="col" class="num"><?= $word('DUPS', 'sold_30') ?></th>
+      <th scope="col"><?= $word('DUPS', 'rules') ?></th>
     </tr>
   </thead>
   <tbody>
 <?php foreach ($rows as $r): ?>
     <tr>
-      <th scope="row"><a href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? 'Group ' . $r['id']) ?></a>
-<?php if ($r['sku_code'] !== null): ?> <span class="muted"><?= $e($r['sku_code']) ?></span><?php endif; ?>
-<?php if ($r['waiting']): ?> <span class="tag warn">waiting for a second person</span><?php endif; ?>
-<?php if ($r['decided'] > 0): ?> <span class="tag">partly decided</span><?php endif; ?>
+      <th scope="row" class="c-head"><a class="o-name" href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::say('DUPS', 'group', $r['id'])) ?></a>
+<?php if ($r['sku_code'] !== null): ?> <span class="o-sub"><?= $e($r['sku_code']) ?></span><?php endif; ?>
+<?php if ($r['waiting']): ?> <?= $chip('waiting', \CW\Ui\Words::DUPS['waiting']) ?><?php endif; ?>
+<?php if ($r['decided'] > 0): ?> <?= $chip('info', \CW\Ui\Words::DUPS['partly']) ?><?php endif; ?>
       </th>
-      <td class="num" data-label="Pages"><?= $n($r['size']) ?></td>
-      <td class="num" data-label="Sold, 365 days"><?= $n($r['units_365d']) ?></td>
-      <td class="num" data-label="Sold, 30 days"><?= $n($r['units_30d']) ?></td>
-      <td data-label="What the rules say"><?php if ($r['against'] !== []): ?><span class="muted">may be different:</span> <?php foreach ($r['against'] as $d): ?><span class="tag bad"><?= $e($d) ?></span> <?php endforeach; ?><?php elseif ($r['checked']): ?><span class="muted">no reason against found: check the live pages</span><?php else: ?><span class="muted">not checked (no listing profile)</span><?php endif; ?></td>
+      <td class="num" data-label="<?= $word('DUPS', 'pages') ?>"><?= $n($r['size']) ?></td>
+      <td class="num" data-label="<?= $word('DUPS', 'sold_365') ?>"><?= $n($r['units_365d']) ?></td>
+      <td class="num" data-label="<?= $word('DUPS', 'sold_30') ?>"><?= $n($r['units_30d']) ?></td>
+      <td data-label="<?= $word('DUPS', 'rules') ?>"><?php if ($r['against'] !== []): ?><span class="tag bad"><?= $say('DUPS', 'maybe', implode(', ', $r['against'])) ?></span><?php elseif ($r['checked']): ?><span class="muted"><?= $word('DUPS', 'no_reason') ?></span><?php else: ?><span class="muted"><?= $word('DUPS', 'not_checked') ?></span><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
 </table>
+</div>
 <?php endif; ?>
 
 <?php if ($recent !== []): ?>
-<section>
-  <h2>Decided recently</h2>
-  <p class="muted">Open a group to see what was decided, or to undo a merge that was wrong. <?= $n($recent_total) ?> decided group<?php if ($recent_total !== 1): ?>s<?php endif; ?><?php if ($recent_pages > 1): ?>, page <?= $n($recent_page) ?> of <?= $n($recent_pages) ?><?php endif; ?>.</p>
+<section aria-labelledby="recent-h">
+  <h2 id="recent-h"><?= $word('DUPS', 'recent') ?></h2>
+  <p class="muted"><?= $word('DUPS', 'recent_text') ?> <?php if ($recent_total === 1): ?><?= $word('DUPS', 'recent_one') ?><?php else: ?><?= $say('DUPS', 'recent_many', $recent_total) ?><?php endif; ?><?php if ($recent_pages > 1): ?> <?= $say('DUPS', 'recent_page', $recent_page, $recent_pages) ?><?php endif; ?></p>
   <ul class="plain dups-recent">
 <?php foreach ($recent as $r): ?>
-    <li><a href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? 'Group ' . $r['id']) ?></a>
-      <span class="muted"><?= $n($r['size']) ?> pages, <?= $n($r['items']) ?> warehouse item<?php if ($r['items'] !== 1): ?>s<?php endif; ?><?php if ($r['at'] !== null): ?>, <?= $dt($r['at']) ?><?php endif; ?></span></li>
+    <li><a href="/ui/review/duplicates/<?= $e($r['id']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::say('DUPS', 'group', $r['id'])) ?></a>
+      <span class="muted"><?= $say('DUPS', 'recent_line', $r['size'], $r['items'] === 1 ? \CW\Ui\Words::DUPS['recent_items_one'] : \CW\Ui\Words::say('DUPS', 'recent_items_many', $r['items'])) ?><?php if ($r['at'] !== null): ?>, <?= $when($r['at']) ?><?php endif; ?></span></li>
 <?php endforeach; ?>
   </ul>
 <?php if ($recent_prev !== null || $recent_next !== null): ?>
-  <p class="pager"><?php if ($recent_prev !== null): ?><a href="<?= $e($recent_prev) ?>">&larr; Newer</a> <?php endif; ?><?php if ($recent_next !== null): ?><a href="<?= $e($recent_next) ?>">Older &rarr;</a><?php endif; ?></p>
+  <p class="pager"><?php if ($recent_prev !== null): ?><a href="<?= $e($recent_prev) ?>">&larr; <?= $word('DUPS', 'newer') ?></a> <?php endif; ?><?php if ($recent_next !== null): ?><a href="<?= $e($recent_next) ?>"><?= $word('DUPS', 'older') ?> &rarr;</a><?php endif; ?></p>
 <?php endif; ?>
 </section>
 <?php endif; ?>

@@ -181,6 +181,54 @@ final class Duplicates
     }
 
     /**
+     * Units sold from the imported sales history (spec §7.3), the one source of a website product's sales on Possible duplicates and
+     * on the website product's own page (behaviour item 11, F207): per listing, the units of the 30 and 365 days to the last day
+     * loaded for its site, and that day. A listing of a site with no sales loaded is left out: the page then shows the website's own
+     * figures (listing_profile), and says so.
+     *
+     * @param array<int, array<string, mixed>> $listings listing id => a row with its channel_id and external_variant_id
+     * @return array<int, array{u30: int, u365: int, to: string}> listing id => units and the last day loaded
+     */
+    public function soldFromHistory(array $listings): array
+    {
+        if ($listings === []) {
+            return [];
+        }
+        $ends = [];
+        foreach ($this->db->all("SELECT channel_id, MAX(date_to) AS e FROM sales_import_batch WHERE status = 'loaded' GROUP BY channel_id") as $b) {
+            $ends[(int) $b['channel_id']] = (string) $b['e'];
+        }
+        $sold = [];
+        foreach ($listings as $r) {
+            $c = (int) $r['channel_id'];
+            if (isset($ends[$c])) {
+                $sold[$c][(string) $r['external_variant_id']] = true;
+            }
+        }
+        $units = [];
+        foreach ($sold as $c => $set) {
+            $variants = array_map('strval', array_keys($set));
+            foreach ($this->db->all(
+                'SELECT external_variant_id, SUM(IF(sale_date > DATE_SUB(?, INTERVAL 30 DAY), units_online + units_office, 0)) AS u30, '
+                . 'SUM(units_online + units_office) AS u365 FROM sales_history_day WHERE channel_id = ? AND external_variant_id IN ('
+                . implode(',', array_fill(0, count($variants), '?')) . ') AND sale_date > DATE_SUB(?, INTERVAL 365 DAY) AND sale_date <= ? GROUP BY external_variant_id',
+                [$ends[$c], $c, ...$variants, $ends[$c], $ends[$c]],
+            ) as $h) {
+                $units[$c][(string) $h['external_variant_id']] = [(int) $h['u30'], (int) $h['u365']];
+            }
+        }
+        $out = [];
+        foreach ($listings as $id => $r) {
+            $c = (int) $r['channel_id'];
+            if (isset($ends[$c])) {
+                [$u30, $u365] = $units[$c][(string) $r['external_variant_id']] ?? [0, 0];
+                $out[(int) $id] = ['u30' => $u30, 'u365' => $u365, 'to' => $ends[$c]];
+            }
+        }
+        return $out;
+    }
+
+    /**
      * The listings of a group, side by side: site, titles, brand, attributes, barcodes, price, units from the sales history
      * (else the profile), the site's latest stock and mode, the product page, the item it is linked to (policy, counted,
      * merged), its open merge suggestion and a decision waiting for a second person.
@@ -207,28 +255,7 @@ final class Duplicates
             $rows[(int) $r['id']] = $r;
         }
         // Units from the imported sales history: the 30 and 365 days to the last day loaded for the site (spec §7.3).
-        $ends = [];
-        foreach ($this->db->all("SELECT channel_id, MAX(date_to) AS e FROM sales_import_batch WHERE status = 'loaded' GROUP BY channel_id") as $b) {
-            $ends[(int) $b['channel_id']] = (string) $b['e'];
-        }
-        $sold = [];
-        foreach ($rows as $r) {
-            $c = (int) $r['channel_id'];
-            if (isset($ends[$c])) {
-                $sold[$c][] = (string) $r['external_variant_id'];
-            }
-        }
-        $units = [];
-        foreach ($sold as $c => $variants) {
-            foreach ($this->db->all(
-                'SELECT external_variant_id, SUM(IF(sale_date > DATE_SUB(?, INTERVAL 30 DAY), units_online + units_office, 0)) AS u30, '
-                . 'SUM(units_online + units_office) AS u365 FROM sales_history_day WHERE channel_id = ? AND external_variant_id IN ('
-                . implode(',', array_fill(0, count($variants), '?')) . ') AND sale_date > DATE_SUB(?, INTERVAL 365 DAY) AND sale_date <= ? GROUP BY external_variant_id',
-                [$ends[$c], $c, ...$variants, $ends[$c], $ends[$c]],
-            ) as $h) {
-                $units[$c][(string) $h['external_variant_id']] = [(int) $h['u30'], (int) $h['u365']];
-            }
-        }
+        $hist = $this->soldFromHistory($rows);
         $skuIds = array_values(array_unique(array_filter(array_map(static fn (array $r): ?int => $r['sku_id'] === null ? null : (int) $r['sku_id'], $rows))));
         $skus = [];
         $counted = [];
@@ -266,7 +293,7 @@ final class Duplicates
         foreach ($rows as $id => $r) {
             $c = (int) $r['channel_id'];
             $v = (string) $r['external_variant_id'];
-            [$u30, $u365] = isset($ends[$c]) ? ($units[$c][$v] ?? [0, 0]) : [(int) ($r['units_30d'] ?? 0), (int) ($r['units_365d'] ?? 0)];
+            [$u30, $u365] = isset($hist[$id]) ? [$hist[$id]['u30'], $hist[$id]['u365']] : [(int) ($r['units_30d'] ?? 0), (int) ($r['units_365d'] ?? 0)];
             $sku = $r['sku_id'] !== null && in_array($r['status'], DecisionService::LINKED, true) ? (int) $r['sku_id'] : null;
             $s = $sku !== null ? ($skus[$sku] ?? null) : null;
             $attrs = [];
@@ -282,7 +309,8 @@ final class Duplicates
                 'map_version' => (int) $r['map_version'], 'units_per_item' => (int) $r['units_per_item'],
                 'title' => self::s($r['product_title']), 'variant_title' => self::s($r['variant_title']), 'brand' => self::s($r['brand']),
                 'attributes' => $attrs, 'barcodes' => $barcodes, 'usable_barcodes' => count($usable), 'price' => self::s($r['price']),
-                'units_30d' => $u30, 'units_365d' => $u365, 'units_from' => isset($ends[$c]) ? 'sales history to ' . $ends[$c] : 'listing profile',
+                'units_30d' => $u30, 'units_365d' => $u365, 'units_from' => isset($hist[$id]) ? 'sales history to ' . $hist[$id]['to'] : 'listing profile',
+                'units_to' => $hist[$id]['to'] ?? null,
                 'site_stock' => $r['site_stock'] === null ? null : (int) $r['site_stock'], 'site_mode' => self::s($r['site_mode']),
                 'site_sellable' => $r['site_sellable'] === null ? null : (int) $r['site_sellable'] === 1, 'site_date' => self::s($r['site_date']),
                 'page' => self::productPage((string) $r['channel_code'], is_string($r['perma_link']) ? $r['perma_link'] : null),
@@ -341,7 +369,8 @@ final class Duplicates
             foreach ($j['blocks'] as $b) {
                 [$tag, $text] = self::REASONS[$b['code']] ?? ['other', 'Another reason (' . $b['code'] . ')'];
                 $strong = in_array($b['code'], self::STRONG, true);
-                $reasons[] = ['code' => (string) $b['code'], 'text' => $text, 'detail' => mb_substr((string) $b['detail'], 0, 200), 'strong' => $strong];
+                $reasons[] = ['code' => (string) $b['code'], 'text' => $text, 'detail' => mb_substr((string) $b['detail'], 0, 200), 'strong' => $strong,
+                    'shown' => self::readableDetail(mb_substr((string) $b['detail'], 0, 200))];
                 $tags[$tag] = true;
             }
             $out[$id] = ['checked' => true, 'ok' => $j['ok'], 'strong' => array_filter($reasons, static fn (array $r): bool => $r['strong']) !== [],
@@ -438,6 +467,18 @@ final class Duplicates
      */
     public function groupsOfListings(array $listingIds): array
     {
+        return array_map(static fn (array $refs): array => array_map(static fn (array $r): int => $r['id'], $refs), $this->groupNumbersOfListings($listingIds));
+    }
+
+    /**
+     * The same groups with the number people see on the group page ("Group 7", plan F126, F236, F254: one number for one group;
+     * the run's group number, else the group's id).
+     *
+     * @param list<int> $listingIds
+     * @return array<int, list<array{id: int, number: string}>> listing id => groups, by id
+     */
+    public function groupNumbersOfListings(array $listingIds): array
+    {
         $listingIds = array_values(array_unique(array_map('intval', $listingIds)));
         if ($listingIds === []) {
             return [];
@@ -470,14 +511,14 @@ final class Duplicates
         $out = [];
         foreach ($this->groupsByKey(array_keys($keys)) as $g) {
             foreach (array_intersect($g['listings'], $listingIds) as $lid) {
-                $out[(int) $lid][] = $g['id'];
+                $out[(int) $lid][$g['id']] = ['id' => $g['id'], 'number' => $g['group'] ?? (string) $g['id']];
             }
         }
-        foreach ($out as &$ids) {
-            $ids = array_values(array_unique($ids));
-            sort($ids);
+        foreach ($out as &$refs) {
+            ksort($refs);
+            $refs = array_values($refs);
         }
-        unset($ids);
+        unset($refs);
         return $out;
     }
 
@@ -755,6 +796,42 @@ final class Duplicates
             ];
         }
         return $out;
+    }
+
+    /**
+     * A rule's detail as people read it (plan F125; the rules write it for the matching files): "listing + / item +lemonade" ->
+     * "extra word: lemonade", "+a+b / +c" -> "only on one page: a, b, c", "pod_kit/prefilled vs -" -> "Pod kit (prefilled) vs not
+     * stated"; '' for none.
+     */
+    public static function readableDetail(string $detail): string
+    {
+        $d = trim($detail);
+        if ($d === '') {
+            return '';
+        }
+        $words = static fn (string ...$sides): array => array_values(array_unique(array_filter(array_map('trim', explode('+', implode('+', $sides))),
+            static fn (string $w): bool => $w !== '' && $w !== '-')));
+        if (preg_match('#^listing \+(.*) / item \+(.*)$#D', $d, $m) === 1) {
+            $extra = $words($m[1], $m[2]);
+            return $extra === [] ? '' : (count($extra) === 1 ? 'extra word: ' : 'extra words: ') . implode(', ', $extra);
+        }
+        if (preg_match('#^\+(.*) / \+(.*)$#D', $d, $m) === 1) {
+            $only = $words($m[1], $m[2]);
+            return $only === [] ? '' : 'only on one page: ' . implode(', ', $only);
+        }
+        $side = static function (string $v): string {
+            $v = trim($v);
+            if ($v === '' || $v === '-') {
+                return Words::FORM_VALUE['unknown'];
+            }
+            if (preg_match('#^([a-z]+(?:_[a-z]+)*)(?:/([a-z_]+))?$#D', $v, $f) === 1 && (Words::has('FORM_VALUE', $f[1]))) {
+                return Words::of('FORM_VALUE', $f[1]) . (isset($f[2]) && $f[2] !== '' ? ' (' . Words::of('FORM_VALUE', $f[2]) . ')' : '');
+            }
+            return str_replace('+', ', ', $v);
+        };
+        $sides = array_map($side, explode(' vs ', $d));
+        // "not stated vs not stated" says nothing the reason does not say already ("The kind of product is not clear on a page").
+        return array_unique($sides) === [Words::FORM_VALUE['unknown']] ? '' : implode(' vs ', $sides);
     }
 
     /**

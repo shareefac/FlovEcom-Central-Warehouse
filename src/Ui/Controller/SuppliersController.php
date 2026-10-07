@@ -14,6 +14,7 @@ use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\UiRequest;
+use CW\Ui\Words;
 
 /**
  * The supplier screens (IM4, Phase I-2; docs/decisions.md I38-I47): the list (filters, CSV), the card (details, due
@@ -29,20 +30,10 @@ use CW\Ui\UiRequest;
  */
 final class SuppliersController
 {
-    public const NOTICES = [
-        'created' => 'Supplier created as a draft. Add the due-diligence check, then ask for activation: a second person approves it.',
-        'saved' => 'Saved.',
-        'saved_review' => 'Saved. The supplier is active, so the change waits for a second person\'s review (it does not block orders).',
-        'saved_route' => 'Saved. The import route changed: purchase orders for this supplier are refused until a second person approves the route.',
-        'unchanged' => 'Nothing changed.',
-        'requested' => 'Activation requested: a second person (a reviewer) approves it before the supplier can be used.',
-        'withdrawn' => 'Activation request withdrawn.',
-        'approved' => 'Approved.',
-        'rejected' => 'Rejected: the note is recorded on the supplier.',
-        'deactivated' => 'Supplier deactivated: no new purchase order can be approved for it.',
-        'evidence' => 'Evidence file stored and recorded on the supplier.',
-    ];
-    public const STATUS_LABELS = ['draft' => 'draft', 'pending_approval' => 'waiting for approval', 'active' => 'active', 'inactive' => 'inactive'];
+    /** The notices named in a redirect (their words: Words::SUPPLIER_NOTICE). */
+    public const NOTICES = Words::SUPPLIER_NOTICE;
+    /** The status filter (the URL values stay; their words: Words::SUPPLIER_STATUS). */
+    public const STATUS_LABELS = Words::SUPPLIER_STATUS;
     /** "Checks due": the next due-diligence review within this many days. */
     public const DUE_WINDOW_DAYS = 30;
     public const LIST_LIMIT = 500;
@@ -53,17 +44,20 @@ final class SuppliersController
         $rows = $this->rows($ctx, $f, self::LIST_LIMIT);
         $today = $ctx->suppliers()->today();
         foreach ($rows as &$r) {
-            $r['status_label'] = self::STATUS_LABELS[$r['status']] ?? $r['status'];
             $r['dd_overdue'] = $r['dd_next_review_on'] !== null && (string) $r['dd_next_review_on'] < $today;
         }
         unset($r);
+        $canManage = $ctx->me()->can('suppliers.manage');
         return $ctx->page('suppliers', [
             'rows' => $rows,
             'filters' => $f,
+            'filtered' => $f['status'] !== null || $f['q'] !== '' || $f['due'],
             'statuses' => self::STATUS_LABELS,
-            'canManage' => $ctx->me()->can('suppliers.manage'),
+            'canManage' => $canManage,
+            'lookOnly' => $canManage ? null : Words::whoCan('suppliers.manage'),
+            'dueDays' => self::DUE_WINDOW_DAYS,
             'limit' => self::LIST_LIMIT,
-        ], 200, ['title' => 'Suppliers', 'active' => 'suppliers', 'notice' => null]);
+        ], 200, ['title' => Words::MENU['suppliers'], 'active' => 'suppliers', 'notice' => null]);
     }
 
     public function csv(Context $ctx): HtmlResponse
@@ -111,11 +105,10 @@ final class SuppliersController
     {
         $s = $ctx->suppliers()->find($ctx->id());
         if ($s === null) {
-            return $ctx->error(404, 'unknown_supplier', 'there is no such supplier');
+            return self::notFound($ctx);
         }
         if ($s['status'] === 'pending_approval') {
-            return $this->card($ctx, (int) $s['id'], 409, new CwException('supplier_pending',
-                "{$s['code']} is waiting for approval: withdraw the activation request first to change it", 409));
+            return $this->card($ctx, (int) $s['id'], 409, new CwException('supplier_pending', Words::BUY_ERROR['supplier_pending'], 409));
         }
         return $this->form($ctx, $s, $s, null, 200, null);
     }
@@ -126,7 +119,7 @@ final class SuppliersController
         $fields = self::posted($ctx->req);
         $version = UiRequest::id($ctx->req->field('version'));
         if ($version === null) {
-            return $ctx->error(400, 'bad_version', 'this form has no version: reload the page');
+            return $ctx->error(400, 'bad_version', Words::ERROR['bad_version']);
         }
         $svc = $ctx->suppliers();
         try {
@@ -135,12 +128,29 @@ final class SuppliersController
         } catch (CwException $e) {
             $s = $svc->find($id);
             if ($s === null) {
-                return $ctx->error(404, 'unknown_supplier', 'there is no such supplier');
+                return self::notFound($ctx);
             }
             if ($e->errorCode === 'version_conflict') {
-                // Redrawn with the current data: what changed meanwhile must be seen before it is overwritten.
-                return $this->form($ctx, $s, $s, null, 409, new CwException('version_conflict',
-                    'This supplier was changed since you opened the form: here is the current data. Make your change again.', 409));
+                // Behaviour item 9 of plan §8.6 (F382, provisional): what the person typed stays, the form now carries the current
+                // version (so Save works again), and what someone else changed meanwhile is listed and marked at its field: it must be
+                // seen before it is overwritten. Nothing was saved.
+                // A field only they changed shows their value; a field the person changed too keeps what was typed (both are marked).
+                $theirs = self::changedSince($ctx, $id, $version, $s);
+                $values = $fields + $s;
+                foreach ($theirs as $field => $t) {
+                    if (array_key_exists($field, $fields) && self::same($fields[$field], $s[$field] ?? null)) {
+                        unset($theirs[$field]); // typed the same as is saved now: nothing to check
+                        continue;
+                    }
+                    $theirs[$field]['kept'] = array_key_exists($field, $fields) && !self::same($fields[$field], $t['was']);
+                    if (!$theirs[$field]['kept']) {
+                        $values[$field] = $s[$field];
+                    }
+                }
+                $who = $s['updated_by'] === null ? null : $ctx->db->value('SELECT display_name FROM staff_user WHERE id = ?', [(int) $s['updated_by']]);
+                $text = Words::say('SUPPLIER_FORM', 'changed_meanwhile', is_string($who) && $who !== '' ? $who : Words::SUPPLIER_FORM['someone'],
+                    Html::when((string) $s['updated_at']));
+                return $this->form($ctx, $s, $values, null, 409, new CwException('version_conflict', $text, 409), (int) $s['version'], $theirs);
             }
             if ($e->errorCode === 'supplier_pending') {
                 return $this->card($ctx, $id, 409, $e);
@@ -194,26 +204,26 @@ final class SuppliersController
         $id = $ctx->id();
         $s = $ctx->suppliers()->find($id);
         if ($s === null) {
-            return $ctx->error(404, 'unknown_supplier', 'there is no such supplier');
+            return self::notFound($ctx);
         }
         $version = UiRequest::id($ctx->req->field('version'));
         $kind = $ctx->req->field('kind') ?? '';
         try {
             if (!in_array($kind, ['dd', 'import_route'], true)) {
-                throw new CwException('bad_field', 'choose what the file is evidence of (due diligence or the import route)', 400, ['field' => 'kind']);
+                throw new CwException('bad_kind', Words::BUY_ERROR['choose_kind'], 400, ['field' => 'kind']);
             }
             $file = $ctx->req->file('file');
             if ($file === null) {
-                throw new CwException('no_file', 'choose a file to upload', 400, ['field' => 'file']);
+                throw new CwException('no_file', Words::BUY_ERROR['no_file_upload'], 400, ['field' => 'file']);
             }
             if (in_array($file['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) || $file['size'] > UiRequest::MAX_UPLOAD_BYTES) {
-                throw new CwException('too_large', 'the file is larger than ' . intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576) . ' MiB: nothing was saved', 413);
+                throw new CwException('too_large', Words::say('BUY_ERROR', 'too_large', intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576)), 413);
             }
             if ($file['error'] !== UPLOAD_ERR_OK || $file['path'] === '') {
-                throw new CwException('upload_failed', 'the file did not arrive completely: try again', 400);
+                throw new CwException('upload_failed', Words::BUY_ERROR['upload_failed'], 400);
             }
             if ($s['status'] === 'pending_approval') {
-                throw new CwException('supplier_pending', "{$s['code']} is waiting for approval: withdraw the activation request first to change it", 409);
+                throw new CwException('supplier_pending', Words::BUY_ERROR['supplier_pending'], 409);
             }
             $stored = $ctx->files()->store($ctx->caller(), $file['path'], $file['name'], 'supplier_check',
                 "supplier {$s['code']}: " . ($kind === 'dd' ? 'due diligence' : 'import route') . ' evidence');
@@ -244,7 +254,7 @@ final class SuppliersController
         $taskId = $ctx->id();
         $sid = $ctx->db->value("SELECT subject_id FROM review_task WHERE id = ? AND subject_type = 'supplier'", [$taskId]);
         if ($sid === null) {
-            return $ctx->error(404, 'unknown_task', 'there is no such supplier task');
+            return $ctx->error(404, 'unknown_task', Words::ERROR['unknown_task']);
         }
         $sid = (int) $sid;
         $note = $ctx->req->field('note');
@@ -269,7 +279,7 @@ final class SuppliersController
         $svc = $ctx->suppliers();
         $s = $svc->find($id);
         if ($s === null) {
-            return $ctx->error(404, 'unknown_supplier', 'there is no such supplier');
+            return self::notFound($ctx);
         }
         $me = $ctx->me();
         $db = $ctx->db;
@@ -283,7 +293,7 @@ final class SuppliersController
                 $names[(int) $u['id']] = (string) $u['display_name'];
             }
         }
-        $name = static fn (mixed $uid): ?string => $uid === null ? null : ($names[(int) $uid] ?? '#' . $uid);
+        $name = static fn (mixed $uid): ?string => $uid === null ? null : ($names[(int) $uid] ?? Words::ANOMALIES['set_up']);
         $tasks = $svc->tasks($id);
         $now = gmdate('Y-m-d H:i:s');
         $open = ['activation' => null, 'route' => null, 'review' => null];
@@ -298,8 +308,33 @@ final class SuppliersController
                 default => 'activation',
             };
             $no = Suppliers::refusal($me->id, $me->roles, $s, $t);
+            $who = (string) ($t['opened_by_name'] ?? Words::ANOMALIES['set_up']);
+            $on = Html::when((string) $t['opened_at']);
+            $notAbroad = $slot === 'route' && (int) $s['is_overseas'] !== 1;
             $open[$slot] = $t + [
-                'refusal' => $no['message'] ?? null,
+                'title' => match (true) {
+                    $slot === 'review' => Words::SUPPLIER['task_review'],
+                    $slot === 'route' => Words::SUPPLIER['task_route'],
+                    $t['reason'] === 'reactivation' => Words::SUPPLIER['task_reactivation'],
+                    default => Words::SUPPLIER['task_activation'],
+                },
+                'text' => match (true) {
+                    $notAbroad => Words::say('SUPPLIER', 'route_not_abroad', $who, $on),
+                    $slot === 'route' => Words::say('SUPPLIER', 'route_changed', $who, $on),
+                    $slot === 'review' => Words::say('SUPPLIER', 'review_changed', $who, $on),
+                    default => Words::say('SUPPLIER', 'asked_on', $who, $on),
+                },
+                'check_by' => Words::say('SUPPLIER', 'check_by', Html::day((string) $t['due_at'])),
+                'ok' => Words::SUPPLIER[match ($slot) { 'review' => 'ok_review', 'route' => 'ok_route', default => 'ok_activation' }],
+                'ok_does' => Words::SUPPLIER[match ($slot) { 'review' => 'does_ok_review', 'route' => 'does_ok_route', default => 'does_ok_activation' }],
+                'not_ok_does' => Words::SUPPLIER[match (true) {
+                    $slot === 'review' || $notAbroad => 'does_not_ok',
+                    $slot === 'route' => 'does_not_ok_route',
+                    $t['reason'] === 'reactivation' => 'does_not_ok_reactivation',
+                    default => 'does_not_ok_activation',
+                }],
+                // A buyer is told the reviewer decides (F364); a reviewer, why it is not theirs (F367).
+                'refusal' => $no === null ? null : (($no['code'] ?? '') === 'role_not_allowed' ? Words::SUPPLIER['look_note'] : Words::refusal($no)),
                 'may_decide' => $no === null,
                 'may_withdraw' => $slot === 'activation' && (int) $t['opened_by'] === $me->id && $me->can('suppliers.manage'),
             ];
@@ -307,62 +342,215 @@ final class SuppliersController
         unset($t);
         $files = [];
         foreach (['dd' => $s['dd_evidence_file_id'], 'import_route' => $s['import_route_file_id']] as $k => $fid) {
-            $files[$k] = $fid === null ? null : $db->one('SELECT id, original_name, mime, size_bytes, sha256, created_at FROM stored_file WHERE id = ?', [(int) $fid]);
+            $f = $fid === null ? null : $db->one('SELECT id, original_name, mime, size_bytes, sha256, created_at FROM stored_file WHERE id = ?', [(int) $fid]);
+            $files[$k] = $f === null ? null : $f + ['size' => Html::size((int) $f['size_bytes'])];
         }
         $items = $db->one('SELECT COUNT(*) AS n, COALESCE(SUM(is_active), 0) AS active, COALESCE(SUM(is_preferred = 1 AND is_active = 1), 0) AS preferred, '
             . 'COALESCE(SUM(last_pack_price IS NULL AND is_active = 1), 0) AS no_price FROM supplier_item WHERE supplier_id = ?', [$id]) ?? [];
         $canManage = $me->can('suppliers.manage');
         $missing = Suppliers::missing($s);
+        $canPost = \CW\Documents\Documents::mayPost($me->roles, 'PO');
         // The supplier's last 10 purchase orders (the pos task, I53): cancellations are shown on their order.
-        $recentPos = $me->can('purchasing.view') ? $db->all(
-            'SELECT d.id, d.number, d.status, d.doc_date, d.review_state, p.state, p.net_total, p.expected_date FROM purchase_order p JOIN document d ON d.id = p.document_id '
-            . 'WHERE p.supplier_id = ? ORDER BY d.id DESC LIMIT 10',
-            [$id],
-        ) : null;
+        $recentPos = $me->can('purchasing.view') ? array_map(static fn (array $p): array => PurchaseOrdersController::screenRow($p + ['reverses_id' => null,
+            'supplier_name' => $s['name'], 'lines' => 0, 'units' => 0, 'cancelled_by' => null, 'cancelled_on' => null, 'sent_at' => null, 'sent_via' => null], $canPost),
+            $db->all(
+                'SELECT d.id, d.number, d.status, d.doc_date, d.review_state, p.state, p.net_total, p.expected_date, '
+                . "(SELECT r.number FROM document r WHERE r.reverses_id = d.id AND r.status = 'posted' LIMIT 1) AS cancelled_by, "
+                . "(SELECT r.posted_at FROM document r WHERE r.reverses_id = d.id AND r.status = 'posted' LIMIT 1) AS cancelled_on FROM purchase_order p "
+                . 'JOIN document d ON d.id = p.document_id WHERE p.supplier_id = ? ORDER BY d.id DESC LIMIT 10',
+                [$id],
+            )) : null;
+        // The details that are empty are named once (F373).
+        $empty = [];
+        foreach (['legal_name', 'company_number', 'vat_number', 'contact_name', 'phone', 'payment_terms', 'default_lead_days', 'review_days', 'min_order_value'] as $k) {
+            if ($s[$k] === null || trim((string) $s[$k]) === '') {
+                $empty[] = Words::of('SUPPLIER_FIELD', $k);
+            }
+        }
         return $ctx->page('supplier', [
             's' => $s,
-            'statusLabel' => self::STATUS_LABELS[$s['status']] ?? $s['status'],
+            'title' => Words::say('SUPPLIER', 'title', (string) $s['name'], (string) $s['code']),
             'people' => [
-                'created' => $name($s['created_by']) ?? $s['created_actor'], 'updated' => $name($s['updated_by']) ?? $s['updated_actor'],
+                'created' => $name($s['created_by']) ?? Words::ANOMALIES['set_up'], 'updated' => $name($s['updated_by']) ?? Words::ANOMALIES['set_up'],
                 'changed' => $name($s['details_changed_by']), 'approved' => $name($s['approved_by']), 'dd' => $name($s['dd_checked_by']),
                 'route' => $name($s['import_route_approved_by']), 'deactivated' => $name($s['deactivated_by']),
             ],
             'ddOverdue' => $s['dd_next_review_on'] !== null && (string) $s['dd_next_review_on'] < $today,
             'routeUnapproved' => (int) $s['is_overseas'] === 1 && $s['import_route_approved_at'] === null,
             'missing' => $missing,
-            'missingText' => Suppliers::labels($missing),
+            'missingText' => self::fields($missing),
+            'emptyText' => Words::andList($empty),
             'open' => $open,
-            'tasks' => $tasks,
+            'history' => self::history($tasks),
             'files' => $files,
             'items' => ['n' => (int) ($items['n'] ?? 0), 'active' => (int) ($items['active'] ?? 0), 'preferred' => (int) ($items['preferred'] ?? 0),
                 'no_price' => (int) ($items['no_price'] ?? 0)],
             'canManage' => $canManage,
             'recentPos' => $recentPos,
-            'canOrder' => \CW\Documents\Documents::mayPost($me->roles, 'PO') && $s['status'] !== 'inactive',
+            'canOrder' => $canPost && $s['status'] !== 'inactive',
             'canRequest' => $canManage && in_array($s['status'], ['draft', 'inactive'], true),
             'canEdit' => $canManage && $s['status'] !== 'pending_approval',
             'canDeactivate' => $canManage && $s['status'] === 'active',
-            'error' => $error?->getMessage(),
+            'lookOnly' => $canManage ? null : Words::whoCan('suppliers.manage'),
+            'maxMb' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
+            'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
-            'errorMissing' => $error !== null && is_array($error->detail['missing'] ?? null) ? Suppliers::labels($error->detail['missing']) : null,
-        ], $status, ['title' => (string) $s['code'], 'active' => 'suppliers', 'notice' => $notice]);
+        ], $status, ['title' => Words::say('SUPPLIER', 'title', (string) $s['name'], (string) $s['code']), 'active' => 'suppliers', 'notice' => $notice]);
+    }
+
+    /**
+     * The supplier's approvals and checks as sentences (plan F376): "7 Oct 2026, 10:26 – Ben asked for a reviewer's OK (New supplier).",
+     * then how it ended.
+     *
+     * @param list<array<string, mixed>> $tasks
+     * @return list<array{asked: string, outcome: string}>
+     */
+    private static function history(array $tasks): array
+    {
+        $out = [];
+        foreach ($tasks as $t) {
+            $who = (string) ($t['opened_by_name'] ?? Words::ANOMALIES['set_up']);
+            $asked = Words::say('SUPPLIER', $t['kind'] === 'review' ? 'h_line_review' : 'h_line', Html::when((string) $t['opened_at']), $who,
+                Words::of('CHECK_REASON', (string) $t['reason']));
+            $note = $t['decision_note'] === null || trim((string) $t['decision_note']) === '' ? null : (string) $t['decision_note'];
+            $outcome = match ((string) $t['state']) {
+                'open' => Words::say('SUPPLIER', 'h_open', Html::day((string) $t['due_at'])),
+                'withdrawn' => Words::SUPPLIER['h_withdrawn'],
+                default => $note === null
+                    ? Words::say('SUPPLIER', 'h_decided', Words::of('TASK_STATE', (string) $t['state']), (string) ($t['decided_by_name'] ?? Words::ANOMALIES['set_up']),
+                        Html::when((string) $t['decided_at']))
+                    : Words::say('SUPPLIER', 'h_decided_note', Words::of('TASK_STATE', (string) $t['state']), (string) ($t['decided_by_name'] ?? Words::ANOMALIES['set_up']),
+                        Html::when((string) $t['decided_at']), $note),
+            };
+            $out[] = ['asked' => $asked, 'outcome' => $outcome];
+        }
+        return $out;
+    }
+
+    /** "address, postcode, e-mail or phone": the supplier's details by name. @param list<string> $fields */
+    public static function fields(array $fields): string
+    {
+        return implode(', ', array_map(static fn (string $f): string => Words::of('SUPPLIER_FIELD', $f), $fields));
+    }
+
+    private static function notFound(Context $ctx): HtmlResponse
+    {
+        return $ctx->error(404, 'unknown_supplier', Words::BUY_ERROR['unknown_supplier'], ['/ui/purchasing/suppliers', Words::MENU['suppliers']]);
+    }
+
+    /**
+     * A refusal of the supplier services in the page's words, by its error code (plan rule 18: the service's message stays the
+     * API's). A code without words: the service's message, then "Nothing was saved."
+     */
+    public static function plain(CwException $e): string
+    {
+        $code = $e->errorCode;
+        return match (true) {
+            in_array($code, ['version_conflict', 'no_file', 'too_large', 'upload_failed', 'bad_kind', 'supplier_pending'], true) => $e->getMessage(),
+            $code === 'supplier_incomplete' && is_array($e->detail['missing'] ?? null) => Words::say('BUY_ERROR', 'supplier_incomplete', self::fields($e->detail['missing'])),
+            $code === 'supplier_incomplete' => Words::say('BUY_ERROR', 'supplier_incomplete', Words::SUPPLIER_FIELD['import_route']),
+            $code === 'bad_field' => self::fieldError($e)['text'],
+            isset(Words::ERROR[$code]) && !str_contains(Words::ERROR[$code], '%') => Words::ERROR[$code],
+            isset(Words::BUY_ERROR[$code]) && $code !== 'other' => Words::BUY_ERROR[$code],
+            default => Words::say('BUY_ERROR', 'other', PurchaseOrdersController::sentence($e->getMessage())),
+        };
+    }
+
+    /**
+     * A refused field of the supplier form (plan F380, F381): which field, and what is wrong in a sentence. The service's message
+     * starts with the field's own label ("e-mail: is not an e-mail address"): that part is left out, the field is marked instead.
+     *
+     * @return array{field: ?string, text: string}
+     */
+    public static function fieldError(CwException $e): array
+    {
+        $field = is_string($e->detail['field'] ?? null) ? $e->detail['field'] : null;
+        $label = $field === null ? null : (Suppliers::LABELS[$field] ?? $field);
+        $msg = $e->getMessage();
+        if ($label !== null && str_starts_with($msg, $label . ': ')) {
+            $msg = substr($msg, strlen($label) + 2);
+        }
+        $text = match ($field) {
+            'country' => Words::SUPPLIER_FORM['e_country'],
+            'is_overseas' => Words::SUPPLIER_FORM['e_abroad'],
+            default => Words::say('SUPPLIER_FORM', 'e_field', ucfirst(Words::of('SUPPLIER_FIELD', (string) $field)), rtrim(str_replace(['in GBP', 'GBP'], ['in £', '£'], $msg), '.')),
+        };
+        return ['field' => $field, 'text' => $text];
+    }
+
+    /**
+     * The form's fields someone else changed after version $version of supplier $id (behaviour item 9): field => who changed it
+     * last, when, its saved value now as a person reads it, and its value when the form was drawn (`was`, raw: from the first change
+     * since). Read from the supplier.update audit rows written since; each carries the version it made and the columns it changed
+     * as [before, after].
+     *
+     * @param array<string, mixed> $s the supplier now
+     * @return array<string, array{label: string, by: string, at: string, now: string, was: mixed}>
+     */
+    private static function changedSince(Context $ctx, int $id, int $version, array $s): array
+    {
+        $out = [];
+        foreach ($ctx->db->all("SELECT a.detail, a.created_at, u.display_name FROM audit_log a LEFT JOIN staff_user u ON u.id = a.staff_user_id "
+            . "WHERE a.entity_type = 'supplier' AND a.entity_id = ? AND a.action = 'supplier.update' ORDER BY a.id", [(string) $id]) as $a) {
+            $d = Html::json($a['detail']);
+            if (!is_int($d['version'] ?? null) || $d['version'] <= $version || !is_array($d['changed'] ?? null)) {
+                continue;
+            }
+            foreach ($d['changed'] as $field => $change) {
+                if (is_string($field) && isset(Suppliers::FIELDS[$field])) {
+                    $out[$field] = ['label' => ucfirst(Words::of('SUPPLIER_FIELD', $field)), 'by' => (string) ($a['display_name'] ?? Words::SUPPLIER_FORM['someone']),
+                        'at' => Html::when((string) $a['created_at']), 'now' => self::shownValue($ctx, $field, $s[$field] ?? null),
+                        'was' => array_key_exists($field, $out) ? $out[$field]['was'] : (is_array($change) ? ($change[0] ?? null) : null)];
+                }
+            }
+        }
+        $order = array_flip(array_keys(Suppliers::FIELDS));
+        uksort($out, static fn (string $a, string $b): int => $order[$a] <=> $order[$b]);
+        return $out;
+    }
+
+    /** Whether a typed value is the same as a stored one (as the form shows it: trimmed, line breaks as \n). */
+    private static function same(mixed $typed, mixed $stored): bool
+    {
+        $norm = static fn (mixed $v): string => trim(str_replace("\r\n", "\n", $v === null || is_array($v) ? '' : (string) $v));
+        return $norm($typed) === $norm($stored);
+    }
+
+    /** A supplier field's saved value as the marks of a stale form show it. */
+    private static function shownValue(Context $ctx, string $field, mixed $v): string
+    {
+        $v = $v === null ? '' : trim((string) $v);
+        return match (true) {
+            $field === 'is_overseas' => Words::SUPPLIER_FORM[$v === '1' ? 'ticked' : 'not_ticked'],
+            $v === '' => Words::SUPPLIER_FORM['empty'],
+            $field === 'dd_checked_by' => (string) ($ctx->db->value('SELECT display_name FROM staff_user WHERE id = ?', [(int) $v]) ?? $v),
+            default => $v,
+        };
     }
 
     /**
      * The new / edit form. $s: the supplier being edited (null: new); $values: what the fields show; $formKey for a new
-     * supplier (FormOnce); $version: the version the form carries (default the row's).
+     * supplier (FormOnce); $version: the version the form carries (default the row's); $theirs: after a stale save, the fields
+     * someone else changed meanwhile (changedSince), listed at the top and marked at their field.
      *
      * @param array<string, mixed>|null $s
      * @param array<string, mixed> $values
+     * @param array<string, array{label: string, by: string, at: string, now: string, was: mixed, kept?: bool}> $theirs
      */
-    private function form(Context $ctx, ?array $s, array $values, ?string $formKey, int $status, ?CwException $error, ?int $version = null): HtmlResponse
+    private function form(Context $ctx, ?array $s, array $values, ?string $formKey, int $status, ?CwException $error, ?int $version = null, array $theirs = []): HtmlResponse
     {
         $v = [];
         foreach (array_keys(Suppliers::FIELDS) as $k) {
             $v[$k] = isset($values[$k]) ? (string) $values[$k] : '';
         }
+        $fieldError = $error === null || !in_array($error->errorCode, ['bad_field', 'duplicate_code'], true) ? null : self::fieldError($error);
+        if ($fieldError !== null && $error?->errorCode === 'duplicate_code') {
+            $fieldError['text'] = Words::BUY_ERROR['duplicate_code'];
+        }
+        $title = $s === null ? Words::SUPPLIER_FORM['title_new'] : Words::say('SUPPLIER_FORM', 'title_edit', (string) $s['name']);
         return $ctx->page('supplier_form', [
             's' => $s,
+            'title' => $title,
             'action' => $s === null ? '/ui/purchasing/suppliers' : '/ui/purchasing/suppliers/' . (int) $s['id'],
             'v' => $v,
             'formKey' => $formKey,
@@ -370,10 +558,13 @@ final class SuppliersController
             'vatCodes' => $ctx->db->all('SELECT code, label FROM vat_code WHERE is_active = 1 ORDER BY sort_order, code'),
             'staff' => $ctx->db->all('SELECT id, display_name FROM staff_user WHERE is_active = 1 ORDER BY display_name, id'),
             'meId' => $ctx->me()->id,
-            'error' => $error?->getMessage(),
-            'errorField' => is_string($error?->detail['field'] ?? null) ? $error->detail['field'] : null,
+            // A refused field is marked and its message sits under it (F381); anything else is said at the top.
+            'error' => $error === null ? null : ($fieldError !== null && $fieldError['field'] !== null ? Words::SUPPLIER_FORM['invalid'] : self::plain($error)),
+            'errorField' => $fieldError['field'] ?? null,
+            'fieldError' => $fieldError['text'] ?? null,
+            'theirs' => $theirs,
             'today' => $ctx->suppliers()->today(),
-        ], $status, ['title' => $s === null ? 'New supplier' : 'Edit ' . $s['code'], 'active' => 'suppliers']);
+        ], $status, ['title' => $title, 'active' => 'suppliers']);
     }
 
     /**

@@ -209,14 +209,29 @@ final class Suppliers
      */
     public function decidableCount(int $staffId, array $roles): int
     {
+        return array_sum($this->decidableCounts($staffId, $roles));
+    }
+
+    /**
+     * decidableCount() by kind ('review' | 'approval'), in one query (the Home page's two cards).
+     *
+     * @param list<string> $roles
+     * @return array{review: int, approval: int}
+     */
+    public function decidableCounts(int $staffId, array $roles): array
+    {
+        $out = ['review' => 0, 'approval' => 0];
         if (in_array('admin', $roles, true) || !Permissions::can($roles, 'suppliers.approve')) {
-            return 0;
+            return $out;
         }
-        return (int) $this->db->value(
-            "SELECT COUNT(*) FROM review_task t JOIN supplier s ON s.id = t.subject_id WHERE t.subject_type = 'supplier' AND t.state = 'open' "
-            . 'AND NOT (t.opened_by <=> ?) AND NOT (s.created_by <=> ?) AND NOT (s.details_changed_by <=> ?)',
+        foreach ($this->db->all(
+            "SELECT t.kind, COUNT(*) AS n FROM review_task t JOIN supplier s ON s.id = t.subject_id WHERE t.subject_type = 'supplier' AND t.state = 'open' "
+            . 'AND NOT (t.opened_by <=> ?) AND NOT (s.created_by <=> ?) AND NOT (s.details_changed_by <=> ?) GROUP BY t.kind',
             [$staffId, $staffId, $staffId],
-        );
+        ) as $r) {
+            $out[(string) $r['kind']] = ($out[(string) $r['kind']] ?? 0) + (int) $r['n'];
+        }
+        return $out;
     }
 
     /** @return list<array<string, mixed>> the supplier's review tasks, oldest first, with the people's names */

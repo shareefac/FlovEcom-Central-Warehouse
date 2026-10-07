@@ -7,6 +7,7 @@ namespace CW\Tests\Integration\UiKernel;
 use CW\Caller;
 use CW\Mapping\ListingIngestService;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\Words;
 
 /**
  * The second person approves what the screens show them (plan §7.1 two-person rule, M6, U11): the
@@ -37,14 +38,14 @@ final class ApprovalScreensTest extends KernelUiTestCase
         $lead = $this->signIn($this->uiUser('mapping_lead'));
         $list = $lead->get('/ui/review', ['queue' => 'pending']);
         self::assertTrue($list->hasForm("/ui/review/decision/{$did}/approve"));
-        foreach ([$typed, 'Brand: Zeta', 'Strength (mg): 50', '2 per item'] as $shown) {
+        foreach ([$typed, 'Brand: Zeta', 'Strength (mg): 50', Words::saleUses(2)] as $shown) {
             self::assertStringContainsString($shown, $list->text(), 'second-approval list');
         }
         $page = $lead->get('/ui/review/listing/' . $l);
         self::assertTrue($page->hasForm("/ui/review/decision/{$did}/approve"));
         $xp = new \DOMXPath($page->dom());
         $cardBox = self::squash((string) $xp->evaluate('string(//section[@aria-labelledby="item-h"])'));
-        self::assertStringContainsString('New item this decision creates', $cardBox);
+        self::assertStringContainsString(Words::LISTING['new_by_decision'], $cardBox);
         self::assertStringContainsString("Name {$typed}", $cardBox);
         self::assertStringContainsString('Brand Zeta', $cardBox);
         self::assertStringContainsString('Strength (mg) 50', $cardBox);
@@ -84,11 +85,11 @@ final class ApprovalScreensTest extends KernelUiTestCase
             $compareHead = trim((string) $xp->evaluate('string(//table[contains(@class,"compare")]/thead/tr/th[3])'));
             $card = self::squash((string) $xp->evaluate('string(//section[@aria-labelledby="item-h"])'));
             self::assertSame($this->skuCode($other), $compareHead, 'the comparison is with the item being approved: ' . json_encode($query));
-            self::assertStringContainsString('Item this decision links to ' . $this->skuCode($other), $card);
+            self::assertStringContainsString(Words::LISTING['pending_target'] . ' ' . $this->skuCode($other), $card);
             self::assertStringContainsString('5056168899999', $card, "the approved item's barcode");
             self::assertStringNotContainsString($this->skuCode($proposed), $card);
             $barcodeRow = self::squash((string) $xp->evaluate('string(//table[contains(@class,"compare")]//tr[th="Barcodes"])'));
-            self::assertStringContainsString('differs', $barcodeRow, 'the listing barcode is not the approved item\'s');
+            self::assertStringContainsString(Words::FIELD_STATE['differs'], $barcodeRow, 'the listing barcode is not the approved item\'s');
         }
     }
 
@@ -110,20 +111,22 @@ final class ApprovalScreensTest extends KernelUiTestCase
         $did = (int) self::$db->value("SELECT id FROM match_decision WHERE listing_id = ? AND state = 'pending_second'", [$l]);
 
         $lead = $this->signIn($this->uiUser('mapping_lead'));
-        self::assertStringNotContainsString('Withdraw it and decide again', $lead->get('/ui/review', ['queue' => 'pending'])->text());
+        self::assertStringNotContainsString(Words::LISTING['stale_fix'], $lead->get('/ui/review', ['queue' => 'pending'])->text());
 
         // The site renames the variant (identity change): the listing moves on, the decision is stale.
         $ingest->ingest(Caller::system('test'), (int) $site->channelId, [['variant_title' => 'Blue Razz - 5 x 10ml'] + $row]);
         $list = $lead->get('/ui/review', ['queue' => 'pending']);
-        self::assertStringContainsString('The listing changed since this was decided (its link, or the site changed its titles, brand or barcodes).', $list->text());
+        self::assertStringContainsString(Words::LISTING['stale_version'] . ' ' . Words::LISTING['stale_fix'], $list->text());
         // A later run supersedes the proposal: stale for that reason too.
         $this->propose($l, 'Conflict', null, ['lane' => 'barcode'], true, 'run-2');
         $page = $lead->get('/ui/review/listing/' . $l);
-        self::assertStringContainsString('The listing has another proposal since this was decided.', $page->text());
-        self::assertStringContainsString('The listing changed since this was decided', $page->text());
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertStringContainsString(Words::LISTING['stale_proposal'], $page->text());
+        self::assertStringContainsString(Words::LISTING['stale_version'], $page->text());
 
         $refused = $lead->post("/ui/review/decision/{$did}/approve", ['csrf' => $this->token($lead)]);
         self::assertSame(409, $refused->status, self::statusOf($refused));
+        self::assertStringContainsString(Words::MATCH_ERROR['map_version_conflict_settle'], $refused->text(), 'the refusal in words, by its code (F214)');
         self::assertSame('pending_second', self::$db->value('SELECT state FROM match_decision WHERE id = ?', [$did]));
         self::assertSame(['suggested', null], [$this->link($l)['status'], $this->link($l)['sku_id']]);
     }

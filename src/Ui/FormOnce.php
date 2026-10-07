@@ -17,7 +17,7 @@ use CW\OpResult;
  * `ui:<staff id>:<form_key>`. The idempotency scope of staff callers is source 'staff', shared by every person, hence
  * the staff id in the key.
  *
- *  - a missing or malformed key: 400 bad_form_key;
+ *  - a missing or malformed key: 400 bad_form_key (the words: Words::ERROR);
  *  - the same form sent again (a double click, a browser retry, the back button): the stored result is replayed, so the
  *    person lands on the same page and nothing is created twice;
  *  - the same key with other values: 422 idempotency_key_reused ("this form was already sent with other values: reload");
@@ -43,13 +43,13 @@ final class FormOnce
     {
         $key = $ctx->req->field(self::FIELD);
         if ($key === null || preg_match('/^[0-9a-f]{32}$/D', $key) !== 1) {
-            throw new CwException('bad_form_key', 'this form has no valid form key: reload the page and fill it in again', 400);
+            throw new CwException('bad_form_key', Words::error('bad_form_key'), 400);
         }
         $me = $ctx->me();
         $r = (new Idempotency($ctx->db))->run(Caller::staff($me->id, $ctx->req->ip), "ui:{$me->id}:{$key}", $action, $ctx->req->path, $request, null, null,
             static fn (Db $db): OpResult => $effect($db));
         if (($r->body['error'] ?? null) === 'idempotency_key_reused') {
-            throw new CwException('idempotency_key_reused', 'this form was already sent with other values: reload the page and fill it in again', 422);
+            throw new CwException('idempotency_key_reused', Words::error('idempotency_key_reused'), 422);
         }
         return $r;
     }

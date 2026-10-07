@@ -505,8 +505,20 @@ final class Documents
      */
     public function decidableCount(int $staffId, array $roles): int
     {
+        return array_sum($this->decidableCounts($staffId, $roles));
+    }
+
+    /**
+     * decidableCount() by kind, in one query (the Home page's two cards and the badge come from one call per request).
+     *
+     * @param list<string> $roles
+     * @return array{review: int, approval: int}
+     */
+    public function decidableCounts(int $staffId, array $roles): array
+    {
+        $out = ['review' => 0, 'approval' => 0];
         if (in_array('admin', $roles, true)) {
-            return 0;
+            return $out;
         }
         $kinds = [];
         if (Permissions::can($roles, 'documents.review')) {
@@ -516,14 +528,17 @@ final class Documents
             $kinds[] = 'approval';
         }
         if ($kinds === []) {
-            return 0;
+            return $out;
         }
-        return (int) $this->db->value(
-            "SELECT COUNT(*) FROM review_task t JOIN document d ON d.id = t.subject_id WHERE t.subject_type = 'document' AND t.state = 'open' "
+        foreach ($this->db->all(
+            "SELECT t.kind, COUNT(*) AS n FROM review_task t JOIN document d ON d.id = t.subject_id WHERE t.subject_type = 'document' AND t.state = 'open' "
             . 'AND t.kind IN (' . implode(', ', array_fill(0, count($kinds), '?')) . ') AND NOT (t.opened_by <=> ?) '
-            . 'AND NOT (d.created_by <=> ?) AND NOT (d.submitted_by <=> ?) AND NOT (d.posted_by <=> ?)',
+            . 'AND NOT (d.created_by <=> ?) AND NOT (d.submitted_by <=> ?) AND NOT (d.posted_by <=> ?) GROUP BY t.kind',
             [...$kinds, $staffId, $staffId, $staffId, $staffId],
-        );
+        ) as $r) {
+            $out[(string) $r['kind']] = (int) $r['n'];
+        }
+        return $out;
     }
 
     /**

@@ -154,24 +154,44 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * The main navigation of a page as the person sees it (I14): section label => its items, each
-     * ['label' => visible text, 'href' => link or null for a "coming in Phase ..." placeholder].
+     * The main navigation of a page as the person sees it (I14, plan §2): section heading => its items, each
+     * ['label' => visible text, 'href' => link or null for a "coming in Phase ..." placeholder]. The visible text leaves out
+     * the words only a screen reader hears (.visually-hidden: "3 waiting for your second OK" after a badge is "3"). The first
+     * section is Home (its heading is hidden on screen: Home is a single link).
      *
      * @return array<string, list<array{label: string, href: ?string}>>
      */
     protected static function nav(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
+        $navs = $xp->query('//nav[@aria-label="Main"]');
+        self::assertLessThanOrEqual(1, $navs === false ? 0 : $navs->length, 'one main menu per page');
         $out = [];
         foreach ($xp->query('//nav[@aria-label="Main"]/div[contains(concat(" ", @class, " "), " menu-group ")]') ?: [] as $group) {
             $label = trim((string) $xp->evaluate('string(span[@class="menu-label"])', $group));
             $items = [];
             foreach ($xp->query('a | span[@class="soon"]', $group) ?: [] as $item) {
                 /** @var \DOMElement $item */
-                $items[] = ['label' => trim((string) preg_replace('/\s+/u', ' ', (string) $item->textContent)),
+                $text = '';
+                foreach ($xp->query('.//text()[not(ancestor::*[contains(concat(" ", @class, " "), " visually-hidden ")])]', $item) ?: [] as $t) {
+                    $text .= $t->textContent;
+                }
+                $items[] = ['label' => trim((string) preg_replace('/\s+/u', ' ', $text)),
                     'href' => $item->nodeName === 'a' ? $item->getAttribute('href') : null];
             }
             $out[$label] = $items;
+        }
+        return $out;
+    }
+
+    /** The phone tab bar of a page: its labels and links, in order. @return list<array{label: string, href: string}> */
+    protected static function tabs(UiResponse $r): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $out = [];
+        foreach ($xp->query('//nav[@aria-label="Main tasks"]/a') ?: [] as $a) {
+            /** @var \DOMElement $a */
+            $out[] = ['label' => trim((string) $xp->evaluate('string(span[not(@class)])', $a)), 'href' => $a->getAttribute('href')];
         }
         return $out;
     }

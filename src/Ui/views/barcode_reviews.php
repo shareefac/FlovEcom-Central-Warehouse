@@ -1,52 +1,53 @@
-<h1>Barcode review</h1>
-<p class="muted">What the barcode sync could not decide alone: a barcode a site listing carries that is already another item's (it is unusable until
-  decided), or a new barcode of a multipack listing (is it the pack's or the single unit's?). Nothing moves until you decide.</p>
-<?php if ($error !== null): ?>
+<h1><?= $word('MENU', 'barcodes') ?></h1>
+<?= $intro('barcodes') ?>
+<?php if ($error !== null && $errorId === null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
-<div class="crumbs">
-  <p class="actions">
-    <a href="/ui/items/barcodes"<?php if ($show === 'open'): ?> aria-current="page"<?php endif; ?>>Open (<?= $n($open) ?>)</a>
-    <a href="<?= $u('/ui/items/barcodes', ['show' => 'decided']) ?>"<?php if ($show === 'decided'): ?> aria-current="page"<?php endif; ?>>Decided</a>
-  </p>
-  <form class="filters" method="get" action="/ui/items/barcodes">
+<nav class="tabs" aria-label="<?= $word('MENU', 'barcodes') ?>">
+  <a href="/ui/items/barcodes"<?php if ($show === 'open'): ?> aria-current="page"<?php endif; ?>><?= $say('BARCODE', 'open', $open) ?></a>
+  <a href="<?= $u('/ui/items/barcodes', ['show' => 'decided']) ?>"<?php if ($show === 'decided'): ?> aria-current="page"<?php endif; ?>><?= $word('BARCODE', 'decided') ?></a>
+</nav>
+<form class="filters" method="get" action="/ui/items/barcodes">
 <?php if ($show === 'decided'): ?>
-    <input type="hidden" name="show" value="decided">
+  <input type="hidden" name="show" value="decided">
 <?php endif; ?>
-    <label>Barcode <input type="search" name="barcode" value="<?= $e($barcode) ?>" inputmode="numeric" maxlength="40"></label>
-    <button type="submit">Find</button>
-  </form>
-</div>
+  <label><?= $word('BARCODE', 'find') ?> <input type="search" name="barcode" value="<?= $e($barcode) ?>" inputmode="numeric" maxlength="40"></label>
+  <button type="submit"><?= $word('BARCODE', 'find_button') ?></button>
+</form>
 <?php if ($rows === []): ?>
-<p class="note"><?php if ($show === 'open'): ?>Nothing to decide.<?php else: ?>Nothing decided yet.<?php endif; ?></p>
+<?php if ($show === 'open'): ?>
+<?= $empty(\CW\Ui\Words::BARCODE['nothing'], \CW\Ui\Words::BARCODE['nothing_text']) ?>
+<?php else: ?>
+<?= $empty(\CW\Ui\Words::BARCODE['nothing_decided']) ?>
+<?php endif; ?>
 <?php endif; ?>
 <?php foreach ($rows as $r): ?>
 <article class="card barcode-review" id="review-<?= $e($r['id']) ?>" aria-labelledby="br-<?= $e($r['id']) ?>">
-  <h2 id="br-<?= $e($r['id']) ?>"><?= $e($r['barcode']) ?> <span class="tag<?php if ($r['reason'] === 'on_another_item'): ?> bad<?php elseif ($r['reason'] === 'multipack_listing'): ?> warn<?php endif; ?>"><?= $e($r['reasonLabel']) ?></span></h2>
+  <h2 id="br-<?= $e($r['id']) ?>"><?= $e($r['barcode']) ?> <?= $chip($r['reason'] === 'on_another_item' ? 'blocked' : ($r['reason'] === 'multipack_listing' ? 'needs' : 'info'), (string) $r['reasonLabel']) ?></h2>
 <?php if ($errorId === (int) $r['id'] && $error !== null): ?>
   <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
   <dl>
 <?php if ($r['holder_sku_id'] !== null && $r['reason'] !== 'removed'): ?>
-    <dt>On item</dt>
-    <dd><a href="<?= $u('/ui/items/' . $r['holder_sku_id']) ?>"><?= $e($r['holder_code']) ?></a> <?= $e($r['holder_name']) ?> <span class="muted">(<?= $n($r['holder_stock']) ?> in stock)</span><?php if ($r['holder_merged'] !== null): ?> <span class="tag warn">merged into <?= $e($r['holder_merged_code']) ?></span><?php endif; ?></dd>
+    <dt><?= $word('BARCODE', 'on_product') ?></dt>
+    <dd><a href="<?= $u('/ui/items/' . $r['holder_sku_id']) ?>"><?= $e($r['holder_code']) ?></a> <?= $e($r['holder_name']) ?> <span class="muted"><?= $say('BARCODE', 'in_stock', (int) $r['holder_stock']) ?></span><?php if ($r['holder_merged'] !== null): ?> <span class="tag warn"><?= $say('BARCODE', 'joined', (string) $r['holder_merged_code']) ?></span><?php endif; ?></dd>
 <?php if ($r['holder_merged_into_claimant'] && $r['status'] === 'open'): ?>
-    <dd class="note">This item was merged into the listing's item, and the barcode came with it: moving it there is the usual answer (chosen below).</dd>
+    <dd class="note"><?= $word('BARCODE', 'joined_note') ?></dd>
 <?php endif; ?>
 <?php endif; ?>
-    <dt><?php if ($r['reason'] === 'removed'): ?>Removed from<?php else: ?>Carried by a listing of<?php endif; ?></dt>
-    <dd><a href="<?= $u('/ui/items/' . $r['claimant_sku_id']) ?>"><?= $e($r['claimant_code']) ?></a> <?= $e($r['claimant_name']) ?> <span class="muted">(<?= $n($r['claimant_stock']) ?> in stock)</span></dd>
+    <dt><?php if ($r['reason'] === 'removed'): ?><?= $word('BARCODE', 'removed_from') ?><?php else: ?><?= $word('BARCODE', 'carried_by') ?><?php endif; ?></dt>
+    <dd><a href="<?= $u('/ui/items/' . $r['claimant_sku_id']) ?>"><?= $e($r['claimant_code']) ?></a> <?= $e($r['claimant_name']) ?> <span class="muted"><?= $say('BARCODE', 'in_stock', (int) $r['claimant_stock']) ?></span></dd>
 <?php if ($r['listing_id'] !== null): ?>
-    <dt>Listing</dt>
-    <dd><?= $e($r['channel']) ?> <?= $e($r['external_variant_id']) ?> <?= $e($r['variant_title'] ?? $r['product_title']) ?> <span class="muted">(<?= $e($r['units_per_item']) ?> per item when found; <?= $e($r['listing_status']) ?> now)</span></dd>
+    <dt><?= $word('BARCODE', 'website_product') ?></dt>
+    <dd><?= $e($r['variant_title'] ?? $r['product_title']) ?> <span class="muted"><?= $say('BARCODE', 'listing_line', (string) $r['site'], \CW\Ui\Words::say('SALES', 'option', (string) $r['external_variant_id']), (string) $r['units_per_item'], (string) $r['listing_state']) ?></span></dd>
 <?php endif; ?>
-    <dt>Now</dt>
-    <dd><?php if ($r['now_sku_id'] === null): ?>no item has it<?php else: ?>on <a href="<?= $u('/ui/items/' . $r['now_sku_id']) ?>"><?= $e($r['now_code']) ?></a>, <?= $e($r['now_units']) ?> per scan, <?php if ((int) $r['now_usable'] === 1): ?>usable<?php else: ?>unusable<?php endif; ?><?php endif; ?></dd>
-    <dt>Found</dt>
-    <dd><?= $dt($r['created_at']) ?> <span class="muted">by <?= $e($r['opened_by_name'] ?? $r['opened_actor']) ?></span></dd>
+    <dt><?= $word('BARCODE', 'now') ?></dt>
+    <dd><?php if ($r['now_sku_id'] === null): ?><?= $word('BARCODE', 'now_none') ?><?php else: ?><?= $say('BARCODE', 'now_line', (string) $r['now_code'], (string) $r['now_units'], (int) $r['now_usable'] === 1 ? \CW\Ui\Words::BARCODE['can_use'] : \CW\Ui\Words::BARCODE['cannot_use']) ?><?php endif; ?></dd>
+    <dt><?= $word('BARCODE', 'found') ?></dt>
+    <dd><?php if ($r['opened_by_name'] === null): ?><?= $say('BARCODE', 'found_cw', \CW\Ui\Html::when((string) $r['created_at'])) ?><?php else: ?><?= $say('BARCODE', 'found_line', \CW\Ui\Html::when((string) $r['created_at']), (string) $r['opened_by_name']) ?><?php endif; ?></dd>
 <?php if ($r['status'] === 'decided'): ?>
-    <dt>Decided</dt>
-    <dd><?= $e($r['decisionLabel']) ?><?php if ($r['decided_units'] !== null): ?> (<?= $e($r['decided_units']) ?> per scan)<?php endif; ?> · <?= $dt($r['decided_at']) ?> · <?= $e($r['decided_by_name'] ?? $r['decided_actor']) ?><?php if ($r['note'] !== null): ?> · <?= $e($r['note']) ?><?php endif; ?></dd>
+    <dt><?= $word('BARCODE', 'decision') ?></dt>
+    <dd><?= $e($r['decisionLabel']) ?><?php if ($r['decided_units'] !== null): ?> (<?= $say('BARCODE', 'per_scan', (string) $r['decided_units']) ?>)<?php endif; ?> · <?= $when($r['decided_at']) ?> · <?= $e($r['decided_by_name'] ?? \CW\Ui\Words::BARCODE['set_up']) ?><?php if ($r['note'] !== null): ?> · <?= $e($r['note']) ?><?php endif; ?></dd>
 <?php endif; ?>
   </dl>
 <?php if ($r['status'] === 'open'): ?>
@@ -54,22 +55,22 @@
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($r['formKey']) ?>">
     <fieldset>
-      <legend>Decide</legend>
-<?php foreach ($r['decisions'] as $code => $label): ?>
+      <legend><?= $word('BARCODE', 'decide') ?></legend>
+<?php foreach ($r['choices'] as $code => $label): ?>
       <label class="choice"><input type="radio" name="decision" value="<?= $e($code) ?>"<?php if ($code === 'move' && $r['holder_merged_into_claimant']): ?> checked<?php endif; ?>> <?= $e($label) ?></label>
 <?php endforeach; ?>
 <?php if ($r['reason'] === 'multipack_listing' || $r['reason'] === 'on_another_item'): ?>
-      <label for="units-<?= $e($r['id']) ?>">Units per scan <span class="muted">(when it is added or moved; empty: <?php if ($r['reason'] === 'multipack_listing'): ?>the listing's <?= $e($r['units_per_item']) ?><?php else: ?>as it is now<?php endif; ?>)</span></label>
+      <label for="units-<?= $e($r['id']) ?>"><?= $word('BARCODE', 'units_label') ?> <span class="hint"><?php if ($r['reason'] === 'multipack_listing'): ?><?= $say('BARCODE', 'units_hint_listing', (string) $r['units_per_item']) ?><?php else: ?><?= $word('BARCODE', 'units_hint_now') ?><?php endif; ?></span></label>
       <input id="units-<?= $e($r['id']) ?>" class="units" type="number" name="units" min="1" max="<?= $e($maxUnits) ?>" step="1" inputmode="numeric">
 <?php endif; ?>
-      <label for="note-<?= $e($r['id']) ?>">Note <span class="muted">(optional)</span></label>
+      <label for="note-<?= $e($r['id']) ?>"><?= $word('BARCODE', 'note') ?></label>
       <input id="note-<?= $e($r['id']) ?>" type="text" name="note" maxlength="500">
     </fieldset>
-    <p class="actions"><button type="submit">Save the decision</button></p>
+    <p class="actions"><button type="submit" class="primary"><?= $word('BARCODE', 'save_decision') ?></button></p>
   </form>
 <?php endif; ?>
 </article>
 <?php endforeach; ?>
 <?php if (count($rows) >= $limit): ?>
-<p class="muted">The first <?= $n($limit) ?> are shown.</p>
+<p class="muted"><?= $say('BARCODE', 'limit', $limit) ?></p>
 <?php endif; ?>

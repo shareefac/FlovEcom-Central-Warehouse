@@ -14,6 +14,7 @@ use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\UiRequest;
+use CW\Ui\Words;
 
 /**
  * Supplier items (IM4; docs/decisions.md I43-I44): a supplier's items (and their CSV), adding an item found by a search
@@ -23,35 +24,32 @@ use CW\Ui\UiRequest;
  */
 final class SupplierItemsController
 {
-    public const NOTICES = [
-        'created' => 'Supplier item added.',
-        'saved' => 'Saved.',
-        'unchanged' => 'Nothing changed.',
-        'preferred' => 'This is now the preferred supply of the item (any other supplier item of the item is no longer preferred).',
-        'not_preferred' => 'This is no longer the preferred supply of the item.',
-        'price' => 'Price recorded.',
-        'pack_changed' => 'Saved. The pack size changed: the last price is now the newest one recorded for the new pack (none yet: record it below).',
-    ];
+    /** The notices named in a redirect (their words: Words::SI_NOTICE). */
+    public const NOTICES = Words::SI_NOTICE;
 
     public function index(Context $ctx): HtmlResponse
     {
         $s = $ctx->suppliers()->find($ctx->id());
         if ($s === null) {
-            return $ctx->error(404, 'unknown_supplier', 'there is no such supplier');
+            return self::noSupplier($ctx);
         }
+        $canManage = $ctx->me()->can('suppliers.manage');
+        $title = Words::say('SUPPLIER_ITEMS', 'title', (string) $s['name']);
         return $ctx->page('supplier_items', [
             's' => $s,
+            'title' => $title,
             'rows' => array_map(self::row(...), $this->rows($ctx, (int) $s['id'])),
-            'canManage' => $ctx->me()->can('suppliers.manage'),
+            'canManage' => $canManage,
+            'lookOnly' => $canManage ? null : Words::whoCan('suppliers.manage'),
             'notice' => null,
-        ], 200, ['title' => $s['code'] . ' items', 'active' => 'suppliers']);
+        ], 200, ['title' => $title, 'active' => 'suppliers']);
     }
 
     public function csv(Context $ctx): HtmlResponse
     {
         $s = $ctx->suppliers()->find($ctx->id());
         if ($s === null) {
-            return $ctx->error(404, 'unknown_supplier', 'there is no such supplier');
+            return self::noSupplier($ctx);
         }
         $csv = new CsvWriter([['supplier', 'text'], ['cw_code', 'text'], ['item_name', 'text'], ['brand', 'text'], ['supplier_code', 'text'],
             ['supplier_description', 'text'], ['purchase_unit', 'text'], ['units_per_pack', 'number'], ['moq_packs', 'number'], ['order_multiple_packs', 'number'],
@@ -88,7 +86,7 @@ final class SupplierItemsController
         $request = $fields + ['sku_id' => $sku, 'pack_price' => $price, 'effective_on' => $priceOn];
         try {
             if ($sku === null) {
-                throw new CwException('bad_field', 'choose the item (search for it first)', 422, ['field' => 'sku_id']);
+                throw new CwException('choose_item', Words::SUPPLIER_ITEMS['choose_first'], 422, ['field' => 'sku_id']);
             }
             $r = FormOnce::run($ctx, 'ui.supplier_item.create', $request, static function (Db $db) use ($ctx, $supplierId, $sku, $fields, $price, $priceOn): OpResult {
                 $i = $ctx->supplierItems()->create($ctx->caller(), $supplierId, $sku, $fields,
@@ -113,7 +111,7 @@ final class SupplierItemsController
         $req = $ctx->req;
         $version = UiRequest::id($req->field('version'));
         if ($version === null) {
-            return $ctx->error(400, 'bad_version', 'this form has no version: reload the page');
+            return $ctx->error(400, 'bad_version', Words::ERROR['bad_version']);
         }
         $svc = $ctx->supplierItems();
         try {
@@ -138,8 +136,7 @@ final class SupplierItemsController
             }
         } catch (CwException $e) {
             if ($e->errorCode === 'version_conflict') {
-                return $this->page($ctx, $id, 409, new CwException('version_conflict',
-                    'This supplier item was changed since you opened the page: here is the current data. Make your change again.', 409));
+                return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::BUY_ERROR['version_conflict'], 409));
             }
             return $this->page($ctx, $id, $e->httpStatus, $e);
         }
@@ -177,7 +174,7 @@ final class SupplierItemsController
         $svc = $ctx->supplierItems();
         $i = $svc->find($id);
         if ($i === null) {
-            return $ctx->error(404, 'unknown_supplier_item', 'there is no such supplier item');
+            return $ctx->error(404, 'unknown_supplier_item', Words::BUY_ERROR['unknown_supplier_item'], ['/ui/purchasing/suppliers', Words::MENU['suppliers']]);
         }
         $s = $ctx->suppliers()->get((int) $i['supplier_id']);
         $sku = $ctx->db->one('SELECT s.id, s.code, s.name, s.brand, s.merged_into_sku_id, m.code AS merged_code FROM sku s LEFT JOIN sku m ON m.id = s.merged_into_sku_id '
@@ -187,21 +184,28 @@ final class SupplierItemsController
             . 'FROM supplier_item i JOIN supplier s ON s.id = i.supplier_id WHERE i.sku_id = ? AND i.id <> ? ORDER BY i.is_preferred DESC, s.name',
             [(int) $i['sku_id'], $id],
         );
-        $history = array_map(static fn (array $h): array => $h + ['pack_text' => self::gbp($h['pack_price']), 'unit_text' => self::gbp($h['unit_price'])],
-            $svc->history($id));
+        $history = array_map(static fn (array $h): array => $h + ['pack_text' => Html::money($h['pack_price']), 'unit_text' => Html::money($h['unit_price']),
+            'source_text' => match ((string) $h['source']) {
+                'po' => Words::say('SUPPLIER_ITEMS', 'source_po', (string) ($h['document_number'] ?? $h['source_ref'] ?? '')),
+                'import' => Words::SUPPLIER_ITEMS['source_import'],
+                'invoice' => Words::SUPPLIER_ITEMS['source_invoice'],
+                default => Words::SUPPLIER_ITEMS['source_manual'],
+            }], $svc->history($id));
         return $ctx->page('supplier_item', [
             'i' => self::row($i + ['sku_code' => $sku['code'] ?? null, 'sku_name' => $sku['name'] ?? null, 'brand' => $sku['brand'] ?? null,
                 'merged_into_sku_id' => $sku['merged_into_sku_id'] ?? null, 'merged_code' => $sku['merged_code'] ?? null]),
             's' => $s,
-            'others' => array_map(static fn (array $o): array => $o + ['pack' => self::pack((string) $o['purchase_unit'], (int) $o['units_per_pack']),
-                'price_text' => self::gbp($o['last_pack_price'])], $others),
+            'others' => array_map(static fn (array $o): array => $o + ['pack' => PurchaseOrdersController::pack((string) $o['purchase_unit'], (int) $o['units_per_pack']),
+                'price_text' => Html::money($o['last_pack_price'])], $others),
             'history' => $history,
             'canManage' => $ctx->me()->can('suppliers.manage'),
             'priceKey' => $priceKey ?? FormOnce::newKey(),
             'priceValues' => $priceValues ?? ['pack_price' => '', 'effective_on' => '', 'note' => ''],
             'today' => $ctx->suppliers()->today(),
-            'error' => $error?->getMessage(),
-        ], $status, ['title' => ($sku['code'] ?? '') . ' from ' . $s['code'], 'active' => 'suppliers', 'notice' => $notice]);
+            'error' => $error === null ? null : self::plain($error),
+            'title' => Words::say('SUPPLIER_ITEMS', 'one_title', (string) ($sku['name'] ?? ''), (string) $s['name']),
+            'canSeeOrders' => $ctx->me()->can('purchasing.view'),
+        ], $status, ['title' => Words::say('SUPPLIER_ITEMS', 'one_title', (string) ($sku['name'] ?? ''), (string) $s['name']), 'active' => 'suppliers', 'notice' => $notice]);
     }
 
     /**
@@ -213,7 +217,7 @@ final class SupplierItemsController
     {
         $s = $ctx->suppliers()->find($supplierId);
         if ($s === null) {
-            return $ctx->error(404, 'unknown_supplier', 'there is no such supplier');
+            return self::noSupplier($ctx);
         }
         $q = mb_substr(trim($ctx->req->param('q') ?? (string) ($values['q'] ?? '')), 0, 100);
         $chosen = UiRequest::id($ctx->req->param('sku_id')) ?? (isset($values['sku_id']) && is_int($values['sku_id']) ? $values['sku_id'] : null);
@@ -229,7 +233,7 @@ final class SupplierItemsController
             $ids = array_map(static fn (array $r): int => (int) $r['id'], $found);
             foreach ($ctx->db->all('SELECT sku_id, units_per_pack, purchase_unit FROM supplier_item WHERE supplier_id = ? AND sku_id IN ('
                 . implode(', ', array_fill(0, count($ids), '?')) . ')', [$supplierId, ...$ids]) as $r) {
-                $have[(int) $r['sku_id']][] = self::pack((string) $r['purchase_unit'], (int) $r['units_per_pack']);
+                $have[(int) $r['sku_id']][] = PurchaseOrdersController::pack((string) $r['purchase_unit'], (int) $r['units_per_pack']);
             }
         }
         $items = array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'],
@@ -248,8 +252,9 @@ final class SupplierItemsController
             'v' => $v,
             'formKey' => $formKey,
             'today' => $ctx->suppliers()->today(),
-            'error' => $error?->getMessage(),
-        ], $status, ['title' => 'Add an item to ' . $s['code'], 'active' => 'suppliers']);
+            'error' => $error === null ? null : self::plain($error),
+            'title' => Words::say('SUPPLIER_ITEMS', 'add_title', (string) $s['name']),
+        ], $status, ['title' => Words::say('SUPPLIER_ITEMS', 'add_title', (string) $s['name']), 'active' => 'suppliers']);
     }
 
     /** @return list<array<string, mixed>> */
@@ -262,15 +267,40 @@ final class SupplierItemsController
         );
     }
 
-    /** @param array<string, mixed> $r @return array<string, mixed> a supplier item row with its display texts */
+    /** @param array<string, mixed> $r @return array<string, mixed> a supplier item row with its display texts (money as £1,234.56, F397) */
     private static function row(array $r): array
     {
         return $r + [
-            'pack' => self::pack((string) $r['purchase_unit'], (int) $r['units_per_pack']),
-            'price_text' => self::gbp($r['last_pack_price']),
-            'unit_text' => $r['last_pack_price'] === null ? null : self::gbp(SupplierItems::unitPrice((string) $r['last_pack_price'], (int) $r['units_per_pack'])),
-            'po_text' => self::gbp($r['last_po_pack_price']),
+            'pack' => PurchaseOrdersController::pack((string) $r['purchase_unit'], (int) $r['units_per_pack']),
+            'price_text' => $r['last_pack_price'] === null ? null : Html::money($r['last_pack_price']),
+            'unit_text' => $r['last_pack_price'] === null ? null : Html::money(SupplierItems::unitPrice((string) $r['last_pack_price'], (int) $r['units_per_pack'])),
+            'po_text' => $r['last_po_pack_price'] === null ? null : Html::money($r['last_po_pack_price']),
+            'price_source' => lcfirst(Words::SUPPLIER_ITEMS[match ((string) ($r['last_price_source'] ?? '')) {
+                'import' => 'source_import',
+                'invoice' => 'source_invoice',
+                default => 'source_manual',
+            }]),
         ];
+    }
+
+    private static function noSupplier(Context $ctx): HtmlResponse
+    {
+        return $ctx->error(404, 'unknown_supplier', Words::BUY_ERROR['unknown_supplier'], ['/ui/purchasing/suppliers', Words::MENU['suppliers']]);
+    }
+
+    /**
+     * A refusal of SupplierItems in the page's words, by its error code (plan rule 18: the service's message stays the API's).
+     * A code without words: the service's message, then "Nothing was saved."
+     */
+    public static function plain(CwException $e): string
+    {
+        $code = $e->errorCode;
+        return match (true) {
+            in_array($code, ['version_conflict', 'choose_item'], true) => $e->getMessage(),
+            isset(Words::ERROR[$code]) && !str_contains(Words::ERROR[$code], '%') => Words::ERROR[$code],
+            isset(Words::BUY_ERROR[$code]) && $code !== 'other' => Words::BUY_ERROR[$code],
+            default => Words::say('BUY_ERROR', 'other', PurchaseOrdersController::sentence($e->getMessage())),
+        };
     }
 
     /** "box ×24", "each" (one central unit), "case ×6". */

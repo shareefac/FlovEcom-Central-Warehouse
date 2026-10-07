@@ -8,6 +8,7 @@ use CW\Caller;
 use CW\Mapping\DecisionService;
 use CW\Tests\Integration\Reorder\ReorderFixtures;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\Words;
 
 /**
  * The Duplicates screen (docs/decisions.md M34) through the real /ui kernel as cw_app: the list (biggest sellers first, the
@@ -101,23 +102,30 @@ final class DuplicatesScreenTest extends KernelUiTestCase
 
         $list = $web->get('/ui/review/duplicates');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertContains(['label' => 'Duplicates 2', 'href' => '/ui/review/duplicates'], self::nav($list)['Linking'], 'the badge counts open groups');
+        self::assertContains(['label' => 'Possible duplicates 2', 'href' => '/ui/review/duplicates'], self::nav($list)['Match products'], 'the badge counts open groups');
         $rows = (new \DOMXPath($list->dom()))->query('//table[contains(@class, "dups")]/tbody/tr/th/a');
         self::assertSame(['/ui/review/duplicates/' . $x['pb'], '/ui/review/duplicates/' . $pd], [$rows->item(0)?->getAttribute('href'), $rows->item(1)?->getAttribute('href')],
             'the biggest sellers first (365 days)');
         self::assertStringContainsString('Vaporesso Xros Corex Replacement Pods', (string) $rows->item(0)?->textContent, 'the suggested keeper: more sold, a barcode');
         // What the rules say (M44): nothing against the Corex pair, a different strength (and more) for the Elfliq pair.
-        self::assertStringContainsString('no reason against found: check the live pages', $list->text());
-        self::assertStringContainsString('may be different: strength', $list->text());
+        self::assertStringContainsString(Words::DUPS['no_reason'], $list->text());
+        self::assertStringContainsString(Words::say('DUPS', 'maybe', 'strength'), $list->text(), 'the reasons as words, comma-separated (F123)');
+        self::assertContains('/ui/review/duplicates/' . $x['pb'], array_slice($list->hrefs(), 0), 'the main button starts with the first group (F124)');
+        self::assertSame('/ui/review/duplicates/' . $x['pb'], (string) (new \DOMXPath($list->dom()))->evaluate('string(//main//p[@class="actions"]/a[contains(@class, "primary")]/@href)'));
 
         // The group page: both pages side by side.
         $g = $web->get('/ui/review/duplicates/' . $x['pb']);
         self::assertSame(200, $g->status, $g->describe());
         $t = $g->text();
-        foreach (['Vaporesso Xros Corex 3.0 Pods (Pack of 4)', '0.4ohm Corex 3.0 Pod - 4 Pack', '9.99', '8.49', '6943498631842', 'Resistance', 'In-Stock',
-            'From-Warehouse', 'not counted yet', '60 in 30 days, 180 in 365 days', '150 in 30 days, 450 in 365 days', sprintf('CW-%06d', $x['a']['sku']), 'CWP-23408'] as $want) {
+        foreach (['Vaporesso Xros Corex 3.0 Pods (Pack of 4)', '0.4ohm Corex 3.0 Pod - 4 Pack', '£9.99', '£8.49', '6943498631842', 'Resistance', 'In-Stock',
+            'From-Warehouse', Words::DUPS['not_counted'], Words::say('DUPS', 'sold_line', 60, 180), Words::say('DUPS', 'sold_line', 150, 450),
+            Words::say('DUPS', 'from_history', '1 Oct 2026'), Words::say('DUPS', 'page_on', (string) self::$db->value('SELECT name FROM channel WHERE id = ?', [$this->vpg]), '23408'),
+            sprintf('CW-%06d', $x['a']['sku'])] as $want) {
             self::assertStringContainsString($want, $t);
         }
+        self::assertStringNotContainsString('CWP-23408', $t, 'the first-match id is for the matching files (F128)');
+        self::assertStringNotContainsString('run2-vpg-duplicates', $t, 'no run name (F126)');
+        self::assertStringContainsString(Words::say('DUPS', 'group', '7'), $t);
         self::assertContains('https://www.vapeandgo.co.uk/product/vaporesso-xros-corex-3-0-pods', $g->hrefs());
         self::assertContains('https://www.vapeandgo.co.uk/product/vaporesso-xros-corex-replacement-pods', $g->hrefs());
         $xp = new \DOMXPath($g->dom());
@@ -126,17 +134,20 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         self::assertSame((string) $x['b']['listing'], $form['keeper'], 'suggested keeper');
         self::assertSame((string) $x['b']['sku'], $form['keep_sku']);
         self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/D', $form['form_key']);
-        self::assertStringContainsString('Same product - merge into ' . sprintf('CW-%06d', $x['b']['sku']), $t);
+        self::assertStringContainsString(Words::say('DUPS', 'join', sprintf('CW-%06d', $x['b']['sku'])), $t);
+        self::assertStringContainsString(Words::UI['what_each_answer_does'], $t, 'design B: what each answer does');
+        self::assertSame(Words::DUPS['apart'] . ' ' . Words::UI['safer'], trim((string) preg_replace('/\s+/', ' ',
+            (string) $xp->evaluate('string(//div[contains(@class, "answer") and contains(@class, "safe")]/dt)'))), 'keeping them apart is the safer answer');
         // The person keeps A instead (the run's keeper).
         $g = $web->get('/ui/review/duplicates/' . $x['pb'], ['keeper' => (string) $x['a']['listing']]);
-        self::assertStringContainsString('Same product - merge into ' . sprintf('CW-%06d', $x['a']['sku']), $g->text());
+        self::assertStringContainsString(Words::say('DUPS', 'join', sprintf('CW-%06d', $x['a']['sku'])), $g->text());
         $form = $g->form('/ui/review/duplicates/' . $x['pb'] . '/decide');
         self::assertSame((string) $x['a']['listing'], $form['keeper']);
 
         // Same product: one POST; the next group opens with the note.
         $r = $web->post('/ui/review/duplicates/' . $x['pb'] . '/decide', $form + ['do' => 'merge_all']);
         self::assertSame(303, $r->status, $r->describe());
-        self::assertSame('/ui/review/duplicates/' . $pd . '?notice=merged', $r->location());
+        self::assertSame('/ui/review/duplicates/' . $pd . '?notice=merged&prev=' . $x['pb'], $r->location());
         self::assertSame($x['a']['sku'], $this->link($x['b']['listing'])['sku_id']);
         $this->assertBal(38, 0, 0, $x['a']['sku']);
         $this->assertBal(0, 0, 0, $x['b']['sku']);
@@ -147,8 +158,8 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE action = 'merge_skus'"));
 
         $next = $web->follow($r);
-        self::assertStringContainsString('Both pages now share one warehouse item. On the website they stay separate pages with their own price and reviews until '
-            . 'Vape and Go switches to the warehouse system.', $next->text());
+        self::assertStringContainsString(Words::say('DUP_NOTICE', 'merged', '"Vaporesso Xros Corex 3.0 Pods (Pack of 4) 0.4 ohm"') . ' ' . Words::DUP_NOTICE['next'], $next->text(),
+            'the notice names the group decided, and says this is the next one (F133)');
         // The strength (and a flavour word) differ: highlighted.
         $xp = new \DOMXPath($next->dom());
         $differs = array_map(static fn (\DOMNode $n): string => trim((string) $n->firstChild?->textContent),
@@ -165,13 +176,14 @@ final class DuplicatesScreenTest extends KernelUiTestCase
             self::$db->value('SELECT status FROM match_proposal WHERE id = ?', [$pd])]);
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM match_reject WHERE listing_id = ? AND sku_id = ?', [$d['listing'], $c['sku']]));
         $done = $web->follow($r);
-        self::assertStringContainsString('No duplicates are left to decide.', $done->text());
+        self::assertStringContainsString(Words::DUP_NOTICE['done'], $done->text());
         self::assertStringContainsString('Decided recently', $done->text());
-        self::assertContains(['label' => 'Duplicates', 'href' => '/ui/review/duplicates'], self::nav($done)['Linking']);
+        self::assertContains(['label' => 'Possible duplicates', 'href' => '/ui/review/duplicates'], self::nav($done)['Match products']);
 
-        // The merged group: the undo. B goes back to its own item with its 8.
+        // The merged group: its heading says the answer (F127), and the undo. B goes back to its own item with its 8.
         $g = $web->get('/ui/review/duplicates/' . $x['pb']);
-        self::assertStringContainsString('Undo a wrong merge', $g->text());
+        self::assertSame(Words::say('DUPS', 'decided_same', sprintf('CW-%06d', $x['a']['sku'])), trim((string) (new \DOMXPath($g->dom()))->evaluate('string(//main//h1)')));
+        self::assertStringContainsString(Words::DUPS['undo'], $g->text());
         $undo = $g->form('/ui/review/duplicates/' . $x['pb'] . '/split');
         self::assertSame(['former', (string) $x['b']['listing']], [$undo['to'], $undo['listing']]);
         $r = $web->post('/ui/review/duplicates/' . $x['pb'] . '/split', $undo);
@@ -180,7 +192,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         self::assertSame($x['b']['sku'], $this->link($x['b']['listing'])['sku_id']);
         $this->assertBal(30, 0, 0, $x['a']['sku']);
         $this->assertBal(8, 0, 0, $x['b']['sku']);
-        self::assertStringContainsString('Split off', $web->follow($r)->text());
+        self::assertStringContainsString(Words::DUP_NOTICE['split'], $web->follow($r)->text());
     }
 
     /** A group of three: one choice per page; "not sure yet" leaves one for later; the badge and the list follow. */
@@ -195,7 +207,9 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         $g = $web->get('/ui/review/duplicates/' . $pb);
         self::assertSame(200, $g->status, $g->describe());
         self::assertSame(['merge', 'separate', 'later'], $g->radios('c_' . $b['listing']));
-        self::assertStringContainsString('Puffs differs', $g->text());
+        self::assertStringContainsString('Puffs ' . Words::DUPS['differs'], $g->text());
+        $buttons = array_map(static fn (\DOMElement $b): string => $b->getAttribute('value'), iterator_to_array((new \DOMXPath($g->dom()))->query('//form[contains(@class, "dup-decide")]//button')));
+        self::assertSame(['save', 'separate_all', 'merge_all'], $buttons, 'one main button that takes the choices, then all-different and all-the-same (F131)');
         $form = $g->form('/ui/review/duplicates/' . $pb . '/decide');
         self::assertSame((string) $a['listing'], $form['keeper']);
         self::assertSame(['later', 'later'], [$form['c_' . $b['listing']], $form['c_' . $c['listing']]]);
@@ -203,11 +217,11 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         // Nothing chosen: refused in plain words, nothing saved.
         $r = $web->post('/ui/review/duplicates/' . $pb . '/decide', $form + ['do' => 'save']);
         self::assertSame(422, $r->status);
-        self::assertStringContainsString('Choose "same product" or "different products" for at least one listing', $r->text());
+        self::assertStringContainsString(Words::DUP_ERROR['nothing_chosen'], $r->text());
         // The rules see reasons against (these test pages state no brand and no price): a merge needs "I checked the live pages".
         $r = $web->post('/ui/review/duplicates/' . $pb . '/decide', ['c_' . $b['listing'] => 'merge', 'do' => 'save'] + $form);
         self::assertSame(422, $r->status);
-        self::assertStringContainsString('The rules found reasons that listing #' . $b['listing'] . ' is a different product', $r->text());
+        self::assertStringContainsString(Words::say('DUP_ERROR', 'confirm_needed', '"Lost Mary BM600 Cola Disposable"'), $r->text(), 'named, not numbered');
         self::assertSame($b['sku'], $this->link($b['listing'])['sku_id'], 'nothing saved');
         // B is the same product (checked); C not sure yet.
         $r = $web->post('/ui/review/duplicates/' . $pb . '/decide', ['c_' . $b['listing'] => 'merge', 'do' => 'save', 'confirm' => '1'] + $form);
@@ -217,11 +231,11 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         self::assertSame(['decided', 'open'], [self::$db->value('SELECT status FROM match_proposal WHERE id = ?', [$pb]),
             self::$db->value('SELECT status FROM match_proposal WHERE id = ?', [$pc])]);
         $list = $web->get('/ui/review/duplicates');
-        self::assertStringContainsString('partly decided', $list->text());
-        self::assertContains(['label' => 'Duplicates 1', 'href' => '/ui/review/duplicates'], self::nav($list)['Linking']);
+        self::assertStringContainsString(Words::DUPS['partly'], $list->text());
+        self::assertContains(['label' => 'Possible duplicates 1', 'href' => '/ui/review/duplicates'], self::nav($list)['Match products']);
         // C: a different product (6000 puffs).
         $g = $web->get('/ui/review/duplicates/' . $pb);
-        self::assertStringContainsString('Same warehouse item as the kept one', $g->text());
+        self::assertStringContainsString(Words::DUPS['state_same'], $g->text());
         self::assertSame([], $g->radios('c_' . $b['listing']), 'B is decided');
         $r = $web->post('/ui/review/duplicates/' . $pb . '/decide', $g->form('/ui/review/duplicates/' . $pb . '/decide') + ['do' => 'separate_all']);
         self::assertSame(303, $r->status, $r->describe());
@@ -244,7 +258,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         DecisionService::identityChanged(self::$db, [$x['a']['listing']]);
         $r = $web->post('/ui/review/duplicates/' . $x['pb'] . '/decide', $form + ['do' => 'merge_all']);
         self::assertSame(409, $r->status, $r->describe());
-        self::assertStringContainsString('changed since the page was drawn', $r->text());
+        self::assertStringContainsString(Words::DUP_ERROR['map_version_conflict'], $r->text());
         self::assertSame([$x['a']['sku'], $x['b']['sku']], [$this->link($x['a']['listing'])['sku_id'], $this->link($x['b']['listing'])['sku_id']]);
         self::assertTrue($r->hasForm('/ui/review/duplicates/' . $x['pb'] . '/decide'), 'drawn again as it is now');
         self::assertSame([], $this->mergeLedger());
@@ -252,13 +266,17 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         // A counted item: the merge waits for a second mapping lead.
         $this->book('count', $x['b']['sku'], 8, 'MAIN', '2026-09-26T10:00:00Z');
         $g = $web->get('/ui/review/duplicates/' . $x['pb']);
-        self::assertStringContainsString('a merge needs two mapping leads', $g->text());
+        self::assertStringContainsString(Words::DUPS['needs_second'], $g->text());
         $r = $web->post('/ui/review/duplicates/' . $x['pb'] . '/decide', $g->form('/ui/review/duplicates/' . $x['pb'] . '/decide') + ['do' => 'merge_all']);
         self::assertSame('/ui/review/duplicates/' . $x['pb'] . '?notice=pending', $r->location());
         self::assertSame(['pending_second', '["counted_item"]'], array_values((array) self::$db->one("SELECT state, CAST(needs_second AS CHAR) FROM match_decision WHERE action = 'merge_skus'")));
         $g = $web->get('/ui/review/duplicates/' . $x['pb']);
-        self::assertStringContainsString('Waiting for a second person', $g->text());
-        self::assertStringContainsString('fold', $web->get('/ui/review', ['queue' => 'pending'])->text(), 'in the second-approval list');
+        self::assertStringContainsString(Words::DUPS['state_waiting'], $g->text());
+        $pending = $web->get('/ui/review', ['queue' => 'pending'])->text();
+        self::assertMatchesRegularExpression('/' . preg_quote(Words::PENDING['join'] . ' ' . sprintf('CW-%06d', $x['a']['sku']), '/') . ' .* '
+            . preg_quote(Words::PENDING['joins'] . ' ' . sprintf('CW-%06d', $x['b']['sku']), '/') . '/', $pending, 'in the second-OK list, in words (F150)');
+        self::assertStringContainsString(Words::PENDING['from_dups'], $pending);
+        self::assertStringContainsString(Words::NEEDS_SECOND['counted_item'], $pending);
 
         // Viewer, mapper and admin: they look, they do not decide.
         foreach ([['viewer'], ['mapper'], ['admin']] as $roles) {
@@ -266,7 +284,8 @@ final class DuplicatesScreenTest extends KernelUiTestCase
             $p = $w->get('/ui/review/duplicates/' . $x['pb']);
             self::assertSame(200, $p->status, implode(',', $roles) . ': ' . $p->describe());
             self::assertFalse($p->hasForm('/decide'), implode(',', $roles));
-            self::assertStringContainsString('but not decide them: merging and keeping separate is for a mapping lead', $p->text());
+            self::assertStringContainsString(Words::DUPS['look'], $p->text());
+            self::assertStringNotContainsString('Your role', $p->text(), 'jobs, not role codes (F120)');
             $r = $w->post('/ui/review/duplicates/' . $x['pb'] . '/decide', ['csrf' => $this->token($w), 'do' => 'separate_all']);
             self::assertSame(403, $r->status, implode(',', $roles));
             $r = $w->post('/ui/review/duplicates/' . $x['pb'] . '/split', ['csrf' => $this->token($w)]);
@@ -297,11 +316,12 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         $g = $web->get('/ui/review/duplicates/' . $pid);
         self::assertSame(200, $g->status, $g->describe());
         $t = $g->text();
-        foreach (['suggested because the duplicate sweep found no difference (same brand, form, size, strength and flavour; the titles may be worded differently)', 'Why the sweep suggested this',
-            'Score 58 of 100.', 'score 58; the same form, ohm, pack; neither page states strength, flavour; a barcode on one page only; price ratio 0.91.',
-            'variant <b>bold</b>'] as $want) {
+        foreach ([Words::DUPS['kind_sweep'], Words::DUPS['sweep'], 'Score 58 of 100.',
+            'score 58; the same form, ohm, pack; neither page states strength, flavour; a barcode on one page only; ' . Words::DUPS['sweep_close'] . '.',
+            Words::say('DUPS', 'sweep_option', '<b>bold</b>')] as $want) {
             self::assertStringContainsString($want, $t);
         }
+        self::assertStringNotContainsString('price ratio', $t, 'F138');
         self::assertStringNotContainsString('<script>', $g->body, 'a field the screen does not know is dropped, text is escaped');
         self::assertStringNotContainsString('<b>bold</b>', $g->body);
         self::assertContains('/ui/review/listing/' . $b['listing'], $g->hrefs(), 'a page of the group is linked by its listing');
@@ -322,14 +342,19 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         [$pb] = $this->group(3, [$a, $b], ['165', '50']);
         $web = $this->signIn($this->uiUser('mapping_lead'));
         $list = $web->get('/ui/review/duplicates');
-        self::assertStringContainsString('may be different: VG/PG', $list->text());
+        self::assertStringContainsString(Words::say('DUPS', 'maybe', 'VG/PG'), $list->text());
 
         $g = $web->get('/ui/review/duplicates/' . $pb);
         self::assertSame(200, $g->status, $g->describe());
         $t = $g->text();
-        self::assertStringContainsString('The rules found reasons these may be different products.', $t);
+        self::assertStringContainsString(Words::DUPS['rules_doubt'], $t);
+        self::assertStringContainsString(Words::say('DUPS', 'compared', 'Dark Star Nic Shot 18mg 70VG/30PG', 'Dark Star Nic Shot 18mg 50VG/50PG'), $t, 'names, not numbers (F130)');
         self::assertStringContainsString('Different VG/PG ratios: 50 vs 70', $t);
-        self::assertLessThan(strpos($t, 'What the titles and options say'), strpos($t, 'What the rules say'), 'the reasons come before the cards and the table');
+        self::assertLessThan(strpos($t, Words::DUPS['compare']), strpos($t, Words::DUPS['rules']), 'the reasons come before the cards and the table');
+        self::assertLessThan(strpos($t, Words::DUPS['compare']), strpos($t, Words::DUPS['decide']), 'the answers come before the evidence');
+        $gx = new \DOMXPath($g->dom());
+        self::assertTrue($gx->query('//input[@name="confirm"]')->item(0)?->hasAttribute('required'), 'joining needs the tick (compare.md)');
+        self::assertTrue($gx->query('//button[@value="separate_all"]')->item(0)?->hasAttribute('formnovalidate'), 'keeping them apart does not');
         $xp = new \DOMXPath($g->dom());
         self::assertSame('separate_all', $xp->query('//form[contains(@class, "dup-decide")]//button[contains(@class, "primary")]')->item(0)?->getAttribute('value'));
         $differs = array_map(static fn (\DOMNode $n): string => trim((string) $n->firstChild?->textContent),
@@ -341,7 +366,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         self::assertArrayNotHasKey('confirm', array_filter($form, static fn (string $v): bool => $v !== ''), 'not ticked for the person');
         $r = $web->post('/ui/review/duplicates/' . $pb . '/decide', $form + ['do' => 'merge_all']);
         self::assertSame(422, $r->status, $r->describe());
-        self::assertStringContainsString('Nothing was saved: open the live pages, and if they are the same product tick "I checked the live pages"', $r->text());
+        self::assertStringContainsString(Words::say('DUP_ERROR', 'confirm_needed', '"Dark Star Nic Shot 18mg 70VG/30PG"'), $r->text());
         self::assertSame([], $this->mergeLedger());
         self::assertSame($b['sku'], $this->link($b['listing'])['sku_id']);
         // The person checked the live pages: merged.
@@ -372,7 +397,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapping_lead'));
         $g = $web->get('/ui/review/duplicates/' . $pb);
         self::assertSame(200, $g->status, $g->describe());
-        self::assertStringContainsString('Has an open suggestion in another group or queue: decide it there first', $g->text());
+        self::assertStringContainsString(Words::DUPS['state_elsewhere'], $g->text());
         $form = $g->form('/ui/review/duplicates/' . $pb . '/decide');
         self::assertArrayNotHasKey('p_' . $c['listing'], $form);
         self::assertArrayNotHasKey('v_' . $c['listing'], $form);
@@ -434,7 +459,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
 
         $list = $web->get('/ui/review/duplicates');
         self::assertStringContainsString('Decided recently', $list->text());
-        self::assertStringContainsString('1 decided group', $list->text());
+        self::assertStringContainsString(Words::DUPS['recent_one'], $list->text());
         self::assertContains('/ui/review/duplicates/' . $x['pb'], $list->hrefs());
         foreach (['/ui/items/' . $x['b']['sku'], '/ui/items/' . $x['a']['sku'], '/ui/review/listing/' . $x['a']['listing'], '/ui/review/listing/' . $x['b']['listing']] as $page) {
             $pg = $web->get($page);
@@ -442,10 +467,11 @@ final class DuplicatesScreenTest extends KernelUiTestCase
             self::assertContains('/ui/review/duplicates/' . $x['pb'], $pg->hrefs(), $page);
         }
         $g = $web->get('/ui/review/duplicates/' . $x['pb']);
-        self::assertStringContainsString('Undo a wrong merge', $g->text());
+        self::assertStringContainsString(Words::DUPS['undo'], $g->text());
         $undo = $g->form('/ui/review/duplicates/' . $x['pb'] . '/split');
         self::assertSame([(string) $x['a']['listing'], 'former'], [$undo['listing'], $undo['to']]);
-        self::assertStringContainsString('back to ' . sprintf('CW-%06d', $x['a']['sku']) . ', with 30 units of stock', $g->text());
+        self::assertStringContainsString(Words::say('DUPS', 'undo_back', sprintf('CW-%06d', $x['a']['sku']), 30), $g->text());
+        self::assertStringContainsString(Words::DUPS['undo_button'], $g->text(), 'F135');
     }
 
     /** @return list<string> */

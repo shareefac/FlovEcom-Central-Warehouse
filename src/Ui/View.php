@@ -9,8 +9,22 @@ namespace CW\Ui;
  * helpers below, all of which return HTML-safe text:
  *
  *   $e($v)  escape          $n($v)  integer with thousands separators   $dec($v) decimal, no trailing zeros
- *   $dt($v) 'Y-m-d H:i'     $pct($part, $whole)                        $u($path, $query) URL for an attribute
+ *   $dt($v) 'Y-m-d H:i' (UTC, for technical blocks and files)           $pct($part, $whole)   $u($path, $query) URL for an attribute
  *   $partial($name, $vars)  another template (already-escaped output)
+ *
+ * and the plain-words helpers (plan §8.2; the words come from Words). A template variable may not be named like a helper
+ * (render() refuses it: it would silently replace one or the other):
+ *
+ *   $word($group, $code)    the word for a code ("Strong match" for BAND Key)
+ *   $say($group, $code, ...$args)   a word with its %s filled in (whole numbers get thousands separators)
+ *   $money($v)  "£10,500.00"   $day($v) "7 Oct 2026"   $when($v) "7 Oct 2026, 10:26" (UK time, never "UTC")
+ *   $jobs($roles)           "Admin · Matching lead (off)"
+ *   $chip($tone, $text)     a status chip: icon shape + word (tones: Words::TONES)
+ *   $stateChip($group, $code)  the chip of a status code (its word and tone from Words)
+ *   $intro($page, $who)     the page's one-sentence intro (Words::PAGE_INTRO; $who = "You can look; <who> change this.")
+ *   $explain($key, $label)  a "?" that unfolds one Words::HELP text (a <details>: no script)
+ *   $cards($cards)          a list of task cards (job number, chip, count, "What happens:", one button)
+ *   $empty($title, $text, $href, $button)   an empty state that says why and what to do next
  *
  * and `$body` in the layout. Templates never echo anything else: tests/Unit/UiTemplatesTest.php
  * fails the build when a `<?=` prints something that did not pass through one of them, or when a
@@ -46,7 +60,25 @@ final class View
             'pct' => static fn (int|float $part, int|float $whole): string => Html::e(Html::pct($part, $whole)),
             'u' => static fn (string $path, array $query = []): string => Html::e(Html::url($path, $query)),
             'partial' => fn (string $name, array $v = []): string => $this->render($name, $v),
+            'word' => static fn (string $group, ?string $code): string => Html::e(Words::of($group, $code)),
+            'say' => static fn (string $group, string $code, string|int|float ...$args): string => Html::e(Words::say($group, $code, ...$args)),
+            'money' => static fn (mixed $v): string => Html::e(Html::money($v)),
+            'day' => static fn (mixed $v): string => Html::e(Html::day($v === null ? null : (string) $v)),
+            'when' => static fn (mixed $v): string => Html::e(Html::when($v === null ? null : (string) $v)),
+            'jobs' => static fn (array $roles): string => Html::e(Words::roles(array_values(array_map('strval', $roles)))),
+            'chip' => static fn (string $tone, string $text): string => Html::chip($tone, $text),
+            'stateChip' => static fn (string $group, ?string $code): string => Html::chip(Words::tone($group, $code), Words::of($group, $code)),
+            'intro' => static fn (string $page, ?string $lookOnly = null): string => Html::intro(Words::intro($page, $lookOnly)),
+            'explain' => static fn (string $key, ?string $label = null): string => Html::help($key, $label),
+            'cards' => fn (array $cards): string => $this->render('cards', ['list' => $cards]),
+            'empty' => static fn (string $title, string $text = '', ?string $href = null, ?string $button = null): string
+                => Html::emptyState($title, $text, $href, $button),
         ];
+        $clash = array_keys(array_intersect_key($vars + $this->shared, $helpers));
+        if ($clash !== []) {
+            // A variable named like a helper would silently become the helper (or the other way round): fail loudly.
+            throw new \InvalidArgumentException("template {$template}: variable named like a helper: " . implode(', ', $clash));
+        }
         $all = $helpers + $vars + $this->shared;
         return (static function (string $__file, array $__vars): string {
             extract($__vars, EXTR_SKIP);

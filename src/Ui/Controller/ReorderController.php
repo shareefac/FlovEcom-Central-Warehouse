@@ -16,14 +16,15 @@ use CW\PurchaseOrders\PurchaseOrders;
 use CW\Reorder\DemandBuilder;
 use CW\Reorder\DemandMath;
 use CW\Reorder\DraftPos;
-use CW\Reorder\Explain;
 use CW\Reorder\ReorderList;
 use CW\Reorder\ReorderSettings;
 use CW\Ui\Context;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\ReorderWhy;
 use CW\Ui\UiRequest;
+use CW\Ui\Words;
 
 /**
  * The reorder list and its settings (IM9 basic, Phase I-2; spec §7.4, §7.5, §8.1; docs/decisions.md I68): the list (filters
@@ -39,19 +40,13 @@ use CW\Ui\UiRequest;
  */
 final class ReorderController
 {
-    public const NOTICES = [
-        'recalculated' => 'Demand recalculated from the loaded sales history.',
-        'drafts' => 'Draft purchase orders created from the ticked lines: open each one, check it and approve it.',
-        'item_saved' => 'Item settings saved: the list uses them at once.',
-        'brand_saved' => 'Brand settings saved: the list uses them at once.',
-        'anomaly_added' => 'Window added: it is excluded from the demand at the next recalculation (Recalculate on the reorder list).',
-        'anomaly_ended' => 'Window ended: its days count as demand again at the next recalculation.',
-    ];
-    public const FLAG_TEXT = ['urgent' => 'urgent', 'no_supplier' => 'no preferred supplier', 'supplier_draft' => 'supplier not approved yet',
-        'supplier_pending_approval' => 'supplier waiting for approval', 'supplier_inactive' => 'supplier inactive', 'no_price' => 'no last price', 'merged' => 'merged',
-        'do_not_reorder' => 'do not reorder', 'no_history' => 'no sales history', 'site_stock_unreliable' => 'site stock not reliable',
-        'in_draft' => 'already in a draft order', 'discontinued' => 'discontinued (item card)', 'card_blocked' => 'blocked by its item card',
-        'card_warning' => 'item card warning'];
+    /** The notices named in a redirect (their words: Words::REORDER_NOTICE). */
+    public const NOTICES = Words::REORDER_NOTICE;
+    /** The flags of a line (ReorderList::lines() `flags`) and their words. */
+    public const FLAG_TEXT = Words::REORDER_FLAG;
+    /** The flags shown as "blocked" and as "needs you"; the rest are information. */
+    private const FLAG_BLOCKED = ['urgent', 'supplier_inactive', 'merged', 'card_blocked'];
+    private const FLAG_NEEDS = ['no_supplier', 'supplier_draft', 'supplier_pending_approval', 'no_price', 'site_stock_unreliable', 'card_warning', 'discontinued'];
     public const SKIPPED_IN_URL = 50;
     /** The most linked items "Recalculate" rebuilds inside a UI request (I84); more: bin/reorder_demand.php. */
     public const UI_REBUILD_MAX_ITEMS = 3000;
@@ -93,13 +88,12 @@ final class ReorderController
         $f = ReorderList::filters($this->formFilters($req));
         $count = $req->field('row_count');
         if ($count === null || preg_match('/^(0|[1-9][0-9]{0,3})$/D', $count) !== 1) {
-            return $ctx->error(400, 'form_truncated', 'the form arrived incomplete (no line count): nothing was ordered. Reload the page and try again.');
+            return $ctx->error(400, 'form_truncated', Words::BUY_ERROR['reorder_truncated']);
         }
         $count = (int) $count;
         $rows = $req->fieldsMatching('/^packs_[1-9][0-9]{0,9}$/');
         if ($count > ReorderList::PAGE || count($rows) < $count) {
-            return $ctx->error(400, 'form_truncated', "the form arrived incomplete ({$count} lines sent, " . count($rows) . ' arrived): nothing was ordered. '
-                . 'Narrow the list (a brand or a supplier) and try again.');
+            return $ctx->error(400, 'form_truncated', Words::BUY_ERROR['reorder_truncated']);
         }
         $picks = [];
         try {
@@ -110,7 +104,7 @@ final class ReorderController
                 }
                 $p = trim($packs);
                 if (preg_match('/^\d{1,7}$/D', $p) !== 1) {
-                    throw new CwException('bad_pick', 'packs: a whole number (0 leaves the line out)', 422);
+                    throw new CwException('bad_pick', Words::BUY_ERROR['bad_pick'], 422);
                 }
                 $picks[] = ['sku_id' => $sku, 'packs' => (int) $p];
             }
@@ -118,8 +112,8 @@ final class ReorderController
             $r = FormOnce::run($ctx, 'ui.reorder.draft', ['picks' => $picks, 'stock' => $f['stock']], function (Db $db) use ($ctx, $picks, $f): OpResult {
                 $res = $this->draftPos($ctx)->create($ctx->caller(), $picks, $f['stock'], $ctx->req->field(FormOnce::FIELD));
                 if ($res['drafts'] === []) {
-                    throw new CwException('nothing_ordered', 'No draft was made: ' . implode('; ', array_map(static fn (array $s): string => "{$s['code']}: {$s['reason']}",
-                        array_slice($res['skipped'], 0, 10))) . (count($res['skipped']) > 10 ? '; ...' : ''), 422);
+                    throw new CwException('nothing_ordered', Words::say('BUY_ERROR', 'nothing_ordered', implode('; ', array_map(static fn (array $s): string => "{$s['code']}: {$s['reason']}",
+                        array_slice($res['skipped'], 0, 10))) . (count($res['skipped']) > 10 ? '; …' : '')), 422);
                 }
                 $redirect = count($res['drafts']) === 1 && $res['skipped'] === []
                     ? Html::url('/ui/purchasing/orders/' . $res['drafts'][0]['document_id'], ['notice' => 'created'])
@@ -131,9 +125,25 @@ final class ReorderController
                     'redirect' => $redirect]);
             });
         } catch (CwException $e) {
-            return $this->listPage($ctx, $f, $e->httpStatus, $e->getMessage());
+            return $this->listPage($ctx, $f, $e->httpStatus, self::plain($e));
         }
         return FormOnce::redirect($r);
+    }
+
+    /**
+     * A refusal of the reorder services in the page's words, by its error code (plan rule 18: the service's message stays the
+     * API's). A code without words: the service's message, then "Nothing was saved."
+     */
+    public static function plain(CwException $e): string
+    {
+        $code = $e->errorCode;
+        return match (true) {
+            in_array($code, ['bad_pick', 'nothing_ordered', 'rebuild_on_server'], true) => $e->getMessage(), // made in words here
+            $code === 'version_conflict' => Words::BUY_ERROR['version_conflict_settings'],
+            isset(Words::ERROR[$code]) && !str_contains(Words::ERROR[$code], '%') => Words::ERROR[$code],
+            isset(Words::BUY_ERROR[$code]) && $code !== 'other' => Words::BUY_ERROR[$code],
+            default => Words::say('BUY_ERROR', 'other', PurchaseOrdersController::sentence($e->getMessage())),
+        };
     }
 
     /**
@@ -148,13 +158,11 @@ final class ReorderController
             (new ReorderSettings($ctx->db))->manager($ctx->caller());
             $items = (int) $ctx->db->value("SELECT COUNT(DISTINCT sku_id) FROM channel_listing WHERE status = 'mapped'");
             if ($items > self::UI_REBUILD_MAX_ITEMS) {
-                throw new CwException('rebuild_on_server', 'The demand of ' . number_format($items) . ' linked items is too big to rebuild from this page (at most '
-                    . number_format(self::UI_REBUILD_MAX_ITEMS) . '): it is rebuilt on the server by bin/reorder_demand.php (after each sales import, and nightly '
-                    . 'once that job is installed). The list keeps using the demand computed last.', 409);
+                throw new CwException('rebuild_on_server', Words::say('BUY_ERROR', 'rebuild_on_server', $items), 409);
             }
             $b = (new DemandBuilder($ctx->db, $ctx->settings()))->rebuild();
         } catch (CwException $e) {
-            return $this->listPage($ctx, ReorderList::filters($this->formFilters($ctx->req)), $e->httpStatus, $e->getMessage());
+            return $this->listPage($ctx, ReorderList::filters($this->formFilters($ctx->req)), $e->httpStatus, self::plain($e));
         }
         Audit::write($ctx->db, $ctx->caller(), 'reorder.recalculate', null, null, null, ['items' => $b['items'], 'listings' => $b['listings'], 'ms' => $b['ms'],
             'channels' => $b['channels']]);
@@ -181,14 +189,14 @@ final class ReorderController
         }
         try {
             if ($version === null || preg_match('/^(0|[1-9][0-9]{0,9})$/D', $version) !== 1) {
-                throw new CwException('bad_version', 'this form has no version: reload the page', 400);
+                throw new CwException('bad_version', Words::ERROR['bad_version'], 400);
             }
             (new ReorderSettings($ctx->db))->saveItem($ctx->caller(), $id, (int) $version, $fields);
         } catch (CwException $e) {
             if ($e->errorCode === 'version_conflict') {
-                return $this->itemPage($ctx, $id, 409, 'These settings were changed since you opened them (here are the current ones): make your change again.', null, null);
+                return $this->itemPage($ctx, $id, 409, self::plain($e), null, null);
             }
-            return $this->itemPage($ctx, $id, $e->httpStatus, $e->getMessage(), $fields, null);
+            return $this->itemPage($ctx, $id, $e->httpStatus, $e->errorCode === 'bad_version' ? $e->getMessage() : self::plain($e), $fields, null);
         }
         return HtmlResponse::redirect(Html::url('/ui/purchasing/reorder/items/' . $id, ['notice' => 'item_saved']));
     }
@@ -211,15 +219,15 @@ final class ReorderController
         try {
             $version = $req->field('version');
             if ($version === null || preg_match('/^(0|[1-9][0-9]{0,9})$/D', $version) !== 1) {
-                throw new CwException('bad_version', 'this form has no version: reload the page', 400);
+                throw new CwException('bad_version', Words::ERROR['bad_version'], 400);
             }
             $row = (new ReorderSettings($ctx->db))->saveBrand($ctx->caller(), $brand, (int) $version, $fields);
         } catch (CwException $e) {
             if ($e->errorCode === 'version_conflict') {
-                return $this->brandsPage($ctx, $brand, 409, 'The settings of this brand were changed since you opened them (here are the current ones): make your change again.',
-                    null, null);
+                return $this->brandsPage($ctx, $brand, 409, self::plain($e), null, null);
             }
-            return $this->brandsPage($ctx, $brand === '' ? null : mb_substr($brand, 0, 128), $e->httpStatus, $e->getMessage(), $fields, null);
+            return $this->brandsPage($ctx, $brand === '' ? null : mb_substr($brand, 0, 128), $e->httpStatus, $e->errorCode === 'bad_version' ? $e->getMessage() : self::plain($e),
+                $fields, null);
         }
         return HtmlResponse::redirect(Html::url('/ui/purchasing/reorder/brands', ['brand' => (string) $row['brand'], 'notice' => 'brand_saved']));
     }
@@ -247,7 +255,7 @@ final class ReorderController
                     'redirect' => Html::url('/ui/purchasing/reorder/anomalies', ['notice' => 'anomaly_added'])]);
             });
         } catch (CwException $e) {
-            return $this->anomaliesPage($ctx, $e->httpStatus, $e->getMessage(), $fields, null);
+            return $this->anomaliesPage($ctx, $e->httpStatus, self::plain($e), $fields, null);
         }
         return FormOnce::redirect($r);
     }
@@ -257,7 +265,7 @@ final class ReorderController
         try {
             (new ReorderSettings($ctx->db))->endAnomaly($ctx->caller(), $ctx->id());
         } catch (CwException $e) {
-            return $this->anomaliesPage($ctx, $e->httpStatus, $e->getMessage(), null, null);
+            return $this->anomaliesPage($ctx, $e->httpStatus, self::plain($e), null, null);
         }
         return HtmlResponse::redirect(Html::url('/ui/purchasing/reorder/anomalies', ['notice' => 'anomaly_ended']));
     }
@@ -273,32 +281,90 @@ final class ReorderController
         $all = $list->lines($f);
         $pages = max(1, intdiv(count($all) + ReorderList::PAGE - 1, ReorderList::PAGE));
         $page = min($pages, max(1, (int) (UiRequest::id($ctx->req->param('page') ?? $ctx->req->field('page')) ?? 1)));
-        $rows = array_map(static fn (array $l): array => $l + ['show_per_day' => ReorderList::perDay($l['d_e6']), 'show_value' => ReorderList::money($l['value_e4']),
-            'show_cover' => ReorderList::cover($l['cover_now_e1']),
-            // The item card's tags name the rules (I123): "blocked by its item card: tank or pod over 2 ml".
-            'flag_rules' => ['card_blocked' => ItemRules::labels($l['card_blocked']), 'card_warning' => ItemRules::labels($l['card_warnings'])]],
-            $list->explain(array_slice($all, ($page - 1) * ReorderList::PAGE, ReorderList::PAGE)));
+        $lines = $list->explain(array_slice($all, ($page - 1) * ReorderList::PAGE, ReorderList::PAGE));
+        $drafts = self::draftsOf($ctx, array_values(array_filter(array_map(static fn (array $l): ?int => (int) $l['in_drafts'] > 0 ? (int) $l['sku_id'] : null, $lines))));
+        $rows = array_map(static fn (array $l): array => self::screenLine($l, $drafts[(int) $l['sku_id']] ?? null), $lines);
         $me = $ctx->me();
         $canDraft = Documents::mayPost($me->roles, 'PO');
         $notice = $this->notice($ctx);
+        $names = [];
+        foreach ($ctx->queries()->channels() as $c) {
+            $names[(string) $c['code']] = (string) $c['name'];
+        }
         return $ctx->page('reorder', [
             'rows' => $rows,
             'total' => count($all),
             'page' => $page,
             'pages' => $pages,
             'filters' => $f,
+            'filtered' => $f['brand'] !== null || $f['supplier'] !== null || $f['q'] !== '' || $f['urgent'],
             'history' => $list->header(),
+            'channelNames' => $names,
             'brands' => $list->brands(),
             'suppliers' => $list->suppliers(),
             'canDraft' => $canDraft,
             'canManage' => $me->can('reorder.manage'),
+            'lookOnly' => $canDraft ? null : Words::whoCan('doc.PO.post'),
             'formKey' => $canDraft ? ($error !== null ? ($ctx->req->field(FormOnce::FIELD) ?? FormOnce::newKey()) : FormOnce::newKey()) : null,
             'error' => $error,
             'created' => $notice === 'drafts' ? $this->created($ctx) : null,
-            'flagText' => self::FLAG_TEXT,
             'query' => ['brand' => $f['brand'], 'supplier' => $f['supplier'], 'q' => $f['q'] === '' ? null : $f['q'], 'urgent' => $f['urgent'] ? '1' : null,
                 'show' => $f['show'] === 'need' ? null : $f['show'], 'stock' => $f['stock'] === 'cw' ? null : $f['stock']],
-        ], $status, ['title' => 'Reorder list', 'active' => 'reorder', 'notice' => self::NOTICES[$notice ?? ''] ?? null]);
+        ], $status, ['title' => Words::MENU['reorder'], 'active' => 'reorder', 'notice' => self::NOTICES[$notice ?? ''] ?? null]);
+    }
+
+    /**
+     * A line of What to buy as people read it (plan F307-F310, F318, F322): sells a day, have + ordered, the suggestion in packs,
+     * its cost in £, days left, the flags in words, the plain "Why" sentences (Ui\ReorderWhy) and the maths (Reorder\Explain), and
+     * the draft order it is on already.
+     *
+     * @param array<string, mixed> $l a ReorderList::explain() line
+     * @return array<string, mixed>
+     */
+    public static function screenLine(array $l, ?int $draft): array
+    {
+        $flags = [];
+        foreach ((array) $l['flags'] as $fl) {
+            $rules = match ($fl) {
+                // The product card's flags name the rules (I123): "Blocked: … (tank or pod over 2 ml)".
+                'card_blocked' => ItemRules::labels((array) $l['card_blocked']),
+                'card_warning' => ItemRules::labels((array) $l['card_warnings']),
+                default => '',
+            };
+            $flags[] = ['word' => Words::of('REORDER_FLAG', (string) $fl) . ($rules === '' ? '' : ' (' . $rules . ')'),
+                'tone' => in_array($fl, self::FLAG_BLOCKED, true) ? 'blocked' : (in_array($fl, self::FLAG_NEEDS, true) ? 'needs' : 'info')];
+        }
+        $inDrafts = (int) $l['in_drafts'];
+        return $l + [
+            'per_day' => ReorderList::perDay((int) $l['d_e6']),
+            'value' => Html::money(ReorderList::amount($l['value_e4'])),
+            'price' => Html::money($l['pack_price']),
+            'days_left' => ReorderWhy::daysLeft($l['cover_now_e1']),
+            'why' => ReorderWhy::sentences($l),
+            'flag_list' => $flags,
+            'draft' => $draft,
+            'draft_note' => $inDrafts === 0 ? null : ($inDrafts >= (int) $l['need'] ? Words::REORDER['on_draft_covers']
+                : Words::say('REORDER', 'on_draft_more', (int) $l['need'] - $inDrafts)),
+        ];
+    }
+
+    /**
+     * The first draft (or waiting) order each of these products is on (plan F309: "Already on a draft – open it").
+     *
+     * @param list<int> $skus
+     * @return array<int, int> sku id => document id
+     */
+    private static function draftsOf(Context $ctx, array $skus): array
+    {
+        if ($skus === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($ctx->db->all("SELECT dl.sku_id, MIN(d.id) AS doc FROM document_line dl JOIN document d ON d.id = dl.document_id WHERE d.doc_type = 'PO' "
+            . "AND d.status IN ('draft', 'awaiting_approval') AND dl.sku_id IN (" . implode(', ', array_fill(0, count($skus), '?')) . ') GROUP BY dl.sku_id', $skus) as $r) {
+            $out[(int) $r['sku_id']] = (int) $r['doc'];
+        }
+        return $out;
     }
 
     /**
@@ -316,6 +382,9 @@ final class ReorderController
             . ') ORDER BY d.id', $ids);
         foreach ($drafts as &$d) {
             $d['below_minimum'] = $d['min_order_value'] !== null && PoMath::e2((string) $d['net_total']) < PoMath::e2((string) $d['min_order_value']);
+            $n = (int) $d['lines'];
+            $d['line'] = Words::say('REORDER', 'made_line', (string) $d['supplier_name'], $n === 1 ? Words::ORDERS['products_one'] : Words::say('ORDERS', 'products_many', $n),
+                Html::money($d['net_total']));
         }
         unset($d);
         $skus = self::ids($ctx->req->param('skipped'), self::SKIPPED_IN_URL);
@@ -323,11 +392,11 @@ final class ReorderController
         if ($skus !== []) {
             foreach ($this->list($ctx)->lines(ReorderList::filters(['show' => 'all']), $skus) as $l) {
                 $skipped[] = ['sku_id' => $l['sku_id'], 'code' => $l['code'], 'name' => $l['name'], 'reason' => match (true) {
-                    $l['never'] !== null && in_array('merged', $l['flags'], true) => (string) $l['never'],
-                    in_array('card_blocked', $l['flags'], true) => 'blocked by its item card: ' . ItemRules::labels($l['card_blocked']),
-                    $l['supplier_item_id'] === null => 'no preferred supplier',
-                    $l['supplier_status'] === 'inactive' => "preferred supplier {$l['supplier']} is inactive",
-                    default => 'skipped',
+                    $l['never'] !== null && in_array('merged', $l['flags'], true) => Words::REORDER['skip_merged'],
+                    in_array('card_blocked', $l['flags'], true) => Words::say('REORDER', 'skip_blocked', ItemRules::labels($l['card_blocked'])),
+                    $l['supplier_item_id'] === null => Words::REORDER['skip_no_supplier'],
+                    $l['supplier_status'] === 'inactive' => Words::say('REORDER', 'skip_supplier_stopped', (string) ($l['supplier_name'] ?? $l['supplier'])),
+                    default => Words::REORDER['skip_other'],
                 }];
             }
         }
@@ -341,7 +410,7 @@ final class ReorderController
         $sku = $ctx->db->one('SELECT s.id, s.code, s.name, s.brand, s.merged_into_sku_id, m.code AS merged_code FROM sku s LEFT JOIN sku m ON m.id = s.merged_into_sku_id '
             . 'WHERE s.id = ?', [$id]);
         if ($sku === null) {
-            return $ctx->error(404, 'unknown_item', 'there is no such item');
+            return $ctx->error(404, 'unknown_item', Words::ERROR['unknown_item'], ['/ui/purchasing/reorder', Words::MENU['reorder']]);
         }
         $list = $this->list($ctx);
         $line = $list->explain($list->lines(ReorderList::filters(['show' => 'all']), [$id]))[0] ?? null;
@@ -356,13 +425,20 @@ final class ReorderController
         }
         $settings = (new ReorderSettings($ctx->db))->item($id);
         $brand = $sku['brand'] === null ? null : (new ReorderSettings($ctx->db))->brand((string) $sku['brand']);
+        $names = [];
+        foreach ($ctx->queries()->channels() as $c) {
+            $names[(string) $c['code']] = (string) $c['name'];
+        }
+        $title = Words::say('REORDER_ITEM', 'title', (string) $sku['name'], (string) $sku['code']);
         return $ctx->page('reorder_item', [
             'sku' => $sku,
-            'line' => $line,
+            'title' => $title,
+            'line' => $line === null ? null : self::screenLine($line, null),
             'demand' => $demand,
             'monthly' => $demand === null ? ($live['monthly'] ?? []) : Html::json($demand['monthly']),
             'live' => $live,
-            'liveError' => $liveError,
+            'liveError' => $liveError === null ? null : PurchaseOrdersController::sentence($liveError),
+            'channelNames' => $names,
             'settings' => $settings,
             'brand' => $brand,
             'params' => $list->params(),
@@ -370,8 +446,9 @@ final class ReorderController
             'typed' => $typed,
             'canManage' => $ctx->me()->can('reorder.manage'),
             'error' => $error,
-            'reasonText' => ['anomaly' => 'anomaly'] + Explain::REASON_TEXT,
-        ], $status, ['title' => 'Reorder ' . $sku['code'], 'active' => 'reorder', 'notice' => $notice]);
+            'dayReason' => ['promo' => Words::REORDER_ITEM['r_promo'], 'oos' => Words::REORDER_ITEM['r_oos'], 'before_first' => Words::REORDER_ITEM['before_first'],
+                'nodata' => Words::REORDER_ITEM['before_history']],
+        ], $status, ['title' => $title, 'active' => 'reorder', 'notice' => $notice]);
     }
 
     /** @param array<string, ?string>|null $typed */
@@ -393,7 +470,8 @@ final class ReorderController
             'defaultSafety' => $p['safety'],
             'canManage' => $ctx->me()->can('reorder.manage'),
             'error' => $error,
-        ], $status, ['title' => 'Reorder: brands', 'active' => 'reorder', 'notice' => $notice]);
+            'lookOnly' => $ctx->me()->can('reorder.manage') ? null : Words::whoCan('reorder.manage'),
+        ], $status, ['title' => Words::title('reorder_brands'), 'active' => 'reorder', 'notice' => $notice]);
     }
 
     /** @param array<string, ?string>|null $typed */
@@ -410,7 +488,9 @@ final class ReorderController
             'typed' => $typed,
             'error' => $error,
             'maxDays' => ReorderSettings::ANOMALY_MAX_DAYS + 1,
-        ], $status, ['title' => 'Reorder: anomaly windows', 'active' => 'reorder', 'notice' => $notice]);
+            'lookOnly' => $canManage ? null : Words::whoCan('reorder.manage'),
+            'channelNames' => array_column($ctx->db->all('SELECT code, name FROM channel'), 'name', 'code'),
+        ], $status, ['title' => Words::title('reorder_anomalies'), 'active' => 'reorder', 'notice' => $notice]);
     }
 
     // ------------------------------------------------------------------------------------------

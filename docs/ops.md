@@ -842,11 +842,42 @@ The audit trail of the purge:
 
     SELECT created_at, action, entity_id, detail FROM audit_log WHERE actor = 'system:purge_test_refs' ORDER BY id;
 
-## The staff UI (`/ui`, linking backend front end; `docs/decisions.md` U1-U17)
+## The staff UI (`/ui`, linking backend front end; `docs/decisions.md` U1-U17, U25-U79)
 
 Server-rendered PHP, no JavaScript framework and nothing from a third party: two static files
 (`/ui/assets/app.css`, `app.js`) served by the front controller under the CSP
 `default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`.
+
+**In plain words, design "A with B's parts" (owner's decision of 7 Oct 2026; U25-U79).** A sidebar on a laptop; on a phone a
+top bar, a bottom tab bar (To do and the person's main jobs, then More) and the whole menu as a sheet; white cards on grey,
+one accent colour, every status an icon shape plus a word, lists as cards on a phone. Home (`/ui/`) is the same page for
+everyone: "What needs doing" (numbered task cards, each with "What happens:" and one button), then Matching progress for
+the matching jobs, What you can use and Coming later (no dates). Every word comes from `src/Ui/Words.php`; the writing rules
+are in `docs/dev.md`. Things the owner should know:
+- **The person to ask** is a fixed name on every screen, `Words::ASK` = "Fazil" (change it there if that changes).
+- **The test strip.** Where `app.env` says `environment=staging` (the staging box: the test slots and `cw_staging` read the
+  same `/etc/cw/app.env`, the line `TestRefPurge` needs), every page, sign-in and error pages too, carries "TEST SYSTEM:
+  nothing here is real". On `cw_staging` the owner's matching answers are real work that will be carried forward, so the
+  wording is the owner's to confirm (U70); a live copy must never carry that `app.env` line.
+- **The owner's account with Admin.** While an account holds Admin, its Reviewer and Matching lead jobs are switched off
+  (separation of duties, I12): every page shows the yellow strip "Your Reviewer and Matching lead jobs are switched off
+  because this account also has Admin. Ask Fazil to take Admin off this account." The fix is to untick Admin on that
+  person's page (another admin) or `bin/reset_staff.php --roles=...`. Do **not** answer the owner's spot check from another
+  account: spot check owner-1 belongs to this account, and a decision on one of its 20 by anyone else fails it for good.
+- **The spot check on the screens.** Only its owner sees the answers of its 20 matches; anyone else sees who owns it and no
+  forms, also after a match was confirmed (changing a confirmed member fails the spot check too). "Not a match", and the
+  owner's "Change this match" on a confirmed member, open a second step that says "This stops the bulk link for good."
+  before anything is saved.
+- **Before a deploy, check in a real browser** (Chrome; neither this box nor staging has one): 320, 375, 768, 1,024 and
+  1,280 px, light and dark. At least: sign-in (with "NOT saved" and "open too long"), Home for the owner's account, a buyer
+  and a reviewer, a list of matches, one website product (normal, a spot check's match as its owner and as another lead, a
+  confirmed member, waiting for a second OK), the spot check, Possible duplicates (two pages and three), the orders list,
+  the draft order editor (scan, the two buttons under and over the limit, at 1,280 px with 10 lines: no sideways page
+  scroll), one order as buyer and reviewer, What to buy with one product's Why, the suppliers pages, a person page.
+- **Timing.** Home runs, for a matching lead, one spot-check status per own waiting spot check (at most 5) and one set-aside
+  query per spot check with holds (at most 10); for `reorder.view`, the reorder header. Time `/ui/` and one ordinary page as
+  the owner's working account, a lead and a reviewer on staging data before the deploy (plan budget: 100 ms over the old
+  dashboard).
 
 Who sees what is decided per **permission** (`src/Auth/Permissions.php`, decisions I11–I16): a person holds one or more
 roles, may do what any of their roles may, and a page outside their permissions is refused (403), not only left out of
@@ -855,7 +886,8 @@ their menu. Roles are read on every request: a role taken away stops working on 
 | Screen | Permission | Roles |
 |---|---|---|
 | `/ui/login`, `/ui/password`, `POST /ui/logout` | public (sign-in), any signed-in (the other two) | everyone (password change is forced at first sign-in) |
-| `/ui/`: the linking dashboard (queue counts, coverage) with `linking.view`, else a home page with the person's menu | any signed-in | everyone |
+| `GET /ui/logout` (an old bookmark: leads Home or to the sign-in page; never signs anyone out, U61) | public | everyone |
+| `/ui/`: Home, the same page for everyone ("What needs doing", Matching progress with `linking.view`, What you can use) | any signed-in | everyone |
 | `/ui/review?queue=<band>&channel=<code>`, `queue=pending` (second approval), `/ui/review/listing/{id}` | `linking.view` | viewer, mapper, mapping_lead, warehouse, manager, admin, auditor |
 | the decision form: link, new item, ignore, reject, withdraw | `mapping.decide` | mapper, mapping_lead |
 | approve a waiting decision | `mapping.approve` | mapping_lead, never the person who decided |
@@ -869,7 +901,7 @@ their menu. Roles are read on every request: a role taken away stops working on 
 | reverse a posted document (the form on its page) | `doc.<TYPE>.post` of its type, never admin | the type's posting roles (I16) |
 | `/ui/reference/reasons` (+ `reasons.csv`), `/ui/reference/series` | `reference.view` | all 14 roles |
 | `/ui/people.csv` (the People list for Excel) | `staff.view` | admin, auditor |
-| Purchasing (I-2), Receiving (I-3/I-4), Stock control (I-4), Trade (I-6), Accounts (I-5): shown as "coming in Phase I-n" | `doc.<TYPE>.post`, `accounts.view` | proposals pending decisions 3 and 11 (I16) |
+| Receiving, Stock control, Trade, Accounts: not built yet; Home says "Coming later: …" (no dates, no phase codes) for the jobs that will use them | `doc.<TYPE>.post`, `accounts.view` | proposals pending decisions 3 and 11 (I16) |
 
 **Separation of duties (I12):** `admin` manages people and roles and nothing else: it can be combined only with viewer,
 accountant and auditor, so the person who gives roles never posts, reviews or decides (the screen and the tools refuse

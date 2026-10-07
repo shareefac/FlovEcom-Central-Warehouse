@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\UiKernel;
 
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\Controller\DashboardController;
 
 /**
  * A password change ends EVERY session of the person, the one it was made from included, and hands
@@ -24,7 +25,7 @@ final class PasswordChangeTest extends KernelUiTestCase
         $before = $owner->cookies['cw_session'];
 
         $page = $owner->get('/ui/password');
-        self::assertStringContainsString('Changing it signs you out everywhere else, and this browser continues on a new session.', $page->text());
+        self::assertStringContainsString('After the change you stay signed in here. On your other phones or computers you will need to sign in again.', $page->text());
         $r = $owner->post('/ui/password', ['csrf' => $page->form('/ui/password')['csrf'], 'current' => $u['password'],
             'new' => 'a brand new passphrase 2026', 'again' => 'a brand new passphrase 2026']);
         self::assertSame(303, $r->status, self::statusOf($r));
@@ -35,11 +36,14 @@ final class PasswordChangeTest extends KernelUiTestCase
         self::assertSame([true, 1], [$audit['rotated'] ?? null, $audit['sessions_ended'] ?? null]);
 
         // The copy is dead; the owner carries on with the new session (and its new CSRF token).
-        self::assertSame(303, $copy->get('/ui/review', ['queue' => 'pending'])->status);
-        self::assertSame('/ui/login', $copy->get('/ui/')->location());
+        $dead = $copy->get('/ui/review', ['queue' => 'pending']);
+        self::assertSame(303, $dead->status);
+        self::assertSame('/ui/login?why=signed_out&back=' . rawurlencode('/ui/review?queue=pending'), $dead->location(),
+            'the sign-in page says why (plan F056) and leads back to the page (behaviour item 1)');
+        self::assertSame('/ui/login', $copy->get('/ui/')->location(), 'the dead cookie was cleared: the next request is a plain one');
         $home = $owner->follow($r);
         self::assertSame(200, $home->status, self::statusOf($home));
-        self::assertStringContainsString('Your password was changed.', $home->text());
+        self::assertStringContainsString(DashboardController::NOTICES['password_changed'], $home->text());
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM staff_session WHERE staff_user_id = ? AND revoked = 0', [$u['id']]));
         self::assertSame(303, $owner->post('/ui/logout', ['csrf' => $this->token($owner)])->status, 'the new token works');
 
@@ -60,7 +64,7 @@ final class PasswordChangeTest extends KernelUiTestCase
         self::assertNotSame($before, $web->cookies['cw_session'] ?? $before, 'a new session token after the first password change');
         $old = $this->browser();
         $old->cookies['cw_session'] = $before;
-        self::assertSame('/ui/login', $old->get('/ui/')->location(), 'the one-time-password session is revoked');
+        self::assertSame('/ui/login?why=signed_out', $old->get('/ui/')->location(), 'the one-time-password session is revoked');
         self::assertSame(200, $web->get('/ui/')->status);
     }
 
