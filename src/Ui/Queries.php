@@ -19,8 +19,8 @@ final class Queries
     public const PER_PAGE = 50;
     /**
      * Lanes a queue can be filtered by. `vpg_duplicate` (merge suggestions between two Vape and Go items)
-     * is not one: those proposals sit on mapped listings, which no queue lists, and merges have no screen
-     * yet (U12, docs/ops.md).
+     * is not one: those proposals sit on mapped listings, which no queue lists; they have their own screen,
+     * Duplicates (CW\Ui\Duplicates, M34).
      */
     public const LANES = ['barcode', 'transfer', 'candidates'];
     /**
@@ -190,9 +190,10 @@ final class Queries
     private const PENDING_COLUMNS = 'd.id, d.listing_id, d.action, d.sku_id, d.units_per_item, d.merge_from_sku_id, d.needs_second, d.reason, '
         . 'd.decided_by, d.created_at, d.expected_map_version, d.proposal_id, d.detail, u.display_name AS decider, cl.map_version, '
         . '(SELECT op.id FROM match_proposal op WHERE op.open_listing_id = d.listing_id) AS open_proposal_id, '
-        . 's.code AS sku_code, s.name AS sku_name, mf.code AS merge_from_code, mf.name AS merge_from_name ';
+        . 's.code AS sku_code, s.name AS sku_name, mf.code AS merge_from_code, mf.name AS merge_from_name, '
+        . 'd.prev_sku_id, ps.code AS prev_sku_code, ps.name AS prev_sku_name ';
     private const PENDING_JOINS = 'JOIN channel_listing cl ON cl.id = d.listing_id LEFT JOIN staff_user u ON u.id = d.decided_by '
-        . 'LEFT JOIN sku s ON s.id = d.sku_id LEFT JOIN sku mf ON mf.id = d.merge_from_sku_id ';
+        . 'LEFT JOIN sku s ON s.id = d.sku_id LEFT JOIN sku mf ON mf.id = d.merge_from_sku_id LEFT JOIN sku ps ON ps.id = d.prev_sku_id ';
 
     /** Pending second-approval decisions, oldest first. @return list<array<string, mixed>> */
     public function pendingDecisions(int $limit = 200): array
@@ -348,11 +349,6 @@ final class Queries
         return ['items' => $items, 'listings' => $listings];
     }
 
-    /** Open merge suggestions between Vape and Go items (lane vpg_duplicate): not reviewable on these screens yet. */
-    public function openDuplicateSuggestions(): int
-    {
-        return (int) $this->db->value("SELECT COUNT(*) FROM match_proposal WHERE status = 'open' AND lane = 'vpg_duplicate'");
-    }
 
     /** @return list<array<string, mixed>> */
     public function barcodesOf(int $skuId): array

@@ -101,7 +101,7 @@ final class Permissions
      * The navigation, grouped. An item has either a `path` (a live GET route; `query` is added to its URL) or a
      * `phase` (shown as "<label> · coming in Phase <phase>", never a link: the screen does not exist yet, I14).
      * `key` marks the item as the current page (layout `active`); `badge` names a count of Ui\Context::badges()
-     * (linking_pending, reviews_open). Document reviews, Documents and Reference are live since the documents task
+     * (linking_pending, linking_duplicates, reviews_open). Document reviews, Documents and Reference are live since the documents task
      * (0008, I27): real screens, empty until a phase registers a document type.
      */
     public const MENU = [
@@ -111,6 +111,7 @@ final class Permissions
             ['label' => 'Second approval', 'perm' => 'linking.view', 'key' => 'pending', 'path' => '/ui/review', 'query' => ['queue' => 'pending'],
                 'badge' => 'linking_pending'],
             ['label' => 'Key spot-check', 'perm' => 'linking.view', 'key' => 'samples', 'path' => '/ui/review/samples'],
+            ['label' => 'Duplicates', 'perm' => 'linking.view', 'key' => 'duplicates', 'path' => '/ui/review/duplicates', 'badge' => 'linking_duplicates'],
         ]],
         ['section' => 'Items', 'items' => [
             ['label' => 'Search', 'perm' => 'catalogue.view', 'key' => 'search', 'path' => '/ui/search'],

@@ -7,6 +7,7 @@ namespace CW\Ops;
 use CW\Clock;
 use CW\CwException;
 use CW\Db;
+use CW\Mapping\DecisionService;
 
 /**
  * The rebase of a site's opening estimate at its T0 (plan §8.1; D40a "Rule at a site's T0"; D40b).
@@ -44,9 +45,20 @@ use CW\Db;
  *   no_mapped_listing    the item has earlier estimate rows or opening units but no mapped or quarantined
  *                        listing on this channel now (e.g. relinked or unmapped since the estimate): its
  *                        site figure is unknown, and the rebase would silently write it down to the units term
+ *   merged_item          the item was merged into another (M42): its listings are the kept item's, and it holds stock
+ *                        other than what its own opening units in flight need (units it sold outside the opening, or a
+ *                        residual): nothing to rebase or relink; the kept item's figure is rebased, a count settles it
  *   units_elsewhere      an opening unit of the item sits at another warehouse
  * An item already rebased under this doc_ref is judged on its figure only (a later ship or count does not
  * turn it into a skip). Re-runs and resumes book only what is missing (Idempotency-Key "<doc_ref>:<sku_id>").
+ *
+ * Merges and splits of duplicate items (M35): the stock a merge moved from the merged item to the kept one (and a split
+ * back), the rows of DecisionService::MERGE_MOVEMENTS, travels with the opening: at this warehouse it counts towards the
+ * item's earlier rows (the kept item's estimate now holds the merged item's too, and its target sums both listings), it
+ * never makes an item `moved`, and the items it joins share their history: when one of them is counted, moved or opened
+ * by another site, all of them are skipped for that reason. A merged item (no mapped listing) whose earlier rows equal its
+ * opening units in flight (zero when nothing was in flight) has nothing to rebase (no change); otherwise it is skipped as
+ * merged_item, never as no_mapped_listing (M42).
  *
  * Nothing here locks: the plan is read, then OpeningEstimate::apply() books item by item through Movements
  * (one transaction per item). The rebase therefore runs straight after the final opening batch, before
@@ -57,7 +69,8 @@ final class OpeningRebase
     public const DOC_TYPE = 'opening_rebase';
     /** Unit states that count towards the target (every state a unit the opening committed can reach; see COMMITTED_BY). */
     public const UNIT_STATES = ['allocated', 'shipped', 'cancelled', 'returned'];
-    public const SKIP_REASONS = ['counted', 'other_opening', 'moved', 'quarantined_listing', 'no_t0_figure', 'no_mapped_listing', 'units_elsewhere'];
+    public const SKIP_REASONS = ['counted', 'other_opening', 'moved', 'quarantined_listing', 'no_t0_figure', 'no_mapped_listing', 'merged_item',
+        'units_elsewhere'];
     /** A unit counts towards the target only if the opening's commit allocated it (or adopted it allocated): one of these rows. */
     public const COMMITTED_BY = ['commit', 'adopt'];
     /** Skipped items listed one by one in the report (all are counted). */
@@ -252,19 +265,56 @@ final class OpeningRebase
                 $otherOpening[$sku] = true;
             }
         }
+        // Merges and splits (M35): the stock they moved at this warehouse is part of the items' earlier rows, and the items
+        // they join (the rows of one merge decision, doc_ref merge:<id>) share their history below.
+        $joined = [];
+        $mm = implode(',', array_fill(0, count(DecisionService::MERGE_MOVEMENTS), '?'));
+        foreach ($this->db->all(
+            "SELECT sku_id, warehouse_id, doc_ref, SUM(qty_delta) q FROM stock_ledger WHERE bucket = 'on_hand' AND movement_type IN ({$mm}) "
+            . 'GROUP BY sku_id, warehouse_id, doc_ref',
+            DecisionService::MERGE_MOVEMENTS,
+        ) as $r) {
+            $sku = (int) $r['sku_id'];
+            $joined[(string) $r['doc_ref']][$sku] = true;
+            if ((int) $r['warehouse_id'] === $whId && $estimateDocRef !== null) {
+                $earlier[$sku] = ($earlier[$sku] ?? 0) + (int) $r['q'];
+            } elseif ((int) $r['q'] !== 0) {
+                $otherOpening[$sku] = true; // moved at another warehouse (or with no estimate to belong to): a person looks
+            }
+        }
 
         // The items this channel's opening concerns: linked here, sold in its opening, or opened by its estimate or
         // this rebase. Another site's opening rows matter only on these (they make the item `other_opening`).
         $items = array_keys($siteTerm + $unitsTerm + $earlier + $booked + $skip);
+        // Every item a merge or split joined to one of them is judged with it (M35).
+        $groups = self::joinGroups($joined);
+        foreach ($groups as $members) {
+            if (array_intersect($members, $items) !== []) {
+                $items = array_values(array_unique([...$items, ...$members]));
+            }
+        }
         sort($items);
+        $merged = [];
+        foreach (array_chunk($items, 1000) as $chunk) {
+            foreach ($this->db->column('SELECT id FROM sku WHERE merged_into_sku_id IS NOT NULL AND id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $id) {
+                $merged[(int) $id] = true;
+            }
+        }
         foreach ($items as $sku) {
             if (isset($otherOpening[$sku])) {
                 $skip[$sku]['other_opening'] = true;
             }
             // Opened by the estimate, or sold in the opening, but no longer linked on this channel: the site figure
-            // is unknown (siteTerm is set for every item with a mapped or quarantined listing here).
-            if (!isset($siteTerm[$sku]) && (isset($earlier[$sku]) || isset($unitsTerm[$sku]))) {
-                $skip[$sku]['no_mapped_listing'] = true;
+            // is unknown (siteTerm is set for every item with a mapped or quarantined listing here). A merged item whose
+            // estimate went with the merge (earlier rows net 0) has nothing to rebase; one that still holds exactly what its
+            // opening units in flight need (earlier rows = units term) neither (delta 0, M42); one that holds anything else is
+            // `merged_item`, never no_mapped_listing (whose advice, relink it, would undo the merge).
+            if (!isset($siteTerm[$sku]) && (($earlier[$sku] ?? 0) !== 0 || isset($unitsTerm[$sku]))) {
+                if (!isset($merged[$sku])) {
+                    $skip[$sku]['no_mapped_listing'] = true;
+                } elseif (($earlier[$sku] ?? 0) !== ($unitsTerm[$sku] ?? 0)) {
+                    $skip[$sku]['merged_item'] = true;
+                }
             }
         }
 
@@ -280,19 +330,38 @@ final class OpeningRebase
             ) as $sku) {
                 $skip[(int) $sku]['counted'] = true;
             }
-            // Every on_hand row that is neither an opening row nor a row of one of this channel's opening units.
+            // Every on_hand row that is neither an opening row, nor a row of one of this channel's opening units, nor the stock of
+            // a merge or split (M35: it travels with the opening and is judged through the items it joins, below).
             foreach ($this->db->all(
                 "SELECT l.sku_id, l.movement_type, COUNT(*) n FROM stock_ledger l
                  LEFT JOIN reservation_unit ru ON ru.channel_id = l.channel_id AND ru.unit_id = l.unit_id
                  LEFT JOIN reservation r ON r.id = ru.reservation_id
-                 WHERE l.sku_id IN ({$in}) AND l.bucket = 'on_hand' AND l.actor <> ?
+                 WHERE l.sku_id IN ({$in}) AND l.bucket = 'on_hand' AND l.actor <> ? AND l.movement_type NOT IN ({$mm})
                    AND (r.id IS NULL OR r.origin <> 'opening' OR r.channel_id <> ?)
                  GROUP BY l.sku_id, l.movement_type",
-                [...$chunk, $actor, $channelId],
+                [...$chunk, $actor, ...DecisionService::MERGE_MOVEMENTS, $channelId],
             ) as $r) {
                 $sku = (int) $r['sku_id'];
                 $skip[$sku]['moved'] = true;
                 $moved[$sku][(string) $r['movement_type']] = (int) $r['n'];
+            }
+        }
+        // Items a merge or split joined share their history (M35): the kept item's figure holds the merged item's stock, so a
+        // count, another site's opening or a movement on either side makes every item of the join a skip, for that reason.
+        foreach ($groups as $members) {
+            foreach (['counted', 'other_opening', 'moved'] as $why) {
+                $any = false;
+                foreach ($members as $sku) {
+                    if ($why === 'other_opening' ? isset($otherOpening[$sku]) || isset($skip[$sku][$why]) : isset($skip[$sku][$why])) {
+                        $any = true;
+                        break;
+                    }
+                }
+                if ($any) {
+                    foreach ($members as $sku) {
+                        $skip[$sku][$why] = true;
+                    }
+                }
             }
         }
 
@@ -356,6 +425,33 @@ final class OpeningRebase
         }
         ksort($report['skipped']['why']);
         return ['lines' => $lines, 'report' => $report, 'opening' => $op + ['warehouse_code' => $whCode]];
+    }
+
+    /**
+     * The items joined by merges and splits, as connected groups (union-find over each merge decision's items).
+     *
+     * @param array<string, array<int, true>> $joined doc_ref => its items
+     * @return list<list<int>>
+     */
+    private static function joinGroups(array $joined): array
+    {
+        $parent = [];
+        $find = static function (int $x) use (&$parent, &$find): int {
+            $parent[$x] ??= $x;
+            return $parent[$x] === $x ? $x : ($parent[$x] = $find($parent[$x]));
+        };
+        foreach ($joined as $skus) {
+            $ids = array_keys($skus);
+            foreach ($ids as $id) {
+                $parent[(int) $ids[0]] ??= (int) $ids[0];
+                $parent[$find((int) $id)] = $find((int) $ids[0]);
+            }
+        }
+        $out = [];
+        foreach (array_keys($parent) as $x) {
+            $out[$find((int) $x)][] = (int) $x;
+        }
+        return array_values(array_filter($out, static fn (array $g): bool => count($g) > 1));
     }
 
     /**

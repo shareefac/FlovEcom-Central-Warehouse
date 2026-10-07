@@ -11,6 +11,7 @@ use CW\Mapping\KeyHold;
 use CW\Mapping\Proposals;
 use CW\Ui\Compare;
 use CW\Ui\Context;
+use CW\Ui\Duplicates;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\QueueContext;
@@ -168,7 +169,7 @@ final class ReviewController
         // The item on the right. While a decision waits for a second person it is the item THAT decision
         // links to (the approver approves what the page compares; ?pick is ignored); otherwise a picked
         // one, else the one the refused form was sent for, else the proposal's.
-        $pendingTarget = $pending !== null && $pending['sku_id'] !== null && in_array($pending['action'], ['link', 'reject', 'merge_skus'], true)
+        $pendingTarget = $pending !== null && $pending['sku_id'] !== null && in_array($pending['action'], ['link', 'reject', 'merge_skus', 'split'], true)
             ? (int) $pending['sku_id'] : null;
         $pick = $pending !== null ? null : (UiRequest::id($req->param('pick')) ?? ($form !== null ? UiRequest::id($form['sku_id'] ?? null) : null));
         $targetId = $pending !== null ? $pendingTarget : ($pick ?? $proposedId);
@@ -414,6 +415,8 @@ final class ReviewController
             'sample' => $sample,
             'spot' => $spot,
             'held' => $held,
+            // The duplicate groups this listing is in (M44): their page holds the decision and the undo of a wrong merge.
+            'dup_groups' => (new Duplicates($ctx->db))->groupsOfListings([$id])[$id] ?? [],
             'queue_label' => $qc !== null ? Queries::bandLabel($qc->band) : null,
             'next_link' => $next !== null ? Html::url('/ui/review/listing/' . $next, $qq) : null,
             'pending' => $pending === null ? null : $this->pendingView($pending, $me->id, $lead),
@@ -470,6 +473,9 @@ final class ReviewController
             'sku_id' => $d['sku_id'] === null ? null : (int) $d['sku_id'], 'sku_code' => self::s($d['sku_code']), 'sku_name' => self::s($d['sku_name']),
             'merge_from_id' => $d['merge_from_sku_id'] === null ? null : (int) $d['merge_from_sku_id'],
             'merge_from_code' => self::s($d['merge_from_code']), 'merge_from_name' => self::s($d['merge_from_name']),
+            // A split (M33): the item it leaves, and where it goes (the item it had before the merge, or a new item minted on approval).
+            'prev_id' => $d['prev_sku_id'] === null ? null : (int) $d['prev_sku_id'], 'prev_code' => self::s($d['prev_sku_code']),
+            'split_to' => $d['action'] === 'split' ? self::s(Html::json($d['detail'])['split_to'] ?? null) : null,
             'units' => $d['units_per_item'], 'card' => $card,
             'needs' => Html::strings(Html::json($d['needs_second'])), 'reason' => self::s($d['reason']), 'decider' => self::s($d['decider']),
             'created_at' => self::s($d['created_at']), 'own' => $own, 'stale' => $stale,

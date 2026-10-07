@@ -123,6 +123,14 @@ and the bulk, sample and re-band tools read it through the eligibility check. Na
 `cw_staging` (at 0013) it is the only PENDING file. Check afterwards: the table exists and is empty; cw_app holds SELECT and INSERT
 on it, nothing more (`bin/migrate.php` converges the grants); `php bin/migrate.php --status` lists no PENDING file.
 
+**`0015_duplicates.sql` (Vape and Go's duplicate listings, M31-M36 and the review fixes M39-M45; not applied yet):** no new table and
+no new grant; `match_decision.action` gains `split`, a CHECK that a split row has its `detail`, and new column comments. Deploy it with
+the code of the same change in one `install_cron.sh --migrate` run, never the code first (the Duplicates screen and DecisionService
+write `action = 'split'`, which the old ENUM refuses; the CLI tools refuse a schema behind the code, exit 3). On `cw_staging` (at
+0014) it is the only PENDING file. The HTTPS vhost serves the screens from `/opt/cw-staging`, which the same run updates. Check afterwards:
+`php bin/migrate.php --status` lists no PENDING file; `SHOW CREATE TABLE match_decision` has `'split'` in the action ENUM and
+`ck_match_decision_split`; the Duplicates screen (Linking -> Duplicates) lists 145 groups.
+
 ### API log rotation (staging)
 
 `install_api.sh` installs `/etc/cw/logrotate-cw-api.conf` (from `deploy/staging/logrotate-cw-api.conf`)
@@ -366,10 +374,11 @@ DELETE grants changed):
 - The Vape and Go barcode count is 1 lower in `cw_staging` than in the export: the junk code "Black Grey" is dropped on import (M17).
 - `proposals.csv` names items `CWP-<vpg variant id>`; the screens show that id next to the CW code (`CW-<zero-padded sku id>`) of
   every item minted from Vape and Go (review screen, search, item page), so a CSV row and a screen can be matched.
-- The 165 VPG duplicate proposals (merge suggestions, lane `vpg_duplicate`, 145 groups) are **not reviewable on the screens**:
-  they sit on mapped listings, which no queue lists, and there is no merge screen (U12, U19). Many are not the same product (in 85
-  of the 145 groups the titles differ in strength, size or flavour). Do not merge them in bulk: each needs two people through
-  `DecisionService::decide(merge_skus)` and approve, and a merge that contradicts a reject is refused (M22).
+- The 165 VPG duplicate proposals (merge suggestions, lane `vpg_duplicate`, 145 groups) are decided on the **Duplicates** screen
+  (Linking -> Duplicates; the runbook "Duplicates" below; `docs/decisions.md` M31-M36). They sit on mapped listings, which no
+  review queue lists. Many are not the same product (in 85 of the 145 groups the titles differ in strength, size or flavour): a
+  mapping lead decides each group on the screen, never in bulk. A lead merges two uncounted legacy items alone; a counted item
+  needs a second mapping lead; a merge that contradicts a reject is refused (M22).
 - Un-minted Vape and Go variants (`Bin`, `Discontinued`) can hold a barcode that a "New item" of Electrofag would duplicate: 60 of
   the 65 New item proposals with a barcode are in that case; the review screen lists them under "This listing's barcode is also on"
   and does not preselect "Mark as a new item" there (U18, U20).
@@ -510,6 +519,115 @@ SELECT h.proposal_id, h.listing_id, cl.status, h.reason, h.actor, h.created_at F
   AND NOT EXISTS (SELECT 1 FROM key_bulk_hold r WHERE r.released_hold_id = h.id);   -- held now (status suggested/unmapped = waiting)
 ```
 
+## Duplicates (`docs/decisions.md` M31-M36, M39-M45; the owner's decision of 6 Oct 2026)
+
+Vape and Go sometimes sells one product on two pages (e.g. 23408 "Vaporesso Xros Corex 3.0 Pods (Pack of 4) - 0.4 ohm" and 25772
+"Vaporesso Xros Corex Replacement Pods - 0.4ohm Corex 3.0 Pod - 4 Pack"). When they are the same product, both listings are linked
+to ONE CW item: sales and deliveries count once, the reorder list sees one item, and CW holds one stock figure. **Nothing changes on
+the site** until Vape and Go goes live on CW: each page keeps its own price, reviews and stock field.
+
+Who: a mapping lead (the owner) on the screens. Deploy first, with `0015_duplicates.sql` (`deploy/staging/install_cron.sh --migrate`,
+the migration with the code, never the code first).
+
+1. **Linking -> Duplicates** (`/ui/review/duplicates`): the groups to decide, the biggest sellers first (units in 365 days), with
+   "What the rules say": "may be different:" and the reasons (VG/PG, barcodes, option, words, strength ...), or "no reason against
+   found". The badge in the menu counts the open groups. **Most of run2's suggestions are different products** (the review of 7
+   Oct 2026 found 49 of 60 sampled pairs different); expect to keep most of them separate.
+2. **Open a group.** First, in colour, "What the rules say": every reason these may be different products, page by page. Then every
+   page side by side: titles, brand, options (more than six fold under "All N options"), barcodes, price, sold in 30 and 365 days
+   (sales history), the site's stock and mode now, "open the live page" (`https://www.vapeandgo.co.uk/product/...`), its CW item
+   (counted or not, what CW holds for it). Below, the table of what the titles and options say (the option text of each page,
+   strength, nicotine type, VG/PG, ml, puffs, pack, ohm, colour, form, flavour words, model numbers, range words, barcode): a row in
+   colour differs between the pages; a word in bold is not on every page. **Check the live pages** before any merge.
+3. **The kept page** (its CW item stays; the others' items fold into it) is suggested: more sold in 365 days, then a barcode, then
+   the older page. "Keep this one instead" changes it.
+4. **Decide**, one button. When the rules found a reason against, "Different products - keep separate" is the main button and a
+   merge needs the box "I checked the live pages" ticked (without it nothing is saved).
+   - "Same product - merge into CW-x": the other pages' listings move to CW-x, with the stock CW holds for their items (the
+     opening estimate today; the form says how many units); their merge suggestions are settled.
+   - "Different products - keep separate": recorded as "this page is not that item"; the pair is never suggested again and can
+     never be merged by mistake (a later merge is refused).
+   - In a group of three or more, one choice per page ("Same product", "Different product", "Not sure yet") and "Save these
+     choices"; "not sure yet" leaves that page for later (the group stays, "partly decided").
+   The next group opens with a one-line notice. A merge that touches a **counted** item (or a pack listing of more than one) waits
+   for a second mapping lead in Second approval; a protected item cannot be merged here.
+5. **A wrong merge**: open the group (Duplicates -> "Decided recently", 25 a page; or the "Duplicates: group N" link on the item or
+   listing page), "Undo a wrong merge" -> "Split it off". "Back to CW-x" undoes that merge: the item comes back with every page the
+   merge moved and the stock that came with it, less what those pages sold since (the form says which pages and how many units).
+   "To a new item" takes that page alone (stock moves only when the merge moved that page alone). A page that came through two
+   merges can only go to a new item. It is never suggested with that item again. Once an item has been counted, a split needs a
+   second mapping lead.
+
+What to look for:
+- **A refusal is shown on the same page, and nothing was saved:** "One of these listings changed since the page was drawn" (someone
+  decided on it, or the site renamed it: check the page as it is now and decide again); "cannot be merged: ... marked as a different
+  product before"; "waiting for a second person"; "protected"; "counted a moment ago" (decide again: it now needs two leads); "The
+  rules found reasons that listing #N is a different product" (tick "I checked the live pages" if it is the same); "has an open
+  suggestion in another group" (decide that group first).
+- **The keeper changed by itself:** when nothing is left to decide against the suggested keeper but a suggestion is still open, the
+  page keeps the item that suggestion proposes (the person can still pick another).
+- **Stock.** A merge moves the merged item's *available* stock (`on_hand - allocated - held`) to the kept item: rows `merge_out` /
+  `merge_in` under `doc_ref merge:<decision id>`. What the merged item's own orders in flight need stays on it until they ship (none
+  on staging: no site sells through CW yet). The merged item's page says it was merged and where; the kept item's page says which
+  items were merged into it.
+- **T0.** The rebase at Vape and Go's T0 (`bin/import_opening_estimate.php --rebase`) knows merges: the kept item is rebased on both
+  pages' T0 figures, the merged item has nothing left to rebase (or is `merged_item`: no action, M42), and items joined by a merge
+  are skipped together when one of them was counted or moved otherwise (M35).
+- **mint_vpg** re-runs never suggest a pair again that a person kept separate or merged (`answered=N` in its summary line).
+
+Checks afterwards (read-only):
+
+```sql
+SELECT action, state, COUNT(*) FROM match_decision WHERE action IN ('merge_skus', 'reject', 'split') GROUP BY action, state;
+SELECT status, COUNT(*) FROM match_proposal WHERE lane = 'vpg_duplicate' GROUP BY status;                 -- open = still to decide
+SELECT movement_type, COUNT(*), SUM(qty_delta) FROM stock_ledger WHERE movement_type IN ('merge_out', 'merge_in', 'split_out', 'split_in')
+  GROUP BY movement_type;                                                                                 -- out and in net to 0
+SELECT action, actor, created_at, detail FROM audit_log WHERE action IN ('mapping.merge_skus', 'mapping.duplicates', 'mapping.split')
+  ORDER BY id DESC LIMIT 20;
+SELECT id, sku_id, warehouse_id, created_at FROM count_review WHERE source = 'merge_recount' AND status = 'open';   -- counted merges to recount
+```
+
+### The wider duplicate sweep (`docs/decisions.md` M37-M38, M41, M43, M45)
+
+Finds more duplicate pages than run2's groups (worded differently, a page without a barcode) and adds them to the Duplicates
+screen as groups of the run `sweep-<engine>-<sha>`. Rules only, high precision: one word, value or barcode that speaks against a
+pair keeps it out. Nothing is merged: the owner decides each group on the screen. Re-run it after run2's groups are decided.
+
+```bash
+# 1. Export (read-only: SELECT inside START TRANSACTION READ ONLY, 30 s per statement, app login), on the web server:
+umask 077; TS=$(date -u +%Y%m%dT%H%M%SZ)
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'php -- --root=/opt/cw-staging --db=cw_staging' \
+    < tools/vpg_duplicates/export.php > /root/cw_work/vpg_dups/export_$TS.jsonl          # stderr: export: {"listings":14856,...}
+# 2. The sweep (no database; about 5 min and 1.5 GB for 14,856 listings; deterministic):
+nice -n 19 php tools/vpg_duplicates/sweep.php --export=/root/cw_work/vpg_dups/export_$TS.jsonl \
+    --out=/root/cw_work/vpg_dups/sweep_$TS --sample=40
+# 3. Read sweep_$TS/sample.txt (the pairs side by side; the new groups first) and summary.json (excluded, groups, refusals).
+# 4. Import on staging, AFTER the deploy with 0015 (the importer and the Duplicates screen come with it): copy, dry run, apply.
+scp -i /root/.ssh/cw_staging /root/cw_work/vpg_dups/sweep_$TS/groups.jsonl root@46.101.55.135:/srv/cw-import/vpg_dup_sweep_$TS.jsonl
+#    on the staging box, in /opt/cw-staging (app login):
+php bin/import_vpg_duplicates.php --groups=/srv/cw-import/vpg_dup_sweep_$TS.jsonl            # dry run: would_create=N, nothing written
+php bin/import_vpg_duplicates.php --groups=/srv/cw-import/vpg_dup_sweep_$TS.jsonl --apply    # created=N; a re-run says exists=N
+```
+
+- The summary line counts what was left out and why: `stale` (relinked since the export), `same_item` (merged meanwhile),
+  `answered` (kept separate on the screen), `protected`, `quarantined`, `pending` (a second person is awaited), `open_elsewhere` (the
+  listing already has an open suggestion: decide that one first). A group keeps only the pages that pass; with the keeper alone
+  it is not written. Exit 1 = a line of the file is unreadable or a proposal failed (stderr says which).
+- On the screen a sweep group reads "suggested because the duplicate sweep found no difference" and lists, per pair, the fields
+  that agree, what neither page states, where the barcodes stand and the price ratio. It is decided like any other group (M34).
+- Checks afterwards (read-only):
+
+```sql
+SELECT r.run_id, p.status, COUNT(*) FROM match_proposal p JOIN match_run r ON r.id = p.match_run_id
+  WHERE r.source = 'vpg_dup_sweep' GROUP BY r.run_id, p.status;
+SELECT detail FROM audit_log WHERE action = 'mapping.import_duplicates' ORDER BY id DESC LIMIT 1;
+```
+
+The sweep of 6 Oct 2026 (export 22:57 UTC) under the rules `ds1.0`: 24 pairs accepted, 3 new groups (run id
+`sweep-ds1.0-ea706d79b79c`, superseded: do not import it). **Under `ds1.1` (M43, 7 Oct 2026), the same export: 33 pairs accepted,
+21 already suggested by run2, 1 kept out (in an open group), 11 new groups** (run id `sweep-ds1.1-0bcd02ccd123`), files in
+`/root/cw_work/vpg_dups/sweep_ds11_20261006T225658Z/`: this is the file to import (step 4 with `TS=ds11_20261006T225658Z`).
+
 ## Building the next first-match run (`docs/decisions.md` M29)
 
 On the web server, read-only on the exports. Engine `n2.1/c1.0/v2.1/b2.1/f2.1+fv1-aeaa0af8/tp1.1` (run3 was built with
@@ -605,7 +723,11 @@ privileges itself). CW runs on the CW server, in `/opt/cw-staging`. Do it in thi
    when the doc_ref is the estimate's. Skip reasons: `counted`, `other_opening`, `moved`, `quarantined_listing`,
    `no_t0_figure`, `no_mapped_listing` (the item was opened by the estimate, or sold in the opening, but has no
    mapped listing on this channel now: relink it before the real run, or settle it in step 11) and
-   `units_elsewhere`.
+   `units_elsewhere`. Duplicates merged since the estimate (M35): the kept item is rebased on all its pages' T0
+   figures (the merged item's estimate moved onto it with the merge), a merged item has nothing left to rebase,
+   and items a merge joined are skipped together when one of them is `counted`, `moved` or `other_opening`.
+   `merged_item` (M42): a merged item that holds more than its own opening units in flight need. **No action**:
+   never relink it (that would undo the merge); its pages are the kept item's, and a count settles the rest.
 9. **CW, real run:** the same command with `--sha256=<the hash cw_t0.php printed> --approved-by="<who>"`
    instead of `--dry-run`. `--as-of` is required here (the hash proves the bytes, not the snapshot).
    - It ends `booked N items, net ±M units`.
@@ -730,6 +852,8 @@ their menu. Roles are read on every request: a role taken away stops working on 
 | `/ui/review?queue=<band>&channel=<code>`, `queue=pending` (second approval), `/ui/review/listing/{id}` | `linking.view` | viewer, mapper, mapping_lead, warehouse, manager, admin, auditor |
 | the decision form: link, new item, ignore, reject, withdraw | `mapping.decide` | mapper, mapping_lead |
 | approve a waiting decision | `mapping.approve` | mapping_lead, never the person who decided |
+| `/ui/review/duplicates`, `/ui/review/duplicates/{id}` (Duplicates: the groups, one group side by side) | `linking.view` | viewer, mapper, mapping_lead, warehouse, manager, admin, auditor |
+| merge, keep separate, split (the forms on a group's page) | `mapping.approve` | mapping_lead (a counted item: a second mapping lead approves) |
 | `/ui/items/{id}`, `/ui/search` | `catalogue.view` | all 14 roles |
 | `/ui/people`, `/ui/people/{id}` (People and roles: list, history) | `staff.view` | admin, auditor |
 | change a person's roles, switch an account off/on (never one's own) | `staff.manage` | admin |

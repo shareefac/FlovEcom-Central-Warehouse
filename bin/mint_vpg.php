@@ -8,7 +8,8 @@ declare(strict_types=1);
  * `link` decision of --staff (a mapping_lead) carrying one bulk_batch_id. Rules only: the seed
  * cannot create a cross-site false merge. Vape and Go's own duplicate groups (vpg_duplicates.jsonl
  * of the same run) are reported and queued as merge suggestions (open proposals, lane
- * vpg_duplicate, band Manual) for two people to decide — never merged here.
+ * vpg_duplicate, band Manual) for a mapping lead to decide on the Duplicates screen (M31-M34) — never
+ * merged here. A pair a person already answered (kept separate, or merged) is not suggested again.
  *
  *   php bin/mint_vpg.php --features=<run2>/listings_features.jsonl --staff=<email> [--dry-run]
  *       [--duplicates=<run2>/vpg_duplicates.jsonl] [--channel=vpg] [--batch-id=vpg_mint:run2] [--limit=N]
@@ -180,7 +181,7 @@ exit(Cli::main('mint_vpg', ['features:', 'staff:', 'duplicates:', 'channel:', 'b
         }
 
         // 6. Duplicate groups: report, and queue each non-keeper as a merge suggestion.
-        $d = ['groups' => 0, 'proposals' => 0, 'exists' => 0, 'skipped' => 0];
+        $d = ['groups' => 0, 'proposals' => 0, 'exists' => 0, 'skipped' => 0, 'answered' => 0];
         if (is_readable($dupFile)) {
             $skuOf = [];
             $proposals = new Proposals($db, $ds);
@@ -226,9 +227,15 @@ exit(Cli::main('mint_vpg', ['features:', 'staff:', 'duplicates:', 'channel:', 'b
                                 'vpg_variant_id' => $y['vpg_variant_id'], 'title' => $y['title'] ?? null, 'status' => $y['status'] ?? null,
                                 'units_30d' => $y['units_30d'] ?? null, 'sku_id' => $skuOf[(string) $y['vpg_variant_id']]['sku_id'] ?? null,
                             ], $members),
-                            'action' => 'merge_skus of this listing\'s item into the keeper\'s item, if two people agree'],
+                            'action' => 'merge_skus of this listing\'s item into the keeper\'s item, if a mapping lead agrees (Duplicates screen)'],
                         'flags' => ['merge_suggestion', (string) ($g['kind'] ?? 'duplicate')],
                     ], false);
+                    if (in_array($res['result'], ['rejected_before', 'same_item'], true)) {
+                        // A person answered it on the Duplicates screen (kept separate, or merged): never suggested again (M34).
+                        $d['answered']++;
+                        $report .= " ({$res['result']}: not suggested again)";
+                        continue;
+                    }
                     $d[$res['result'] === 'created' ? 'proposals' : 'exists']++;
                 }
                 fwrite(STDOUT, $report . "\n");
@@ -238,9 +245,9 @@ exit(Cli::main('mint_vpg', ['features:', 'staff:', 'duplicates:', 'channel:', 'b
         }
 
         $cli->log(sprintf('%schannel=%s staff=%s batch=%s features: lines=%d vpg=%d seed=%d not_seed=%d written=%d; mint: minted=%d would_mint=%d '
-            . 'already_linked=%d ignored=%d missing_listing=%d failed=%d; barcodes: added=%d clashes=%d; duplicates: groups=%d proposals=%d exists=%d skipped=%d; ms=%d',
+            . 'already_linked=%d ignored=%d missing_listing=%d failed=%d; barcodes: added=%d clashes=%d; duplicates: groups=%d proposals=%d exists=%d skipped=%d answered=%d; ms=%d',
             $dry ? 'DRY RUN (nothing written) ' : '', $code, $email, $batchId, $n['lines'], $n['vpg'], $n['seed'], $n['not_seed'], $wrote,
             $m['minted'], $m['would_mint'], $m['already_linked'], $m['ignored'], $m['missing_listing'], $m['failed'],
-            $bc['added'], $bc['clashes'], $d['groups'], $d['proposals'], $d['exists'], $d['skipped'], intdiv(hrtime(true) - $t0, 1_000_000)));
+            $bc['added'], $bc['clashes'], $d['groups'], $d['proposals'], $d['exists'], $d['skipped'], $d['answered'], intdiv(hrtime(true) - $t0, 1_000_000)));
         return $m['missing_listing'] + $m['failed'] > 0 ? Cli::PROBLEM : Cli::OK;
     }));

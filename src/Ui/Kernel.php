@@ -14,6 +14,7 @@ use CW\Ui\Controller\AuthController;
 use CW\Ui\Controller\CompanyController;
 use CW\Ui\Controller\DashboardController;
 use CW\Ui\Controller\DocumentsController;
+use CW\Ui\Controller\DuplicatesController;
 use CW\Ui\Controller\FilesController;
 use CW\Ui\Controller\ItemController;
 use CW\Ui\Controller\PeopleController;
@@ -252,6 +253,13 @@ final class Kernel
         $r->add('POST', '/ui/review/listing/{id}/decide', Route::DECIDE, $review->decide(...));
         $r->add('POST', '/ui/review/decision/{id}/approve', Route::LEAD, $review->approve(...));
         $r->add('POST', '/ui/review/decision/{id}/withdraw', Route::DECIDE, $review->withdraw(...));
+        // Duplicates (M34): Vape and Go's own duplicate listings; everyone with linking.view looks, a mapping lead decides (merge,
+        // keep separate, split), checked again by DecisionService.
+        $duplicates = new DuplicatesController();
+        $r->add('GET', '/ui/review/duplicates', 'linking.view', $duplicates->index(...));
+        $r->add('GET', '/ui/review/duplicates/{id}', 'linking.view', $duplicates->show(...));
+        $r->add('POST', '/ui/review/duplicates/{id}/decide', Route::LEAD, $duplicates->decide(...));
+        $r->add('POST', '/ui/review/duplicates/{id}/split', Route::LEAD, $duplicates->split(...));
         // The Key spot-check (M28): read-only; the owner decides each member on the listing page above.
         $samples = new SamplesController();
         $r->add('GET', '/ui/review/samples', 'linking.view', $samples->index(...));

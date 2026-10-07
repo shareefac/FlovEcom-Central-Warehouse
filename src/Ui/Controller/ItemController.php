@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Ui\Controller;
 
 use CW\Ui\Context;
+use CW\Ui\Duplicates;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 
@@ -88,7 +89,23 @@ final class ItemController
                 [$id],
             ));
         }
+        // The duplicate groups of its listings (now or before a merge, M44): the group page holds the decision and its undo.
+        $dupGroups = [];
+        if ($ctx->me()->can('linking.view')) {
+            // Its listings, and the listings named by the merges and splits that moved stock to or from it (a merged item's page).
+            $lids = [...array_map(static fn (array $r): int => $r['id'], $rows), ...array_map('intval', array_column($ctx->db->all(
+                "(SELECT id, listing_id FROM match_decision WHERE sku_id = ? AND action IN ('merge_skus', 'split') AND state = 'applied') UNION "
+                . "(SELECT id, listing_id FROM match_decision WHERE merge_from_sku_id = ? AND action = 'merge_skus' AND state = 'applied') ORDER BY id DESC LIMIT 50",
+                [$id, $id]), 'listing_id'))];
+            foreach ((new Duplicates($ctx->db))->groupsOfListings($lids) as $gids) {
+                foreach ($gids as $gid) {
+                    $dupGroups[$gid] = true;
+                }
+            }
+            ksort($dupGroups);
+        }
         return $ctx->page('item', [
+            'dup_groups' => array_map('intval', array_keys($dupGroups)),
             'sku' => [
                 'id' => $id, 'code' => self::s($sku['code']), 'name' => self::s($sku['name']), 'brand' => self::s($sku['brand']),
                 'policy' => self::s($sku['sell_policy']), 'strength_mg' => Html::dec($sku['strength_mg']), 'nic_type' => self::s($sku['nic_type']),
@@ -99,6 +116,8 @@ final class ItemController
                 'cwp' => $cwp === null ? null : 'CWP-' . $cwp,
             ],
             'merged_into' => $mergedInto === null ? null : ['id' => (int) $mergedInto['id'], 'code' => self::s($mergedInto['code']), 'name' => self::s($mergedInto['name'])],
+            'merged_from' => array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'code' => (string) $r['code']],
+                $ctx->db->all('SELECT id, code FROM sku WHERE merged_into_sku_id = ? ORDER BY id LIMIT 50', [$id])),
             'barcodes' => $barcodes,
             'listings' => $rows,
             'stock' => $stock,

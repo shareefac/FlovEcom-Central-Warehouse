@@ -1,7 +1,15 @@
 <h1><?= $e($sku['code']) ?> <span class="muted"><?= $e($sku['name']) ?></span></h1>
 
 <?php if ($merged_into !== null): ?>
-<p class="note">This item was merged into <a href="/ui/items/<?= $e($merged_into['id']) ?>"><?= $e($merged_into['code']) ?></a> <?= $e($merged_into['name']) ?>. Its listings and stock moved there.</p>
+<p class="note">This item was merged into <a href="/ui/items/<?= $e($merged_into['id']) ?>"><?= $e($merged_into['code']) ?></a> <?= $e($merged_into['name']) ?>. Its listings and stock moved there
+  (what its own orders in flight still needed stays here until they ship).</p>
+<?php endif; ?>
+<?php if ($merged_from !== []): ?>
+<p class="note">Duplicate pages share this warehouse item: <?php foreach ($merged_from as $m): ?><a href="/ui/items/<?= $e($m['id']) ?>"><?= $e($m['code']) ?></a> <?php endforeach; ?>was merged into it.
+  On the website they stay separate pages with their own price and reviews until Vape and Go switches to the warehouse system.</p>
+<?php endif; ?>
+<?php if ($dup_groups !== []): ?>
+<p class="muted dup-groups">Duplicates: <?php foreach ($dup_groups as $gid): ?><a href="/ui/review/duplicates/<?= $e($gid) ?>">group <?= $e($gid) ?></a> <?php endforeach; ?>(what was decided, and the undo of a wrong merge).</p>
 <?php endif; ?>
 
 <div class="cols">

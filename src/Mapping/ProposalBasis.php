@@ -39,8 +39,11 @@ final class ProposalBasis
     public const TARGET = ['target_listing_id', 'target_map_version', 'target_status', 'target_sku_id', 'target_units_per_item'];
     private const HASHED = ['v', 'listing_id', 'map_version', 'identity_hash', 'sku_id', 'item_hash', 'origin_identity_hash',
         'target_listing_id', 'target_map_version', 'target_status', 'target_sku_id', 'target_units_per_item'];
-    /** Decisions that move a listing's map_version (merge_skus moves the moved listings without a decision of their own). */
-    private const VERSION_ACTIONS = "('link', 'unlink', 'new_item', 'ignore', 'suggest')";
+    /**
+     * Decisions that move a listing's map_version (merge_skus moves the moved listings without a decision of their own; a split
+     * moves its listing with its own, M33).
+     */
+    private const VERSION_ACTIONS = "('link', 'unlink', 'new_item', 'ignore', 'suggest', 'split')";
 
     /**
      * The basis of a listing, its proposed item and the proposal's lane target as they are now (read in the caller's

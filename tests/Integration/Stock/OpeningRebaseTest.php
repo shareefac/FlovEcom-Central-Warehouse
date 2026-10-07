@@ -6,6 +6,7 @@ namespace CW\Tests\Integration\Stock;
 
 use CW\Caller;
 use CW\CwException;
+use CW\Mapping\DecisionService;
 use CW\Ops\OpeningEstimate;
 use CW\Ops\OpeningRebase;
 use CW\Tests\Support\StockTestCase;
@@ -277,6 +278,92 @@ final class OpeningRebaseTest extends StockTestCase
         $none = $this->plan([['F', 2]], self::REBASE, null);
         self::assertSame([], $none['lines']);
         self::assertSame(8, $none['report']['skipped']['why']['other_opening']);
+    }
+
+    /**
+     * M35: Vape and Go's duplicates are merged between the estimate and T0. The merge moves the merged item's estimate onto
+     * the kept item (merge_out / merge_in), the rebase counts those rows as the kept item's earlier rows and sums both its
+     * listings' T0 figures, the merged item has nothing left to rebase, and items a merge joined share their history (a
+     * goods-in on one makes both `moved`).
+     */
+    public function testAMergeBetweenTheEstimateAndT0RebasesTheKeptItemOnBothListings(): void
+    {
+        $site = $this->site('vpg', 'shadow');
+        [$k, $f, $g, $h] = [$this->item('legacy'), $this->item('legacy'), $this->item('legacy'), $this->item('legacy')];
+        $this->listing($site, 'A', $k);
+        $b = $this->listing($site, 'B', $f);
+        $this->listing($site, 'G', $g);
+        $hl = $this->listing($site, 'H', $h);
+        $this->estimate([['A', 10], ['B', 4], ['G', 5], ['H', 2]]);
+        $lead = self::$db->insert("INSERT INTO staff_user (username, display_name, email, password_hash, is_active) VALUES ('lead@test.invalid', 'Lead', 'lead@test.invalid', 'x', 1)");
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'mapping_lead')", [$lead]);
+        $ds = new DecisionService(self::$db, $this->stock, $this->res);
+        $merge = fn (int $anchor, int $keep, int $from): array => $ds->decide(Caller::staff($lead), ['action' => 'merge_skus', 'listing_id' => $anchor,
+            'expected_map_version' => (int) self::$db->value('SELECT map_version FROM channel_listing WHERE id = ?', [$anchor]), 'sku_id' => $keep, 'merge_from_sku_id' => $from]);
+        self::assertSame('applied', $merge($b, $k, $f)['state']);
+        $this->assertBal(14, 0, 0, $k);
+        $this->assertBal(0, 0, 0, $f);
+        // G was moved by a goods-in, then H was merged into it: both share G's history now.
+        $this->book('goods_in', $g, 3);
+        self::assertSame('applied', $merge($hl, $g, $h)['state']);
+        // The open paid unit of page B is the kept item's (B is linked to it at T0).
+        $this->opening($site, [['order_ref' => '901', 'lines' => [self::line('B', 'b1')]]]);
+        $this->assertBal(14, 1, 0, $k);
+
+        $plan = $this->plan([['A', 6], ['B', 3], ['G', 5], ['H', 2]]);
+        // K: target = A 6 + B 3 + the opening unit 1 = 10; its earlier rows = its estimate 10 + the 4 that came with the merge.
+        self::assertSame([$k => 10 - 14], $plan['lines']);
+        $r = $plan['report'];
+        self::assertSame(['items' => 2, 'why' => ['moved' => 2]], ['items' => $r['skipped']['items'], 'why' => $r['skipped']['why']]);
+        self::assertEqualsCanonicalizing([$g, $h], array_column($r['skipped']['details'], 'sku_id'));
+        self::assertSame(1, $r['no_change'], 'the merged item F: nothing left to rebase, and not listed as no_mapped_listing');
+        $this->bookRebase($plan['lines']);
+        self::assertSame(9, $this->available($k), 'available = both pages\' T0 figures');
+        $this->assertBal(0, 0, 0, $f);
+    }
+
+    /**
+     * M42 (review of 7 Oct 2026): a merged item that still holds what its own opening unit in flight needs (earlier rows = units
+     * term) has nothing to rebase: no change, never `no_mapped_listing` (whose advice, relink it, would undo the merge). One that
+     * holds anything else (here what a later order in flight needs) is skipped as `merged_item`.
+     */
+    public function testAMergedItemWithAnOpeningUnitInFlightIsNoChange(): void
+    {
+        [$plan, $k, $f] = $this->mergedWithUnitsInFlight(false);
+        self::assertSame([$k => 9 - 13], $plan['lines']);
+        self::assertSame(0, $plan['report']['skipped']['items'], json_encode($plan['report']['skipped']));
+        self::assertSame(1, $plan['report']['no_change'], 'F: earlier 1 = its opening unit in flight');
+    }
+
+    public function testAMergedItemHoldingMoreThanItsOpeningUnitsIsSkippedAsMergedItem(): void
+    {
+        [$plan, $k, $f] = $this->mergedWithUnitsInFlight(true);
+        self::assertSame([$k => 9 - 12], $plan['lines']);
+        self::assertSame(['merged_item' => 1], $plan['report']['skipped']['why']);
+        self::assertSame([['sku_id' => $f, 'why' => ['merged_item'], 'target' => 1, 'earlier' => 2, 'delta' => -1]],
+            array_map(static fn (array $d): array => array_intersect_key($d, array_flip(['sku_id', 'why', 'target', 'earlier', 'delta'])), $plan['report']['skipped']['details']));
+    }
+
+    /** Estimate A 10, B 4; an opening unit of page B (and, with $later, a later order of page B); B's item F merged into A's K; T0 A 6, B 3. @return array{0: array<string, mixed>, 1: int, 2: int} */
+    private function mergedWithUnitsInFlight(bool $later): array
+    {
+        $site = $this->site('vpg', 'shadow');
+        [$k, $f] = [$this->item('legacy'), $this->item('legacy')];
+        $this->listing($site, 'A', $k);
+        $b = $this->listing($site, 'B', $f);
+        $this->estimate([['A', 10], ['B', 4]]);
+        $this->opening($site, [['order_ref' => '902', 'lines' => [self::line('B', 'b1')]]]);
+        if ($later) {
+            $this->ok($this->commit($site, 'L-1', [self::line('B', 'l1')]));
+        }
+        $this->assertBal(4, $later ? 2 : 1, 0, $f);
+        $lead = self::$db->insert("INSERT INTO staff_user (username, display_name, email, password_hash, is_active) VALUES ('lead2@test.invalid', 'Lead', 'lead2@test.invalid', 'x', 1)");
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'mapping_lead')", [$lead]);
+        $ds = new DecisionService(self::$db, $this->stock, $this->res);
+        self::assertSame('applied', $ds->decide(Caller::staff($lead), ['action' => 'merge_skus', 'listing_id' => $b, 'expected_map_version' =>
+            (int) self::$db->value('SELECT map_version FROM channel_listing WHERE id = ?', [$b]), 'sku_id' => $k, 'merge_from_sku_id' => $f])['state']);
+        $this->assertBal($later ? 12 : 13, 0, 0, $k);
+        return [$this->plan([['A', 6], ['B', 3]]), $k, $f];
     }
 
     public function testRefusalsResumeAndConflict(): void

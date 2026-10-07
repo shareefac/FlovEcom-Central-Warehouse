@@ -6,6 +6,7 @@ namespace CW\Ui\Controller;
 
 use CW\Mapping\Proposals;
 use CW\Ui\Context;
+use CW\Ui\Duplicates;
 use CW\Ui\HtmlResponse;
 use CW\Ui\Queries;
 
@@ -52,7 +53,7 @@ final class DashboardController
             'bands' => $bands,
             'unproposed' => $q->unproposed(),
             'pending' => $q->pendingCount(),
-            'duplicates' => $q->openDuplicateSuggestions(),
+            'duplicates' => (new Duplicates($ctx->db))->openCount(),
             'coverage' => $coverage,
         ], 200, ['title' => 'Dashboard', 'active' => 'dashboard', 'notice' => $notice]);
     }

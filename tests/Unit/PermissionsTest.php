@@ -91,7 +91,7 @@ final class PermissionsTest extends TestCase
                     self::assertArrayNotHasKey('badge', $item, $what);
                 }
                 if (isset($item['badge'])) {
-                    self::assertContains($item['badge'], ['linking_pending', 'reviews_open'], "{$what}: a count Ui\\Context::badges() computes");
+                    self::assertContains($item['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open'], "{$what}: a count Ui\\Context::badges() computes");
                 }
             }
         }
@@ -216,7 +216,7 @@ final class PermissionsTest extends TestCase
         self::assertSame(['Reason codes', 'Number series', 'Settings', 'Company details'], array_column(Permissions::menu(['viewer'])[2]['items'], 'label'),
             'Reference gains Settings and Company details (every role reads them; I90)');
         $mapper = Permissions::menu(['mapper']);
-        self::assertSame(['/ui/', '/ui/review', '/ui/review', '/ui/review/samples'], array_column($mapper[0]['items'], 'path'));
+        self::assertSame(['/ui/', '/ui/review', '/ui/review', '/ui/review/samples', '/ui/review/duplicates'], array_column($mapper[0]['items'], 'path'));
         self::assertSame([['queue' => 'Key'], ['queue' => 'pending']], array_column($mapper[0]['items'], 'query'));
     }
 

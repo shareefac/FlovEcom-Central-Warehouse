@@ -206,10 +206,12 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         self::assertStringStartsWith('/ui/review/listing/' . $l2 . '?', (string) $r->location());
         self::assertSame(['mapped', $a], [$this->link($l1)['status'], $this->link($l1)['sku_id']]);
 
-        // Merge suggestions between Vape and Go items are counted on the dashboard, not queued.
-        $v1 = $this->listing($vpg, 'D1', $a);
+        // Merge suggestions between Vape and Go items are counted on the dashboard, not queued: they have their own screen (M34).
+        $v1 = $this->listing($vpg, 'D1', $this->item('legacy', 0, 'Item A again'));
         $this->propose($v1, 'Manual', $a, ['lane' => 'vpg_duplicate'], false, 'dups');
-        self::assertStringContainsString('1 possible duplicate between Vape and Go items (merge suggestions) is not in these queues', $web->get('/ui/')->text());
+        $dash = $web->get('/ui/');
+        self::assertStringContainsString('1 group of possible duplicate Vape and Go listings (the same product on two pages) waits on the Duplicates screen', $dash->text());
+        self::assertContains('/ui/review/duplicates', $dash->hrefs());
     }
 
     // ---- helpers --------------------------------------------------------------------------------------

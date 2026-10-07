@@ -73,6 +73,10 @@ final class Proposals
      * @param array{proposed_sku_id?: ?int, proposed_new_item?: bool, band: string, lane?: ?string, ai_outcome?: ?string,
      *              ai_confidence?: ?int, ai_units_per_item?: ?int, ai_model?: ?string, closest_sku_id?: ?int,
      *              evidence?: ?array<string, mixed>, flags?: list<string>} $p
+     * A merge suggestion (a duplicate lane, M34) that a person already answered is not made again: `rejected_before` when the
+     * listing was kept separate from that item (a match_reject the merge would contradict), `same_item` when the two are one
+     * item already; nothing is written then and proposal_id is 0.
+     *
      * @return array{result: string, proposal_id: int, superseded: ?int, suggested: bool}
      */
     public function add(Caller $caller, int $listingId, int $runId, array $p, bool $suggest = true): array
@@ -104,6 +108,12 @@ final class Proposals
                 throw new CwException('unknown_listing', 'no such listing', 404);
             }
             $mine = $db->one('SELECT id, status FROM match_proposal WHERE match_run_id = ? AND listing_id = ?', [$runId, $listingId]);
+            if ($mine === null && $sku !== null && DecisionService::isDuplicateLane(is_string($p['lane'] ?? null) ? $p['lane'] : null)) {
+                $blocked = $this->decisions->duplicateBlocked($listingId, (int) $sku);
+                if ($blocked !== null) {
+                    return ['result' => $blocked, 'proposal_id' => 0, 'superseded' => null, 'suggested' => false];
+                }
+            }
             $superseded = null;
             if ($mine !== null) {
                 $id = (int) $mine['id'];

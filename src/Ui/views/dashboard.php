@@ -41,8 +41,9 @@
 <?php endif; ?>
   </p>
 <?php if ($duplicates > 0): ?>
-  <p class="note"><?= $n($duplicates) ?> possible duplicate<?php if ($duplicates !== 1): ?>s<?php endif; ?> between Vape and Go items (merge suggestions) <?php if ($duplicates === 1): ?>is<?php else: ?>are<?php endif; ?> not in these queues:
-    merges have no screen yet, and many of them are not the same product. Nothing merges them on its own (docs/ops.md).</p>
+  <p class="note"><?= $n($duplicates) ?> group<?php if ($duplicates !== 1): ?>s<?php endif; ?> of possible duplicate Vape and Go listings (the same product on two pages)
+    <?php if ($duplicates === 1): ?>waits<?php else: ?>wait<?php endif; ?> on the <a href="/ui/review/duplicates">Duplicates</a> screen. Many are not the same product:
+    a mapping lead decides each group. Nothing merges them on its own.</p>
 <?php endif; ?>
 </section>
 

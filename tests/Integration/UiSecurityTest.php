@@ -15,9 +15,10 @@ use CW\Tests\Support\UiTestCase;
 final class UiSecurityTest extends UiTestCase
 {
     private const GETS = ['/ui', '/ui/', '/ui/review?queue=Key', '/ui/review?queue=pending', '/ui/review/listing/1', '/ui/items/1', '/ui/search', '/ui/search?q=abc', '/ui/password',
-        '/ui/reference/company', '/ui/reference/company/edit', '/ui/reference/company/sample.pdf'];
+        '/ui/reference/company', '/ui/reference/company/edit', '/ui/reference/company/sample.pdf', '/ui/review/duplicates', '/ui/review/duplicates/1'];
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw',
-        '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject'];
+        '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',
+        '/ui/review/duplicates/1/decide', '/ui/review/duplicates/1/split'];
 
     public function testEveryScreenNeedsASignIn(): void
     {
@@ -383,6 +384,14 @@ final class UiSecurityTest extends UiTestCase
         $l4 = $this->profiled($alt, 'V4', ['product_title' => $h('title4'), 'units_30d' => 1]);
         $this->decide($decider, 'link', $l4, ['sku_id' => $legacy, 'units_per_item' => 3, 'reason' => $h('reason4')]);
 
+        // A duplicate group (M34): listing V3's item and a second page, both with hostile text.
+        $dupItem = $this->item('legacy', 1, $h('sname5'));
+        $l5 = $this->profiled($site, 'V5', ['product_title' => $h('title5'), 'variant_title' => $h('vtitle5'), 'brand' => $h('brand5'), 'barcodes' => [$h('lbc5')],
+            'attributes' => [['name' => $h('an5'), 'value' => $h('av5')]], 'perma_link' => 'javascript:alert(1)',
+            'features' => ['flavour_tokens' => [$h('flav5')], 'colour' => $h('colour5')]], $dupItem);
+        $dup = $this->propose($l5, 'Manual', $legacy, ['lane' => 'vpg_duplicate', 'evidence' => ['group' => 1, 'kind' => $h('kind'),
+            'keeper' => ['vpg_variant_id' => 'V3', 'sku_id' => $legacy], 'members' => [['vpg_variant_id' => 'V3'], ['vpg_variant_id' => 'V5']]]], false, 'dups');
+
         $me = $this->uiUser('mapping_lead');
         self::$db->exec('UPDATE staff_user SET display_name = ? WHERE id = ?', [$h('me'), $me['id']]);
         $web = $this->signIn($me);
@@ -411,6 +420,10 @@ final class UiSecurityTest extends UiTestCase
             'search by word' => ['/ui/search', ['q' => 'script'], ['sname1', 'sname2', 'title', 'title2']],
             'second approval' => ['/ui/review', ['queue' => 'pending', 'notice' => $evil, 'prev' => $evil], ['title4', 'decider', 'reason4', 'sname1']],
             'password' => ['/ui/password', [], []],
+            'duplicates' => ['/ui/review/duplicates', ['notice' => $evil], ['title3', 'vtitle3']],
+            'duplicate group' => ['/ui/review/duplicates/' . $dup, ['notice' => $evil, 'keeper' => $attr], ['title3', 'vtitle3', 'title5', 'vtitle5', 'brand5', 'lbc5',
+                'an5', 'av5', 'flav5', 'colour5', 'sname1']],
+            'duplicate group, other keeper' => ['/ui/review/duplicates/' . $dup, ['keeper' => (string) $l5], ['title5', 'sname5']],
         ];
         foreach ($pages as $what => [$path, $query, $fields]) {
             $r = $web->get($path, $query);

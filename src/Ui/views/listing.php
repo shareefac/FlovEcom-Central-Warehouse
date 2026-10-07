@@ -40,6 +40,10 @@
 <?php endif; ?>
 <?php endif; ?>
 
+<?php if ($dup_groups !== []): ?>
+<p class="muted dup-groups">Duplicates: <?php foreach ($dup_groups as $gid): ?><a href="/ui/review/duplicates/<?= $e($gid) ?>">group <?= $e($gid) ?></a> <?php endforeach; ?>(this page's duplicate suggestions, what was decided, and the undo of a wrong merge).</p>
+<?php endif; ?>
+
 <div class="cols">
   <section class="card" aria-labelledby="listing-h">
     <h2 id="listing-h">This listing</h2>
@@ -82,7 +86,7 @@
     </dl>
 <?php elseif ($pending !== null && $target === null): ?>
     <h2 id="item-h">What this decision does</h2>
-    <p class="title"><?php if ($pending['action'] === 'unlink'): ?>Unlinks the listing<?php elseif ($pending['action'] === 'ignore'): ?>Marks the listing as ignored<?php else: ?><?= $e($pending['action']) ?><?php endif; ?></p>
+    <p class="title"><?php if ($pending['action'] === 'unlink'): ?>Unlinks the listing<?php elseif ($pending['action'] === 'ignore'): ?>Marks the listing as ignored<?php elseif ($pending['action'] === 'split'): ?>Splits the listing off its merge, to a new item minted from it<?php else: ?><?= $e($pending['action']) ?><?php endif; ?></p>
 <?php else: ?>
     <h2 id="item-h"><?= $e($target_heading) ?></h2>
 <?php if ($pick_note !== null): ?>

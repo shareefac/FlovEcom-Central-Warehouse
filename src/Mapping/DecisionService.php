@@ -27,19 +27,27 @@ use CW\Stock;
  *      buckets) and Stock::listingChanged (the feed; Stock stays the only writer of stock_change).
  *
  * Actions: link, unlink, new_item (mints an item from the listing's profile + features, then
- * links), ignore, reject (match_reject; the proposal stays open for another choice), suggest
- * (unmapped -> suggested, the only system action) and merge_skus (moves every listing of one item
- * to another and marks it merged). mintAndLink() is the Vape and Go seed: mint + an applied link.
+ * links), ignore, reject (match_reject; the proposal stays open for another choice, except a merge
+ * suggestion it answers, M34), suggest (unmapped -> suggested, the only system action), merge_skus
+ * (moves every listing of one item to another, marks it merged and moves its stock there, M31-M32)
+ * and split (the undo of a merge: back to the former item with every listing the merge moved and the
+ * stock that came with it, or the listing alone to a new item, M33, M40). mintAndLink() is the Vape
+ * and Go seed: mint + an applied link.
+ * decideGroup() takes the decisions of one duplicate group (the Duplicates screen) in one transaction.
  *
- * Two-person rule (plan §7.1): a decision that links/unlinks/ignores a listing on a protected item
- * (sell_policy <> legacy) or links one to it, any units_per_item <> 1 (and any change of a listing
- * linked with u <> 1: relink, new item, unlink, ignore), a link to an item this listing was rejected
- * for (or to an item such an item was merged into), and every merge_skus is stored `pending_second`;
- * a DIFFERENT staff user with role mapping_lead approves (applies) or withdraws it. A merge that would
- * contradict a match_reject is refused (409 rejected_pair). Proposals in the Conflict band (or a
- * listing whose open proposal is Conflict) may only be decided by a mapping_lead. Roles: mapper and
- * mapping_lead decide; bulk decisions (bulk_batch_id) are mapping_lead only; a system caller may
- * only suggest. At most one pending decision per listing.
+ * Two-person rule (plan §7.1; M31 for merges): a decision that links/unlinks/ignores a listing on a
+ * protected item (sell_policy <> legacy) or links one to it, any units_per_item <> 1 (and any change of
+ * a listing linked with u <> 1: relink, new item, unlink, ignore, split; a merge moving one), a link to
+ * an item this listing was rejected for (or to an item such an item was merged into), a merge or split
+ * touching a counted item (or one with a counted item merged into it, or a recount open, M39), and a merge
+ * asked for by a mapper is stored `pending_second`; a DIFFERENT
+ * staff user with role mapping_lead approves (applies) or withdraws it. A mapping lead's merge of two
+ * uncounted legacy items applies at once (the owner's decision of 6 Oct 2026, M31). Protected items are
+ * never merged or split (409). A merge that would contradict a match_reject is refused (409
+ * rejected_pair). Proposals in the Conflict band (or a listing whose open proposal is Conflict) may only
+ * be decided by a mapping_lead. Roles: mapper and mapping_lead decide; bulk decisions (bulk_batch_id)
+ * and splits are mapping_lead only; a system caller may only suggest. At most one pending decision per
+ * listing.
  *
  * What the person saw (design I7): the listing's map_version (which also moves when the site changes
  * the listing's identity, identityChanged()) and the proposal (a decision on a listing with an open
@@ -48,12 +56,23 @@ use CW\Stock;
  * counted item queues a recount of both items (remapCorrection, design A.9 rule 5).
  *
  * Lock order (docs/decisions.md M4): reservation rows -> channel_listing (X) -> sku (S, X only
- * for the item merged away) -> stock_balance (adoption) -> feed clock. Nothing is locked after
- * the feed clock: every decision, history, proposal and audit row is written before it.
+ * for the item merged away or revived by a split) -> stock_balance (adoption; the stock of a merge
+ * or split) -> the item value clocks -> feed clock. Nothing is locked after the feed clock: every
+ * decision, history, proposal and audit row is written before it.
  */
 final class DecisionService
 {
-    public const ACTIONS = ['link', 'unlink', 'new_item', 'ignore', 'reject', 'suggest', 'merge_skus'];
+    public const ACTIONS = ['link', 'unlink', 'new_item', 'ignore', 'reject', 'suggest', 'merge_skus', 'split'];
+    /** Where a split sends the listing (M33): back to the item it had before the merge, or to an item minted from it. */
+    public const SPLIT_TO = ['former', 'new'];
+    /**
+     * The stock_ledger movement types of a merge (the merged item's stock out, into the kept item) and of a split (back), all
+     * under doc_ref `merge:<merge decision id>` (M32, M33). Not movements anyone can post (CW\Movements::TYPES): only a
+     * decision books them.
+     */
+    public const MERGE_MOVEMENTS = ['merge_out', 'merge_in', 'split_out', 'split_in'];
+    /** count_review source of a merge or split that two people applied to a counted item (M32). */
+    public const RECOUNT_SOURCE = 'merge_recount';
     /** Kept as an alias: the roles live in Auth\Permissions (I11). */
     public const ROLES = Permissions::ROLES;
     public const DECIDERS = ['mapper', 'mapping_lead'];
@@ -75,6 +94,13 @@ final class DecisionService
 
     private readonly Stock $stock;
     private readonly Reservations $res;
+    /**
+     * Inside decideGroup(): the stock moves and the listings for the feed that the group's merges leave for its end (one
+     * Stock::lock() and one flush() per transaction, I7); null otherwise.
+     *
+     * @var array{moves: list<array<string, mixed>>, listings: list<int>}|null
+     */
+    private ?array $deferred = null;
 
     public function __construct(private readonly Db $db, ?Stock $stock = null, ?Reservations $res = null)
     {
@@ -98,6 +124,163 @@ final class DecisionService
     {
         $r = self::request($req);
         return $this->db->transaction(fn (Db $db): array => $this->run($caller, $r, null));
+    }
+
+    /**
+     * The decisions of one duplicate group (the Duplicates screen's one POST, M34): merges into the item kept and rejects
+     * ("different products"), in ONE transaction, so a refusal of any of them (a stale form: 409 map_version_conflict, a
+     * reject in the way: 409 rejected_pair, ...) leaves the whole group as it was. Every listing of the group is locked
+     * first, in id order; each request then runs as decide() would, except that the stock of every merge is moved at the
+     * end with one Stock::lock() and one flush() (I7), and the feed rows follow it. Afterwards, whatever the order of the
+     * requests, every open merge suggestion of the group's listings that the group's answers leave nothing to decide for is
+     * settled (M34, M41): the listing and the item it proposes are one item now (`same_item`), or a person said "different
+     * products" to that item's family or the merge would contradict a reject (`rejected_before`; DecisionService::duplicateBlocked).
+     *
+     * @param list<int> $groupListings the listings of the group (locked first)
+     * @param list<array<string, mixed>> $requests decide() requests: merge_skus and reject only
+     * @param array<int, int> $expect listing id => the map_version the person saw, for listings the requests do not name (e.g. the
+     *        keeper's, or a listing that moves with another's merge): checked under the lock, 409 map_version_conflict
+     * @param list<int>|null $groupProposals the group's own suggestions: only these are settled at the end (null: any merge
+     *        suggestion of the group's listings)
+     * @return list<array<string, mixed>> decide()'s result per request, in order
+     */
+    public function decideGroup(Caller $caller, array $groupListings, array $requests, ?string $groupRef = null, array $expect = [],
+        ?array $groupProposals = null): array
+    {
+        if ($requests === [] || !array_is_list($requests) || count($requests) > 50) {
+            throw new CwException('bad_request', 'a group decision has 1 to 50 decisions', 400);
+        }
+        $rs = [];
+        foreach ($requests as $req) {
+            $r = self::request($req);
+            if (!in_array($r['action'], ['merge_skus', 'reject'], true)) {
+                throw new CwException('bad_action', 'a group decision merges or rejects', 400);
+            }
+            $rs[] = $r;
+        }
+        return $this->db->transaction(function (Db $db) use ($caller, $rs, $groupListings, $groupRef, $expect, $groupProposals): array {
+            // Every listing the group's decisions lock, in one id order and before any item row (M4): the group's, and those of
+            // the items its merges fold away (a link made in between is seen and locked again by merge()).
+            $from = array_values(array_filter(array_map(static fn (array $r): ?int => $r['action'] === 'merge_skus' ? $r['merge_from_sku_id'] : null, $rs)));
+            $more = $from === [] ? [] : $this->db->column("SELECT id FROM channel_listing WHERE status IN ('mapped', 'quarantined') AND sku_id IN ("
+                . implode(',', array_fill(0, count($from), '?')) . ')', $from);
+            $ids = array_values(array_unique(array_map('intval', [...$groupListings, ...array_column($rs, 'listing_id'), ...$more, ...array_keys($expect)])));
+            sort($ids);
+            foreach ($ids as $lid) {
+                $l = $this->lockListing($lid);
+                if (isset($expect[$lid]) && $expect[$lid] !== $l['map_version']) {
+                    throw new CwException('map_version_conflict', "listing {$lid} changed since it was shown; reload it", 409,
+                        ['listing_id' => $lid, 'current_map_version' => $l['map_version'], 'expected_map_version' => $expect[$lid]]);
+                }
+            }
+            $this->deferred = ['moves' => [], 'listings' => []];
+            try {
+                $out = [];
+                foreach ($rs as $r) {
+                    $out[] = $this->run($caller, $r, null);
+                }
+                $settled = $this->settleAnswered(array_values(array_unique(array_map('intval', [...$groupListings, ...array_column($rs, 'listing_id')]))),
+                    $groupProposals);
+                $stock = $this->deferred['moves'] === [] ? [] : $this->moveStock($caller, $this->deferred['moves'], $this->now());
+                Audit::write($this->db, $caller, 'mapping.duplicates', 'listing', (string) $ids[0], null, [
+                    'group' => $groupRef, 'listings' => $ids,
+                    'decisions' => array_map(static fn (array $x): array => ['decision_id' => $x['decision_id'], 'action' => $x['action'], 'state' => $x['state'],
+                        'listing_id' => $x['listing_id']], $out),
+                    'settled_proposals' => $settled, 'stock' => $stock,
+                ]);
+                if ($this->deferred['moves'] !== []) {
+                    $this->stock->flush();
+                }
+                $feed = array_values(array_unique($this->deferred['listings']));
+                sort($feed);
+                foreach ($feed as $lid) {
+                    $this->stock->listingChanged($lid, 'link');
+                }
+                return $out;
+            } finally {
+                $this->deferred = null;
+            }
+        });
+    }
+
+    /** A lane of merge suggestions between two items (mint_vpg's `vpg_duplicate`, and any later `<source>_duplicate` lane, M34). */
+    public static function isDuplicateLane(?string $lane): bool
+    {
+        return $lane !== null && ($lane === 'duplicate' || str_ends_with($lane, '_duplicate'));
+    }
+
+    /** The same test in SQL, on the lane column $col (e.g. `p.lane`). */
+    public static function duplicateLaneSql(string $col): string
+    {
+        if (preg_match('/^[a-z_]+(\.[a-z_]+)?$/D', $col) !== 1) {
+            throw new \InvalidArgumentException('bad column');
+        }
+        return "({$col} = 'duplicate' OR RIGHT({$col}, 10) = '_duplicate')";
+    }
+
+    /**
+     * Why a merge suggestion of listing $listingId for item $proposedSku must not be (re)made (M34): `same_item` when the
+     * listing is linked to that item already (or to the item it was merged into), `rejected_before` when a person said
+     * "different products" (a match_reject of the listing against that item's family, or one the merge would contradict,
+     * M22), else null. Read in the caller's transaction.
+     */
+    public function duplicateBlocked(int $listingId, int $proposedSku): ?string
+    {
+        $l = $this->db->one('SELECT sku_id, status FROM channel_listing WHERE id = ?', [$listingId]);
+        $root = $this->rootOf($proposedSku);
+        if ($l !== null && $l['sku_id'] !== null && in_array($l['status'], self::LINKED, true) && $this->rootOf((int) $l['sku_id']) === $root) {
+            return 'same_item';
+        }
+        if ($this->rejectedAs($listingId, $root) !== [] || $this->rejectedAs($listingId, $proposedSku) !== []) {
+            return 'rejected_before';
+        }
+        if ($l !== null && $l['sku_id'] !== null && in_array($l['status'], self::LINKED, true) && $this->mergeRejects((int) $l['sku_id'], $root) !== []) {
+            return 'rejected_before';
+        }
+        return null;
+    }
+
+    /** The item $skuId is now: itself, or the live item it was merged into (merged_into_sku_id chains). */
+    public function rootOf(int $skuId): int
+    {
+        $root = $this->db->value(
+            'WITH RECURSIVE up (id, nxt, depth) AS (SELECT id, merged_into_sku_id, 0 FROM sku WHERE id = ? '
+            . 'UNION ALL SELECT s.id, s.merged_into_sku_id, up.depth + 1 FROM sku s JOIN up ON s.id = up.nxt WHERE up.depth < 100) '
+            . 'SELECT id FROM up WHERE nxt IS NULL LIMIT 1',
+            [$skuId],
+        );
+        return $root === null ? $skuId : (int) $root;
+    }
+
+    /**
+     * Whether an item is counted (M31: a merge or split touching one needs two people): sku.counted_at, a count time on one
+     * of its balances, or a `count` movement (as KeyEligibility and the opening tools read it), on the item OR on any item of
+     * its family (the items merged into it, merged_into_sku_id chains: their counted stock is in its figure now), or an open
+     * count_review of a merge or a relink (`merge_recount`, `remap_correction`) on one of them: a counted figure waiting for its
+     * recount (M39).
+     *
+     * @param list<int> $skuIds
+     * @return list<int> the counted ones
+     */
+    public function counted(array $skuIds): array
+    {
+        $skuIds = array_values(array_unique(array_map('intval', $skuIds)));
+        if ($skuIds === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($skuIds), '?'));
+        $out = array_map('intval', $this->db->column(
+            "WITH RECURSIVE fam (root, id, depth) AS (SELECT id, id, 0 FROM sku WHERE id IN ({$in}) UNION ALL "
+            . 'SELECT fam.root, s.id, fam.depth + 1 FROM sku s JOIN fam ON s.merged_into_sku_id = fam.id WHERE fam.depth < 100) '
+            . 'SELECT DISTINCT fam.root FROM fam JOIN sku s ON s.id = fam.id WHERE s.counted_at IS NOT NULL '
+            . 'OR EXISTS (SELECT 1 FROM stock_balance b WHERE b.sku_id = fam.id AND (b.counted_at IS NOT NULL OR EXISTS ('
+            . "SELECT 1 FROM stock_ledger l WHERE l.warehouse_id = b.warehouse_id AND l.sku_id = b.sku_id AND l.movement_type = 'count'))) "
+            . "OR EXISTS (SELECT 1 FROM count_review r WHERE r.sku_id = fam.id AND r.status = 'open' AND r.source IN ('" . self::RECOUNT_SOURCE . "', 'remap_correction'))",
+            $skuIds,
+        ));
+        $out = array_values(array_unique($out));
+        sort($out);
+        return $out;
     }
 
     /**
@@ -141,6 +324,9 @@ final class DecisionService
             if ($d['action'] === 'merge_skus') {
                 $this->lockListingsOf((int) $d['merge_from_sku_id']);
             }
+            if ($d['action'] === 'split' && (json_decode((string) $d['detail'], true)['split_to'] ?? 'former') === 'former') {
+                $this->lockSplitListings($l['id']);
+            }
             if ($l['map_version'] !== (int) $d['expected_map_version']) {
                 throw new CwException('map_version_conflict', 'the listing changed since this decision was made; withdraw it and decide again', 409,
                     ['current_map_version' => $l['map_version'], 'expected_map_version' => (int) $d['expected_map_version']]);
@@ -154,6 +340,7 @@ final class DecisionService
                 throw new CwException('proposal_changed', 'the listing has another proposal since this decision was made; withdraw it and decide again', 409,
                     ['decision_proposal_id' => $named, 'open_proposal_id' => $open['id'] ?? null]);
             }
+            $detail = $d['detail'] === null ? [] : (array) json_decode((string) $d['detail'], true);
             $r = [
                 'action' => (string) $d['action'], 'listing_id' => (int) $d['listing_id'],
                 'expected_map_version' => (int) $d['expected_map_version'],
@@ -161,12 +348,17 @@ final class DecisionService
                 'units_per_item' => $d['units_per_item'] === null ? null : (int) $d['units_per_item'],
                 'merge_from_sku_id' => $d['merge_from_sku_id'] === null ? null : (int) $d['merge_from_sku_id'],
                 'proposal_id' => $d['proposal_id'] === null ? null : (int) $d['proposal_id'],
-                'card' => $d['detail'] === null ? [] : (array) (json_decode((string) $d['detail'], true)['card'] ?? []),
+                'card' => (array) ($detail['card'] ?? []),
                 'reason' => $reason, 'bulk_batch_id' => $d['bulk_batch_id'],
+                'split_to' => is_string($detail['split_to'] ?? null) ? $detail['split_to'] : null,
             ];
-            $target = $this->validate($r, $l, null, false);
+            if ($r['action'] === 'split' && (int) ($detail['undoes_decision_id'] ?? 0) !== ($this->mergeOpening($l['id'])['id'] ?? null)) {
+                // The listing's link changed since (it can only through a decision, which needs this one withdrawn first; kept as a guard).
+                throw new CwException('map_version_conflict', 'the listing changed since this decision was made; withdraw it and decide again', 409);
+            }
+            $target = $this->validate($r, $l, null, false, true);
             $now = $this->now();
-            if ($r['action'] === 'new_item') {
+            if ($r['action'] === 'new_item' || ($r['action'] === 'split' && $r['split_to'] === 'new')) {
                 $target['sku'] = $this->mint($this->card($l['id'], $r['card']), 'new_item', $l['id']);
             }
             $n = $this->db->exec(
@@ -180,7 +372,7 @@ final class DecisionService
                 'decision_id' => $decisionId, 'action' => $r['action'], 'decided_by' => (int) $d['decided_by'], 'reason' => $reason,
                 'needs_second' => json_decode((string) ($d['needs_second'] ?? '[]'), true),
             ]);
-            return $this->effect($caller, $decisionId, $r, $l, $target, $now);
+            return $this->effect($caller, $decisionId, $r, $l, $target, $now, false);
         });
     }
 
@@ -378,6 +570,9 @@ final class DecisionService
         if (($r['bulk_batch_id'] !== null || $mint !== null) && ($staff === null || !self::isLead($staff))) {
             throw new CwException('lead_required', 'bulk decisions are made by a mapping_lead', 403);
         }
+        if ($action === 'split' && ($staff === null || !self::isLead($staff))) {
+            throw new CwException('lead_required', 'a merge is undone (split) by a mapping lead', 403);
+        }
 
         if ($mint !== null || in_array($action, self::LINK_OUTCOMES, true)) {
             $this->lockUnlinkedUnitReservations($r['listing_id']);
@@ -416,8 +611,11 @@ final class DecisionService
         if ($action === 'merge_skus' && $l['linked'] && $l['sku_id'] === $r['merge_from_sku_id']) {
             $this->lockListingsOf($l['sku_id']);
         }
+        if ($action === 'split' && ($r['split_to'] ?? 'former') === 'former' && $l['linked']) {
+            $this->lockSplitListings($l['id']);
+        }
 
-        $target = $this->validate($r, $l, $open, true);
+        $target = $this->validate($r, $l, $open, true, $staff !== null && self::isLead($staff));
         $needs = $target['needs_second'];
         $state = $needs === [] ? 'applied' : 'pending_second';
         if ($mint !== null && $state !== 'applied') {
@@ -425,18 +623,23 @@ final class DecisionService
         }
         $now = $this->now();
         $card = null;
-        if ($mint !== null || $action === 'new_item') {
+        $splitNew = $action === 'split' && $r['split_to'] === 'new';
+        if ($mint !== null || $action === 'new_item' || $splitNew) {
             $card = $mint !== null ? self::cardFrom([], [], $r['card']) : $this->card($l['id'], $r['card']);
             if ($state === 'applied') {
                 $target['sku'] = $this->mint($card, $mint ?? 'new_item', $l['id']);
             }
         }
         $skuId = match ($action) {
-            'link', 'new_item' => $target['sku']['id'] ?? null,
+            'link', 'new_item', 'split' => $target['sku']['id'] ?? null,
             'reject', 'merge_skus' => $r['sku_id'],
             default => null,
         };
         $units = in_array($action, self::LINK_OUTCOMES, true) ? $target['units'] : null;
+        $detail = $card === null ? null : ['card' => $card] + ($mint !== null ? ['origin' => $mint] : []);
+        if ($action === 'split') {
+            $detail = ['split_to' => $r['split_to'], 'undoes_decision_id' => $target['merge']['id']] + ($detail ?? []);
+        }
         $decisionId = $this->db->insert(
             'INSERT INTO match_decision (listing_id, proposal_id, action, sku_id, units_per_item, merge_from_sku_id, prev_sku_id, '
             . 'prev_units_per_item, prev_status, decided_by, actor, needs_second, state, reason, expected_map_version, bulk_batch_id, detail, applied_at) '
@@ -445,8 +648,7 @@ final class DecisionService
                 $l['id'], $r['proposal_id'], $action, $skuId, $units, $r['merge_from_sku_id'],
                 $l['linked'] ? $l['sku_id'] : null, $l['linked'] ? $l['units_per_item'] : null, $l['status'],
                 $staff['id'] ?? null, $caller->actor, $needs === [] ? null : Idempotency::json($needs), $state, $r['reason'],
-                $r['expected_map_version'], $r['bulk_batch_id'],
-                $card === null ? null : Idempotency::json(['card' => $card] + ($mint !== null ? ['origin' => $mint] : [])),
+                $r['expected_map_version'], $r['bulk_batch_id'], $detail === null ? null : Idempotency::json($detail),
                 $state === 'applied' ? $now : null,
             ],
         );
@@ -455,12 +657,12 @@ final class DecisionService
                 'decision_id' => $decisionId, 'state' => $state, 'needs_second' => $needs, 'map_version' => $l['map_version'],
                 'from' => self::linkOf($l), 'sku_id' => $r['sku_id'], 'units_per_item' => $units, 'merge_from_sku_id' => $r['merge_from_sku_id'],
                 'proposal_id' => $r['proposal_id'], 'reason' => $r['reason'],
-            ]);
+            ] + ($action === 'split' ? ['split_to' => $r['split_to'], 'undoes_decision_id' => $target['merge']['id'], 'to_sku_id' => $skuId] : []));
             return ['decision_id' => $decisionId, 'action' => $action, 'state' => $state, 'listing_id' => $l['id'],
                 'map_version' => $l['map_version'], 'status' => $l['status'], 'sku_id' => $l['linked'] ? $l['sku_id'] : null,
                 'units_per_item' => $l['units_per_item'], 'needs_second' => $needs, 'adopted' => 0];
         }
-        return $this->effect($caller, $decisionId, $r, $l, $target, $now);
+        return $this->effect($caller, $decisionId, $r, $l, $target, $now, true);
     }
 
     /**
@@ -470,9 +672,11 @@ final class DecisionService
      * @param array<string, mixed> $r
      * @param array<string, mixed> $l locked listing
      * @param array<string, mixed>|null $open the listing's open proposal
-     * @return array{needs_second: list<string>, sku: ?array{id: int, code: string, policy: string}, units: int, current: ?array{id: int, code: string, policy: string}, from: ?array{id: int, code: string, policy: string}}
+     * @param bool $lead the decider holds mapping_lead (a merge by anyone else waits for one, M31)
+     * @return array{needs_second: list<string>, sku: ?array{id: int, code: string, policy: string, merged_into: ?int, counted_at: ?string},
+     *               units: int, current: ?array<string, mixed>, from: ?array<string, mixed>, counted: list<int>, merge: ?array<string, mixed>}
      */
-    private function validate(array $r, array $l, ?array $open, bool $fresh): array
+    private function validate(array $r, array $l, ?array $open, bool $fresh, bool $lead): array
     {
         $action = $r['action'];
         $ids = [];
@@ -485,11 +689,26 @@ final class DecisionService
         if ($action === 'merge_skus') {
             $ids[] = $r['merge_from_sku_id'];
         }
-        $skus = $this->lockSkus($ids, $action === 'merge_skus' ? $r['merge_from_sku_id'] : null);
+        $merge = null;
+        $exact = null;
+        if ($action === 'split') {
+            // The merge that put the listing on its item now (it opened the listing's current link period): the one undone.
+            $merge = $l['linked'] ? $this->mergeOpening($l['id']) : null;
+            if ($merge !== null) {
+                $ids[] = $merge['from'];
+            }
+        }
+        $exclusive = match ($action) {
+            'merge_skus' => $r['merge_from_sku_id'],
+            'split' => $merge !== null && ($r['split_to'] ?? 'former') === 'former' ? $merge['from'] : null,
+            default => null,
+        };
+        $skus = $this->lockSkus($ids, $exclusive);
         $current = $l['linked'] ? ($skus[$l['sku_id']] ?? null) : null;
         $needs = [];
         $target = null;
         $from = null;
+        $counted = [];
         $units = $r['units_per_item'] ?? 1;
         // A verified multiple (the listing is linked with u <> 1, which took two people) is not undone by one:
         // relinking it (to u = 1 or another item), minting a new item for it, unlinking or ignoring it needs a
@@ -588,13 +807,82 @@ final class DecisionService
                     throw new CwException('rejected_pair', 'listing(s) ' . implode(', ', $rejected) . ' were rejected for one of these items: '
                         . 'relink or unlink them before merging', 409, ['listing_ids' => $rejected]);
                 }
-                $needs[] = 'merge';
+                // M31 (the owner, 6 Oct 2026): a mapping lead merges two uncounted legacy items alone; a counted item (or one with a
+                // counted item merged into it, M39), a listing of either item linked with u <> 1 (M21, M39) or a merge asked for by a
+                // mapper waits for a (second) mapping lead.
+                if (!$lead) {
+                    $needs[] = 'merge';
+                }
+                $counted = $this->counted([$target['id'], $from['id']]);
+                if ($counted !== []) {
+                    $needs[] = 'counted_item';
+                }
+                // A verified multiple on EITHER item (M39): a pack listing of the kept item is the strongest sign that a pack item is
+                // being folded into a single-unit one (or the other way round), and it would sell the other item's units afterwards.
+                if ((int) $this->db->value("SELECT COUNT(*) FROM channel_listing WHERE sku_id IN (?, ?) AND status IN ('mapped', 'quarantined') "
+                    . 'AND units_per_item <> 1', [$from['id'], $target['id']]) > 0) {
+                    $needs[] = 'units_per_item';
+                }
+                break;
+            case 'split':
+                if (!$l['linked']) {
+                    throw new CwException('not_linked', 'the listing is not linked', 409);
+                }
+                if ($merge === null || $merge['to'] !== $l['sku_id'] || $current === null) {
+                    throw new CwException('not_merged', 'this listing was not moved to its item by a merge (or was relinked since): relink it on the '
+                        . 'review screen instead', 409);
+                }
+                $from = $skus[$merge['from']] ?? throw new CwException('unknown_sku', 'the item merged away is missing', 404);
+                foreach ([$current, $from] as $s) {
+                    if ($s['policy'] !== 'legacy') {
+                        throw new CwException('protected_split', "item {$s['code']} is protected ({$s['policy']}): a split needs the recount flow", 409);
+                    }
+                }
+                // M40. `former` undoes the merge: EVERY listing it moved that is still where it put it goes back to the merged item,
+                // with the merge's stock (exact: the merge's inverse). Refused when this listing came through two merges (its link
+                // before this merge was itself made by a merge): which merge was wrong cannot be told, so it goes to a new item.
+                // `new` takes this listing alone, with the merge's stock only when the merge moved it alone (else none moves).
+                $split = $this->splitPlan($l['id'], $merge['id']);
+                $back = [$l['id']];
+                if (($r['split_to'] ?? 'former') === 'former') {
+                    if ($from['merged_into'] !== null && $from['merged_into'] !== $current['id']) {
+                        throw new CwException('former_merged_elsewhere', "item {$from['code']} was merged into another item since: split this listing "
+                            . 'to a new item instead', 409, ['merged_into_sku_id' => $from['merged_into']]);
+                    }
+                    if ($split['chain']) {
+                        throw new CwException('split_chain', "this listing came onto {$current['code']} through two merges: split it to a new item instead "
+                            . '(no stock moves)', 409);
+                    }
+                    $target = $from;
+                    $back = $split['back'];
+                    foreach ($back as $lid) {
+                        if ($lid !== $l['id'] && $this->db->value('SELECT id FROM match_decision WHERE pending_listing_id = ?', [$lid]) !== null) {
+                            throw new CwException('pending_second_exists', "listing {$lid}, which goes back with this one, has a pending decision", 409, ['listing_id' => $lid]);
+                        }
+                        if ($this->rejectedAs($lid, $from['id']) !== []) {
+                            $needs[] = 'previously_rejected';
+                        }
+                    }
+                    $exact = true;
+                } else {
+                    $exact = count($split['moved']) === 1 && !$split['chain'];
+                }
+                $counted = $this->counted([$current['id'], $from['id']]);
+                if ($counted !== []) {
+                    $needs[] = 'counted_item';
+                }
+                if ($multiple || (int) $this->db->value('SELECT COUNT(*) FROM channel_listing WHERE id IN (' . implode(',', array_fill(0, count($back), '?'))
+                    . ') AND units_per_item <> 1', $back) > 0) {
+                    $needs[] = 'units_per_item';
+                }
+                $needs = array_values(array_unique($needs));
                 break;
         }
         if (in_array($action, self::LINK_OUTCOMES, true) && ($units < 1 || $units > self::MAX_UNITS)) {
             throw new CwException('bad_units', 'units_per_item must be 1..' . self::MAX_UNITS, 400);
         }
-        return ['needs_second' => $needs, 'sku' => $target, 'units' => $units, 'current' => $current, 'from' => $from];
+        return ['needs_second' => $needs, 'sku' => $target, 'units' => $units, 'current' => $current, 'from' => $from, 'counted' => $counted,
+            'merge' => $merge, 'exact' => $exact ?? true, 'back' => $back ?? [$l['id']], 'moved' => $split['moved'] ?? [$l['id']]];
     }
 
     /**
@@ -603,9 +891,11 @@ final class DecisionService
      * @param array<string, mixed> $r
      * @param array<string, mixed> $l locked listing (before)
      * @param array<string, mixed> $target validate() result (+ minted sku)
+     * @param bool $onePerson applied by its decider alone (not by an approval): the stock of a merge or split re-checks under
+     *        the balance locks that neither item was counted meanwhile (M31)
      * @return array<string, mixed>
      */
-    private function effect(Caller $caller, int $decisionId, array $r, array $l, array $target, string $now): array
+    private function effect(Caller $caller, int $decisionId, array $r, array $l, array $target, string $now, bool $onePerson): array
     {
         $action = $r['action'];
         $id = $l['id'];
@@ -657,33 +947,95 @@ final class DecisionService
                 $this->stock->listingChanged($id, 'status');
                 break;
             case 'reject':
-                $staffId = $caller->staffUserId;
-                if ($this->db->value('SELECT id FROM match_reject WHERE listing_id = ? AND sku_id = ?', [$id, $r['sku_id']]) === null) {
-                    $this->db->exec('INSERT INTO match_reject (listing_id, sku_id, decided_by, decision_id, `at`) VALUES (?, ?, ?, ?, ?)',
-                        [$id, $r['sku_id'], $staffId, $decisionId, $now]);
+                $this->recordReject($caller, $id, (int) $r['sku_id'], $decisionId, $now);
+                // A merge suggestion (a duplicate lane, M34) is answered by "different products": a reject of the item it proposes
+                // (or of the item that one was merged into) settles it, so it is never suggested again. Any other proposal stays
+                // open for another choice (M8).
+                $answered = $r['proposal_id'] !== null && $this->answersSuggestion((int) $r['proposal_id'], (int) $r['sku_id']);
+                if ($answered) {
+                    $this->settleProposal($r['proposal_id']);
                 }
                 Audit::write($this->db, $caller, 'mapping.reject', 'listing', (string) $id, null,
-                    $detail + ['sku_id' => $r['sku_id'], 'sku_code' => $target['sku']['code'] ?? null]);
+                    $detail + ['sku_id' => $r['sku_id'], 'sku_code' => $target['sku']['code'] ?? null] + ($answered ? ['settled_suggestion' => true] : []));
                 break;
             case 'merge_skus':
                 $keep = $target['sku'];
                 $from = $target['from'];
                 $moved = $this->merge($decisionId, $from['id'], $keep['id'], $now);
                 $this->settleProposal($r['proposal_id']);
+                // The other merge suggestions this merge fulfilled (a listing of the merged item that proposed the kept item): nothing
+                // is left to merge for them (M34). Only listings this decision holds locked.
+                $settled = $this->settleFulfilled(array_keys($moved));
                 $version = $moved[$id] ?? $version;
                 $after = ['status' => $l['status'], 'sku_id' => $keep['id'], 'units_per_item' => $l['units_per_item']];
+                $move = ['kind' => 'merge', 'decision_id' => $decisionId, 'merge_id' => $decisionId, 'from' => $from, 'to' => $keep,
+                    'recount' => $target['counted'] !== [], 'one_person' => $onePerson];
+                $stock = null;
+                if ($this->deferred !== null) {
+                    $this->deferred['moves'][] = $move;
+                    array_push($this->deferred['listings'], ...array_map('intval', array_keys($moved)));
+                } else {
+                    $stock = $this->moveStock($caller, [$move], $now);
+                }
                 Audit::write($this->db, $caller, 'mapping.merge_skus', 'sku', (string) $from['id'], null, $detail + [
                     'kept_sku_id' => $keep['id'], 'kept_code' => $keep['code'], 'merged_sku_id' => $from['id'], 'merged_code' => $from['code'],
-                    'listings' => array_keys($moved),
+                    'listings' => array_keys($moved), 'settled_proposals' => $settled,
+                    'stock' => $stock === null ? 'booked with its group (mapping.duplicates)' : $stock[$decisionId],
                 ]);
-                foreach (array_keys($moved) as $lid) {
-                    $this->stock->listingChanged((int) $lid, 'link');
+                if ($this->deferred === null) {
+                    $this->stock->flush();
+                    foreach (array_keys($moved) as $lid) {
+                        $this->stock->listingChanged((int) $lid, 'link');
+                    }
+                }
+                break;
+            case 'split':
+                $cur = $target['current'];
+                $to = $target['sku'];
+                $merge = $target['merge'];
+                $revived = $to['id'] === $merge['from'] && $to['merged_into'] !== null;
+                if ($revived) {
+                    // Back to its former item: the item lives again (it can be linked, merged and counted like any other).
+                    $this->db->exec('UPDATE sku SET merged_into_sku_id = NULL WHERE id = ? AND merged_into_sku_id = ?', [$to['id'], $cur['id']]);
+                }
+                $this->closePeriod($id, $decisionId, $now);
+                $this->setListing($id, $to['id'], $l['units_per_item'], $l['status']);
+                $this->openPeriod($id, $to['id'], $l['units_per_item'], $decisionId, $now);
+                // The other listings the merge moved go back with it (M40: the merge undone), each its own period and feed row.
+                $others = [];
+                foreach ($target['back'] as $lid) {
+                    if ($lid === $id) {
+                        continue;
+                    }
+                    $o = $this->lockListing($lid);
+                    if (!$o['linked'] || $o['sku_id'] !== $cur['id']) {
+                        continue;
+                    }
+                    $this->closePeriod($lid, $decisionId, $now);
+                    $this->db->exec('UPDATE channel_listing SET sku_id = ?, map_version = map_version + 1 WHERE id = ?', [$to['id'], $lid]);
+                    $this->openPeriod($lid, $to['id'], $o['units_per_item'], $decisionId, $now);
+                    $others[] = $lid;
+                }
+                // "This listing is not that item": a later merge of the two is refused (M22) and no run suggests it again (M34).
+                $this->recordReject($caller, $id, $cur['id'], $decisionId, $now);
+                $after = ['status' => $l['status'], 'sku_id' => $to['id'], 'units_per_item' => $l['units_per_item']];
+                $version++;
+                $stock = $this->moveStock($caller, [['kind' => 'split', 'decision_id' => $decisionId, 'merge_id' => $merge['id'], 'from' => $cur, 'to' => $to,
+                    'listing_ids' => $target['moved'], 'since' => $merge['applied_at'], 'recount' => $target['counted'] !== [], 'one_person' => $onePerson,
+                    'exact' => $target['exact']]], $now);
+                Audit::write($this->db, $caller, 'mapping.split', 'listing', (string) $id, null, $detail + [
+                    'undoes_decision_id' => $merge['id'], 'split_to' => $r['split_to'], 'to' => $after + ['sku_code' => $to['code']],
+                    'revived' => $revived, 'map_version' => $version, 'stock' => $stock[$decisionId], 'with_listings' => $others,
+                ]);
+                $this->stock->flush();
+                foreach ([$id, ...$others] as $lid) {
+                    $this->stock->listingChanged($lid, 'link');
                 }
                 break;
         }
         return ['decision_id' => $decisionId, 'action' => $action, 'state' => 'applied', 'listing_id' => $id, 'map_version' => $version,
             'status' => $after['status'], 'sku_id' => $after['sku_id'], 'units_per_item' => $after['units_per_item'], 'needs_second' => [],
-            'adopted' => $adopted] + (isset($target['sku']['code']) && in_array($action, self::LINK_OUTCOMES, true) ? ['sku_code' => $target['sku']['code']] : []);
+            'adopted' => $adopted] + (isset($target['sku']['code']) && in_array($action, [...self::LINK_OUTCOMES, 'split'], true) ? ['sku_code' => $target['sku']['code']] : []);
     }
 
     /**
@@ -715,6 +1067,336 @@ final class DecisionService
         }
         $this->db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$keepSku, $fromSku]);
         return $moved;
+    }
+
+    /**
+     * The stock of merges (M32) and splits (M33), booked through CW\Stock, the only writer: ONE lock() of every balance the
+     * moves touch, then per move and warehouse one on_hand row out of one item and one into the other, under doc_ref
+     * `merge:<merge decision>` (so a split finds what its merge moved), actor the decider. No flush(): the caller writes its
+     * audit row first, then flushes (the value seqs and the feed, I3, D39), then the listings' feed rows.
+     *
+     *  - merge: the merged item's AVAILABLE stock per warehouse (on_hand - allocated - held, any sign) goes to the kept item, so
+     *    the kept item's availability is the sum of both. What the merged item's own orders in flight still need stays on it:
+     *    their units keep their sale-time item (reservation_unit.sku_id, I14), and their ship / cancel / release moves its
+     *    buckets as before. It ends at available 0 (on_hand 0 when nothing was in flight).
+     *  - split: the stock that came with the merge back to where the listing goes: per warehouse, what the merge moved onto
+     *    the kept item, less the units this listing sold from the kept item since the merge (shipped or still to ship: their
+     *    stock left, or will leave, the kept item). Once per merge: when an earlier split of the same merge took the merge's
+     *    stock back, nothing more moves.
+     *  - A move that two people applied to a counted item (`recount`) also opens a count_review (source merge_recount) on the
+     *    items whose figure changed: a counted figure plus an estimate is settled by counting again.
+     *  - A move applied by one person re-checks, under the balance locks, that neither item was counted meanwhile (409
+     *    counted_meanwhile: nothing is written).
+     *
+     * @param list<array{kind: string, decision_id: int, merge_id: int, from: array<string, mixed>, to: array<string, mixed>, recount: bool,
+     *                   one_person: bool, listing_id?: int, since?: string}> $moves
+     * @return array<int, array<string, mixed>> decision id => {kind, from, to, moved: warehouse code => units, consumed?: units}
+     */
+    private function moveStock(Caller $caller, array $moves, string $now): array
+    {
+        $whs = [];
+        $pairs = [];
+        foreach ($moves as $i => $m) {
+            if ($m['kind'] === 'merge') {
+                // Every balance of the merged item is locked; the kept item's only where there is something to move (no empty
+                // rows at VERIFY, say). A warehouse that gains stock between this read and the lock keeps it (a residual, as a
+                // movement booked on the merged item after the merge would be).
+                $w = [];
+                foreach ($this->db->all('SELECT warehouse_id, on_hand - allocated - held AS a FROM stock_balance WHERE sku_id = ? ORDER BY warehouse_id',
+                    [$m['from']['id']]) as $b) {
+                    $pairs[] = [(int) $b['warehouse_id'], (int) $m['from']['id']];
+                    if ((int) $b['a'] !== 0) {
+                        $w[] = (int) $b['warehouse_id'];
+                    }
+                }
+            } else {
+                $w = $this->splitWarehouses((int) $m['from']['id'], (int) $m['merge_id'], $m['listing_ids'], (string) $m['since']);
+            }
+            $whs[$i] = array_map('intval', $w);
+            foreach ($whs[$i] as $wh) {
+                $pairs[] = [$wh, (int) $m['from']['id']];
+                $pairs[] = [$wh, (int) $m['to']['id']];
+            }
+        }
+        $out = [];
+        if ($pairs === []) {
+            foreach ($moves as $m) {
+                $out[$m['decision_id']] = ['kind' => $m['kind'], 'from' => $m['from']['code'], 'to' => $m['to']['code'], 'moved' => []];
+            }
+            return $out;
+        }
+        $this->stock->lock($pairs);
+        $codes = [];
+        foreach ($this->db->all('SELECT id, code FROM warehouse') as $w) {
+            $codes[(int) $w['id']] = (string) $w['code'];
+        }
+        foreach ($moves as $i => $m) {
+            $fromId = (int) $m['from']['id'];
+            $toId = (int) $m['to']['id'];
+            if ($m['one_person'] && $this->counted([$fromId, $toId]) !== []) {
+                throw new CwException('counted_meanwhile', 'one of the items was counted a moment ago: reload the page (a counted item needs a second person)', 409);
+            }
+            $doc = 'merge:' . $m['merge_id'];
+            $res = ['kind' => $m['kind'], 'from' => $m['from']['code'], 'to' => $m['to']['code'], 'moved' => []];
+            $qty = [];
+            if ($m['kind'] === 'merge') {
+                foreach ($whs[$i] as $wh) {
+                    $qty[$wh] = $this->stock->available($wh, $fromId);
+                }
+                [$outType, $inType] = ['merge_out', 'merge_in'];
+            } else {
+                $u = $this->splitUnits($whs[$i], $fromId, (int) $m['merge_id'], $m['listing_ids'], (string) $m['since']);
+                $qty = ($m['exact'] ?? true) ? $u['qty'] : array_map(static fn (int $q): int => 0, $u['qty']);
+                $res['consumed'] = $u['consumed'];
+                $res['earlier_split'] = $u['earlier'];
+                if (!($m['exact'] ?? true)) {
+                    $res['not_exact'] = true; // M40: one page of several (or through two merges) to a new item: no stock moves
+                }
+                [$outType, $inType] = ['split_out', 'split_in'];
+            }
+            if ($m['kind'] === 'merge' && $m['recount']) {
+                // M39: a recount the merged item still waits for (a counted figure of an earlier merge or relink) is the kept item's
+                // now, where the merged item's stock went: opened again there, so it is not left behind on an item with no listings.
+                foreach ($this->db->all("SELECT id, warehouse_id, source FROM count_review WHERE sku_id = ? AND status = 'open' AND source IN (?, 'remap_correction') "
+                    . 'ORDER BY id', [$fromId, self::RECOUNT_SOURCE]) as $cr) {
+                    $this->stock->openCountReview((int) $cr['warehouse_id'], $toId, self::RECOUNT_SOURCE, null, $doc, [
+                        'decision_id' => $m['decision_id'], 'kind' => 'merge', 'merge_decision_id' => $m['merge_id'], 'from_sku_id' => $fromId,
+                        'to_sku_id' => $toId, 'carried_review_id' => (int) $cr['id'], 'carried_source' => (string) $cr['source'],
+                    ], "merge:{$m['decision_id']}:{$toId}:{$cr['warehouse_id']}");
+                    $res['recount'] = true;
+                }
+            }
+            foreach ($qty as $wh => $q) {
+                if ($q === 0) {
+                    continue;
+                }
+                $base = ['actor' => $caller->actor, 'doc_ref' => $doc, 'idem_key' => "{$m['kind']}:{$m['decision_id']}", 'effective_at' => $now];
+                $this->stock->apply($wh, $fromId, 'on_hand', -$q, $base + ['type' => $outType,
+                    'note' => mb_substr("{$m['kind']} decision {$m['decision_id']}: to {$m['to']['code']}", 0, 255)]);
+                $this->stock->apply($wh, $toId, 'on_hand', $q, $base + ['type' => $inType,
+                    'note' => mb_substr("{$m['kind']} decision {$m['decision_id']}: from {$m['from']['code']}", 0, 255)]);
+                $res['moved'][$codes[$wh] ?? (string) $wh] = $q;
+                if ($m['recount']) {
+                    foreach ($m['kind'] === 'merge' ? [$toId] : [$fromId, $toId] as $sku) {
+                        $this->stock->openCountReview($wh, $sku, self::RECOUNT_SOURCE, null, $doc, [
+                            'decision_id' => $m['decision_id'], 'kind' => $m['kind'], 'merge_decision_id' => $m['merge_id'], 'from_sku_id' => $fromId,
+                            'to_sku_id' => $toId, 'central_units' => $q,
+                        ], "{$m['kind']}:{$m['decision_id']}:{$sku}:{$wh}");
+                    }
+                    $res['recount'] = true;
+                }
+            }
+            $out[$m['decision_id']] = $res;
+        }
+        return $out;
+    }
+
+    /** match_reject(listing, item) once (append-only, M8): a second reject of the pair adds nothing. */
+    private function recordReject(Caller $caller, int $listingId, int $skuId, int $decisionId, string $now): void
+    {
+        if ($this->db->value('SELECT id FROM match_reject WHERE listing_id = ? AND sku_id = ?', [$listingId, $skuId]) === null) {
+            $this->db->exec('INSERT INTO match_reject (listing_id, sku_id, decided_by, decision_id, `at`) VALUES (?, ?, ?, ?, ?)',
+                [$listingId, $skuId, $caller->staffUserId, $decisionId, $now]);
+        }
+    }
+
+    /** Whether rejecting item $skuId answers proposal $proposalId: an open merge suggestion (a duplicate lane) of that same item now. */
+    private function answersSuggestion(int $proposalId, int $skuId): bool
+    {
+        $p = $this->db->one("SELECT lane, proposed_sku_id FROM match_proposal WHERE id = ? AND status = 'open'", [$proposalId]);
+        return $p !== null && self::isDuplicateLane($p['lane'] === null ? null : (string) $p['lane']) && $p['proposed_sku_id'] !== null
+            && $this->rootOf((int) $p['proposed_sku_id']) === $this->rootOf($skuId);
+    }
+
+    /**
+     * Settles the open merge suggestions (duplicate lanes) of these listings that a merge fulfilled: the listing is linked to
+     * the item the suggestion proposes, or to the item that one was merged into (M34). The caller holds the listings locked.
+     *
+     * @param list<int> $listingIds
+     * @return list<int> the proposals settled
+     */
+    private function settleFulfilled(array $listingIds): array
+    {
+        if ($listingIds === []) {
+            return [];
+        }
+        $settled = [];
+        foreach ($this->db->all(
+            'SELECT p.id, p.proposed_sku_id, cl.sku_id FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id '
+            . "WHERE p.open_listing_id IN (" . implode(',', array_fill(0, count($listingIds), '?')) . ") AND cl.status IN ('mapped', 'quarantined') "
+            . 'AND p.proposed_sku_id IS NOT NULL AND ' . self::duplicateLaneSql('p.lane') . ' ORDER BY p.id',
+            $listingIds,
+        ) as $p) {
+            if ($this->rootOf((int) $p['proposed_sku_id']) === $this->rootOf((int) $p['sku_id'])) {
+                $this->settleProposal((int) $p['id']);
+                $settled[] = (int) $p['id'];
+            }
+        }
+        return $settled;
+    }
+
+    /**
+     * What undoing merge $mergeId means for listing $listingId (M40): `moved`, every listing the merge moved (the periods it
+     * opened, whatever became of them since: their sales since the merge count against the stock that goes back); `back`, those
+     * still where the merge put them (their current period is the merge's), the anchor first: a split to the former item takes
+     * them all back; `chain`, the anchor came onto the merged item through an earlier merge (its link before this merge was made
+     * by a merge): which of the two merges was wrong cannot be told.
+     *
+     * @return array{moved: list<int>, back: list<int>, chain: bool}
+     */
+    public function splitPlan(int $listingId, int $mergeId): array
+    {
+        $moved = array_map('intval', $this->db->column('SELECT listing_id FROM listing_map_history WHERE decision_id = ? ORDER BY listing_id', [$mergeId]));
+        $back = array_map('intval', $this->db->column('SELECT open_listing_id FROM listing_map_history WHERE decision_id = ? AND open_listing_id IS NOT NULL '
+            . 'ORDER BY open_listing_id', [$mergeId]));
+        $back = [$listingId, ...array_values(array_diff($back, [$listingId]))];
+        $chain = $this->db->value(
+            "SELECT 1 FROM listing_map_history h JOIN match_decision d ON d.id = h.decision_id WHERE h.listing_id = ? AND h.closed_by_decision_id = ? "
+            . "AND d.action = 'merge_skus' AND d.state = 'applied' LIMIT 1",
+            [$listingId, $mergeId],
+        ) !== null;
+        return ['moved' => $moved, 'back' => $back, 'chain' => $chain];
+    }
+
+    /**
+     * What a split of listing $listingId would do (M33, M40), read without locks for the screen: the merge it undoes, the item it
+     * leaves and the one it had, whether it can go back there (`former_ok`) and with which other listings (`with`), and the units
+     * that would move back per warehouse code: `former` (the merge undone) and `new` (this listing alone to a new item: the
+     * merge's stock only when the merge moved it alone; `new_exact`). Null when the listing was not moved onto its item by a merge.
+     *
+     * @return array{merge_id: int, from: int, to: int, former_ok: bool, chain: bool, with: list<int>, former_units: int, new_units: int,
+     *               new_exact: bool, by_warehouse: array<string, int>}|null
+     */
+    public function splitPreview(int $listingId): ?array
+    {
+        $l = $this->db->one('SELECT sku_id, status FROM channel_listing WHERE id = ?', [$listingId]);
+        $m = $this->mergeOpening($listingId);
+        if ($l === null || $l['sku_id'] === null || !in_array($l['status'], self::LINKED, true) || $m === null || $m['to'] !== (int) $l['sku_id']) {
+            return null;
+        }
+        $plan = $this->splitPlan($listingId, $m['id']);
+        $formerInto = $this->db->value('SELECT merged_into_sku_id FROM sku WHERE id = ?', [$m['from']]);
+        $u = $this->splitUnits($this->splitWarehouses($m['to'], $m['id'], $plan['moved'], $m['applied_at']), $m['to'], $m['id'], $plan['moved'], $m['applied_at']);
+        $codes = [];
+        foreach ($this->db->all('SELECT id, code FROM warehouse') as $w) {
+            $codes[(int) $w['id']] = (string) $w['code'];
+        }
+        $by = [];
+        foreach ($u['qty'] as $wh => $q) {
+            if ($q !== 0) {
+                $by[$codes[$wh] ?? (string) $wh] = $q;
+            }
+        }
+        $newExact = count($plan['moved']) === 1 && !$plan['chain'];
+        return ['merge_id' => $m['id'], 'from' => $m['from'], 'to' => $m['to'], 'chain' => $plan['chain'],
+            'former_ok' => !$plan['chain'] && ($formerInto === null || (int) $formerInto === $m['to']),
+            'with' => array_values(array_diff($plan['back'], [$listingId])), 'former_units' => array_sum($by), 'new_units' => $newExact ? array_sum($by) : 0,
+            'new_exact' => $newExact, 'by_warehouse' => $by];
+    }
+
+    /** Where a split of merge $mergeId touches the kept item: where the merge put stock on it, and where the moved listings' units since sit. @param list<int> $listingIds @return list<int> */
+    private function splitWarehouses(int $keptSku, int $mergeId, array $listingIds, string $since): array
+    {
+        $listingIds = $listingIds === [] ? [0] : $listingIds;
+        return array_map('intval', $this->db->column(
+            'SELECT b.warehouse_id FROM stock_balance b WHERE b.sku_id = ? AND (EXISTS (SELECT 1 FROM stock_ledger l WHERE l.warehouse_id = b.warehouse_id '
+            . 'AND l.sku_id = b.sku_id AND l.doc_ref = ?) OR EXISTS (SELECT 1 FROM reservation_unit ru WHERE ru.listing_id IN ('
+            . implode(',', array_fill(0, count($listingIds), '?')) . ') AND ru.sku_id = b.sku_id AND ru.warehouse_id = b.warehouse_id AND ru.created_at >= ?)) '
+            . 'ORDER BY b.warehouse_id',
+            [$keptSku, 'merge:' . $mergeId, ...$listingIds, $since],
+        ));
+    }
+
+    /**
+     * The stock a split of merge $mergeId takes back, per warehouse (M33, M40): what the merge moved onto the kept item ($keptSku;
+     * its merge_in rows under `merge:<id>`) less the units the listings it moved sold from it since (held, allocated or shipped),
+     * or nothing when an earlier split of the same merge took it back already.
+     *
+     * @param list<int> $warehouses
+     * @param list<int> $listingIds the listings the merge moved
+     * @return array{qty: array<int, int>, consumed: int, earlier: bool}
+     */
+    private function splitUnits(array $warehouses, int $keptSku, int $mergeId, array $listingIds, string $since): array
+    {
+        $doc = 'merge:' . $mergeId;
+        $listingIds = $listingIds === [] ? [0] : $listingIds;
+        $in = implode(',', array_fill(0, count($listingIds), '?'));
+        $earlier = $warehouses !== [] && $this->db->value(
+            'SELECT 1 FROM stock_ledger WHERE warehouse_id IN (' . implode(',', array_fill(0, count($warehouses), '?')) . ') AND sku_id = ? AND doc_ref = ? '
+            . "AND movement_type = 'split_out' LIMIT 1",
+            [...$warehouses, $keptSku, $doc],
+        ) !== null;
+        $consumed = 0;
+        $qty = [];
+        foreach ($warehouses as $wh) {
+            $came = (int) $this->db->value('SELECT COALESCE(SUM(qty_delta), 0) FROM stock_ledger WHERE warehouse_id = ? AND sku_id = ? AND doc_ref = ? '
+                . "AND bucket = 'on_hand' AND movement_type = 'merge_in'", [$wh, $keptSku, $doc]);
+            $used = (int) $this->db->value("SELECT COALESCE(SUM(units_per_item), 0) FROM reservation_unit WHERE listing_id IN ({$in}) AND sku_id = ? AND warehouse_id = ? "
+                . "AND created_at >= ? AND state IN ('held', 'allocated', 'shipped')", [...$listingIds, $keptSku, $wh, $since]);
+            $consumed += $used;
+            $qty[$wh] = $earlier ? 0 : $came - $used;
+        }
+        return ['qty' => $qty, 'consumed' => $consumed, 'earlier' => $earlier];
+    }
+
+    /** Locks (after the anchor, in id order, before any item row) the other listings a split to the former item takes back (M40). */
+    private function lockSplitListings(int $listingId): void
+    {
+        $m = $this->mergeOpening($listingId);
+        if ($m === null) {
+            return;
+        }
+        foreach ($this->splitPlan($listingId, $m['id'])['back'] as $lid) {
+            if ($lid !== $listingId) {
+                $this->lockListing($lid);
+            }
+        }
+    }
+
+    /**
+     * Settles the open merge suggestions (duplicate lanes) of these listings that nothing is left to decide for (M41): the
+     * listing and the proposed item are one item now, or a person answered "different products" for that pair (or the merge
+     * would contradict a reject): DecisionService::duplicateBlocked() not null. The caller holds the listings locked.
+     *
+     * @param list<int> $listingIds
+     * @param list<int>|null $only settle only these proposals (null: any)
+     * @return list<int> the proposals settled
+     */
+    private function settleAnswered(array $listingIds, ?array $only): array
+    {
+        if ($listingIds === []) {
+            return [];
+        }
+        $settled = [];
+        foreach ($this->db->all(
+            'SELECT p.id, p.listing_id, p.proposed_sku_id FROM match_proposal p WHERE p.open_listing_id IN (' . implode(',', array_fill(0, count($listingIds), '?'))
+            . ') AND p.proposed_sku_id IS NOT NULL AND ' . self::duplicateLaneSql('p.lane') . ' ORDER BY p.id',
+            $listingIds,
+        ) as $p) {
+            if ($only !== null && !in_array((int) $p['id'], array_map('intval', $only), true)) {
+                continue;
+            }
+            if ($this->duplicateBlocked((int) $p['listing_id'], (int) $p['proposed_sku_id']) !== null) {
+                $this->settleProposal((int) $p['id']);
+                $settled[] = (int) $p['id'];
+            }
+        }
+        return $settled;
+    }
+
+    /**
+     * The applied merge that opened the listing's current link period (the merge a split undoes), or null.
+     *
+     * @return array{id: int, from: int, to: int, applied_at: string}|null
+     */
+    public function mergeOpening(int $listingId): ?array
+    {
+        $m = $this->db->one(
+            "SELECT d.id, d.merge_from_sku_id, d.sku_id, d.applied_at FROM listing_map_history h JOIN match_decision d ON d.id = h.decision_id "
+            . "WHERE h.open_listing_id = ? AND d.action = 'merge_skus' AND d.state = 'applied'",
+            [$listingId],
+        );
+        return $m === null ? null : ['id' => (int) $m['id'], 'from' => (int) $m['merge_from_sku_id'], 'to' => (int) $m['sku_id'], 'applied_at' => (string) $m['applied_at']];
     }
 
     // ==========================================================================================
@@ -818,11 +1500,11 @@ final class DecisionService
         return $out;
     }
 
-    /** @return array{id: int, band: string, proposed_sku_id: ?int}|null */
+    /** @return array{id: int, band: string, lane: ?string, proposed_sku_id: ?int}|null */
     private function openProposal(int $listingId): ?array
     {
-        $p = $this->db->one('SELECT id, band, proposed_sku_id FROM match_proposal WHERE open_listing_id = ?', [$listingId]);
-        return $p === null ? null : ['id' => (int) $p['id'], 'band' => (string) $p['band'],
+        $p = $this->db->one('SELECT id, band, lane, proposed_sku_id FROM match_proposal WHERE open_listing_id = ?', [$listingId]);
+        return $p === null ? null : ['id' => (int) $p['id'], 'band' => (string) $p['band'], 'lane' => $p['lane'] === null ? null : (string) $p['lane'],
             'proposed_sku_id' => $p['proposed_sku_id'] === null ? null : (int) $p['proposed_sku_id']];
     }
 
@@ -1024,7 +1706,7 @@ final class DecisionService
      *
      * @param array<string, mixed> $req
      * @return array{action: string, listing_id: int, expected_map_version: int, sku_id: ?int, units_per_item: ?int, proposal_id: ?int,
-     *               reason: ?string, card: array<string, mixed>, merge_from_sku_id: ?int, bulk_batch_id: ?string}
+     *               reason: ?string, card: array<string, mixed>, merge_from_sku_id: ?int, bulk_batch_id: ?string, split_to: ?string}
      */
     private static function request(array $req, bool $mint = false): array
     {
@@ -1059,7 +1741,17 @@ final class DecisionService
             'reason' => null,
             'card' => [],
             'bulk_batch_id' => null,
+            'split_to' => null,
         ];
+        if ($action === 'split') {
+            $to = $req['split_to'] ?? 'former';
+            if (!is_string($to) || !in_array($to, self::SPLIT_TO, true)) {
+                throw new CwException('bad_request', 'split_to must be one of ' . implode(', ', self::SPLIT_TO), 400, ['field' => 'split_to']);
+            }
+            $r['split_to'] = $to;
+        } elseif (array_key_exists('split_to', $req) && $req['split_to'] !== null) {
+            throw new CwException('bad_request', 'split_to is for split only', 400, ['field' => 'split_to']);
+        }
         $reason = $req['reason'] ?? null;
         if ($reason !== null && !is_string($reason)) {
             throw new CwException('bad_reason', 'reason must be a string', 400);
@@ -1069,8 +1761,8 @@ final class DecisionService
         if (!is_array($card) || (array_is_list($card) && $card !== [])) {
             throw new CwException('bad_card', 'card must be an object', 400);
         }
-        if ($card !== [] && $action !== 'new_item' && !$mint) {
-            throw new CwException('bad_card', 'card is for new_item only', 400);
+        if ($card !== [] && $action !== 'new_item' && !$mint && !($action === 'split' && $r['split_to'] === 'new')) {
+            throw new CwException('bad_card', 'card is for new_item (and a split to a new item) only', 400);
         }
         $r['card'] = $card;
         $bulk = $req['bulk_batch_id'] ?? null;

@@ -203,3 +203,39 @@ article.review form.inline { flex-wrap: wrap; margin: .3rem .6rem .3rem 0; }
   dl.company dt { margin-top: .4rem; }
   article.review form.inline { display: flex; }
 }
+
+/* Duplicates (M34): the listings of a group side by side, the field comparison, the decision; one column at phone width. */
+.dup-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: .5rem 0 1rem; }
+.dup-card h2 { font-size: 1.05rem; margin: .2rem 0; overflow-wrap: anywhere; }
+.dup-card.keeper { border: 2px solid var(--accent); }
+.dup-state { margin: 0 0 .3rem; }
+.scroll { overflow-x: auto; max-width: 100%; }
+table.dup-compare th[scope="row"] { width: 11rem; }
+table.dup-compare td { min-width: 7rem; overflow-wrap: anywhere; }
+tr.partial > th[scope="row"] .state { font-weight: 400; }
+.word.odd { font-weight: 700; text-decoration: underline; }
+form.dup-decide { max-width: 760px; }
+fieldset.dup-choice { display: flex; flex-wrap: wrap; gap: .3rem 1rem; }
+fieldset.dup-choice legend { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+form.dup-undo { display: flex; flex-wrap: wrap; gap: .4rem .8rem; align-items: center; margin: .5rem 0; padding: .5rem .8rem;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+/* M44: what the rules say, first on the page (a reason against merging in colour), the confirm step, long option lists folded. */
+section.dup-rules { padding: .55rem .8rem; border-radius: 6px; margin: .6rem 0; border: 1px solid var(--line); }
+section.dup-rules.doubt { background: var(--bad-bg); color: var(--bad-ink); border-color: var(--bad-ink); }
+section.dup-rules h2 { margin: 0 0 .3rem; font-size: 1.05rem; }
+section.dup-rules.doubt a { color: inherit; }
+ul.dup-reasons ul { margin: .2rem 0 .4rem 1.2rem; padding: 0; }
+ul.dup-reasons li.strong { font-weight: 600; }
+ul.dup-reasons .detail { overflow-wrap: anywhere; }
+label.dup-confirm { display: block; margin: .6rem 0; padding: .45rem .6rem; background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; }
+details.dup-attrs { margin: .3rem 0; }
+table.dup-compare thead th .muted { display: block; font-weight: 400; font-size: .82rem; overflow-wrap: anywhere; }
+p.pager a { margin-right: 1rem; }
+@media (max-width: 600px) {
+  table.stack, table.stack tbody, table.stack tr, table.stack th, table.stack td { display: block; width: 100%; }
+  table.stack thead { display: none; }
+  table.stack tr { border-bottom: 2px solid var(--line); padding: .3rem 0; }
+  table.stack td { border: 0; text-align: left; padding: .15rem .6rem; }
+  table.stack td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+  form.dup-decide .actions button { width: 100%; }
+}

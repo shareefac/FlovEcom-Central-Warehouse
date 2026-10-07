@@ -1395,7 +1395,7 @@ identity (M20) the person saw.
 **M6. Two-person rule (plan §7.1; design A.9 rule 4 reduced to the plan's list).** Stored
 `pending_second` with the reasons in `needs_second`: `protected_sku` (a link to, or a link/unlink/
 ignore/new_item away from, an item whose `sell_policy` <> legacy), `units_per_item` (u <> 1),
-`merge` (every merge_skus) and `previously_rejected` (M8). A **different** `mapping_lead` approves
+`merge` (every merge_skus; since M31 only a mapper's, with `counted_item` for a counted item, M39 for the merge family) and `previously_rejected` (M8). A **different** `mapping_lead` approves
 (`approve`: applies it, `second_by`, `applied_at`) or withdraws it; the decider may withdraw their own.
 `second_by` records whoever settled it; the withdrawal time is in `audit_log` (the only mutable columns
 are `state`, `applied_at`, `second_by`). A pending `new_item` mints its item only on approval, so its
@@ -1432,6 +1432,8 @@ the kept one (same u and status; one history period and one feed row each), the 
 and `sku.merged_into_sku_id` is set; a merged item can never be linked again (409 `sku_merged`).
 Units sold before keep their sale-time item, like any relink; the merged item's buckets stay where
 they are (legacy estimates, settled by the kept item's count). Items are never deleted.
+**Amended by M31-M33 (the owner, 6 Oct 2026):** a mapping lead merges two uncounted legacy items alone; the merged item's available
+stock moves to the kept item (what its units in flight need stays); a wrong merge is undone for one listing by a `split`.
 
 **M11. `ListingIngestService`** replaces `CW\ListingProfiles` (same code path for `PUT /v1/listings`
 and `bin/import_listings.php`; the API answers are unchanged — its HTTP tests' listing cases also run
@@ -1587,7 +1589,8 @@ form either ("only a mapping lead"): that rule is `DecisionService`'s (403 `lead
 and the POST route itself needs `mapper` or `mapping_lead` (`Route::DECIDE`).
 
 **U12. Unlink is not in the UI.** `DecisionService` supports it, but the screens in the brief have no unlink action, so it is
-not offered (it stays a backend action; the tests call it directly).
+not offered (it stays a backend action; the tests call it directly). Merges and their undo (split) have a screen since M34
+(Duplicates).
 
 **U13. The pending badge** in the navigation shows the waiting count to every signed-in user (everyone sees that work is
 waiting; only the roles that may act get buttons, U11).
@@ -1715,7 +1718,8 @@ multi-valued index on `listing_profile.barcodes` (`CAST(barcodes AS CHAR(64) ARR
 **U19. Queue order and lanes (amends U6).** Units in 365 days, then 30 days, then id (September's 30-day figure is inflated
 by stockpiling and a promotion); the 365-day column comes first. The `vpg_duplicate` lane is no longer offered as a filter: those
 165 merge suggestions sit on mapped listings, which no queue lists, and merges have no screen (U12). The dashboard counts them
-("not in these queues ... nothing merges them on its own"); `docs/ops.md` says the same.
+("not in these queues ... nothing merges them on its own"); `docs/ops.md` says the same. **Since M34** they have their own screen
+(Linking -> Duplicates), which the dashboard's note links to.
 
 **U20. Preselection and the quick confirm (amends U8).** Key preselects "Confirm link" as before, and a "Confirm link to CW-... and
 open the next listing" button (a second POST form, same fields and checks) sits above the evidence, so a Key item that checks out
@@ -3885,3 +3889,422 @@ Open after M30 (nothing was run on `cw_staging`):
   reads `key_bulk_hold` for every listing it shows, and the bulk, sample and re-band tools read it through the eligibility (the CLI
   tools refuse a schema behind the code with exit 3; the screens do not check). 0014 applies after 0012 and 0013 in name order;
   on `cw_staging` (at 0013 since 3 Oct) it is the only pending file.
+
+## Duplicate listings handled by CW (slot `dup1`, 6 Oct 2026)
+
+The owner's decision of 6 Oct 2026 (support@vapeandgo.co.uk, the only active mapping lead on staging): Vape and Go's own
+duplicate listings, the same physical product on two pages (e.g. listings 23408 "Vaporesso Xros Corex 3.0 Pods (Pack of 4) - 0.4
+ohm" and 25772 "Vaporesso Xros Corex Replacement Pods - 0.4ohm Corex 3.0 Pod - 4 Pack", open proposal 145, lane `vpg_duplicate`),
+are handled by CW: both listings are linked to ONE CW item, so their sales and deliveries count once. Nothing changes on the shop
+until Vape and Go goes live on CW; prices and reviews stay separate per page. And: one person may merge items that are not
+counted or protected; two people as before once either item is counted or protected, or another two-person condition applies.
+Numbered M31-M36. Code: `migrations/0015_duplicates.sql`, `src/Mapping/DecisionService.php`, `src/Mapping/{Proposals,ProposalBasis}.php`,
+`src/Ops/OpeningRebase.php`, `bin/mint_vpg.php`, `src/Ui/Duplicates.php` (new), `src/Ui/Controller/DuplicatesController.php` (new),
+`src/Ui/views/{duplicates,duplicate_group}.php` (new), `src/Ui/{Kernel,Context,Queries}.php`, `src/Auth/Permissions.php` (menu),
+`src/Ui/Controller/{ReviewController,DashboardController,ItemController}.php`, `src/Ui/views/{dashboard,item,listing,pending_decision}.php`,
+`public/ui/assets/app.css`. Tests: `tests/Integration/Mapping/DuplicateMergeTest.php`, `tests/Integration/UiKernel/DuplicatesScreenTest.php`
+(new), new cases in `OpeningRebaseTest`, `UiSecurityTest` (slot `ui`), `UiUnitTest`; `MenusTest`, `PermissionsTest`, `UiTemplatesTest`,
+`ReviewEvidenceTest` follow the menu and the dashboard. Runbook: `docs/ops.md`, "Duplicates".
+
+**M31. Who merges (the owner's decision; amends M6, M7, M10, M21).**
+- A merge (`merge_skus`) applies at once, one person, when the decider is a **mapping lead**, both items are `legacy` and not
+  counted, and no listing that would move is linked with units per item other than 1.
+- Otherwise it is stored `pending_second` with its reasons, and a different mapping lead approves it as before (M6):
+  - `merge`: the decider is a mapper (a one-person merge is a lead's);
+  - `counted_item`: either item is counted: `sku.counted_at`, a count time on one of its balances, or a `count` movement (the
+    reading of KeyEligibility and the opening tools); **since M39** also when an item merged into it was counted, or a recount
+    (`merge_recount`, `remap_correction`) is open on one of them;
+  - `units_per_item`: a listing of the merged item is linked with u <> 1 (M21: a verified multiple is not moved by one person);
+    **since M39** a listing of either item.
+- **Protected items stay refused** (409 `protected_merge`, M10). The owner's words were "two people once either item is
+  counted/protected ... as today", and today a protected item cannot be merged at all: its counted figure and its policy would
+  need the recount flow, which is not built. If the owner wants protected merges with two people, that is a follow-up (the stock
+  rule of M32 with a recount, and the site's managed stock). **Owner question (open, 7 Oct 2026):** this reading has not been
+  confirmed by the owner; until it is, a protected item cannot be merged or split at all (the screen says "protected: cannot be
+  merged"). Nothing on staging is protected today.
+- A mapper may still ask for a merge through the API (it waits for a mapping lead, `merge`); the Duplicates screen's forms are a
+  mapping lead's only (M34).
+- The M22 reject rules stay: a merge that would contradict a match_reject is refused (409 `rejected_pair`), at the decision and at
+  the approval.
+- A one-person merge re-checks, under the balance locks it takes for the stock (M32), that neither item was counted in between
+  (409 `counted_meanwhile`, nothing written): the item rows are read FOR SHARE, but a count locks only balances.
+- The two-person reasons are listed in `match_decision.needs_second` (comment updated by 0015); the screens show them as before.
+  On staging (6 Oct 2026, read-only): all 309 items of the 145 groups are `legacy`, none counted, every listing u = 1, so every
+  merge there is a one-person merge. The owner is the only active mapping lead, so a counted case would wait for a second one.
+
+**M32. What a merge does to stock (amends M10: "the merged item's buckets stay where they are").**
+- The merged item's **available** stock per warehouse (`on_hand - allocated - held`, any sign) moves to the kept item through
+  `CW\Stock`, the only writer: ONE `lock()` of every (warehouse, item) pair, then per warehouse a `merge_out` on_hand row on the
+  merged item and a `merge_in` row on the kept one, both under `doc_ref = merge:<merge decision id>`, `idem_key =
+  merge:<decision>`, actor the decider, `effective_at` the decision's time, then one `flush()`. So the kept item's availability is
+  the sum of both, and the merged item ends at available 0 (on_hand 0 when nothing was in flight).
+- **Units in flight keep their sale-time item** (`reservation_unit.sku_id`, I14; the invariants 1 and 4 hold the buckets to those
+  snapshots). What the merged item's own held and allocated units still need stays on it, and their ship, cancel, release and
+  return move its buckets as before. A cancelled or released unit therefore leaves its stock on the merged item (shown on the
+  item's page; the next count settles it). Moving `allocated`/`held` too would break the invariants, and re-pointing the snapshots
+  is what the brief forbids.
+- The rows carry no cost (they are not cost-bearing movements, I1). Both are numbered in their items' value sequences by `flush()`
+  (I3): invariants 7-9 hold. The value ledger (IM8, not built) must value `merge_in` at the merged item's moving average, paired
+  with its `merge_out` by `doc_ref`; nothing books value today.
+- The feed: `flush()` writes one stock row per item whose sellable availability changed (both), then one `link` row per moved
+  listing, so the site re-reads both pages (both show the kept item's figure).
+- Two people applying a merge that touches a counted item: the stock moves the same way, and a `count_review` (source
+  `merge_recount`, dedupe `merge:<decision>:<item>:<warehouse>`) is opened on the kept item: a counted figure plus an estimate is
+  settled by counting again.
+- Audited in `mapping.merge_skus` (`stock`: from, to, moved per warehouse; `settled_proposals`, M34). In a group decision the stock
+  of all merges is booked at the end and audited in `mapping.duplicates` (M34).
+- The reorder demand needs nothing: `DemandBuilder` maps sales to items at read time through `channel_listing.sku_id` and leaves
+  merged items out, so the next `bin/reorder_demand.php` gives the kept item both listings' sales (test). The reorder list's site
+  stock (I78) likewise sums both listings.
+- Lock order (M4, unchanged): listings (X) -> items (S; X for the merged item) -> balances -> value clocks -> feed clock. A
+  `setPolicy` on the merged item (balances, then the item X) can deadlock with a merge; `Db::transaction` retries it, as M4 says.
+
+**M33. The undo of a wrong merge: `split` (new action; 0015).** (Amended by M40: a split back to the former item undoes the whole
+merge, every listing it moved; through two merges it is refused; to a new item moves stock only when the merge moved that listing
+alone. The "once per merge" rule below is kept for a split to a new item.)
+- **What it does.** A split moves ONE listing that a merge moved onto its item (the decision that opened the listing's current
+  link period is an applied `merge_skus`) to the item it had before that merge (`split_to = former`; the item lives again:
+  `merged_into_sku_id` back to NULL) or to a new item minted from the listing (`split_to = new`, card as for new_item). Same u,
+  same status, one closed and one opened history period, `map_version + 1`, a feed row, audited `mapping.split`.
+- **"Not this item".** The split records `match_reject(listing, the item it leaves)`: a later merge of the two is refused (M22)
+  and no run suggests it again (M34). A wrong merge undone is not redone by accident.
+- **The stock that came with it.** Per warehouse, what the merge moved onto the kept item (its `merge_in` rows under
+  `merge:<merge decision>`) **less what this listing sold from the kept item since the merge** (its units on the kept item created
+  since the merge, held, allocated or shipped: their stock left, or will leave, the kept item), moved back with `split_out` /
+  `split_in` rows under the same doc_ref. Worked example (test): F 8 merged into K 30; B sells 3 from K (2 shipped, 1 to ship), A
+  sells 1; the split moves 5 back: K ends at 30 - 1 = 29 once B's last unit ships, F at 8 - 3 = 5. Returned units are back on K's
+  shelf and go back with the rest; cancelled units likewise.
+- **Once per merge.** When a merge moved several listings (another site's listing of the merged item, say), the first split takes
+  the merge's stock back and later splits of the same merge move none (they still relink and reject).
+- **Who.** A mapping lead (403 `lead_required` for anyone else, through `DecisionService` and the route). Two people when either
+  item is counted (`counted_item`; the approval opens `merge_recount` reviews on both items), when the listing is linked with u
+  <> 1 (`units_per_item`), or when the listing rejected its former item before (`previously_rejected`). Protected items: 409
+  `protected_split`. A listing not moved by a merge (or relinked since): 409 `not_merged`. A former item merged into yet another
+  item since: 409 `former_merged_elsewhere` (split to a new item instead).
+- **Why this is the closest safe undo, not an exact one.** The units sold since the merge keep their sale-time item (I14), the
+  kept item's on_hand is one figure for both pages, and which physical unit of it "came with" the listing is unknowable. The rule
+  above is exact when everything the listing sold since the merge was its own product (the definition of a wrong merge) and the
+  merged item had one listing; with several listings of the merged item, the stock goes back with the first split. Both items
+  are uncounted estimates; the next count settles any difference. The decision row (append-only) names the item it goes to
+  (`sku_id`, NULL while a split to a new item waits), the item it leaves (`prev_sku_id`) and, in `detail`, the merge it undoes
+  (`undoes_decision_id`) and `split_to`; `ck_match_decision_split` requires the detail.
+- `ProposalBasis` counts a split among the decisions that move a listing's `map_version` (M27's proof).
+
+**M34. The Duplicates screen (amends U12, U19; M8 and M19 for merge suggestions).** (Amended by M41 and M44: the rules' reasons
+lead the page and a merge against them needs "I checked the live pages"; every suggestion the group's answers settle is settled
+whatever the order; a page with another group's suggestion is decided there; decided groups are found from any of their listings.)
+- **Where.** Linking -> Duplicates (`/ui/review/duplicates`, `linking.view`), with a badge: the number of open groups. Deciding is
+  `mapping.approve` (mapping lead): `POST /ui/review/duplicates/{id}/decide` and `.../split` are `Route::LEAD`; DecisionService
+  checks again. Viewer, mapper, warehouse, manager, auditor and admin see the pages and no form (admin never decides, I12).
+- **A group** is the merge suggestions of one run with the same `evidence.group` (mint_vpg writes one per non-keeper listing,
+  each proposing the run keeper's item); its id is its lowest proposal id. Its listings: the suggestions' listings and the
+  listings the evidence names (`keeper`, `members`, by variant id on the suggestion's site); a suggestion of a later duplicate lane
+  that names none brings the listings of the item it proposes. Duplicate lanes: `vpg_duplicate`, and any later `duplicate` or
+  `<source>_duplicate` lane (`DecisionService::isDuplicateLane`). A group is open while one of its suggestions is open; the list
+  shows the open ones, biggest sellers first (units in 365 days over the group, then 30 days), with "the titles differ in" tags,
+  "partly decided" and "waiting for a second person", and below them the groups decided most recently.
+- **The group page**, one card per listing, side by side (one column at phone width): product and variant titles, brand, every
+  attribute, barcodes, price, units in 30 and 365 days from `sales_history_day` (to the last day loaded for the site; the listing
+  profile when the site has no history), the site's latest stock and mode (`listing_stock_latest`), the live page
+  (`https://www.vapeandgo.co.uk/product/<perma_link>`; an absolute http(s) perma_link as it is; other sites no link), the CW
+  item (code, CWP id, counted or not, policy; "a merge needs two mapping leads" / "protected: cannot be merged"), and the other
+  listings of that item (they move with it). Then a table of the identity fields from `listing_profile.features` (strength, nicotine
+  type, ml, puffs, pack, ohm, colour, form, flavour words, model numbers, range words): a row is highlighted when two pages state
+  different values, a word in bold when not every page has it, and marked "not on every page" when some do not state it.
+- **The suggested keeper**: the most units in 365 days, then usable barcodes, then the older page (lower site variant id); after a
+  merge, among the listings not moved by one. "Keep this one instead" (`?keeper=`) changes it; the buttons name its item.
+- **The decision, one POST** (FormOnce key, CSRF, the map_version of every listing shown, the keeper's item): "Same product -
+  merge into CW-x" and "Different products - keep separate" for all; in a group of three or more, also one choice per page (same /
+  different / not sure yet) and "Save these choices". Worked out inside the form's one effect, so a double click replays the
+  first answer. `DecisionService::decideGroup` runs it in ONE transaction: every listing of the group (and of the items folded
+  away) locked first in id order, each listing's version checked, the merges (one per item: a listing of an item another listing
+  merges moves with it) and rejects run as decide() would, the stock of all merges booked at the end with one `lock()` and one
+  `flush()` (I7), then the feed rows, audited `mapping.duplicates`. Any refusal leaves the whole group as it was, and the page is
+  drawn again as it is now with the reason in plain words (a stale form: "One of these listings changed since the page was drawn
+  ... Nothing was saved"). Then the next open group (in list order), this group again while something in it is open, else the
+  list ("No duplicates are left to decide").
+- **Keeper changed.** When the person keeps another page than the run's keeper, the run keeper's item folds into the chosen one
+  (anchor: the run keeper's listing, which has no suggestion of its own). The suggestions the merges fulfilled (the listing and the
+  item it proposes are one item now, through `merged_into`) are settled: for the listings a merge moved, in the merge itself; for
+  the group's listings, at the end of the group decision (both under the listings' locks; audited `settled_proposals`). This
+  amends M19 ("a decision settles only the proposal it named") for merge suggestions only: nothing is left to decide for them.
+- **"Different products"** is a reject (M8): `match_reject(listing, the kept item)`, or, when the keeper's own suggestion proposes
+  that listing's item, a reject by the keeper's listing naming that suggestion. A reject now **settles the merge suggestion it
+  names when it rejects the item that suggestion proposes** (or the item it was merged into); any other proposal stays open for
+  another choice, as M8 says. A suggestion about another pair stays open (the group stays "partly decided").
+- **Never suggested again.** `Proposals::add` refuses to (re)record a duplicate-lane suggestion that a person answered:
+  `rejected_before` (a reject of the item's family by the listing, or one the merge would contradict, M22) or `same_item` (one
+  item already); nothing is written, proposal id 0. `bin/mint_vpg.php` counts them (`answered=N`) and says so per group.
+- **The note on merged items**, on the group page and the kept item's page: "Both pages now share one warehouse item. On the
+  website they stay separate pages with their own price and reviews until Vape and Go switches to the warehouse system." The
+  merged item's page says its listings and stock moved, less what its own orders in flight still needed.
+- **The undo** is on the group page, for each listing a merge moved: "Split it off", back to its former item (or to a new item),
+  `POST .../split` (FormOnce, CSRF, its map_version), M33.
+- A split or merge waiting for a second person shows in Second approval (`pending_decision` names a split's two items).
+- The dashboard's note links to the screen instead of saying "merges have no screen"; `Queries::openDuplicateSuggestions` is gone
+  (`Duplicates::openCount`).
+
+**M35. The opening rebase after merges (amends D40b; plan §8.1).** (Amended by M42: a merged item with units in flight is
+`no change` or `merged_item`, never `no_mapped_listing`.) Merges happen between Vape and Go's estimate (booked 2 Oct) and
+its T0 rebase, and D40a says nobody books stock on a site's items in between: the merge's rows are the exception, so the rebase
+must understand them. `OpeningRebase::plan` now:
+- counts the rows of `DecisionService::MERGE_MOVEMENTS` at the channel's warehouse towards the item's earlier rows (the kept item's
+  estimate now holds the merged item's; its target sums both listings' T0 figures, so its delta is right), and never treats them
+  as `moved`; such rows at another warehouse (or without an estimate) make the items `other_opening`;
+- joins the items a merge or split connected (the items of one `merge:<id>` doc_ref; union-find over all of them) and judges them
+  together: when one of them is `counted`, `moved` or `other_opening`, all of them are skipped for that reason (the kept item's
+  figure holds the other's stock), and every item joined to one the rebase concerns is part of the plan;
+- no longer lists as `no_mapped_listing` an item whose earlier rows net to 0 and that has no opening units (a merged item: nothing
+  left to rebase).
+Test: estimate A 10, B 4; B's item merged into A's (K 14); a goods-in on G, then H merged into G; an opening unit of page B; T0 A 6,
+B 3: K's delta -4 (available 9 = both pages' T0 figures), F no change, G and H skipped `moved`.
+
+**M36. Measurements, staging, open items.**
+- Staging (read-only, 6 Oct 2026): 165 open `vpg_duplicate` suggestions in 145 groups (133 of two pages, 7 of three, 2 of four, 3 of
+  five; 162 `identity_key`, 3 `shared_gtin`), run `run2-vpg-duplicates`; 165 items on the suggestion side and 144 keeper items (one
+  keeper item is in two groups: the screen shows them as two groups, and after the first is merged the second still names the same
+  keeper); every listing mapped, u = 1, features, a stock snapshot and sales history to 1 Oct 2026; 88 of the suggestion-side items
+  carry the opening estimate (2,309 units, nothing allocated or held), so a merge of all of them would move at most 2,309 units onto
+  keeper items (33,624 units on 89 of them). Nothing was merged or written on `cw_staging`.
+- Tests (6 Oct 2026): the full suite in slot `dup1`: `OK, but some tests were skipped! Tests: 761, Assertions: 16007, Skipped: 75`
+  (749 before, plus 8 in `DuplicateMergeTest`, 3 in `DuplicatesScreenTest` and one `OpeningRebaseTest` case; the 75 skipped are the
+  HTTP screen and API tests). In slot `ui`, `UiAuthTest`, `UiReviewFlowTest`, `UiSecurityTest` (with the two Duplicates pages in its
+  sign-in, role and hostile-text checks), `KeySampleScreenTest` and `DuplicatesScreenTest`: `OK (44 tests, 17465 assertions)`.
+- Deploy `0015_duplicates.sql` with this code in one `deploy/staging/install_cron.sh --migrate` run, never the code first: the
+  screens and DecisionService write `action = 'split'`, which the old ENUM refuses, and the CLI tools refuse a schema behind the code
+  (exit 3). 0015 is the only pending file on `cw_staging` (at 0014).
+- Open: protected merges and splits (M31; the recount flow); the residual stock a released or cancelled pre-merge unit leaves on a
+  merged item (M32; shown on its page, settled by a count; a sweep could move it later); IM8 must value merge and split rows (M32).
+
+## The wider duplicate sweep (slot `dup2`, 6 Oct 2026)
+
+The owner's decision of 6 Oct 2026 (M31-M36) also asks for a WIDER sweep of Vape and Go's own mapped listings than run2's
+identity-key and shared-barcode groups: pairs of different CW items whose listings are the same physical product even when one has
+no barcode or the titles are worded differently (the Corex pair), fed to the Duplicates screen. High precision. Numbered M37-M38.
+Code: `tools/vpg_duplicates/export.php`, `tools/vpg_duplicates/sweep.php`, `src/Matching/DuplicateSweep.php` (the rules),
+`src/Matching/DuplicateSweepRun.php` (one run), `bin/import_vpg_duplicates.php` (new), `src/Ui/Duplicates.php` (`sweep()`),
+`src/Ui/views/duplicate_group.php`. Tests: `tests/Unit/DuplicateSweepTest.php`, `tests/Unit/DuplicateSweepRunTest.php`,
+`tests/Integration/Mapping/ImportVpgDuplicatesTest.php` (new), a case in `DuplicatesScreenTest`. Runbook: `docs/ops.md`, "The wider
+duplicate sweep".
+
+**M37. The sweep: export, rules, groups, import.** (Rules amended by M43, engine `ds1.1`; the importer by M41: a member with
+another run's open suggestion is left out before the evidence is written.)
+- **Export** (`tools/vpg_duplicates/export.php`): the site's mapped (and quarantined) listings with profile and stored features, their
+  items' identity card, policy and "counted" (DecisionService::counted's reading), every link of those items on any site, merged
+  items, every merge suggestion of a duplicate lane in any status, the rejects either way, decisions waiting for a second person and
+  open proposals on these listings. SELECT only inside START TRANSACTION READ ONLY, `MAX_EXECUTION_TIME = 30000`, app login (`--admin`
+  for test schemas); piped over ssh it needs no file on the staging box. Catalogue text only; the file stays in
+  `/root/cw_work/vpg_dups/` (0700).
+- **Features.** The sweep re-normalises every listing from the exported profile with the current engine (Normalizer n2.1, line
+  lexicon built over the export as `tools/first_match/run.php` does): the stored `listing_profile.features` lack `full_tokens`, which
+  the vetoes need. On `cw_staging` the result equals the stored features on every identity field; only `unit_price` differs (13,130
+  listings): the profile holds the regular price, run2 used the sale price. The sweep compares the **regular** price, the one the
+  Duplicates screen shows.
+- **Candidates**: the matcher's blocking and prescore (`CW\Matching\Candidates`, top 25 per listing), plus a signature block (the
+  same brand family, form class, strength, ml, puffs, ohm, pack and title words in any order; blocks above 60 are skipped). Recall is
+  not limited by the candidates: top 60 (580,967 candidate pairs) accepted exactly the same 24 pairs and gave a byte-identical
+  `groups.jsonl` as top 25 (235,968).
+- **The rules** (`DuplicateSweep::judge`, engine `ds1.0`), a pair is a duplicate only when nothing speaks against it:
+  every hard veto of `Veto::check`, run in BOTH directions (strength, nicotine type, form, line number, modifier, line word, flavour
+  superset/difference, ml, puffs, colour, ohm, pack, multipack); the soft flags that mean "cannot compare" or "one side says more"
+  (`internal_conflict`, `modifier_extra`, `flavour_extra`, `line_number_extra`, `line_number_one_side`, `line_alias_pending`,
+  `relabelled_line_unconfirmed`, `colour_extra`, `volume_diff_attr`, `pack_one_side`, `listing_multiplier`, `price_outlier`); a field a
+  page states twice with two values (`unreadable`: "2ml/5ml Replacement Pod - 5ml"); the brand (a shared brand-family word or the same
+  brand); regular prices within 0.67x-1.5x; the form known on both and the same (pod_kit = kit only), prefilled/refillable not on one
+  side only; **a value on one page only refuses** for strength, nicotine type, ml, ohm, colour, pack above 1, puffs (unless the other
+  page's model number is that count), N-in-1 and VG/PG - except a VG/PG ratio or a pod's or tank's capacity that only an option row
+  states (Vape and Go builds pages with different option sets); the **VG/PG ratio** (new: titles "50/50", "70VG/30PG", "Max VG";
+  the "PG/VG" option row read PG first, "30/70" = VG 70); flavoured products must agree on the flavour; **every word** of each
+  page's titles must be on the other page (brand, form, stop, descriptor and shop words aside; single letters other than e/a/n/s
+  kept: "TPP" vs "TPP X", "Armour G" vs "GS"), model codes too ("G2" vs "P2", "F1" vs "F2"), and a part word (glass, coil, tank, kit,
+  pod, cartridge, battery, charger, ...) on one page only refuses; two options of ONE product page pair only when their option texts
+  hold the same words, numbers and codes, as often ("Cherry Ice / Blueberry" = "Blueberry / Cherry Ice"; "H Bubble / Strawberry H
+  Bubble" is a twin, not "Strawberry H Bubble"); **both pages with usable barcodes must share one** (Vape and Go gives 50/50 and
+  70/30, "Bar Salts" and "Bar Vape", "Riot Squad" and "Black Edition" their own EANs). Each accepted pair is scored 0-100 (identity
+  fields that agree, name overlap, barcode, price) and explained (fields that agree, unknown on both, not applicable).
+- **Kept out** (`DuplicateSweepRun`): a pair suggested before by any duplicate-lane suggestion in any status (`already_suggested`); kept
+  separate, a reject either way (`rejected`, M22); a protected item (`protected`, M31); a quarantined or ignored listing of either
+  item (`quarantined`); a decision waiting for a second person (`pending`); an item with a listing in an OPEN suggestion group
+  (`in_open_group`); another open proposal (`open_proposal`). An open group is never extended from another run (one open proposal per
+  listing, and run2's provenance): decide it, re-run the sweep, and the pair comes back against the item it then is.
+- **Groups**: the accepted pairs, best score first, joined greedily into groups of at most 6 items in which EVERY two items are an
+  accepted pair (`not_clique`, `group_cap` otherwise: no transitive A~B~C). Keeper: most units in 365 days, then usable barcodes,
+  then the older page (the screen's rule). Deterministic: the same export gives the same `groups.jsonl` (tested).
+- **Import** (`bin/import_vpg_duplicates.php`, dry run unless `--apply`): one `match_run` (source `vpg_dup_sweep`, run id
+  `sweep-<engine>-<first 12 hex of the file's sha256>`, the sweep's `run_id`), one open proposal per member other than the keeper
+  (lane `vpg_duplicate`, band Manual, proposing the keeper's item, flags `merge_suggestion` + `sweep`, written through
+  `Proposals::add` with its basis, M27). Every member is re-checked against the database at import, under its listing's lock:
+  `stale` (relinked; merges followed), `same_item`, `answered` (kept separate, M34), `protected`, `quarantined`, `pending`,
+  `open_elsewhere` (an open proposal of another run is never superseded here); a keeper that is stale, protected, quarantined, pending
+  or itself suggested skips its group. The evidence names only the members written (keeper, members, and `sweep`: engine, score, the
+  explained pairs among them, the file's sha256), so the screen never offers a member that would refuse the whole group. Idempotent
+  (`exists`), audited (`mapping.propose` per proposal, `mapping.import_duplicates` with the counts), no run row when nothing is written.
+- **The screen** (M34 unchanged otherwise): a sweep group says "found by the duplicate sweep" and lists "Why the sweep suggested this"
+  per pair (score, fields that agree, not stated on either page, barcode, price ratio, two options of one page). `Duplicates::sweep()`
+  passes only known field names and typed values; text is escaped (tested with hostile evidence).
+
+**M38. Measurements on `cw_staging` (export of 6 Oct 2026 22:57 UTC, read-only), open items.**
+- 14,856 mapped Vape and Go listings, one item each, all legacy and uncounted, no rejects, no merges, nothing pending; 165 open
+  `vpg_duplicate` suggestions (run2). Sweep: 235,968 candidate pairs judged (5 min, 1.5 GB, on the web server at nice 19), **24
+  accepted**: 21 already suggested by run2, **3 new pairs, 3 new groups** (each of two pages, every one with a page without a
+  barcode; one is two options of one product page): Corex 3.0 1.2 ohm 4-pack (CW-012847 / CW-010969, the owner's example at
+  another resistance), Peeky Blenders "Goodfellas" / "Godfellas" (a typo page), Ploom EVO "Purple Option" / "Purple". Run id
+  `sweep-ds1.0-ea706d79b79c`.
+- **Hand check**: the rules accept only 24 pairs in all, so the sample is all 24 (seed 1), not 40: 22 are clearly the same product
+  (the Corex pairs, 14 IVG flavour pages against the "IVG Nic Salt 10ml" page of the same range and strength, the RandM twin listed
+  in both orders, the Hayati twin, the Peeky typo), 2 are probably the same and worth a look on the live pages (Ploom "Purple
+  Option" vs "Purple", SKE "Berry" vs "Berry Edition"), none is clearly different: precision 22-24 of 24.
+- What refuses most (every refusal of the 235,968 pairs counted): one-sided words 232,897, flavour not agreed 194,082, flavour
+  difference 190,919, different barcodes 156,974, option text 73,057. Near misses inspected by hand (pairs that fail only on
+  structure, not words or vetoes) were all different products: Xros Mini vs Xros 4 Mini, Gotek Pro vs Pro 2, Lost Mary BM6000 20mg vs
+  "Zero Nicotine", Doozy 50/50 vs 70/30, Kingston 50/50 vs 70/30 (the "PG/VG" row), Bar Salts vs Bar Vape.
+- **Run2's 165 suggestions under these rules**: 21 accepted; the other 144 have a reason against (different barcodes 93, a field
+  stated twice 70, options of one page that differ 64, VG/PG 37, words 24, model codes 11, price 7, ...). They stay open for the owner
+  (`summary.json` -> `earlier_suggestions`); the screen shows the differences.
+- Tests (slot `dup2`, 7 Oct 2026): the full suite `OK, but some tests were skipped! Tests: 782, Assertions: 16314, Skipped: 75` (761
+  after M36, plus 21: 15 `DuplicateSweepTest`, 2 `DuplicateSweepRunTest`, 3 `ImportVpgDuplicatesTest`, 1 `DuplicatesScreenTest`; the 75
+  skipped are the HTTP screen and API tests of slots `ui`/`api`, not run here). New: `DuplicateSweepTest` (golden pairs: the Corex 0.4 ohm 4-pack pair =
+  duplicate; 0.4 vs 0.6 ohm, 2 ml vs 10 ml, 600 vs 6000, Pro vs Pro Max, kit vs pods, 10 vs 20 mg, Blue Razz vs Blue Razz Lemonade,
+  single vs 3-pack, 50/50 vs 70/30, TPP vs TPP X, F1 vs F2 = not; symmetric), `DuplicateSweepRunTest` (exclusions, cliques, keeper,
+  determinism, file modes), `ImportVpgDuplicatesTest` (dry run, apply, re-run, every left-out reason, answered after a reject,
+  same_item after a merge, export -> sweep -> import end to end), `DuplicatesScreenTest::testASweepGroupShowsWhyTheSweepSuggestedIt`.
+- Open: the import waits for the deploy of 0015 with Task A's code (the importer and screen need M34); the 3 groups are one-person
+  merges (legacy, uncounted). Pairs `in_open_group` were 0 on this export, but after the owner decides run2's groups the sweep should
+  be re-run (a merged item's new pairs come back against the kept item). The IVG "(L)" suffix ("Blue Sour Raspberry (L)") is not
+  understood, so those pages are refused as one-sided words; someone who knows the range can say whether they are the same product.
+
+## Review fixes for duplicates (slot `dup5`, 7 Oct 2026)
+
+Two reviews of the uncommitted M31-M38 build (the stock and mapping lens, slot `dup3`; the owner's lens, slot `dup4`) asked for
+fixes before the deploy. All of their findings are applied, M39-M45, except where a finding left a choice (said in the entry).
+Code: `src/Mapping/DecisionService.php`, `src/Ui/Duplicates.php`, `src/Ui/Controller/{Duplicates,Item,Review}Controller.php`,
+`src/Ui/views/{duplicates,duplicate_group,item,listing}.php`, `public/ui/assets/app.css`, `src/Matching/DuplicateSweep.php`,
+`src/Ops/OpeningRebase.php`, `bin/import_vpg_duplicates.php`, `tools/vpg_duplicates/export.php`. Tests: new cases in
+`DuplicateMergeTest`, `DuplicatesScreenTest`, `ImportVpgDuplicatesTest`, `OpeningRebaseTest`, `DuplicateSweepTest`.
+
+**M39. A merge's two-person test covers the merge family (amends M31, M6).**
+- `DecisionService::counted()` (and so the merge, the split, the screen's "a merge needs two mapping leads" and the export): an
+  item counts as counted when it OR any item merged into it (merged_into chains, the `fam` CTE of the reject checks) was counted
+  (`sku.counted_at`, a balance count time, a `count` movement), or when a `merge_recount` or `remap_correction` count_review is open
+  on one of them (a counted figure waiting for its recount). The review's case: A counted, merged into B by two people; then B into
+  C was one person's and moved A's counted units again. Now it waits for a second mapping lead (test).
+- A merge that two people apply carries every open `merge_recount` / `remap_correction` review of the merged item to the kept item
+  (opened again there, dedupe `merge:<decision>:<kept item>:<warehouse>`, detail `carried_review_id`): the recount follows the stock
+  instead of staying on an item with no listings and no stock. The merged item's review stays as it is (the count gate settles it).
+- `units_per_item`: a mapped or quarantined listing of EITHER item linked with u <> 1 (was: of the merged item only). A verified
+  pack listing on the kept item is the strongest sign that a pack item is being folded into a single one (or the reverse), and the
+  pack page would sell the other item's units afterwards.
+
+**M40. A split back to the former item undoes the merge whole (amends M33).**
+- `split_to = former` is the merge's inverse: EVERY listing the merge moved that is still where it put it (its current link period
+  was opened by the merge) goes back to the merged item, each with its own closed and opened period, `map_version + 1` and feed
+  row (audited `with_listings`); the item is revived; the stock that came with the merge goes back: its `merge_in` rows on the kept
+  item less what ALL the listings it moved sold from the kept item since (held, allocated, shipped). The reject is recorded for the
+  listing named (`match_reject(listing, kept item)`), which M22 reads for the whole item, so the merge is never redone by accident.
+  This is exact where M33 was not: when the merged item had pages on two sites (before, the first split took all the stock and the
+  other page stayed on the kept item), and when the merged item holds items merged into it before (their pages and stock came in
+  the merge and go back with it).
+- Refused, 409 `split_chain`, when the listing named came onto the merged item through an EARLIER merge (its period before this
+  merge was opened by a merge: X into K, then K into Z, then "split X's page"): which of the two merges was wrong cannot be told,
+  and sending the page to K (the review's finding) would take K's stock with it. The page then goes to a new item.
+- `split_to = new` takes the listing named alone. The merge's stock moves with it only when the merge moved that listing alone and
+  not through a chain (exact); otherwise no stock moves (audit `stock.not_exact`; its share cannot be told apart; the next count of
+  the legacy estimate settles it).
+- Two people: either item counted (M39), a listing going back linked with u <> 1, or a listing going back that rejected the former
+  item before; a pending decision on a listing going back refuses the split (409 `pending_second_exists`).
+- The screen shows, before "Split it off", where the page goes, with which other pages, and how many units move per warehouse
+  (`DecisionService::splitPreview`).
+- Tests: B and another site's page E of F merged into K, split of B: both back to F with 5 units (8 came, B sold 3 since); X into K
+  into Z: X's page refused (`split_chain`), K's page back to K with X's page and the 14 units; a two-page merge split to a new item
+  moves nothing.
+
+**M41. A group decision settles what its answers settle, and never decides another group's suggestion (amends M34, M37).**
+- `decideGroup()` settles at its end, whatever the order of its requests, every open merge suggestion of the group's listings for
+  which `duplicateBlocked(listing, proposed item)` is not null (`same_item` or `rejected_before`), restricted to the group's own
+  suggestions (the screen passes them). Before, a reject booked before the merge that made it apply left that suggestion open: with
+  a changed keeper and "different products" for one page, the group stayed in the list for ever (the review's P2).
+- The group page: when the group still has an open suggestion but nothing is decidable against the suggested keeper (and nothing
+  waits for a second person), the keeper is the item an open suggestion proposes (the first one, by id, with something decidable
+  against it); "Keep this one instead" still changes it.
+- A page whose open suggestion belongs to another group (or another queue) is shown "decide it there first" and is not part of the
+  decision; the form names only this group's suggestions; a form that names another one, or that offered a page which has another
+  open suggestion since, is refused (409, nothing saved).
+- `bin/import_vpg_duplicates.php` checks `open_elsewhere` (an open proposal of another run) with the other member checks, BEFORE the
+  group's evidence is built: the evidence never names such a page, so a merge on the screen cannot settle that other suggestion
+  unseen (the review's P5). A re-run finds its own proposals (`exists`), never `open_elsewhere`.
+
+**M42. The rebase and a merged item with units in flight (amends M35).** A merged item (no mapped listing on the channel) whose
+earlier rows equal its opening units in flight has nothing to rebase (`no change`); one that holds anything else (what an order
+outside the opening still needs, a residual) is skipped with the new reason `merged_item`: nothing to relink, the kept item's figure
+is rebased on both pages, a count settles the rest. It is never `no_mapped_listing`, whose runbook advice (relink it) would undo the
+merge. Tests: an opening unit of page B on F, F merged into K: F `no change`; with a later order of page B too: F `merged_item`.
+
+**M43. The sweep's rules, engine `ds1.1` (amends M37).**
+- Recall (the review found 9+ real duplicates refused by one soft flag): Veto's `flavour_extra` does not refuse two pages of
+  hardware (neither is a flavoured product) whose extra words are only descriptors, generic, umbrella or brand words ("Vaporesso Xros
+  Corex 2.0 Mesh Replacement Pod" vs "Vaporesso Xros Corex 2.0 Replacement Pods": the Normalizer read "xros corex" as a flavour on
+  one page and compared the other page's "mesh"); `modifier_extra` does not refuse when every one-sided line word is an umbrella or
+  generic word AND both pages state the same model numbers ("... by IVG 6000 Bar Salts" vs "IVG Nic Salt ... (IVG 6000)"). Every
+  title word is still checked by the words rule.
+- Precision (the review: brand and noise words left "barcodes differ" as the only guard): a same-site brand rule, `brand_text`:
+  two pages with different brand texts are one brand only with a shared real brand word (not generic, not umbrella) AND every line
+  word of each page on the other ("Bar Salts" vs "Bar Vape Salts" is refused; "IVG Nic Salts" + "IVG Intense" = "IVG" + "(Intense)");
+  `edition`, `edtn`, `limited` and `special` are words (they were noise or descriptors): "Riot Squad" vs "Riot Squad Black Edition"
+  is refused without its barcode.
+- VG/PG: a ratio the title states wins over the "PG/VG" option row (Vape and Go writes it PG-first on some pages and VG-first on
+  others); the option row counts only when the title states none; "unreadable" only for two different ratios in the title (or, with
+  none there, in the option rows). The IVG 70/30 100 ml twins are no longer "unreadable"; they are refused by their price (6.99 vs
+  10.99).
+- Golden cases: Corex 2.0 Mesh = Corex 2.0 (and not at another ohm), IVG 6000 Bar Salts = "(IVG 6000)" (and not without the number),
+  Riot Squad vs Black Edition and Bar Salts vs Bar Vape without barcodes = not, SKE Berry vs Berry Edition = not, a title ratio over
+  the option row.
+
+**M44. The Duplicates screen leads with what the rules say (amends M34; the owner-lens review's blocker).**
+- The review drew 60 of the 168 pairs the owner would be asked about: 49 different products. The list said "nothing found" for 129
+  of 145 groups, the group page highlighted no row for 70/30 vs 50/50 or F1 vs M1 coils, and one tap merged.
+- Now every page is judged against the kept page with the sweep's rules, live (`DuplicateSweep::judge` on features re-normalised from
+  the listing profile; without the site's line lexicon, which needs a 2 s scan of every profile: on the 198 pairs of 6 Oct the
+  verdicts are the same, one refused pair lists one reason more), for run2's suggestions as for the sweep's.
+- The list's column is "What the rules say": "may be different:" and the reasons' tags (VG/PG, barcodes, option, words, strength,
+  ...), or "no reason against found: check the live pages", or "not checked (no listing profile)".
+- The group page opens with "What the rules say": per page, every reason in plain words with the rules' detail ("Different VG/PG
+  ratios: 50 vs 70", "Different barcodes (Vape and Go gives each product its own)", "Two options of one product page with different
+  option text: ..."). With a reason against, "Different products - keep separate" is the main button, and a merge needs "I checked
+  the live pages: the pages I mark as the same product are the same product" ticked; the POST judges again and refuses without it
+  (422, nothing saved). The form says how many units a merge would move onto the kept item. The heading reads "suggested because the
+  names match ... Check the differences below" (it said "found by the same name, size and strength").
+- The comparison table: first the option text of each page (what the variant title adds to the product title), then VG/PG and the
+  barcode (the same / its own / has one); a field a page states twice reads "unclear: stated twice"; the flavour row leaves out every
+  brand and range word of the group's pages (the owner's Corex 3.0 pair no longer shows "corex" as a differing flavour); the column
+  heads carry a short title; more than six attributes fold under "All N options and attributes" (phone width).
+- The undo can be found again: "Decided recently" lists every decided group, found through the decisions on ANY of its listings (a
+  group decided with the screen's keeper books its merge on the run keeper's listing, which has no suggestion), newest first, 25 a
+  page; the item page and the listing page link to their duplicate groups.
+- Run2's suggestions are not withdrawn or settled in bulk (the review's option (a)): that is the owner's call; with the reasons shown
+  first, most of them are one "keep separate" each.
+
+**M45. Measurements (7 Oct 2026).**
+- Sweep `ds1.1` on the export of 6 Oct 2026 22:57 UTC (the same file as M38; nothing was merged on `cw_staging` since): 235,968
+  candidate pairs, **33 accepted** (24 under ds1.0): 21 suggested by run2, 1 kept out `in_open_group` (Corex 2.0 0.4 ohm: one of its
+  items is in an open run2 group), **11 new groups** of two pages (3 under ds1.0): Corex 2.0 0.6, 0.8 and 1.2 ohm, Corex 3.0 1.2 ohm,
+  Peeky "Goodfellas"/"Godfellas", Ploom "Purple Option"/"Purple", and five IVG 6000 flavours (Berrylicious Blast, Pink Pop, Bubblegum
+  Berry Wave, Arctic Apple, Blue Frost). SKE "Berry" vs "Berry Edition" is no longer accepted. Run id `sweep-ds1.1-0bcd02ccd123`,
+  files in `/root/cw_work/vpg_dups/sweep_ds11_20261006T225658Z/` (0700). 5 min 55 s, 425 MB peak, nice 19.
+- Hand check of every accepted pair (33, `sample.txt`, seed 20261007): 32 clearly the same product, 1 probable (Ploom "Purple
+  Option" vs "Purple"), none different.
+- Recall: the review's 2,217 close misses re-judged under ds1.1: 10 now accepted, 432 refused by exactly one rule (words 368, ohm
+  30, model number 10, VG/PG 5, brand 5, option 4, line number on one side 3, barcodes 2, strength 2, ml 2, model code 1). A seeded
+  random 30 of the 432 (seed 20261007, `sole_sample.txt`): none is the same product (other flavours of pouches and liquids, other
+  resistances). The review's three misses (S21, S22, S25) are in the new groups.
+- Run2's 165 suggestions under ds1.1: 21 accepted, 144 refused (different barcodes 93, a field stated twice 64, option text 64, VG/PG
+  42, words 27, model codes 11, price 7, brand text 6, ...): the screen now shows these reasons first.
+- Tests (7 Oct 2026): the full suite in slot `dup5`: `OK, but some tests were skipped! Tests: 796, Assertions: 16981, Skipped: 75`
+  (782 after M38, plus 14: 4 `DuplicateMergeTest`, 4 `DuplicatesScreenTest`, 1 `ImportVpgDuplicatesTest`, 2 `OpeningRebaseTest`, 3
+  `DuplicateSweepTest`; the 75 skipped are the HTTP screen and API tests of slots `ui`/`api`). In slot `ui`, `UiAuthTest`,
+  `UiReviewFlowTest`, `UiSecurityTest`, `KeySampleScreenTest`, `DuplicatesScreenTest`: `OK (49 tests, 17767 assertions)`. The hammer
+  (`--seed=20261006`, slot `dup5`): `RESULT: PASS (59 checks passed, 0 failed)`. The matching golden tests (`php tests/matching/run.php`):
+  `{"passed":59,"failed":0}`.
+- Staging (read-only, 7 Oct 2026): still no merge, reject or split decision, no merged item, 165 open `vpg_duplicate` suggestions, no
+  `vpg_dup_sweep` run: the export of 6 Oct holds. Import the ds1.1 file after the deploy (`docs/ops.md`, "The wider duplicate sweep").
+- Open: the owner question of M31 (protected merges); the reorder demand and the rebase need nothing more for M40's multi-page undo
+  (both read links at read time).

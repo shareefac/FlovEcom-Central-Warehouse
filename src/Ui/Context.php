@@ -165,7 +165,8 @@ final class Context
 
     /**
      * @return array<string, int> badge name (Permissions::MENU `badge`) => count, for what the person may see:
-     *         linking_pending (decisions waiting for a second approval), reviews_open (open review and approval tasks this
+     *         linking_pending (decisions waiting for a second approval), linking_duplicates (open duplicate groups, M34),
+     *         reviews_open (open review and approval tasks this
      *         person may decide: not opened by them, not on a document they created, submitted or posted, I19; plus the
      *         open supplier tasks they may decide: not on a supplier they created, asked for or last changed, I40; plus the
      *         open reviews of a change of the company details they did not make, I94)
@@ -175,6 +176,7 @@ final class Context
         $out = [];
         if ($this->who !== null && $this->who->can('linking.view')) {
             $out['linking_pending'] = $this->queries()->pendingCount();
+            $out['linking_duplicates'] = (new Duplicates($this->db))->openCount();
         }
         if ($this->who !== null && ($this->who->can('documents.review') || $this->who->can('suppliers.approve') || $this->who->can('company.confirm'))) {
             // Documents, suppliers and the company details share the review queue (I40, I94): the open tasks this person may decide.

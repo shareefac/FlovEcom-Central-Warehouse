@@ -329,6 +329,11 @@ final class UiUnitTest extends TestCase
         self::assertSame('linking.view', $byPath['GET /ui/review/listing/{id}']);
         self::assertSame('catalogue.view', $byPath['GET /ui/items/{id}']);
         self::assertSame('catalogue.view', $byPath['GET /ui/search']);
+        // Duplicates (M34): everyone with the linking screens looks; merging, keeping separate and splitting are a mapping lead's.
+        self::assertSame('linking.view', $byPath['GET /ui/review/duplicates']);
+        self::assertSame('linking.view', $byPath['GET /ui/review/duplicates/{id}']);
+        self::assertSame(Route::LEAD, $byPath['POST /ui/review/duplicates/{id}/decide']);
+        self::assertSame(Route::LEAD, $byPath['POST /ui/review/duplicates/{id}/split']);
         $people = 0;
         foreach ($byPath as $key => $access) {
             self::assertTrue(in_array($access, [Route::PUBLIC, Route::ANY], true) || isset(Permissions::MAP[$access]), "{$key}: {$access}");
