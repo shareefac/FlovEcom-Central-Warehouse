@@ -15,6 +15,7 @@ use CW\Ui\Context;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Words;
 
 /**
  * The selling-mode switch on the item page (IM10, docs/decisions.md I158): "Selling mode on the websites" shows, per website, whether
@@ -25,10 +26,8 @@ use CW\Ui\HtmlResponse;
  */
 final class SellingModeController
 {
-    public const NOTICES = [
-        'selling_mode_set' => 'Selling mode saved. Every website whose site stock writer is on gets it on its next feed poll.',
-        'selling_mode_unchanged' => 'Nothing changed: the ticked websites already had this selling mode.',
-    ];
+    /** The notices named in a redirect (their words: Words::SELLING_NOTICE). */
+    public const NOTICES = Words::SELLING_NOTICE;
 
     public function set(Context $ctx): HtmlResponse
     {

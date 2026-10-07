@@ -23,26 +23,36 @@ final class ReferenceScreensTest extends KernelUiTestCase
         $reasons = $web->get('/ui/reference/reasons');
         self::assertSame(200, $reasons->status, $reasons->describe());
         $xp = new \DOMXPath($reasons->dom());
-        self::assertSame(25, $xp->query('//table[@class="reasons"]/tbody/tr')->length, '22 of 0008 and the 3 PO reversal reasons of 0010');
+        self::assertSame(25, $xp->query('//table[contains(@class, "reasons")]/tbody/tr')->length, '22 of 0008 and the 3 PO reversal reasons of 0010');
+        self::assertSame(1, $xp->query('//table[contains(@class, "reasons") and contains(@class, "stack")]')->length, 'one card per reason on a phone');
         self::assertStringContainsString('Free gift (not vaping/nicotine products from 29 Oct 2026)', $reasons->text());
         self::assertStringContainsString('Replaced by an amended order', $reasons->text());
-        self::assertSame('review_rejected', trim((string) $xp->query('//table[@class="reasons"]/tbody/tr[24]/th')->item(0)?->textContent));
+        self::assertSame(['Rejected at review', 'review_rejected', 'Cancellations', 'Up or down', 'No', 'No', 'Yes', 'Yes'],
+            array_map(static fn (\DOMNode $c): string => trim((string) $c->textContent), iterator_to_array($xp->query('//table[contains(@class, "reasons")]/tbody/tr[24]/*'))),
+            'the reason by its name first, its code kept for the files (plan §1.9)');
+        self::assertSame('Reasons for stock changes', trim((string) $xp->evaluate('string(//main//h1)')));
+        self::assertStringNotContainsString('Phase', $reasons->text());
         self::assertContains('/ui/reference/reasons.csv', $reasons->hrefs());
-        self::assertSame([['label' => 'Reason codes', 'href' => '/ui/reference/reasons'], ['label' => 'Number series', 'href' => '/ui/reference/series'],
-            ['label' => 'Settings', 'href' => '/ui/reference/settings'], ['label' => 'Company details', 'href' => '/ui/reference/company']],
-            self::nav($reasons)['Reference'], 'Settings since the I-2 suppliers task, Company details since 0013 (I90)');
+        self::assertSame([['label' => 'Company details', 'href' => '/ui/reference/company'], ['label' => 'Settings and lists', 'href' => '/ui/reference/settings']],
+            self::nav($reasons)['Settings'], 'Company details since 0013 (I90); the reason codes and the number series are reached from Settings and lists');
+        self::assertSame('Settings and lists', trim((string) $xp->query('//nav[@aria-label="Main"]//a[@aria-current="page"]')->item(0)?->textContent),
+            'a list reached from Settings keeps Settings marked');
 
         $series = $web->get('/ui/reference/series');
         self::assertSame(200, $series->status);
         self::assertSame(['PO-000001', 'GRN-000001', 'SINV-000001', 'DN-000001', 'CNT-000001', 'ADJ-000001', 'WO-000001', 'TRD-000001'], self::column($series, 4));
         self::assertSame(array_fill(0, 8, 'none yet'), self::column($series, 3));
-        self::assertSame('live', self::column($series, 8)[0], 'PO since the I-2 pos task');
-        self::assertSame('live', self::column($series, 8)[1], 'GRN since the I-3 receiving task (IM6)');
-        self::assertSame('coming in Phase I-4', self::column($series, 8)[2], 'SINV');
-        self::assertSame('live', self::column($series, 8)[5], 'the fixture ADJ type of the tests');
-        self::assertSame(['every document', 'net value above £10,000'], [self::column($series, 5)[0], self::column($series, 6)[0]]);
-        self::assertSame('positive units without a supplier document above 10', self::column($series, 6)[5]);
-        self::assertSame('above 10 units', self::column($series, 5)[4]);
+        self::assertSame('In use', self::column($series, 2)[0], 'PO since the I-2 pos task');
+        self::assertSame('In use', self::column($series, 2)[1], 'GRN since the I-3 receiving task (IM6)');
+        self::assertSame('Coming later', self::column($series, 2)[2], 'SINV; no phase codes');
+        self::assertSame('In use', self::column($series, 2)[5], 'the fixture ADJ type of the tests');
+        self::assertSame(['Purchase orders', 'Deliveries'], array_slice(self::column($series, 1), 0, 2));
+        self::assertSame(['Every one', 'Over £10,000 (no VAT)'], [self::column($series, 5)[0], self::column($series, 6)[0]]);
+        self::assertSame('Putting back over 10 items without a supplier document', self::column($series, 6)[5]);
+        self::assertSame('Over 10 items', self::column($series, 5)[4]);
+        self::assertSame('How record numbers are made', trim((string) (new \DOMXPath($series->dom()))->evaluate('string(//main//h1)')));
+        self::assertStringNotContainsString('Phase', $series->text());
+        self::assertStringNotContainsString('decision 11', $series->text());
 
         $poster = $this->uiUser('stock_controller');
         $docs = new Documents(self::$db, ['ADJ' => new FixtureAdjustmentHandler(self::$db)]);

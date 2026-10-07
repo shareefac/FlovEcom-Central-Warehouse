@@ -1,44 +1,36 @@
-<h1>Key spot-check</h1>
-<p class="muted">A spot-check is a random sample of 20 Key proposals that the mapping lead who drew it confirms or rejects one by one on
-  the review screen. Only when every proposal in it is confirmed by that lead can the rest of the Key proposals it was drawn from be
-  confirmed in one step, by that lead (on the server: <code>bin/bulk_confirm_key.php</code>). One rejection, any other decision, or a
-  decision by anyone else stops that step for good.</p>
+<div class="head-help">
+  <h1><?= $word('PAGE_TITLE', 'samples') ?></h1>
+  <?= $explain('spot_check', \CW\Ui\Words::MENU['samples']) ?>
+</div>
+<?= $intro('samples') ?>
 
 <?php if ($rows === []): ?>
-<p>No spot-check has been drawn yet (on the server: <code>bin/sample_proposals.php</code>).</p>
+<?= $empty(\CW\Ui\Words::SAMPLE['none'], \CW\Ui\Words::SAMPLE['none_text']) ?>
 <?php else: ?>
-<table>
+<div class="table-wrap">
+<table class="stack list samples">
   <thead>
     <tr>
-      <th scope="col">Sample</th>
-      <th scope="col" class="num">Decided</th>
-      <th scope="col">State</th>
-      <th scope="col" class="num">Drawn from</th>
-      <th scope="col">Drawn by</th>
-      <th scope="col" class="num">Linked by the bulk confirm</th>
+      <th scope="col"><?= $word('SAMPLE', 'name') ?></th>
+      <th scope="col"><?= $word('SAMPLE', 'result') ?></th>
+      <th scope="col" class="num"><?= $word('SAMPLE', 'checked') ?></th>
+      <th scope="col" class="num"><?= $word('SAMPLE', 'picked_from') ?></th>
+      <th scope="col"><?= $word('SAMPLE', 'started_by') ?></th>
+      <th scope="col" class="num"><?= $word('SAMPLE', 'together') ?></th>
     </tr>
   </thead>
   <tbody>
 <?php foreach ($rows as $r): ?>
-    <tr>
-      <th scope="row"><a href="/ui/review/samples/<?= $e($r['id']) ?>"><?= $e($r['name']) ?></a></th>
-      <td class="num"><?= $n($r['decided']) ?> of <?= $n($r['size']) ?></td>
-      <td>
-<?php if ($r['verdict'] === 'complete' && $r['fit'] !== []): ?>
-        <span class="status status-quarantined">all confirmed, but not usable for a bulk confirm</span>
-<?php elseif ($r['verdict'] === 'complete'): ?>
-        <span class="status status-mapped">all confirmed</span>
-<?php elseif ($r['verdict'] === 'failed'): ?>
-        <span class="status status-quarantined"><?= $n($r['failed']) ?> not confirmed: no bulk confirm</span>
-<?php else: ?>
-        <span class="status status-suggested">waiting</span>
-<?php endif; ?>
-      </td>
-      <td class="num"><?= $n($r['population']) ?></td>
-      <td><?= $e($r['created_by'] ?? '') ?> <span class="muted"><?= $dt($r['created_at']) ?></span></td>
-      <td class="num"><?= $n($r['bulk_linked']) ?><?php if ($r['bulk_undone'] > 0): ?> <span class="muted">(<?= $n($r['bulk_undone']) ?> undone)</span><?php endif; ?></td>
+    <tr class="<?= $e(\CW\Ui\Words::tone('SAMPLE_RESULT', $r['result'])) ?>">
+      <th scope="row" class="c-head"><a class="o-name" href="/ui/review/samples/<?= $e($r['id']) ?>"><?= $say('SAMPLE', 'title', $r['name']) ?></a></th>
+      <td class="c-status"><?= $stateChip('SAMPLE_RESULT', $r['result']) ?></td>
+      <td class="num" data-label="<?= $word('SAMPLE', 'checked') ?>"><?= $say('SAMPLE', 'of', $r['decided'], $r['size']) ?></td>
+      <td class="num" data-label="<?= $word('SAMPLE', 'picked_from') ?>"><?= $n($r['population']) ?></td>
+      <td data-label="<?= $word('SAMPLE', 'started_by') ?>"><?= $e($r['created_by'] ?? '') ?> <span class="muted"><?= $day($r['created_at']) ?></span></td>
+      <td class="num" data-label="<?= $word('SAMPLE', 'together') ?>"><?= $n($r['bulk_linked']) ?><?php if ($r['bulk_undone'] > 0): ?> <span class="muted"><?= $say('SAMPLE', 'undone', $r['bulk_undone']) ?></span><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
 </table>
+</div>
 <?php endif; ?>

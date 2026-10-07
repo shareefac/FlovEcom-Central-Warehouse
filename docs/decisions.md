@@ -5290,3 +5290,838 @@ reformat of H1, H2 and H5 into blocks (team commit 36f7314e8) read a hook as the
 (`cw_tc_hook_span`), the anchors from its first line; new `writer_review_test.php` (5: the skip and the unwind, the forced mode put
 back, back in stock and the dry run and the proto flag, `writer_only` and the site profile, the fought-over listing); `writer_hooks_test`
 (H11's committed-only restock and the write of 0, H13's unchanged row, the hook lines' unit key); `core_install_test` (v4).
+
+## Staff screens in plain words and design A, steps 1-3 (slots `uir1`, `ui`, 7 Oct 2026)
+
+Code: `src/Ui/{Words,Tabs,Html,View,Context,Kernel,FormOnce,Queries}.php`, `src/Auth/Permissions.php` (menu only),
+`src/Ui/views/{layout,error,login,password,home,dashboard,settings,cards}.php`, `src/Ui/Controller/{Auth,Dashboard}Controller.php`,
+`public/ui/assets/{app.css,app.js}`; tests `tests/Unit/{Words,UiTemplates,UiUnit,Permissions}Test.php`, `tests/Support/{KernelUiTestCase,
+UiResponse}.php`, `tests/Integration/UiKernel/MenusTest.php` and the words, menus and codes the other screen tests pin. Sources: the
+wording plan `/root/cw_work/ui_clarity/plan.md` (steps 1 Foundation, 2 Frame, 3 Errors and sign-in) with the owner's corrections of
+7 Oct, and the owner's design decision "A with B's parts" (`/root/cw_work/ui_design/compare.md`). Words, layout, help and the frame
+only: `Permissions::MAP`, the routes, every service and its messages are unchanged; no behaviour item of plan §8.6 is in it.
+
+**U25. One wording file: `Ui\Words` (plan §1, §8.2).** Constants and pure functions only, keyed by the internal code: jobs (`ROLE`,
+`ROLE_PLURAL`, `ROLE_HELP`, `ROLE_GROUP`), the menu (`SECTION`, `MENU`, `MENU_HELP`, `TAB`, `BADGE`, `COMING_LATER`), page titles and
+the 46 page intros (`PAGE_TITLE`, `PAGE_INTRO` as [what it is, what to do]), the bands and the matching evidence (`BAND`,
+`BAND_TITLE`, `BAND_HELP`, `LANE`, `AI`, `FLAG`, `VETO`, `BAND_REASON`, `FIELD_STATE`), decisions (`NEEDS_SECOND`, `ACTION`,
+`DECISION_STATE`, `LISTING_STATUS`), stock (`POLICY`, `STOCK`), the spot check (`SAMPLE_STATE`, `SAMPLE_RESULT`, `SPOT`), buying
+(`PO_STATE`, `PO`, `SEND_VIA`, `REASON`, `SUPPLIER_STATUS`, `CHECK_REASON`, `CHECK_KIND`, `REVIEW_STATE`, `TASK_STATE`, `DOC_STATUS`,
+`REORDER_FLAG`, `REORDER`, `SETTING`), errors (`ERROR_TITLE`, `ERROR`), the eight "?" texts (`HELP`), sign-in and password
+(`SIGN_IN`), the frame's own words (`UI`) and the chip tone of each status (`TONE`). `of()` falls back to the code made
+readable; `WordsTest` fails on any code of the system without a word (bands, roles, document, PO and supplier states, review
+reasons and states, sample states, actions, decision and listing states, sell policies, buckets, lanes, AI outcomes, soft flags,
+vetoes, reorder flags, menu keys) and on any word that breaks the writing rules (a snake_case code, "UTC", a phase code, a
+server command or docs path, a second account). Most groups are used by steps 4-8; they are here now so every step takes its
+words from one place. `Permissions::DESCRIPTIONS`, `StaffIdentity::rolesLabel()/rolesPhrase()` and `Document::label()` stay for
+services, CLI tools and file names.
+
+**U26. Provisional words (owner to confirm, plan §9).** The six band names Strong match / Likely match – check it / New product /
+Not sure – you choose / Clues disagree / Renamed range; website product, warehouse product, match, Matching lead, second OK,
+Reviewer; "TEST SYSTEM: nothing here is real"; "Coming later" with no dates. The person to ask is a fixed name, `Words::ASK` =
+"Fazil" (plan §9 question 3 is open: reading the active admin's name would also name the owner, whose account holds Admin today).
+The owner's corrections are applied over the plan: (a) the owner's account keeps Admin + Reviewer + Matching lead and every page
+shows the strip "Your Reviewer and Matching lead jobs are switched off because this account also has Admin. Ask Fazil to take Admin
+off this account."; no word anywhere suggests a second account (spot check owner-1 belongs to this account, and another account
+deciding a member fails it); (b) "count" is only for shelf counts: legacy = "Website uses its own stock (not linked yet)", strict =
+"Website sells warehouse stock only", protected_sku = "Website already sells warehouse stock", counted_item = "Stock was counted in
+the warehouse"; (c) Strong match = "Same barcode, or copied from the other website, and the AI agrees", and Clues disagree also
+names a rule against the barcode's product (`veto_on_key`); (d) card_blocked says the product is still on sale and must be taken
+off by hand; (e) the reorder demand text; (f) `Words::PO['confirm_over_limit']`: an order over the approval limit is not
+"confirmed" by its button, it goes to a reviewer first (used by step 7). compare.md §2.1: `Words::SPOT` holds the second step of
+"Not a match" ("This stops the bulk link for good.") for the spot-check screen of step 5.
+
+**U27. View helpers (plan §8.2).** Besides `$e $n $dec $dt $pct $u $partial`: `$word($group, $code)`, `$money` ("£10,500.00"), `$day`
+("7 Oct 2026") and `$when` ("7 Oct 2026, 10:26": UTC converted to Europe/London, never "UTC"; a DATE is shown as it is), `$jobs`
+("Admin · Matching lead (off)"), `$chip($tone, $text)` and `$stateChip($group, $code)` (one status chip: an icon shape and a word, tones
+needs / done / waiting / blocked / info / off), `$intro($page, $lookOnly)`, `$explain($key)` (the "?": a `<details class="help">`, no
+script), `$cards($list)` (task cards: B's job number, a chip, a count, a progress bar, "What happens:", one button; partial
+`cards.php`) and `$empty($title, $text, $href, $button)`. The plan's `$w`, `$roles`, `$status` and `$help` were renamed: templates
+already use `$w`, `$roles`, `$status` and `$help` as variables (a helper silently replaced them). `View::render` now refuses a
+template variable named like a helper.
+
+**U28. The frame: design A with B's parts (owner decision 7 Oct).** A left sidebar on a laptop (900 px and up: brand, the account
+button, the find box, the menu); on a phone a short top bar (brand, "Menu", the account button), a bottom tab bar and the whole menu
+as a sheet opened by "Menu" or "More" (`nav.menu:target`: no script). The tab bar is To do + up to three of the person's own items
+in a fixed order of daily work (`Ui\Tabs`: the owner gets To do / Matches / Duplicates / Orders / More, a buyer To do / Orders / To buy /
+Suppliers / More), with a lifted section's items first (an admin: Staff; a stock controller: Products, Barcodes). The account panel
+names the person, their jobs in words and has "Change my password" and "Sign out". A skip link comes first. On staging (`app.env`
+`environment=staging`, the key `TestRefPurge` already reads; `Kernel` reads it once per request, a config it cannot read says no) every
+page, the sign-in and error pages too, carries the strip "TEST SYSTEM: nothing here is real". An account whose jobs Admin switches off
+gets the yellow strip of U26 (a) with its "?" (`Permissions::switchedOff()`, pure, from `effective()`). The pinned menu markup is
+kept (`nav.menu[aria-label=Main] > div.menu-group > span.menu-label + a`), the tab bar is a second nav after it ("Main tasks"). During
+the forced password change there is no menu, no tab bar and no find box: every link led back to the password page (plan F066).
+
+**U29. The task-based menu (plan §2.1-2.2).** Home first for everyone, then To check (Waiting for me), Match products (Products to
+match, Waiting for 2nd OK, Spot check, Possible duplicates), Buying (What to buy, Purchase orders, Suppliers, Sales data), Products
+(Product list, Barcodes to check), Records (All records), Staff (Staff and access), Settings (Company details, Settings and lists).
+Every item keeps the permission of its route (`PermissionsTest` checks the route and the item hold the same one). `staff.manage`
+lifts Staff to second place; `catalogue.edit` with no matching, buying or checking work lifts Products (`Permissions::LIFT`; order
+only). Item > Search left the menu (the find box stays), and so did Reason codes and Number series (Settings and lists links to
+them; those pages keep Settings marked). The screens of Phase I-3 to I-6 are no menu items any more: Home and the matching dashboard
+say "Coming later: …" for the ones the person's jobs will use (`Permissions::COMING_LATER`), without phase codes. The home cards and
+the merged Home page are step 4: `home.php` and `dashboard.php` are unchanged apart from that line.
+
+**U30. Badges count only what the person can act on (plan F007; display only).** Waiting for 2nd OK and Possible duplicates show a
+count to a matching lead only (`mapping.approve`), and the second-OK count leaves out the lead's own decisions
+(`Queries::pendingCountFor`). Each badge carries its words for a screen reader and as a tooltip ("3 waiting for your second OK").
+`Context::badges()` is computed once per request.
+
+**U31. Errors and sign-in in words (plan step 3).** The error page's heading is by status (`Words::ERROR_TITLE`: "You cannot open this
+page", "Page not found", …, also the tab title), its message by error code (`Words::ERROR`, the kernel's own codes plus
+`unknown_staff` / `unknown_queue`; any other service message is shown as the service wrote it, since those reach the API), then
+"If you report a problem, quote this number: <id>". The code is no longer printed: it is the section's `data-code`
+(`UiResponse::errorCode()` in tests). A 403 names who the page is for and what the person is ("This page is for Reviewers. You
+work as: Buyer. If you need it for your work, ask Fazil (the admin)."; "Only … can do this. Nothing was changed." for a button), or,
+when Admin alone keeps it from them, that and the one fix (`Kernel::refusal`, `Permissions::blockedByAdmin`). New texts for the
+expired form, a cross-site post, 404, 405, 413, a truncated form, 500 and the three 503s; `FormOnce`'s two refusals. The sign-in page
+says what to use and who to ask, the code field names the code app, failure and lock-out texts are plain, and a password field has a
+"Show" button (`app.js`, the only script change). The password page names the one-time password on the first sign-in. A request
+whose cookie belonged to a session that ended (idle, 12 hours, signed out or switched off elsewhere) is sent to
+`/ui/login?why=signed_out`, which says so (plan F056); a cookie nobody issued is still the same as none (`/ui/login`).
+
+**U32. The stylesheet (design A, B's parts).** Tokens on `:root` with dark mode (`prefers-color-scheme`, guarded by
+`:root:not([data-theme="light"])`, and `[data-theme="dark"]`); white cards on a grey page, one accent; a 17 px body; inputs at 16 px
+or more and 48 px tall with 4.5 : 1 edges (B's stronger edge); buttons, menu links, row choices and tabs 44 px or taller; a 3 px
+focus ring on everything. One chip with five tones (icon shape + word), and the older `.status`, `.tag`, `.notice`, `.note`, `.error`
+restyled to the same look in place, so the 45 templates and the classes the tests pin are unchanged. The table-to-cards pattern:
+`table.stack` (or `.rtable`) with `data-label` on each cell becomes one card per row when the page column is 640 px or narrower
+(`.page` is the container), and any other table scrolls sideways inside itself instead of widening the page (the per-page
+conversion is steps 5-8). B's parts are in it for the next steps: the "What happens:" line and job number (`.task-what`,
+`.task-step`), "What each answer does" (`.answers`), the "Safer" label (`.safe-tag`), the 20-block strip with its legend
+(`.segments`, `.segments-legend`, `.key`) and B's list cards (`table.list`, `.o-name` …). No imports, no external URLs, no data:
+URIs, no inline style or script. The icons are CSS shapes (`.ico-*`), not design A's inline SVG: `UiSecurityTest` keeps refusing any
+`<svg>` on a page (a page that shows hostile text must stay inert), and that check is not loosened.
+
+**U33. Not done here, on purpose.** The behaviour items of plan §8.6 (back to the page after sign-in, `GET /ui/logout`, the expired
+sign-in form shown again, …): not approved; the 405 page says "use the button on the page" instead. The Home cards (step 4), the
+page-by-page words and the table conversions (steps 5-8; the plan's lint "every table is stack or in .scroll" waits for them), the
+read-only notes built from `rolesPhrase` (step 5), the People page warning (step 8). Not checked in a browser yet: no browser on
+this box or on staging; check the frame at 375 px and 1,280 px, light and dark, before the deploy.
+
+*Tests* (7 Oct 2026): the full suite in slot `uir1`: `OK, but some tests were skipped! Tests: 873, Assertions: 22537, Skipped: 75`
+(860 before, plus 13: `WordsTest` 8, `UiTemplatesTest` 2, `UiUnitTest` 1, `PermissionsTest` 1, `MenusTest` 1; the 75 skipped are
+the HTTP screen and API tests of slots `ui`/`api`). In slot `ui`: `UiAuthTest`, `UiReviewFlowTest`, `UiSecurityTest` and every
+`UiKernel` test: `OK (116 tests, 26115 assertions)`.
+
+## Staff screens in plain words and design A, step 4: Home (slots `uir2`, `ui`, 7 Oct 2026)
+
+Code: `src/Ui/{HomeTasks,HomeCounts,Context,Words}.php`, `src/Ui/Controller/DashboardController.php`,
+`src/Ui/views/{home,matching_progress,cards,reviews,sample}.php` (`dashboard.php` became the partial `matching_progress.php`),
+`public/ui/assets/app.css`, an optional `$kind` on `Documents::decidableCount()` and `Suppliers::decidableCount()`; tests
+`tests/Unit/{HomeTasks,UiTemplates}Test.php`, `tests/Integration/UiKernel/{HomeScreen,Menus}Test.php`, `tests/Integration/UiReviewFlowTest.php`.
+Source: plan §3 and F074-F093 (step 4), the owner's design decision "A with B's parts". Words, layout, help and the Home page only:
+no permission, route or service message changed, no behaviour item of plan §8.6 is in it.
+
+**U34. One Home for everyone (plan §3.1, F074, F087).** `/ui/` is the same page for every signed-in person (the linking jobs no
+longer land on a separate dashboard). Top to bottom: h1 "Home" (the tab title, F031/F088), "Hello <name>. You work as: <jobs>."
+(F089; the Admin strip stays the layout's, on every page); **What needs doing** (U35); **What is this system?** (plan §3.3, a
+`<details>` open for the person's first 14 days after `staff_user.created_at`, then folded; "stock figure", not "stock number",
+per correction b); **Matching progress** for `linking.view` (the former dashboard in plain words: "How sure" with the six band
+names and their one-line meaning and the "?" H1, websites by name, "Not checked by the computer yet – nothing to do now", "Lists
+show best sellers first", the second OK line with "Open" for matching leads only (F083), the duplicates note (F092), "How much of
+what we sell is matched" with F086's columns and "no sales yet" instead of "-" (F093); both tables are `table.stack`, so one card per
+list and per website on a phone (F077); "You can look; Matchers and Matching leads decide." for people who cannot decide);
+**What you can use** (each menu item with its `Words::MENU_HELP` line, F079); **Coming later** (no dates).
+
+**U35. The task cards (plan §3.2 C1-C20; `Ui\HomeTasks`, pure and unit-tested; `Ui\HomeCounts`, the queries).**
+`HomeTasks::needs($roles)` names the facts a person's jobs use, so `HomeCounts` runs nothing else (a buyer's Home runs no matching
+query; the owner's account with Admin runs only the staff one). `HomeTasks::build()` makes one card per kind of waiting work: a
+plain sentence, a big number with its unit, B's "What happens:" line and ONE button to a page the person may open
+(`HomeTasksTest` checks every link against the router and the roles). A card with nothing waiting is left out; with no card:
+"Nothing is waiting for you right now." Sorted by `HomeTasks::RANK`: what holds other people up first (company details, approvals,
+the second OK, staff access, orders a reviewer rejected or not sent), then the owner's own checks (spot check, set-aside matches,
+duplicates, clues disagree, done work to check), then routine work; numbered (B's job numbers), the first "Start here" with its
+button straight after its number so it is on the first phone screen (compare.md 2.2). Two cards are notes, not jobs (no number,
+after the jobs, "Good to know"): C2 (the order PDFs say DO NOT SEND until a reviewer confirms the company details) and C17 (sales
+data out of date: "Ask Fazil to load the new sales"). Where a badge counts the same thing, the card uses the badge's number
+(`Context::badges()`), so a card never counts work the person cannot clear. Choices within the plan:
+- C3/C4 split the review queue by kind: `Context::checks()` (once per request) = the decidable approvals and reviews of documents
+  and suppliers (`decidableCount($id, $roles, $kind)`, the new optional filter; null counts both, as before) plus the company
+  checks (always reviews); the `reviews_open` badge is their sum. The links go to `#approvals` / `#reviews` (ids added to the
+  sections of `reviews.php`).
+- C5 only for the spot check's own matching lead, while its verdict is `waiting`; "n of 20 checked", B's progress bar, and the
+  button opens the next unanswered member by position (`?sample=`, so the page leads back). "About N more" = the stored population
+  less the 20 and the matches set aside from it. The owner's account with Admin gets no spot-check card: its Matching lead job is off,
+  so it cannot answer (only this account may: an answer from any other account fails the spot check).
+- C7 per spot check that has not failed (a failed one's matches are all checked one at a time anyway), linking to its list
+  (`id="held"` added in `sample.php`). C6 has the badge's count and opens the list (biggest sellers first), not the first group:
+  finding that group means building every open group (`Duplicates::openGroups`, several queries over the sales history), too
+  slow for the first page after every sign-in. C8 = `Queries::pendingCountFor` (not the lead's own). C9/C10 = the band counts,
+  the same numbers as the lists (C10 keeps spot-check members in: the plan's simpler option). C10's "What happens:" adds "If a page
+  says it is in someone else's spot check, leave it to them" (an answer by anyone but its owner fails a spot check; the listing
+  page already says so), and for a lead whose own spot check is waiting: "If your spot check <name> passes, about N of them are
+  confirmed together, so do the spot check first." C11 is one card for Likely / New product / Not sure / Renamed range, its button
+  to the first list with work.
+- C13 counts the person's own drafts; C14/C15 every buyer's (any buyer may send or correct an order). C16 has no number (What to
+  buy is not one COUNT) and shows only when demand exists; it links to the whole list, urgent first (`?urgent=1` could be empty).
+  C18 "due" leaves out inactive suppliers. C19 (`staff.manage`): test accounts that can sign in, fewer than
+  `PeopleController::MIN_REVIEWERS` people whose Reviewer job works (effective roles), and each person whose jobs Admin switches off
+  (on the owner's own account: the same words as the strip; on the admin's Home: "Untick Admin on their page and save. Their
+  other jobs then work again.", the strip's one fix; never a second account, correction a). C20: no job, who to ask.
+The card texts are `Words::TASK`, the page's words `Words::HOME`, the panel `Words::ABOUT` (all under `WordsTest`'s writing rules).
+Each card's `<li>` carries `data-card` (its key) for tests. The notes are their own section ("Good to know", an h2), so every
+card title is an h3 under an h2. The spot check's bar has an accessible name ("0 of 20 done", compare.md 3.2).
+
+**U36. Not done here.** Timings on staging data (HomeCounts adds per lead one `KeySample::status()` per own waiting spot check
+and one set-aside query per spot check that has holds; budget 100 ms over the old dashboard; time it on staging before the
+deploy: this build may not read `cw_staging`). No "spot check passed" or "bulk link
+waiting" card (not one of the plan's twenty). No count badge on the "To do" tab (the plan names no such badge). Not checked in a
+browser (no browser on this box or on staging): check Home at 375 px and 1,280 px, light and dark, with the frame (U33).
+
+*Tests* (7 Oct 2026): the full suite in slot `uir2`: `OK, but some tests were skipped! Tests: 886, Assertions: 23791, Skipped: 75`
+(873 after step 3, plus 13: `HomeTasksTest` 8, `HomeScreenTest` 5; the 75 skipped are the HTTP tests of slots `ui`/`api`). In slot
+`ui`: `UiAuthTest` (13), `UiReviewFlowTest` (14), `UiSecurityTest` (11) and every `UiKernel` test (83): all OK. An earlier run in
+`uir2` failed once on `LockOrderTest`'s 250 ms timing limit (420 ms) while slot `ui` ran on the same server; it passed in the
+final run, and step 4 touches no stock code.
+
+## Staff screens in plain words and design A: the start and settings pages (slots `uir3`, `ui`, 7 Oct 2026)
+
+Code: `src/Ui/Words.php` (new groups `REFUSAL`, `DOC_TYPE`, `DOC_TYPES`, `CHECK_STATE`, `CHECKS`, `RECORDS`, `RECORD`, `RECORD_NOTICE`,
+`COMPANY`, `COMPANY_NOTICE`, `SETTINGS_PAGE`, `REASON_USE`, `SETTING_TOPIC`, `SETTING_HELP`, `STAFF`, `STAFF_NOTICE`; `SETTING` for every
+setting; new `ERROR` codes; `SIGN_IN` labels; `say()`, `docType()`, `docTitle()`, `settingName()`, `settingHelp()`, `settingTopic()`,
+`refusal()`), `src/Ui/{View,Html,Context}.php` (`$say`, `Html::size`, an optional way back on `Context::error`),
+`src/Ui/Controller/{Reviews,Documents,Company,Reference,People}Controller.php`, `src/Ui/views/{reviews,documents,document,company,
+company_form,settings,reasons,series,people,person,login,password,error}.php`, `public/ui/assets/app.css`; tests
+`tests/Unit/{Words,UiTemplates}Test.php`, `tests/Integration/UiKernel/{ReviewScreens,CompanyScreens,ReferenceScreens,PeopleScreen,
+SupplierScreens,PurchaseOrderScreens,StartSettingsWords}Test.php`. Source: plan §6.3-6.8, 6.13, 6.31-6.37 (F036-F073, F094-F102,
+F140-F146, F405-F452, and F034/F035 of §6.2), §4 (intros), §5 (H4, H5), §7, the owner's corrections (a)-(f) and the design "A with
+B's parts". Words, layout, help and display only: no permission, route or service message changed (the services' refusals are
+translated by their error code on the page), no behaviour item of plan §8.6 is in it.
+
+**U37. Things to check (`/ui/documents/reviews`, F094-F102).** Title "Things to check" (menu To check > Waiting for me), the intro, the
+three-sentence "how" line and the "?" H4 (second OK). The two lists are `Words::CHECK_KIND` ("Needs your OK before anything happens",
+"Already done: please check it"; the `#approvals` / `#reviews` anchors Home links to stay). Each check is one row of a `table.stack
+list` (one card per check on a phone): what (`Words::docTitle`: an order by its supplier, "Order for Elux Wholesale (no number yet)",
+"Cancellation of PO-000003 – …", "Supplier: …", "Company details changed (delivery address)"), why (`Words::CHECK_REASON`), value
+(an order's net total in £ from `purchase_order`, a cancellation the cancelled order's; "N items" for a stock record; blank for
+suppliers and the company details: review_task.units is never shown as money or as "units", F095 display part only), asked by, asked
+on (UK time), check by (a red "Late" chip) and one "Open" button, or why this person cannot decide it (`Words::REFUSAL` by the
+refusal's code: "This is your own work, so another reviewer must check it."). The kind filter lists only the kinds in use (the live
+document types, Suppliers, Company details; a `?type=` for another kind still works and says "Nothing of this kind is waiting" with
+"Show everything").
+
+**U38. All records and one record (F405-F417).** "All records": the intro, a note naming the kinds in use and the ones that come
+later (no phase codes), "Purchase orders are only shown to buying staff" for people without Purchasing (their empty list says so
+too, F409), filters in words (`DOC_STATUS`; `CHECK_STATE` "Not needed / Waiting / OK / Not OK"), "N records, newest first",
+`table.stack list` with Number, Status chip, What (a cancellation says what it cancels, an order names its supplier), Reviewer check,
+Date, Supplier's reference, Made by, Final on (UK time); empty states with a way back. `DOC_STATUS['cancelled']` is now "Stopped before
+it was final" so the status filter has no two "Cancelled". One record: the title "<kind> <number>" or "<kind> (no number yet)"
+(`Document::label()` stays for file names and service messages), the intro, the decision FIRST with design B's "What each answer
+does" (OK / "Not OK – say why", what each does for an approval, a review, a cancellation and a type whose rejection is only
+recorded) and the "Safer" label on refusing a request (it books nothing); then the facts (supplier and value for an order, the
+reason by its label, UK time, empty facts left out), "Download record (for the files – not for the supplier)" (F414), the
+cancel ("reversal") form in words ("Make the cancellation record"), lines as cards with empty columns left out and £ per item / £
+total, files as cards, the checks as sentences ("7 Oct 2026: Reviewer check asked for by …. Why: …." then "OK by … on …" or
+"Closed: the record was cancelled (PO-000004)." for a check withdrawn by a cancellation, F416), the fingerprint and file hashes
+in a "Technical details" fold. The record PDF is unchanged (a file for the records, `DownloadsTest`). The services' refusals on this
+page are shown by code (`not_reversible`, `reversal_pending`, `not_reviewable`, `not_awaiting_approval`, the own-work refusals,
+`note_required`, and "You cannot cancel this kind of record" for `role_not_allowed`/`admin_cannot_post` on the cancel form).
+
+**U39. Company details (F140-F146; F034/F141 of the owner's account).** Crumb "Settings and lists", the intro, the status as a chip,
+"Confirmed by … on <UK time>", the confirm form with "What happens: After this, new purchase order PDFs no longer say DO NOT SEND"
+(F143), the orders still printing unconfirmed details named and linked, with "Open it and press Correct" (or "Confirm the details
+first" while they are not confirmed, F140), the rejected-change orders with their state in words. Someone who cannot change them
+reads "Only a reviewer can change these. Tell them if something is wrong."; the owner's account with Admin reads "You can only look
+here: Admin switches off your Reviewer job." (`Permissions::blockedByAdmin`; with the strip; never a second account, correction a).
+The checks of a change ("Changes another reviewer must check", F144) moved above the details, each with what changed, design B's
+answers ("Yes, the change is right" / "Not OK – say why" and what each does), the refusal by code, the "nobody else is a Reviewer"
+note. No version numbers and no UTC anywhere (F142): the history says "7 Oct 2026, 10:26 · Sam confirmed them (another reviewer still
+has to check this change)". The form's words are `Words::COMPANY` (F145, F146). A stale save or confirm says who saved and when in
+UK time (`company_changed` translated; the service message, with "version N … UTC", stays the API's).
+
+**U40. Settings and lists, Reasons for stock changes, How record numbers are made (F418-F426).** The intro; the settings by topic
+(Purchase orders, Suppliers, What to buy, Costs) in a fixed reading order, each a card on a phone: plain name with its key in small
+code text, "Agreed" / "Not agreed yet", the value (Yes/No, "not set"), what it does (`Words::SETTING_HELP`, never the migrations'
+"Phase I-2" / "plan IM9" texts, F420; the three promotion checks read on their own), changed "When CW was set up (7 Oct 2026)" or
+"<UK time> (changed on the server)". No decision column, no server command: "To change a setting, tell Fazil the new value and why".
+"Who checks what" (F421) is one sentence per kind of record in use ("Purchase orders: a reviewer checks every one within 7 days.
+Over £10,000 needs a reviewer's OK first. If the reviewer says not OK, the order stays and the buyer cancels or corrects it.") with
+the "?" H4. VAT codes as cards. The footer without decision numbers (F423). The two lists: titles and intros of the plan, the
+reason's name first with its code kept in code text (the files and CSV use codes, plan §1.9), uses and direction in words; the
+number series by kind ("Purchase orders", "Deliveries" …), "In use" / "Coming later" (no phase), limits in words. The reasons CSV is
+unchanged.
+
+**U41. Staff and access (F427-F451; F035).** Title "Staff and access"; for the admin the intro and "To add a new staff member, send
+their name, e-mail and job to the developer" (no command, F427); for the auditor "You can look; only the Admin changes things." The
+warnings say what to do here: reviewers counted by the job that works (a Reviewer with Admin does not count, and the warning says
+so, F429), "Nobody is Admin … ask the developer", a test account that can sign in ("Stop this person signing in"), and each other
+person whose jobs Admin switches off ("… Open their page, untick Admin and save."; the person's own clash is the strip's). The
+list is `table.stack list`: name, Can sign in (Yes/No chip), jobs in words with "(off)" (and a line saying what "(off)" means, with
+the "?" H5), e-mail, last signed in (UK time or "never"), added on. One person: crumb back, the intro, the clash warning "These jobs
+do not fit together: while Admin is ticked, Reviewer and Matching lead do nothing. Untick Admin, then save. Their other jobs then
+work again." (F035; correction a: the one fix), facts in words, the job boxes with plain names and help (`Words::ROLE`, `ROLE_HELP`,
+`ROLE_GROUP`) and the code in small grey text for the developer (F436), the rule note (F444) with the "?" H5, "Save the jobs", "Stop
+this person signing in" / "Let this person sign in again" with what they do (F441 words only: the confirm tick-box is behaviour item
+4, not approved), the history as cards with jobs by name, UK time and "set up on the server" (F449). StaffAdmin's refusals are
+shown by code (`role_conflict` names the jobs, `no_roles`, `roles_changed` with their jobs now and the ticks kept, `own_account`,
+`placeholder_account`). An unknown person's 404 has a "Staff and access" button (`Context::error`'s new optional way back, F048).
+
+**U42. Errors, sign-in and password (F036-F073) and the words of these pages.** Step 3's texts stand; the sign-in and password pages
+now take every label from `Words::SIGN_IN` and the password intro from `PAGE_INTRO`. `Words::ERROR` gained the UI's own generic
+codes `bad_version` (every "this form has no version" page of the app), `bad_form`, `unknown_document`, `unknown_task`,
+`task_closed`, `note_required`. Templates use the new `$say($group, $code, ...$args)` (a word with its `%s` filled in, whole numbers
+with thousands separators); `UiTemplatesTest::HELPERS` knows it. The notices of these pages are `Words::*_NOTICE` (the controllers'
+`NOTICES` constants point at them).
+
+**U43. Not done here, on purpose.** The behaviour items of plan §8.6 in this area: back to the page after sign-in (F057), `GET
+/ui/logout` (F043), the expired sign-in form shown again (F059), the confirm tick-box before "Stop this person signing in" (F441),
+the QR sheet for new staff (F452), and storing a check's money in its own column (F095's data part). `Words::CHECK_REASON
+['all_documents']` stays "Every order is checked" (only purchase orders are live; a stock record's check will need its own words
+when those screens come). Not checked in a browser (none on this box or on staging): check these pages at 375 px and 1,280 px,
+light and dark, before the deploy.
+
+*Tests* (7 Oct 2026): the full suite in slot `uir3`: `OK, but some tests were skipped! Tests: 890, Assertions: 27200, Skipped: 75`
+(886 after step 4, plus 4: `WordsTest` 2, `UiTemplatesTest` 1 (every table of these pages is a `table.stack` with labelled cells),
+`StartSettingsWordsTest` 1 (19 pages for six jobs and the sign-in: title, intro, no code / UTC / phase / command / "Your role", tables
+as cards); the 75 skipped are the HTTP tests of slots `ui`/`api`). In slot `ui`: every `UiKernel` test (84), `UiAuthTest` (13),
+`UiSecurityTest` (11), `UiReviewFlowTest` (14): all OK. `DownloadsTest` is unchanged (file names still come from `Document::label()`).
+
+## Staff screens in plain words and design A: the matching pages (slots `uir3`, `ui`, 7 Oct 2026)
+
+Code: `src/Ui/Words.php` (new groups `FIELD`, `FORM_VALUE`, `NIC_TYPE`, `AI_FIELD`, `AI_FIELD_STATE`, `ACTION_DONE`, `MOVEMENT`, `ORIGIN`, `QUEUE`,
+`LISTING`, `PENDING`, `MATCH_NOTICE`, `MATCH_ERROR`, `SAMPLE`, `SAMPLE_FIT`, `DUPS`, `DUP_NOTICE`, `DUP_ERROR`, `SEARCH`, `ITEM`; `SPOT` grown; `ERROR`
+codes `unknown_listing`, `unknown_item`, `unknown_group`, `unknown_sample`; tones of `FIELD_STATE`; `saleUses()`, `quoted()`),
+`src/Ui/{Queries,Compare,Duplicates}.php`, `src/Ui/Controller/{Review,Samples,Duplicates,Search,Item}Controller.php`, `src/Ui/views/{queue,listing,
+listing_form (new),pending,pending_actions,pending_decision,samples,sample,duplicates,duplicate_group,search,item}.php` (item.php: the matching
+and stock parts only), `public/ui/assets/{app.css,app.js}`; tests `tests/Unit/{Words,UiTemplates}Test.php`, `tests/Integration/UiKernel/
+{ReviewEvidence,ApprovalScreens,KeySampleScreen,DuplicatesScreen,MatchingWords (new)}Test.php`, `tests/Integration/{UiReviewFlow,UiSecurity}Test.php`.
+Source: plan §6.9-6.12 and 6.14-6.18 (F103-F139, F147-F255), §4 (intros), §5 (H1, H2a, H2b, H3, H4, H6, H7, H8), §7, the owner's corrections (b), (c)
+and the design "A with B's parts" with compare.md §2.1. Words, layout, help and display, plus behaviour item 5 of plan §8.6 (approved): no
+permission or route changed, DecisionService and its messages are unchanged (its refusals are translated by error code on the page).
+
+**U44. The words of the matching pages.** Every word on these pages comes from `Words` (`UiTemplatesTest` now fails on any word typed in one of
+these templates). Bands by their six names everywhere (`Queries::BAND_LABELS` is `Words::BAND`; the URL values stay); the identity fields by
+`Words::FIELD` (`Compare::LABELS` points there); the kind of product and the nicotine type in words wherever a value is shown; "1 sale = N
+products" (`Words::saleUses`) instead of "N per item" / "xN"; products named in quotes in notices and refusals (`Words::quoted`) instead of
+"listing #8". `ReviewController::plain($e, decide|approve|withdraw)` (public, unit-tested; `DuplicatesController::plain()` is the model) gives
+each DecisionService code its sentence, by where it was refused (`lead_required` says "only a matching lead can decide when the clues
+disagree" on the answer form, "only a matching lead can give the second OK" on Approve, and who may cancel on Cancel; `bad_card` names the
+field and an example number); a code without words shows the service's message with "Nothing was saved." The duplicates page's own refusals
+(`keeper_changed`, `elsewhere`, `confirm_needed` …) are made in `Words::DUP_ERROR`, naming the pages by their titles. Correction (b): "count" is
+only a shelf count on these pages (`WordsTest` checks it), and the duplicates tags say "Website sells warehouse stock only: cannot be joined
+here" / "Joining needs a second matching lead".
+
+**U45. The lists (F154-F170).** Title `BAND_TITLE` with the "?" H1, the intro of each list (for a person who cannot decide: "You can look;
+Matchers and Matching leads change this."), the tabs with their counts and "Waiting for 2nd OK" set apart, the renamed-range note, "Only a
+matching lead can decide these. You can look." and a "Look" button for a Matcher on Clues disagree (F162), filters in words (Website by name,
+Found by, Sold in the last 30 days, Name, brand, barcode or option number, Show), "N to decide, best sellers first.", the rows as B's list cards
+(`table.stack list`: name first, website by name with the option number small, AI says "Same product (96% sure)", Watch out in words with the
+matching's own codes left out, "Same barcode" as a chip, one Open button). An empty list says why: a filter that hides what the list still
+has offers "Clear filters"; an empty list offers the next list with work ("Next: Likely matches – check them (1)"), else Home. An unknown list
+is a 404 with a "Products to match" button.
+
+**U46. One website product (F171-F237).** h1 = the product's name (also the tab title), its website and status chip under it, the intro, then in
+this order: the spot-check box (U47), "Check this one by hand" (set aside) with its "?" H2a, the waiting box with what the decision does,
+why a second OK, who decided, stale warnings and the answer per role (F208, F210), the duplicate group by its number (F236), the two cards (On
+the website; Suggested warehouse product / Product you picked / Product this decision matches, with its stock rule chip and the "?" H8, no
+CWP code), "Pick a different product" folded in the card (F222; hidden for people who cannot decide, F229, F205), where else the barcode is,
+"Why the computer suggests this" (How sure with the "?" H1, Barcode as a chip, AI with "% sure", Why it is here, Watch out: what rules it out
+first, then the fields that do not agree, then the warnings, Renamed range in a sentence, Possible matches, AI picked, Closest product, What
+the AI says with C1, C2 … linked to their rows), the answers (U47 for a spot check), the comparison (rows with something on either side,
+"not stated", values in words, the result as a chip; for a new product "What the website product says"), "Other products the AI looked at"
+(No., Product, Score, Problems in words; role, lane, band reasons, flags, model, run and record numbers are in a folded "Technical
+details"), and the history one line each ("7 Oct 2026, 10:14 · Aisha: Match CW-000001 (1 sale = 1 product) – Done."). The answers box has
+design B's "What each answer does" for Yes / Create a new product / Ignore / No, wrong product, and "Not sure: skip it" with the "Safer"
+label (it saves nothing); then the form (`listing_form.php`): the four answers in words (Yes greyed with "(pick a product first)"), "How many
+does 1 sale of this website product use?" with its hint always shown and the "?" H7 (F183; app.js no longer hides it), the protected note in
+correction (b)'s words, "Note (needed for Ignore)", "Details of the new product" with the kind of product and the nicotine type as
+drop-downs of the known values (a website's own value stays offered; app.js opens the details when "create a new product" is chosen,
+F199), "Save and open the next one". A refused form says what went wrong at the top with "Go to it" and again next to the field, which is
+marked (F213). The back link names the list or the spot check; opened from Find a product, a product page or Possible duplicates it goes
+back there (the Referer, same origin, those paths only), else Home (F217). Notices name the product and say "Here is the next one" when
+they are shown on the next one (F201, F202). Behaviour items 11 (one sales source, F207) and 13 (no answer form on a matched product, F184)
+are not approved: the sales line is the website's own, worded "N in 30 days, N in a year", and a matched product says "Matched to CW-…
+(1 sale = 1 product)" and keeps its form.
+
+**U47. A spot check's match: behaviour item 5 and the second step (F187, F215, compare.md §2.1).** Anyone but the spot check's own matching
+lead sees "<owner> is checking this one in a spot check. Please do not decide it. A decision by anyone else fails the spot check, so the
+answer forms are not shown here." and no quick yes, no answer form and no product search (the service still takes such a POST, as before:
+the item is about the page). The owner sees the spot-check box (number n of 20, the 20 blocks with their written legend, "Say yes only if
+it is right …") and design B's answers: "Yes, same product" (the same quick form as before, its sub-line true to what happens: the page
+reloads with "Done" and "Check the next one (n of 20)"), "Not a match" as a `<details>` whose first tap only opens the second step: "This
+stops the bulk link for good." with what it means, then the answer form ("What is it instead?", first answer "No, wrong product") and the
+button "Yes, it is not a match: stop the bulk link"; nothing is sent before that second press. "Not sure" is a link to the next match to
+answer: it saves nothing. "What each answer does" says the same, with "Safer" on Not sure. The redirect after a decision is unchanged.
+
+**U48. The spot-check pages (F103-F119).** List: "Spot checks" with the "?" H6, the intro, "No spot check yet. Ask Fazil to start one.",
+cards of Spot check / Result chip (`SAMPLE_RESULT`) / Checked n of 20 / Picked from / Started by (UK date) / Confirmed together. One spot
+check: crumb "Spot checks", "Spot check <name>", the intro, "n of 20 checked" with its result chip, the 20 blocks and legend, for its owner
+while it waits the main button "Check the next one (n of 20) →" (F108), the unusable / passed ("Ask Fazil to run it for you") / failed /
+owner notes in words, the matches as cards (member states `SAMPLE_STATE`, "AI 99% sure", who and when in UK time), "Set aside to check by
+hand" with the "?" H2a, "N still waiting. These are never confirmed with the rest.", and "Started by … on …, picked at random from N strong
+matches." with the seed, method, rules version, bands, overrides and the bulk step in "Technical details (for audit)" (F112). No server
+command anywhere.
+
+**U49. Waiting for a second OK (F147-F153, F209-F212, F233).** Title and the "?" H4, the intro, "Nothing needs a second OK right now.", one
+card per decision: the product, what it does in words ("Match to CW-000007 … (1 sale = 10 products)", "Create a new product "…" (1 sale = 2
+products). Details: …", "Join products: CW-000038 … joins CW-000037 … (from Possible duplicates)", "Undo the join: …"), "Note: …", stale
+warnings with "Cancel it and decide again.", why a second OK in `NEEDS_SECOND` words, who decided and when, and the buttons "Approve: it goes
+live" / "Cancel this decision" ("Cancel <name>'s decision" on someone else's) with "Cancel takes the decision back; the website product
+returns to its list."; "Waiting for a matching lead's second OK." for those who cannot approve.
+
+**U50. Possible duplicates (F120-F139).** List: "Possible duplicates" with the "?" H3, the intro, the look-only note for people who are not a
+matching lead, "N groups to decide, the biggest sellers first." with the main button "Start with the first group →" (F124), cards with
+"Product (the one we keep)", pages, sold, and "Maybe different: strength, flavour" (F123); "Decided recently" in UK time. One group: the
+heading says the answer once decided ("Decided: same product – the pages now share CW-…", F127), "Group 7" by the number of the run (no run
+name, F126; the listing and product pages link by the same number through `Duplicates::groupNumbersOfListings`), why it was suggested,
+then **what the rules say first** with the pages by name ("… compared with the one we keep, …", F130) and the rules' details in words
+(`Duplicates::readableDetail`: "extra word: lemonade", "only on one page: …", forms in words, F125); then the answer box before the
+evidence: "We keep CW-…", B's "What each answer does" (join: what moves and that it can be undone; "Different products – keep apart" with
+the **Safer** label: nothing changes; "Not sure yet: skip it"), the tick "I opened the live pages …" (required by the browser for a join
+when the rules found doubt; every other button has `formnovalidate`; the server check is unchanged), and the buttons: two pages "Different
+products – keep apart" first and main when the rules found doubt, else "Same product – join them (both use CW-…)" first; three or more pages:
+"Save my choices" (main), "All different", "All the same product" (F131). The page cards (website page by name and option, website stock "on
+<date>", sales "(sales data to <date>)", the warehouse product with "stock not counted yet · <stock rule> · N free to sell", no CWP code),
+the comparison without rows no page states and with values in words (F136; hidden when empty), "Why the computer thinks they match" with
+prices instead of a ratio (F138), and "Joined by mistake?" with the "?" H3, "Undo: give it back its own product CW-… (N in stock)" / "Make it a
+new product instead" and the button "Undo the join" (F134, F135). Notices name the group decided and say "Here is the next group." when they
+show on the next one (F133): the redirect after a decision carries `prev=<group>` (display only).
+
+**U51. Find a product and the product page (F238-F255).** Find a product: the intro, the hint on an empty page, the plan's label, "Warehouse
+products (one per product; it holds the stock)" and "Website products (each website's own product pages)" as cards with the stock rule chip
+and "Matched?" (Yes, to CW-… / Not yet / Ignored / On hold), the empty results in words, and "The website products matched to a warehouse
+product are on its page." when only warehouse products match (F243). Product page: h1 "<name> (CW-…)", the intro, "This product was
+joined into …" and the duplicate group by its number; "What the matching knows (from the website)" with only the fields it states, the
+stock rule chip and "?" H8, "Made from: <website> product "…" (option …)" with the CWP code in small code text (F248, F249); "Website
+products matched to it" as cards with "Matched to it now / to another product now", "1 sale uses", and the history as sentences ("Since 7 Oct
+2026: this product, matched by Aisha (1 sale = 1 product)", F250); "Stock" with the plan's four words, "Total we can sell from" and the "?" H2b
+(F247, F252); "Recent stock changes" as cards with what happened in words, the stock in words, the warehouse by name, the person by name ("set
+up by CW" for system rows) and no "#0" note (F253). The product card block (IM3), the barcodes block and the suppliers block are left to
+their own steps (step 9 and buying); the barcode source "the website product it was made from" (F255) is the one word changed there.
+
+**U52. Not done here, on purpose.** Behaviour items 11 (F207) and 13 (F184), see U46. The confirm before "Not a match" is a `<details>`
+(no script, so the CSP stays); a check in a real browser is still to do (none on this box or on staging): the list, one website product
+(normal, a spot check's match as its owner and as another lead, waiting for a second OK), the second-OK list, the spot-check pages, Possible
+duplicates (two pages and three), Find a product and the product page, at 375 px and 1,280 px, light and dark. The product page still says
+"Item card" above "What the matching knows" until the IM3 words land. `Words::BADGE['linking_duplicates']` is now "waiting for you to decide"
+(the badge said "1 groups").
+
+*Tests* (7 Oct 2026): the full suite in slot `uir3`: `OK, but some tests were skipped! Tests: 894, Assertions: 32561, Skipped: 75` (890 before,
+plus 4: `WordsTest` 2 (every code of the matching pages has a word, notices and refusals are sentences, "count" only for shelf counts; the
+helpers `saleUses`, `quoted`, `Duplicates::readableDetail` and `ReviewController::plain`), `UiTemplatesTest` 1 (the matching templates: every
+list is a `table.stack` with labelled cells or scrolls in its box, UK time, no word typed in a template), `MatchingWordsTest` 1 (19 pages for a
+Matcher, a Matching lead, a look-only job and the owner's account with Admin: title, intro, no code / UTC / phase / command / "Your role" /
+"proposal" / "Key queue", tables as cards); the 75 skipped are the HTTP tests of slots `ui`/`api`). In slot `ui`: every `UiKernel` test (85),
+`UiAuthTest` (13), `UiSecurityTest` (11), `UiReviewFlowTest` (14): `OK (123 tests, 29566 assertions)`. The screen tests that pinned the old
+words (`ReviewEvidenceTest`, `ApprovalScreensTest`, `KeySampleScreenTest`, `DuplicatesScreenTest`, `UiReviewFlowTest`, `UiSecurityTest`) now assert
+`Words` constants, and `KeySampleScreenTest` also checks the second step of "Not a match" and that another lead gets no answer form.
+
+## Staff screens in plain words and design A: buying and the product pages (slots `uir3`, `ui`, 7 Oct 2026)
+
+Code: `src/Ui/Words.php` (new groups `PO_FILTER`, `PO_SOURCE`, `ORDERS`, `ORDER`, `PO_NOTICE`, `BUY_ERROR`, `PO_WARN`, `WHY`, `REORDER_ITEM`, `BRANDS`,
+`ANOMALIES`, `REORDER_NOTICE`, `SALES`, `SUPPLIERS`, `SUPPLIER`, `SUPPLIER_FIELD`, `SUPPLIER_FORM`, `SUPPLIER_NOTICE`, `SUPPLIER_ITEMS`, `SI_NOTICE`, `CARD_FIELD`,
+`CARDS`, `CARD_STATE`, `CARD`, `CARD_ERROR`, `CARD_NOTICE`, `CARD_IMPORT`, `BARCODE`, `BARCODE_SOURCE`, `BARCODE_REASON`, `BARCODE_DECISION`; `REORDER` grown;
+the intros of What to buy, Sales data, Purchase orders and Change many product cards), `src/Ui/{PoWarnings,ReorderWhy}.php` (new),
+`src/Reorder/ReorderList.php` (each line of `explain()` also carries `demand_detail`, the facts its "Why" is made of; `Explain`'s text and the CSV
+are unchanged), `src/Ui/Controller/{PurchaseOrders,Reorder,SalesHistory,Suppliers,SupplierItems,Item,ItemCards,Barcodes}Controller.php`,
+`src/Ui/views/{purchase_orders,purchase_order,purchase_order_edit,reorder,reorder_item,reorder_brands,reorder_anomalies,sales_history,suppliers,
+supplier,supplier_form,supplier_items,supplier_item,supplier_item_form,item_cards,item_card_form,item_cards_import,barcode_reviews,item}.php`
+(item.php: the product card, barcodes and suppliers blocks), `public/ui/assets/app.css` (a buying section); tests `tests/Unit/{BuyingWords (new),
+UiTemplates}Test.php`, `tests/Integration/UiKernel/{BuyingWords (new),PurchaseOrderScreens,ReorderScreens,SupplierScreens,SalesHistoryScreen,
+ItemCardScreens,CompanyScreens,ReviewEvidence}Test.php`. Source: plan §6.19-6.30 (F256-F404, every fix of step 7), the IM3 glossary pass of
+step 9 (§1.1 "product card", "Product list", "Barcodes to check"), §4 (intros), §5 (H4), §7, the owner's corrections (b), (d), (e), (f) and the
+design "A with B's parts". Words, layout, help and display only: no permission, route or service message changed, no behaviour item of plan §8.6
+is in it (U59).
+
+**U53. One place for the words of buying and the product pages.** Every word of these 18 templates comes from `Words` (`UiTemplatesTest` now
+fails on a word typed in any of them, on a table that is neither a `table.stack` with labelled cells nor inside a `.scroll`, on "(UTC)",
+`$dt(` and "(GBP)"; the product page `item.php` is now covered whole). The controllers' `NOTICES` and `FLAG_TEXT` constants are the `Words`
+groups themselves, so the whitelist of notice keys and their words cannot drift. The services' refusals are translated by error code in each
+controller's `plain()` (`PurchaseOrdersController`, `ReorderController`, `SuppliersController`, `SupplierItemsController`,
+`ItemCardsController`; `ReviewController::plain()` is the model): the kernel's own codes take `Words::ERROR`, the buying codes `BUY_ERROR`,
+the product card's `CARD_ERROR`; a code without words shows the service's message as a sentence followed by "Nothing was saved.". The
+services' messages, `Document::label()` (file names: `DownloadsTest` unchanged), the CSV files and the URL values are unchanged. "Count" is a
+shelf count only (correction b): the What to buy filter is "Stock to use", days are "used" or "left out", "Use these days again" (not the
+plan's "Count these days again", F340).
+
+**U54. Purchase orders (F256-F305).** The list: the "?" H4 next to the title, the intro (or "You can look; Buyers and Purchasing managers change
+this."), "How an order goes" (F295) folded, "Start a new order" with suppliers by name and "not approved yet (you can prepare an order, but
+not confirm it yet)" (F301), filters in words (F300), "N orders, newest first.", "Download for Excel (CSV)", and design B's list cards
+(`table.stack list`): the supplier's name, the number or "No number yet (draft)", the status chip and one line saying the next step (for
+people who cannot order, a draft reads "Not ordered yet: do not expect a delivery.": the words half of F305), dates in UK time, size, the
+total in £, the reviewer check as a chip, "Sent 7 Oct 2026, 10:26, by e-mail", and one Open button; a cancelled order says "Cancelled on
+7 Oct 2026 (cancellation record PO-000004)." (F296). Empty states say why (F304). One order: the title "PO-000001 – Elux Wholesale" /
+"Order for … (no number yet)" (`PurchaseOrdersController::title`; F359-like), status chips, the intro, then near the top the reviewer's box
+(F281, F287: "Needs your OK: over the approval limit" / "Reviewer check", by when, design B's "What each answer does", "Safer" on refusing a
+request because it orders nothing) and "What you can do" (F282: confirm, "Cancel my request", and one small `<details>` form each for "I have
+sent it…" (F276, F277, F284: "CW does not send e-mails", "How did you send it?", the DO NOT SEND stop with "I sent it anyway – record it"),
+"Close…", "Cancel…", "Correct…" (F285), "Copy", and the five-line rule note (F286)); then the facts in words (F289, F290: "How it was made",
+UK time, people by name, the cancellation with its reason label and record number, F280), totals with the VAT letter and its label, the
+links (F293), the products as cards, files (F294) and the checks as sentences (F291). The editor (F256-F273): the title "New order for … (draft,
+no PO number yet)", the scan box and its hint (F266), "Which product is "…"?" with "Set up with this supplier: their code …, box of 24"
+(F261 words), the lines as cards with the plan's headers (F260), "Items per pack" and "Remember this pack for this supplier next time",
+"Add a charge (delivery …)" and the lines file and "Cancel the draft…" folded (F258), the totals with the limit note (F269) and the two
+buttons at the end of the form ("Save draft", and the confirm button; they stay after the scan box's Add, which a scanner's Enter presses).
+**Correction f:** the confirm button says "Confirm order – gives it a PO number" with "It gets its PO number and is locked." and the note
+"…If your changes take it over £10,000.00 before VAT, it goes to a reviewer first instead."; when the saved total is over the approval limit
+it says "Ask a reviewer to OK this order" with "It goes to a reviewer first. It gets its PO number when the reviewer says yes." (the
+read-only draft's button too; `PoMath::approvalUnits` against the limit, as the service decides). The services' warnings are said again by
+`Ui\PoWarnings` (pure, unit-tested) with the supplier's and the products' names (F262, F263, F267, F284) and the lines file's problems as
+"Row 3 (packs): …" (F270); a warning it does not know is shown as the service wrote it. Notices name the PO number and the limit (F275, F279,
+F283, F292). The company-details note says what to do (F268) and links to the screen.
+
+**U55. What to buy, why this amount, brand settings, days left out (F306-F343).** The sales-data box in UK dates with the websites by name, the
+missing days and the "worked out" time as chips (F306), correction (e)'s sentence, "Work out sales again" with its hint (F313), the three
+links (F320). The list is design B's list cards with six columns (F307, F310): the product (CW number, name, brand, main supplier, the flags
+as chips in words with the product card's rules, correction d's words for a block), "Buy?", "Sells a day", "Have + ordered" with "Days left:
+… / no sales" (F318: never ∞), "Suggest (packs)" with "packs of 24", £ and £ a pack, and "Why this amount?" folded: `Ui\ReorderWhy`'s plain
+sentences (F308: sells about N a day, the days left out by name, the sales change, delivery + order every + spare days, the stock to have,
+what you have, so buy N → packs, urgent, already on drafts) with the formula under "Show the maths" (Reorder\Explain, unchanged). A line on
+a draft says "Already on a draft (72) – Open the draft. The draft covers this. / Buy 24 more." (F309; the first draft or waiting order with
+the product). For people who cannot order: the look-only intro and "This is what the buyers are told to buy." (F324). The refusals (F314
+with correction e, F316) and "Draft orders made: Elux Wholesale – 2 products, £294.00 … Not ordered: Elux Legend Mint – no main supplier"
+(F323). One product: the title "What to buy: <name> (CW-…)", the facts one per line (F325), "Average sales" (F326), "Sold by month" (scrolls),
+"Sales day by day" with "Vape and Go product 601 (1 sale = 1): about 12 a day. 82 of the last 91 days were used (9 left out)." and "Used?"
+per day (F327), the settings form in words (F328, F332) or, read-only, "Normal settings are used for this product." / what is set (F333).
+Brand settings and days left out: titles, intros, the "Change" button per brand (F337), people by name or "set up by CW" (F342).
+
+**U56. Sales data (F344-F349).** The intro (no command or docs path), "No sales loaded yet. Ask Fazil…", per website by name "Sales loaded",
+"Last loaded: sales up to …, loaded …", "Daily stock records: none, so sold-out days cannot be left out…", "Latest website stock", and the
+top 50 not matched as cards with the problem as a chip ("Not known to CW", "Not matched yet", "Matched, but on hold", "Marked to ignore",
+`SalesHistoryController::problem`); the loads are in "Technical details (for Fazil)" (F348). The CSV is unchanged.
+
+**U57. Suppliers and their products (F350-F404).** The list: name first with the short code small (F350), the status as a chip, "Next
+background check" with "Overdue" (F352, F353), "Approved" in UK time by name (F356), empty states (F357), cards on a phone. One supplier: the
+title "<name> (<code>)" with its status chip (F359); the reviewer's boxes first, each titled by what it is (F363), with what each answer does
+(F369, from `Suppliers::reject`'s real effect: a new supplier goes back to draft, a re-approval stays stopped, a route stays not approved, a
+change or "no longer abroad" stops the supplier), "A reviewer decides this. You do not need to do anything." for a buyer (F364) and
+`Words::REFUSAL` for one's own work (F367), "Cancel my request" (F368); "Can we order from this supplier?" (F360) with "Stop ordering from
+this supplier…" folded (F361), "Ask a reviewer to approve" (F366) or what to fill in first (F362, `SuppliersController::fields`); the details
+without empty rows and one "Not filled in: …" line (F373), the background check and the duty stamps in words (F371, F372, F377), the products
+summary (F365), recent orders as list cards (F375) and the history as sentences (F376). The form: the plan's labels and hints (F378, F379 as a
+hint, F383-F389), a refused field marked with its message under it and "Go to it" at the top (F381, F380; `SuppliersController::fieldError`
+leaves the service's field label out and names the field in words). Supplier's products: titles by name (F402), the intro (F390), the
+plan's columns (F391) as cards, money as £ with 2 decimals (F397), "Main supplier" (F393, F394, F404), the pack words (F395, F396), "Change how
+this supplier sells it…" folded with "We still buy this from this supplier" (F399), the price history's source in words (F400) and "Price now:
+£45.00 a pack (£1.88 an item), typed in on 7 Oct 2026" (F401), "Already set up with this supplier (box of 24)…" (F403).
+
+**U58. The product pages: the IM3 glossary pass.** "Item card(s)" is "product card" / "Product list", "item" is "product", "listing" is "website
+product", "Barcode review" is "Barcodes to check", MiB is MB, UTC is UK time. The product list: the intro (look-only for people without
+catalogue.edit), the rules note, the numbers in words, filters, the card's state as a chip (`Words::CARD_STATE`), blocked / warning / not
+sold any more as chips. The product card block of a product page: the state chip and who and when in UK time, the block in correction (d)'s
+words ("Blocked: What to buy never suggests it, and an order with it cannot be confirmed. It is still on sale on the website: take it off by
+hand."), the fields by `Words::CARD_FIELD`, suggestions with their sources in words ("what the matching read from the website names", 'website
+product "…" (Vape and Go, option 601)'; `ItemController::source`), the history as "7 Oct 2026, 10:26 · Sam: used a suggestion: …". The barcodes
+block and Barcodes to check: sources, reasons and answers in words (`BARCODE_SOURCE`, `BARCODE_REASON`, `BARCODE_DECISION`), items per scan,
+UK time. The card form and "Change many product cards": the plan's words, the column names kept in `<code>` (plan §1.9), the kinds of product
+by the words the import accepts. The services' rule labels and reasons (`ItemRules::RULES`, `WHY`, `advice()`) are plain already and stay.
+
+**U59. Not done here, on purpose.** Behaviour items of plan §8.6 in this area are not approved and are left as they are: 6 (cancel and correct
+reasons starting with "— choose a reason —" and required, "Correct" pre-selected: F278; only the labels changed), 7 (a purchasing manager
+confirming another buyer's draft: kept, and reworded "Only … can change the products of this draft. You can still confirm it … or cancel it",
+F274), 8 (drafts hidden from goods-in and the desk: they are labelled "Not ordered yet: do not expect a delivery." instead, F305), 9 (the
+supplier form keeping what was typed after someone else saved: it says so and shows theirs, F382), 10 (one payment terms field: a hint only,
+F385). F370's reviewer name and date are not stored with the supplier's last note (only the note is shown). F379's country drop-down is a hint.
+F351's "Draft (not sent for checking)" stays "Draft" (the start stage's `SUPPLIER_STATUS`). Not checked in a browser (none on this box or on
+staging): check What to buy, one product's Why, the orders list, the editor (scan, cards, the two buttons under and over the limit), one
+order as buyer and reviewer, the suppliers pages and the product pages at 375 px and 1,280 px, light and dark.
+
+*Tests* (7 Oct 2026): the full suite in slot `uir3`: `OK, but some tests were skipped! Tests: 902, Assertions: 42654, Skipped: 75` (894 before,
+plus 8: `UiTemplatesTest` 1 (the 18 buying and product templates: tables as cards or scrolling in their box, labelled cells, UK time, no "(GBP)",
+no word typed in a template; `item.php` now whole), the new unit `BuyingWordsTest` 6 (every code of these pages has a word, notices and refusals
+are sentences, "count" only for shelf counts, corrections d, e, f, `Ui\PoWarnings`, `Ui\ReorderWhy`, the controllers' `plain()`,
+`SuppliersController::fieldError`, `PurchaseOrdersController::screenRow/title/pack`, `ItemController::source`), the new `UiKernel\BuyingWordsTest` 1
+(29 pages for a buyer, a purchasing manager, a reviewer, the purchasing desk, a stock controller and an auditor: title, intro or "You can look;",
+no code / UTC / command / "Your role" / "(GBP)" / "∞" / old words, tables as cards); the 75 skipped are the HTTP tests of slots `ui`/`api`).
+Then one more unit test, `BuyingWordsTest::testNoGroupOfWordsRepeatsAKey` (it found `REORDER_ITEM` naming `days` twice, which silently put
+"Sales day by day" where "N days" belonged; fixed): `--testsuite unit` `OK (244 tests, 27158 assertions)`, and `ReorderScreensTest`,
+`BuyingWordsTest`, `PurchaseOrderScreensTest` again `OK (9 tests, 1126 assertions)`. In slot `ui`: `UiAuthTest` (13), `UiReviewFlowTest` (14),
+`UiSecurityTest` (11) and every `UiKernel` test (86): all OK. The screen tests that pinned the old words (`PurchaseOrderScreensTest`,
+`ReorderScreensTest`, `SupplierScreensTest`, `SalesHistoryScreenTest`, `ItemCardScreensTest`, and one assertion each in `CompanyScreensTest` and
+`ReviewEvidenceTest`) now assert `Words` constants; `PurchaseOrderScreensTest` also checks correction f (the editor's button under and over the
+approval limit). `DownloadsTest` and the CSV assertions are unchanged.
+
+## Staff screens in plain words and design A: the behaviour items of plan §8.6 (slots `uir4`, `ui`, 7 Oct 2026)
+
+Code: `src/Ui/{Kernel,Duplicates,Words}.php`, `src/Ui/Controller/{Auth,People,PurchaseOrders,Suppliers,Review}Controller.php`,
+`src/Ui/views/{login,person,purchase_order,purchase_order_edit,purchase_orders,supplier_form,listing}.php`, `public/ui/assets/app.css` (one rule);
+tests `tests/Integration/UiKernel/BehaviourItemsTest.php` (new), `PeopleScreenTest`, `KeySampleScreenTest`, `SupplierScreensTest`,
+`PurchaseOrderScreensTest`, `PasswordChangeTest`, `tests/Integration/{UiAuth,UiSecurity}Test.php`, `tests/Unit/UiUnitTest.php`. Source: plan §8.6
+items 1-6, 8, 9, 11 and 13 (F057, F043, F059, F441, F187, F278, F305, F382, F207, F184), approved by the owner on 7 Oct as **provisional
+defaults**: each decision below (U60-U69) may be reversed by the owner, item by item. No permission changed (`Permissions::MAP`, the routes'
+permissions and every service, its checks and its messages are as they were; the one new route, `GET /ui/logout`, is public and only leads on).
+Not done, on purpose: item 7 (a purchasing manager confirming another buyer's draft: kept, reworded only, U59), 10 (one payment-terms field:
+a data-model change), 12 (the check's "Units or value": its label only, U37) and 14 (the QR sheet for new staff: ops). These decisions
+supersede the "not approved" notes of U33, U43, U46, U52 and U59 for the items they name.
+
+**U60. Back to the page asked for after signing in; a form sent while signed out says it was lost (item 1, F057; provisional).** A request
+without a live session is sent to `/ui/login` with `back` (a GET: its own path and query, less `notice` / `prev`; a POST: the path of its
+same-origin Referer, the page the form was on) and, for a POST, `why=lost`; `why=signed_out` stays for a GET whose session ended. The sign-in
+page carries `back` in a hidden field and leads there after the sign-in (a forced password change still comes first); signed in already (a
+second tab), `/ui/login?back=` leads straight there. Only a safe page is ever carried: `AuthController::safeBack` takes a local `/ui/...`
+path with an optional query of plain URL characters (no `//`, no `/.`, no backslash, no scheme, no line breaks, at most 512 characters), and
+never Home (the default anyway), the sign-in, sign-out or password pages, an asset or a download (`.csv`, `.pdf`, `.xlsx`, `/pdf`,
+`/ui/files/`); anything else lands on Home. `HtmlResponse::redirect` still refuses any non-local target. `why=lost` shows, first and as an
+alert, "What you sent was NOT saved, because you were not signed in any more. Sign in, then do it again." (`Words::UI['lost']`). Nothing of
+the lost POST is kept or replayed (it was never read: no session, no CSRF check, no effect). A POST to `/ui/logout` without a session loses
+nothing and goes to the plain sign-in page.
+
+**U61. `GET /ui/logout` (item 2, F043; provisional).** The sign-out address opened from the history or a bookmark no longer gives a 405: a
+new public route leads a signed-in person Home and anyone else to the sign-in page. It never signs anybody out (a GET can be sent by any
+page; signing out stays the POST of the account panel, with its token). `UiUnitTest` lets this one public GET through its "every route but the
+sign-in needs a session" rule.
+
+**U62. A sign-in form open too long is shown again (item 3, F059; provisional).** The sign-in form's cookie lives one hour. A sign-in sent
+after it expired (or without it, or with another browser's token) is answered with the sign-in form again: "This page was open too long.
+Please sign in again." (`Words::SIGN_IN['expired']`), the e-mail and the way back kept, never the password, a fresh form cookie, the code
+`csrf` in the message's `data-code`. Still 403, and still no sign-in attempt is made or counted (`login_attempt` untouched), so the lock-out
+rules and `UiSecurityTest`'s forged-form checks are as before. A cross-site post (`Sec-Fetch-Site` / `Origin`) is still the error page.
+
+**U63. A tick before "Stop this person signing in" (item 4, F441; provisional).** The button sits behind a required tick-box "Yes, sign
+them out now" (no script: the browser's `required`). The server checks it too: without `confirm=1` the person page comes back (422) with "Tick
+"Yes, sign them out now" first. Nothing was changed: the person can still sign in." and nothing is changed. "Let this person sign in again"
+needs no tick (it takes nothing away).
+
+**U64. Only the spot check's owner answers its matches (item 5, F187; provisional).** As built in U47: anyone but the spot check's own
+matching lead (another lead, a Matcher) sees "<owner> is checking this one in a spot check. Please do not decide it." and no quick yes, no
+answer form and no product search. `KeySampleScreenTest` now checks a Matcher too. The service still takes such a POST, as before.
+
+**U65. Cancel and Correct start with "— choose a reason —" (item 6, F278; provisional).** The reason lists of "Cancel…", "Correct…" and the
+draft editor's "Cancel the draft…" start with an empty "— choose a reason —" and are required; nothing is chosen for the person (the plan's
+row F278 also suggested pre-selecting "Replaced by a corrected order" for Correct; the task's wording, "start with — choose a reason —", was
+followed, so Correct starts empty too). Sent without a choice anyway, the service's own check refuses it (`bad_reason`, unchanged): the page
+says "Choose why from the list. Nothing was changed.", that form opens again at its list (`aria-invalid`), and nothing is cancelled; a
+Correct refused this way stores nothing under its form key, so the same form with a reason goes through.
+
+**U66. Goods-in and the purchasing desk see no drafts unless they ask (item 8, F305; provisional).** `PurchaseOrdersController::
+draftsOffByDefault`: a person whose working jobs include Goods-in or Purchasing desk and who cannot make orders (`doc.PO.post`) sees the orders
+list without drafts, with "Drafts are not shown: they are not ordered yet, so no delivery is coming for them. Show drafts too", a "Show drafts
+too (not ordered yet)" tick in the filters (`?drafts=1`), and the Drafts status filter shows them as before. Everyone else (buyers, purchasing
+managers, reviewers, auditors, a person who is Goods-in and a Buyer) sees the list as before, without the tick. The list's CSV link carries
+`drafts=0` when the page hides them, so the download is the list on the screen; the CSV address alone is unchanged (drafts included).
+F305's other half, "Not ordered yet: do not expect a delivery." on a draft's card, stays (U54).
+
+**U67. The supplier form keeps what was typed after someone else saved (item 9, F382; provisional).** A save refused because the supplier
+changed meanwhile (`version_conflict`, the service unchanged) draws the form again with the current version, so Save works again, and says
+"<who> changed this supplier on <UK time>, while you were editing. Nothing was saved. Your changes are kept below, and what they changed is
+marked. Check it, then press Save again." What they changed is read from the `supplier.update` audit rows written since the form's version
+(each carries the version it made and the columns it changed, before and after; the app login may read `audit_log`). A field only they
+changed shows their value, marked "Changed meanwhile by <name>: their value is filled in here."; a field the person changed too keeps what was
+typed, marked "Changed meanwhile by <name> to: <value>. Your value is kept here: check which is right."; a field typed the same as is saved
+now is not marked. They are listed at the top too, each linked to its field. Choice within the item: taking their value where the person
+typed nothing (rather than sending the stale value back) means pressing Save again cannot silently undo the other person's change; where both
+changed a field, the person decides. The company form's own handling (U39) is unchanged.
+
+**U68. One sales source on the website product's page (item 11, F207; provisional).** `Duplicates::soldFromHistory` (the code that already
+gave Possible duplicates its numbers, moved into one public method) gives the website product's page its "Sold" line too: the units of the 30
+and 365 days to the last day of sales loaded for its site, "(sales data to 1 Oct 2026)"; for a site with no sales loaded, the website's own
+figures, "(from the website)". The two pages now show the same numbers for the same product. The lists keep sorting by the website's own
+figures (`listing_profile`, unchanged: one indexed column).
+
+**U69. An already matched website product has nothing to decide (item 13, F184; provisional).** A website product matched to a warehouse
+product (status mapped or on hold, no decision waiting) has no answer form and no quick yes; the decide box says "Matched to CW-… <name> (1
+sale = 1 product). Nothing to decide here. Wrong match? Ask a matching lead to change it.". With nothing picked or suggested, the page compares
+it with the product it is matched to ("Warehouse product it is matched to"), and its own product and that product's other website products
+are no longer listed under "This website product's barcode is also on" (no "may duplicate" warning about itself). Choice within the item: a
+matching lead keeps a way to change a wrong match, folded under "Change this match" (closed until a product is picked; "Yes" and "No, wrong
+product" need another product picked first, so no answer is about the current match itself); without it no screen could correct a wrong
+match any more. A Matcher loses the answer form on a matched product (the change F184 names: "it removes a way to start an unlink from that
+page"); the route and the service still accept a Matcher's decision, as before.
+
+Not checked in a browser (none on this box or on staging): check at 375 px and 1,280 px, light and dark, the sign-in page with "NOT saved"
+and with "open too long", a person page's tick-box, a confirmed order's Cancel… and Correct… lists, the orders list as Goods-in, the supplier
+form after a stale save (both marks), and a matched website product as a Matcher and as a matching lead ("Change this match").
+
+*Tests* (7 Oct 2026): the full suite in slot `uir4`: `OK, but some tests were skipped! Tests: 913, Assertions: 42198, Skipped: 75` (the new
+`BehaviourItemsTest`, 10 tests: the safe way back, back after signing in, the lost form, `GET /ui/logout`, the expired sign-in form, cancel and
+correct reasons, drafts for Goods-in and the desk, the stale supplier form, one sales source, the matched website product; the 75 skipped are the
+HTTP tests of slots `ui`/`api`). In slot `ui`: `UiAuthTest` `OK (13 tests, 361 assertions)`, `UiSecurityTest` `OK (11 tests, 24910 assertions)`,
+`UiReviewFlowTest` `OK (14 tests, 600 assertions)`, every `UiKernel` test `OK (96 tests, 4901 assertions)`. In slot `api`: the seven `Api*Test`
+files `OK (35 tests, 2453 assertions)`. Tests changed with the behaviour: `UiAuthTest` (GET /ui/logout leads on), `UiSecurityTest` (the way back
+and `why=lost` of a request without a session; the 405 example is now GET of a decide address), `UiUnitTest` (the same 405 example; the public
+GET /ui/logout route), `PasswordChangeTest` (the way back), `PeopleScreenTest` (the tick-box), `PurchaseOrderScreensTest` (a reason chosen
+for the draft's cancel), `SupplierScreensTest` (the stale form keeps what was typed), `KeySampleScreenTest` (a Matcher on a spot check's
+match). `DownloadsTest` and the CSV assertions are unchanged.
+
+## Staff screens in plain words and design A: the review fixes (slots `uir7`, `ui`, `api`, 7 Oct 2026)
+
+Code: `src/Ui/{Words,Context,Duplicates,HomeTasks}.php`, `src/Ui/Controller/{Review,PurchaseOrders,Reorder,ItemCards,Documents,Files}Controller.php`,
+`src/Ui/views/{listing,listing_decide (new),listing_form,pending_actions,duplicate_group,cards,login,password,purchase_order,purchase_order_edit,
+barcode_reviews,queue}.php` and the 29 templates whose list tables now sit in a `.table-wrap`, `public/ui/assets/{app.css,app.js}`,
+`src/Documents/Documents.php` and `src/Suppliers/Suppliers.php` (`decidableCounts()`, read only); tests `tests/Integration/UiKernel/{KeySampleScreen,
+HomeScreen}Test.php`, `tests/Unit/{Words,HomeTasks,UiTemplates}Test.php`. Source: the two reviews of the uncommitted build (R1: permissions, routes,
+services, CSP, escaping, forms, tests, the owner's corrections; R2: 1,207 rendered pages read as each job, the phone and laptop layout worked out from
+`app.css`). Rule kept: words, layout, help, the Home dashboard and the approved behaviour items only; no permission changed (`Permissions::MAP`,
+`ROLES`, the routes and every service check are as they were), no service message changed.
+
+**U70. The provisional decisions of the plain-words work, in one list (the owner confirms or reverses each).**
+1. The design "A with B's parts" as built (U28, U32): a sidebar on a laptop; on a phone a top bar, the bottom tab bar (the owner's: To do / Matches /
+   Duplicates / Orders / More) and the menu as a sheet; white cards on grey, one accent, status = icon shape + word, list tables as cards at 640 px of
+   page or less; B's job numbers and "What happens:" on Home, "What each answer does", the "Safer" label, the 20-block strip, B's list cards. Two
+   departures from A's mock-up: icons are CSS shapes, not inline SVG (U32: `UiSecurityTest` refuses any `<svg>`), and the answers of a decision page
+   are a box placed before the evidence, not A's sticky answer bar (U72).
+2. The six band names: Strong match / Likely match – check it / New product / Not sure – you choose / Clues disagree / Renamed range (U26).
+3. The core words: website product (a listing), warehouse product (an item), match, Matching lead, second OK, Reviewer, product card, Product list,
+   Barcodes to check; "count" only for a shelf count (correction b's four words for the sell policies and the counted item).
+4. The strip "TEST SYSTEM: nothing here is real" wherever `app.env` says `environment=staging`, which includes `cw_staging` (where the owner's
+   matching answers are real work: the wording is the owner's call).
+5. "Coming later" with no dates and no phase codes.
+6. The person to ask is the fixed name "Fazil" (`Words::ASK`), not read from the staff list (plan §9 question 3: reading the active admin would also
+   name the owner, whose account holds Admin today).
+7. The owner's account keeps Admin + Reviewer + Matching lead, with the yellow strip and its one fix (correction a); no word suggests a second account.
+8. The behaviour items 1-6, 8, 9, 11 and 13 of plan §8.6 (U60-U69), and this stage's guard of a spot check's confirmed match (U71).
+9. Home's choices within the plan (U35): which cards show for whom, their order, the two "Good to know" notes, no "spot check passed" card.
+
+**U71. A spot check's match after the reviews (R1 important, R2 blocker; compare.md §2.1, behaviour item 5).**
+(a) *The owner's "Yes" is always "Yes".* The quick "Yes, same product" is built from the suggestion (its product and its units, what `KeySample`
+counts as a yes), not from "no form was sent": it stays after a refused answer (R1's probe: "Not a match" with Ignore and no note left only a "Yes"
+radio inside the second step, under the button "Yes, it is not a match: stop the bulk link", and pressing it confirmed the match) and with `?pick=`.
+The second step never offers the suggestion. With another warehouse product picked, the second step offers "It is CW-… instead: match to it"
+(matching any other product is `decided_otherwise`, which fails the spot check, so the button's words are true), and a note says that "Yes" still
+matches the suggested product. A refused answer opens the second step again, unless it was the plain yes (a stale page, say).
+(b) *A confirmed member stays the spot check's.* `ReviewController` finds the spot check by the open suggestion, else by the listing (the latest spot
+check that has it among its 20); a member answered already is guarded while the spot check has not failed and the member is `confirmed`
+(`KeySample::status`, through the strip it already drew; a failed spot check has nothing more to lose). Anyone but its owner then sees "<owner>
+checked this one in a spot check. Please do not change its match. Any change to this match fails the spot check, so the forms to change it are not
+shown here.", no "Change this match", no product search, and the intro "This website product is in a spot check. You can look; …". The owner keeps
+"Change this match" (behaviour item 13), now titled "Change this match: stops the bulk link for good", opening on the red "This stops the bulk link
+for good." box, with the danger button "Change it: stop the bulk link" and without "No, wrong product" (about another product it would change
+nothing, so the button would be untrue). The spot box says "You said yes to this one. If you change its match now, …" and keeps "Check the next one".
+The service still takes such a POST, as before (display and form only).
+
+**U72. The answers before the evidence (R2 important; plan F203).** On a spot check's match (its owner) and on a strong match with the quick yes, the
+answer box (`listing_decide.php`, one partial drawn in one of two places) comes straight after the two product cards (and the "barcode is also on"
+warning), before "Why the computer suggests this", the comparison and the other products; elsewhere it stays after "Why". The spot box has "Go to
+the answers ↓". On a 375 px phone the owner's "Yes" was about 2,000 px down (three screens for each of the 20); it is now after the spot box and the
+two cards. A's sticky answer bar (`.decide-bar`, in the CSS since U32) stays unused: a bottom bar would put "Not a match" one tap under the thumb,
+which compare.md §2.1 forbids, and it would hide the tab bar.
+
+**U73. Wide lists scroll inside their own box on a tablet or laptop (R2 important).** Every `table.stack` not already in a `.scroll` (40 tables in 29
+templates) is wrapped in `<div class="table-wrap">`: above 640 px of page it scrolls sideways inside itself (the page never does); as cards it never
+overflows, so nothing is clipped there. The draft order's lines table is narrower (cells 8 px each side, a quantity or price field 6rem, the VAT list
+8rem showing "S – Standard rate 20%" when open). Check at 768, 1,024 and 1,280 px (ops.md).
+
+**U74. Refusals in words by code and detail (R1 minor, R2 minor).** The service messages are unchanged; the UI layer now also says: What to buy's
+truncated form "The list was too long to send in one go, so nothing was ordered. Narrow the list (choose a brand or a supplier) and try again."
+(not the generic "reload"); an `.xlsx` refused because a sheet is too big inside (the reader's own `too_large`, told apart from the page's upload
+limit by its message) "This spreadsheet holds too much to open, although the file is small. …"; `note_required` naming the line when the service
+names one (`Words::noteRequired`, records and orders); a refused order line by its field ("Line 1: the price per pack must be an amount in £ like
+12.50 (at most 4 decimals, and at most £9,999,999.00 a pack). Nothing was saved.", `Words::LINE_FIELD`); `unknown_file`; the two download refusals
+by job (`Words::whoCan`); the barcode refusals `bad_decision`, `barcode_exists`, `barcode_on_other_item` (naming the product that has it) and the
+card import's unknown columns. A kind of product the matching knows only as a group (`pod_refill`) is shown in words in the new-product form.
+
+**U75. Phone and screen details (R2 minor).** List cards: the status chip sits next to the name (it took a row of its own), and a labelled cell with
+nothing in it is left out (`td[data-label]:empty`; the "Watch out" cell of the lists now prints nothing when empty). The tab labels are 12 px under
+380 px of screen so "Duplicates" fits five across at 320 px; under 360 px the brand name is hidden from sight (kept for a screen reader) so the top bar
+fits. "Show" (password) and "Why this amount?" are 44 px; "Use this product" in the candidates is a button. The red "wrong" block of the 20-block
+strip and its legend carry a white bar (the blocked shape), so it differs from "yes" without colour. A "Good to know" card keeps its tone bar (the
+amber frame of `.card.waiting` is not for task cards). Opening "Not a match" keeps it in place (no `order: 3`, which slid "Not sure" under the thumb).
+
+**U76. Words that did not match the page (R2 minor and nits, R1 nits).** The website product's intro says "This website product is matched to a
+warehouse product. Check the match. …" on a matched one; "Not sure: skip it" (and the duplicate group's "Not sure yet: skip it") always has a way
+on: the next one, or "Leave it and go back to <list>"; the over-limit draft button's note adds "If your changes bring it to £10,000.00 or less before
+VAT, it gets its PO number at once instead (no reviewer first)." (correction f both ways); a refused button press is headed "You cannot do this"
+(`Words::errorTitle($status, $post)`), a page "You cannot open this page"; "1 product, 20 items"; "Set up by CW on <time>" on Barcodes to check;
+"their history"; "£" on a confirmed order's price per pack; "Only these jobs still work: Look only (matching), Accountant, Auditor."; no "not stated
+vs not stated" under a duplicates rule; "Order PDF (says DO NOT SEND for now)" while the company details print DO NOT SEND; one "waiting for a second
+OK" line, not two; the owner's Home card "Your jobs are switched off" points to the strip ("The yellow note at the top of the page says why, and who
+can fix it.") instead of repeating it; "should be left out when CW works out what to buy" (not "should not count", correction b); the password "Show"
+/ "Hide" words come from `Words::SIGN_IN` through `data-` attributes (English if a page has none) and the button sits after the field's `<label>`,
+so the field's name is the label's words only; the Home progress bar's "n of 20 done" is `Words::UI`.
+
+**U77. The cost of the badge and Home (R1 minor).** `Context::checks()` (the review badge and Home's two cards, once per request) counts documents
+and suppliers by kind in one `GROUP BY t.kind` query each (`Documents::decidableCounts`, `Suppliers::decidableCounts`; `decidableCount()` is their
+sum, as before, and keeps its old signature): three queries again, as before Home, instead of five. Not measured on staging data (this build may
+not read `cw_staging`): time `/ui/` and an ordinary page for the owner's working account, a lead and a reviewer before the deploy (ops.md).
+
+**U78. Review findings not applied, and why.**
+- R2 important "the branch is behind main 46aa62e": not rebased here. This work is committed on `ui-redesign` (from 4b59fc8) and the merge after the
+  receiving build is the orchestrator's; what it must do is U79.
+- R1 important, last part "show a picked other product's match outside the danger step with a neutral button": not done. `KeySample` counts a match
+  to any product but the suggestion as `decided_otherwise`, which fails the spot check for good, so that answer belongs behind the second step; it is
+  worded "It is CW-… instead: match to it" there (U71).
+- R2 minor "the Buy? check-box is 22 px with no row-size label": it already sits in a `label.choice` (the whole row, 44 px tall).
+- R1 minor "Home's cost not measured": the queries are fewer (U77); the timing on staging data stays open.
+- Design A's answer bar: not wired, on purpose (U72).
+
+**U79. What the merge with main (46aa62e: IM6 Receive + invoice, IM10 site stock writer) must do.** Files changed on both sides: `docs/{decisions,dev,
+ops}.md`, `public/ui/assets/{app.css,app.js}`, `src/Auth/Permissions.php`, `src/Documents/Documents.php`, `src/Ui/{Context,Html,Kernel,View}.php`,
+`src/Ui/Controller/{Documents,Item,Reviews}Controller.php`, `src/Ui/views/{document,documents,item,item_cards}.php`, `tests/Integration/UiKernel/
+{ItemCardScreens,Menus,ReferenceScreens,ReviewScreens}Test.php`, `tests/Integration/UiSecurityTest.php`, `tests/Unit/{Permissions,UiTemplates}Test.php`.
+1. `Documents::decidableCount`: main added the ReviewInvolvement exclusion (I133, a receipt's bench checker is not its reviewer). Here
+   `decidableCount()` is the sum of the new `decidableCounts()`: put main's `$involved` clause and parameters into `decidableCounts()`'s query, or the
+   badge and Home would offer a receipt's review to the person who bench-checked it.
+2. The menu: main's "Receiving" section (Receive + invoice, Goods-in bench, Incidents with the badge `incidents_open`) must be added to the new task
+   menu (`Permissions::MENU` with `Words::SECTION` / `MENU` / `MENU_HELP` keys, `Words::BADGE['incidents_open']`, `Tabs::PRIORITY` for goods-in and the
+   purchasing desk), and `Permissions::COMING_LATER` must drop `receive` and `invoices`; the role texts that say "(coming later)" for Goods-in must
+   change. `WordsTest::testEveryCodeOfTheSystemHasAWord` will fail until the new menu keys and badge have words.
+3. Main's seven new templates (`receipts`, `receipt_edit`, `receipt_bench`, `bench_list`, `incidents`, `receipt_files`, `receipt`) had no plain-words
+   pass: at least give them `PAGE_TITLE` / `PAGE_INTRO`, wrap their list tables in `.table-wrap`, and keep them out of the "no word typed in a template"
+   lists of `UiTemplatesTest` until their own words pass. Their screens' services' messages stay as they are.
+4. `app.css` and `app.js`: merge by hand (main added +48 and +187 lines): keep this branch's tokens and sections; main's rules for the receiving pages
+   may use the old look's names; check them at 375 and 1,280 px. `app.js` keeps one file under the CSP.
+5. `Context`: keep main's `goodsReceipts()` and the `incidents_open` badge beside this branch's `checks()`. `Kernel`: keep main's routes. `Html`,
+   `View`: main added `Html::uk()` and the view helper `$uk` ("7 Oct 2026 14:05", UK time) for its receiving templates; keep it and add `uk` to
+   `UiTemplatesTest::HELPERS` (or move those templates to this branch's `$when`, "7 Oct 2026, 14:05", the one UK-time form of the other pages).
+6. `docs/decisions.md`: both sides append (no clash of numbers: main uses I125-I179 and SC6-SC22, this branch U25-U79).
+7. Then the full suite, slots `ui` and `api`, the hammer and the golden again.
+
+*Tests* (7 Oct 2026): the full suite in slot `uir7`: `OK, but some tests were skipped! Tests: 913, Assertions: 42733, Skipped: 75` (the 75
+skipped are the HTTP tests of slots `ui`/`api`; the first run failed twice on tests that pinned the old words: `HomeScreenTest` (the owner's card
+text, now a pointer to the strip) and `MatchingWordsTest` (a Matcher on another lead's spot-check match now reads `listing_spot`), both updated). In
+slot `ui`: `UiAuthTest`, `UiSecurityTest`, `UiReviewFlowTest` `OK (38 tests, 26016 assertions)` and every `UiKernel` test `OK (96 tests, 4929
+assertions)`. In slot `api`: the `Api*Test` files `OK (37 tests, 2484 assertions)`. The hammer (`--seed=20261009`, slot `uir7`): `RESULT: PASS (59
+checks passed, 0 failed)`, 109 s. The matching golden tests: `{"passed":59,"failed":0}`. New and changed checks: `KeySampleScreenTest` (a refused
+"Not a match" keeps the quick yes and nothing link-like in the second step; `?pick=` the suggestion and another product; the answers before "Why";
+the owner's page after "Yes" with the guarded "Change this match" and no "No, wrong product" there; another lead on a confirmed member: no form, no
+search, the look-only intro, the member still confirmed), `WordsTest` (the 403 title of a button press; "not stated vs not stated"),
+`HomeTasksTest`/`HomeScreenTest` (the pointer card), `UiTemplatesTest` (`listing_decide.php` under the matching pages' rules). Not checked in a
+browser (none on this box or on staging): the list in ops.md, "The staff UI", before the deploy.
+
+## Merge of the plain-words redesign with IM6 Receive and IM10 site stock writer (slots `mrg2`, `ui`, `api`, 7 Oct 2026)
+
+`main` (46aa62e: IM6 Receive (+ invoice), IM10 site stock writer, I125-I179, SC6-SC22) merged with `ui-redesign` (3ca90a7: U25-U79), as U79
+asked. Both sides' decisions stand; this merge adds the following, all provisional (the owner confirms or reverses each, with U70).
+
+**U80. Deliveries in the task menu.** Main's "Receiving" section is the menu section `receive`, heading **Deliveries**, right after Buying
+(`Permissions::MENU`, `Words::SECTION`): **Receive + invoice** (`receiving.view`), **Goods-in bench** (`doc.GRN.post`) and **Incidents**
+(`incidents.view`, badge `incidents_open`, "incidents still open" for a screen reader). The item names are main's page headings, so the menu, the
+title and the page agree until the receiving screens get their own plain-words pass; each has its line on Home (`Words::MENU_HELP`). Supplier
+invoices and returns are not built, so they stay off the menu and in "Coming later" (`Permissions::COMING_LATER` drops only `receive`; `invoices`
+stays). Who sees Deliveries follows the permissions unchanged: goods in, the purchasing desk and manager, the stock controller, the reviewer and the
+auditor (the reviewer and the stock controller without the bench), the accountant (Receive + invoice only) and the stock manager. The lift rule
+(LIFT) is unchanged: a stock controller still gets Products second, Deliveries after Buying.
+
+**U81. The phone tab bar with Deliveries.** `Tabs::PRIORITY` puts the bench before the orders (the delivery check is done on a tablet in the hand)
+and Receive + invoice and Incidents after the suppliers, so the three bars the owner approved stay as they were (the owner: To do / Matches /
+Duplicates / Orders; a buyer: To do / Orders / To buy / Suppliers; a stock controller: To do / Products / Barcodes / Suppliers). Goods in and the
+purchasing desk get To do / Bench / Orders / Suppliers / More; the desk reaches Receive + invoice from More. If the owner wants Receive + invoice on
+the desk's bar, the stock controller's third tab becomes Receive (they hold `receiving.view` too): one or the other, the owner's choice. The tab
+icons are CSS shapes like the others (a parcel, a parcel with a tick, a warning circle).
+
+**U82. The bench checker is never offered a receipt's review, in the badge and on Home either.** `Documents::decidableCounts()` (one query by kind,
+behind the badge `reviews_open`, `Context::checks()` and Home's two cards, U77) carries main's ReviewInvolvement clause (I133): a receipt is not
+counted for the person who did its goods-in bench check, or who set its supplier invoice without being its keyer (I172). `decidableCount()` stays
+their sum. The review queue keeps listing such a task with the reason (`refusalFor`), as before; the queue's labels are the redesign's
+(`Words::docTitle`), a receipt's link goes to its page in Receiving (main's). Test: `ReceivingScreensTest::
+testReceiveAPoDeliveryCheckItAtTheBenchPostAndReview` (the bench checker, also a reviewer, gets one check fewer than another reviewer in the
+counts, the "Waiting for me" badge and Home's "Done work to check" card).
+
+**U83. Words for what main added to pages the redesign had already worded.**
+- The product page's **Selling mode on the websites** section (IM10) takes its words from `Words::SELLING`, `SELLING_NOTICE` (the switch's notices)
+  and `SITE_SYNC` (a website's stock link: not started / on trial / live): "site stock writer" reads "stock link", a time is UK time (`$when`),
+  the stock rule in words (`Words::POLICY`); the mode names In-Stock, From-Warehouse and Out-Of-Stock are the websites' own and stay.
+- A delivery's record page links to its page with "Open the delivery" (`Words::RECORD`); the records list and the review filter name deliveries.
+- A block (I139, I160): `Words::CARD['blocked']`, `CARD_NOTICE['confirmed_blocked']` and `CARDS['rules']` add that a delivery of a blocked product
+  cannot be booked in and that a website whose stock link is on shows it as Out-Of-Stock by itself; correction d's sentence ("It is still on sale on
+  the website: take it off by hand.") stays, true today on every website (no stock link is on yet).
+- Jobs: goods in "Checks deliveries at the goods-in bench and books them in." (no "coming later"); the purchasing desk and manager name only
+  supplier invoices (and the desk returns and trade sales) as coming later. Home's "Done work to check" card and the "?" on second OKs name
+  deliveries booked in (checked within 3 days) and the bench checker.
+- Settings: the five settings of 0017 and 0018 have names, help and topics (Deliveries, Websites; `WordsTest` now reads those migrations too).
+- Not worded yet, on purpose: main's seven receiving templates (`receipts`, `receipt`, `receipt_edit`, `receipt_bench`, `receipt_files`,
+  `bench_list`, `incidents`), the receiving controllers' notices and refusals, and `app.js`'s receiving prompts. They keep main's words and `$uk`
+  (kept in `View`, listed in `UiTemplatesTest::HELPERS`); they are not in `UiTemplatesTest`'s "no word typed in a template" lists. Their
+  plain-words pass is the next step. Main's receiving rules in `app.css` use design A's tokens (`--surface` for `--panel`, `--needs-line` for
+  `--warn-ink`); `app.js` stays one file: the redesign's two conveniences plus main's unsaved-edits guard, photo shrinking, scanner Enter, bench
+  find/fill/tick and the PO tick (main's units-per-item note script is left out: the redesign's decision form has no such note).
+
+**U84. Tests** (7 Oct 2026): the full suite in slot `mrg2`: `OK, but some tests were skipped! Tests: 992, Assertions: 44600, Skipped: 75` (the 75
+are the HTTP tests of slots `ui`/`api`; the first runs failed on tests that pinned the old menu or the old words of the other side: the menus and
+tab bars with Deliveries, the review filter and records list with deliveries, the settings page's receiving settings, the selling-mode words, the
+viewport of design A, a receipt editor's error without its code). In slot `ui`: `UiAuthTest`, `UiSecurityTest`, `UiReviewFlowTest` `OK (38 tests,
+26331 assertions)` (`/ui/receiving/template.csv` is a download: the sign-in page does not lead back to it, behaviour item 1) and every `UiKernel`
+test `OK (103 tests, 5213 assertions)`. In slot `api`: the seven `Api*Test` `OK (35 tests, 2454 assertions)`. The hammer (`--seed=20261007`, slot
+`mrg2`): `RESULT: PASS (59 checks passed, 0 failed)`, 105 s. The matching golden tests: `{"passed":59,"failed":0}`. Not checked in a browser (none
+on this box or on staging): the Deliveries screens are on ops.md's list for the check before the deploy.

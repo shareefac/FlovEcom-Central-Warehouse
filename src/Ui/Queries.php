@@ -24,10 +24,10 @@ final class Queries
      */
     public const LANES = ['barcode', 'transfer', 'candidates'];
     /**
-     * How a band is named on the screens. `Manual` is the run's "Manual (relabel)": listings that differ
-     * from a Vape and Go item only by a renamed line or brand (an alias no one has confirmed yet).
+     * How a band is named on the screens: Words::BAND for all six (plan F170; the URL values queue=Key ... stay). `Manual` is
+     * the run's "Manual (relabel)": listings that differ from a Vape and Go item only by a renamed range ("Renamed range").
      */
-    public const BAND_LABELS = ['Manual' => 'Relabel (alias)'];
+    public const BAND_LABELS = Words::BAND;
     /** Queue order, best sellers first (U6). */
     private const ORDER = ' ORDER BY COALESCE(lp.units_365d, 0) DESC, COALESCE(lp.units_30d, 0) DESC, cl.id ASC';
     /** Listings that still need a link decision. */
@@ -40,7 +40,7 @@ final class Queries
 
     public static function bandLabel(string $band): string
     {
-        return self::BAND_LABELS[$band] ?? $band;
+        return Words::of('BAND', $band);
     }
 
     /** @return list<array{id: int, code: string, name: string}> */
@@ -79,6 +79,15 @@ final class Queries
     public function pendingCount(): int
     {
         return (int) $this->db->value("SELECT COUNT(*) FROM match_decision WHERE state = 'pending_second'");
+    }
+
+    /** Decisions waiting for a second approval that $staffId may give: not their own (the menu badge of a matching lead). */
+    public function pendingCountFor(int $staffId): int
+    {
+        return (int) $this->db->value(
+            "SELECT COUNT(*) FROM match_decision WHERE state = 'pending_second' AND (decided_by IS NULL OR decided_by <> ?)",
+            [$staffId],
+        );
     }
 
     /**

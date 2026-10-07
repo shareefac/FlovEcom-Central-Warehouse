@@ -7,6 +7,7 @@ namespace CW\Ui\Controller;
 use CW\Files\FileStore;
 use CW\Ui\Context;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Words;
 
 /**
  * Stored files (`/ui/files/{id}`, documents.view) and the one way every download leaves the staff screens
@@ -30,11 +31,11 @@ final class FilesController
         // purchase orders (the PDF as sent) needs purchasing.view.
         $kind = $ctx->db->value('SELECT kind FROM stored_file WHERE id = ?', [$id]);
         if ($kind === 'supplier_check' && !$me->can('suppliers.view')) {
-            return $ctx->error(403, 'role_not_allowed', 'a supplier\'s evidence is shown to people with access to the suppliers');
+            return $ctx->error(403, 'role_not_allowed', Words::say('ERROR', 'file_suppliers', Words::whoCan('suppliers.view')));
         }
         if (!$me->can('purchasing.view') && $ctx->db->value("SELECT 1 FROM document_file df JOIN document d ON d.id = df.document_id WHERE df.file_id = ? AND d.doc_type = 'PO' LIMIT 1", [$id]) !== null
             && $ctx->db->value("SELECT 1 FROM document_file df JOIN document d ON d.id = df.document_id WHERE df.file_id = ? AND d.doc_type <> 'PO' LIMIT 1", [$id]) === null) {
-            return $ctx->error(403, 'role_not_allowed', 'this file belongs to a purchase order: it is shown to people with access to Purchasing');
+            return $ctx->error(403, 'role_not_allowed', Words::say('ERROR', 'file_orders', Words::whoCan('purchasing.view')));
         }
         $file = $ctx->files()->read($id);
         $mime = (string) $file['meta']['mime'];

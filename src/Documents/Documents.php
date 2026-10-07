@@ -530,8 +530,20 @@ final class Documents
      */
     public function decidableCount(int $staffId, array $roles): int
     {
+        return array_sum($this->decidableCounts($staffId, $roles));
+    }
+
+    /**
+     * decidableCount() by kind, in one query (the Home page's two cards and the badge come from one call per request).
+     *
+     * @param list<string> $roles
+     * @return array{review: int, approval: int}
+     */
+    public function decidableCounts(int $staffId, array $roles): array
+    {
+        $out = ['review' => 0, 'approval' => 0];
         if (in_array('admin', $roles, true)) {
-            return 0;
+            return $out;
         }
         $kinds = [];
         if (Permissions::can($roles, 'documents.review')) {
@@ -541,8 +553,11 @@ final class Documents
             $kinds[] = 'approval';
         }
         if ($kinds === []) {
-            return 0;
+            return $out;
         }
+        // A type whose handler names other people who wrote part of the document (ReviewInvolvement: a receipt's goods-in bench
+        // check, I133): its tasks are not offered to them either, so the badge and Home's cards never count what the person
+        // would be refused (refusalFor).
         $involved = '';
         $params = [...$kinds, $staffId, $staffId, $staffId, $staffId];
         foreach ($this->handlers as $type => $h) {
@@ -551,12 +566,15 @@ final class Documents
                 array_push($params, $type, $staffId);
             }
         }
-        return (int) $this->db->value(
-            "SELECT COUNT(*) FROM review_task t JOIN document d ON d.id = t.subject_id WHERE t.subject_type = 'document' AND t.state = 'open' "
+        foreach ($this->db->all(
+            "SELECT t.kind, COUNT(*) AS n FROM review_task t JOIN document d ON d.id = t.subject_id WHERE t.subject_type = 'document' AND t.state = 'open' "
             . 'AND t.kind IN (' . implode(', ', array_fill(0, count($kinds), '?')) . ') AND NOT (t.opened_by <=> ?) '
-            . 'AND NOT (d.created_by <=> ?) AND NOT (d.submitted_by <=> ?) AND NOT (d.posted_by <=> ?)' . $involved,
+            . 'AND NOT (d.created_by <=> ?) AND NOT (d.submitted_by <=> ?) AND NOT (d.posted_by <=> ?)' . $involved . ' GROUP BY t.kind',
             $params,
-        );
+        ) as $r) {
+            $out[(string) $r['kind']] = (int) $r['n'];
+        }
+        return $out;
     }
 
     /**

@@ -29,9 +29,9 @@ final class SellingModeScreenTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe());
         $text = $page->text();
         self::assertStringContainsString('Selling mode on the websites', $text);
-        self::assertStringContainsString('the site keeps its own', $text);
-        self::assertStringContainsString('receipts set it', $text, 'Vape and Go is the receipt site (I136)');
-        self::assertStringContainsString('never set in CW', $text);
+        self::assertStringContainsString('the website keeps its own', $text);
+        self::assertStringContainsString('deliveries set it', $text, 'Vape and Go is the receipt site (I136)');
+        self::assertStringContainsString('never set here', $text);
         self::assertTrue($page->hasForm('/selling-mode'));
         self::assertSame(['In-Stock', 'From-Warehouse', 'Out-Of-Stock'], $page->radios('mode'));
         self::assertStringContainsString('sold whatever the figure', $text, 'CW\'s meaning beside each label');
@@ -75,7 +75,7 @@ final class SellingModeScreenTest extends KernelUiTestCase
         $this->listing($vpg, '2', $legacy);
         $desk = $this->signIn($this->uiUser('purchasing_desk'));
         $page = $desk->get("/ui/items/{$counted}");
-        self::assertStringContainsString('counted and protected (policy strict)', $page->text());
+        self::assertStringContainsString('counted and protected (Website sells warehouse stock only)', $page->text());
         self::assertStringContainsString('From-Warehouse (sold while there is stock)', $page->text());
         self::assertFalse($page->hasForm('/selling-mode'));
         $f = $desk->get("/ui/items/{$legacy}")->form("/ui/items/{$legacy}/selling-mode");

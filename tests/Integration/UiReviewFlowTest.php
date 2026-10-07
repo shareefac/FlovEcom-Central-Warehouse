@@ -7,6 +7,7 @@ namespace CW\Tests\Integration;
 use CW\Tests\Support\UiClient;
 use CW\Tests\Support\UiResponse;
 use CW\Tests\Support\UiTestCase;
+use CW\Ui\Words;
 
 /**
  * The work the screens exist for (plan §7.1): sign in, see what waits, review one listing at a time
@@ -33,17 +34,18 @@ final class UiReviewFlowTest extends UiTestCase
         $user = $this->uiUser('mapper');
         $web = $this->signIn($user);
 
-        // The dashboard counts what waits, and links into the queue of the site.
+        // Home's matching progress counts what waits, and links into the list of the site.
         $dash = $web->get('/ui/');
-        self::assertSame(['3', '3'], self::row($dash, 'Listings waiting', 'Key'));
-        self::assertSame(['1', '1'], self::row($dash, 'Listings waiting', 'Check'));
+        self::assertSame(['3', '3'], self::row($dash, Words::HOME['to_match'], Words::BAND['Key']));
+        self::assertSame(['1', '1'], self::row($dash, Words::HOME['to_match'], Words::BAND['Check']));
         self::assertContains('/ui/review?queue=Key&channel=vpg', $dash->hrefs());
 
         // Best sellers first, and the Check listing (999 units) is not in the Key queue.
         $queue = $web->get('/ui/review', ['queue' => 'Key', 'channel' => 'vpg']);
         self::assertSame(200, $queue->status);
         self::assertSame([$l100, $l50, $l10], self::listed($queue));
-        self::assertStringContainsString('3 listings in this view, best sellers first (units in 365 days, then 30 days).', $queue->text());
+        self::assertStringContainsString(Words::say('QUEUE', 'total_many', 3), $queue->text());
+        self::assertSame(Words::BAND_TITLE['Key'], trim((string) (new \DOMXPath($queue->dom()))->evaluate('string(//main//h1)')), 'the list by its plain name (F154)');
         self::assertContains("/ui/review/listing/{$l100}?queue=Key&channel=vpg", $queue->hrefs(), 'the row link carries the queue');
 
         $expect = [[$l100, $a], [$l50, $b], [$l10, $c]];
@@ -51,9 +53,12 @@ final class UiReviewFlowTest extends UiTestCase
         foreach ($expect as $i => [$listing, $sku]) {
             $page = $web->get("/ui/review/listing/{$listing}", ['queue' => 'Key', 'channel' => 'vpg']);
             self::assertSame(200, $page->status, $page->describe());
-            self::assertStringContainsString("Listing #{$listing}", $page->text());
-            self::assertStringContainsString('Proposed item', $page->text());
-            self::assertStringContainsString('Confirm link to ' . $this->skuCode($sku), $page->text());
+            self::assertStringNotContainsString("Listing #{$listing}", $page->text(), 'the product by its name, not a number (F171)');
+            self::assertSame((string) self::$db->value('SELECT product_title FROM listing_profile WHERE listing_id = ?', [$listing]),
+                trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//main//h1)')));
+            self::assertStringContainsString(Words::LISTING['suggested'], $page->text());
+            self::assertStringContainsString(Words::say('LISTING', 'yes', $this->skuCode($sku)), $page->text());
+            self::assertStringContainsString($i < 2 ? Words::LISTING['quick'] : Words::LISTING['quick_last'], $page->text(), 'the last one has no next one to open');
             $form = $page->form("/ui/review/listing/{$listing}/decide");
             self::assertSame('link', $form['action'], 'a Key proposal is preselected');
             self::assertSame((string) $sku, $form['sku_id']);
@@ -74,14 +79,16 @@ final class UiReviewFlowTest extends UiTestCase
                 self::assertSame(['queue' => 'Key', 'channel' => 'vpg', 'notice' => 'decided_link', 'prev' => (string) $listing], $to['query']);
                 $next = $web->follow($r);
                 self::assertSame(200, $next->status);
-                self::assertStringContainsString("Linked listing #{$listing}.", $next->text());
-                self::assertStringContainsString('Listing #' . $expect[$i + 1][0], $next->text());
+                $name = (string) self::$db->value('SELECT product_title FROM listing_profile WHERE listing_id = ?', [$listing]);
+                self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', '"' . $name . '"', $this->skuCode($sku)) . ' ' . Words::MATCH_NOTICE['next'],
+                    $next->text(), 'the notice names what was done, on the next one (F201)');
             } else {
                 self::assertSame('/ui/review', $to['path']);
                 self::assertSame(['queue' => 'Key', 'channel' => 'vpg', 'notice' => 'queue_done'], $to['query']);
                 $done = $web->follow($r);
-                self::assertStringContainsString('Nothing left in this queue.', $done->text());
-                self::assertStringContainsString('Nothing is waiting here.', $done->text());
+                self::assertStringContainsString(Words::MATCH_NOTICE['queue_done'], $done->text());
+                self::assertStringContainsString(Words::QUEUE['empty'], $done->text());
+                self::assertContains('/ui/review?queue=Check', $done->hrefs(), 'an empty list leads to the next list with work (F161)');
             }
             $link = $this->link($listing);
             self::assertSame(['mapped', $sku, 1], [$link['status'], $link['sku_id'], $link['units_per_item']], "listing {$listing}");
@@ -96,15 +103,15 @@ final class UiReviewFlowTest extends UiTestCase
         // The item page shows the link, now and as history.
         $item = $web->get('/ui/items/' . $a);
         self::assertSame(200, $item->status);
-        self::assertStringContainsString('linked now', $item->text());
-        self::assertStringContainsString('this item x1, link by Mapper 1', $item->text());
+        self::assertStringContainsString(Words::ITEM['now_here'], $item->text());
+        self::assertStringContainsString(Words::ITEM['h_this'] . ', ' . Words::ACTION_DONE['link'] . ' by Mapper 1 (' . Words::saleUses(1) . ')', $item->text());
         self::assertContains('/ui/review/listing/' . $l100, $item->hrefs());
         self::assertNotContains('/ui/review/listing/' . $check, $item->hrefs(), 'only linked listings are on the item');
 
-        // The dashboard has moved on.
+        // Home has moved on.
         $after = $web->get('/ui/');
-        self::assertSame(['0', '0'], self::row($after, 'Listings waiting', 'Key'));
-        $cover = self::row($after, 'Coverage', 'vpg');
+        self::assertSame(['0', '0'], self::row($after, Words::HOME['to_match'], Words::BAND['Key']));
+        $cover = self::row($after, Words::HOME['coverage'], 'VPG test site');
         self::assertSame('4', $cover[0], 'four listings');
         self::assertSame('3', $cover[1], 'three of them linked');
     }
@@ -124,25 +131,26 @@ final class UiReviewFlowTest extends UiTestCase
         // Nothing chosen: refused on the same page, the form is kept.
         $r = $this->submit($web, $l, $form, ['reason' => 'because']);
         self::assertSame(422, $r->status, $r->describe());
-        self::assertStringContainsString('Choose what to do with this listing.', $r->text());
+        self::assertStringContainsString(Words::MATCH_ERROR['choose'], $r->text());
+        self::assertContains('#f-action', $r->hrefs(), 'the message leads to the field (F213)');
         self::assertSame('because', $r->form('/decide')['reason'], 'what was typed is kept');
         self::assertSame('1', $r->form('/decide')['units_per_item']);
         self::assertSame($base, $this->decisions());
 
         // Each field is checked before anything is written.
         foreach ([
-            [['action' => 'hack'], 'Choose what to do with this listing.', 422],
-            [['action' => 'link', 'units_per_item' => 'abc'], 'Units per item is a whole number from 1 to 1000.', 422],
-            [['action' => 'link', 'units_per_item' => '0'], 'Units per item is a whole number from 1 to 1000.', 422],
-            [['action' => 'link', 'units_per_item' => '1001'], 'Units per item is a whole number from 1 to 1000.', 422],
-            [['action' => 'link', 'units_per_item' => '-1'], 'Units per item is a whole number from 1 to 1000.', 422],
-            [['action' => 'link', 'sku_id' => ''], 'Pick the item to link to first', 422],
-            [['action' => 'link', 'sku_id' => 'abc'], 'Pick the item to link to first', 422],
-            [['action' => 'link', 'sku_id' => '999999'], 'no such item', 404],
-            [['action' => 'ignore'], 'Say why this listing is ignored', 422],
-            [['action' => 'link', 'reason' => str_repeat('x', 501)], 'The reason is at most 500 characters.', 422],
-            [['action' => 'link', 'expected_map_version' => 'x'], 'The form is incomplete', 400],
-            [['action' => 'link', 'proposal_id' => '999999'], 'proposal', 422],
+            [['action' => 'hack'], Words::MATCH_ERROR['choose'], 422],
+            [['action' => 'link', 'units_per_item' => 'abc'], Words::say('MATCH_ERROR', 'units', 1000), 422],
+            [['action' => 'link', 'units_per_item' => '0'], Words::say('MATCH_ERROR', 'units', 1000), 422],
+            [['action' => 'link', 'units_per_item' => '1001'], Words::say('MATCH_ERROR', 'units', 1000), 422],
+            [['action' => 'link', 'units_per_item' => '-1'], Words::say('MATCH_ERROR', 'units', 1000), 422],
+            [['action' => 'link', 'sku_id' => ''], Words::MATCH_ERROR['pick_first'], 422],
+            [['action' => 'link', 'sku_id' => 'abc'], Words::MATCH_ERROR['pick_first'], 422],
+            [['action' => 'link', 'sku_id' => '999999'], Words::MATCH_ERROR['unknown_sku'], 404],
+            [['action' => 'ignore'], Words::MATCH_ERROR['ignore_why'], 422],
+            [['action' => 'link', 'reason' => str_repeat('x', 501)], Words::say('MATCH_ERROR', 'reason_long', 500), 422],
+            [['action' => 'link', 'expected_map_version' => 'x'], Words::ERROR['bad_form'], 400],
+            [['action' => 'link', 'proposal_id' => '999999'], Words::MATCH_ERROR['proposal_mismatch'], 422],
         ] as [$over, $message, $status]) {
             $r = $this->submit($web, $l, $form, $over);
             self::assertSame($status, $r->status, json_encode($over) . ' ' . $r->describe());
@@ -171,7 +179,8 @@ final class UiReviewFlowTest extends UiTestCase
 
         $r = $this->submit($web, $l, $form);
         self::assertSame(409, $r->status, $r->describe());
-        self::assertStringContainsString('the listing changed since it was shown; reload it', $r->text());
+        self::assertStringContainsString(Words::MATCH_ERROR['map_version_conflict'], $r->text(), 'the refusal in words, by its code (F186)');
+        self::assertStringNotContainsString('reload it', $r->text());
         self::assertTrue($r->hasForm('/decide'), 'the form is kept');
         self::assertSame($base, $this->decisions());
         self::assertSame('suggested', $this->link($l)['status']);
@@ -201,7 +210,7 @@ final class UiReviewFlowTest extends UiTestCase
         $form = $this->decideForm($web, $gift, ['queue' => 'Check']);
         $r = $this->submit($web, $gift, $form, ['action' => 'ignore']);
         self::assertSame(422, $r->status);
-        self::assertStringContainsString('Say why this listing is ignored', $r->text());
+        self::assertStringContainsString(Words::MATCH_ERROR['ignore_why'], $r->text());
         self::assertSame('suggested', $this->link($gift)['status']);
 
         $r = $this->submit($web, $gift, $form, ['action' => 'ignore', 'reason' => '  Not a product: gift card  ']);
@@ -209,19 +218,19 @@ final class UiReviewFlowTest extends UiTestCase
         $to = self::where($r);
         self::assertSame('/ui/review/listing/' . $rest, $to['path']);
         self::assertSame(['queue' => 'Check', 'notice' => 'decided_ignore', 'prev' => (string) $gift], $to['query']);
-        self::assertStringContainsString("Marked listing #{$gift} as ignored.", $web->follow($r)->text());
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_ignore', '"Gift card 25"') . ' ' . Words::MATCH_NOTICE['next'], $web->follow($r)->text());
         $link = $this->link($gift);
         self::assertSame(['ignored', null], [$link['status'], $link['sku_id']]);
         self::assertSame('Not a product: gift card', self::$db->value("SELECT reason FROM match_decision WHERE listing_id = ? AND action = 'ignore'", [$gift]));
         self::assertSame(1, self::auditCount('mapping.ignore'));
 
         $page = $web->get('/ui/review/listing/' . $gift);
-        self::assertStringContainsString('ignored', $page->text());
-        self::assertStringContainsString('Not a product: gift card', $page->text(), 'the history shows why');
+        self::assertStringContainsString(Words::LISTING_STATUS['ignored'], $page->text());
+        self::assertStringContainsString(Words::say('LISTING', 'h_note', 'Not a product: gift card'), $page->text(), 'the history shows why');
 
         // Ignored units stay in the total (the coverage is honest) and are shown on their own.
-        $cover = self::row($web->get('/ui/'), 'Coverage', 'vpg');
-        self::assertSame(['3', '1', '80', '', '75.0%', '800', '', '75.0%', '20'], $cover);
+        $cover = self::row($web->get('/ui/'), Words::HOME['coverage'], 'VPG test site');
+        self::assertSame(['3', '1', '80', '75.0%', '800', '75.0%', '20'], $cover);
     }
 
     public function testANewItemIsMintedFromTheCardAndLinked(): void
@@ -233,7 +242,7 @@ final class UiReviewFlowTest extends UiTestCase
         $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
 
         $page = $web->get('/ui/review/listing/' . $l, ['queue' => 'New item']);
-        self::assertStringContainsString('The run proposes a new item.', $page->text());
+        self::assertStringContainsString(Words::LISTING['suggest_new'], $page->text());
         $form = $page->form('/decide');
         self::assertSame('new_item', $form['action'] ?? null, 'a New item proposal whose barcode is on no other listing or item is preselected');
         self::assertSame('Vaporesso XROS 3 Kit', $form['card_name'], 'the card starts from the listing');
@@ -242,11 +251,13 @@ final class UiReviewFlowTest extends UiTestCase
         // A value that is not valid is refused with the field named, and nothing is minted.
         $r = $this->submit($web, $l, $form, ['action' => 'new_item', 'card_strength_mg' => 'abc']);
         self::assertSame(400, $r->status, $r->describe());
-        self::assertStringContainsString('identity field strength_mg is not valid', $r->text());
+        self::assertStringContainsString(Words::say('MATCH_ERROR', 'bad_card_number', Words::FIELD['strength_mg'], '20'), $r->text(), 'the field by its name (F214)');
+        self::assertStringNotContainsString('strength_mg', $r->text());
         self::assertSame('abc', $r->form('/decide')['card_strength_mg']);
+        self::assertTrue((new \DOMXPath($r->dom()))->query('//details[@id="new-product"]')->item(0)?->hasAttribute('open'), 'the details open at the field');
         $r = $this->submit($web, $l, $form, ['action' => 'new_item', 'card_name' => '']);
         self::assertSame(422, $r->status, $r->describe());
-        self::assertStringContainsString('needs a name', $r->text());
+        self::assertStringContainsString(Words::MATCH_ERROR['name_required'], $r->text());
         self::assertSame($skus, (int) self::$db->value('SELECT COUNT(*) FROM sku'));
         self::assertSame('suggested', $this->link($l)['status']);
 
@@ -255,7 +266,7 @@ final class UiReviewFlowTest extends UiTestCase
         $to = self::where($r);
         self::assertSame('/ui/review/listing/' . $rest, $to['path']);
         self::assertSame('decided_new_item', $to['query']['notice']);
-        self::assertStringContainsString("A new item was created for listing #{$l} and linked.", $web->follow($r)->text());
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_new_item', '"Vaporesso XROS 3 Kit"'), $web->follow($r)->text());
         self::assertSame($skus + 1, (int) self::$db->value('SELECT COUNT(*) FROM sku'));
 
         $sku = self::$db->one('SELECT * FROM sku WHERE origin_listing_id = ?', [$l]);
@@ -272,9 +283,9 @@ final class UiReviewFlowTest extends UiTestCase
         $item = $web->get('/ui/items/' . $sku['id']);
         self::assertSame(200, $item->status);
         self::assertStringContainsString('Vaporesso XROS 3 Kit (black)', $item->text());
-        self::assertStringContainsString('new_item', $item->text());
+        self::assertStringContainsString(Words::say('ITEM', 'made_from_line', 'VPG test site', 'Vaporesso XROS 3 Kit', 'V1'), $item->text(), 'made from, by name (F249)');
         self::assertContains('/ui/review/listing/' . $l, $item->hrefs());
-        self::assertStringContainsString('linked now', $item->text());
+        self::assertStringContainsString(Words::ITEM['now_here'], $item->text());
     }
 
     // ---- reject and the second person ---------------------------------------------------------
@@ -308,9 +319,11 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertSame('/ui/review/listing/' . $only, $to['path']);
         self::assertSame('decided_reject', $to['query']['notice']);
         $page = $web->follow($r);
-        self::assertStringContainsString("Rejected the proposal for listing #{$only}. It stays in the queue for another choice.", $page->text());
-        self::assertStringNotContainsString('Nothing left in this queue.', $page->text());
-        self::assertStringContainsString('This listing was rejected for this item (or an item merged into it) before, so linking it needs a second person.', $page->text());
+        $onlyName = '"' . self::$db->value('SELECT product_title FROM listing_profile WHERE listing_id = ?', [$only]) . '"';
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_reject', $onlyName), $page->text());
+        self::assertStringNotContainsString(Words::MATCH_NOTICE['queue_done'], $page->text());
+        self::assertStringNotContainsString(Words::MATCH_NOTICE['next'], $page->text(), 'it stays on the same one');
+        self::assertStringContainsString(Words::LISTING['previously_rejected'], $page->text());
 
         // Linking it to the item it was rejected for waits for a lead.
         $form = $page->form('/decide');
@@ -319,7 +332,7 @@ final class UiReviewFlowTest extends UiTestCase
         $to = self::where($r);
         self::assertSame('/ui/review', $to['path']);
         self::assertSame(['queue' => 'Manual', 'notice' => 'pending_second', 'prev' => (string) $only], $to['query']);
-        self::assertStringContainsString("Saved for listing #{$only}. A second person (mapping lead) has to approve it before it takes effect.", $web->follow($r)->text());
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'pending_second', $onlyName), $web->follow($r)->text());
         $d = self::$db->one("SELECT state, needs_second FROM match_decision WHERE listing_id = ? AND action = 'link'", [$only]);
         self::assertNotNull($d);
         self::assertSame('pending_second', $d['state']);
@@ -352,21 +365,23 @@ final class UiReviewFlowTest extends UiTestCase
 
         // The listing shows the waiting decision and no way to decide again; the queue no longer lists it.
         $page = $mapper->get('/ui/review/listing/' . $many, ['queue' => 'Key']);
-        self::assertStringContainsString('Waiting for a second person', $page->text());
-        self::assertStringContainsString('A decision on this listing is waiting for a second person.', $page->text());
+        self::assertStringContainsString(Words::LISTING['waiting'], $page->text());
+        self::assertStringContainsString(Words::LISTING['wait_own'], $page->text(), 'the decider is told what waits and that they can cancel it (F210)');
+        self::assertStringContainsString(Words::NEEDS_SECOND['units_per_item'], $page->text());
         self::assertFalse($page->hasForm('/decide'));
         self::assertFalse($page->hasForm('/approve'), 'the decider cannot approve');
         self::assertTrue($page->hasForm('/withdraw'));
         self::assertSame([$prot], self::listed($mapper->get('/ui/review', ['queue' => 'Key'])));
         $list = $mapper->get('/ui/review', ['queue' => 'pending']);
         self::assertContains('/ui/review/listing/' . $many, $list->hrefs());
-        self::assertStringContainsString('Waiting for another mapping lead.', $list->text(), 'the decider sees that a lead other than themselves is needed');
+        self::assertStringContainsString(Words::PENDING['wait'], $list->text(), 'the decider sees that a matching lead\'s OK is needed');
+        self::assertStringContainsString(Words::NEEDS_SECOND['units_per_item'], $list->text(), 'why, in words (F147)');
         self::assertFalse($list->hasForm('/approve'));
 
         // A protected item needs two people as well: the page says so before anyone presses Save.
         $protPage = $mapper->get('/ui/review/listing/' . $prot, ['queue' => 'Key']);
-        self::assertStringContainsString('This item is protected (sell policy strict)', $protPage->text());
-        self::assertStringContainsString('protected', $protPage->text());
+        self::assertStringContainsString(Words::LISTING['protected_note'], $protPage->text());
+        self::assertStringContainsString(Words::POLICY['strict'], $protPage->text());
 
         // The lead approves from the second-approval list.
         $pending = $lead->get('/ui/review', ['queue' => 'pending']);
@@ -376,12 +391,12 @@ final class UiReviewFlowTest extends UiTestCase
         $to = self::where($approve);
         self::assertSame('/ui/review', $to['path']);
         self::assertSame(['queue' => 'pending', 'notice' => 'approved', 'prev' => (string) $many], $to['query']);
-        self::assertStringContainsString("Approved: the decision on listing #{$many} is now in effect.", $lead->follow($approve)->text());
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'approved', '"Elux Legend 3 pack"'), $lead->follow($approve)->text());
         $link = $this->link($many);
         self::assertSame(['mapped', $legacy, 3], [$link['status'], $link['sku_id'], $link['units_per_item']]);
         self::assertSame('applied', self::$db->value('SELECT state FROM match_decision WHERE id = ?', [$did]));
         self::assertSame(1, self::auditCount('mapping.approve'));
-        self::assertStringContainsString('x3', $lead->get('/ui/items/' . $legacy)->text());
+        self::assertStringContainsString(Words::saleUses(3), $lead->get('/ui/items/' . $legacy)->text());
 
         // A lead cannot approve their own decision, even by forcing the request.
         $leadUser = $this->uiUser('mapping_lead');
@@ -392,10 +407,10 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertSame('pending_second', self::$db->value('SELECT state FROM match_decision WHERE id = ?', [$did2]));
         $mine = $own->get('/ui/review', ['queue' => 'pending']);
         self::assertFalse($mine->hasForm('/approve'));
-        self::assertStringContainsString('Waiting for another mapping lead.', $mine->text());
+        self::assertStringContainsString(Words::PENDING['wait'], $mine->text());
         $forced = $own->post("/ui/review/decision/{$did2}/approve", ['csrf' => $this->token($own)]);
         self::assertSame(403, $forced->status, $forced->describe());
-        self::assertStringContainsString('the second approval must come from another person', $forced->text());
+        self::assertStringContainsString(Words::MATCH_ERROR['same_person'], $forced->text(), 'by its code, in words (F214)');
         self::assertSame('pending_second', self::$db->value('SELECT state FROM match_decision WHERE id = ?', [$did2]));
 
         // The first lead is another person: this one goes through.
@@ -426,7 +441,7 @@ final class UiReviewFlowTest extends UiTestCase
         // Another mapper may not.
         $r = $other->post("/ui/review/decision/{$d1}/withdraw", ['csrf' => $this->token($other)]);
         self::assertSame(403, $r->status, $r->describe());
-        self::assertStringContainsString('only the decider or a mapping_lead can withdraw a pending decision', $r->text());
+        self::assertStringContainsString(Words::MATCH_ERROR['lead_required_withdraw'], $r->text());
         self::assertSame('pending_second', self::$db->value('SELECT state FROM match_decision WHERE id = ?', [$d1]));
 
         // The decider withdraws from the listing page and lands back on it, free to decide again.
@@ -437,7 +452,7 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertSame('/ui/review/listing/' . $one, $to['path']);
         self::assertSame('withdrawn', $to['query']['notice']);
         $back = $mapper->follow($r);
-        self::assertStringContainsString("Withdrawn: the decision on listing #{$one} was cancelled.", $back->text());
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'withdrawn', '"Product V1"'), $back->text());
         self::assertTrue($back->hasForm('/decide'));
         self::assertSame('withdrawn', self::$db->value('SELECT state FROM match_decision WHERE id = ?', [$d1]));
         self::assertSame('suggested', $this->link($one)['status']);
@@ -450,7 +465,7 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(['queue' => 'pending', 'notice' => 'withdrawn', 'prev' => (string) $two], self::where($r)['query']);
         self::assertSame('withdrawn', self::$db->value('SELECT state FROM match_decision WHERE id = ?', [$d2]));
-        self::assertStringContainsString('Nothing is waiting.', $lead->follow($r)->text());
+        self::assertStringContainsString(Words::PENDING['none'], $lead->follow($r)->text());
 
         // Withdrawing twice is refused.
         $again = $lead->post("/ui/review/decision/{$d2}/withdraw", ['csrf' => $this->token($lead)]);
@@ -489,22 +504,26 @@ final class UiReviewFlowTest extends UiTestCase
         $dash = $web->get('/ui/');
         self::assertSame(200, $dash->status);
 
-        // Columns are the sites in code order (alt, vpg), then the total.
-        self::assertSame(['1', '2', '3'], self::row($dash, 'Listings waiting', 'Key'));
-        self::assertSame(['0', '1', '1'], self::row($dash, 'Listings waiting', 'Check'));
-        self::assertSame(['0', '1', '1'], self::row($dash, 'Listings waiting', 'Conflict'));
-        self::assertSame(['1', '0', '1'], self::row($dash, 'Listings waiting', 'New item'));
-        self::assertSame(['0', '0', '0'], self::row($dash, 'Listings waiting', 'Relabel (alias)'), 'band Manual is named for what it is');
-        self::assertSame(['1', '3', '4'], self::row($dash, 'Listings waiting', 'No proposal yet'), 'U1, U2 and L3 (unlinked, never proposed) on vpg, U3 on alt');
+        // Columns are the sites in code order (alt, vpg), by name, then the total; each list by its plain name (plan F075-F082).
+        $w = Words::HOME['to_match'];
+        self::assertSame(['1', '2', '3'], self::row($dash, $w, Words::BAND['Key']));
+        self::assertSame(['0', '1', '1'], self::row($dash, $w, Words::BAND['Check']));
+        self::assertSame(['0', '1', '1'], self::row($dash, $w, Words::BAND['Conflict']));
+        self::assertSame(['1', '0', '1'], self::row($dash, $w, Words::BAND['New item']));
+        self::assertSame(['0', '0', '0'], self::row($dash, $w, Words::BAND['Manual']), 'band Manual is named for what it is');
+        self::assertSame(['1', '3', '4'], self::row($dash, $w, Words::HOME['not_checked']), 'U1, U2 and L3 (unlinked, never proposed) on vpg, U3 on alt');
+        self::assertStringContainsString('ALT test site', $dash->text(), 'the website by its name, not its code');
+        self::assertStringContainsString(Words::HOME['look_match'], $dash->text(), 'a viewer looks; matchers decide');
         self::assertContains('/ui/review?queue=Key&channel=alt', $dash->hrefs());
         self::assertContains('/ui/review?queue=Key', $dash->hrefs());
         self::assertNotContains('/ui/review?queue=Manual', $dash->hrefs(), 'an empty queue is not a link');
         self::assertContains('/ui/review?queue=pending', $dash->hrefs());
-        self::assertStringContainsString('1 decision waiting for a second person', $dash->text());
+        self::assertStringContainsString(Words::HOME['pending_one'], $dash->text());
 
-        // listings, linked, units 30d, (meter), coverage, units 365d, (meter), coverage, ignored 30d
-        self::assertSame(['11', '2', '160', '', '37.5%', '1,600', '', '37.5%', '30'], self::row($dash, 'Coverage', 'vpg'), '60 of 160 units in 30 days, 600 of 1600 in 365; the ignored 30 stay in the total');
-        self::assertSame(['3', '0', '0', '', '-', '0', '', '-', '0'], self::row($dash, 'Coverage', 'alt'), 'nothing sold: no percentage');
+        // website products, matched, sold 30d, matched share 30d (a bar and the %), sold 1 year, matched share 1 year, sold but ignored 30d
+        $c = Words::HOME['coverage'];
+        self::assertSame(['11', '2', '160', '37.5%', '1,600', '37.5%', '30'], self::row($dash, $c, 'VPG test site'), '60 of 160 units in 30 days, 600 of 1600 in 365; the ignored 30 stay in the total');
+        self::assertSame(['3', '0', '0', Words::HOME['no_sales'], '0', Words::HOME['no_sales'], '0'], self::row($dash, $c, 'ALT test site'), 'nothing sold: no percentage, but words');
     }
 
     public function testTheQueueFiltersAndPages(): void
@@ -522,12 +541,12 @@ final class UiReviewFlowTest extends UiTestCase
 
         // 57 listings: 50 on the first page, best sellers first (the alt one sells 500).
         $p1 = $web->get('/ui/review', ['queue' => 'Check']);
-        self::assertStringContainsString('57 listings in this view', $p1->text());
+        self::assertStringContainsString(Words::say('QUEUE', 'total_many', 57), $p1->text());
         $first = self::listed($p1);
         self::assertCount(50, $first);
         self::assertSame($altOne, $first[0]);
         self::assertSame($ids[1], $first[1]);
-        self::assertStringContainsString('Page 1 of 2', $p1->text());
+        self::assertStringContainsString(Words::say('QUEUE', 'page', 1, 2), $p1->text());
         $next = array_values(array_filter($p1->hrefs(), static fn (string $h): bool => str_contains($h, 'page=2')));
         self::assertSame(['/ui/review?queue=Check&page=2'], $next);
         $p2 = $web->get($next[0]);
@@ -535,7 +554,7 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertCount(7, $second);
         self::assertSame([], array_intersect($first, $second));
         self::assertSame($zebra, $second[6], 'the smallest seller is last');
-        self::assertStringContainsString('Page 2 of 2', $p2->text());
+        self::assertStringContainsString(Words::say('QUEUE', 'page', 2, 2), $p2->text());
         // A page number that does not exist is the last page; one that is not a number is the first.
         self::assertSame($second, self::listed($web->get('/ui/review', ['queue' => 'Check', 'page' => '99'])));
         self::assertSame($first, self::listed($web->get('/ui/review', ['queue' => 'Check', 'page' => 'abc'])));
@@ -588,10 +607,10 @@ final class UiReviewFlowTest extends UiTestCase
 
         // The page offers the closest item and each candidate.
         $page = $web->get("/ui/review/listing/{$l}", ['queue' => 'Check']);
-        self::assertStringContainsString('Closest item' . $this->skuCode($c) . ' Elux Bar Grape', $page->text());
+        self::assertStringContainsString(Words::LISTING['closest'] . $this->skuCode($c) . ' Elux Bar Grape', $page->text());
         self::assertContains($pick($c), $page->hrefs(), 'use the closest item');
         self::assertContains($pick($b), $page->hrefs(), 'use a candidate');
-        self::assertStringContainsString('Candidates the judge saw', $page->text());
+        self::assertStringContainsString(Words::LISTING['candidates'], $page->text());
 
         // A search on the page lists items with a way to use each (d is offered nowhere else).
         self::assertNotContains($pick($d), $page->hrefs());
@@ -601,12 +620,12 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertNotContains($pick($a), $found->hrefs(), 'the search only lists what matches');
         self::assertContains($pick($d), $web->get("/ui/review/listing/{$l}", ['queue' => 'Check', 's' => '5060123456789'])->hrefs(), 'by barcode');
         self::assertContains($pick($a), $web->get("/ui/review/listing/{$l}", ['queue' => 'Check', 's' => $this->skuCode($a)])->hrefs(), 'by code');
-        self::assertStringContainsString('No item matches.', $web->get("/ui/review/listing/{$l}", ['s' => 'zzzzqq'])->text());
+        self::assertStringContainsString(Words::SEARCH['no_items'], $web->get("/ui/review/listing/{$l}", ['s' => 'zzzzqq'])->text());
 
         // The picked item takes the place of the proposal, and is what the form links to.
         $picked = $web->get("/ui/review/listing/{$l}", ['queue' => 'Check', 'pick' => (string) $b]);
-        self::assertStringContainsString('Item you picked', $picked->text());
-        self::assertStringContainsString('Confirm link to ' . $this->skuCode($b), $picked->text());
+        self::assertStringContainsString(Words::LISTING['picked'], $picked->text());
+        self::assertStringContainsString(Words::say('LISTING', 'yes', $this->skuCode($b)), $picked->text());
         $form = $picked->form('/decide');
         self::assertSame((string) $b, $form['sku_id']);
         self::assertArrayNotHasKey('action', $form, 'a picked item is never preselected');
@@ -625,9 +644,9 @@ final class UiReviewFlowTest extends UiTestCase
 
         $page = $web->get("/ui/review/listing/{$l}", ['queue' => 'Check', 'pick' => '999999']);
         self::assertSame(200, $page->status);
-        self::assertStringContainsString('That item does not exist.', $page->text());
-        self::assertStringContainsString('Proposed item', $page->text(), 'a pick that failed does not claim to be the picked item');
-        self::assertStringNotContainsString('Item you picked', $page->text());
+        self::assertStringContainsString(Words::LISTING['pick_missing'], $page->text());
+        self::assertStringContainsString(Words::LISTING['suggested'], $page->text(), 'a pick that failed does not claim to be the picked item');
+        self::assertStringNotContainsString(Words::LISTING['picked'], $page->text());
         self::assertSame((string) $a, $page->form('/decide')['sku_id'], 'the proposal is still the target');
         foreach (['abc', '0', '-3', '1.5', str_repeat('9', 30)] as $junk) {
             $r = $web->get("/ui/review/listing/{$l}", ['queue' => 'Check', 'pick' => $junk]);
@@ -639,7 +658,7 @@ final class UiReviewFlowTest extends UiTestCase
         $gone = $this->item('legacy', 0, 'Elux Legend Old');
         self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$a, $gone]);
         $r = $web->get("/ui/review/listing/{$l}", ['queue' => 'Check', 'pick' => (string) $gone]);
-        self::assertStringContainsString('merged into another one', $r->text());
+        self::assertStringContainsString(Words::LISTING['pick_merged'], $r->text());
         self::assertSame((string) $a, $r->form('/decide')['sku_id']);
         $post = $this->submit($web, $l, $r->form('/decide'), ['action' => 'link', 'sku_id' => (string) $gone]);
         self::assertSame(409, $post->status, $post->describe());
@@ -671,7 +690,7 @@ final class UiReviewFlowTest extends UiTestCase
         }
         $listing = $web->get('/ui/search', ['q' => 'VAR-88']);
         self::assertContains('/ui/review/listing/' . $lb, $listing->hrefs(), 'a listing by its variant id');
-        self::assertStringContainsString('not linked', $listing->text());
+        self::assertStringContainsString(Words::SEARCH['not_yet'], $listing->text());
         $byBarcode = $web->get('/ui/search', ['q' => '5060999888777']);
         self::assertContains('/ui/review/listing/' . $la, $byBarcode->hrefs(), 'a listing by its own barcode');
         self::assertContains('/ui/items/' . $a, $byBarcode->hrefs(), 'and the item it is linked to');
@@ -681,10 +700,10 @@ final class UiReviewFlowTest extends UiTestCase
 
         self::assertStringContainsString('Type at least two characters.', $web->get('/ui/search', ['q' => 'x'])->text());
         $none = $web->get('/ui/search', ['q' => 'zzzzqqq']);
-        self::assertStringContainsString('No item matches.', $none->text());
-        self::assertStringContainsString('No listing matches.', $none->text());
-        self::assertStringContainsString('No item matches.', $web->get('/ui/search', ['q' => '%%'])->text(), 'a wildcard is only a character');
-        self::assertStringContainsString('No item matches.', $web->get('/ui/search', ['q' => '__'])->text());
+        self::assertStringContainsString(Words::SEARCH['no_items'], $none->text());
+        self::assertStringContainsString(Words::SEARCH['no_listings'], $none->text());
+        self::assertStringContainsString(Words::SEARCH['no_items'], $web->get('/ui/search', ['q' => '%%'])->text(), 'a wildcard is only a character');
+        self::assertStringContainsString(Words::SEARCH['no_items'], $web->get('/ui/search', ['q' => '__'])->text());
         self::assertSame(200, $web->get('/ui/search')->status, 'an empty search is a blank form');
         self::assertSame(200, $web->get('/ui/search', ['q' => str_repeat('a', 5000)])->status, 'a long query is cut, not an error');
         self::assertSame(200, $web->get('/ui/search', ['q' => "a'\"\\; DROP TABLE sku; --"])->status);
@@ -708,21 +727,23 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertSame(200, $item->status, $item->describe());
         self::assertStringContainsString($this->skuCode($a), $item->text());
         self::assertStringContainsString('5060777766665', $item->text());
-        self::assertSame(['5', '0', '0', '5'], array_slice(self::row($item, 'Stock', 'MAIN'), 0, 4), 'on hand, allocated, held, available');
-        self::assertStringContainsString('goods_in', $item->text(), 'the ledger shows the opening movement');
-        self::assertStringContainsString('linked elsewhere now', $item->text(), 'it moved to another item');
-        self::assertMatchesRegularExpression('/to 20\d\d-\d\d-\d\d \d\d:\d\d: this item x1, link by mapper 1/', $item->text(), 'the closed period of the history');
+        $main = (string) self::$db->value("SELECT COALESCE(name, code) FROM warehouse WHERE code = 'MAIN'");
+        self::assertSame(['5', '0', '0', '5'], array_slice(self::row($item, Words::ITEM['stock'], $main), 0, 4), 'in the building, sold, reserved, free to sell');
+        self::assertStringContainsString(Words::MOVEMENT['goods_in'], $item->text(), 'the ledger shows the opening movement, in words (F253)');
+        self::assertStringContainsString(Words::ITEM['now_elsewhere'], $item->text(), 'it moved to another item');
+        self::assertMatchesRegularExpression('/\d{1,2} [A-Z][a-z]{2} 20\d\d – \d{1,2} [A-Z][a-z]{2} 20\d\d: ' . preg_quote(Words::ITEM['h_this'] . ', ' . Words::ACTION_DONE['link']
+            . ' by mapper 1 (' . Words::saleUses(1) . ')', '/') . '/', $item->text(), 'the closed period of the history');
         self::assertContains('/ui/review/listing/' . $l, $item->hrefs());
 
         $other = $web->get('/ui/items/' . $b);
-        self::assertStringContainsString('linked now', $other->text());
-        self::assertMatchesRegularExpression('/to now: this item x1, link by mapper 1/', $other->text());
+        self::assertStringContainsString(Words::ITEM['now_here'], $other->text());
+        self::assertMatchesRegularExpression('/Since \d{1,2} [A-Z][a-z]{2} 20\d\d: ' . preg_quote(Words::ITEM['h_this'] . ', ' . Words::ACTION_DONE['link'], '/') . ' by mapper 1/', $other->text());
 
         // A merged item points to the one it went into.
         $c = $this->item('legacy', 0, 'Merged away');
         self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$b, $c]);
         $merged = $web->get('/ui/items/' . $c);
-        self::assertStringContainsString('This item was merged into', $merged->text());
+        self::assertStringContainsString(Words::ITEM['merged_into'], $merged->text());
         self::assertContains('/ui/items/' . $b, $merged->hrefs());
     }
 
@@ -772,7 +793,7 @@ final class UiReviewFlowTest extends UiTestCase
     private static function row(UiResponse $r, string $heading, string $head): array
     {
         $xp = new \DOMXPath($r->dom());
-        $rows = $xp->query("//h2[contains(., '{$heading}')]/following::table[1]//tr[th[starts-with(normalize-space(.), '{$head}')]]");
+        $rows = $xp->query("//*[self::h2 or self::h3][contains(., '{$heading}')]/following::table[1]//tr[th[starts-with(normalize-space(.), '{$head}')]]");
         self::assertNotFalse($rows);
         self::assertGreaterThan(0, $rows->length, "no row '{$head}' under '{$heading}': " . $r->describe());
         $tr = $rows->item(0);

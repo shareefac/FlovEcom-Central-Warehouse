@@ -1,133 +1,141 @@
-<p class="crumbs"><a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items') ?>">Items from <?= $e($s['code']) ?></a></p>
-<h1><?= $e($i['sku_code']) ?> <span class="muted"><?= $e($i['sku_name']) ?></span> from <?= $e($s['code']) ?></h1>
+<p class="crumbs"><a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items') ?>"><?= $say('SUPPLIER_ITEMS', 'title', (string) $s['name']) ?></a></p>
+<h1><?= $e($title) ?></h1>
+<?= $intro('supplier_item', $canManage ? null : \CW\Ui\Words::whoCan('suppliers.manage')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
 <?php if ($i['merged_code'] !== null): ?>
-<p class="note">The item was merged into <?= $e($i['merged_code']) ?>: add the supplier item to that one instead.</p>
+<p class="note"><?= $say('SUPPLIER_ITEMS', 'merged_note', (string) $i['merged_code']) ?></p>
 <?php endif; ?>
 <?php if ($s['status'] !== 'active'): ?>
-<p class="note">The supplier is <?= $e(str_replace('_', ' ', $s['status'])) ?>: no purchase order can be approved for it until a second person approves it.</p>
+<p class="note"><?= $say('SUPPLIER_ITEMS', 'supplier_not_active', \CW\Ui\Words::of('SUPPLIER_STATUS', (string) $s['status'])) ?></p>
+<?php endif; ?>
+
+<?php if ($canManage && (int) $i['is_active'] === 1): ?>
+<section class="card decide-box" aria-labelledby="main-h">
+  <h2 id="main-h" class="visually-hidden"><?= $word('SUPPLIER_ITEMS', 'main') ?></h2>
+  <form class="quick" method="post" action="<?= $u('/ui/purchasing/supplier-items/' . $i['id']) ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="version" value="<?= $e($i['version']) ?>">
+<?php if ((int) $i['is_preferred'] === 1): ?>
+    <input type="hidden" name="preferred" value="0">
+    <button type="submit" class="btn big secondary"><span class="btn-title"><?= $word('SUPPLIER_ITEMS', 'stop_main') ?></span> <span class="sub"><?= $word('SUPPLIER_ITEMS', 'stop_main_does') ?></span></button>
+<?php else: ?>
+    <input type="hidden" name="preferred" value="1">
+    <button type="submit" class="primary btn big"><span class="btn-title"><?= $word('SUPPLIER_ITEMS', 'make_main') ?></span> <span class="sub"><?= $word('SUPPLIER_ITEMS', 'make_main_does') ?></span></button>
+<?php endif; ?>
+  </form>
+</section>
 <?php endif; ?>
 
 <div class="cols">
   <section class="card" aria-labelledby="si-h">
-    <h2 id="si-h">Supplier item</h2>
+    <h2 id="si-h"><?= $word('SUPPLIER_ITEMS', 'how') ?></h2>
     <dl>
-      <dt>Supplier</dt><dd><a href="<?= $u('/ui/purchasing/suppliers/' . $s['id']) ?>"><?= $e($s['code']) ?></a> <?= $e($s['name']) ?></dd>
-      <dt>Item</dt><dd><a href="<?= $u('/ui/items/' . $i['sku_id']) ?>"><?= $e($i['sku_code']) ?></a> <?= $e($i['sku_name']) ?><?php if ($i['brand'] !== null): ?> <span class="muted"><?= $e($i['brand']) ?></span><?php endif; ?></dd>
-      <dt>Supplier's code</dt><dd><?= $e($i['supplier_code']) ?></dd>
-      <dt>Supplier's description</dt><dd><?= $e($i['supplier_description']) ?></dd>
-      <dt>Pack</dt><dd><?= $e($i['pack']) ?></dd>
-      <dt>Minimum order</dt><dd><?= $n($i['moq_packs']) ?> packs, in multiples of <?= $n($i['order_multiple_packs']) ?></dd>
-      <dt>Lead days</dt><dd><?php if ($i['lead_days'] === null): ?><span class="muted">the supplier's</span><?php else: ?><?= $e($i['lead_days']) ?><?php endif; ?></dd>
-      <dt>Preferred</dt><dd><?php if ((int) $i['is_preferred'] === 1 && (int) $i['is_active'] === 1): ?><span class="tag ok">the preferred supply of this item</span><?php else: ?>no<?php endif; ?></dd>
-      <dt>In use</dt><dd><?php if ((int) $i['is_active'] === 1): ?>yes<?php else: ?>no<?php endif; ?></dd>
-      <dt>Last price</dt><dd><?php if ($i['price_text'] === null): ?><span class="muted">none yet</span><?php else: ?><?= $e($i['price_text']) ?> per pack (<?= $e($i['unit_text']) ?> per unit), <?= $e($i['last_price_on']) ?>, <?= $e($i['last_price_source']) ?><?php endif; ?></dd>
-      <dt>Last PO price</dt><dd><?php if ($i['po_text'] === null): ?><span class="muted">none yet</span><?php else: ?><?= $e($i['po_text']) ?> on <?= $e($i['last_po_on']) ?><?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER_ITEMS', 'supplier') ?></dt><dd><a href="<?= $u('/ui/purchasing/suppliers/' . $s['id']) ?>"><?= $e($s['name']) ?></a></dd>
+      <dt><?= $word('SUPPLIER_ITEMS', 'product') ?></dt><dd><a href="<?= $u('/ui/items/' . $i['sku_id']) ?>"><?= $e($i['sku_name']) ?></a> <span class="muted"><?= $e($i['sku_code']) ?><?php if ($i['brand'] !== null): ?> · <?= $e($i['brand']) ?><?php endif; ?></span></dd>
+      <dt><?= $word('SUPPLIER_ITEMS', 'their_code') ?></dt><dd><?= $e($i['supplier_code']) ?></dd>
+<?php if ($i['supplier_description'] !== null && $i['supplier_description'] !== ''): ?>
+      <dt><?= $word('SUPPLIER_ITEMS', 'description') ?></dt><dd><?= $e($i['supplier_description']) ?></dd>
+<?php endif; ?>
+      <dt><?= $word('SUPPLIER_ITEMS', 'pack') ?></dt><dd><?= $e($i['pack']) ?></dd>
+      <dt><?= $word('SUPPLIER_ITEMS', 'smallest') ?></dt><dd><?= $say('SUPPLIER_ITEMS', 'smallest_line', $i['moq_packs'], $i['order_multiple_packs']) ?></dd>
+      <dt><?= $word('SUPPLIER_ITEMS', 'lead') ?></dt><dd><?php if ($i['lead_days'] === null): ?><span class="muted"><?= $word('SUPPLIER_ITEMS', 'supplier_days') ?></span><?php else: ?><?= $n($i['lead_days']) ?><?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER_ITEMS', 'main') ?></dt><dd><?php if ((int) $i['is_preferred'] === 1 && (int) $i['is_active'] === 1): ?><?= $chip('done', \CW\Ui\Words::SUPPLIER_ITEMS['main_yes']) ?><?php else: ?><?= $word('SUPPLIER_ITEMS', 'main_no') ?><?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER_ITEMS', 'in_use') ?></dt><dd><?php if ((int) $i['is_active'] === 1): ?><?= $word('SUPPLIER_ITEMS', 'yes') ?><?php else: ?><?= $word('SUPPLIER_ITEMS', 'no') ?><?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER_ITEMS', 'price_now') ?></dt><dd><?php if ($i['price_text'] === null): ?><span class="muted"><?= $word('SUPPLIER_ITEMS', 'none_yet') ?></span><?php else: ?><?= $say('SUPPLIER_ITEMS', 'price_line', $i['price_text'], (string) $i['unit_text'], (string) $i['price_source'], \CW\Ui\Html::day((string) $i['last_price_on'])) ?><?php endif; ?></dd>
+      <dt><?= $word('SUPPLIER_ITEMS', 'po_price') ?></dt><dd><?php if ($i['po_text'] === null): ?><span class="muted"><?= $word('SUPPLIER_ITEMS', 'none_yet') ?></span><?php else: ?><?= $say('SUPPLIER_ITEMS', 'po_line', $i['po_text'], \CW\Ui\Html::day((string) $i['last_po_on'])) ?><?php endif; ?></dd>
     </dl>
-<?php if ($canManage && (int) $i['is_active'] === 1): ?>
-    <form class="inline" method="post" action="<?= $u('/ui/purchasing/supplier-items/' . $i['id']) ?>">
-      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-      <input type="hidden" name="version" value="<?= $e($i['version']) ?>">
-<?php if ((int) $i['is_preferred'] === 1): ?>
-      <input type="hidden" name="preferred" value="0">
-      <button type="submit">No longer the preferred supply</button>
-<?php else: ?>
-      <input type="hidden" name="preferred" value="1">
-      <button type="submit" class="primary">Make this the preferred supply</button>
-<?php endif; ?>
-    </form>
-<?php endif; ?>
   </section>
 
   <section class="card" aria-labelledby="others-h">
-    <h2 id="others-h">Other supplies of this item</h2>
+    <h2 id="others-h"><?= $word('SUPPLIER_ITEMS', 'others') ?></h2>
 <?php if ($others === []): ?>
-    <p class="muted">None.</p>
+    <p class="muted"><?= $word('SUPPLIER_ITEMS', 'others_none') ?></p>
 <?php else: ?>
-    <table>
-      <thead><tr><th scope="col">Supplier</th><th scope="col">Pack</th><th scope="col" class="num">Last price</th><th scope="col"></th></tr></thead>
+    <div class="table-wrap">
+    <table class="stack others">
+      <thead><tr><th scope="col"><?= $word('SUPPLIER_ITEMS', 'supplier') ?></th><th scope="col"><?= $word('SUPPLIER_ITEMS', 'pack') ?></th><th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'per_pack') ?></th><th scope="col"><?= $word('SUPPLIER_ITEMS', 'main') ?></th></tr></thead>
       <tbody>
 <?php foreach ($others as $o): ?>
         <tr<?php if ((int) $o['is_active'] !== 1): ?> class="inactive"<?php endif; ?>>
-          <td><a href="<?= $u('/ui/purchasing/supplier-items/' . $o['id']) ?>"><?= $e($o['supplier_code']) ?></a> <?= $e($o['supplier_name']) ?><?php if ($o['status'] !== 'active'): ?> <span class="tag"><?= $e(str_replace('_', ' ', $o['status'])) ?></span><?php endif; ?></td>
-          <td><?= $e($o['pack']) ?></td>
-          <td class="num"><?= $e($o['price_text']) ?></td>
-          <td><?php if ((int) $o['is_preferred'] === 1 && (int) $o['is_active'] === 1): ?><span class="tag ok">preferred</span><?php endif; ?></td>
+          <th scope="row" class="c-head"><a href="<?= $u('/ui/purchasing/supplier-items/' . $o['id']) ?>"><?= $e($o['supplier_name']) ?></a><?php if ($o['status'] !== 'active'): ?> <?= $stateChip('SUPPLIER_STATUS', (string) $o['status']) ?><?php endif; ?></th>
+          <td data-label="<?= $word('SUPPLIER_ITEMS', 'pack') ?>"><?= $e($o['pack']) ?></td>
+          <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'per_pack') ?>"><?= $e($o['price_text']) ?></td>
+          <td data-label="<?= $word('SUPPLIER_ITEMS', 'main') ?>"><?php if ((int) $o['is_preferred'] === 1 && (int) $o['is_active'] === 1): ?><?= $chip('done', \CW\Ui\Words::SUPPLIER_ITEMS['yes']) ?><?php endif; ?></td>
         </tr>
 <?php endforeach; ?>
       </tbody>
     </table>
+    </div>
 <?php endif; ?>
   </section>
 </div>
 
 <?php if ($canManage): ?>
-<section aria-labelledby="price-h">
-  <h2 id="price-h">Record a price</h2>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/supplier-items/' . $i['id'] . '/price') ?>">
+<section class="card box" aria-labelledby="price-h">
+  <h2 id="price-h"><?= $word('SUPPLIER_ITEMS', 'price') ?></h2>
+  <form class="record" method="post" action="<?= $u('/ui/purchasing/supplier-items/' . $i['id'] . '/price') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($priceKey) ?>">
-    <label>Pack price, GBP excl. VAT <input type="text" name="pack_price" value="<?= $e($priceValues['pack_price']) ?>" inputmode="decimal" maxlength="20" required></label>
-    <label>Effective on (empty: today) <input type="date" name="effective_on" value="<?= $e($priceValues['effective_on']) ?>" max="<?= $e($today) ?>"></label>
-    <label>Note <input type="text" name="note" value="<?= $e($priceValues['note']) ?>" maxlength="255"></label>
-    <button type="submit">Record the price</button>
+    <label><?= $word('SUPPLIER_ITEMS', 'price_label') ?> <input type="text" name="pack_price" value="<?= $e($priceValues['pack_price']) ?>" inputmode="decimal" maxlength="20" class="short" required></label>
+    <label><?= $word('SUPPLIER_ITEMS', 'price_on') ?> <input type="date" name="effective_on" value="<?= $e($priceValues['effective_on']) ?>" max="<?= $e($today) ?>"></label>
+    <label><?= $word('SUPPLIER_ITEMS', 'price_note') ?> <input type="text" name="note" value="<?= $e($priceValues['note']) ?>" maxlength="255"></label>
+    <p class="actions"><button type="submit" class="primary"><?= $word('SUPPLIER_ITEMS', 'price_button') ?></button> <span class="hint"><?= $word('SUPPLIER_ITEMS', 'price_hint') ?></span></p>
   </form>
-  <p class="muted">A price older than the last price goes into the history only.</p>
 </section>
 
-<section aria-labelledby="edit-h">
-  <h2 id="edit-h">Change</h2>
+<details class="action">
+  <summary><?= $word('SUPPLIER_ITEMS', 'change') ?></summary>
   <form class="record" method="post" action="<?= $u('/ui/purchasing/supplier-items/' . $i['id']) ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($i['version']) ?>">
-    <label>Supplier's code <input type="text" name="supplier_code" value="<?= $e($i['supplier_code']) ?>" maxlength="64"></label>
-    <label>Supplier's description <input type="text" name="supplier_description" value="<?= $e($i['supplier_description']) ?>" maxlength="255"></label>
-    <label>Purchase unit <input type="text" name="purchase_unit" value="<?= $e($i['purchase_unit']) ?>" maxlength="32"></label>
-    <label>Central units in one purchase unit <input type="number" name="units_per_pack" value="<?= $e($i['units_per_pack']) ?>" min="1" max="100000"></label>
-    <label>Minimum order (packs) <input type="number" name="moq_packs" value="<?= $e($i['moq_packs']) ?>" min="1" max="100000"></label>
-    <label>Order in multiples of (packs) <input type="number" name="order_multiple_packs" value="<?= $e($i['order_multiple_packs']) ?>" min="1" max="10000"></label>
-    <label>Lead days (empty: the supplier's) <input type="number" name="lead_days" value="<?= $e($i['lead_days']) ?>" min="0" max="120"></label>
-    <label class="choice"><input type="checkbox" name="is_preferred" value="1"<?php if ((int) $i['is_preferred'] === 1): ?> checked<?php endif; ?>> The preferred supply of this item</label>
-    <label class="choice"><input type="checkbox" name="is_active" value="1"<?php if ((int) $i['is_active'] === 1): ?> checked<?php endif; ?>> In use</label>
-    <p class="actions"><button type="submit">Save</button></p>
+    <label><?= $word('SUPPLIER_ITEMS', 'code') ?> <input type="text" name="supplier_code" value="<?= $e($i['supplier_code']) ?>" maxlength="64"></label>
+    <label><?= $word('SUPPLIER_ITEMS', 'description') ?> <input type="text" name="supplier_description" value="<?= $e($i['supplier_description']) ?>" maxlength="255"></label>
+    <label><?= $word('SUPPLIER_ITEMS', 'unit') ?> <input type="text" name="purchase_unit" value="<?= $e($i['purchase_unit']) ?>" maxlength="32"></label>
+    <label><?= $word('SUPPLIER_ITEMS', 'upp') ?> <input type="number" name="units_per_pack" value="<?= $e($i['units_per_pack']) ?>" min="1" max="100000" class="short"></label>
+    <label><?= $word('SUPPLIER_ITEMS', 'moq_label') ?> <input type="number" name="moq_packs" value="<?= $e($i['moq_packs']) ?>" min="1" max="100000" class="short"></label>
+    <label><?= $word('SUPPLIER_ITEMS', 'steps_label') ?> <input type="number" name="order_multiple_packs" value="<?= $e($i['order_multiple_packs']) ?>" min="1" max="10000" class="short"></label>
+    <label><?= $word('SUPPLIER_ITEMS', 'lead_label') ?> <input type="number" name="lead_days" value="<?= $e($i['lead_days']) ?>" min="0" max="120" class="short"></label>
+    <label class="choice"><input type="checkbox" name="is_preferred" value="1"<?php if ((int) $i['is_preferred'] === 1): ?> checked<?php endif; ?>> <?= $word('SUPPLIER_ITEMS', 'main_tick') ?></label>
+    <label class="choice"><input type="checkbox" name="is_active" value="1"<?php if ((int) $i['is_active'] === 1): ?> checked<?php endif; ?>> <?= $word('SUPPLIER_ITEMS', 'in_use_tick') ?></label>
+    <p class="actions"><button type="submit"><?= $word('SUPPLIER_ITEMS', 'save') ?></button></p>
   </form>
-</section>
+</details>
 <?php endif; ?>
 
 <section aria-labelledby="history-h">
-  <h2 id="history-h">Price history</h2>
+  <h2 id="history-h"><?= $word('SUPPLIER_ITEMS', 'history') ?></h2>
 <?php if ($history === []): ?>
-  <p class="muted">No price recorded yet.</p>
+  <p class="muted"><?= $word('SUPPLIER_ITEMS', 'no_history') ?></p>
 <?php else: ?>
-  <table class="history">
+  <div class="table-wrap">
+  <table class="stack history">
     <thead>
       <tr>
-        <th scope="col">Effective on</th>
-        <th scope="col" class="num">Pack price</th>
-        <th scope="col" class="num">Units per pack</th>
-        <th scope="col" class="num">Per unit</th>
-        <th scope="col">Source</th>
-        <th scope="col">Reference</th>
-        <th scope="col">Note</th>
-        <th scope="col">Recorded (UTC)</th>
+        <th scope="col"><?= $word('SUPPLIER_ITEMS', 'from') ?></th>
+        <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'per_pack') ?></th>
+        <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'items_in_pack') ?></th>
+        <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'per_item') ?></th>
+        <th scope="col"><?= $word('SUPPLIER_ITEMS', 'source') ?></th>
+        <th scope="col"><?= $word('SUPPLIER_ITEMS', 'note') ?></th>
+        <th scope="col"><?= $word('SUPPLIER_ITEMS', 'recorded') ?></th>
       </tr>
     </thead>
     <tbody>
 <?php foreach ($history as $h): ?>
       <tr>
-        <td><?= $e($h['effective_on']) ?></td>
-        <td class="num"><?= $e($h['pack_text']) ?></td>
-        <td class="num"><?= $n($h['units_per_pack']) ?></td>
-        <td class="num"><?= $e($h['unit_text']) ?></td>
-        <td><?= $e($h['source']) ?></td>
-        <td><?php if ($h['document_id'] !== null): ?><a href="<?= $u('/ui/documents/' . $h['document_id']) ?>"><?= $e($h['document_number'] ?? $h['source_ref']) ?></a><?php else: ?><?= $e($h['source_ref']) ?><?php endif; ?></td>
-        <td><?= $e($h['note']) ?></td>
-        <td><?= $dt($h['recorded_at']) ?> <span class="muted"><?= $e($h['recorded_by_name'] ?? $h['recorded_actor']) ?></span></td>
+        <th scope="row" class="c-head"><?= $day($h['effective_on']) ?></th>
+        <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'per_pack') ?>"><?= $e($h['pack_text']) ?></td>
+        <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'items_in_pack') ?>"><?= $n($h['units_per_pack']) ?></td>
+        <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'per_item') ?>"><?= $e($h['unit_text']) ?></td>
+        <td data-label="<?= $word('SUPPLIER_ITEMS', 'source') ?>"><?php if ($h['document_id'] !== null && $canSeeOrders): ?><a href="<?= $u('/ui/documents/' . $h['document_id']) ?>"><?= $e($h['source_text']) ?></a><?php else: ?><?= $e($h['source_text']) ?><?php endif; ?></td>
+        <td data-label="<?= $word('SUPPLIER_ITEMS', 'note') ?>"><?= $e($h['note']) ?></td>
+        <td data-label="<?= $word('SUPPLIER_ITEMS', 'recorded') ?>"><?= $say('SUPPLIER_ITEMS', 'recorded_line', \CW\Ui\Html::when((string) $h['recorded_at']), (string) ($h['recorded_by_name'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>
   </table>
+  </div>
 <?php endif; ?>
 </section>

@@ -10,44 +10,31 @@ use CW\Mapping\KeySample;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Words;
 
 /**
- * The Key spot-check (docs/decisions.md M28): the samples drawn by bin/sample_proposals.php, and for one sample its
- * members with what became of each, "n of 20 decided", and whether the bulk confirm may run (every member confirmed by
- * the sample's owner, and the sample fit: 20 or more, every stratum represented, its seed's draw). Read-only: the owner
- * confirms or rejects each member on the normal review screen (each row links there, and that page links back), and
- * the bulk confirm itself is a CLI step (bin/bulk_confirm_key.php), never a button. The listings of the population held
- * back from every bulk confirm for one-at-a-time review (bin/key_bulk_hold.php, M30) are listed with why, by whom and when,
- * and what became of each since (a listing a bulk confirm linked is flagged: it never should have been).
+ * The spot check (docs/decisions.md M28; in plain words since 7 Oct 2026, plan §6.9, 6.10): the spot checks started on the
+ * server, and for one its 20 matches with what became of each, "n of 20 checked", the 20 blocks (design B), the button to the
+ * next one for its owner, and whether the rest may be confirmed together (every match confirmed by the spot check's owner,
+ * and the spot check fit: 20 or more, every band represented, its seed's draw). Read-only: the owner answers each match on
+ * its own page (each row links there, and that page leads back), and confirming the rest together is a server step that
+ * Fazil runs, never a button. The matches set aside to check by hand (M30) are listed with why, by whom and when, and what
+ * became of each since (one a bulk step matched is flagged). The seed and the method are in a "Technical details" fold.
  */
 final class SamplesController
 {
-    public const STATE_LABELS = [
-        'open' => 'Not decided yet',
-        'confirmed' => 'Confirmed',
-        'rejected' => 'Rejected',
-        'waiting_second' => 'Waiting for a second person',
-        'needed_second' => 'Confirmed with a second person',
-        'superseded' => 'Replaced by a later proposal',
-        'decided_otherwise' => 'Decided otherwise',
-        'confirmed_by_other' => 'Decided by someone other than the sample\'s owner',
-        'confirmed_not_by_lead' => 'Confirmed, but not while a mapping lead',
-        'changed_since' => 'Confirmed, but relinked or unlinked since',
-    ];
-    public const FIT_LABELS = [
-        'sample_too_small' => 'fewer than ' . KeySample::MIN_SIZE . ' proposals',
-        'draw_not_reproducible' => 'its members are not what its seed draws',
-    ];
+    /** Member state => its words (Words::SAMPLE_STATE; the keys are KeySample's states). */
+    public const STATE_LABELS = Words::SAMPLE_STATE;
 
     public function index(Context $ctx): HtmlResponse
     {
         $rows = [];
         foreach ((new KeySample($ctx->db))->all() as $s) {
-            $rows[] = ['id' => $s['id'], 'name' => $s['name'], 'size' => $s['size'], 'decided' => $s['decided'], 'confirmed' => $s['confirmed'],
-                'failed' => $s['failed'], 'verdict' => $s['verdict'], 'fit' => $s['fit'], 'created_by' => $s['created_by'], 'created_at' => $s['created_at'],
-                'population' => $s['population'], 'bulk_linked' => $s['bulk_linked'], 'bulk_undone' => $s['bulk_undone']];
+            $rows[] = ['id' => $s['id'], 'name' => $s['name'], 'size' => $s['size'], 'decided' => $s['decided'], 'result' => self::result($s['verdict'], $s['fit']),
+                'created_by' => $s['created_by'], 'created_at' => $s['created_at'], 'population' => $s['population'], 'bulk_linked' => $s['bulk_linked'],
+                'bulk_undone' => $s['bulk_undone']];
         }
-        return $ctx->page('samples', ['rows' => $rows], 200, ['title' => 'Key spot-check', 'active' => 'samples']);
+        return $ctx->page('samples', ['rows' => $rows], 200, ['title' => Words::title('samples'), 'active' => 'samples']);
     }
 
     public function show(Context $ctx): HtmlResponse
@@ -55,25 +42,51 @@ final class SamplesController
         try {
             $s = (new KeySample($ctx->db))->status($ctx->id());
         } catch (CwException $e) {
-            return $ctx->error($e->httpStatus, $e->errorCode, $e->getMessage());
+            return $ctx->error($e->httpStatus, $e->errorCode, $e->getMessage(), ['/ui/review/samples', Words::title('samples')]);
+        }
+        $names = [];
+        foreach ($ctx->queries()->channels() as $c) {
+            $names[(string) $c['code']] = (string) $c['name'];
         }
         $members = [];
+        $blocks = [];
+        $next = null;
         foreach ($s['members'] as $m) {
+            $state = $m['state'] === 'confirmed' ? 'yes' : ($m['state'] === 'open' ? 'todo' : 'no');
             $members[] = $m + [
-                'state_label' => self::STATE_LABELS[$m['state']] ?? $m['state'],
+                'website' => $names[$m['channel']] ?? $m['channel'],
                 'bad' => in_array($m['state'], KeySample::FAILED_STATES, true),
                 'link' => Html::url('/ui/review/listing/' . $m['listing_id'], ['sample' => $s['id']]),
             ];
+            $blocks[] = ['state' => $state, 'title' => Words::say('SPOT', ['yes' => 'block_yes', 'no' => 'block_wrong', 'todo' => 'block_todo'][$state], (int) $m['position'])];
+            if ($state === 'todo' && $next === null) {
+                $next = ['position' => (int) $m['position'], 'link' => Html::url('/ui/review/listing/' . $m['listing_id'], ['sample' => $s['id']])];
+            }
         }
-        $fit = array_map(static fn (string $f): string => self::FIT_LABELS[$f]
-            ?? (str_starts_with($f, 'stratum_short:') ? 'too few proposals from stratum ' . substr($f, strlen('stratum_short:')) : $f), $s['fit']);
         $holds = [];
         foreach (KeyHold::ofSample($ctx->db, $s['id']) as $h) {
             $holds[] = $h + ['link' => Html::url('/ui/review/listing/' . $h['listing_id'], ['sample' => $s['id']]),
+                'website' => $names[(string) $h['channel']] ?? (string) $h['channel'],
                 'newer' => $h['open_proposal_id'] !== null && $h['open_proposal_id'] !== $h['proposal_id']];
         }
         $heldOpen = count(array_filter($holds, static fn (array $h): bool => $h['open']));
-        return $ctx->page('sample', ['s' => $s, 'members' => $members, 'fit' => $fit, 'holds' => $holds, 'held_open' => $heldOpen], 200,
-            ['title' => 'Key spot-check ' . $s['name'], 'active' => 'samples']);
+        $me = $ctx->me();
+        $mine = $s['created_by_id'] === $me->id && $me->isLead();
+        $fit = array_map(static fn (string $f): string => Words::SAMPLE_FIT[$f] ?? (str_starts_with($f, 'stratum_short:') ? Words::SAMPLE_FIT['stratum_short'] : $f), $s['fit']);
+        return $ctx->page('sample', ['s' => $s, 'members' => $members, 'blocks' => $blocks, 'fit' => $fit, 'holds' => $holds, 'held_open' => $heldOpen,
+            'result' => self::result($s['verdict'], $s['fit']), 'next' => $mine && $s['verdict'] === 'waiting' ? $next : null, 'mine' => $mine,
+            'counts' => ['yes' => $s['confirmed'], 'wrong' => $s['failed'], 'todo' => $s['size'] - $s['decided']]], 200,
+            ['title' => Words::say('SAMPLE', 'title', $s['name']), 'active' => 'samples']);
+    }
+
+    /** A spot check's result (Words::SAMPLE_RESULT): in progress, passed, failed, or all right but unusable. @param list<string> $fit */
+    private static function result(string $verdict, array $fit): string
+    {
+        return match (true) {
+            $verdict === 'complete' && $fit !== [] => 'unusable',
+            $verdict === 'complete' => 'passed',
+            $verdict === 'failed' => 'failed',
+            default => 'waiting',
+        };
     }
 }

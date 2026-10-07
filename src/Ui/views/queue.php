@@ -1,110 +1,115 @@
-<h1><?= $e($band_label) ?> queue</h1>
+<div class="head-help">
+  <h1><?= $e($title) ?></h1>
+  <?= $explain('how_sure', \CW\Ui\Words::THING['band']) ?>
+</div>
+<?= $intro('queue_' . $qc->band, $lookOnly) ?>
 
-<nav class="tabs" aria-label="Queues">
+<nav class="tabs" aria-label="<?= $word('QUEUE', 'lists') ?>">
 <?php foreach ($bands as $b): ?>
-  <a href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel]) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php endif; ?>><?= $e($b['label']) ?></a>
+  <a href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel]) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php endif; ?>><?= $e($b['label']) ?> <span class="tab-count">(<?= $n($b['count']) ?>)</span></a>
 <?php endforeach; ?>
-  <a href="/ui/review?queue=pending">Second approval</a>
 </nav>
+<p class="see-also"><a href="/ui/review?queue=pending"><?= $word('MENU', 'pending') ?></a></p>
 <?php if ($qc->band === 'Manual'): ?>
-<p class="note">These listings match a Vape and Go item except for a renamed line or brand (for example Electrofag &ldquo;Crystal Pro Max&rdquo;
-  = Vape and Go &ldquo;Hayati Pro Max&rdquo;); each page names the rename and the items it pairs with. The rename itself (an alias) is not
-  recorded on these screens: a mapping lead confirms aliases separately. Decide each listing on its own: link it to the paired item it is
-  the same product as (&ldquo;Use this item&rdquo;), mark it as a new item, or ignore it.</p>
+<p class="note"><?= $word('QUEUE', 'renamed_note') ?></p>
+<?php endif; ?>
+<?php if ($leadOnly): ?>
+<p class="note"><?= $word('QUEUE', 'lead_only') ?></p>
 <?php endif; ?>
 
 <form class="filters" method="get" action="/ui/review">
   <input type="hidden" name="queue" value="<?= $e($qc->band) ?>">
-  <label>Site
+  <label><?= $word('QUEUE', 'website') ?>
     <select name="channel">
-      <option value="">All sites</option>
+      <option value=""><?= $word('QUEUE', 'any_website') ?></option>
 <?php foreach ($channels as $c): ?>
-      <option value="<?= $e($c['code']) ?>"<?php if ($qc->channel === $c['code']): ?> selected<?php endif; ?>><?= $e($c['code']) ?></option>
+      <option value="<?= $e($c['code']) ?>"<?php if ($qc->channel === $c['code']): ?> selected<?php endif; ?>><?= $e($c['name']) ?></option>
 <?php endforeach; ?>
     </select>
   </label>
-  <label>Lane
+  <label><?= $word('QUEUE', 'found_by') ?>
     <select name="lane">
-      <option value="">Any lane</option>
+      <option value=""><?= $word('QUEUE', 'any') ?></option>
 <?php foreach ($lanes as $lane): ?>
-      <option value="<?= $e($lane) ?>"<?php if ($qc->lane === $lane): ?> selected<?php endif; ?>><?= $e($lane) ?></option>
+      <option value="<?= $e($lane) ?>"<?php if ($qc->lane === $lane): ?> selected<?php endif; ?>><?= $word('LANE', $lane) ?></option>
 <?php endforeach; ?>
     </select>
   </label>
-  <label>Units, 30 days, at least
-    <input type="number" name="min" min="0" max="999999" value="<?= $e($qc->min > 0 ? $qc->min : '') ?>">
+  <label><?= $word('QUEUE', 'min') ?>
+    <input type="number" name="min" min="0" max="999999" inputmode="numeric" value="<?= $e($qc->min > 0 ? $qc->min : '') ?>">
   </label>
-  <label>Title, brand, variant id or barcode
+  <label><?= $word('QUEUE', 'text') ?>
     <input type="search" name="q" value="<?= $e($qc->text) ?>" maxlength="100">
   </label>
-  <button type="submit">Filter</button>
+  <button type="submit"><?= $word('QUEUE', 'show') ?></button>
 </form>
 
-<p class="muted"><?= $n($total) ?> listing<?php if ($total !== 1): ?>s<?php endif; ?> in this view, best sellers first (units in 365 days, then 30 days).
-<?php if ($total === 0): ?>Nothing is waiting here.<?php endif; ?></p>
+<?php if ($total === 0 && $filtered): ?>
+<?= $empty(\CW\Ui\Words::QUEUE['empty_filter'], \CW\Ui\Words::QUEUE['empty_filter_text'], $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
+<?php elseif ($total === 0 && $next_list !== null): ?>
+<?= $empty(\CW\Ui\Words::QUEUE['empty'], \CW\Ui\Words::QUEUE['empty_text'], $next_list['href'], \CW\Ui\Words::say('QUEUE', 'next_list', $next_list['label'], $next_list['count'])) ?>
+<?php elseif ($total === 0): ?>
+<?= $empty(\CW\Ui\Words::QUEUE['empty'], \CW\Ui\Words::QUEUE['all_done'], '/ui/', \CW\Ui\Words::MENU['home']) ?>
+<?php else: ?>
+<p class="muted"><?php if ($total === 1): ?><?= $word('QUEUE', 'total_one') ?><?php else: ?><?= $say('QUEUE', 'total_many', $total) ?><?php endif; ?></p>
+<?php endif; ?>
 
 <?php if ($rows !== []): ?>
-<table class="queue">
+<div class="table-wrap">
+<table class="stack list queue">
   <thead>
     <tr>
-      <th scope="col">Listing</th>
-      <th scope="col">Site</th>
-      <th scope="col" class="num">365 days</th>
-      <th scope="col" class="num">30 days</th>
-      <th scope="col">Proposal</th>
-      <th scope="col">AI</th>
-      <th scope="col">Flags</th>
-      <th scope="col"><span class="visually-hidden">Review</span></th>
+      <th scope="col"><?= $word('QUEUE', 'product') ?></th>
+      <th scope="col"><?= $word('QUEUE', 'website') ?></th>
+      <th scope="col" class="num"><?= $word('QUEUE', 'sold_365') ?></th>
+      <th scope="col" class="num"><?= $word('QUEUE', 'sold_30') ?></th>
+      <th scope="col"><?= $word('QUEUE', 'suggested') ?></th>
+      <th scope="col"><?= $word('QUEUE', 'ai') ?></th>
+      <th scope="col"><?= $word('QUEUE', 'watch') ?></th>
+      <th scope="col"><span class="visually-hidden"><?= $e($button) ?></span></th>
     </tr>
   </thead>
   <tbody>
 <?php foreach ($rows as $r): ?>
     <tr>
-      <td>
-        <a href="<?= $e($r['link']) ?>"><?= $e($r['title'] ?? '(no title)') ?></a>
+      <th scope="row" class="c-head">
+        <a class="o-name" href="<?= $e($r['link']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></a>
 <?php if ($r['variant_title'] !== null): ?>
-        <span class="muted">&middot; <?= $e($r['variant_title']) ?></span>
+        <span class="o-sub"><?= $e($r['variant_title']) ?></span>
 <?php endif; ?>
 <?php if ($r['brand'] !== null): ?>
-        <div class="muted"><?= $e($r['brand']) ?></div>
+        <span class="o-sub"><?= $e($r['brand']) ?></span>
 <?php endif; ?>
-      </td>
-      <td><?= $e($r['channel']) ?> <span class="muted"><?= $e($r['variant']) ?></span></td>
-      <td class="num"><?= $n($r['units_365d'] ?? 0) ?></td>
-      <td class="num"><?= $n($r['units_30d'] ?? 0) ?></td>
-      <td>
+      </th>
+      <td data-label="<?= $word('QUEUE', 'website') ?>"><?= $e($r['channel']) ?> <span class="muted small"><?= $say('QUEUE', 'option', (string) $r['variant']) ?></span></td>
+      <td class="num" data-label="<?= $word('QUEUE', 'sold_365') ?>"><?= $n($r['units_365d'] ?? 0) ?></td>
+      <td class="num" data-label="<?= $word('QUEUE', 'sold_30') ?>"><?= $n($r['units_30d'] ?? 0) ?></td>
+      <td data-label="<?= $word('QUEUE', 'suggested') ?>">
 <?php if ($r['new_item']): ?>
-        New item
+        <?= $word('QUEUE', 'new_product') ?>
 <?php elseif ($r['sku_code'] !== null): ?>
         <?= $e($r['sku_code']) ?> <span class="muted"><?= $e($r['sku_name']) ?></span>
 <?php else: ?>
-        <span class="muted">none</span>
+        <span class="muted"><?= $word('QUEUE', 'none') ?></span>
 <?php endif; ?>
-<?php if ($r['lane'] !== null): ?>
-        <div class="muted"><?= $e($r['lane']) ?></div>
-<?php endif; ?>
-      </td>
-      <td>
-<?php if ($r['ai_outcome'] !== null): ?>
-        <?= $e($r['ai_outcome']) ?><?php if ($r['confidence'] !== null): ?> <span class="muted"><?= $e($r['confidence']) ?>%</span><?php endif; ?>
+<?php if ($r['same_barcode']): ?>
+        <span class="o-sub"><?= $chip('done', \CW\Ui\Words::QUEUE['same_barcode']) ?></span>
 <?php endif; ?>
       </td>
-      <td>
-<?php foreach ($r['flags'] as $flag): ?>
-        <span class="tag"><?= $e($flag) ?></span>
-<?php endforeach; ?>
-      </td>
-      <td><a class="button" href="<?= $e($r['link']) ?>">Review</a></td>
+      <td data-label="<?= $word('QUEUE', 'ai') ?>"><?= $e($r['ai'] ?? '') ?></td>
+      <td data-label="<?= $word('QUEUE', 'watch') ?>"><?php foreach ($r['watch'] as $w): ?><span class="tag warn"><?= $e($w) ?></span> <?php endforeach; ?></td>
+      <td class="c-next"><a class="btn<?php if ($button === \CW\Ui\Words::QUEUE['open']): ?> primary<?php else: ?> secondary<?php endif; ?>" href="<?= $e($r['link']) ?>"><?= $e($button) ?></a></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
 </table>
+</div>
 <?php endif; ?>
 
 <?php if ($pages > 1): ?>
-<nav class="pager" aria-label="Pages">
-<?php if ($prev_link !== null): ?><a href="<?= $e($prev_link) ?>" rel="prev">Previous</a><?php endif; ?>
-  <span>Page <?= $n($page_no) ?> of <?= $n($pages) ?></span>
-<?php if ($next_link !== null): ?><a href="<?= $e($next_link) ?>" rel="next">Next</a><?php endif; ?>
+<nav class="pager" aria-label="<?= $say('QUEUE', 'page', $page_no, $pages) ?>">
+<?php if ($prev_link !== null): ?><a href="<?= $e($prev_link) ?>" rel="prev"><?= $word('QUEUE', 'previous') ?></a><?php endif; ?>
+  <span><?= $say('QUEUE', 'page', $page_no, $pages) ?></span>
+<?php if ($next_link !== null): ?><a href="<?= $e($next_link) ?>" rel="next"><?= $word('QUEUE', 'next') ?></a><?php endif; ?>
 </nav>
 <?php endif; ?>

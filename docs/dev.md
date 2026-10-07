@@ -166,9 +166,57 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
   as `UiClient`. Use them for what the screens show and for auth logic; keep `Ui*Test` for what only Apache + php-fpm prove
   (headers on the wire, the vhost, assets). `LoginLimiterRaceTest` starts parallel sign-ins with `tests/Support/login_race_worker.php`
   (one `cw_app` connection each, at most 10).
-- `tests/Unit/UiTemplatesTest` fails the build when a template prints anything that did not go through
-  `$e/$n/$dec/$dt/$u/$pct/$partial`, or uses an inline script, style or event handler, or a POST form lacks
-  the CSRF field. Templates get no other helpers: add a helper in `View::render` and to that test together.
+- `tests/Unit/UiTemplatesTest` fails the build when a template prints anything that did not go through one of the
+  helpers of `View::render` (`$e $n $dec $dt $uk $u $pct $partial` and the plain-words helpers `$word $say $money $day $when $jobs
+  $chip $stateChip $intro $explain $cards $empty`; `$uk` is the receiving screens' UK time until their plain-words pass moves them
+  to `$when`), or uses an inline script, style or event handler, or a POST form lacks the
+  CSRF field, or (on the pages it lists) a word is typed in the template instead of taken from `Ui\Words`, a list table is
+  neither a `table.stack` with `data-label` cells nor inside a `.scroll`, or a date is printed as UTC. Add a helper in
+  `View::render` and to that test together; a template variable may not be named like a helper (`View` refuses it).
+
+## Writing for the staff screens (plain words; `docs/decisions.md` U25-U79)
+
+The readers are warehouse and office staff and the owner, whose second language is English, often on a phone. Every word on
+a screen comes from **`src/Ui/Words.php`** (constants keyed by the internal code, plus pure helpers such as `say()`,
+`saleUses()`, `whoCan()`, `noteRequired()`); templates print them with `$word` / `$say`, controllers use the constants.
+`tests/Unit/WordsTest.php` fails on a code of the system without a word and on a word that breaks rules 2, 10 and 12 below.
+The rules (plan `/root/cw_work/ui_clarity/plan.md` §7):
+
+1. Short sentences: about 15 words or fewer, one idea each.
+2. Glossary words only. Never show a code: no table, column, enum or role code, file path, server command, decision number
+   or phase code. Machine detail goes in a folded "Technical details".
+3. A code staff must see (CW-000123, PO-000123, a VAT letter) is explained the first time it appears on the page.
+4. Every page starts with one sentence saying what it is for and what to do (`Words::PAGE_INTRO`, `$intro`); a page where the
+   person can only look says so ("You can look; … change this.").
+5. Buttons are verbs that name the result ("Confirm order", "Save and open the next one"); never "Submit" or "OK". A button
+   that cannot be undone, or that has a big effect, says the effect ("Yes, it is not a match: stop the bulk link").
+6. After every click, say what happened and what comes next, naming the thing. A notice shown on the next item says so.
+7. Errors say what went wrong, whether anything was saved, and what to do; a full sentence next to the field, with what the
+   person typed kept.
+8. Empty states say why the page is empty and what to do ("your filter hides everything" with Clear, versus "nothing is
+   waiting" with the next list).
+9. Numbers carry a unit or a meaning; money is £ with 2 decimals and thousands separators; never ∞, a bare "-" or "0.0%".
+10. Dates in UK time ("7 Oct 2026, 10:26", `$when` / `$day`), never "UTC"; people by name, "set up by CW" for system rows.
+11. Jobs, not role codes ("Reviewers can."); never "Your role (buyer) cannot …".
+12. Name who to ask (`Words::ASK`, "Fazil"); never tell staff to run a command or read a docs file.
+13. One name for one thing across the menu, title, crumbs, buttons, notices and errors. "Count" means a shelf count only
+    (owner's correction b, 7 Oct 2026).
+14. Phone first: no sideways scroll at 375 px; a list table is a `table.stack` with `data-label` (one card per row at 640 px of
+    page or less) inside a `.table-wrap` (it scrolls in its own box on a wider screen), any other table sits in a `.scroll`;
+    inputs 16 px or more; tap targets 44 px or more; the main answer reachable without scrolling past all the evidence.
+15. Badges count only what this person can act on.
+16. Fold rare or technical detail into "Technical details".
+17. Keep the CSP: one stylesheet and `app.js` only, no inline script or style, no `data:` URIs, no SVG, no external asset. Help
+    is a `<details class="help">` (`$explain`), a confirmation is a second step (`<details>`), a tick-box or a second button.
+    Words `app.js` shows come from the page (`data-` attributes filled from `Words`).
+18. Never rewrite a service (`CwException`) message for the screen: the JSON API returns them. Translate by error code (and
+    its `detail`) in the UI layer: `Words::ERROR`, a controller's `plain()`; a code without words shows the service's message
+    as a sentence followed by "Nothing was saved.". `Document::label()` stays (file names, service messages).
+19. Tests assert words through the `Words` constants, not copied strings, so a wording change edits one place.
+
+Words that are provisional until the owner confirms them (band names, "website product" / "warehouse product", "match",
+"Matching lead", "second OK", the staging strip, "Coming later" without dates, the behaviour items) are listed in
+`docs/decisions.md` U70. Change them in `Words` only.
 
 ## Staff accounts, signing in, the public HTTPS vhost
 
@@ -234,7 +282,7 @@ scripts/remote.sh ui 'curl -s -i -H "Host: cw-ui.staging.invalid" http://127.0.0
 | `tests/Integration/Mapping/DuplicateMergeTest.php`, `tests/Integration/UiKernel/DuplicatesScreenTest.php` | merges and their stock (in-flight units, value seqs, feed, reorder demand), the two-person cases, a group in one transaction, keep separate, the split; the screen (list, group, merge, keep separate, a choice per listing, stale form, counted item, roles, undo). The rebase after a merge: `OpeningRebaseTest::testAMergeBetweenTheEstimateAndT0RebasesTheKeptItemOnBothListings`; hostile text on both screens: `UiSecurityTest` (slot `ui`) |
 | `bin/create_channel.php`, `bin/rotate_key.php`, `bin/channel_set.php` | channel, key, mode and allowlist tools (connect as `cw_app`; A11, A14) |
 | `src/Auth/` | staff sign-in for the UI: `Login` (password + TOTP), `LoginLimiter`, `Sessions` (`staff_session`, hashed ids), `Csrf`, `StaffIdentity` (M2, U1-U4) |
-| `src/Ui/` | the staff screens: `Kernel` (route, session, role, same-origin + CSRF, hardened headers), `Router`/`Route`, `Context`, `UiRequest`, `HtmlResponse`, `Html` (escaping), `View` (templates), `Queries` (read side), `QueueContext`, `Compare`, `Assets`; `Controller/{Auth,Dashboard,Review,Item,Search}Controller`; templates in `src/Ui/views/`; the two static files in `public/ui/assets/` |
+| `src/Ui/` | the staff screens: `Kernel` (route, session, role, same-origin + CSRF, hardened headers), `Router`/`Route`, `Context`, `UiRequest`, `HtmlResponse`, `Html` (escaping, chips, help, money and UK time), `View` (templates and their helpers), `Words` (every word on a screen, U25), `Tabs` (the phone tab bar), `HomeTasks` + `HomeCounts` (Home's "What needs doing" cards and their counts), `PoWarnings`, `ReorderWhy`, `Queries` (read side), `QueueContext`, `Compare`, `Assets`; `Controller/*Controller`; templates in `src/Ui/views/`; the two static files in `public/ui/assets/` (design A with B's parts, U28, U32) |
 | `tests/Integration/Ui*Test.php`, `tests/Support/Ui{TestCase,Client,Response}.php` | the UI over HTTP (slot `ui` only); `tests/Unit/Ui{Unit,Templates}Test.php` need no server |
 | `tests/Integration/{UiKernel,Auth,Staff}/`, `tests/Support/{KernelUiTestCase,KernelBrowser}.php`, `login_race_worker.php` | the UI and sign-in in-process as `cw_app` (every slot): approval screens, review evidence, password change, limiter race, staff reset |
 | `deploy/staging/*-ui.conf`, `install_ui.sh` | the loopback UI vhost + pool for slot `ui` |

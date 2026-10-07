@@ -17,6 +17,7 @@ use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\UiRequest;
+use CW\Ui\Words;
 
 /**
  * The item card screens (IM3; docs/decisions.md I109, I110):
@@ -49,9 +50,9 @@ final class ItemCardsController
             $st = $hasCard ? ItemRules::status($r) : ['level' => null, 'blocked' => [], 'warnings' => []];
             $rows[] = [
                 'id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name'], 'held' => (int) $r['held'],
-                'type' => $r['product_type'] === null ? null : ItemRules::TYPES[(string) $r['product_type']] ?? (string) $r['product_type'],
-                'ml' => Html::dec($r['liquid_ml']), 'mg' => Html::dec($r['nicotine_mg']), 'duty' => ItemCards::yesNoLabel($r['duty_liable']),
-                'single_use' => ItemCards::yesNoLabel($r['single_use']), 'flavour' => $r['flavour'], 'flavour_proposed' => $r['flavour_status'] === 'proposed',
+                'type' => $r['product_type'] === null ? null : ucfirst(ItemRules::TYPES[(string) $r['product_type']] ?? (string) $r['product_type']),
+                'ml' => Html::dec($r['liquid_ml']), 'mg' => Html::dec($r['nicotine_mg']), 'duty' => self::yesNo($r['duty_liable']),
+                'single_use' => self::yesNo($r['single_use']), 'flavour' => $r['flavour'], 'flavour_proposed' => $r['flavour_status'] === 'proposed',
                 'discontinued' => $hasCard && (int) $r['discontinued'] === 1,
                 'state' => !$hasCard ? 'none' : ($r['confirmed_at'] !== null ? 'confirmed' : ($r['first_confirmed_at'] !== null ? 'changed' : 'unconfirmed')),
                 'level' => $st['level'], 'blocked' => ItemRules::labels($st['blocked']), 'warnings' => ItemRules::labels($st['warnings']),
@@ -61,14 +62,51 @@ final class ItemCardsController
             'rows' => $rows,
             'filters' => $f,
             'query' => ItemCardList::query($f),
-            'states' => ItemCardList::STATES,
-            'types' => ItemRules::TYPES,
+            'states' => array_map(static fn (string $code): string => $code === 'unconfirmed' ? Words::CARDS['filter_unconfirmed'] : Words::of('CARD_STATE', $code),
+                array_combine(array_keys(ItemCardList::STATES), array_keys(ItemCardList::STATES))),
+            'types' => array_map('ucfirst', ItemRules::TYPES),
             'total' => $total,
             'page' => $f['page'],
             'pages' => $pages,
             'summary' => $list->summary(),
+            'filtered' => $f['q'] !== '' || $f['state'] !== 'all' || $f['type'] !== '' || $f['stock'] || $f['warnings'] || $f['blocked'] || $f['discontinued'],
             'canEdit' => $ctx->me()->can('catalogue.edit'),
-        ], 200, ['title' => 'Item cards', 'active' => 'cards']);
+        ], 200, ['title' => Words::MENU['cards'], 'active' => 'cards']);
+    }
+
+    /** "Yes" / "No" / "" for a card's yes-no answer (1, 0, null). */
+    private static function yesNo(mixed $v): string
+    {
+        return match (ItemCards::yesNoLabel($v)) {
+            'yes' => Words::CARD['duty_yes'],
+            'no' => Words::CARD['no'],
+            default => '',
+        };
+    }
+
+    /**
+     * A refusal of the catalogue services in the page's words, by its error code (plan rule 18: the services' messages stay the
+     * API's). A code without words: the service's message, then "Nothing was saved."
+     */
+    public static function plain(CwException $e): string
+    {
+        $code = $e->errorCode;
+        return match (true) {
+            in_array($code, ['no_file', 'too_large', 'upload_failed', 'form_already_saved'], true) => $e->getMessage(),
+            $code === 'bad_units' => Words::say('CARD_ERROR', 'bad_units', \CW\Catalogue\ItemBarcodes::UNITS_MAX),
+            $code === 'card_changed' => Words::CARD_ERROR['card_changed_page'],
+            $code === 'card_incomplete' && is_array($e->detail['missing'] ?? null) && $e->detail['missing'] !== []
+                => Words::say('CARD_ERROR', 'card_incomplete', implode(', ', array_map('strval', $e->detail['missing']))),
+            $code === 'card_incomplete' => Words::CARD_ERROR['no_card'],
+            $code === 'card_breaches' => Words::say('CARD_ERROR', 'card_breaches', ItemRules::labels(array_map('strval', (array) ($e->detail['rules'] ?? [])))),
+            $code === 'barcode_on_other_item' && is_string($e->detail['code'] ?? null)
+                => Words::say('CARD_ERROR', 'barcode_on_other_item', $e->detail['code'], $e->detail['code']),
+            $code === 'bad_file' && is_array($e->detail['columns'] ?? null) && $e->detail['columns'] !== []
+                => Words::say('CARD_ERROR', 'unknown_columns', implode(', ', array_map('strval', $e->detail['columns']))),
+            isset(Words::ERROR[$code]) && !str_contains(Words::ERROR[$code], '%') => Words::ERROR[$code],
+            isset(Words::CARD_ERROR[$code]) && !str_contains(Words::CARD_ERROR[$code], '%s') => Words::CARD_ERROR[$code],
+            default => Words::say('BUY_ERROR', 'other', PurchaseOrdersController::sentence($e->getMessage())),
+        };
     }
 
     public function csv(Context $ctx): HtmlResponse
@@ -86,7 +124,7 @@ final class ItemCardsController
     {
         $sku = $this->sku($ctx);
         if ($sku === null) {
-            return $ctx->error(404, 'not_found', 'no such item');
+            return $ctx->error(404, 'unknown_item', Words::ERROR['unknown_item'], ['/ui/search', Words::title('search')]);
         }
         $card = $ctx->itemCards()->card((int) $sku['id']);
         return $this->formPage($ctx, $sku, self::formValues($card), $card['version'], FormOnce::newKey(), 200, null);
@@ -96,13 +134,13 @@ final class ItemCardsController
     {
         $sku = $this->sku($ctx);
         if ($sku === null) {
-            return $ctx->error(404, 'not_found', 'no such item');
+            return $ctx->error(404, 'unknown_item', Words::ERROR['unknown_item'], ['/ui/search', Words::title('search')]);
         }
         $id = (int) $sku['id'];
         $typed = self::posted($ctx->req);
         $version = self::version($ctx->req->field('version'));
         if ($version === null) {
-            return $ctx->error(400, 'bad_version', 'this form has no card version: reload the page');
+            return $ctx->error(400, 'bad_version', Words::ERROR['bad_version']);
         }
         try {
             $r = FormOnce::run($ctx, 'ui.item_card.save', $typed + ['version' => (string) $version], static function (Db $db) use ($ctx, $id, $version, $typed): OpResult {
@@ -116,7 +154,7 @@ final class ItemCardsController
             return match ($e->errorCode) {
                 'card_changed' => $this->formPage($ctx, $sku, $typed, $card['version'], $key, 409, $e, self::changesSince($ctx, $id, $version)),
                 'idempotency_key_reused' => $this->formPage($ctx, $sku, $typed, $card['version'], FormOnce::newKey(), 409, new CwException('form_already_saved',
-                    'You already saved this form once. What you typed is kept below: check it and press Save again.', 409)),
+                    Words::CARD_ERROR['form_already_saved'], 409)),
                 'card_invalid', 'bad_form_key' => $this->formPage($ctx, $sku, $typed, $version, $e->errorCode === 'card_invalid' ? $key : FormOnce::newKey(), $e->httpStatus, $e),
                 default => (new ItemController())->page($ctx, $e->httpStatus, $e),
             };
@@ -131,7 +169,7 @@ final class ItemCardsController
         $field = $ctx->req->field('field') ?? '';
         $value = $ctx->req->field('value') ?? '';
         if ($version === null) {
-            return $ctx->error(400, 'bad_version', 'this form has no card version: reload the page');
+            return $ctx->error(400, 'bad_version', Words::ERROR['bad_version']);
         }
         try {
             $r = FormOnce::run($ctx, 'ui.item_card.accept', ['version' => (string) $version, 'field' => $field, 'value' => $value],
@@ -152,7 +190,7 @@ final class ItemCardsController
         $version = self::version($ctx->req->field('version'));
         $ack = $ctx->req->field('acknowledge_block') === '1';
         if ($version === null) {
-            return $ctx->error(400, 'bad_version', 'this form has no card version: reload the page');
+            return $ctx->error(400, 'bad_version', Words::ERROR['bad_version']);
         }
         try {
             $r = FormOnce::run($ctx, 'ui.item_card.confirm', ['version' => (string) $version, 'acknowledge_block' => $ack ? '1' : ''],
@@ -187,14 +225,13 @@ final class ItemCardsController
         try {
             $file = $ctx->req->file('file');
             if ($file === null) {
-                throw new CwException('no_file', 'Choose the CSV file to import.', 400);
+                throw new CwException('no_file', Words::CARD_IMPORT['no_file'], 400);
             }
             if (in_array($file['error'], [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true) || $file['size'] > UiRequest::MAX_UPLOAD_BYTES) {
-                throw new CwException('too_large', 'The file is larger than ' . intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576) . ' MiB: nothing was imported. '
-                    . 'Import it in parts (filter the export by brand or by stock), or ask for bin/import_item_cards.php.', 413);
+                throw new CwException('too_large', Words::say('CARD_IMPORT', 'too_large', intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576)), 413);
             }
             if ($file['error'] !== UPLOAD_ERR_OK || $file['path'] === '') {
-                throw new CwException('upload_failed', 'The file did not arrive completely: try again.', 400);
+                throw new CwException('upload_failed', Words::CARD_IMPORT['upload_failed'], 400);
             }
             $path = $file['path'];
             $name = $file['name'];
@@ -230,14 +267,15 @@ final class ItemCardsController
     private function importPage(Context $ctx, int $status, ?CwException $error, ?array $report): HtmlResponse
     {
         return $ctx->page('item_cards_import', [
-            'error' => $error?->getMessage(),
+            'error' => $error === null ? null : self::plain($error),
             'report' => $report,
             'formKey' => FormOnce::newKey(),
             'columns' => ['code', 'card_version', ...ItemCardCsv::IMPORT_FIELDS],
-            'types' => ItemRules::TYPES,
+            'typeCodes' => array_values(ItemRules::TYPES),
             'maxChanges' => ItemCardCsv::UI_MAX_CHANGES,
             'maxMiB' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
-        ], $status, ['title' => 'Import item cards', 'active' => 'cards']);
+            'fieldWords' => array_map(static fn (string $f): string => Words::of('CARD_FIELD', $f), array_combine(ItemCardCsv::IMPORT_FIELDS, ItemCardCsv::IMPORT_FIELDS)),
+        ], $status, ['title' => Words::title('card_import'), 'active' => 'cards']);
     }
 
     /**
@@ -258,12 +296,12 @@ final class ItemCardsController
             'enforced' => $card['first_confirmed_at'] !== null,
             // A flavour a file proposed, still on the form unchanged: the form says so and saving it leaves it proposed (I114).
             'flavourProposed' => $card['flavour_status'] === 'proposed' && ($values['flavour'] ?? '') === (string) $card['flavour'],
-            'types' => ItemRules::TYPES,
-            'labels' => ItemCards::FIELDS,
-            'error' => $error?->getMessage(),
+            'types' => array_map('ucfirst', ItemRules::TYPES),
+            'error' => $error === null ? null : ($error->errorCode === 'card_changed' ? Words::CARD_ERROR['card_changed'] : self::plain($error)),
             'errors' => $errors,
             'changes' => $changes,
-        ], $status, ['title' => 'Item card of ' . $sku['code'], 'active' => 'search']);
+            'title' => Words::say('CARD', 'form_title', (string) $sku['name']),
+        ], $status, ['title' => Words::say('CARD', 'form_title', (string) $sku['name']), 'active' => 'search']);
     }
 
     /** @return array<string, mixed>|null the route's item */
@@ -311,10 +349,13 @@ final class ItemCardsController
                 continue;
             }
             $parts = [];
+            $value = static fn (string $f, mixed $v): string => $v === null || $v === '' ? Words::CARD['h_empty']
+                : ($f === 'flavour_status' ? ($v === 'proposed' ? Words::CARD['from_file'] : Words::CARD['h_confirmed']) : (string) $v);
             foreach ($h['changes'] as $f => $c) {
-                $parts[] = (ItemCards::FIELDS[$f] ?? $f) . ': ' . ($c['before'] ?? '(empty)') . ' → ' . ($c['after'] ?? '(empty)');
+                $parts[] = ($f === 'flavour_status' ? Words::CARD['flavour_status'] : mb_strtolower(Words::of('CARD_FIELD', (string) $f))) . ': '
+                    . $value((string) $f, $c['before'] ?? null) . ' → ' . $value((string) $f, $c['after'] ?? null);
             }
-            $out[] = "Version {$h['version']} by {$h['who']}: " . ($h['kind'] === 'confirm' ? 'confirmed the card' : implode('; ', $parts));
+            $out[] = Words::say('CARD', 'h_line', Html::when((string) $h['at']), (string) $h['who'], $h['kind'] === 'confirm' ? Words::CARD['h_confirmed'] : implode('; ', $parts));
         }
         return $out;
     }

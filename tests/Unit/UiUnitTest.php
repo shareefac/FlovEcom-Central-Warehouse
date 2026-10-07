@@ -19,6 +19,7 @@ use CW\Ui\Kernel;
 use CW\Ui\Route;
 use CW\Ui\Router;
 use CW\Ui\UiRequest;
+use CW\Ui\Words;
 use PHPUnit\Framework\TestCase;
 
 /** The /ui pieces that need neither a database nor a web server. */
@@ -196,7 +197,9 @@ final class UiUnitTest extends TestCase
         self::assertSame('5', $r->header('Retry-After'));
         self::assertStringNotContainsString('db-secret-host', $r->body, 'the database address is for the log, not the page');
         self::assertStringNotContainsString('SQLSTATE', $r->body);
-        self::assertStringContainsString('temporarily unavailable', $r->body);
+        self::assertStringContainsString(Words::ERROR['unavailable'], $r->body);
+        self::assertStringContainsString('<h1>' . Words::ERROR_TITLE['503'] . '</h1>', $r->body);
+        self::assertStringContainsString(Words::UI['quote_rid'] . ' <code>' . $r->header('X-Request-Id') . '</code>', $r->body, 'the number to quote, in words');
         self::assertNotNull($r->header('X-Request-Id'));
         self::assertStringContainsString($r->header('X-Request-Id') ?? '-', $logged[0] ?? '', 'the page shows the id that finds the log line');
         self::assertStringContainsString('db-secret-host', $logged[0] ?? '');
@@ -227,7 +230,27 @@ final class UiUnitTest extends TestCase
         $b = $bug->handle(self::request('GET', '/ui/'));
         self::assertSame(500, $b->status);
         self::assertStringNotContainsString('secret detail', $b->body);
+        self::assertStringContainsString(Html::e(Words::ERROR['internal']), $b->body);
+        self::assertStringContainsString('data-code="internal"', $b->body);
         self::assertStringContainsString('secret detail', implode("\n", $logged));
+    }
+
+    /** On staging (app.env environment=staging) every page carries the test-system strip, the pages before a session too. */
+    public function testTheTestSystemStrip(): void
+    {
+        $make = static fn (?\Closure $test): Kernel => new Kernel(static function (): never {
+            throw new \RuntimeException('must not connect');
+        }, static fn (): ?string => null, static function (): void {
+        }, null, $test);
+        $strip = '<p class="strip test-system" role="note">' . Words::UI['test_system'] . '</p>';
+        self::assertStringContainsString($strip, $make(static fn (): bool => true)->handle(self::request('GET', '/ui/nothing-here'))->body);
+        self::assertStringNotContainsString('test-system', $make(static fn (): bool => false)->handle(self::request('GET', '/ui/nothing-here'))->body);
+        self::assertStringNotContainsString('test-system', $make(null)->handle(self::request('GET', '/ui/nothing-here'))->body);
+        $broken = $make(static function (): never {
+            throw new \RuntimeException('app.env unreadable');
+        })->handle(self::request('GET', '/ui/nothing-here'));
+        self::assertSame(404, $broken->status, 'a config that cannot be read does not break the page');
+        self::assertStringNotContainsString('test-system', $broken->body);
     }
 
     public function testAnUnknownPathOrMethodNeverTouchesTheDatabase(): void
@@ -251,10 +274,16 @@ final class UiUnitTest extends TestCase
         $m = $kernel->handle(self::request('DELETE', '/ui/login'));
         self::assertSame(405, $m->status);
         self::assertSame('GET, POST', $m->header('Allow'));
-        $p = $kernel->handle(self::request('GET', '/ui/logout'));
-        self::assertSame(405, $p->status, 'logout is POST-only');
+        $p = $kernel->handle(self::request('GET', '/ui/review/listing/1/decide'));
+        self::assertSame(405, $p->status, 'deciding is POST-only');
         self::assertSame('POST', $p->header('Allow'));
         self::assertSame(0, $touched);
+        self::assertStringContainsString('<h1>' . Words::ERROR_TITLE['404'] . '</h1>', $nf->body);
+        self::assertStringContainsString(Words::ERROR['not_found'], $nf->body);
+        self::assertStringContainsString('data-code="not_found"', $nf->body, 'the code stays for support and tests, not as words');
+        self::assertStringNotContainsString('no such page', $nf->body);
+        self::assertStringContainsString(Words::ERROR['method_not_allowed'], $p->body);
+        self::assertStringContainsString('<title>' . Words::ERROR_TITLE['405'] . ' - Central Warehouse</title>', $p->body, 'the tab says it too');
         foreach ([$nf, $bad, $trav, $m, $p] as $r) {
             self::assertSame(Kernel::CSP, $r->header('Content-Security-Policy'));
         }
@@ -348,7 +377,8 @@ final class UiUnitTest extends TestCase
             if (str_starts_with($key, 'POST ')) {
                 self::assertNotSame('', $access, $key);
             }
-            if (!in_array($key, ['GET /ui/login', 'POST /ui/login'], true)) {
+            // GET /ui/logout only leads on (behaviour item 2): Home when signed in, the sign-in page when not; it shows and changes nothing.
+            if (!in_array($key, ['GET /ui/login', 'POST /ui/login', 'GET /ui/logout'], true)) {
                 self::assertNotSame(Route::PUBLIC, $access, "{$key} must need a sign-in");
             }
             if (str_starts_with($key, 'POST /ui/review/')) {
@@ -375,7 +405,7 @@ final class UiUnitTest extends TestCase
         self::assertSame('company.confirm', $byPath['POST /ui/reference/company/reviews/{id}/approve']);
         self::assertSame('company.confirm', $byPath['POST /ui/reference/company/reviews/{id}/reject']);
         self::assertSame('reference.view', $byPath['GET /ui/reference/company/sample.pdf']);
-        self::assertArrayNotHasKey('GET /ui/logout', $byPath);
+        self::assertSame('public', $byPath['GET /ui/logout'], 'the sign-out address opened from the history leads on (behaviour item 2); it signs nobody out');
         self::assertSame(5, $people, 'GET /ui/people, GET /ui/people.csv, GET /ui/people/{id}, POST .../roles, POST .../active');
         self::assertArrayHasKey('POST /ui/people/{id}/roles', $byPath);
         self::assertArrayHasKey('POST /ui/people/{id}/active', $byPath);

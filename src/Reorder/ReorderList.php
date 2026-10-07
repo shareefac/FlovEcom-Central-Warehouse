@@ -238,7 +238,8 @@ final class ReorderList
     }
 
     /**
-     * Adds `explain` (the "Why" text) to each line: reads the demand detail of those items only.
+     * Adds `explain` (the "Why" text) and `demand_detail` (the facts it is made of) to each line: reads the demand detail of those
+     * items only.
      *
      * @param list<array<string, mixed>> $lines
      * @return list<array<string, mixed>>
@@ -266,12 +267,15 @@ final class ReorderList
                     'r_short_e4' => $x['r_short'] === null ? null : $u * DemandMath::toE4((string) $x['r_short']),
                     'r_long_e4' => $x['r_long'] === null ? null : $u * DemandMath::toE4((string) $x['r_long'])];
             }
-            $l['explain'] = Explain::text($l + [
+            // The demand facts the "Why" is made of: Explain's text here (the CSV, "Show the maths"), and the screens' own sentences
+            // (Ui\ReorderWhy) from the same facts.
+            $l['demand_detail'] = [
                 'rate_short_e4' => $d === null || $d['rate_short'] === null ? null : DemandMath::toE4((string) $d['rate_short']),
                 'rate_long_e4' => $d === null || $d['rate_long'] === null ? null : DemandMath::toE4((string) $d['rate_long']),
                 'weight_e6' => $p['weight_e6'], 'short_window' => $p['short_window'], 'long_window' => $p['long_window'], 'min_long' => $p['min_long'],
                 'listings' => $listings,
-            ]);
+            ];
+            $l['explain'] = Explain::text($l['demand_detail'] + $l);
         }
         unset($l);
         return $lines;

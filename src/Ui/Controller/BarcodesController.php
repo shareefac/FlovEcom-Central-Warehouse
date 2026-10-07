@@ -14,6 +14,7 @@ use CW\Ui\Context;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Words;
 
 /**
  * Barcodes on the screens (IM3; docs/decisions.md I106, I107): the item page's forms (add a barcode with its units per scan,
@@ -22,9 +23,8 @@ use CW\Ui\HtmlResponse;
  */
 final class BarcodesController
 {
-    public const NOTICES = [
-        'decided' => 'Decided. The barcode sync will not ask about this barcode and item again unless something changes.',
-    ];
+    /** The notices named in a redirect (their words: Words::CARD_NOTICE). */
+    public const NOTICES = ['decided' => Words::CARD_NOTICE['decided']];
 
     public function add(Context $ctx): HtmlResponse
     {
@@ -111,21 +111,28 @@ final class BarcodesController
         $barcode = $q === '' ? null : Gtin::key($q);
         $svc = new BarcodeReviews($ctx->db);
         $rows = [];
+        $channels = [];
+        foreach ($ctx->queries()->channels() as $c) {
+            $channels[(string) $c['code']] = (string) $c['name'];
+        }
         foreach ($svc->rows($show, BarcodeReviews::LIST_LIMIT, $barcode) as $r) {
-            $rows[] = $r + ['formKey' => FormOnce::newKey(), 'reasonLabel' => BarcodeReviews::REASONS[(string) $r['reason']] ?? (string) $r['reason'],
-                'decisionLabel' => $r['decision'] === null ? null : (BarcodeReviews::DECISIONS[(string) $r['reason']][(string) $r['decision']]
-                    ?? BarcodeReviews::RECORDED[(string) $r['decision']] ?? (string) $r['decision'])];
+            $rows[] = $r + ['formKey' => FormOnce::newKey(), 'reasonLabel' => Words::of('BARCODE_REASON', (string) $r['reason']),
+                'decisionLabel' => $r['decision'] === null ? null : Words::of('BARCODE_DECISION', (string) $r['decision']),
+                'choices' => array_map(static fn (string $code): string => Words::of('BARCODE_DECISION', $code),
+                    array_combine(array_keys((array) $r['decisions']), array_keys((array) $r['decisions']))),
+                'site' => $channels[(string) ($r['channel'] ?? '')] ?? (string) ($r['channel'] ?? ''),
+                'listing_state' => $r['listing_status'] === null ? '' : mb_strtolower(Words::of('LISTING_STATUS', (string) $r['listing_status']))];
         }
         return $ctx->page('barcode_reviews', [
             'rows' => $rows,
             'show' => $show,
             'barcode' => $q,
             'open' => $svc->openCount(),
-            'error' => $error?->getMessage(),
+            'error' => $error === null ? null : ItemCardsController::plain($error),
             'errorId' => $errorId,
             'limit' => BarcodeReviews::LIST_LIMIT,
             'maxUnits' => ItemBarcodes::UNITS_MAX,
-        ], $status, ['title' => 'Barcode review', 'active' => 'barcodes', 'notice' => $notice]);
+        ], $status, ['title' => Words::MENU['barcodes'], 'active' => 'barcodes', 'notice' => $notice]);
     }
 
     /** A whole number of units from a form (422 bad_units otherwise). */
@@ -133,8 +140,7 @@ final class BarcodesController
     {
         $v = trim($v);
         if (preg_match('/^[1-9][0-9]{0,5}$/D', $v) !== 1) {
-            throw new CwException('bad_units', 'Units per scan is a whole number from 1 (one item) to ' . number_format(ItemBarcodes::UNITS_MAX)
-                . ' (for example 10 for an outer case of 10).', 422);
+            throw new CwException('bad_units', Words::say('CARD_ERROR', 'bad_units', ItemBarcodes::UNITS_MAX), 422);
         }
         return (int) $v;
     }

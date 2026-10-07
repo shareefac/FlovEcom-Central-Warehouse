@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Tests\Integration;
 
 use CW\Tests\Support\UiTestCase;
+use CW\Ui\Words;
 
 /**
  * What keeps the staff screens safe (plan §11): every route needs a session and its role, every POST
@@ -28,17 +29,20 @@ final class UiSecurityTest extends UiTestCase
     public function testEveryScreenNeedsASignIn(): void
     {
         $web = $this->browser();
+        // The sign-in page leads back to the page asked for (behaviour item 1): not Home (the default), the sign-in pages or a download.
+        $noBack = ['/ui', '/ui/', '/ui/password', '/ui/reference/company/sample.pdf', '/ui/items/cards.csv', '/ui/receiving/template.csv'];
         foreach (self::GETS as $path) {
             $r = $web->get($path);
             self::assertSame(303, $r->status, $path);
-            self::assertSame('/ui/login', $r->location(), $path);
+            self::assertSame(in_array($path, $noBack, true) ? '/ui/login' : '/ui/login?back=' . rawurlencode($path), $r->location(), $path);
             self::assertHardened($r, $path);
             self::assertStringNotContainsString('Dashboard', $r->body, $path);
         }
         foreach (self::POSTS as $path) {
             $r = $web->post($path, ['csrf' => 'x', 'action' => 'link']);
             self::assertSame(303, $r->status, "POST {$path}");
-            self::assertSame('/ui/login', $r->location(), "POST {$path}");
+            // A form sent without a session is lost, and the sign-in page says so; signing out without one loses nothing.
+            self::assertSame($path === '/ui/logout' ? '/ui/login' : '/ui/login?why=lost', $r->location(), "POST {$path}");
         }
 
         // A cookie nobody issued (or one that is not even a token) is the same as none, and is cleared.
@@ -100,38 +104,39 @@ final class UiSecurityTest extends UiTestCase
         $page = $viewer->get('/ui/review/listing/' . $listing);
         self::assertSame(200, $page->status);
         self::assertFalse($page->hasForm('/decide'));
-        self::assertStringContainsString('Your role (viewer) can look at listings but not decide them.', $page->text());
+        self::assertStringContainsString(Words::LISTING['look_only'], $page->text(), 'jobs, not role codes (F229)');
+        self::assertStringNotContainsString(Words::LISTING['pick_other'], $page->text(), 'no product search for a person who only looks');
         $token = $this->token($viewer);
         $r = $viewer->post("/ui/review/listing/{$listing}/decide", ['csrf' => $token, 'action' => 'link', 'sku_id' => (string) $sku, 'units_per_item' => '1', 'expected_map_version' => '1']);
         self::assertSame(403, $r->status);
-        self::assertStringContainsString('role_not_allowed', $r->text());
+        self::assertSame('role_not_allowed', $r->errorCode());
         $r = $viewer->post("/ui/review/decision/{$pending}/withdraw", ['csrf' => $token]);
         self::assertSame(403, $r->status);
-        self::assertStringContainsString('role_not_allowed', $r->text());
+        self::assertSame('role_not_allowed', $r->errorCode());
         $r = $viewer->post("/ui/review/decision/{$pending}/approve", ['csrf' => $token]);
         self::assertSame(403, $r->status);
-        self::assertStringContainsString('lead_required', $r->text());
+        self::assertSame('lead_required', $r->errorCode());
         self::assertSame(200, $viewer->get('/ui/review', ['queue' => 'pending'])->status, 'a viewer may look at the second-approval list');
         self::assertSame(200, $viewer->get('/ui/search', ['q' => 'title'])->status);
 
         // A mapper decides but cannot approve.
         $r = $mapper->post("/ui/review/decision/{$pending}/approve", ['csrf' => $this->token($mapper)]);
         self::assertSame(403, $r->status);
-        self::assertStringContainsString('lead_required', $r->text());
+        self::assertSame('lead_required', $r->errorCode());
         $list = $mapper->get('/ui/review', ['queue' => 'pending']);
-        self::assertStringNotContainsString('>Approve<', $list->body, 'no approve button for a mapper');
-        self::assertStringContainsString('Waiting for a mapping lead', $list->text());
+        self::assertStringNotContainsString('>' . Words::PENDING['approve'] . '<', $list->body, 'no approve button for a mapper');
+        self::assertStringContainsString(Words::PENDING['wait'], $list->text());
 
         // A Conflict proposal is for a lead: no form for the mapper, refused if forced, a form for the lead.
         $page = $mapper->get('/ui/review/listing/' . $conflict);
         self::assertFalse($page->hasForm('/decide'));
-        self::assertStringContainsString('A Conflict proposal can only be decided by a mapping lead.', $page->text());
+        self::assertStringContainsString(Words::LISTING['lead_only'], $page->text());
         $r = $mapper->post("/ui/review/listing/{$conflict}/decide", ['csrf' => $this->token($mapper), 'action' => 'link', 'sku_id' => (string) $sku, 'units_per_item' => '1', 'expected_map_version' => (string) $this->version($conflict)]);
         self::assertSame(403, $r->status);
-        self::assertStringContainsString('is decided by a mapping_lead', $r->text());
+        self::assertStringContainsString(Words::MATCH_ERROR['lead_required'], $r->text(), 'the service\'s refusal in words, by its code');
         self::assertSame('suggested', $this->link($conflict)['status']);
         self::assertTrue($lead->get('/ui/review/listing/' . $conflict)->hasForm('/decide'));
-        self::assertStringContainsString('>Approve<', $lead->get('/ui/review', ['queue' => 'pending'])->body);
+        self::assertStringContainsString('>' . Words::PENDING['approve'] . '<', $lead->get('/ui/review', ['queue' => 'pending'])->body);
 
         self::assertSame($base, $this->decisions(), 'nothing was decided by any of the refusals');
         self::assertSame('suggested', $this->link($listing)['status']);
@@ -163,7 +168,7 @@ final class UiSecurityTest extends UiTestCase
         foreach ($bad as $what => $fields) {
             $r = $mine->send('POST', "/ui/review/listing/{$listing}/decide", http_build_query($fields), ['Content-Type' => 'application/x-www-form-urlencoded']);
             self::assertSame(403, $r->status, $what);
-            self::assertStringContainsString('csrf', $r->text(), $what);
+            self::assertSame('csrf', $r->errorCode(), $what);
             self::assertSame($base, $this->decisions(), $what);
             self::assertSame('suggested', $this->link($listing)['status'], $what);
         }
@@ -231,7 +236,7 @@ final class UiSecurityTest extends UiTestCase
         foreach ($foreign as $what => $headers) {
             $r = $web->post($path, $form, $headers);
             self::assertSame(403, $r->status, $what);
-            self::assertStringContainsString('csrf', $r->text(), $what);
+            self::assertSame('csrf', $r->errorCode(), $what);
             self::assertSame($base, $this->decisions(), $what);
         }
         $r = $this->browser();
@@ -265,7 +270,7 @@ final class UiSecurityTest extends UiTestCase
             'search' => $web->get('/ui/search', ['q' => 'item']),
             '404 page' => $web->get('/ui/nothing'),
             '403 page' => $web->post('/ui/review/decision/1/approve', ['csrf' => $this->token($web)]),
-            '405 page' => $web->get('/ui/logout'),
+            '405 page' => $web->get('/ui/review/listing/1/decide'),
             'stylesheet' => $anon->get('/ui/assets/app.css'),
             'script' => $anon->get('/ui/assets/app.js'),
             'missing asset' => $anon->get('/ui/assets/nope.css'),
@@ -406,7 +411,8 @@ final class UiSecurityTest extends UiTestCase
         // page => [path, query, the fields that page must show (escaped)]
         $pages = [
             'dashboard' => ['/ui/', [], []],
-            'queue' => ['/ui/review', ['queue' => 'Check'], ['title', 'vtitle', 'brand', 'variant', 'variant2', 'title2', 'sname1', 'outcome', 'lane', 'flag1', 'flag2']],
+            // A list shows only the warnings people act on: an unknown flag and the lane code are Technical details of the product's page (F157, F166).
+            'queue' => ['/ui/review', ['queue' => 'Check'], ['title', 'vtitle', 'brand', 'variant', 'variant2', 'title2', 'sname1', 'outcome']],
             'queue, filtered' => ['/ui/review', ['queue' => 'Check', 'channel' => 'vpg', 'min' => '1', 'q' => 'script'], ['title']],
             'queue, hostile filters' => ['/ui/review', ['queue' => 'Check', 'channel' => $attr, 'lane' => $evil, 'min' => $attr, 'q' => $attr, 'page' => $evil], []],
             'listing' => ['/ui/review/listing/' . $l1, ['queue' => 'Check'], [
@@ -462,10 +468,11 @@ final class UiSecurityTest extends UiTestCase
         // A notice is one of a fixed set of sentences, never the text of the URL.
         $noticed = $web->get('/ui/review', ['queue' => 'Check', 'notice' => $evil]);
         self::assertStringNotContainsString('role="status"', $noticed->body);
-        $known = $web->get('/ui/review', ['queue' => 'Check', 'notice' => 'decided_link', 'prev' => '4711']);
-        self::assertStringContainsString('Linked listing #4711.', $known->text());
+        $known = $web->get('/ui/review', ['queue' => 'Check', 'notice' => 'decided_link', 'prev' => (string) $l3]);
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', Words::quoted($h('title3') . ' ' . $h('vtitle3'), ''), (string) self::$db->value(
+            'SELECT code FROM sku WHERE id = ?', [$legacy])), $known->text(), 'the notice names the product, as text');
         $sneaky = $web->get('/ui/review', ['queue' => 'Check', 'notice' => 'decided_link', 'prev' => $evil . '5']);
-        self::assertStringContainsString('Linked the listing.', $sneaky->text());
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link_plain', Words::MATCH_NOTICE['the_product']), $sneaky->text());
     }
 
     public function testASessionCookieGoesNowhereItShouldNot(): void

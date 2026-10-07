@@ -92,7 +92,7 @@ final class DownloadsTest extends KernelUiTestCase
         self::assertSame(500, $r->status);
         $rid = (string) $r->header('x-request-id');
         self::assertMatchesRegularExpression('/^[0-9a-f]{16}$/D', $rid);
-        self::assertStringContainsString('file_corrupt', $r->text());
+        self::assertSame('file_corrupt', $r->errorCode());
         self::assertStringContainsString($rid, $r->text(), 'the page names the request id');
         self::assertStringNotContainsString('changed', $r->body, 'the bytes are not sent');
         self::assertSame('text/html; charset=utf-8', $r->header('content-type'));

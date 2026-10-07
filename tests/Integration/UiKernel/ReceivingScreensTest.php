@@ -102,7 +102,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $desk = $this->signIn($deskUser);
         $list = $desk->get('/ui/receiving');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['label' => 'Receive + invoice', 'href' => '/ui/receiving'], self::nav($list)['Receiving'][0]);
+        self::assertSame(['label' => 'Receive + invoice', 'href' => '/ui/receiving'], self::nav($list)['Deliveries'][0], 'the menu\'s Deliveries section');
         self::assertStringContainsString('No receipt matches.', $list->text());
         $form = ['po_id' => (string) $po->id, 'invoice_number' => 'SCR-001', 'copy' => '1'] + $list->form('/ui/receiving');
         $r = $desk->post('/ui/receiving', $form);
@@ -172,7 +172,26 @@ final class ReceivingScreensTest extends KernelUiTestCase
 
         // The review: the bench checker (also a reviewer) is told why not; another reviewer decides on the receipt's page.
         self::assertStringContainsString('You checked this delivery at the goods-in bench: another reviewer must review it.', $bench->get("/ui/receiving/{$id}")->text());
-        $reviewer = $this->signIn($this->uiUser('reviewer'));
+        // ... and is never offered it (I133 in Documents::decidableCounts, which the redesign's badge and Home cards share): one check
+        // fewer than another reviewer, in the counts, the "Waiting for me" badge and Home's "Done work to check" card.
+        $otherReviewer = $this->uiUser('reviewer');
+        $benchCounts = $docs->decidableCounts($benchUser['id'], ['goods_in', 'reviewer']);
+        $otherCounts = $docs->decidableCounts($otherReviewer['id'], ['reviewer']);
+        self::assertGreaterThanOrEqual(1, $otherCounts['review'], 'the receipt waits for a review');
+        self::assertSame([$otherCounts['review'] - 1, $otherCounts['approval']], [$benchCounts['review'], $benchCounts['approval']],
+            'the bench checker is not offered the receipt it checked');
+        self::assertSame(array_sum($benchCounts), $docs->decidableCount($benchUser['id'], ['goods_in', 'reviewer']));
+        $reviewer = $this->signIn($otherReviewer);
+        $shown = static function (\CW\Tests\Support\UiResponse $home): array {
+            $label = self::nav($home)['To check'][0]['label'];
+            $card = (new \DOMXPath($home->dom()))->evaluate('string(//li[@data-card="checks"]//p[@class="count"]/text()[1])');
+            return [preg_match('/(\d+)$/', $label, $m) === 1 ? (int) $m[1] : 0, (int) trim((string) $card)];
+        };
+        $benchShown = $shown($bench->get('/ui/'));
+        $otherShown = $shown($reviewer->get('/ui/'));
+        self::assertGreaterThanOrEqual(1, $otherShown[0], 'another reviewer\'s badge counts the receipt');
+        self::assertGreaterThanOrEqual(1, $otherShown[1], 'another reviewer\'s Home card counts the receipt');
+        self::assertSame([$otherShown[0] - 1, $otherShown[1] - 1], $benchShown, 'the bench checker\'s badge and Home card do not');
         $queue = $reviewer->get('/ui/documents/reviews', ['type' => 'GRN']);
         self::assertContains("/ui/receiving/{$id}", $queue->hrefs());
         $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'document' AND subject_id = ? AND state = 'open'", [$id]);
@@ -332,7 +351,9 @@ final class ReceivingScreensTest extends KernelUiTestCase
         unset($f['line_1_packs']);
         $t = $desk->post("/ui/receiving/{$id}/lines", $f);
         self::assertSame(400, $t->status);
-        self::assertStringContainsString('form_truncated', $t->text());
+        self::assertSame('form_truncated', $t->errorCode());
+        self::assertStringContainsString('the form arrived incomplete', $t->text(), 'the editor\'s own words (its plain-words pass is still to come)');
+        self::assertStringNotContainsString('form_truncated', $t->text(), 'the code is not printed (plan F041)');
         // Unknown receipts.
         self::assertSame(404, $desk->get('/ui/receiving/999999')->status);
         self::assertSame(404, $desk->get('/ui/receiving/999999/bench')->status);
@@ -354,7 +375,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertStringContainsString('<article class="bench-line card unchecked" id="line-1" data-codes="', $bv->body);
         self::assertStringContainsString('inputmode="numeric"', $bv->body);
         self::assertStringContainsString('capture="environment"', $bv->body);
-        self::assertStringContainsString('<meta name="viewport" content="width=device-width, initial-scale=1">', $bv->body);
+        self::assertStringContainsString('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">', $bv->body, 'design A\'s frame');
         self::assertStringContainsString('duty stamp required', $bv->text());
     }
 }

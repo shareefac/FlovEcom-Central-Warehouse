@@ -12,7 +12,9 @@ use CW\PurchaseOrders\PurchaseOrders;
 use CW\Suppliers\Suppliers;
 use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\Controller\CompanyController;
 use CW\Ui\Kernel;
+use CW\Ui\Words;
 
 /**
  * The Company details screen through the real /ui kernel as cw_app (I90-I97), the owner's request "add an option in the
@@ -55,19 +57,22 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame(200, $settings->status, $settings->describe());
         $xp = new \DOMXPath($settings->dom());
         self::assertSame('Add or change the company details', trim((string) $xp->query('//section[contains(@class, "company-summary")]//a')->item(0)?->textContent));
-        self::assertStringContainsString('Not confirmed Every purchase order PDF says "do not send" until they are confirmed. Still missing: legal name, company number',
+        self::assertStringContainsString('Not confirmed Every purchase order PDF says DO NOT SEND until they are confirmed. Still missing: legal name, company number',
             $settings->text());
         $page = $owner->get('/ui/reference/company');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['label' => 'Company details', 'href' => '/ui/reference/company'], self::nav($page)['Reference'][3]);
+        self::assertSame(['label' => 'Company details', 'href' => '/ui/reference/company'], self::nav($page)['Settings'][0]);
         self::assertSame('Company details', trim((string) (new \DOMXPath($page->dom()))->query('//nav//a[@aria-current="page"]')->item(0)?->textContent));
         self::assertStringContainsString('Not confirmed Every purchase order PDF says "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND"', $page->text());
+        self::assertStringContainsString(Words::intro('company'), $page->text(), 'the page intro');
+        self::assertSame(['Settings and lists'], array_map(static fn (\DOMNode $a): string => trim((string) $a->textContent),
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//p[@class="crumbs"]/a'))));
         self::assertStringContainsString('Still missing: legal name, company number, registered address, VAT number (or "not VAT registered"), purchasing e-mail, '
             . 'delivery address.', $page->text());
         self::assertFalse($page->hasForm('/ui/reference/company/confirm'), 'nothing to confirm yet');
         self::assertContains('/ui/reference/company/edit', $page->hrefs());
         self::assertContains('/ui/reference/company/sample.pdf', $page->hrefs());
-        self::assertStringContainsString('No details were saved yet.', $page->text());
+        self::assertStringContainsString(Words::COMPANY['no_history'], $page->text());
 
         // One form, every field; sent twice: one version.
         $f = self::editForm($owner, self::typed(['reason' => 'details from Companies House']));
@@ -79,12 +84,14 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame([303, '/ui/reference/company?notice=saved'], [$again->status, $again->location()], 'the replay lands on the same page');
         self::assertSame(1, self::versions());
         $page = $owner->follow($r);
-        self::assertStringContainsString('Saved. The details are not confirmed yet', $page->text());
+        self::assertStringContainsString(CompanyController::NOTICES['saved'], $page->text());
         foreach (['Example Vapes Ltd', 'Vape and Go', '01234567', 'GB 123 4567 82', '0113 496 0000', 'buying@example.co.uk', 'Unit 4, Example Park'] as $shown) {
             self::assertStringContainsString($shown, $page->text(), $shown);
         }
         self::assertStringContainsString("1 High Street\nLeeds\nLS1 1AA", (string) (new \DOMXPath($page->dom()))->query('//dl[contains(@class, "company")]/dd[5]')->item(0)?->textContent);
-        self::assertStringContainsString('Version 1 · changed by Reviewer-mapping_lead 1', $page->text());
+        self::assertStringContainsString('· Reviewer-mapping_lead 1 changed them Not confirmed', $page->text(), 'the history in words, no version numbers (F142)');
+        self::assertStringNotContainsString('Version 1', $page->text());
+        self::assertStringNotContainsString('UTC', $page->text());
         self::assertStringContainsString('Why: details from Companies House', $page->text());
 
         // Confirm: the form carries the version shown; the banner goes from what a PO prints.
@@ -92,12 +99,13 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame(['csrf', 'form_key', 'version'], array_keys($confirm));
         self::assertSame('1', $confirm['version']);
         self::assertStringContainsString('These details are correct', $page->text());
+        self::assertStringContainsString(Words::COMPANY['confirm_after'], $page->text(), 'what the button does (F143)');
         $c = $owner->post('/ui/reference/company/confirm', $confirm);
         self::assertSame('/ui/reference/company?notice=confirmed', $c->location(), $c->describe());
         self::assertSame('/ui/reference/company?notice=confirmed', $owner->post('/ui/reference/company/confirm', $confirm)->location(), 'sent twice: one confirmation');
         self::assertSame(2, self::versions());
         $page = $owner->follow($c);
-        self::assertStringContainsString('Confirmed: purchase orders now print these details without the "do not send" banner.', $page->text());
+        self::assertStringContainsString(CompanyController::NOTICES['confirmed'], $page->text());
         self::assertStringContainsString('Confirmed Confirmed by Reviewer-mapping_lead 1 on ', $page->text());
         self::assertFalse($page->hasForm('/ui/reference/company/confirm'));
         $company = (new CompanyDetails(self::$db))->company();
@@ -114,12 +122,19 @@ final class CompanyScreensTest extends KernelUiTestCase
 
     public function testBuyersAndAdminLookButAreRefusedEvenWhenTheyPost(): void
     {
-        foreach ([['buyer', 'Your role (buyer) can look at the company details but not change them: a reviewer does.'],
-            [['admin', 'auditor'], 'Your roles (admin, auditor) can look at the company details but not change them: a reviewer does.']] as [$roles, $why]) {
-            $web = $this->signIn($this->uiUser($roles));
+        foreach ([['buyer', Words::COMPANY['look_reviewer']], [['admin', 'auditor'], Words::COMPANY['look_reviewer']],
+            ['owner', Words::COMPANY['look_admin']]] as [$roles, $why]) {
+            // The owner's staging account: Reviewer and Matching lead, plus Admin (which no screen or tool gives together: set directly).
+            $user = $this->uiUser($roles === 'owner' ? ['reviewer', 'mapping_lead'] : $roles);
+            if ($roles === 'owner') {
+                self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'admin')", [$user['id']]);
+            }
+            $web = $this->signIn($user);
             $page = $web->get('/ui/reference/company');
             self::assertSame(200, $page->status, $page->describe());
             self::assertStringContainsString($why, $page->text());
+            self::assertStringNotContainsString('Your role', $page->text(), 'jobs, not role codes (F141)');
+            self::assertDoesNotMatchRegularExpression('/second account/i', $page->text(), 'correction a');
             self::assertNotContains('/ui/reference/company/edit', $page->hrefs());
             self::assertFalse($page->hasForm('/ui/reference/company/confirm'));
             self::assertSame('See the company details', trim((string) (new \DOMXPath($web->get('/ui/reference/settings')->dom()))
@@ -131,7 +146,7 @@ final class CompanyScreensTest extends KernelUiTestCase
                 '/ui/reference/company/reviews/1/approve' => [], '/ui/reference/company/reviews/1/reject' => ['note' => 'not ours']] as $path => $form) {
                 $r = $web->post($path, ['csrf' => $token] + $form);
                 self::assertSame(403, $r->status, "{$path}: " . $r->describe());
-                self::assertStringContainsString('role_not_allowed', $r->text());
+                self::assertSame('role_not_allowed', $r->errorCode());
             }
             self::assertSame(200, $web->get('/ui/reference/company/sample.pdf')->status, 'everyone may see how a PO looks');
         }
@@ -150,7 +165,7 @@ final class CompanyScreensTest extends KernelUiTestCase
         $f = self::editForm($a, self::typed(['company_number' => '1234567', 'vat_number' => 'GB 12', 'delivery_address' => "Unit 4\r\nŁódź"]));
         $bad = $a->post('/ui/reference/company', $f);
         self::assertSame(422, $bad->status, $bad->describe());
-        self::assertStringContainsString('Nothing was saved: some details need correcting (marked below).', $bad->text());
+        self::assertStringContainsString(Words::COMPANY['invalid'], $bad->text());
         $xp = new \DOMXPath($bad->dom());
         self::assertStringContainsString('keep the leading zeros', (string) $xp->query('//p[@id="e-company_number"]')->item(0)?->textContent);
         self::assertSame('true', $xp->query('//input[@name="company_number"]')->item(0)?->getAttribute('aria-invalid'));
@@ -168,8 +183,10 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame('/ui/reference/company?notice=saved', $a->post('/ui/reference/company', self::typed() + $fa)->location());
         $stale = $b->post('/ui/reference/company', $fb);
         self::assertSame(409, $stale->status, $stale->describe());
-        self::assertStringContainsString('Someone changed the company details while you had them open (Reviewer 1 saved version 1 at ', $stale->text());
-        self::assertStringContainsString('What changed meanwhile (your form still shows what you typed; saving it now replaces these):', $stale->text());
+        self::assertStringContainsString('Someone changed the company details while you had them open (Reviewer 1 saved them on ', $stale->text());
+        self::assertStringContainsString('). Nothing was saved.', $stale->text());
+        self::assertStringNotContainsString('UTC', $stale->text());
+        self::assertStringContainsString(Words::COMPANY['changed_meanwhile'], $stale->text());
         self::assertStringContainsString('Legal name Was: (empty) Now: Example Vapes Ltd', $stale->text());
         $again = $stale->form('/ui/reference/company', true);
         self::assertSame(['1', '0113 496 0999'], [$again['version'], $again['phone']]);
@@ -183,7 +200,7 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame('/ui/reference/company?notice=saved', $b->post('/ui/reference/company', self::editForm($b, ['email' => 'orders@example.co.uk']))->location());
         $late = $a->post('/ui/reference/company/confirm', $old);
         self::assertSame(409, $late->status);
-        self::assertStringContainsString('Here are the details as they are now: check them, then confirm again.', $late->text());
+        self::assertStringContainsString('Nothing was confirmed. ' . Words::COMPANY['now_details'], $late->text());
         self::assertStringContainsString('orders@example.co.uk', $late->text());
         self::assertFalse((new CompanyDetails(self::$db))->current()['confirmed']);
 
@@ -192,7 +209,7 @@ final class CompanyScreensTest extends KernelUiTestCase
         foreach (['no token' => array_diff_key($f, ['csrf' => 1]), "another person's token" => ['csrf' => $this->token($b)] + $f, 'made up' => ['csrf' => 'x'] + $f] as $what => $form) {
             $r = $a->post('/ui/reference/company', $form);
             self::assertSame(403, $r->status, $what);
-            self::assertStringContainsString('csrf', $r->text(), $what);
+            self::assertSame('csrf', $r->errorCode(), $what);
         }
         self::assertSame(3, self::versions());
         self::assertSame(400, $a->post('/ui/reference/company', ['version' => 'x'] + $f)->status, 'a form without a version');
@@ -216,8 +233,9 @@ final class CompanyScreensTest extends KernelUiTestCase
         $svc->confirm(Caller::staff($ownerUser['id']), 1);
         $owner = $this->signIn($ownerUser);
         $edit = $owner->get('/ui/reference/company/edit');
-        self::assertStringContainsString('These details are confirmed. Saving a change makes them "not confirmed" until someone confirms them again. If you confirm your '
-            . 'own change of the legal name, company number, VAT, purchasing e-mail or delivery address, another reviewer is asked to check it.', $edit->text());
+        self::assertStringContainsString(Words::COMPANY['is_confirmed'], $edit->text());
+        self::assertStringContainsString(Words::COMPANY['until_confirmed'], $edit->text());
+        self::assertStringContainsString('(press Enter for each new line, up to 8 lines)', $edit->text(), 'F145');
         $r = $owner->post('/ui/reference/company', ['delivery_address' => "Unit 9, Elsewhere\r\nBradford BD1 1AA", 'reason' => 'moved'] + $edit->form('/ui/reference/company', true));
         self::assertSame('/ui/reference/company?notice=saved', $r->location(), $r->describe());
         $page = $owner->follow($r);
@@ -228,17 +246,21 @@ final class CompanyScreensTest extends KernelUiTestCase
         $c = $owner->post('/ui/reference/company/confirm', $page->form('/ui/reference/company/confirm'));
         self::assertSame('/ui/reference/company?notice=confirmed_review', $c->location(), $c->describe());
         $page = $owner->follow($c);
-        self::assertStringContainsString('You confirmed your own change of the legal name, company number, VAT, purchasing e-mail or delivery address, so another '
-            . 'reviewer is asked to check it (it stops nothing).', $page->text());
+        self::assertStringContainsString(CompanyController::NOTICES['confirmed_review'], $page->text());
         self::assertTrue($svc->company()['confirmed']);
-        self::assertStringContainsString('Version 4, confirmed by Reviewer-mapping_lead 1 on ', $page->text());
-        self::assertStringContainsString('What changed since the details were last confirmed (version 2): Delivery address Was: Unit 4, Example Park Leeds LS2 2BB Now: '
+        self::assertStringContainsString('Reviewer-mapping_lead 1 confirmed a change on ', $page->text());
+        self::assertStringContainsString(Words::COMPANY['checks_text'], $page->text(), 'F144');
+        self::assertStringContainsString('What changed since the details were last confirmed: Delivery address Was: Unit 4, Example Park Leeds LS2 2BB Now: '
             . 'Unit 9, Elsewhere Bradford BD1 1AA', $page->text());
-        self::assertStringContainsString('You made or confirmed this change: another reviewer must check it.', $page->text());
-        // The owner is the only reviewer: the check waits, calmly (no due date, never "overdue").
-        self::assertStringContainsString('Nobody else holds the reviewer role yet, so this check stays open. It stops nothing', $page->text());
+        self::assertStringContainsString(Words::REFUSAL['own_change'], $page->text());
+        // The checks come before the details (decision near the top).
+        $px = new \DOMXPath($page->dom());
+        self::assertLessThan((int) $px->evaluate('count(//section[@aria-labelledby="details-h"]/preceding::*)'),
+            (int) $px->evaluate('count(//section[@aria-labelledby="reviews-h"]/preceding::*)'));
+        // The owner is the only reviewer: the check waits, calmly (no due date, never "Late").
+        self::assertStringContainsString(Words::COMPANY['alone'], $page->text());
         self::$db->exec("UPDATE review_task SET due_at = '2026-01-01 00:00:00' WHERE subject_type = 'company'");
-        self::assertStringNotContainsString('overdue', $owner->get('/ui/reference/company')->text());
+        self::assertStringNotContainsString(Words::COMPANY['late'], $owner->get('/ui/reference/company')->text());
         self::assertFalse($page->hasForm('/approve'));
         $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'company' AND state = 'open'");
         self::assertSame(403, $owner->post("/ui/reference/company/reviews/{$task}/approve", ['csrf' => $this->token($owner)])->status, 'never their own change');
@@ -246,27 +268,28 @@ final class CompanyScreensTest extends KernelUiTestCase
         // Another reviewer finds it in the review queue (and its badge), labelled with what changed, and decides it on the Company
         // details page; now that someone could, the owner's page shows it as overdue.
         $second = $this->signIn($this->uiUser('reviewer'));
-        self::assertStringContainsString('overdue', $owner->get('/ui/reference/company')->text());
+        self::assertStringContainsString(Words::COMPANY['late'], $owner->get('/ui/reference/company')->text());
         $queue = $second->get('/ui/documents/reviews');
         self::assertSame(200, $queue->status, $queue->describe());
-        self::assertStringContainsString('Company details, version 4 (delivery address) Company details company changed', $queue->text());
+        self::assertStringContainsString('Company details changed (delivery address) Company details changed', $queue->text(), 'what changed, then why');
         self::assertContains('/ui/reference/company', $queue->hrefs());
-        self::assertSame('Review queue 1', self::nav($queue)['Document reviews'][0]['label']);
-        self::assertStringContainsString('Company details, version 4', $second->get('/ui/documents/reviews', ['type' => 'Company'])->text());
-        self::assertStringNotContainsString('Company details, version 4', $second->get('/ui/documents/reviews', ['type' => 'PO'])->text());
+        self::assertSame('Waiting for me 1', self::nav($queue)['To check'][0]['label']);
+        self::assertStringContainsString('Company details changed (delivery address)', $second->get('/ui/documents/reviews', ['type' => 'Company'])->text());
+        self::assertStringNotContainsString('Company details changed (delivery address)', $second->get('/ui/documents/reviews', ['type' => 'PO'])->text());
         self::assertStringNotContainsString('class="badge"', $owner->get('/ui/')->body, 'the owner cannot decide it: no count');
         $page = $second->get('/ui/reference/company');
         $reject = $page->form("/ui/reference/company/reviews/{$task}/reject");
         self::assertSame(['csrf', 'note'], array_keys($reject));
+        self::assertStringContainsString(Words::COMPANY['wrong_does'], $page->text(), 'what each answer does (design B)');
         $r = $second->post("/ui/reference/company/reviews/{$task}/reject", ['note' => 'that is not our warehouse'] + $reject);
         self::assertSame('/ui/reference/company?notice=review_rejected', $r->location(), $r->describe());
         $page = $second->follow($r);
-        self::assertStringContainsString('Recorded: you rejected the change. The details in use carried it, so they are not confirmed any more', $page->text());
+        self::assertStringContainsString(CompanyController::NOTICES['review_rejected'], $page->text());
         self::assertStringContainsString('Not confirmed', $page->text());
-        self::assertStringContainsString('made unconfirmed by Reviewer 2', $page->text());
-        self::assertStringContainsString('rejected by Reviewer 2 on ', $page->text());
+        self::assertStringContainsString('Reviewer 2 made them not confirmed', $page->text());
+        self::assertStringContainsString('Not OK by Reviewer 2 on ', $page->text());
         self::assertStringContainsString('that is not our warehouse', $page->text());
-        self::assertStringContainsString('check: rejected', $page->text());
+        self::assertStringContainsString(Words::COMPANY['h_check_wrong'], $page->text());
         self::assertFalse($svc->company()['confirmed']);
         self::assertSame(409, $second->post("/ui/reference/company/reviews/{$task}/approve", ['csrf' => $this->token($second)])->status, 'decided once');
 
@@ -311,17 +334,15 @@ final class CompanyScreensTest extends KernelUiTestCase
             + $second->get('/ui/reference/company')->form("/ui/reference/company/reviews/{$task}/reject"));
         self::assertSame('/ui/reference/company?notice=review_rejected', $r->location(), $r->describe());
         $page = $second->follow($r);
-        self::assertStringContainsString('A reviewer rejected a change of these details, and 1 approved purchase order still carries it (their PDF says "do not send"). '
-            . 'Cancel or amend it:', $page->text());
+        self::assertStringContainsString(Words::COMPANY['rejected_one'], $page->text());
         self::assertContains("/ui/purchasing/orders/{$d->id}", $page->hrefs());
-        self::assertStringContainsString((string) $d->number . ' (approved)', $page->text());
+        self::assertStringContainsString((string) $d->number . ' (' . Words::PO_STATE['approved'] . ')', $page->text());
 
         // The order's own page says so, with the words that fit (it is not "add or confirm").
         $buyer = $this->signIn($buyerUser);
         $view = $buyer->get("/ui/purchasing/orders/{$d->id}");
-        self::assertStringContainsString('This order was approved with company details that include a change a reviewer rejected: its PDF says "company details rejected at '
-            . 'review - do not send". Cancel or amend it. See the company details', $view->text());
-        self::assertStringContainsString('include a change a reviewer rejected (see Company details): cancel or amend it rather than send it.', $view->text());
+        self::assertStringContainsString(Words::ORDER['company_rejected'] . ' ' . Words::ORDER['company_see'], $view->text());
+        self::assertStringContainsString(Words::PO_WARN['send_company_rejected'], $view->text());
         $pdf = $buyer->get("/ui/purchasing/orders/{$d->id}/pdf");
         self::assertSame(200, $pdf->status, $pdf->describe());
     }
@@ -335,9 +356,8 @@ final class CompanyScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('reviewer'));
         $page = $web->get('/ui/reference/company');
         self::assertFalse($page->hasForm('/ui/reference/company/confirm'));
-        self::assertStringContainsString('These details were copied from the old settings. Press "Change the details" and Save once (spaces and line breaks are tidied), '
-            . 'then confirm them here.', $page->text());
-        self::assertStringContainsString('Version 1 · copied from the old settings', $page->text());
+        self::assertStringContainsString(Words::COMPANY['unsaved'], $page->text());
+        self::assertStringContainsString('· Copied from the old settings', $page->text());
         self::assertStringContainsString('by the set-up (copied from the old settings)', $page->text());
         self::assertStringNotContainsString('system:', $page->text());
         // The form shows the tidy values; saving them once makes the details confirmable.
@@ -367,7 +387,7 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame('/ui/reference/company?notice=saved', $web->post('/ui/reference/company', $f)->location());
         $back = $web->post('/ui/reference/company', ['phone' => '0113 496 0999'] + $f);
         self::assertSame(409, $back->status, $back->describe());
-        self::assertStringContainsString('You already saved this form once. What you typed is kept below: check it and press Save again.', $back->text());
+        self::assertStringContainsString(Words::COMPANY['saved_twice'], $back->text());
         $again = $back->form('/ui/reference/company', true);
         self::assertSame(['1', '0113 496 0999'], [$again['version'], $again['phone']]);
         self::assertNotSame($f['form_key'], $again['form_key']);
@@ -382,7 +402,8 @@ final class CompanyScreensTest extends KernelUiTestCase
             $page = $web->get($path);
             self::assertSame(200, $page->status);
             $xp = new \DOMXPath($page->dom());
-            self::assertSame('width=device-width, initial-scale=1', $xp->query('//meta[@name="viewport"]')->item(0)?->getAttribute('content'));
+            self::assertSame('width=device-width, initial-scale=1, viewport-fit=cover', $xp->query('//meta[@name="viewport"]')->item(0)?->getAttribute('content'),
+                'the phone width, and the tab bar clear of an iPhone\'s home bar');
             self::assertSame(0, $xp->query('//main//table')->length, "{$path}: no table to scroll sideways on a phone");
             self::assertSame(0, $xp->query('//main//*[@style or @width or @size]')->length, "{$path}: no fixed widths");
         }

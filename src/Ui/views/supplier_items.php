@@ -1,49 +1,50 @@
-<p class="crumbs"><a href="/ui/purchasing/suppliers">Suppliers</a> <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id']) ?>">Back to <?= $e($s['code']) ?></a></p>
-<h1>Items from <?= $e($s['code']) ?> <span class="muted"><?= $e($s['name']) ?></span></h1>
-<p class="muted">A pack is what the supplier sells and we order in (a box of 24 = 24 central units). Prices are GBP excluding VAT per pack; the
-  last price is the newest imported, typed or invoiced price (never a purchase order's own price). The preferred supply of an item is where the
-  reorder list orders it from.</p>
+<p class="crumbs"><a href="/ui/purchasing/suppliers"><?= $word('MENU', 'suppliers') ?></a> <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id']) ?>"><?= $say('SUPPLIER_ITEMS', 'back', (string) $s['name']) ?></a></p>
+<h1><?= $e($title) ?></h1>
+<?= $intro('supplier_items', $lookOnly) ?>
+<p class="hint"><?= $word('SUPPLIER_ITEMS', 'intro') ?></p>
 <p class="actions">
 <?php if ($canManage): ?>
-  <a class="button" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items/new') ?>">Add an item</a>
+  <a class="btn primary" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items/new') ?>"><?= $word('SUPPLIER_ITEMS', 'add') ?></a>
 <?php endif; ?>
-  <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items.csv') ?>">Download (CSV)</a>
+  <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items.csv') ?>"><?= $word('SUPPLIER_ITEMS', 'download') ?></a>
 </p>
 <?php if ($rows === []): ?>
-<p class="note">No item yet.</p>
+<?= $empty(\CW\Ui\Words::SUPPLIER_ITEMS['none'], \CW\Ui\Words::SUPPLIER_ITEMS[$canManage ? 'none_text' : 'none_look']) ?>
 <?php else: ?>
-<table class="supplier-items">
+<div class="table-wrap">
+<table class="stack list supplier-items">
   <thead>
     <tr>
-      <th scope="col">Item</th>
-      <th scope="col">Supplier code</th>
-      <th scope="col">Pack</th>
-      <th scope="col" class="num">MOQ (packs)</th>
-      <th scope="col" class="num">Multiple</th>
-      <th scope="col" class="num">Lead days</th>
-      <th scope="col">Preferred</th>
-      <th scope="col" class="num">Last price</th>
-      <th scope="col" class="num">Per unit</th>
-      <th scope="col" class="num">Last PO price</th>
+      <th scope="col"><?= $word('SUPPLIER_ITEMS', 'product') ?></th>
+      <th scope="col"><?= $word('SUPPLIER_ITEMS', 'main') ?></th>
+      <th scope="col"><?= $word('SUPPLIER_ITEMS', 'their_code') ?></th>
+      <th scope="col"><?= $word('SUPPLIER_ITEMS', 'pack') ?></th>
+      <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'moq') ?></th>
+      <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'steps') ?></th>
+      <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'lead') ?></th>
+      <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'per_pack') ?></th>
+      <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'per_item') ?></th>
+      <th scope="col" class="num"><?= $word('SUPPLIER_ITEMS', 'last_order') ?></th>
     </tr>
   </thead>
   <tbody>
 <?php foreach ($rows as $r): ?>
-    <tr<?php if ((int) $r['is_active'] !== 1): ?> class="inactive"<?php endif; ?>>
-      <th scope="row"><a href="<?= $u('/ui/purchasing/supplier-items/' . $r['id']) ?>"><?= $e($r['sku_code']) ?></a> <?= $e($r['sku_name']) ?>
-<?php if ($r['merged_code'] !== null): ?> <span class="tag bad">merged into <?= $e($r['merged_code']) ?></span><?php endif; ?>
-<?php if ((int) $r['is_active'] !== 1): ?> <span class="tag">not used</span><?php endif; ?></th>
-      <td><?= $e($r['supplier_code']) ?></td>
-      <td><?= $e($r['pack']) ?></td>
-      <td class="num"><?= $n($r['moq_packs']) ?></td>
-      <td class="num"><?= $n($r['order_multiple_packs']) ?></td>
-      <td class="num"><?= $e($r['lead_days']) ?></td>
-      <td><?php if ((int) $r['is_preferred'] === 1 && (int) $r['is_active'] === 1): ?><span class="tag ok">preferred</span><?php endif; ?></td>
-      <td class="num"><?= $e($r['price_text']) ?><?php if ($r['last_price_on'] !== null): ?> <span class="muted"><?= $e($r['last_price_on']) ?></span><?php endif; ?></td>
-      <td class="num"><?= $e($r['unit_text']) ?></td>
-      <td class="num"><?= $e($r['po_text']) ?></td>
+    <tr class="<?php if ((int) $r['is_active'] !== 1): ?>inactive off<?php elseif ((int) $r['is_preferred'] === 1): ?>done<?php else: ?>info<?php endif; ?>">
+      <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/purchasing/supplier-items/' . $r['id']) ?>"><?= $e($r['sku_name']) ?></a><span class="o-no"><?= $e($r['sku_code']) ?></span>
+<?php if ($r['merged_code'] !== null): ?> <?= $chip('blocked', \CW\Ui\Words::say('SUPPLIER_ITEMS', 'merged', (string) $r['merged_code'])) ?><?php endif; ?>
+<?php if ((int) $r['is_active'] !== 1): ?> <?= $chip('off', \CW\Ui\Words::SUPPLIER_ITEMS['not_used']) ?><?php endif; ?></th>
+      <td class="c-status"><?php if ((int) $r['is_preferred'] === 1 && (int) $r['is_active'] === 1): ?><?= $chip('done', \CW\Ui\Words::SUPPLIER_ITEMS['main']) ?><?php endif; ?></td>
+      <td data-label="<?= $word('SUPPLIER_ITEMS', 'their_code') ?>"><?= $e($r['supplier_code']) ?></td>
+      <td data-label="<?= $word('SUPPLIER_ITEMS', 'pack') ?>"><?= $e($r['pack']) ?></td>
+      <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'moq') ?>"><?= $n($r['moq_packs']) ?></td>
+      <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'steps') ?>"><?= $n($r['order_multiple_packs']) ?></td>
+      <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'lead') ?>"><?php if ($r['lead_days'] === null): ?><span class="muted"><?= $word('SUPPLIER_ITEMS', 'supplier_days') ?></span><?php else: ?><?= $n($r['lead_days']) ?><?php endif; ?></td>
+      <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'per_pack') ?>"><?= $e($r['price_text']) ?><?php if ($r['last_price_on'] !== null): ?> <span class="o-sub"><?= $day($r['last_price_on']) ?></span><?php endif; ?></td>
+      <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'per_item') ?>"><?= $e($r['unit_text']) ?></td>
+      <td class="num" data-label="<?= $word('SUPPLIER_ITEMS', 'last_order') ?>"><?= $e($r['po_text']) ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>
 </table>
+</div>
 <?php endif; ?>

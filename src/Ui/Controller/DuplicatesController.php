@@ -14,31 +14,34 @@ use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\UiRequest;
+use CW\Ui\Words;
 
 /**
- * The Duplicates screen (docs/decisions.md M34; the owner's decision of 6 Oct 2026): Vape and Go's own duplicate listings,
- * the same product on two pages, linked to ONE CW item so their sales and deliveries count once. Nothing changes on the
- * site: the pages keep their own price and reviews until Vape and Go runs on CW.
+ * Possible duplicates (docs/decisions.md M34; the owner's decision of 6 Oct 2026; in plain words since 7 Oct 2026, plan §6.11,
+ * 6.12): Vape and Go's own duplicate listings, the same product on two pages, linked to ONE CW item so their sales and
+ * deliveries count once. Nothing changes on the site: the pages keep their own price and reviews until Vape and Go runs on CW.
+ * The screens say "join" for a merge and "keep apart" for a reject (Words::DUPS); "keep apart" is the safer answer.
  *
  *   GET  /ui/review/duplicates             the open merge suggestions, by group, the biggest sellers first (linking.view)
- *   GET  /ui/review/duplicates/{id}        one group side by side, differences highlighted, a suggested keeper (?keeper=)
- *   POST /ui/review/duplicates/{id}/decide "Same product - merge into CW-x" / "Different products - keep separate", or one
- *                                          choice per listing (3 or more): one DecisionService::decideGroup() (mapping lead)
- *   POST /ui/review/duplicates/{id}/split  the undo of a wrong merge for one listing (DecisionService split; mapping lead)
+ *   GET  /ui/review/duplicates/{id}        one group: what the rules say first, the answers (design B), the pages side by side
+ *   POST /ui/review/duplicates/{id}/decide "Same product – join them" / "Different products – keep apart", or one choice per
+ *                                          listing (3 or more): one DecisionService::decideGroup() (mapping lead)
+ *   POST /ui/review/duplicates/{id}/split  "Undo the join" for one listing (DecisionService split; mapping lead)
  *
  * Both POSTs carry a FormOnce key (a double click decides once) and the map_version of every listing the form showed: a
  * listing that changed meanwhile refuses the whole form, and the page is drawn again with the reason in plain words.
  */
 final class DuplicatesController
 {
+    /** notice key => its words (Words::DUP_NOTICE; %s is the group's name). Only these can be shown. */
     public const NOTICES = [
-        'merged' => 'Merged. Both pages now share one warehouse item. On the website they stay separate pages with their own price and reviews until Vape and Go switches to the warehouse system.',
-        'separate' => 'Kept separate: these listings will not be suggested as duplicates again.',
-        'mixed' => 'Saved: the listings you marked the same now share one warehouse item, the others stay separate.',
-        'pending' => 'Saved. A merge that touches a counted item (or a pack of more than one) waits for a second mapping lead in Second approval.',
-        'split' => 'Split off: the listing is back on its own warehouse item, with the stock that came with it.',
-        'split_pending' => 'Saved. The split touches a counted item, so a second mapping lead has to approve it in Second approval.',
-        'done' => 'No duplicates are left to decide.',
+        'merged' => Words::DUP_NOTICE['merged'],
+        'separate' => Words::DUP_NOTICE['separate'],
+        'mixed' => Words::DUP_NOTICE['mixed'],
+        'pending' => Words::DUP_NOTICE['pending'],
+        'split' => Words::DUP_NOTICE['split'],
+        'split_pending' => Words::DUP_NOTICE['split_pending'],
+        'done' => Words::DUP_NOTICE['done'],
     ];
     public const CHOICES = ['merge', 'separate', 'later'];
     private const LIST_LIMIT = 500;
@@ -58,10 +61,12 @@ final class DuplicatesController
         $page = max(1, min(10000, (int) (UiRequest::id($ctx->req->param('page')) ?? 1)));
         $recent = $dup->decidedGroups(($page - 1) * self::RECENT_PER_PAGE, self::RECENT_PER_PAGE);
         $pages = max(1, (int) ceil($recent['total'] / self::RECENT_PER_PAGE));
+        $lead = $ctx->me()->isLead();
         return $ctx->page('duplicates', ['rows' => $rows, 'total' => count($rows), 'recent' => $recent['rows'], 'recent_total' => $recent['total'],
             'recent_page' => $page, 'recent_prev' => $page > 1 ? Html::url('/ui/review/duplicates', ['page' => (string) ($page - 1)]) : null,
-            'recent_next' => $page < $pages ? Html::url('/ui/review/duplicates', ['page' => (string) ($page + 1)]) : null, 'recent_pages' => $pages], 200,
-            ['title' => 'Duplicates', 'active' => 'duplicates', 'notice' => self::NOTICES[$ctx->req->param('notice') ?? ''] ?? null]);
+            'recent_next' => $page < $pages ? Html::url('/ui/review/duplicates', ['page' => (string) ($page + 1)]) : null, 'recent_pages' => $pages,
+            'lookOnly' => $lead ? null : Words::whoCan('mapping.approve'), 'look' => $lead ? null : Words::DUPS['look']], 200,
+            ['title' => Words::title('duplicates'), 'active' => 'duplicates', 'notice' => $this->notice($ctx, null)]);
     }
 
     public function show(Context $ctx): HtmlResponse
@@ -77,7 +82,7 @@ final class DuplicatesController
         $dup = new Duplicates($ctx->db);
         $g = $dup->group($id);
         if ($g === null) {
-            return $ctx->error(404, 'not_found', 'no such duplicate group');
+            return $ctx->error(404, 'unknown_group', 'no such duplicate group', ['/ui/review/duplicates', Words::title('duplicates')]);
         }
         if ($g['id'] !== $id) {
             return HtmlResponse::redirect('/ui/review/duplicates/' . $g['id']);
@@ -161,10 +166,28 @@ final class DuplicatesController
         }
         $noForm = null;
         if (!$me->isLead()) {
-            $noForm = $me->rolesPhrase() . ' can look at duplicates but not decide them: merging and keeping separate is for a mapping lead.';
+            $noForm = Words::DUPS['look'];
         }
         $merged = array_values(array_filter($rows, static fn (array $r): bool => $r['undo'] !== null));
+        $names = [];
+        foreach ($ctx->queries()->channels() as $c) {
+            $names[(string) $c['code']] = (string) $c['name'];
+        }
+        // The heading says the answer once the group is decided (F127).
+        $same = array_filter($rows, static fn (array $r): bool => $r['state'] === 'same') !== [];
+        $apart = array_filter($rows, static fn (array $r): bool => $r['state'] === 'separate') !== [];
+        $heading = $g['open'] > 0 || $keeper === null || (!$same && !$apart) ? Words::say('DUPS', 'title', count($rows))
+            : ($same && !$apart ? Words::say('DUPS', 'decided_same', (string) $keeper['sku']['code']) : ($apart && !$same ? Words::DUPS['decided_apart'] : Words::DUPS['decided_mixed']));
         return $ctx->page('duplicate_group', [
+            'heading' => $heading,
+            'kind' => match ($g['kind']) {
+                'shared_gtin' => Words::DUPS['kind_shared_gtin'],
+                'sweep' => Words::DUPS['kind_sweep'],
+                null => null,
+                default => Words::DUPS['kind_names'],
+            },
+            'names' => $names,
+            'lookOnly' => $me->isLead() ? null : Words::whoCan('mapping.approve'),
             'g' => $g,
             'rows' => $rows,
             'compare' => Duplicates::compare($ordered, $sweep),
@@ -183,8 +206,39 @@ final class DuplicatesController
             'error' => $error,
             'note' => $merged !== [] || array_filter($rows, static fn (array $r): bool => $r['state'] === 'same') !== [],
             'next_link' => $this->next($dup, $g['id']),
-        ], $status, ['title' => 'Duplicates: group ' . ($g['group'] ?? $g['id']), 'active' => 'duplicates',
-            'notice' => self::NOTICES[$ctx->req->param('notice') ?? ''] ?? null]);
+        ], $status, ['title' => Words::say('DUPS', 'group', (string) ($g['group'] ?? $g['id'])), 'active' => 'duplicates',
+            'notice' => $this->notice($ctx, $g['id'])]);
+    }
+
+    /**
+     * The whitelisted notice named in the URL, worded for the group it is about (F133: the notice is shown on the NEXT group, so
+     * it names the one decided and says this is the next one).
+     */
+    private function notice(Context $ctx, ?int $current): ?string
+    {
+        $key = $ctx->req->param('notice') ?? '';
+        if (!isset(self::NOTICES[$key])) {
+            return null;
+        }
+        if (!str_contains(self::NOTICES[$key], '%s')) {
+            return self::NOTICES[$key];
+        }
+        $prev = UiRequest::id($ctx->req->param('prev'));
+        $name = Words::DUP_NOTICE['the_group'];
+        $about = $prev ?? $current;
+        if ($about !== null) {
+            $dup = new Duplicates($ctx->db);
+            $g = $dup->group($about);
+            if ($g !== null) {
+                $first = $dup->listings(array_slice($g['listings'], 0, 1))[$g['listings'][0] ?? 0] ?? null;
+                $name = Words::quoted($first === null ? null : trim(($first['title'] ?? '') . ' ' . ($first['variant_title'] ?? '')), $name);
+            }
+        }
+        $text = Words::say('DUP_NOTICE', $key, $name);
+        if ($prev !== null && $current !== null && $prev !== $current) {
+            $text .= ' ' . Words::DUP_NOTICE['next'];
+        }
+        return $text;
     }
 
     /** A short name for a page's column: its product title, cut. @param array<string, mixed> $l */
@@ -202,7 +256,7 @@ final class DuplicatesController
         $dup = new Duplicates($ctx->db);
         $g = $dup->group($id);
         if ($g === null) {
-            return $ctx->error(404, 'not_found', 'no such duplicate group');
+            return $ctx->error(404, 'unknown_group', 'no such duplicate group', ['/ui/review/duplicates', Words::title('duplicates')]);
         }
         $keeperId = UiRequest::id($req->field('keeper'));
         $do = $req->field('do') ?? '';
@@ -227,10 +281,10 @@ final class DuplicatesController
         $form = ['keeper' => (string) $keeperId, 'c' => $choices, 'form_key' => $req->field(FormOnce::FIELD), 'confirm' => $confirm ? '1' : ''];
         $refuse = fn (string $message, int $status = 422): HtmlResponse => $this->page($ctx, $g['id'], $form, $message, $status);
         if (!in_array($do, ['merge_all', 'separate_all', 'save'], true)) {
-            return $refuse('Choose what to do with these listings.');
+            return $refuse(Words::DUP_ERROR['choose']);
         }
         if ($keeperId === null || !in_array($keeperId, $g['listings'], true)) {
-            return $refuse('The form is incomplete: reload the page.', 400);
+            return $refuse(Words::DUP_ERROR['form_incomplete'], 400);
         }
         $keepSku = UiRequest::id($req->field('keep_sku'));
         try {
@@ -279,14 +333,13 @@ final class DuplicatesController
         $ownProposal = static fn (array $l): ?int => $l['proposal'] !== null && in_array($l['proposal']['id'], $own, true) ? $l['proposal']['id'] : null;
         foreach ($props as $lid => $pid) {
             if (!in_array($pid, $own, true)) {
-                throw new CwException('proposal_changed', 'The suggestions for this group changed since the page was drawn. Nothing was saved: check the page and decide again.', 409);
+                throw new CwException('proposal_changed', Words::DUP_ERROR['proposal_changed'], 409);
             }
         }
         $keeper = $ls[$keeperId] ?? null;
         if ($keeper === null || $keeper['sku'] === null || $keeper['sku']['merged_into'] !== null || $keepSku !== $keeper['sku']['id']
             || ($versions[$keeperId] ?? null) !== $keeper['map_version']) {
-            throw new CwException('keeper_changed', 'The listing you chose to keep changed since the page was drawn (someone relinked or merged it). '
-                . 'Nothing was saved: the page shows it as it is now, check it and decide again.', 409);
+            throw new CwException('keeper_changed', Words::DUP_ERROR['keeper_changed'], 409);
         }
         $ds = $ctx->decisions();
         $requests = [];
@@ -309,13 +362,12 @@ final class DuplicatesController
             }
             if (($l['proposal'] !== null && $ownProposal($l) === null) || $l['other_proposal'] !== null) {
                 if (isset($versions[$lid])) {
-                    throw new CwException('elsewhere', "Listing #{$lid} has an open suggestion in another group (or another queue) since the page was drawn: "
-                        . 'decide that one first. Nothing was saved.', 409);
+                    throw new CwException('elsewhere', Words::say('DUP_ERROR', 'elsewhere', self::named($l)), 409);
                 }
                 continue;
             }
             if (!isset($versions[$lid])) {
-                throw new CwException('form_incomplete', 'The form is incomplete: reload the page.', 400);
+                throw new CwException('form_incomplete', Words::DUP_ERROR['form_incomplete'], 400);
             }
             $expect[$lid] = $versions[$lid];
             if ($choice === 'merge') {
@@ -338,16 +390,13 @@ final class DuplicatesController
             }
         }
         if ($requests === []) {
-            throw new CwException('nothing_chosen', $do === 'save' ? 'Choose "same product" or "different products" for at least one listing (or leave the page as it is).'
-                : 'Nothing is left to decide in this group.', 422);
+            throw new CwException('nothing_chosen', $do === 'save' ? Words::DUP_ERROR['nothing_chosen'] : Words::DUP_ERROR['nothing_left'], 422);
         }
         if ($toMerge !== [] && !$confirm) {
             $verdicts = $dup->verdicts([$keeper, ...$toMerge], $keeperId);
             $doubt = array_values(array_filter($toMerge, static fn (array $l): bool => !($verdicts[$l['id']]['ok'] ?? false)));
             if ($doubt !== []) {
-                throw new CwException('confirm_needed', 'The rules found reasons that ' . (count($doubt) === 1 ? 'listing #' . $doubt[0]['id'] . ' is' : 'listings #'
-                    . implode(', #', array_column($doubt, 'id')) . ' are') . ' a different product (see "What the rules say"). Nothing was saved: open the live '
-                    . 'pages, and if they are the same product tick "I checked the live pages" and merge again.', 422);
+                throw new CwException('confirm_needed', Words::say('DUP_ERROR', 'confirm_needed', Words::andList(array_map(static fn (array $l): string => self::named($l), $doubt))), 422);
             }
         }
         return [$requests, $expect];
@@ -360,18 +409,18 @@ final class DuplicatesController
         $req = $ctx->req;
         $g = (new Duplicates($ctx->db))->group($id);
         if ($g === null) {
-            return $ctx->error(404, 'not_found', 'no such duplicate group');
+            return $ctx->error(404, 'unknown_group', 'no such duplicate group', ['/ui/review/duplicates', Words::title('duplicates')]);
         }
         $lid = UiRequest::id($req->field('listing'));
         $v = $req->field('v');
         $to = $req->field('to') ?? 'former';
         if ($lid === null || !in_array($lid, $g['listings'], true) || $v === null || preg_match('/^(0|[1-9][0-9]{0,9})$/D', $v) !== 1
             || !in_array($to, DecisionService::SPLIT_TO, true)) {
-            return $this->page($ctx, $g['id'], null, 'The form is incomplete: reload the page.', 400);
+            return $this->page($ctx, $g['id'], null, Words::DUP_ERROR['form_incomplete'], 400);
         }
         $reason = trim($req->field('reason') ?? '');
         if (mb_strlen($reason) > DecisionService::MAX_REASON) {
-            return $this->page($ctx, $g['id'], null, 'The reason is at most ' . DecisionService::MAX_REASON . ' characters.', 422);
+            return $this->page($ctx, $g['id'], null, Words::say('DUP_ERROR', 'reason_long', DecisionService::MAX_REASON), 422);
         }
         $request = ['action' => 'split', 'listing_id' => $lid, 'expected_map_version' => (int) $v, 'split_to' => $to,
             'proposal_id' => UiRequest::id($req->field('proposal')), 'reason' => $reason === '' ? 'Duplicates screen: not the same product after all' : $reason];
@@ -396,7 +445,7 @@ final class DuplicatesController
         $dup = new Duplicates($ctx->db);
         $next = $this->nextId($dup, $current);
         if ($next !== null) {
-            return Html::url('/ui/review/duplicates/' . $next, ['notice' => $notice]);
+            return Html::url('/ui/review/duplicates/' . $next, ['notice' => $notice, 'prev' => $current]);
         }
         if (($dup->group($current)['open'] ?? 0) > 0) {
             return Html::url('/ui/review/duplicates/' . $current, ['notice' => $notice]);
@@ -425,25 +474,25 @@ final class DuplicatesController
         return null;
     }
 
-    /** A DecisionService refusal in plain words for the person at the screen. */
+    /**
+     * A refusal in the page's words, by its error code (Words::DUP_ERROR; DecisionService's own messages are the API's). The
+     * page's own refusals (keeper_changed, elsewhere, confirm_needed …) are made in those words already.
+     */
     private static function plain(CwException $e): string
     {
         return match ($e->errorCode) {
-            'map_version_conflict' => 'One of these listings changed since the page was drawn (someone linked, merged or the site renamed it). '
-                . 'Nothing was saved: the page shows them as they are now, check and decide again.',
-            'proposal_changed', 'proposal_closed' => 'The suggestions for this group changed since the page was drawn. Nothing was saved: check the page and decide again.',
-            'pending_second_exists' => 'A decision on one of these listings is waiting for a second person. Nothing was saved: approve or withdraw it first (Second approval).',
-            'rejected_pair' => 'These listings cannot be merged: one of them was marked as a different product before. Nothing was saved.',
-            'protected_merge', 'protected_split' => 'One of the items is protected (counted and set to sell from the warehouse): it cannot be merged or split here. Nothing was saved.',
-            'counted_meanwhile' => 'One of the items was counted a moment ago, so this needs a second mapping lead now. Nothing was saved: decide again.',
-            'not_merged' => 'This listing was not moved here by a merge (or was relinked since): change it on its review page instead. Nothing was saved.',
-            'former_merged_elsewhere' => 'The item this listing had before was merged into another item since: split it to a new item instead. Nothing was saved.',
-            'lead_required' => 'Only a mapping lead can do this. Nothing was saved.',
-            'idempotency_key_reused' => 'This form was already sent with other choices: reload the page and decide again.',
+            'map_version_conflict', 'pending_second_exists', 'rejected_pair', 'counted_meanwhile', 'not_merged', 'former_merged_elsewhere', 'lead_required',
+            'idempotency_key_reused', 'split_chain' => Words::DUP_ERROR[$e->errorCode],
+            'proposal_changed', 'proposal_closed' => Words::DUP_ERROR['proposal_changed'],
+            'protected_merge', 'protected_split' => Words::DUP_ERROR['protected'],
             'keeper_changed', 'form_incomplete', 'nothing_chosen', 'elsewhere', 'confirm_needed' => $e->getMessage(),
-            'split_chain' => 'This page came onto its item through two merges, so CW cannot tell which merge was wrong: split it to a new item instead (no '
-                . 'stock moves; the next count settles it). Nothing was saved.',
-            default => $e->getMessage() . ' Nothing was saved.',
+            default => Words::say('DUP_ERROR', 'other', ucfirst(rtrim($e->getMessage(), '.')) . '.'),
         };
+    }
+
+    /** A page of a group by its name, in quotes, for a sentence. @param array<string, mixed> $l a Duplicates::listings() row */
+    private static function named(array $l): string
+    {
+        return Words::quoted(trim(((string) ($l['title'] ?? '')) . ' ' . ((string) ($l['variant_title'] ?? ''))), '#' . (int) $l['id']);
     }
 }

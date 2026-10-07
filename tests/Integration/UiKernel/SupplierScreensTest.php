@@ -8,6 +8,7 @@ use CW\Caller;
 use CW\Suppliers\Suppliers;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
+use CW\Ui\Words;
 
 /**
  * The supplier screens through the real /ui kernel as cw_app (I38-I47), the owner's acceptance step "a supplier approved
@@ -57,9 +58,9 @@ final class SupplierScreensTest extends KernelUiTestCase
         $buyer = $this->signIn($buyerUser);
         $list = $buyer->get('/ui/purchasing/suppliers');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertStringContainsString('No supplier matches.', $list->text());
+        self::assertStringContainsString(Words::SUPPLIERS['none'], $list->text());
         self::assertContains('/ui/purchasing/suppliers/new', $list->hrefs());
-        self::assertSame('Suppliers', self::nav($list)['Purchasing'][0]['label']);
+        self::assertContains(['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'], self::nav($list)['Buying']);
 
         // Create by form; the same form sent twice makes one supplier.
         $new = $buyer->get('/ui/purchasing/suppliers/new');
@@ -75,22 +76,26 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM supplier'));
         $other = $buyer->post('/ui/purchasing/suppliers', ['name' => 'Something Else'] + $form);
         self::assertSame(422, $other->status);
-        self::assertStringContainsString('this form was already sent with other values', $other->text());
+        self::assertStringContainsString(Words::ERROR['idempotency_key_reused'], $other->text());
         $bad = $buyer->post('/ui/purchasing/suppliers', ['form_key' => 'nope', 'name' => 'X'] + $form);
         self::assertSame(400, $bad->status);
         $refused = $buyer->post('/ui/purchasing/suppliers', ['form_key' => str_repeat('a', 32), 'name' => 'Y', 'email' => 'not an address'] + $form);
         self::assertSame(422, $refused->status);
-        self::assertStringContainsString('e-mail: is not an e-mail address', $refused->text());
+        self::assertStringContainsString(Words::SUPPLIER_FORM['invalid'], $refused->text());
+        self::assertStringContainsString('E-mail: is not an e-mail address.', $refused->text(), 'next to the field, which is marked (F381)');
+        self::assertSame(1, (new \DOMXPath($refused->dom()))->query('//input[@name="email" and @aria-invalid="true"]')->length);
         self::assertSame('Y', $refused->form('/ui/purchasing/suppliers')['name'] ?? null, 'the form keeps what was typed');
 
         $card = $buyer->follow($r);
         self::assertSame(200, $card->status, $card->describe());
-        self::assertStringContainsString('Supplier created as a draft.', $card->text());
+        self::assertStringContainsString(Words::SUPPLIER_NOTICE['created'], $card->text());
         self::assertStringContainsString('HOLLOWVAPESW', $card->text());
-        self::assertStringContainsString('Before asking for activation, fill in: address line 1, postcode, payment terms, due diligence checked on', $card->text());
+        self::assertStringContainsString(Words::say('SUPPLIER', 'missing', \CW\Ui\Controller\SuppliersController::fields(['address_line1', 'postcode', 'payment_terms',
+            'dd_checked_on', 'dd_checked_by', 'dd_next_review_on'])), $card->text());
         self::assertFalse($card->hasForm('/request-activation'));
 
-        // Edit: complete it; a stale version is refused and the form redrawn with the current data.
+        // Edit: complete it; a stale version is refused, and the form is drawn again with what was typed and the current version
+        // (behaviour item 9, F382).
         $edit = $buyer->get("/ui/purchasing/suppliers/{$id}/edit");
         self::assertSame(200, $edit->status, $edit->describe());
         $ef = $edit->form("/ui/purchasing/suppliers/{$id}");
@@ -101,24 +106,29 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertSame([303, "/ui/purchasing/suppliers/{$id}?notice=saved"], [$saved->status, $saved->location()], $saved->describe());
         $stale = $buyer->post("/ui/purchasing/suppliers/{$id}", ['phone' => '0161 000 0000'] + $ef);
         self::assertSame(409, $stale->status);
-        self::assertStringContainsString('changed since you opened the form', $stale->text());
+        $at = \CW\Ui\Html::when((string) self::$db->value('SELECT updated_at FROM supplier WHERE id = ?', [$id]));
+        self::assertStringContainsString(Words::say('SUPPLIER_FORM', 'changed_meanwhile', (string) self::$db->value('SELECT display_name FROM staff_user WHERE id = ?',
+            [$buyerUser['id']]), $at), $stale->text());
         self::assertSame('2', $stale->form("/ui/purchasing/suppliers/{$id}")['version']);
         self::assertSame('12 Canal Street', $stale->form("/ui/purchasing/suppliers/{$id}")['address_line1']);
+        self::assertSame('0161 000 0000', $stale->form("/ui/purchasing/suppliers/{$id}")['phone'], 'what was typed is kept');
+        self::assertSame(0, (new \DOMXPath($stale->dom()))->query('//p[@class="field-theirs"]')->length, 'typed the same as saved now: nothing to check');
 
         // Ask for activation: then "waiting for a second person", no decide form for the buyer, and a POST approve is 403.
         $card = $buyer->get("/ui/purchasing/suppliers/{$id}");
         $req = $buyer->post("/ui/purchasing/suppliers/{$id}/request-activation", $card->form('/request-activation'));
         self::assertSame("/ui/purchasing/suppliers/{$id}?notice=requested", $req->location(), $req->describe());
         $card = $buyer->follow($req);
-        self::assertStringContainsString('Waiting for a second person to approve this supplier', $card->text());
+        self::assertStringContainsString(Words::SUPPLIER['waiting'], $card->text());
         self::assertFalse($card->hasForm('/approve'));
         self::assertFalse($card->hasForm('/reject'));
-        self::assertStringContainsString('Your role (buyer) cannot approve or review suppliers.', $card->text());
+        self::assertStringContainsString(Words::SUPPLIER['look_note'], $card->text(), 'a buyer is told a reviewer decides (F364)');
         self::assertTrue($card->hasForm('/withdraw'), 'the requester may withdraw');
         $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND subject_id = ? AND state = 'open'", [$id]);
         $no = $buyer->post("/ui/purchasing/suppliers/tasks/{$task}/approve", ['csrf' => $this->token($buyer)]);
         self::assertSame(403, $no->status);
-        self::assertStringContainsString('your role (buyer) does not open this page', $no->text());
+        self::assertSame('role_not_allowed', $no->errorCode());
+        self::assertStringContainsString('Only Reviewers can do this. Nothing was changed. You work as: Buyer.', $no->text());
         self::assertFalse($buyer->get("/ui/purchasing/suppliers/{$id}/edit")->hasForm("/ui/purchasing/suppliers/{$id}"), 'no editing while it waits');
 
         // The reviewer: the queue lists it (blocking), the badge counts it, the card has the forms; approving activates it.
@@ -126,19 +136,19 @@ final class SupplierScreensTest extends KernelUiTestCase
         $queue = $reviewer->get('/ui/documents/reviews');
         self::assertSame(200, $queue->status, $queue->describe());
         $xp = new \DOMXPath($queue->dom());
-        self::assertSame(['HOLLOWVAPESW Hollow Vapes Wholesale'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+        self::assertSame([\CW\Ui\Words::say('CHECKS', 'supplier', 'Hollow Vapes Wholesale')], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
             iterator_to_array($xp->query('//section[@aria-labelledby="approvals-h"]//tbody/tr/th'))));
         self::assertSame("/ui/purchasing/suppliers/{$id}", $xp->query('//section[@aria-labelledby="approvals-h"]//tbody/tr/th/a')->item(0)?->getAttribute('href'));
-        self::assertStringContainsString('Supplier new supplier', $queue->text());
-        self::assertStringContainsString('Open to decide', $queue->text());
-        self::assertSame('Review queue 1', self::nav($queue)['Document reviews'][0]['label']);
+        self::assertStringContainsString(\CW\Ui\Words::CHECK_REASON['new_supplier'], $queue->text());
+        self::assertSame(\CW\Ui\Words::CHECKS['open'], trim((string) $xp->evaluate('string(//section[@aria-labelledby="approvals-h"]//tbody/tr/td[contains(@class, "c-next")]/a)')));
+        self::assertSame('Waiting for me 1', self::nav($queue)['To check'][0]['label']);
         $rcard = $reviewer->get("/ui/purchasing/suppliers/{$id}");
         self::assertTrue($rcard->hasForm("/ui/purchasing/suppliers/tasks/{$task}/approve"));
         self::assertFalse($rcard->hasForm('/withdraw'));
         $ok = $reviewer->post("/ui/purchasing/suppliers/tasks/{$task}/approve", ['note' => 'Companies House checked'] + $rcard->form("/tasks/{$task}/approve"));
         self::assertSame("/ui/purchasing/suppliers/{$id}?notice=approved", $ok->location(), $ok->describe());
         $rcard = $reviewer->follow($ok);
-        self::assertStringContainsString('Active since', $rcard->text());
+        self::assertStringContainsString('Yes, since ', $rcard->text());
         self::assertSame('active', self::$db->value('SELECT status FROM supplier WHERE id = ?', [$id]));
         self::assertStringNotContainsString('class="badge"', $reviewer->get('/ui/')->body, 'nothing left to decide');
         // The requester's own approval is refused with the reason (a buyer who is also a reviewer).
@@ -146,7 +156,7 @@ final class SupplierScreensTest extends KernelUiTestCase
         $s2 = $this->draft($both['id'], ['name' => 'Own Supplier']);
         (new Suppliers(self::$db))->requestActivation(Caller::staff($both['id']), (int) $s2['id'], (int) $s2['version']);
         $own = $this->signIn($both)->get('/ui/purchasing/suppliers/' . $s2['id']);
-        self::assertStringContainsString('You asked for this approval: another reviewer must decide.', $own->text());
+        self::assertStringContainsString(Words::REFUSAL['own_supplier'], $own->text());
         self::assertFalse($own->hasForm('/approve'));
 
         // Desk and auditor look, never change.
@@ -168,7 +178,7 @@ final class SupplierScreensTest extends KernelUiTestCase
         $card = $buyer->get("/ui/purchasing/suppliers/{$id}");
         $d = $buyer->post("/ui/purchasing/suppliers/{$id}/deactivate", ['reason' => 'Stopped stamping its stock'] + $card->form('/deactivate'));
         self::assertSame("/ui/purchasing/suppliers/{$id}?notice=deactivated", $d->location(), $d->describe());
-        self::assertStringContainsString('Ask a second person to activate it again', $buyer->follow($d)->text());
+        self::assertStringContainsString(Words::SUPPLIER['ask_again'], $buyer->follow($d)->text());
     }
 
     public function testAChangeReviewAppearsInTheQueueAndIsDecidedOnTheCard(): void
@@ -181,20 +191,20 @@ final class SupplierScreensTest extends KernelUiTestCase
         $svc->approve(Caller::staff($first['id']), (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND state = 'open'"), null);
         $buyer = $this->signIn($buyerUser);
         $edit = $buyer->get("/ui/purchasing/suppliers/{$s['id']}/edit");
-        self::assertStringContainsString('This supplier is active', $edit->text());
+        self::assertStringContainsString(Words::SUPPLIER_FORM['active_1'], $edit->text());
         $r = $buyer->post("/ui/purchasing/suppliers/{$s['id']}", ['email' => 'new@service.example'] + $edit->form("/ui/purchasing/suppliers/{$s['id']}"));
         self::assertSame("/ui/purchasing/suppliers/{$s['id']}?notice=saved_review", $r->location(), $r->describe());
         $reviewer = $this->signIn($first);
         $queue = $reviewer->get('/ui/documents/reviews');
         $xp = new \DOMXPath($queue->dom());
         self::assertSame(1, $xp->query('//section[@aria-labelledby="reviews-h"]//tbody/tr')->length);
-        self::assertStringContainsString('supplier changed', $queue->text());
+        self::assertStringContainsString(\CW\Ui\Words::CHECK_REASON['supplier_changed'], $queue->text());
         $card = $reviewer->get("/ui/purchasing/suppliers/{$s['id']}");
-        self::assertStringContainsString('Change review (does not block orders)', $card->text());
+        self::assertStringContainsString(Words::SUPPLIER['task_review'], $card->text());
         $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND state = 'open'");
         $no = $reviewer->post("/ui/purchasing/suppliers/tasks/{$task}/reject", ['note' => 'x'] + $card->form("/tasks/{$task}/reject"));
         self::assertSame(400, $no->status, 'a rejection needs a reason');
-        self::assertStringContainsString('a rejection needs a note', $no->text());
+        self::assertStringContainsString(Words::ERROR['note_required'], $no->text());
         $rej = $reviewer->post("/ui/purchasing/suppliers/tasks/{$task}/reject", ['note' => 'unverified e-mail domain'] + $card->form("/tasks/{$task}/reject"));
         self::assertSame("/ui/purchasing/suppliers/{$s['id']}?notice=rejected", $rej->location());
         self::assertSame(['inactive', 'rejected at review: unverified e-mail domain'], array_values((array) self::$db->one(
@@ -225,26 +235,26 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM supplier_item'));
         $dup = $buyer->post("/ui/purchasing/suppliers/{$s['id']}/items", ['form_key' => str_repeat('b', 32)] + $form);
         self::assertSame(409, $dup->status);
-        self::assertStringContainsString('this supplier already has this item in packs of 10', $dup->text());
+        self::assertStringContainsString(Words::BUY_ERROR['duplicate_pack'], $dup->text());
         self::assertSame(422, $buyer->post("/ui/purchasing/suppliers/{$s['id']}/items", ['form_key' => str_repeat('c', 32), 'sku_id' => ''] + $form)->status);
 
         $page = $buyer->follow($r);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertStringContainsString('the preferred supply of this item', $page->text());
-        self::assertStringContainsString('£9.50 per pack (£0.95 per unit)', $page->text());
-        self::assertStringContainsString('The supplier is draft', $page->text());
+        self::assertStringContainsString(Words::SUPPLIER_ITEMS['main_yes'], $page->text());
+        self::assertStringContainsString('£9.50 a pack (£0.95 an item), typed in on ', $page->text());
+        self::assertStringContainsString(Words::say('SUPPLIER_ITEMS', 'supplier_not_active', Words::SUPPLIER_STATUS['draft']), $page->text());
         $off = $buyer->post("/ui/purchasing/supplier-items/{$itemId}", $page->form("/ui/purchasing/supplier-items/{$itemId}"));
         self::assertSame("/ui/purchasing/supplier-items/{$itemId}?notice=not_preferred", $off->location(), $off->describe());
         self::assertNull(self::$db->value('SELECT preferred_sku_id FROM supplier_item WHERE id = ?', [$itemId]));
         $page = $buyer->follow($off);
         $stale = $buyer->post("/ui/purchasing/supplier-items/{$itemId}", ['version' => '1', 'preferred' => '1', 'csrf' => $this->token($buyer)]);
         self::assertSame(409, $stale->status);
-        self::assertStringContainsString('changed since you opened the page', $stale->text());
+        self::assertStringContainsString(Words::BUY_ERROR['version_conflict'], $stale->text());
         $price = $buyer->post("/ui/purchasing/supplier-items/{$itemId}/price", ['pack_price' => '9.00', 'note' => 'October list'] + $page->form('/price'));
         self::assertSame("/ui/purchasing/supplier-items/{$itemId}?notice=price", $price->location(), $price->describe());
         $page = $buyer->follow($price);
         $xp = new \DOMXPath($page->dom());
-        self::assertSame(2, $xp->query('//table[@class="history"]/tbody/tr')->length);
+        self::assertSame(2, $xp->query('//table[contains(@class, "history")]/tbody/tr')->length);
         self::assertStringContainsString('October list', $page->text());
         $bad = $buyer->post("/ui/purchasing/supplier-items/{$itemId}/price", ['pack_price' => '-1'] + $page->form('/price'));
         self::assertSame(422, $bad->status);
@@ -258,8 +268,9 @@ final class SupplierScreensTest extends KernelUiTestCase
         // The supplier's items list and CSV; the item page's Suppliers panel (suppliers.view only).
         $list = $buyer->get("/ui/purchasing/suppliers/{$s['id']}/items");
         self::assertSame(200, $list->status);
-        self::assertStringContainsString("{$code} Elux Legend Blue Razz 20mg", $list->text());
-        self::assertStringContainsString('box ×10', $list->text());
+        self::assertStringContainsString('Elux Legend Blue Razz 20mg', $list->text());
+        self::assertStringContainsString($code, $list->text());
+        self::assertStringContainsString(Words::say('SUPPLIER_ITEMS', 'pack_of', 'box', 10), $list->text());
         $csv = $buyer->get("/ui/purchasing/suppliers/{$s['id']}/items.csv");
         self::assertSame(200, $csv->status);
         self::assertStringContainsString('"ELX-BR"', $csv->body);
@@ -289,19 +300,30 @@ final class SupplierScreensTest extends KernelUiTestCase
         $page = $this->signIn($this->uiUser('viewer'))->get('/ui/reference/settings');
         self::assertSame(200, $page->status, $page->describe());
         $xp = new \DOMXPath($page->dom());
-        self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM app_setting'), $xp->query('//table[@class="settings"]/tbody/tr')->length);
+        // Plan F418-F424: plain names by topic, "Not agreed yet", no decision numbers, no server command, one card per setting on a phone.
+        self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM app_setting'), $xp->query('//table[contains(@class, "settings")]/tbody/tr')->length);
         self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM app_setting WHERE provisional = 1'),
-            $xp->query('//table[@class="settings"]//span[contains(@class, "warn") and text()="provisional"]')->length);
+            $xp->query('//table[contains(@class, "settings")]//span[contains(@class, "chip") and text()="Not agreed yet"]')->length);
+        self::assertSame($xp->query('//table[contains(@class, "settings")]')->length, $xp->query('//table[contains(@class, "settings") and contains(@class, "stack")]')->length);
         self::assertStringNotContainsString('company.legal_name', $page->text(), 'the company details have their own screen since 0013 (I91)');
-        self::assertStringContainsString('Company details The company name, numbers and addresses printed on every purchase order. Not confirmed', $page->text());
+        self::assertStringContainsString('Company details Our name, numbers and addresses, printed on every purchase order. Not confirmed', $page->text());
         self::assertContains('/ui/reference/company', $page->hrefs());
-        self::assertStringContainsString('costs.site_writeback false provisional 12', $page->text());
-        self::assertStringContainsString('suppliers.approval_due_days 3 provisional 11', $page->text());
-        $po = trim((string) preg_replace('/\s+/', ' ', (string) $xp->query('//table[@class="rules"]/tbody/tr[1]')->item(0)?->textContent));
+        $row = static fn (string $key): string => trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate(
+            'string(//table[contains(@class, "settings")]/tbody/tr[th/small/code = "' . $key . '"])')));
+        self::assertStringStartsWith('Copy CW costs to the websites costs.site_writeback Not agreed yet No Write the warehouse average cost', $row('costs.site_writeback'));
+        self::assertStringContainsString('When CW was set up', $row('costs.site_writeback'));
+        self::assertStringStartsWith('Days a reviewer has to approve a supplier suppliers.approval_due_days Not agreed yet 3 ', $row('suppliers.approval_due_days'));
+        foreach (['bin/settings.php', 'provisional', 'decision', 'Phase', 'UTC'] as $gone) {
+            self::assertStringNotContainsString($gone, $page->text());
+        }
+        $po = trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(//ul[contains(@class, "rules-list")]/li[1])')));
         // 0010 (the pos task, provisional decision 11): every PO reviewed within 7 days, approval above £10,000 net, a rejection recorded.
-        self::assertSame('Purchase order (PO) every document 7 net value above £10,000 recorded only (the document stands)', $po);
-        self::assertSame(6, $xp->query('//table[@class="vat"]/tbody/tr')->length);
+        self::assertSame('Purchase orders: a reviewer checks every one within 7 days. Over £10,000 needs a reviewer\'s OK first. '
+            . 'If the reviewer says not OK, the order stays and the buyer cancels or corrects it.', $po);
+        self::assertSame(6, $xp->query('//table[contains(@class, "vat")]/tbody/tr')->length);
         self::assertStringContainsString('Reverse charge', $page->text());
+        self::assertSame(['/ui/reference/reasons', '/ui/reference/series'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array($xp->query('//p[@class="see-also"]/a'))), 'the two lists are reached from here (F424)');
     }
 
     public function testEvidenceUploads(): void
@@ -331,11 +353,11 @@ final class SupplierScreensTest extends KernelUiTestCase
         $big = $buyer->postMultipart("/ui/purchasing/suppliers/{$s['id']}/evidence", $card->form('/evidence'),
             ['file' => ['path' => '', 'name' => 'scan.pdf', 'size' => 0, 'error' => UPLOAD_ERR_INI_SIZE]]);
         self::assertSame(413, $big->status, $big->describe());
-        self::assertStringContainsString('larger than 2 MiB', $big->text());
+        self::assertStringContainsString(Words::say('BUY_ERROR', 'too_large', 2), $big->text());
         $dropped = $buyer->send('POST', "/ui/purchasing/suppliers/{$s['id']}/evidence", [], [], ['content-type' => 'multipart/form-data; boundary=x',
             'content-length' => '3145728']);
         self::assertSame(413, $dropped->status, $dropped->describe());
-        self::assertStringContainsString('the form was larger than 2 MiB', $dropped->text());
+        self::assertStringContainsString(Words::error('too_large', '', 2), $dropped->text());
         $none = $buyer->postMultipart("/ui/purchasing/suppliers/{$s['id']}/evidence", $card->form('/evidence'), []);
         self::assertSame(400, $none->status);
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM stored_file'));
@@ -345,7 +367,7 @@ final class SupplierScreensTest extends KernelUiTestCase
         $u = $buyer->postMultipart("/ui/purchasing/suppliers/{$s['id']}/evidence", ['kind' => 'import_route'] + $card->form('/evidence'),
             ['file' => ['path' => $file, 'name' => 'route.txt']]);
         self::assertSame(503, $u->status, $u->describe());
-        self::assertStringContainsString('the file store is not set up on this server', $u->text());
+        self::assertStringContainsString(Words::BUY_ERROR['file_store_unconfigured'], $u->text());
         self::assertNull(self::$db->value('SELECT import_route_file_id FROM supplier WHERE id = ?', [(int) $s['id']]));
     }
 }

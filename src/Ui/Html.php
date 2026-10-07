@@ -57,6 +57,98 @@ final class Html
         return \CW\Clock::fromDb($v)->setTimezone(new \DateTimeZone('Europe/London'))->format('j M Y H:i');
     }
 
+    /** UK date "7 Oct 2026" of a UTC DATETIME(6) ('' for null); a DATE ('Y-m-d') is shown as it is. */
+    public static function day(?string $v): string
+    {
+        $d = self::london($v);
+        return $d === null ? '' : $d->format('j M Y');
+    }
+
+    /** UK date and time "7 Oct 2026, 10:26" of a UTC DATETIME(6), converted to Europe/London ('' for null). Never "UTC". */
+    public static function when(?string $v): string
+    {
+        if ($v !== null && strlen(trim($v)) === 10) {
+            return self::day($v);
+        }
+        $d = self::london($v);
+        return $d === null ? '' : $d->format('j M Y, H:i');
+    }
+
+    /** Money: "£10,500.00", "-£5.00"; '' for null, '' or a non-number. */
+    public static function money(mixed $v): string
+    {
+        if ($v === null || $v === '' || is_bool($v) || !is_numeric($v)) {
+            return '';
+        }
+        $f = round((float) $v, 2);
+        return ($f < 0 ? '-' : '') . '£' . number_format(abs($f), 2);
+    }
+
+    private static function london(?string $v): ?\DateTimeImmutable
+    {
+        if ($v === null || trim($v) === '') {
+            return null;
+        }
+        $v = trim($v);
+        $london = new \DateTimeZone('Europe/London');
+        if (strlen($v) === 10) { // a DATE: no time, no time zone
+            $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $v, $london);
+            return $d === false ? null : $d;
+        }
+        $d = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', substr($v, 0, 19), new \DateTimeZone('UTC'))
+            ?: \DateTimeImmutable::createFromFormat('!Y-m-d H:i', substr($v, 0, 16), new \DateTimeZone('UTC'));
+        return $d === false ? null : $d->setTimezone($london);
+    }
+
+    /** A status chip: an icon shape (by tone, in CSS) and the word. An unknown tone is `info`. */
+    public static function chip(string $tone, string $text): string
+    {
+        $tone = in_array($tone, Words::TONES, true) ? $tone : 'info';
+        return '<span class="chip ' . $tone . '">' . self::e($text) . '</span>';
+    }
+
+    /** The page intro under the h1 ('' for none). */
+    public static function intro(string $text): string
+    {
+        return $text === '' ? '' : '<p class="lede">' . self::e($text) . '</p>';
+    }
+
+    /**
+     * A "?" next to a word that unfolds its help (Words::HELP; **bold** marks the words explained). A <details>, so it needs
+     * no script under the CSP.
+     */
+    public static function help(string $key, ?string $label = null): string
+    {
+        $text = Words::HELP[$key] ?? throw new \InvalidArgumentException("no help text {$key}");
+        $html = (string) preg_replace('/\*\*(.+?)\*\*/s', '<strong>$1</strong>', self::e($text));
+        $name = $label === null ? Words::UI['help'] : 'What does "' . $label . '" mean?';
+        return '<details class="help"><summary aria-label="' . self::e($name) . '" title="' . self::e($name) . '"></summary>'
+            . '<div class="help-body"><p>' . $html . '</p></div></details>';
+    }
+
+    /** An empty state: why the page is empty (title), what it means (text) and the next step (one button). */
+    public static function emptyState(string $title, string $text = '', ?string $href = null, ?string $button = null): string
+    {
+        $out = '<div class="empty"><p class="empty-title">' . self::e($title) . '</p>';
+        if ($text !== '') {
+            $out .= '<p>' . self::e($text) . '</p>';
+        }
+        if ($href !== null && $button !== null) {
+            $out .= '<p><a class="btn primary" href="' . self::e($href) . '">' . self::e($button) . '</a></p>';
+        }
+        return $out . '</div>';
+    }
+
+    /** A file size people read: "640 bytes", "12 KB", "1.5 MB". */
+    public static function size(int $bytes): string
+    {
+        return match (true) {
+            $bytes < 1024 => number_format(max(0, $bytes)) . ' bytes',
+            $bytes < 1024 * 1024 => number_format($bytes / 1024) . ' KB',
+            default => rtrim(rtrim(number_format($bytes / (1024 * 1024), 1), '0'), '.') . ' MB',
+        };
+    }
+
     /** Percentage with one decimal, '-' when there is nothing to divide. */
     public static function pct(int|float $part, int|float $whole): string
     {

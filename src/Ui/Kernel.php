@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace CW\Ui;
 
 use CW\Auth\Csrf;
+use CW\Auth\Permissions;
 use CW\Auth\Sessions;
 use CW\Config;
 use CW\ConfigException;
 use CW\CwException;
 use CW\Db;
+use CW\Ops\TestRefPurge;
 use CW\Ui\Controller\AuthController;
 use CW\Ui\Controller\BarcodesController;
 use CW\Ui\Controller\CompanyController;
@@ -62,6 +64,7 @@ final class Kernel
     private const UNAVAILABLE_CODES = [1040, 1044, 1045, 1049, 1203, 2002, 2003, 2005, 2006, 2013];
 
     private ?Router $router = null;
+    private ?bool $isTestSystem = null;
 
     /**
      * @param \Closure(): Db $connect
@@ -69,12 +72,15 @@ final class Kernel
      * @param \Closure(string): void $log
      * @param (\Closure(Db): array<string, \CW\Documents\DocumentHandler>)|null $handlers the live document types
      *        (default CW\Documents\DocumentHandlers::all: PO since I-2; tests add the fixture ADJ type)
+     * @param (\Closure(): bool)|null $testSystem whether this is a test system (app.env environment=staging): every page then
+     *        carries the strip "TEST SYSTEM: nothing here is real"
      */
     public function __construct(
         private readonly \Closure $connect,
         private readonly \Closure $secretKey,
         private readonly \Closure $log,
         private readonly ?\Closure $handlers = null,
+        private readonly ?\Closure $testSystem = null,
     ) {
     }
 
@@ -87,7 +93,22 @@ final class Kernel
             static function (string $message): void {
                 error_log('[cw-ui] ' . $message);
             },
+            null,
+            static fn (): bool => strtolower(trim((string) Config::loadApp()->appFile(TestRefPurge::ENV_KEY))) === 'staging',
         );
+    }
+
+    /** Whether the pages carry the test-system strip (read once; a config that cannot be read says no). */
+    private function testSystem(): bool
+    {
+        if ($this->isTestSystem === null) {
+            try {
+                $this->isTestSystem = $this->testSystem !== null && ($this->testSystem)() === true;
+            } catch (\Throwable) {
+                $this->isTestSystem = false;
+            }
+        }
+        return $this->isTestSystem;
     }
 
     public function handle(UiRequest $req): HtmlResponse
@@ -96,7 +117,7 @@ final class Kernel
         try {
             $response = $this->dispatch($req, $rid);
         } catch (CwException $e) {
-            $response = $this->bare($e->httpStatus, $e->errorCode, $e->getMessage(), $rid);
+            $response = $this->bare($e->httpStatus, $e->errorCode, Words::error($e->errorCode, $e->getMessage()), $rid);
             if ($e->errorCode === 'method_not_allowed' && is_array($e->detail['allow'] ?? null)) {
                 $response->withHeader('Allow', implode(', ', $e->detail['allow']));
             }
@@ -134,18 +155,18 @@ final class Kernel
             $key = ($this->secretKey)();
             if ($key === null || $key === '') {
                 ($this->log)("{$rid} ui_secret_key is not set in app.env (run bin/create_staff.php or deploy/staging/install_ui.sh)");
-                return $this->bare(503, 'unavailable', 'the staff screens are not configured yet', $rid);
+                return $this->bare(503, 'unavailable', Words::error('unconfigured'), $rid);
             }
             $csrf = Csrf::fromSecretKey($key);
         } catch (ConfigException | \PDOException $e) {
             ($this->log)("{$rid} unavailable: " . self::describe($e));
-            return $this->bare(503, 'unavailable', 'the staff screens are temporarily unavailable; retry shortly', $rid)->withHeader('Retry-After', '5');
+            return $this->bare(503, 'unavailable', Words::error('unavailable'), $rid)->withHeader('Retry-After', '5');
         }
 
         $who = (new Sessions($db))->resolve($req->cookie(self::SESSION_COOKIE));
         $pre = $req->cookie(self::PRE_COOKIE);
         $pre = $pre !== null && preg_match('/^[A-Za-z0-9_-]{43}$/D', $pre) === 1 ? $pre : null;
-        $ctx = new Context($req, $db, $who, $csrf, $params, $rid, $pre, $key, $this->handlers, $this->log);
+        $ctx = new Context($req, $db, $who, $csrf, $params, $rid, $pre, $key, $this->handlers, $this->log, $this->testSystem());
         try {
             return $this->guarded($route, $ctx);
         } catch (CwException $e) {
@@ -159,37 +180,36 @@ final class Kernel
         $who = $ctx->who;
         if ($route->access === Route::PUBLIC) {
             if ($who !== null && $req->method !== 'POST') {
-                return HtmlResponse::redirect('/ui/');
+                // Signed in already (another tab): the sign-in page leads on to the page it was asked for (behaviour item 1).
+                return HtmlResponse::redirect(($req->path === '/ui/login' ? AuthController::safeBack($req->param('back')) : null) ?? '/ui/');
             }
         } else {
             if ($who === null) {
-                $to = HtmlResponse::redirect('/ui/login');
-                return $req->cookie(self::SESSION_COOKIE) !== null ? $to->withoutCookie(self::SESSION_COOKIE, $req->secure) : $to;
+                $cookie = $req->cookie(self::SESSION_COOKIE);
+                // A cookie of a session that ended (30 minutes away, 12 hours old, signed out or switched off elsewhere): the
+                // sign-in page says why (plan F056). A cookie nobody issued is the same as none.
+                $id = $cookie === null ? null : Sessions::idOf($cookie);
+                $ended = $id !== null && $ctx->db->value('SELECT 1 FROM staff_session WHERE id = ?', [$id]) !== null;
+                $to = HtmlResponse::redirect(self::signInPath($req, $ended));
+                return $cookie === null ? $to : $to->withoutCookie(self::SESSION_COOKIE, $req->secure);
             }
             if ($who->mustChangePassword && !in_array($req->path, ['/ui/password', '/ui/logout'], true)) {
                 return HtmlResponse::redirect('/ui/password');
             }
             if ($route->access !== Route::ANY && !$who->can($route->access)) {
-                throw match ($route->access) {
-                    Route::DECIDE => new CwException('role_not_allowed', $who->rolesPhrase(true) . ' cannot make mapping decisions', 403),
-                    Route::LEAD => new CwException('lead_required', 'only a mapping lead can do this', 403),
-                    default => new CwException('role_not_allowed', $who->rolesPhrase(true)
-                        . (count($who->roles) === 1 ? ' does not open this page' : ' do not open this page'), 403),
-                };
+                throw new CwException($route->access === Route::LEAD ? 'lead_required' : 'role_not_allowed', self::refusal($route->access, $who, $req->method), 403);
             }
         }
         if ($req->method === 'POST') {
             // A body over the UI pool's post_max_size (2M) reaches PHP with no fields and no files at all: say so (413)
             // rather than "this form has expired" (the CSRF field was dropped with the rest).
             if ($req->post === [] && $req->files === [] && (int) ($req->header('content-length') ?? '0') > UiRequest::MAX_UPLOAD_BYTES) {
-                throw new CwException('too_large', 'the form was larger than ' . intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576)
-                    . ' MiB (a file is at most ' . intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576) . ' MiB): nothing was saved', 413);
+                throw new CwException('too_large', Words::error('too_large', '', intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576)), 413);
             }
             // PHP drops the fields past max_input_vars without a word: a POST that arrives with that many may have lost
             // some (a typed charge, a line's packs), so nothing is done with it (I73).
             if (count($req->post) >= UiRequest::maxInputVars()) {
-                throw new CwException('form_truncated', 'the form had more fields than this server accepts (' . UiRequest::maxInputVars()
-                    . '), so some may have been dropped: nothing was saved. A long purchase order is changed with the file import.', 400);
+                throw new CwException('form_truncated', Words::error('form_truncated', '', UiRequest::maxInputVars()), 400);
             }
             $this->checkOrigin($req);
             $token = $req->field('csrf');
@@ -199,10 +219,62 @@ final class Kernel
                 ? $ctx->csrf->validForSession($who->sessionId, $token)
                 : $ctx->csrf->validForPre($ctx->pre, $token);
             if (!$ok) {
-                throw new CwException('csrf', 'this form has expired or did not come from this site: go back, reload the page and try again', 403);
+                if ($route->access === Route::PUBLIC && $req->path === '/ui/login') {
+                    // The sign-in form was open longer than its cookie lives (1 hour), or the cookie went: the form again, with the
+                    // e-mail kept and a plain word, instead of an error page (behaviour item 3, F059). Still 403 and no sign-in attempt.
+                    return (new AuthController())->expired($ctx);
+                }
+                throw new CwException('csrf', Words::error('csrf'), 403);
             }
         }
         return ($route->handler)($ctx);
+    }
+
+    /**
+     * Where a request without a live session is sent (behaviour item 1, F056, F057): the sign-in page, saying why when a session
+     * ended (`why=signed_out`) or when a form was sent that is now lost (`why=lost`: "What you sent was NOT saved"), and with the
+     * page to return to after the sign-in (`back`): the page itself for a GET, the page the form was on for a POST (its
+     * same-origin Referer). Only a safe local page path is carried (AuthController::safeBack); Home is the default anyway.
+     */
+    private static function signInPath(UiRequest $req, bool $ended): string
+    {
+        $query = [];
+        if ($req->method === 'POST') {
+            // Signing out without a session: there is nothing to lose.
+            if ($req->path !== '/ui/logout') {
+                $query['why'] = 'lost';
+                $query['back'] = AuthController::safeBack(self::refererPath($req));
+            }
+        } else {
+            if ($ended) {
+                $query['why'] = 'signed_out';
+            }
+            $own = $req->query;
+            unset($own['notice'], $own['prev']); // a "Done: …" of the last visit is not said again
+            $qs = http_build_query($own, '', '&', PHP_QUERY_RFC3986);
+            $query['back'] = AuthController::safeBack($req->path . ($qs === '' ? '' : '?' . $qs));
+        }
+        $query = array_filter($query, static fn (?string $v): bool => $v !== null);
+        return '/ui/login' . ($query === [] ? '' : '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986));
+    }
+
+    /** The path and query of the Referer when it is this site's own page, else null. */
+    private static function refererPath(UiRequest $req): ?string
+    {
+        $ref = $req->header('referer');
+        $host = $req->header('host');
+        if ($ref === null || $host === null || strlen($ref) > 2048) {
+            return null;
+        }
+        $p = parse_url($ref);
+        if (!is_array($p) || !isset($p['host'], $p['path'])) {
+            return null;
+        }
+        $given = $p['host'] . (isset($p['port']) ? ':' . $p['port'] : '');
+        if (strcasecmp($given, $host) !== 0) {
+            return null;
+        }
+        return $p['path'] . (isset($p['query']) && $p['query'] !== '' ? '?' . $p['query'] : '');
     }
 
     /** A browser that says where the POST came from must say "here". (Absent headers: the token and SameSite=Strict decide.) */
@@ -210,7 +282,7 @@ final class Kernel
     {
         $site = $req->header('sec-fetch-site');
         if ($site !== null && !in_array($site, ['same-origin', 'none'], true)) {
-            throw new CwException('csrf', 'cross-site form posts are refused', 403);
+            throw new CwException('csrf', Words::error('cross_site'), 403);
         }
         $origin = $req->header('origin');
         if ($origin !== null) {
@@ -219,9 +291,32 @@ final class Kernel
             $originPort = parse_url($origin, PHP_URL_PORT);
             $given = is_string($originHost) ? $originHost . (is_int($originPort) ? ':' . $originPort : '') : null;
             if ($host === null || $given === null || strcasecmp($given, $host) !== 0) {
-                throw new CwException('csrf', 'cross-site form posts are refused', 403);
+                throw new CwException('csrf', Words::error('cross_site'), 403);
             }
         }
+    }
+
+    /**
+     * Why a page or a button is refused, in jobs (plan F037-F040): who it is for and what the person is, or, when it is Admin
+     * alone that keeps it from them, that and the one fix (correction a: ask for Admin to be taken off, never a second account).
+     */
+    public static function refusal(string $access, \CW\Auth\StaffIdentity $who, string $method = 'GET'): string
+    {
+        $perm = $access; // Route::DECIDE and Route::LEAD are permissions too
+        $look = $method === 'GET' || $method === 'HEAD';
+        if (Permissions::blockedByAdmin($who->roles, $perm)) {
+            $jobs = array_values(array_filter(Permissions::switchedOff($who->roles), static fn (string $r): bool => Permissions::can([$r], $perm)));
+            return ($look ? 'You cannot open this page' : 'You cannot do this') . ' while this account has Admin: Admin switches off your '
+                . Words::andList(array_map(static fn (string $r): string => Words::of('ROLE', $r), $jobs)) . (count($jobs) === 1 ? ' job.' : ' jobs.')
+                . ($look ? '' : ' Nothing was changed.') . ' Ask ' . Words::ASK . ' to take Admin off this account.';
+        }
+        return match ($access) {
+            Route::DECIDE => Words::error('decide_required'),
+            Route::LEAD => Words::error('lead_only'),
+            default => ($look ? 'This page is for ' . Words::whoCan($perm) . '.'
+                    : 'Only ' . Words::whoCan($perm) . ' can do this. Nothing was changed.')
+                . ' You work as: ' . Words::roles($who->roles) . '. If you need it for your work, ask ' . Words::ASK_ROLE . '.',
+        };
     }
 
     public function router(): Router
@@ -248,6 +343,9 @@ final class Kernel
         $r->add('GET', '/ui/login', Route::PUBLIC, $auth->loginForm(...));
         $r->add('POST', '/ui/login', Route::PUBLIC, $auth->login(...));
         $r->add('POST', '/ui/logout', Route::ANY, $auth->logout(...));
+        // The sign-out address opened from the history or a bookmark (behaviour item 2, F043): never signs anybody out (a GET
+        // could be sent by any page); signed in it leads Home, signed out to the sign-in page.
+        $r->add('GET', '/ui/logout', Route::PUBLIC, $auth->signedOut(...));
         $r->add('GET', '/ui/password', Route::ANY, $auth->passwordForm(...));
         $r->add('POST', '/ui/password', Route::ANY, $auth->password(...));
         $r->add('GET', '/ui', Route::ANY, $dash->index(...));
@@ -405,8 +503,9 @@ final class Kernel
     private function bare(int $status, string $code, string $message, string $rid): HtmlResponse
     {
         $view = new View(View::defaultDir(), ['csrf' => '', 'who' => null]);
-        $html = $view->page('error', ['status' => $status, 'code' => $code, 'message' => $message, 'rid' => $rid],
-            ['title' => 'Error ' . $status, 'active' => '', 'notice' => null, 'menu' => [], 'badges' => [], 'searchBox' => false]);
+        $html = $view->page('error', ['status' => $status, 'code' => $code, 'heading' => Words::errorTitle($status), 'message' => $message, 'rid' => $rid],
+            ['title' => Words::errorTitle($status), 'active' => '', 'notice' => null, 'menu' => [], 'badges' => [], 'searchBox' => false,
+                'testSystem' => $this->testSystem()]);
         return new HtmlResponse($status, $html);
     }
 
@@ -415,12 +514,12 @@ final class Kernel
         ($this->log)("{$rid} {$req->method} {$req->path} failed: " . self::describe($e));
         $code = Db::driverCode($e) ?? ($e->getPrevious() !== null ? Db::driverCode($e->getPrevious()) : null);
         if ($code !== null && in_array($code, self::BUSY_CODES, true)) {
-            return $this->bare(503, 'busy', 'CW is busy; retry shortly', $rid)->withHeader('Retry-After', '1');
+            return $this->bare(503, 'busy', Words::error('busy'), $rid)->withHeader('Retry-After', '1');
         }
         if ($code !== null && in_array($code, self::UNAVAILABLE_CODES, true)) {
-            return $this->bare(503, 'unavailable', 'the staff screens are temporarily unavailable; retry shortly', $rid)->withHeader('Retry-After', '5');
+            return $this->bare(503, 'unavailable', Words::error('unavailable'), $rid)->withHeader('Retry-After', '5');
         }
-        return $this->bare(500, 'internal', 'internal error', $rid);
+        return $this->bare(500, 'internal', Words::error('internal'), $rid);
     }
 
     private static function describe(\Throwable $e): string

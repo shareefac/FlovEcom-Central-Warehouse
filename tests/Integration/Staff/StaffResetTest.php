@@ -43,7 +43,7 @@ final class StaffResetTest extends KernelUiTestCase
         self::assertNotSame($seedBefore, (string) $row['totp_secret_enc']);
         self::assertSame($newSecret, self::$box->decrypt((string) $row['totp_secret_enc']));
         self::assertSame([null, 0, 1], [$row['totp_last_step'], $row['password_must_change'], $row['is_active']]);
-        self::assertSame('/ui/login', $web->get('/ui/')->location(), 'the reset signed the person out');
+        self::assertSame('/ui/login?why=signed_out', $web->get('/ui/')->location(), 'the reset signed the person out');
 
         // The leaked seed no longer signs in; the new one does (same password).
         $login = $this->loginService();
@@ -65,7 +65,7 @@ final class StaffResetTest extends KernelUiTestCase
         $r = $admin->reset(Caller::system('reset_test'), $u['email'], null, true, false, null);
         self::assertMatchesRegularExpression('/^[A-Za-z0-9]{20}$/D', (string) $r['password']);
         self::assertNull($r['otpauth']);
-        self::assertSame('/ui/login', $web->get('/ui/')->location());
+        self::assertSame('/ui/login?why=signed_out', $web->get('/ui/')->location());
         $login = $this->loginService();
         self::assertSame('invalid', $login->attempt($u['email'], $u['password'], self::code($u['secret']), '198.51.100.61', null, null)['status']);
         $ok = $login->attempt($u['email'], (string) $r['password'], self::code($u['secret'], 1), '198.51.100.61', null, null);

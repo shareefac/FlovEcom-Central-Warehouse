@@ -8,6 +8,7 @@ use CW\Output\CsvWriter;
 use CW\Reorder\DemandMath;
 use CW\Ui\Context;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Words;
 
 /**
  * The imported sales history (IM9 basic, Phase I-2; spec §8.1; docs/decisions.md I68): per channel its coverage, its import
@@ -29,9 +30,13 @@ final class SalesHistoryController
             $id = (int) $c['id'];
             $snap = $ctx->db->one('SELECT COUNT(*) AS n, MIN(snapshot_date) AS f, MAX(snapshot_date) AS l FROM channel_snapshot_day WHERE channel_id = ?', [$id]);
             $latest = $ctx->db->one('SELECT MAX(snapshot_date) AS d, COUNT(*) AS n FROM listing_stock_latest WHERE channel_id = ?', [$id]);
+            $last = $ctx->db->one("SELECT date_to, finished_at FROM sales_import_batch WHERE channel_id = ? AND status = 'loaded' ORDER BY finished_at DESC, id DESC LIMIT 1",
+                [$id]);
             $channels[] = $c + ['snapshot_days' => (int) ($snap['n'] ?? 0), 'snapshot_first' => $snap['f'] ?? null, 'snapshot_last' => $snap['l'] ?? null,
                 'latest_date' => $latest['d'] ?? null, 'latest_rows' => (int) ($latest['n'] ?? 0),
-                'top' => $this->unlinked($ctx, $id, (string) $c['e'], self::TOP)];
+                'last_to' => $last['date_to'] ?? null, 'last_at' => $last['finished_at'] ?? null,
+                'top' => array_map(static fn (array $r): array => $r + ['problem' => self::problem($r['listing_id'], $r['status'])],
+                    $this->unlinked($ctx, $id, (string) $c['e'], self::TOP))];
         }
         return $ctx->page('sales_history', [
             'channels' => $channels,
@@ -41,7 +46,18 @@ final class SalesHistoryController
             'canLink' => $ctx->me()->can('linking.view'),
             'days' => self::DAYS,
             'top' => self::TOP,
-        ], 200, ['title' => 'Sales history', 'active' => 'sales_history']);
+        ], 200, ['title' => Words::MENU['sales_history'], 'active' => 'sales_history']);
+    }
+
+    /** Why a website product's sales count for no warehouse product, in words (plan F347). */
+    public static function problem(?int $listingId, ?string $status): string
+    {
+        return match (true) {
+            $listingId === null => Words::SALES['unknown'],
+            $status === 'quarantined' => Words::SALES['on_hold'],
+            $status === 'ignored' => Words::SALES['ignored'],
+            default => Words::SALES['not_matched'],
+        };
     }
 
     /** GET /ui/purchasing/sales-history/unlinked.csv?channel=<code>: every unknown or unlinked variant by units in 91 days. */
@@ -51,7 +67,7 @@ final class SalesHistoryController
         $c = $ctx->db->one("SELECT c.id, c.code, MAX(b.date_to) AS e FROM channel c JOIN sales_import_batch b ON b.channel_id = c.id AND b.status = 'loaded' "
             . 'WHERE c.code = ? GROUP BY c.id, c.code', [$code]);
         if ($c === null) {
-            return $ctx->error(404, 'unknown_channel', 'there is no sales history for that site');
+            return $ctx->error(404, 'unknown_channel', Words::BUY_ERROR['unknown_channel'], ['/ui/purchasing/sales-history', Words::MENU['sales_history']]);
         }
         $csv = new CsvWriter([['channel', 'text'], ['variant_id', 'text'], ['units_91d', 'number'], ['last_sale', 'text'], ['mapping', 'text'], ['listing_id', 'number'],
             ['product_title', 'text'], ['variant_title', 'text'], ['brand', 'text']]);
@@ -65,7 +81,7 @@ final class SalesHistoryController
      * The variants of a channel that sold in the last 91 days of its history and count for no item (no listing, no item, or
      * a listing not `mapped`: a quarantined one keeps its item but counts for nothing, I77), most units first.
      *
-     * @return list<array{variant: string, units: int, last_sale: string, mapping: string, listing_id: ?int, product_title: ?string, variant_title: ?string, brand: ?string}>
+     * @return list<array{variant: string, units: int, last_sale: string, mapping: string, listing_id: ?int, status: ?string, product_title: ?string, variant_title: ?string, brand: ?string}>
      */
     private function unlinked(Context $ctx, int $channelId, string $end, ?int $limit): array
     {
@@ -90,6 +106,7 @@ final class SalesHistoryController
             $p = $r['listing_id'] === null ? null : ($profiles[(int) $r['listing_id']] ?? null);
             $out[] = ['variant' => (string) $r['variant'], 'units' => (int) $r['units'], 'last_sale' => (string) $r['last_sale'],
                 'mapping' => $r['listing_id'] === null ? 'unknown' : 'unlinked (' . $r['status'] . ')', 'listing_id' => $r['listing_id'] === null ? null : (int) $r['listing_id'],
+                'status' => $r['status'] === null ? null : (string) $r['status'],
                 'product_title' => $p['product_title'] ?? null, 'variant_title' => $p['variant_title'] ?? null, 'brand' => $p['brand'] ?? null];
         }
         return $out;

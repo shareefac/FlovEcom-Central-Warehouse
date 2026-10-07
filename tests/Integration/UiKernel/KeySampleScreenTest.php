@@ -9,14 +9,16 @@ use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
 use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\Words;
 
 /**
- * The Key spot-check on the screens (M28), through the real /ui kernel as cw_app: the list and the sample page with
- * "n of 20 decided" and each member's state, a link from each member to the normal review screen that leads back, the
- * owner confirming one and rejecting another there, the warning another lead sees on a member's page, and the verdict
- * the bulk confirm will apply. Read-only pages: no bulk button anywhere. A listing held back from the bulk confirm (M30)
- * stays in the Key queue, its page says why (a newer proposal of it too), and the sample's page lists it with what became
- * of it (a held listing a bulk confirm linked is flagged).
+ * The spot check on the screens (M28; in plain words, plan §6.9, 6.10), through the real /ui kernel as cw_app: the list and the
+ * spot check's page with "n of 20 checked", the 20 blocks, each match's state and the button to the next one, a link from each
+ * match to its own page that leads back, the owner confirming one ("Yes") and saying "Not a match" to another there (a second
+ * step that says it stops the bulk link for good, compare.md §2.1), another lead who sees why and no answer forms (behaviour
+ * item 5), and the result the bulk step will read. Read-only pages: no bulk button anywhere. A website product set aside from
+ * the bulk step (M30) stays in Strong matches, its page says why (a newer suggestion of it too), and the spot check's page lists
+ * it with what became of it (one a bulk step matched is flagged).
  */
 final class KeySampleScreenTest extends KernelUiTestCase
 {
@@ -37,59 +39,151 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::assertStringContainsString('screen-1', $list->text());
         self::assertStringContainsString('0 of 20', $list->text());
-        self::assertContains(['label' => 'Key spot-check', 'href' => '/ui/review/samples'], self::nav($list)['Linking']);
+        self::assertContains(['label' => 'Spot check', 'href' => '/ui/review/samples'], self::nav($list)['Match products']);
         $current = (new \DOMXPath($list->dom()))->query('//nav[@aria-label="Main"]//a[@aria-current="page"]');
-        self::assertSame('Key spot-check', trim((string) $current->item(0)?->textContent));
+        self::assertSame('Spot check', trim((string) $current->item(0)?->textContent));
 
         $page = $web->get('/ui/review/samples/' . $sid);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertStringContainsString('0 of 20 decided', $page->text());
-        self::assertSame(20, substr_count($page->text(), 'Not decided yet'));
-        self::assertStringContainsString('Seed', $page->text());
-        self::assertStringContainsString((string) $s['seed'], $page->text());
-        self::assertStringContainsString('drawn by the server', $page->text());
+        self::assertStringContainsString(Words::say('SPOT', 'progress', 0, 20), $page->text());
+        self::assertSame(20, substr_count($page->text(), Words::SAMPLE_STATE['open']));
+        $xp = new \DOMXPath($page->dom());
+        self::assertSame(20, $xp->query('//ol[@class="segments"]/li[@class="todo"]')->length, 'the 20 blocks (design B)');
+        self::assertSame($xp->query('//table')->length, $xp->query('//table[contains(@class, "stack")]')->length, 'the matches as cards on a phone');
+        $tech = (string) $xp->evaluate('string(//details[contains(@class, "tech-details")])');
+        self::assertStringContainsString(Words::SAMPLE['seed'], $tech, 'the seed is for the audit, folded away (F112)');
+        self::assertStringContainsString((string) $s['seed'], $tech);
+        self::assertStringContainsString(Words::SAMPLE['seed_text'], $tech);
         foreach ($s['members'] as $m) {
             self::assertContains('/ui/review/listing/' . $m['listing_id'] . '?sample=' . $sid, $page->hrefs());
         }
         self::assertFalse($page->hasForm('/ui/review/samples'), 'the bulk confirm is never a button');
+        $next = $xp->query('//section[contains(@class, "spot-box")]//a[contains(@class, "primary")]')->item(0);
+        self::assertSame(Words::say('SPOT', 'next', 1, 20) . ' →', trim((string) $next?->textContent), 'the main button opens the next one (F108)');
+        self::assertSame('/ui/review/listing/' . $s['members'][0]['listing_id'] . '?sample=' . $sid, $next instanceof \DOMElement ? $next->getAttribute('href') : '');
+        foreach (['bin/', 'Key', 'proposal', 'population', 'drawn'] as $word) {
+            self::assertStringNotContainsString($word, (string) preg_replace('/\s+/', ' ', str_replace($tech, '', (string) $xp->evaluate('string(//main)'))), $word);
+        }
 
         // The first member: opened from the sample, confirmed with the quick form, and back.
         $first = $s['members'][0];
         $listing = $web->get('/ui/review/listing/' . $first['listing_id'], ['sample' => (string) $sid]);
         self::assertSame(200, $listing->status, $listing->describe());
         self::assertContains('/ui/review/samples/' . $sid, $listing->hrefs());
-        self::assertStringContainsString('Key spot-check screen-1', $listing->text());
-        self::assertStringContainsString('This proposal is #1 of 20 in your Key spot-check screen-1', $listing->text());
-        // Another mapping lead opening a member is told to leave it to the owner (their decision would fail the spot-check).
+        self::assertStringContainsString(Words::say('SPOT', 'box', 'screen-1', 1, 20), $listing->text());
+        self::assertStringContainsString(Words::SPOT['mine'], $listing->text());
+        $lxp = new \DOMXPath($listing->dom());
+        self::assertSame(1, $lxp->query('//ol[@class="segments"]/li[@class="now"]')->length, 'this one, in the 20 blocks');
+        // The owner's answers (design B, compare.md §2.1): "Yes" saves at once; "Not a match" is a second step that says it stops the
+        // bulk link for good before its form; "Not sure" saves nothing and opens the next one.
+        self::assertStringContainsString(Words::UI['what_each_answer_does'], $listing->text());
+        self::assertSame(Words::SPOT['unsure'] . ' ' . Words::UI['safer'], trim((string) preg_replace('/\s+/', ' ',
+            (string) $lxp->evaluate('string(//div[contains(@class, "answer") and contains(@class, "safe")]/dt)'))), 'the safe answer is marked (design B)');
+        $step = $lxp->query('//details[@id="not-a-match"]')->item(0);
+        self::assertNotNull($step);
+        self::assertFalse($step instanceof \DOMElement && $step->hasAttribute('open'), 'nothing of "Not a match" is sent with one tap');
+        self::assertSame(Words::SPOT['no_confirm_title'], trim((string) $lxp->evaluate('string(//details[@id="not-a-match"]//p[@class="alert-title"])')));
+        self::assertSame(1, $lxp->query('//details[@id="not-a-match"]//form[contains(@action, "/decide")]')->length, 'the answer form is behind the second step');
+        self::assertSame(Words::SPOT['no_confirm_button'], trim((string) $lxp->evaluate('string(//details[@id="not-a-match"]//button[@type="submit"])')));
+        self::assertSame(0, $lxp->query('//details[@id="not-a-match"]//input[@name="action" and @value="link"]')->length, 'Yes is its own answer');
+        self::assertSame('/ui/review/listing/' . $s['members'][1]['listing_id'] . '?sample=' . $sid,
+            (string) $lxp->evaluate('string(//div[contains(@class, "spot-answers")]/a/@href)'), '"Not sure" opens the next one and saves nothing');
+        // The answers come straight after the two product cards (plan F203), before "Why the computer suggests this", and the spot
+        // box leads to them.
+        $order = array_map(static fn (\DOMElement $el): string => $el->getAttribute('id'), iterator_to_array($lxp->query('//section[@id="decide" or contains(@class, "why")]')));
+        self::assertSame('decide', $order[0] ?? null, 'the answers before the evidence');
+        self::assertContains('#decide', $listing->hrefs());
+        $yesForm = $lxp->query('//div[contains(@class, "spot-answers")]/form[contains(@class, "quick")]');
+        self::assertSame(1, $yesForm->length, 'Yes is its own button');
+        $proposed = (int) self::$db->value('SELECT proposed_sku_id FROM match_proposal WHERE id = ?', [$first['proposal_id']]);
+
+        // R1 review (7 Oct): a refused "Not a match" (Ignore needs a note) opens the second step again and keeps the quick yes; nothing
+        // in the second step can match the suggested product under the button that says it stops the bulk link.
+        $quick = $listing->form('/ui/review/listing/' . $first['listing_id'] . '/decide');
+        $refused = $web->post('/ui/review/listing/' . $first['listing_id'] . '/decide', ['action' => 'ignore', 'reason' => ''] + $quick);
+        self::assertSame(422, $refused->status, $refused->describe());
+        $rxp = new \DOMXPath($refused->dom());
+        self::assertSame(1, $rxp->query('//div[contains(@class, "spot-answers")]/form[contains(@class, "quick")]')->length, 'the quick yes stays after a refusal');
+        self::assertSame((string) $proposed, (string) $rxp->evaluate('string(//form[contains(@class, "quick")]/input[@name="sku_id"]/@value)'), 'yes = the suggestion');
+        self::assertSame('1', (string) $rxp->evaluate('string(//form[contains(@class, "quick")]/input[@name="units_per_item"]/@value)'));
+        $step = $rxp->query('//details[@id="not-a-match"]')->item(0);
+        self::assertTrue($step instanceof \DOMElement && $step->hasAttribute('open'), 'the refused answer is shown where it was given');
+        self::assertSame(0, $rxp->query('//details[@id="not-a-match"]//input[@name="action" and @value="link"]')->length, 'nothing link-like in the second step');
+        // ?pick= the suggested product: the same.
+        $picked = $web->get('/ui/review/listing/' . $first['listing_id'], ['sample' => (string) $sid, 'pick' => (string) $proposed]);
+        $pxp = new \DOMXPath($picked->dom());
+        self::assertSame(1, $pxp->query('//div[contains(@class, "spot-answers")]/form[contains(@class, "quick")]')->length);
+        self::assertSame(0, $pxp->query('//details[@id="not-a-match"]//input[@name="action" and @value="link"]')->length);
+        // ?pick= another product: matching it is an answer of the second step (it fails the spot check too), worded as such; the quick yes
+        // still matches the suggestion, and the page says so.
+        $otherSku = (int) self::$db->value('SELECT id FROM sku WHERE id <> ? AND merged_into_sku_id IS NULL ORDER BY id LIMIT 1', [$proposed]);
+        $otherCode = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$otherSku]);
+        $proposedCode = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$proposed]);
+        $picked = $web->get('/ui/review/listing/' . $first['listing_id'], ['sample' => (string) $sid, 'pick' => (string) $otherSku]);
+        $pxp = new \DOMXPath($picked->dom());
+        self::assertSame((string) $proposed, (string) $pxp->evaluate('string(//form[contains(@class, "quick")]/input[@name="sku_id"]/@value)'));
+        self::assertStringContainsString(Words::say('SPOT', 'picked_other', $otherCode, $proposedCode, $otherCode), $picked->text());
+        self::assertSame(Words::say('SPOT', 'instead_link', $otherCode), trim((string) preg_replace('/\s+/', ' ',
+            (string) $pxp->evaluate('string(//details[@id="not-a-match"]//label[input[@name="action" and @value="link"]])'))));
+        // Another mapping lead opening a member is told it is the owner's, and gets no answer form (behaviour item 5, F187).
         $other = $this->signIn($this->uiUser('mapping_lead'), $this->browser('198.51.100.22'));
         $seen = $other->get('/ui/review/listing/' . $first['listing_id']);
         self::assertSame(200, $seen->status, $seen->describe());
-        self::assertStringContainsString('This proposal is #1 of the Key spot-check screen-1 of Mapping_lead-reviewer 1', $seen->text());
-        self::assertStringContainsString('Leave it to them: a decision by anyone else makes the spot-check fail.', $seen->text());
+        self::assertStringContainsString(Words::say('SPOT', 'other', 'Mapping_lead-reviewer 1') . ' ' . Words::SPOT['other_text'], $seen->text());
+        self::assertFalse($seen->hasForm('/decide'), 'no quick yes and no answer form for anyone but the owner');
+        self::assertStringNotContainsString(Words::LISTING['pick_other'], $seen->text(), 'and no product search');
+        // A Matcher (not a lead) likewise: only the spot check's owner sees the quick yes and the answer form.
+        $matcher = $this->signIn($this->uiUser('mapper'), $this->browser('198.51.100.23'));
+        $seen = $matcher->get('/ui/review/listing/' . $first['listing_id']);
+        self::assertSame(200, $seen->status, $seen->describe());
+        self::assertStringContainsString(Words::say('SPOT', 'other', 'Mapping_lead-reviewer 1') . ' ' . Words::SPOT['other_text'], $seen->text());
+        self::assertFalse($seen->hasForm('/decide'), 'no quick yes and no answer form for a Matcher either');
         $form = $listing->form('/ui/review/listing/' . $first['listing_id'] . '/decide');
         self::assertSame(['link', (string) $sid], [$form['action'] ?? null, $form['sample'] ?? null]);
         $r = $web->post('/ui/review/listing/' . $first['listing_id'] . '/decide', $form);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame('/ui/review/listing/' . $first['listing_id'] . '?notice=decided_link&sample=' . $sid, $r->location());
         $after = $web->follow($r);
-        self::assertStringContainsString('Linked listing #' . $first['listing_id'] . '.', $after->text());
+        $profile = self::$db->one('SELECT product_title, variant_title FROM listing_profile WHERE listing_id = ?', [$first['listing_id']]);
+        $name = Words::quoted(trim(((string) $profile['product_title']) . ' ' . ((string) $profile['variant_title'])), '');
+        $code = (string) self::$db->value('SELECT s.code FROM channel_listing cl JOIN sku s ON s.id = cl.sku_id WHERE cl.id = ?', [$first['listing_id']]);
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', $name, $code), $after->text(), 'the notice names the product (F201)');
         self::assertContains('/ui/review/samples/' . $sid, $after->hrefs());
+        self::assertContains('/ui/review/listing/' . $s['members'][1]['listing_id'] . '?sample=' . $sid, $after->hrefs(), 'then the next one');
+        self::assertStringContainsString(Words::say('SPOT', 'next', 2, 20), $after->text());
+        // R2 review (7 Oct): the confirmed member stays the spot check's. Its owner can still change the match, but only behind the
+        // warning that this stops the bulk link for good, with a button that says so; another lead gets no form to change it.
+        self::assertStringContainsString(Words::SPOT['mine_done'], $after->text());
+        $axp = new \DOMXPath($after->dom());
+        self::assertSame(Words::SPOT['change'], trim((string) $axp->evaluate('string(//details[@id="change-match"]/summary)')));
+        self::assertSame(Words::SPOT['no_confirm_title'], trim((string) $axp->evaluate('string(//details[@id="change-match"]//p[@class="alert-title"])')));
+        self::assertSame(Words::SPOT['change_button'], trim((string) $axp->evaluate('string(//details[@id="change-match"]//button[@type="submit"])')));
+        self::assertSame('danger', (string) $axp->evaluate('string(//details[@id="change-match"]//button[@type="submit"]/@class)'));
+        self::assertSame(0, $axp->query('//details[@id="change-match"]//input[@name="action" and @value="reject"]')->length,
+            'every answer left there changes the match, so the button is true');
+        $seen = $other->get('/ui/review/listing/' . $first['listing_id']);
+        self::assertSame(200, $seen->status, $seen->describe());
+        self::assertStringContainsString(Words::say('SPOT', 'other_done', 'Mapping_lead-reviewer 1') . ' ' . Words::SPOT['other_done_text'], $seen->text());
+        self::assertFalse($seen->hasForm('/decide'), 'no form to change a spot check\'s confirmed match for anyone but its owner');
+        self::assertStringNotContainsString(Words::LISTING['pick_other'], $seen->text(), 'and no product search');
+        self::assertStringContainsString(Words::PAGE_INTRO['listing_spot'][0], $seen->text(), 'the intro says it is for looking');
+        self::assertSame('confirmed', (new KeySample(self::$db))->status($sid)['members'][0]['state'], 'looking changed nothing');
         $page = $web->get('/ui/review/samples/' . $sid);
-        self::assertStringContainsString('1 of 20 decided', $page->text());
-        self::assertStringContainsString('Confirmed', $page->text());
+        self::assertStringContainsString(Words::say('SPOT', 'progress', 1, 20), $page->text());
+        self::assertStringContainsString(Words::SAMPLE_STATE['confirmed'], $page->text());
         self::assertStringContainsString('Mapping_lead-reviewer 1', $page->text(), 'who confirmed it');
 
-        // The second: rejected. The sample fails, and says so.
+        // The second: "Not a match" (the form behind the second step). The spot check fails, and says so.
         $second = $s['members'][1];
         $form = $web->get('/ui/review/listing/' . $second['listing_id'], ['sample' => (string) $sid])->form('/ui/review/listing/' . $second['listing_id'] . '/decide');
         $r = $web->post('/ui/review/listing/' . $second['listing_id'] . '/decide', ['action' => 'reject'] + $form);
         self::assertSame(303, $r->status, $r->describe());
         self::assertStringContainsString('sample=' . $sid, (string) $r->location());
         $page = $web->get('/ui/review/samples/' . $sid);
-        self::assertStringContainsString('2 of 20 decided', $page->text());
-        self::assertStringContainsString('Rejected', $page->text());
-        self::assertStringContainsString('The bulk confirm refuses this sample', $page->text());
-        self::assertStringContainsString('not confirmed: no bulk confirm', $web->get('/ui/review/samples')->text());
+        self::assertStringContainsString(Words::say('SPOT', 'progress', 2, 20), $page->text());
+        self::assertStringContainsString(Words::SAMPLE_STATE['rejected'], $page->text());
+        self::assertStringContainsString(Words::say('SAMPLE', 'failed_one', 20), $page->text());
+        self::assertStringContainsString(Words::SAMPLE_RESULT['failed'], $web->get('/ui/review/samples')->text());
         self::assertSame('failed', (new KeySample(self::$db))->status($sid)['verdict']);
 
         self::assertSame(404, $web->get('/ui/review/samples/999999')->status);
@@ -129,18 +223,18 @@ final class KeySampleScreenTest extends KernelUiTestCase
         // Its page says why (as text, never markup), leads to the sample, and the decision forms are there as usual.
         $page = $web->get('/ui/review/listing/' . $held['listing_id'], ['queue' => 'Key']);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertStringContainsString('Held back from the bulk confirm: Flavour differs: <b>mango ice</b> vs mango', $page->text());
-        self::assertStringContainsString('Set aside for one-at-a-time review by Mapping_lead-reviewer 1', $page->text());
+        $heldLine = 'Check this one by hand: "Flavour differs: <b>mango ice</b> vs mango" (set aside by Mapping_lead-reviewer 1 on ';
+        self::assertStringContainsString($heldLine, $page->text());
         self::assertContains('/ui/review/samples/' . $sid, $page->hrefs());
         self::assertTrue($page->hasForm('/ui/review/listing/' . $held['listing_id'] . '/decide'));
-        self::assertStringNotContainsString('Held back from the bulk confirm', $web->get('/ui/review/listing/' . $free['listing_id'])->text());
+        self::assertStringNotContainsString('Check this one by hand', $web->get('/ui/review/listing/' . $free['listing_id'])->text());
 
-        // The sample's page lists what is held, why and by whom.
+        // The spot check's page lists what is set aside, why and by whom.
         $sp = $web->get('/ui/review/samples/' . $sid);
         self::assertSame(200, $sp->status, $sp->describe());
-        self::assertStringContainsString('Held back now: 1 of this sample\'s population', $sp->text());
+        self::assertStringContainsString(Words::SAMPLE['held_one'], $sp->text());
         self::assertStringContainsString('Flavour differs: <b>mango ice</b> vs mango', $sp->text());
-        self::assertStringContainsString('waiting for a decision', $sp->text());
+        self::assertStringContainsString(Words::SAMPLE['held_waiting'], $sp->text());
         self::assertContains('/ui/review/listing/' . $held['listing_id'] . '?sample=' . $sid, $sp->hrefs());
 
         // A new matching run replaces the held proposal: the hold is on the listing, so both pages still show it.
@@ -151,18 +245,19 @@ final class KeySampleScreenTest extends KernelUiTestCase
             'ai_units_per_item' => 1, 'evidence' => json_decode((string) $old['evidence'], true)])['proposal_id'];
         $page = $web->get('/ui/review/listing/' . $held['listing_id'], ['queue' => 'Key']);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertStringContainsString('Held back from the bulk confirm: Flavour differs: <b>mango ice</b> vs mango', $page->text());
-        self::assertStringContainsString("Key spot-check screen-3, proposal #{$held['proposal_id']})", $page->text());
-        self::assertStringContainsString('The hold is on this listing, so it covers its newer proposal too.', $page->text());
+        self::assertStringContainsString($heldLine, $page->text());
+        self::assertStringContainsString(Words::say('SAMPLE', 'title', 'screen-3'), $page->text());
+        self::assertStringContainsString(Words::LISTING['held_newer'], $page->text());
         self::assertTrue($page->hasForm('/ui/review/listing/' . $held['listing_id'] . '/decide'));
+        self::assertNotSame(0, $newer);
         $sp = $web->get('/ui/review/samples/' . $sid);
-        self::assertStringContainsString('Held back now: 1 of this sample\'s population still waiting', $sp->text());
-        self::assertStringContainsString("waiting for a decision (now proposal #{$newer}: still held)", $sp->text());
+        self::assertStringContainsString(Words::SAMPLE['held_one'], $sp->text());
+        self::assertStringContainsString(Words::SAMPLE['held_waiting'] . ' ' . Words::SAMPLE['held_newer'], $sp->text());
 
         // Released by a mapping lead, naming the proposal the hold was written for (replaced since): neither page shows it.
         self::assertSame(1, $hold(true, 'Checked: the same flavour')['written']);
-        self::assertStringNotContainsString('Held back from the bulk confirm', $web->get('/ui/review/listing/' . $held['listing_id'])->text());
-        self::assertStringContainsString('None. A mapping lead holds listings', $web->get('/ui/review/samples/' . $sid)->text());
+        self::assertStringNotContainsString('Check this one by hand', $web->get('/ui/review/listing/' . $held['listing_id'])->text());
+        self::assertStringContainsString(Words::SAMPLE['held_none'], $web->get('/ui/review/samples/' . $sid)->text());
 
         // A held listing linked since: by a person, the page says it was decided since; by a bulk confirm (it never should be:
         // simulated here by writing the hold row straight into the table after the bulk link), the sample's page flags it.
@@ -173,13 +268,13 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::$db->insert("INSERT INTO key_bulk_hold (sample_id, proposal_id, listing_id, kind, reason, staff_user_id, actor) VALUES (?, ?, ?, 'hold', ?, ?, ?)",
             [$sid, $free['proposal_id'], $free['listing_id'], 'Held too late', $owner['id'], 'staff:test']);
         $sp = $web->get('/ui/review/samples/' . $sid);
-        self::assertStringContainsString('Held back now: 0 of this sample\'s population still waiting', $sp->text());
-        self::assertStringContainsString('1 more held listing was decided since.', $sp->text());
-        self::assertStringContainsString('Linked by the bulk confirm key_bulk:screen-3 A held listing should never be', $sp->text());
-        self::assertStringContainsString('bin/bulk_unlink.php --batch=key_bulk:screen-3', $sp->text());
+        self::assertStringContainsString(Words::say('SAMPLE', 'held_many', 0), $sp->text());
+        self::assertStringContainsString(Words::SAMPLE['held_decided_one'], $sp->text());
+        self::assertStringContainsString(Words::SAMPLE['held_bulk'], $sp->text());
+        self::assertStringNotContainsString('bin/', $sp->text(), 'no server command (F118)');
         $fp = $web->get('/ui/review/listing/' . $free['listing_id']);
-        self::assertStringContainsString('Held back from the bulk confirm: Held too late', $fp->text());
-        self::assertStringContainsString('This listing was decided since; the hold stays on record.', $fp->text());
+        self::assertStringContainsString('Check this one by hand: "Held too late"', $fp->text());
+        self::assertStringContainsString(Words::LISTING['held_decided'], $fp->text());
     }
 
     public function testAllConfirmedSaysTheBulkConfirmMayRun(): void
@@ -195,8 +290,10 @@ final class KeySampleScreenTest extends KernelUiTestCase
         }
         $page = $this->signIn($owner)->get('/ui/review/samples/' . $s['sample_id']);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertStringContainsString('20 of 20 decided', $page->text());
-        self::assertStringContainsString('may run', $page->text());
-        self::assertStringContainsString('bin/bulk_confirm_key.php --sample=screen-2', $page->text());
+        self::assertStringContainsString(Words::say('SPOT', 'progress', 20, 20), $page->text());
+        self::assertStringContainsString(Words::say('SAMPLE', 'passed', 20), $page->text(), 'the next step, in words (F109)');
+        self::assertStringNotContainsString('bin/', $page->text(), 'no server command');
+        self::assertSame(Words::SAMPLE_RESULT['passed'], trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//section[contains(@class, "spot-box")]//span[contains(@class, "chip")])')));
+        self::assertFalse($page->hasForm('/ui/review/samples'), 'confirming the rest together is never a button');
     }
 }

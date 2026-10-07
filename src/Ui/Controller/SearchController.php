@@ -6,8 +6,12 @@ namespace CW\Ui\Controller;
 
 use CW\Ui\Context;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Words;
 
-/** /ui/search?q=: items by CW code, barcode or words; listings by site variant id, barcode or words. */
+/**
+ * /ui/search?q= (Find a product, plan §6.17): warehouse products by CW number, barcode or words; website products by their
+ * option number on the website, barcode or words.
+ */
 final class SearchController
 {
     public function index(Context $ctx): HtmlResponse
@@ -21,6 +25,10 @@ final class SearchController
             $short = mb_strlen($text) < 2;
         }
         if ($text !== '' && !$short) {
+            $names = [];
+            foreach ($q->channels() as $c) {
+                $names[(string) $c['code']] = (string) $c['name'];
+            }
             $found = $q->searchSkus($text);
             $bc = $q->barcodesOfMany(array_map(static fn (array $r): int => (int) $r['id'], $found));
             foreach ($found as $r) {
@@ -31,14 +39,14 @@ final class SearchController
             }
             foreach ($q->searchListings($text) as $r) {
                 $listings[] = [
-                    'id' => (int) $r['id'], 'channel' => self::s($r['channel_code']), 'variant' => self::s($r['external_variant_id']),
+                    'id' => (int) $r['id'], 'channel' => $names[(string) $r['channel_code']] ?? self::s($r['channel_code']), 'variant' => self::s($r['external_variant_id']),
                     'title' => self::s($r['product_title']), 'variant_title' => self::s($r['variant_title']), 'status' => self::s($r['status']),
                     'units_30d' => $r['units_30d'], 'sku_id' => $r['sku_id'] === null ? null : (int) $r['sku_id'], 'sku_code' => self::s($r['sku_code']),
                 ];
             }
         }
         return $ctx->page('search', ['text' => $text, 'short' => $short, 'skus' => $skus, 'listings' => $listings],
-            200, ['title' => 'Search', 'active' => 'search']);
+            200, ['title' => Words::title('search'), 'active' => 'search']);
     }
 
     private static function s(mixed $v): ?string

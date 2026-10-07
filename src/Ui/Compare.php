@@ -25,9 +25,11 @@ final class Compare
     private const BRAND_NOISE = ['accessories', 'accessory', 'and', 'brand', 'co', 'company', 'disposable', 'disposables', 'e', 'eliquid', 'eliquids',
         'kit', 'kits', 'liquid', 'liquids', 'ltd', 'limited', 'nic', 'nicotine', 'pod', 'pods', 'salt', 'salts', 'the', 'uk', 'vape', 'vapes',
         'vaping', 'vapor', 'vapour'];
+    /** The compared fields and their names on the screen (Words::FIELD). */
     public const LABELS = [
-        'brand' => 'Brand', 'strength_mg' => 'Strength (mg)', 'nic_type' => 'Nicotine type', 'line' => 'Range / line',
-        'form' => 'Form', 'flavour' => 'Flavour', 'volume_ml' => 'Volume (ml)', 'puffs' => 'Puffs', 'pack_units' => 'Pack units',
+        'brand' => Words::FIELD['brand'], 'strength_mg' => Words::FIELD['strength_mg'], 'nic_type' => Words::FIELD['nic_type'], 'line' => Words::FIELD['line'],
+        'form' => Words::FIELD['form'], 'flavour' => Words::FIELD['flavour'], 'volume_ml' => Words::FIELD['volume_ml'], 'puffs' => Words::FIELD['puffs'],
+        'pack_units' => Words::FIELD['pack_units'],
     ];
 
     /**
@@ -52,7 +54,7 @@ final class Compare
             $key = static fn (string $b): string => Gtin::key($b) ?? $b;
             $state = array_intersect(array_map($key, $listingBarcodes), array_map($key, $skuBarcodes)) !== [] ? 'same' : 'differs';
         }
-        $rows[] = ['field' => 'barcodes', 'label' => 'Barcodes', 'listing' => implode(', ', $listingBarcodes), 'item' => implode(', ', $skuBarcodes), 'state' => $state];
+        $rows[] = ['field' => 'barcodes', 'label' => Words::FIELD['barcodes'], 'listing' => implode(', ', $listingBarcodes), 'item' => implode(', ', $skuBarcodes), 'state' => $state];
         return $rows;
     }
 
