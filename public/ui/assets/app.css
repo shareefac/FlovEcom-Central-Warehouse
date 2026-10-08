@@ -1074,6 +1074,11 @@ article.bench-line label.counted input { width: 28px; height: 28px; }
   background: var(--surface); border-top: 1px solid var(--line); box-shadow: var(--shadow-up); border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
 @media (max-width: 899.98px) { body:has(.tabbar) .actions.sticky { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); padding-bottom: 10px; } }
+/* A field that gets focus (Tab, or the scanner's Enter on the bench) is never left under the save bar (WCAG 2.2 2.4.11): the scroll
+   padding covers the bar, below 900 px the tab bar under it too, and at 672 px and narrower (a page of 640 px) its stacked buttons. */
+html:has(.actions.sticky) { scroll-padding-bottom: 112px; }
+@media (max-width: 899.98px) { html:has(.actions.sticky) { scroll-padding-bottom: calc(var(--tabbar-h) + 112px); } }
+@media (max-width: 672px) { html:has(.actions.sticky) { scroll-padding-bottom: calc(var(--tabbar-h) + 200px); } }
 
 /* The selling mode on the websites (a product page, IM10) */
 table.selling-sites .o-sub { margin-top: 2px; }

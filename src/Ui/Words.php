@@ -192,7 +192,7 @@ final class Words
         'suppliers' => 'The companies we buy from.',
         'sales_history' => 'Units sold per day, per product.',
         'receiving' => 'Book in each delivery against its supplier invoice.',
-        'bench' => 'Deliveries waiting for their check at the goods-in bench.',
+        'bench' => 'Deliveries not booked in yet, and how far their check at the goods-in bench got.',
         'incidents' => 'Goods found short, over, damaged, wrong or without a duty stamp.',
         'cards' => 'Every product with its legal details and barcodes.',
         'barcodes' => 'Barcodes the computer could not place.',
@@ -324,7 +324,7 @@ final class Words
             'Add the products, attach the invoice, and book it in once the goods-in bench has checked it.'],
         'receipt_other' => ['A delivery someone else is keying.', 'You can check it at the goods-in bench, set its supplier invoice, and book it in.'],
         'receipt' => ['One delivery: what arrived, where it went, and who checked it.', ''],
-        'bench' => ['Deliveries waiting for their check at the goods-in bench, the earliest first.',
+        'bench' => ['Every delivery not booked in yet, the earliest first, with how far its check at the goods-in bench got.',
             'Open one, check each product against the paperwork, then save the check.'],
         'receipt_bench' => ['Check this delivery against its paperwork, one product at a time.',
             'For each line: is the UK duty stamp on the pack, and did anything arrive short, extra, damaged, wrong or without a stamp? Then press "Save the check".'],
@@ -854,9 +854,9 @@ final class Words
             . 'call the two places VERIFY and UNSTAMPED.)',
         'posting' => '**Booking in** adds the stock at once: the items that arrived right go into stock, the others where the goods-in bench put them. It also '
             . 'marks what arrived on the purchase order, opens an incident for each problem the bench found, and sets the selling mode on the websites '
-            . 'deliveries reach. A reviewer checks every delivery within 3 days, and Not OK takes it back. Nobody checks a delivery they keyed, booked in, or '
-            . 'checked at the bench.',
-        'selling_mode' => 'What a website shows for a product whose stock is not linked yet. **In-Stock:** it sells whatever the stock figure says. '
+            . 'deliveries reach. A reviewer checks every delivery within 3 days, and Not OK takes it back. Nobody checks a delivery they keyed, booked in, '
+            . 'checked at the bench, or set the supplier invoice of.',
+        'selling_mode' => 'What a website shows for a product whose stock rule is still "Website uses its own stock". **In-Stock:** it sells whatever the stock figure says. '
             . '**From-Warehouse:** it sells while there is stock. **Out-Of-Stock:** it does not sell. A website takes the mode from here only once its stock '
             . 'link is on. A delivery booked in sets the mode too, on the websites deliveries reach.',
     ];
@@ -1080,6 +1080,14 @@ final class Words
             'what' => 'Open each one on the tablet, check the duty stamps and anything short, extra, damaged or wrong, then save the check.',
             'button' => 'Open the bench',
         ],
+        'bench_refused' => [
+            'title' => 'Deliveries refused at the goods-in bench',
+            'unit' => ['delivery', 'deliveries'],
+            'text' => 'The goods-in bench said the supplier or the paperwork is not right, so they cannot be booked in.',
+            'what' => 'Open each one, sort it out with the supplier (or send the goods back), then cancel the delivery. If the bench was wrong, '
+                . 'it checks the delivery again.',
+            'button' => 'Open the list',
+        ],
         'to_post' => [
             'title' => 'Checked deliveries to book in',
             'unit' => ['delivery', 'deliveries'],
@@ -1090,7 +1098,8 @@ final class Words
         'deliveries_check' => [
             'title' => 'Deliveries booked in to check',
             'unit' => ['waits for you', 'wait for you'],
-            'text' => 'Their stock is added already. A reviewer checks each one within 3 days. You never check one you keyed, booked in or checked at the bench.',
+            'text' => 'Their stock is added already. A reviewer checks each one within 3 days. You never check one you keyed, booked in, checked at the bench '
+                . 'or set the supplier invoice of.',
             'what' => 'You look at what arrived and where it went, then say OK or Not OK. Not OK takes the delivery back.',
             'button' => 'Check them',
         ],
@@ -3790,6 +3799,7 @@ final class Words
         'help_label' => 'selling mode',
         'link_on' => 'Stock link on',
         'link_off' => 'Stock link off',
+        'link_waiting' => 'Stock link switched on: starts when the website connection is live',
         'option' => 'option %s',
         'option_sale' => 'option %s (%s)',
         'mode_meaning' => '%s: %s',
@@ -3815,11 +3825,14 @@ final class Words
         'selling_mode_unchanged' => 'Nothing changed: the ticked websites already had this selling mode.',
     ];
 
-    /** channel.mode => how far a website's stock link is (the selling-mode table). */
+    /**
+     * channel.mode => how far a website's connection to the warehouse is (the selling-mode table). Not the stock link: that is CW's
+     * site writer switch, and it writes only while the connection is live (SellingModeController::vars).
+     */
     public const SITE_SYNC = [
-        'off' => 'stock link not started',
-        'shadow' => 'stock link on trial',
-        'live' => 'stock link live',
+        'off' => 'website connection not started',
+        'shadow' => 'website connection on trial',
+        'live' => 'website connection live',
     ];
 
     /** Notices after a click on a product page (ItemController::NOTICES). */
@@ -4024,7 +4037,7 @@ final class Words
         'supplier_invoice' => 'Supplier invoice (PDF or photo)',
         'delivery_note' => 'Delivery note',
         'photo' => 'Photo',
-        'evidence' => 'Duty proof (made before 1 Oct 2026)',
+        'evidence' => 'Duty proof (made or imported before 1 Oct 2026)',
     ];
 
     /** The kind of UK duty stamp (ReceiptPlan::STAMP_TYPES keys). */
@@ -4037,7 +4050,7 @@ final class Words
     public const UNSTAMPED_ACTION = [
         'quarantine' => 'Keep them apart in the unstamped quarantine (they go back to the supplier)',
         'refuse' => 'Refuse them at the door (not taken in)',
-        'accept_pre_october' => 'Take them in on the supplier\'s proof they were made before 1 Oct 2026 (sell, send back or destroy them by 31 Mar 2027)',
+        'accept_pre_october' => 'Take them in on the supplier\'s proof they were made or imported before 1 Oct 2026 (sell, send back or destroy them by 31 Mar 2027)',
     ];
 
     /** Why a delivery gives a product its selling mode (the mode's source: SellingModes, ReceivingController). */
@@ -4086,6 +4099,7 @@ final class Words
         'total_one' => '1 delivery, newest first.',
         'total_many' => '%s deliveries, newest first.',
         'state_checked' => 'Checked at the bench, not booked in yet',
+        'state_refused' => 'Refused at the bench, not cancelled yet',
         'none' => 'No deliveries yet',
         'none_desk' => 'Start the first one above when goods arrive.',
         'none_text' => 'Deliveries appear here once the purchasing desk starts them.',
@@ -4375,6 +4389,7 @@ final class Words
         'open_delivery' => 'Open the delivery',
         'arrived_rule' => 'For the duty-stamp rule, this delivery arrived on %s.',
         'rule_label' => 'unstamped',
+        'rule_date_unset' => 'the refusal date',
         'rule_now' => 'It arrived on or after %s, so every unstamped duty item is refused at the door or kept in the unstamped quarantine. It is never taken '
             . 'into stock.',
         'rule_before' => 'Until %s, unstamped duty items are taken in only on the supplier\'s proof that they were made or imported before 1 Oct 2026 (and they must '
@@ -4611,7 +4626,7 @@ final class Words
         'discontinued' => 'Line %s (%s): its product card says it is not sold any more.',
         'no_card' => 'Line %s (%s): it has no product card yet, so it is treated as needing a duty stamp (the bench checks its stamp).',
         'duty_unknown' => 'Line %s (%s): its product card does not say whether duty is paid on it, so it is treated as needing a duty stamp (the bench checks its stamp).',
-        'pre_october' => 'Line %s (%s): %s unstamped items taken in on the supplier\'s proof they were made before 1 Oct 2026. They must be sold, sent back or '
+        'pre_october' => 'Line %s (%s): %s unstamped items taken in on the supplier\'s proof they were made or imported before 1 Oct 2026. They must be sold, sent back or '
             . 'destroyed by 31 Mar 2027.',
         'extras_refused' => 'Line %s (%s): its %s arrived unstamped too, so they are refused at the door, not set aside to check.',
         'extras_quarantined' => 'Line %s (%s): its %s arrived unstamped too, so they go to the unstamped quarantine, not set aside to check.',

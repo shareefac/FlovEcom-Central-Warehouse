@@ -7,7 +7,7 @@
 <?php endif; ?>
 <div class="note duty-rule">
   <p><strong><?= $say('BENCH', 'arrived_rule', $arrivedWhen) ?></strong></p>
-  <p><?php if ($refusal): ?><?= $say('BENCH', 'rule_now', (string) ($cutoffDay ?? '')) ?><?php else: ?><?= $say('BENCH', 'rule_before', (string) $lastDay, (string) $cutoffDay) ?><?php endif; ?></p>
+  <p><?php if ($refusal): ?><?= $say('BENCH', 'rule_now', (string) ($cutoffDay ?? \CW\Ui\Words::BENCH['rule_date_unset'])) ?><?php else: ?><?= $say('BENCH', 'rule_before', (string) $lastDay, (string) $cutoffDay) ?><?php endif; ?></p>
   <?= $explain('unstamped_rule', \CW\Ui\Words::BENCH['rule_label']) ?>
 </div>
 
@@ -33,7 +33,7 @@
 
   <fieldset class="bench-tools">
     <legend><?= $word('BENCH', 'find') ?></legend>
-    <label><?= $word('BENCH', 'find_label') ?> <input type="search" id="bench-find" maxlength="64" autocomplete="off" inputmode="numeric" data-find-in=".bench-line" data-not-here="<?= $word('BENCH', 'not_here') ?>"></label>
+    <label><?= $word('BENCH', 'find_label') ?> <input type="search" id="bench-find" maxlength="64" autocomplete="off" autocapitalize="characters" spellcheck="false" data-find-in=".bench-line" data-not-here="<?= $word('BENCH', 'not_here') ?>"></label>
     <span class="hint" id="bench-find-result" role="status"></span>
     <p class="actions"><button type="button" data-fill-stamps="1"><?= $word('BENCH', 'fill_stamps') ?></button>
       <button type="button" data-tick-all="1"><?= $word('BENCH', 'tick_all') ?></button></p>

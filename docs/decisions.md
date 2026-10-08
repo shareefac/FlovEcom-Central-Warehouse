@@ -6222,3 +6222,52 @@ the bench checker's refusal, Home's "Deliveries booked in to check" card in plac
 title, the reversal, the duplicate invoice, the truncated form, `table.stack.list`) and `SellingModeScreenTest` (the meanings and refusals as
 `Words`). `app.js` parses (esprima 4.0.1, run on this box: the merge's "no JavaScript engine" note meant node). Not checked in a real browser (none
 on this box or on staging): ops.md's list.
+
+### The merge review's findings (8 Oct 2026, on 3771a44)
+
+**U91. "Stock link on" means both switches** (provisional, to confirm). The product page's selling-mode table showed "Stock link on" from
+`channel.site_writer` alone, while the line under it described `channel.mode` with the same words ("stock link not started / on trial / live"), and
+ChannelAdmin lets the writer be on while the channel is off or shadow ("nothing is written on the site until it is live"). Now
+`SellingModeController::vars` and `ReceivingController::receiptSites` give `writer` = site writer on **and** the channel live; a writer that is on
+while the channel is not live shows a "waiting" chip, **"Stock link switched on: starts when the website connection is live"**; `Words::SITE_SYNC`
+names `channel.mode` on its own: **"website connection not started / on trial / live"**. So every text that promises what "a website whose stock
+link is on" does (CARDS rules, CARD blocked, CARD_NOTICE confirmed_blocked, SELLING blocked / save_does, SELLING_NOTICE, RECEIPT reaches_off) is
+true as written. HELP `selling_mode` no longer says "not linked yet" (that now reads as the stock link): "a product whose stock rule is still
+"Website uses its own stock"". The review's "not counted yet" was rejected: the owner's correction b keeps "count" for shelf counts only
+(`WordsTest::testTheOwnersCorrectionsHold` checks every HELP text). Nothing shown changes until I-Day: every site writer is off.
+
+**U92. The bench on a tablet and a phone.** (1) A field that gets focus is never left under the save bar (WCAG 2.2 2.4.11): the page's
+`scroll-padding-bottom` was 96 px, written for the tab bar alone, and the sticky save bar now sits on it (about 136 px covered at 768 px portrait,
+about 198 px with the bench's two stacked buttons at 672 px and narrower). `html:has(.actions.sticky)` now pads 112 px (900 px and wider: the bar
+alone), the tab bar + 112 px below 900 px, and the tab bar + 200 px at 672 px and narrower (a page of 640 px stacks the bar's buttons; the editor's
+three rows are about 177 px). The scanner's Enter and Tab land the next field above the bar. (2) "Find a line" no longer opens the number keypad
+(`inputmode="numeric"` came from main): it asks for CW numbers and supplier codes, which have letters; it has `autocapitalize="characters"` and no
+spellcheck (app.js compares in lower case, so capitals change nothing). The count fields keep the number keypad. ops.md's browser check now
+includes both.
+
+**U93. A delivery refused at the bench has a Home card** (provisional, to confirm). A draft whose paperwork the bench marked not right was neither
+"waiting for the bench" nor "to book in", so nobody's Home asked the desk to cancel it. New card **"Deliveries refused at the goods-in bench"**
+(`doc.GRN.post`, rank 67: between the bench and booking in, as it holds stock up too), its button opening the deliveries list's new filter
+**"Refused at the bench, not cancelled yet"** (`state=refused`: drafts with `paperwork_ok = 0`). HomeCounts counts it in the same query as the other
+two (no extra query). The bench list itself keeps every delivery not booked in (the bench can go back to a checked or refused one), so its intro
+and menu help now say so: "Every delivery not booked in yet, the earliest first, with how far its check at the goods-in bench got."
+
+**U94. Wording gaps on the delivery screens.** (a) HELP `posting` and the "Deliveries booked in to check" card add the fourth person who never
+checks a delivery: whoever set its supplier invoice (`GoodsReceiptHandler::INVOLVED_ACTIONS` grn.invoice, I172). (b) RECEIPT_FILE `evidence`,
+UNSTAMPED_ACTION `accept_pre_october` and RECEIPT_PLAN `pre_october` say "made or imported before 1 Oct 2026", as the rule (ReceiptPlan) and the
+bench do. (c) BENCH `rule_now` with no cutoff set says "the refusal date" (main's fallback; only if the setting is removed). (d) The scan-choice
+question ("That barcode is one single item of …") names the product by its name, taken from the choices (the product is not on the delivery yet,
+so the lines could not name it). (e) Kept as is: "Deliveries booked in to check" also counts the checks of deliveries taken back (a reversal of a
+delivery is reviewed in the same queue, and the card's button opens it).
+
+*Rejected:* none of the six findings; the one changed proposal is U91's "not counted yet" (above).
+
+*Tests* (8 Oct 2026, one at a time): unit without a database first (`OK (263 tests, 34051 assertions)`, after U91's help text was changed to keep
+correction b); the full suite in slot `mrg5`: `OK, but some tests were skipped! Tests: 1000, Assertions: 50293, Skipped: 75` (999 + the new
+`ReceivingScreensTest::testAOneUnitScanAsksInTheProductsName`; the 75 skipped are the HTTP tests of slots `ui`/`api`, as before); slot `ui`:
+`UiAuthTest`, `UiSecurityTest`, `UiReviewFlowTest` and every `UiKernel` test `OK (143 tests, 31981 assertions)`; slot `api`: `Integration\Api`
+`OK (45 tests, 2851 assertions)`; hammer `--seed=20261010` `PASS (59 checks passed, 0 failed)` (112 s); matching golden `{"passed":59,"failed":0}`.
+Tests changed: `SellingModeScreenTest` (a live channel with the writer off, a shadow channel with it on: "switched on", the connection words; then
+"Stock link on"), `ReceivingScreensTest` (the bench refuses the paperwork first: the desk's refused card and filter, the bench card stops counting
+it; "Find a line" without the number keypad; the scan question in the product's name), `HomeTasksTest::testTheDeliveryCards` (the refused card,
+its place and link). Not checked in a real browser (none on this box or on staging): ops.md's list, with U92's two checks added.

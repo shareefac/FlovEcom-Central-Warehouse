@@ -35,6 +35,7 @@ final class HomeTasks
         'not_ok' => 50,
         'not_sent' => 60,
         'bench' => 65,
+        'bench_refused' => 67,
         'to_post' => 70,
         'spot_check' => 100,
         'set_aside' => 110,
@@ -217,9 +218,10 @@ final class HomeTasks
             $out[] = self::counted('checks_due', (int) $f['suppliers']['due'], Html::url('/ui/purchasing/suppliers', ['due' => '1']));
         }
 
-        // Deliveries: waiting for the goods-in bench, checked and waiting to be booked in, open incidents to close.
+        // Deliveries: waiting for the goods-in bench, refused there (to cancel), checked and waiting to be booked in, open incidents.
         if ($can('doc.GRN.post') && is_array($f['receiving'] ?? null)) {
             $out[] = self::counted('bench', (int) $f['receiving']['bench'], '/ui/receiving/bench');
+            $out[] = self::counted('bench_refused', (int) ($f['receiving']['refused'] ?? 0), Html::url('/ui/receiving', ['state' => 'refused']));
             $out[] = self::counted('to_post', (int) $f['receiving']['to_post'], Html::url('/ui/receiving', ['state' => 'checked']));
         }
         if ($can('incidents.resolve')) {

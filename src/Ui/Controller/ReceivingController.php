@@ -49,8 +49,8 @@ final class ReceivingController
 {
     /** The notices named in a redirect (their words: Words::RECEIPT_NOTICE). */
     public const NOTICES = Words::RECEIPT_NOTICE;
-    /** The list's "Show" filter: a delivery's state, or "checked at the bench, not booked in yet". */
-    public const STATE_FILTERS = ['draft', 'checked', 'posted', 'reversed', 'cancelled'];
+    /** The list's "Show" filter: a delivery's state, or "checked at the bench, not booked in yet", or "refused at the bench". */
+    public const STATE_FILTERS = ['draft', 'checked', 'refused', 'posted', 'reversed', 'cancelled'];
     public const LIST_LIMIT = 300;
     /** The editor's fields outside its line rows (csrf, version, stamp, line_count, lines_editable, 9 header fields, q, packs, price, the button, a choice). */
     public const EDITOR_FIXED_FIELDS = 26;
@@ -81,7 +81,11 @@ final class ReceivingController
         $canPost = Documents::mayPost($me->roles, 'GRN');
         $states = [];
         foreach (self::STATE_FILTERS as $code) {
-            $states[$code] = $code === 'checked' ? Words::RECEIVING['state_checked'] : Words::of('RECEIPT_STATE', $code);
+            $states[$code] = match ($code) {
+                'checked' => Words::RECEIVING['state_checked'],
+                'refused' => Words::RECEIVING['state_refused'],
+                default => Words::of('RECEIPT_STATE', $code),
+            };
         }
         return $ctx->page('receipts', [
             'rows' => array_map(self::screenRow(...), $this->rows($ctx, $f)),
@@ -301,7 +305,9 @@ final class ReceivingController
             return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typed' => $typed, 'q' => $q]);
         }
         if ($result['status'] === 'choices') {
-            return $this->page($ctx, $id, 200, null, isset($result['choice_note']) ? ReceiptWords::one((string) $result['choice_note']) : null, ['choices' => $result['choices'], 'q' => $q, 'packs' => max(1, $packs),
+            // The note names the product by its name (U86): the choices carry it, also when it is not on the delivery yet.
+            $named = array_column($result['choices'], 'name', 'sku_code');
+            return $this->page($ctx, $id, 200, null, isset($result['choice_note']) ? ReceiptWords::one((string) $result['choice_note'], $named) : null, ['choices' => $result['choices'], 'q' => $q, 'packs' => max(1, $packs),
                 'price' => $price ?? '']);
         }
         if ($result['status'] === 'not_found') {
@@ -752,8 +758,8 @@ final class ReceivingController
     }
 
     /**
-     * The websites a receipt's selling mode reaches (site_writer.receipt_mode_sites, I152), with whether their site stock writer
-     * is on: the editor says so beside the mode column.
+     * The websites a receipt's selling mode reaches (site_writer.receipt_mode_sites, I152), with whether their stock link is on
+     * (the site stock writer on and the website connection live): the editor says so beside the mode column.
      *
      * @return list<array{code: string, name: string, writer: bool}>
      */
@@ -763,8 +769,10 @@ final class ReceivingController
         if ($ids === []) {
             return [];
         }
-        return array_map(static fn (array $r): array => ['code' => (string) $r['code'], 'name' => (string) $r['name'], 'writer' => (int) $r['site_writer'] === 1],
-            $ctx->db->all('SELECT code, name, site_writer FROM channel WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY id', $ids));
+        // The stock link is on when both switches are: the site writer and the website connection live (as on the product page).
+        return array_map(static fn (array $r): array => ['code' => (string) $r['code'], 'name' => (string) $r['name'],
+            'writer' => (int) $r['site_writer'] === 1 && (string) $r['mode'] === 'live'],
+            $ctx->db->all('SELECT code, name, mode, site_writer FROM channel WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY id', $ids));
     }
 
     /**
@@ -1202,6 +1210,9 @@ final class ReceivingController
             // Checked at the bench, not booked in yet: the paperwork looks right and every line is checked (Home's "to book in").
             $where[] = "d.status = 'draft' AND g.paperwork_ok = 1 AND EXISTS (SELECT 1 FROM grn_line l WHERE l.document_id = d.id) "
                 . 'AND NOT EXISTS (SELECT 1 FROM grn_line l WHERE l.document_id = d.id AND l.checked_at IS NULL)';
+        } elseif ($f['state'] === 'refused') {
+            // Refused at the bench (the paperwork is not right), not cancelled yet (Home's "refused at the goods-in bench").
+            $where[] = "d.status = 'draft' AND g.paperwork_ok = 0";
         } elseif ($f['state'] !== null) {
             $where[] = 'd.status = ?';
             $params[] = $f['state'];

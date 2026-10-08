@@ -237,13 +237,15 @@ final class HomeTasksTest extends TestCase
         self::assertSame(['company', 'receiving', 'incidents'], HomeTasks::needs(['purchasing_desk']));
         self::assertSame(['barcodes', 'incidents'], HomeTasks::needs(['stock_controller']));
 
-        $f = ['receiving' => ['bench' => 2, 'to_post' => 1], 'incidents' => 3, 'company' => ['confirmed' => true, 'missing' => []]];
+        $f = ['receiving' => ['bench' => 2, 'to_post' => 1, 'refused' => 1], 'incidents' => 3, 'company' => ['confirmed' => true, 'missing' => []]];
         $goodsIn = HomeTasks::build(5, ['goods_in'], $f);
-        self::assertSame(['bench', 'to_post'], self::keys($goodsIn['jobs']), 'goods in may book in too (doc.GRN.post), but closes no incident');
+        self::assertSame(['bench', 'bench_refused', 'to_post'], self::keys($goodsIn['jobs']), 'goods in may book in too (doc.GRN.post), but closes no incident');
         $desk = HomeTasks::build(6, ['purchasing_desk'], $f);
-        self::assertSame(['bench', 'to_post', 'incidents'], self::keys($desk['jobs']));
+        self::assertSame(['bench', 'bench_refused', 'to_post', 'incidents'], self::keys($desk['jobs']));
         $by = array_column($desk['jobs'], null, 'key');
         self::assertSame([2, 'deliveries', '/ui/receiving/bench'], [$by['bench']['count'], $by['bench']['unit'], $by['bench']['href']]);
+        self::assertSame([1, 'delivery', '/ui/receiving?state=refused'], [$by['bench_refused']['count'], $by['bench_refused']['unit'], $by['bench_refused']['href']],
+            'a delivery the bench refused (paperwork not right) is on nobody\'s other card: the desk cancels it');
         self::assertSame([1, 'delivery', '/ui/receiving?state=checked'], [$by['to_post']['count'], $by['to_post']['unit'], $by['to_post']['href']]);
         self::assertSame([3, 'incidents', '/ui/receiving/incidents'], [$by['incidents']['count'], $by['incidents']['unit'], $by['incidents']['href']]);
         foreach ($desk['jobs'] as $card) {
@@ -266,6 +268,7 @@ final class HomeTasksTest extends TestCase
         // The order: holding the stock up first, the checks after the owner's own, incidents with the routine work.
         self::assertLessThan(HomeTasks::RANK['spot_check'], HomeTasks::RANK['bench']);
         self::assertLessThan(HomeTasks::RANK['spot_check'], HomeTasks::RANK['to_post']);
+        self::assertLessThan(HomeTasks::RANK['spot_check'], HomeTasks::RANK['bench_refused']);
         self::assertGreaterThan(HomeTasks::RANK['checks'], HomeTasks::RANK['deliveries_check']);
         self::assertGreaterThan(200, HomeTasks::RANK['incidents']);
     }

@@ -95,7 +95,11 @@ final class SellingModeController
             $w = SiteView::rule(['writer_on' => true, 'linked' => $ls !== [], 'status' => ($ls[0]['quarantined'] ?? false) ? 'quarantined' : 'mapped',
                 'policy' => $policy, 'qty' => null, 'blocked' => $blocked, 'site' => $row === null ? null : ['mode' => $row['mode'], 'threshold' => $row['threshold']]]);
             $sites[] = [
-                'code' => (string) $c['code'], 'name' => (string) $c['name'], 'channel_mode' => (string) $c['mode'], 'writer' => (int) $c['site_writer'] === 1,
+                // "Stock link on" only when both switches are: CW's site writer AND the website connection live (ChannelAdmin: nothing is
+                // written on the site until it is live). The switch alone on is "waiting".
+                'code' => (string) $c['code'], 'name' => (string) $c['name'], 'channel_mode' => (string) $c['mode'],
+                'writer' => (int) $c['site_writer'] === 1 && (string) $c['mode'] === 'live',
+                'writer_waiting' => (int) $c['site_writer'] === 1 && (string) $c['mode'] !== 'live',
                 'receipts' => isset($receiptSites[$cid]), 'listings' => $ls,
                 'mode' => $w['writer'] ? $w['mode'] : null, 'backorders' => $w['backorders'] ?? null, 'why' => $w['why'], 'meaning' => $w['meaning'] ?? null,
                 'threshold' => $row['threshold'] ?? null, 'previous' => $row['previous'] ?? null,

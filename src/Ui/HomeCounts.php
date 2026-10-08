@@ -177,12 +177,13 @@ final class HomeCounts
     {
         $r = $this->ctx->db->one(
             "SELECT COALESCE(SUM(x.lines_n > 0 AND NOT (x.paperwork_ok <=> 0) AND (x.paperwork_ok IS NULL OR x.unchecked > 0)), 0) AS bench, "
-            . 'COALESCE(SUM(x.lines_n > 0 AND x.paperwork_ok = 1 AND x.unchecked = 0), 0) AS to_post FROM (SELECT g.paperwork_ok, '
+            . 'COALESCE(SUM(x.lines_n > 0 AND x.paperwork_ok = 1 AND x.unchecked = 0), 0) AS to_post, '
+            . 'COALESCE(SUM(x.paperwork_ok <=> 0), 0) AS refused FROM (SELECT g.paperwork_ok, '
             . '(SELECT COUNT(*) FROM grn_line l WHERE l.document_id = d.id) AS lines_n, '
             . '(SELECT COUNT(*) FROM grn_line l WHERE l.document_id = d.id AND l.checked_at IS NULL) AS unchecked '
             . "FROM document d JOIN goods_receipt g ON g.document_id = d.id WHERE d.doc_type = 'GRN' AND d.status = 'draft') x",
         ) ?? [];
-        return ['bench' => (int) ($r['bench'] ?? 0), 'to_post' => (int) ($r['to_post'] ?? 0)];
+        return ['bench' => (int) ($r['bench'] ?? 0), 'to_post' => (int) ($r['to_post'] ?? 0), 'refused' => (int) ($r['refused'] ?? 0)];
     }
 
     /** Days the oldest late sales data is behind (What to buy's header: a website whose last day loaded is too old), or null. */

@@ -421,12 +421,21 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame(1, $card($desk->get('/ui/'), 'bench'));
         self::assertNull($card($desk->get('/ui/'), 'to_post'), 'not checked yet: nothing to book in');
 
+        // The bench first says the paperwork is not right: the desk's Home asks it to cancel the delivery (the list's "refused" filter),
+        // and the bench's card stops counting it. The bench then says it was wrong and checks it again (below).
+        $refused = $bench->post("/ui/receiving/{$id}/bench", ['paperwork_ok' => '0'] + $bench->get("/ui/receiving/{$id}/bench")->form("/ui/receiving/{$id}/bench"));
+        self::assertSame(303, $refused->status, $refused->describe());
+        self::assertSame([null, 1, null], [$card($desk->get('/ui/'), 'bench'), $card($desk->get('/ui/'), 'bench_refused'), $card($desk->get('/ui/'), 'to_post')]);
+        self::assertContains("/ui/receiving/{$id}", $desk->get('/ui/receiving', ['state' => 'refused'])->hrefs());
+        self::assertNotContains("/ui/receiving/{$id}", $desk->get('/ui/receiving', ['state' => 'checked'])->hrefs());
+
         // The bench checks it (2 damaged): the desk has a delivery to book in, and the list's "checked" filter shows it.
         $bf = $bench->get("/ui/receiving/{$id}/bench")->form("/ui/receiving/{$id}/bench");
         $saved = $bench->post("/ui/receiving/{$id}/bench", ['paperwork_ok' => '1', 'b_1_ok' => '1', 'b_1_stamp' => '1', 'b_1_type' => 'digital', 'b_1_damaged' => '2'] + $bf);
         self::assertSame(303, $saved->status, $saved->describe());
-        self::assertSame([null, 1], [$card($desk->get('/ui/'), 'bench'), $card($desk->get('/ui/'), 'to_post')]);
+        self::assertSame([null, null, 1], [$card($desk->get('/ui/'), 'bench'), $card($desk->get('/ui/'), 'bench_refused'), $card($desk->get('/ui/'), 'to_post')]);
         self::assertContains("/ui/receiving/{$id}", $desk->get('/ui/receiving', ['state' => 'checked'])->hrefs());
+        self::assertNotContains("/ui/receiving/{$id}", $desk->get('/ui/receiving', ['state' => 'refused'])->hrefs());
         self::assertNotContains("/ui/receiving/{$id}", $desk->get('/ui/receiving', ['state' => 'posted'])->hrefs());
 
         // Booked in: the delivery's page for each job, the review, the incidents.
@@ -501,11 +510,29 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertStringContainsString('<table class="stack list receipts">', $desk->get('/ui/receiving')->body, 'B\'s list cards on a phone');
         $bv = $desk->get("/ui/receiving/{$id}/bench");
         self::assertStringContainsString('<article class="bench-line card unchecked" id="line-1" data-codes="', $bv->body);
-        self::assertStringContainsString('inputmode="numeric"', $bv->body);
+        self::assertStringContainsString('inputmode="numeric"', $bv->body, 'the count fields open the number keypad');
+        self::assertDoesNotMatchRegularExpression('/id="bench-find"[^>]*inputmode=/', $bv->body, '"Find a line" takes letters too (CW numbers, supplier codes)');
         self::assertStringContainsString('capture="environment"', $bv->body);
         self::assertStringContainsString('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">', $bv->body, 'design A\'s frame');
         self::assertStringContainsString(Words::BENCH['stamp_needed'], $bv->text());
         self::assertStringContainsString('data-not-here="', $bv->body, 'the bench\'s "not on this page" in words, for app.js');
         self::assertStringContainsString('<div class="actions sticky">', $desk->get("/ui/receiving/{$id}")->body, 'the editor\'s save bar stays in reach');
+    }
+
+    /** One bottle scanned from a supplier of boxes: the question names the product by its name (U86), though it is not on the delivery yet. */
+    public function testAOneUnitScanAsksInTheProductsName(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $s = $this->supplier($buyer['id'], 'Choice Box Supplies');
+        $sku = self::makeSku('Choice liquid 10ml');
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id, units_per_scan) VALUES ('5012345678948', ?, 1)", [$sku]);
+        (new SupplierItems(self::$db))->create(Caller::staff($buyer['id']), (int) $s['id'], $sku, ['units_per_pack' => '10', 'supplier_code' => 'BOX10'], ['pack_price' => '18.00']);
+        $desk = $this->signIn($this->uiUser('purchasing_desk'));
+        $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving')->form('/ui/receiving'));
+        $id = self::receiptId($r->location());
+        $asked = $desk->post("/ui/receiving/{$id}/lines", ['q' => '5012345678948', 'action' => 'add'] + $desk->follow($r)->form('/lines'));
+        self::assertSame(200, $asked->status, $asked->describe());
+        self::assertStringContainsString(Words::say('RECEIPT_PLAN', 'one_unit', 'Choice liquid 10ml', 'packs of 10'), $asked->text());
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM grn_line WHERE document_id = ?', [$id]), 'asked, nothing added yet');
     }
 }

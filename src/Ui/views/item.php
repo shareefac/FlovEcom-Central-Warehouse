@@ -334,9 +334,9 @@
     </thead>
     <tbody>
 <?php foreach ($sm['sites'] as $s): ?>
-      <tr class="<?php if ($s['writer']): ?>done<?php else: ?>off<?php endif; ?>">
+      <tr class="<?php if ($s['writer']): ?>done<?php elseif ($s['writer_waiting']): ?>waiting<?php else: ?>off<?php endif; ?>">
         <th scope="row" class="c-head"><?= $e($s['name']) ?><?php if ($s['receipts']): ?> <span class="o-sub"><?= $word('SELLING', 'receipts') ?></span><?php endif; ?></th>
-        <td class="c-status"><?php if ($s['writer']): ?><?= $chip('done', \CW\Ui\Words::SELLING['link_on']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::SELLING['link_off']) ?><?php endif; ?></td>
+        <td class="c-status"><?php if ($s['writer']): ?><?= $chip('done', \CW\Ui\Words::SELLING['link_on']) ?><?php elseif ($s['writer_waiting']): ?><?= $chip('waiting', \CW\Ui\Words::SELLING['link_waiting']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::SELLING['link_off']) ?><?php endif; ?></td>
         <td class="c-wide" data-label="<?= $word('SELLING', 'mode') ?>"><?php if ($s['mode'] === null): ?><span class="hint"><?= $word('SELLING', $s['why'] === 'unlinked' ? 'unlinked' : 'own') ?></span><?php else: ?><strong><?= $e($s['mode']) ?></strong><?php if ($s['backorders'] === 1): ?> <?= $word('SELLING', 'backorders') ?><?php endif; ?> <span class="o-sub"><?= $word('MODE_MEANING', $s['mode']) ?></span><?php endif; ?>
           <?php if ($s['previous'] !== null): ?><span class="o-sub"><?= $say('SELLING', 'before', (string) $s['previous']) ?></span><?php endif; ?>
           <span class="o-sub"><?= $word('SITE_SYNC', $s['channel_mode']) ?></span></td>

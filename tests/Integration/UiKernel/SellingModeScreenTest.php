@@ -75,8 +75,19 @@ final class SellingModeScreenTest extends KernelUiTestCase
         $legacy = $this->item('legacy', 4, 'Legacy coil');
         $this->listing($vpg, '1', $counted);
         $this->listing($vpg, '2', $legacy);
+        // The stock link is on only when both switches are: the site writer AND the website connection live (ChannelAdmin: nothing is
+        // written on the site until it is live). Electrofag's writer is on while its connection is on trial: "switched on", not "on".
+        $this->site('electrofag', 'shadow');
+        (new ChannelAdmin(self::$db))->configure('electrofag', null, null, 'tester', true, true);
         $desk = $this->signIn($this->uiUser('purchasing_desk'));
         $page = $desk->get("/ui/items/{$counted}");
+        self::assertStringContainsString(Words::SELLING['link_off'] . ' ', $page->text(), 'Vape and Go: live, writer off');
+        self::assertStringContainsString(Words::SITE_SYNC['live'], $page->text());
+        self::assertStringContainsString(Words::SELLING['link_waiting'], $page->text(), 'Electrofag: writer on, connection on trial');
+        self::assertStringContainsString(Words::SITE_SYNC['shadow'], $page->text());
+        self::assertStringNotContainsString(Words::SELLING['link_on'] . ' ', $page->text());
+        (new ChannelAdmin(self::$db))->configure('vapeandgo', null, null, 'tester', true, true);
+        self::assertStringContainsString(Words::SELLING['link_on'] . ' ', $desk->get("/ui/items/{$counted}")->text(), 'Vape and Go: live and writer on');
         self::assertStringContainsString('counted and protected (Website sells warehouse stock only)', $page->text());
         self::assertStringContainsString('From-Warehouse ' . Words::MODE_MEANING['From-Warehouse'], $page->text());
         self::assertFalse($page->hasForm('/selling-mode'));

@@ -877,9 +877,12 @@ are in `docs/dev.md`. Things the owner should know:
   Deliveries screens (U85-U90): Receive + invoice with "Start a new delivery", a delivery's editor (scan, "Save and book in" with
   the save bar above the phone's tab bar, the lines as cards at 375 px), the read-only delivery as its keyer, as the bench and as a
   reviewer (the "What each answer does" box), the goods-in bench list and the bench check **on a tablet (768 and 1,024 px, portrait
-  and landscape)** with 3 lines (find a line by scanning, the two fill buttons, the unstamped choice appearing, a camera photo),
+  and landscape)** with 3 lines (find a line by scanning, typing a CW number in "Find a line" with the letter keyboard, the two fill
+  buttons, the unstamped choice appearing, a camera photo; at 768 px portrait and at 375 px, Tab and the scanner's Enter into a field near
+  the bottom of the page leave it above the save bar, also with "Save and show the next 40 lines"),
   Incidents (closing one), Home for goods in, the desk and a reviewer with a delivery in each state, and a product's "Selling mode
-  on the websites" (the cards, the "?", the form).
+  on the websites" (the cards, the "?", the form; a website whose writer is on while its connection is not live reads "Stock link
+  switched on: starts when the website connection is live", never "Stock link on").
 - **Timing.** Home runs, for a matching lead, one spot-check status per own waiting spot check (at most 5) and one set-aside
   query per spot check with holds (at most 10); for `reorder.view`, the reorder header. Time `/ui/` and one ordinary page as
   the owner's working account, a lead and a reviewer on staging data before the deploy (plan budget: 100 ms over the old
@@ -907,7 +910,7 @@ their menu. Roles are read on every request: a role taken away stops working on 
 | reverse a posted document (the form on its page) | `doc.<TYPE>.post` of its type, never admin | the type's posting roles (I16) |
 | `/ui/reference/reasons` (+ `reasons.csv`), `/ui/reference/series` | `reference.view` | all 14 roles |
 | `/ui/people.csv` (the People list for Excel) | `staff.view` | admin, auditor |
-| Receiving, Stock control, Trade, Accounts: not built yet; Home says "Coming later: …" (no dates, no phase codes) for the jobs that will use them | `doc.<TYPE>.post`, `accounts.view` | proposals pending decisions 3 and 11 (I16) |
+| Stock control, Trade, Accounts: not built yet (Receiving is: the Deliveries rows below); Home says "Coming later: …" (no dates, no phase codes) for the jobs that will use them | `doc.<TYPE>.post`, `accounts.view` | proposals pending decisions 3 and 11 (I16) |
 
 **Separation of duties (I12):** `admin` manages people and roles and nothing else: it can be combined only with viewer,
 accountant and auditor, so the person who gives roles never posts, reviews or decides (the screen and the tools refuse
@@ -1713,7 +1716,8 @@ went" names the codes for older notes). The menu section is **Deliveries**.
    a photo of a paper invoice; one invoice copy is the invoice of one receipt only, I171). Received at: when the goods arrived
    (UK time, "The goods arrived"). The invoice number is needed before booking in, not before scanning.
 3. **Bench:** Deliveries › Goods-in bench › **Check this delivery**: "Do the supplier and the paperwork look right?" (No = do not
-   book it in: refuse the delivery and cancel it); if the desk keyed it before the goods came, tick "The goods arrived now" (the
+   book it in: refuse the delivery and cancel it; the desk's Home card "Deliveries refused at the goods-in bench" and the list's
+   "Refused at the bench, not cancelled yet" lead to it, U93); if the desk keyed it before the goods came, tick "The goods arrived now" (the
    duty rule goes by the arrival date shown at the top). Per line: tick **Checked** (or change one of its answers: that checks it
    too); for duty-liable liquid the **duty stamp on the outer retail pack and sealing it** (yes / no: "no" means every unit
    that arrived is unstamped), its type (digital / transitional), a scanned stamp code (the scanner's Enter moves on, it does not
@@ -1793,7 +1797,7 @@ ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/i
 
 Check afterwards: cw_app holds SELECT, INSERT, UPDATE on `goods_receipt` and `item_selling_mode` (no DELETE), FULL on `grn_line`,
 SELECT, INSERT on `grn_posting` and `item_selling_mode_log`, SELECT, INSERT and UPDATE of the resolution columns only on `incident`
-(`bin/migrate.php` converges the grants); Receiving › Receive + invoice opens (no receipt), Goods-in bench and Incidents are empty.
+(`bin/migrate.php` converges the grants); Deliveries › Receive + invoice opens (no receipt), Goods-in bench and Incidents are empty.
 The file store (`/srv/cw-docs`) must be there for the invoice copies and photos (it is, since 2 Oct). Staging has 0 suppliers: the
 owner's test needs real suppliers first (the ERPNext backup copy, or the 47 typed in; `docs/HANDOFF.md` step 4).
 
@@ -1882,7 +1886,7 @@ all ~14,800 linked proto listings writer listings at the first pass.
    --steps=writer` lists what would be written (`diffs`) and the Out-Of-Stock -> In-Stock flips with their waiting sign-ups
    (`would_notify`): only the test item, only test sign-ups. The worker runs by hand (`bin/cw_sync_worker.php`), never from
    supervisor or cron without the owner's go.
-3. Book a receipt of that item in CW (Receiving › Receive + invoice) with mode In-Stock, counted and posted. Within seconds proto
+3. Book a receipt of that item in CW (Deliveries › Receive + invoice) with mode In-Stock, counted and posted. Within seconds proto
    shows it In-Stock with the new figure; its stock log has "Central Warehouse CW-...: stock 0 -> N (+N): goods in GRN-..." (the
    Mobile app shows it). A receipt that accepts nothing (all short, refused) leaves it Out-Of-Stock (I169).
 4. The back-in-stock email on proto is sent by the grouped sweep, never scheduled there: run it for one test address only, as a dry
