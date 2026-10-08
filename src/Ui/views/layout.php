@@ -6,8 +6,8 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="light dark">
 <title><?= $e($title) ?> - Central Warehouse</title>
-<link rel="stylesheet" href="/ui/assets/app.css">
-<script src="/ui/assets/app.js" defer></script>
+<link rel="stylesheet" href="<?= $e(\CW\Ui\Assets::url('app.css')) ?>">
+<script src="<?= $e(\CW\Ui\Assets::url('app.js')) ?>" defer></script>
 </head>
 <body>
 <a class="skip" href="#main"><?= $word('UI', 'skip') ?></a>

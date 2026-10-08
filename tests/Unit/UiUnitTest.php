@@ -626,12 +626,47 @@ final class UiUnitTest extends TestCase
         self::assertSame(200, Assets::serve(self::request('GET', '/ui/assets/app.css', ['if-none-match' => '"other"']))->status);
         self::assertSame(200, Assets::serve(self::request('HEAD', '/ui/assets/app.css'))->status);
         self::assertSame(405, Assets::serve(self::request('POST', '/ui/assets/app.css'))->status);
+        // Apache's compression adds "-gzip" to the ETag it passes on; the browser sends that back (weak or not, maybe in a list).
+        foreach ([substr($etag, 0, -1) . '-gzip"', 'W/' . substr($etag, 0, -1) . '-gzip"', '"x", ' . $etag, substr($etag, 0, -1) . '-br"'] as $sent) {
+            self::assertSame(304, Assets::serve(self::request('GET', '/ui/assets/app.css', ['if-none-match' => $sent]))->status, $sent);
+        }
+        self::assertSame(200, Assets::serve(self::request('GET', '/ui/assets/app.css', ['if-none-match' => substr($etag, 0, -2) . '-gzip"']))->status);
         foreach (['/ui/assets/', '/ui/assets/app.php', '/ui/assets/../index.php', '/ui/assets/..%2findex.php', '/ui/assets/app.css/', '/ui/assets/APP.css', '/ui/assets/other.css', '/ui/assets/app.css%00.php', '/ui/assets/sub/app.css', "/ui/assets/app.css\n"] as $path) {
             $r = Assets::serve(self::request('GET', $path));
             self::assertSame(404, $r->status, $path);
             self::assertSame(Kernel::CSP, $r->header('Content-Security-Policy'), $path);
             self::assertSame('text/plain; charset=utf-8', $r->header('Content-Type'), $path);
         }
+    }
+
+    public function testTheLayoutLinksTheAssetsByVersionAndThatUrlIsKeptForAYear(): void
+    {
+        foreach (['app.css', 'app.js'] as $name) {
+            $hash = hash_file('sha256', Assets::dir() . '/' . $name);
+            $url = Assets::url($name);
+            self::assertSame('/ui/assets/' . $name . '?v=' . substr((string) $hash, 0, 16), $url);
+            $req = new UiRequest('GET', '/ui/assets/' . $name, ['v' => substr((string) $hash, 0, 16)], [], [], [], '127.0.0.1', true);
+            $r = Assets::serve($req);
+            self::assertSame(200, $r->status);
+            self::assertSame(Assets::IMMUTABLE, $r->header('Cache-Control'), 'the URL of this content never changes');
+            self::assertNull($r->header('Pragma'));
+            $etag = (string) $r->header('ETag');
+            $again = Assets::serve(new UiRequest('GET', '/ui/assets/' . $name, ['v' => substr((string) $hash, 0, 16)], [], [], ['if-none-match' => $etag], '127.0.0.1', true));
+            self::assertSame(304, $again->status);
+            self::assertSame(Assets::IMMUTABLE, $again->header('Cache-Control'));
+            // An older file's version (a page cached before a deploy) or a made-up one: today's file, revalidated as before.
+            foreach (['0000000000000000', '', 'x', substr((string) $hash, 0, 15)] as $v) {
+                $old = Assets::serve(new UiRequest('GET', '/ui/assets/' . $name, ['v' => $v], [], [], [], '127.0.0.1', true));
+                self::assertSame(200, $old->status, $v);
+                self::assertSame('no-cache', $old->header('Cache-Control'), $v);
+            }
+        }
+        self::assertSame('/ui/assets/other.css', Assets::url('other.css'), 'only the two files have a version');
+        $view = new \CW\Ui\View(\CW\Ui\View::defaultDir(), ['csrf' => '', 'who' => null]);
+        $html = $view->page('error', ['status' => 404, 'code' => 'not_found', 'heading' => 'Not found', 'message' => 'm', 'rid' => 'r'],
+            ['title' => 'Not found', 'active' => '', 'notice' => null, 'menu' => [], 'badges' => [], 'searchBox' => false, 'testSystem' => false]);
+        self::assertStringContainsString('<link rel="stylesheet" href="' . Assets::url('app.css') . '">', $html);
+        self::assertStringContainsString('<script src="' . Assets::url('app.js') . '" defer></script>', $html);
     }
 
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void

@@ -87,7 +87,9 @@ final class UiTemplatesTest extends TestCase
             preg_match_all('/<script\b[^>]*>/i', $html, $scripts);
             foreach ($scripts[0] as $tag) {
                 self::assertSame('layout.php', $name, 'only the layout loads the script');
-                self::assertMatchesRegularExpression('#^<script src="/ui/assets/app\.js" defer>$#', $tag);
+                // The one script, by its versioned URL (Assets::url, the code stripped from $html leaves the empty attribute).
+                self::assertMatchesRegularExpression('#^<script src="" defer>$#', $tag);
+                self::assertStringContainsString('<script src="<?= $e(\\CW\\Ui\\Assets::url(\'app.js\')) ?>" defer></script>', $src);
             }
             self::assertDoesNotMatchRegularExpression('#<script\b[^>]*>(?!\s*</script>)[^<]#i', $html, "{$name}: inline script");
             self::assertDoesNotMatchRegularExpression('/<style\b/i', $html, "{$name}: style element");
