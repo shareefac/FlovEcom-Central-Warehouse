@@ -148,10 +148,11 @@ final class Duplicates
                     }
                 }
             }
-            $out[] = $g + ['units_30d' => $u30, 'units_365d' => $u365, 'keeper' => $keeper, 'differs' => array_map(
-                static fn (string $f): string => self::FIELDS[$f]['label'],
-                array_keys(array_filter(self::compare($ls), static fn (array $row): bool => $row['differs'])),
-            ), 'against' => array_keys($against), 'checked' => $checked, 'waiting' => array_intersect($g['listings'], $pending) !== []];
+            // The compared row's own label: compare() also has rows that are not FIELDS (VG/PG, barcodes).
+            $out[] = $g + ['units_30d' => $u30, 'units_365d' => $u365, 'keeper' => $keeper, 'differs' => array_values(array_map(
+                static fn (array $row): string => (string) $row['label'],
+                array_filter(self::compare($ls), static fn (array $row): bool => $row['differs']),
+            )), 'against' => array_keys($against), 'checked' => $checked, 'waiting' => array_intersect($g['listings'], $pending) !== []];
         }
         usort($out, static fn (array $a, array $b): int => [$b['units_365d'], $b['units_30d'], $a['id']] <=> [$a['units_365d'], $a['units_30d'], $b['id']]);
         return $out;
