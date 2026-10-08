@@ -264,6 +264,31 @@ Words that are provisional until the owner confirms them (band names, "website p
      `cw_staging`, the credentials file is gone and no `.invalid` account is active.
   5. Open TCP 80/443 in the cloud firewall if one is attached; staff then sign in at `https://warehouse-staging.floverfy.com/ui/login`.
 
+## Profiling the staff screens (`tests/perf/profile_pages.php`)
+
+A dev-only tool, run on a COPY of `cw_staging` (it refuses any schema but `cw_test_*`, and writes to the copy: the app login's
+grants, one session per profile, the profile accounts it lacks, the purchasing fixtures and what the actions do). It drives
+`CW\Ui\Kernel` in-process with a session written straight into the copy (no web sign-in), times every GET page each profile may
+open (realistic ids: the first row of each list) and the common actions (POST, then the page its 303 leads to; inside a rolled-back
+transaction, except the creating forms, which own theirs), with every SQL statement's time and rows (a PDO statement class).
+
+```bash
+# on the staging box: the copy (mysqldump | mysql, ~2 min; wait until no phpunit runs: the cluster is small), then 0019+ on it
+mysqldump --defaults-extra-file=<a 0600 file written from db.env> --single-transaction --quick --no-tablespaces --set-gtid-purged=OFF \
+    --hex-blob cw_staging | mysql --defaults-extra-file=<same> cw_test_perf          # after CREATE DATABASE cw_test_perf
+scripts/remote.sh perf php bin/migrate.php --db=cw_test_perf
+scripts/remote.sh perf php -d opcache.enable_cli=1 tests/perf/profile_pages.php --db=cw_test_perf --repeat=5 --fixed --explain=25
+#   --pages / --actions (default both), --profiles=owner,admin,buyer,lead,goods_in, --only=REGEX, --json=FILE, --queries (every statement)
+# drop the copy afterwards (DROP DATABASE cw_test_perf), and never name a slot "perf" for a PHPUnit run while the copy exists
+# (tests/bootstrap.php would drop and re-create cw_test_perf)
+```
+
+Each request runs once to warm up, then `--repeat` times: the table gives the median and the worst, the queries, their time and the
+page size; then, per row, the 3 slowest statements and any statement repeated 3 or more times (an N+1), and with `--explain=N` the
+EXPLAIN ANALYZE of the N slowest SELECTs. `--fixed` times what every request pays before the page: the TCP connect, the TLS + login
+handshake, `Db::connect`, one round trip. Numbers move with the cluster's load (its buffer pool is 32 MB: a page's first read after
+another big page comes from disk), so compare runs made back to back, with no PHPUnit suite running.
+
 ## Where things are
 
 | Path | What |
