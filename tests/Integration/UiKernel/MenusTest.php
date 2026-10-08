@@ -21,7 +21,11 @@ use CW\Ui\Words;
 final class MenusTest extends KernelUiTestCase
 {
     private const HOME = [['label' => 'Home', 'href' => '/ui/']];
-    private const SETTINGS = [['label' => 'Company details', 'href' => '/ui/reference/company'], ['label' => 'Settings and lists', 'href' => '/ui/reference/settings']];
+    private const SETTINGS = [['label' => 'Company details', 'href' => '/ui/reference/company'], ['label' => 'Settings and lists', 'href' => '/ui/reference/settings'],
+        ['label' => 'Approval rules', 'href' => '/ui/reference/approvals'], ['label' => 'Warehouses', 'href' => '/ui/reference/warehouses']];
+    /** The read-only system pages of 0019 (Y30-Y33): system.view and audit.view (a reviewer, an admin, an auditor; a manager the first two). */
+    private const SYSTEM = [['label' => 'Websites', 'href' => '/ui/system/sites'], ['label' => 'Safety checks', 'href' => '/ui/system/checks'],
+        ['label' => 'Audit log', 'href' => '/ui/system/audit']];
 
     public function testBuyerDeskAndReviewerSeeDifferentMenus(): void
     {
@@ -36,14 +40,15 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(['Home', 'Buying', 'Products', 'Records', 'Settings'], array_keys($b));
         self::assertSame(['Home', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], array_keys($d));
         self::assertSame(['Home', 'To check', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], array_keys($r));
-        foreach ([$b, $d, $r] as $nav) {
+        foreach (['b' => $b, 'd' => $d, 'r' => $r] as $who => $nav) {
             self::assertSame(self::HOME, $nav['Home'], 'Home first, for everyone');
             self::assertArrayNotHasKey('Match products', $nav);
             self::assertArrayNotHasKey('Staff', $nav);
             self::assertSame([['label' => 'Product list', 'href' => '/ui/items/cards']], $nav['Products'],
                 'the product list for everyone; the barcodes to check only for catalogue.edit (I109)');
             self::assertSame([['label' => 'All records', 'href' => '/ui/documents']], $nav['Records']);
-            self::assertSame(self::SETTINGS, $nav['Settings'], 'every role reads the company details (I90); only the reviewer changes them, on the page');
+            self::assertSame($who === 'r' ? [...self::SETTINGS, ...self::SYSTEM] : self::SETTINGS, $nav['Settings'],
+                'every role reads the company details (I90), the approval rules and the warehouses (Y9, Y14); the reviewer also the system pages');
         }
         self::assertSame([
             ['label' => 'What to buy', 'href' => '/ui/purchasing/reorder'],
@@ -138,7 +143,8 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString('coming in Phase', $home->text());
         $xp = new \DOMXPath($home->dom());
         self::assertSame(['/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers', '/ui/purchasing/sales-history', '/ui/items/cards',
-            '/ui/documents', '/ui/reference/company', '/ui/reference/settings'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            '/ui/documents', '/ui/reference/company', '/ui/reference/settings', '/ui/reference/approvals', '/ui/reference/warehouses'],
+            array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array($xp->query('//main//ul[@class="uses"]//a'))), '"What you can use": the live links of a buyer');
         self::assertStringContainsString(Words::MENU_HELP['suppliers'], $home->text(), 'each with one line on what it is for');
         self::assertSame(1, $xp->query('//nav[@aria-label="Main"]//form[@action="/ui/search"]')->length, 'the find box: catalogue.view, in the menu');

@@ -12,7 +12,11 @@
     <li><?= $word('ORDERS', 'how_1') ?></li>
     <li><?= $word('ORDERS', 'how_2') ?></li>
     <li><?= $word('ORDERS', 'how_3') ?></li>
+<?php if ($approvalLimit !== null): ?>
     <li><?= $say('ORDERS', 'how_4', $approvalLimit) ?></li>
+<?php else: ?>
+    <li><?= $word('ORDERS', 'how_4_off') ?></li>
+<?php endif; ?>
   </ol>
   <p><?= $word('ORDERS', 'how_fix') ?></p>
 </details>

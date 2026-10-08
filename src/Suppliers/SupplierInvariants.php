@@ -15,9 +15,13 @@ use CW\Db;
  *      supplier's route, or an overseas supplier made UK: I72) and an open supplier_changed review are on an active
  *      supplier.
  *  S2. every active supplier has approved_by/at, and its latest decided approval task with reason new_supplier or
- *      reactivation is `approved`, by someone other than its opener, and that person is approved_by.
+ *      reactivation is `approved`, by someone other than its opener, and that person is approved_by. A supplier activated by
+ *      one person while the owner had the second person switched off (approved_alone, 0019, Y11) instead names the version of
+ *      approvals.supplier_activation that said off (alone_change_id), and that version was the switch's state when it was
+ *      activated (within CLOCK_SLACK of the app's and the database's clocks).
  *  S3. an overseas active supplier whose import route is approved (import_route_approved_at) has an approved task
- *      (new_supplier, reactivation or import_route) decided at that time or earlier.
+ *      (new_supplier, reactivation or import_route) decided at that time or earlier; or, approved alone (route_alone), the
+ *      version of the switch that said off when it was approved.
  *  S4. supplier_item.last_pack_price / last_price_on / last_price_source equal the newest (effective_on, id) history row
  *      whose source is not `po` and whose units_per_pack is the item's current one (I74), or are all NULL when there is none.
  *  S5. every supplier_item.sku_id exists (a merged item is not a violation: the screens tag it "merged into CW-x").
@@ -25,6 +29,10 @@ use CW\Db;
 final class SupplierInvariants
 {
     private const MAX_PER_CHECK = 50;
+    /** Seconds of tolerance between the app's clock (approved_at) and the database's (config_change.created_at). */
+    private const CLOCK_SLACK = 300;
+    /** The switch a one-person approval names (Admin\ApprovalRules). */
+    private const SWITCH = 'approvals.supplier_activation';
 
     /** @return list<string> */
     public static function check(Db $db): array
@@ -67,7 +75,7 @@ final class SupplierInvariants
             'SELECT s.id, s.code, s.approved_by, s.approved_at, t.id AS t_id, t.state, t.opened_by, t.decided_by FROM supplier s '
             . 'LEFT JOIN review_task t ON t.id = (SELECT MAX(x.id) FROM review_task x WHERE x.subject_type = \'supplier\' AND x.subject_id = s.id '
             . "  AND x.kind = 'approval' AND x.reason IN ('new_supplier', 'reactivation') AND x.state IN ('approved', 'rejected')) "
-            . "WHERE s.status = 'active' AND (s.approved_by IS NULL OR s.approved_at IS NULL OR t.id IS NULL OR t.state <> 'approved' OR t.decided_by IS NULL "
+            . "WHERE s.status = 'active' AND s.approved_alone = 0 AND (s.approved_by IS NULL OR s.approved_at IS NULL OR t.id IS NULL OR t.state <> 'approved' OR t.decided_by IS NULL "
             . '  OR t.decided_by <=> t.opened_by OR NOT (t.decided_by <=> s.approved_by)) ORDER BY s.id LIMIT ' . self::MAX_PER_CHECK,
         ) as $r) {
             $v[] = "active supplier {$r['id']} ({$r['code']}) " . match (true) {
@@ -78,7 +86,43 @@ final class SupplierInvariants
                     . ", approved_by {$r['approved_by']}): not a second person or not the approver on the row",
             };
         }
+        foreach ($db->all("SELECT id, code, approved_by, approved_at, alone_change_id FROM supplier WHERE status = 'active' AND approved_alone = 1 ORDER BY id LIMIT "
+            . self::MAX_PER_CHECK) as $r) {
+            $why = $r['approved_by'] === null || $r['approved_at'] === null ? 'has no approved_by/approved_at'
+                : self::switchOffAt($db, $r['alone_change_id'], (string) $r['approved_at']);
+            if ($why !== null) {
+                $v[] = "active supplier {$r['id']} ({$r['code']}) was activated by one person: {$why}";
+            }
+        }
         return $v;
+    }
+
+    /**
+     * Why the version $changeId does not show the second person switched off at $at (null: it does): it must be a version of the
+     * switch, say false, have been made by then, and no later version made before then (each within CLOCK_SLACK).
+     */
+    private static function switchOffAt(Db $db, mixed $changeId, string $at): ?string
+    {
+        if ($changeId === null) {
+            return 'no version of the approval switch is named';
+        }
+        $c = $db->one('SELECT c.subject_type, c.subject_key, CAST(c.state AS CHAR) AS state, UNIX_TIMESTAMP(c.created_at) AS made, '
+            . '(SELECT UNIX_TIMESTAMP(MIN(n.created_at)) FROM config_change n WHERE n.subject_type = c.subject_type AND n.subject_key = c.subject_key '
+            . '   AND n.version > c.version) AS next_made, UNIX_TIMESTAMP(?) AS at FROM config_change c WHERE c.id = ?', [$at, $changeId]);
+        if ($c === null || $c['subject_type'] !== 'setting' || $c['subject_key'] !== self::SWITCH) {
+            return "config version {$changeId} is not a version of " . self::SWITCH;
+        }
+        $state = json_decode((string) $c['state'], true);
+        if (!is_array($state) || ($state['value'] ?? null) !== 'false') {
+            return "config version {$changeId} of " . self::SWITCH . ' says it was on';
+        }
+        if ((float) $c['made'] > (float) $c['at'] + self::CLOCK_SLACK) {
+            return "config version {$changeId} was made after the approval";
+        }
+        if ($c['next_made'] !== null && (float) $c['next_made'] < (float) $c['at'] - self::CLOCK_SLACK) {
+            return "the switch had changed again before the approval (config version {$changeId} was no longer in force)";
+        }
+        return null;
     }
 
     /** @return list<string> S3 */
@@ -87,11 +131,19 @@ final class SupplierInvariants
         $v = [];
         foreach ($db->all(
             "SELECT s.id, s.code, s.import_route_approved_at FROM supplier s WHERE s.status = 'active' AND s.is_overseas = 1 AND s.import_route_approved_at IS NOT NULL "
+            . 'AND s.route_alone = 0 '
             . "AND NOT EXISTS (SELECT 1 FROM review_task t WHERE t.subject_type = 'supplier' AND t.subject_id = s.id AND t.kind = 'approval' "
             . "  AND t.reason IN ('new_supplier', 'reactivation', 'import_route') AND t.state = 'approved' AND t.decided_at <= s.import_route_approved_at) "
             . 'ORDER BY s.id LIMIT ' . self::MAX_PER_CHECK,
         ) as $r) {
             $v[] = "overseas supplier {$r['id']} ({$r['code']}) has its import route approved at {$r['import_route_approved_at']} without an approved task by then";
+        }
+        foreach ($db->all("SELECT id, code, import_route_approved_at, alone_change_id FROM supplier WHERE status = 'active' AND is_overseas = 1 "
+            . 'AND import_route_approved_at IS NOT NULL AND route_alone = 1 ORDER BY id LIMIT ' . self::MAX_PER_CHECK) as $r) {
+            $why = self::switchOffAt($db, $r['alone_change_id'], (string) $r['import_route_approved_at']);
+            if ($why !== null) {
+                $v[] = "overseas supplier {$r['id']} ({$r['code']}) had its import route approved by one person: {$why}";
+            }
         }
         return $v;
     }

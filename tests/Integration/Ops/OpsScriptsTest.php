@@ -125,6 +125,9 @@ final class OpsScriptsTest extends StockTestCase
         $r = self::script('invariants');
         self::assertSame(0, $r['code'], $r['err']);
         self::assertMatchesRegularExpression('/ok: invariants hold \(balances=\d+ units=1 /', $r['out']);
+        // Every run is recorded for the Safety checks page (0019, G36).
+        $run = self::$db->one('SELECT ok, problems, CAST(details AS CHAR) AS details, run_by FROM integrity_run ORDER BY id DESC LIMIT 1');
+        self::assertSame([1, 0, '[]', 'system:invariants'], [(int) $run['ok'], (int) $run['problems'], $run['details'], $run['run_by']]);
 
         self::$db->exec('UPDATE stock_balance SET on_hand = on_hand + 2, held = held + 1 WHERE sku_id = ?', [$sku]);
         try {
@@ -133,6 +136,12 @@ final class OpsScriptsTest extends StockTestCase
             self::assertStringContainsString('MISMATCH', $r['out']);
             self::assertStringContainsString("held=2 but its held units sum to 1", $r['err']);
             self::assertStringContainsString("on_hand=7 but its ledger sums to 5", $r['err']);
+            $run = self::$db->one('SELECT ok, problems, CAST(details AS CHAR) AS details FROM integrity_run ORDER BY id DESC LIMIT 1');
+            self::assertSame(0, (int) $run['ok']);
+            self::assertGreaterThanOrEqual(2, (int) $run['problems']);
+            self::assertStringContainsString('on_hand=7 but its ledger sums to 5', (string) $run['details']);
+            self::assertSame(['ok' => false, 'problems' => (int) $run['problems']],
+                array_intersect_key((new \CW\Ops\IntegrityRuns(self::$db))->latest() ?? [], ['ok' => 1, 'problems' => 1]));
         } finally {
             self::$db->exec('UPDATE stock_balance SET on_hand = on_hand - 2, held = held - 1 WHERE sku_id = ?', [$sku]);
         }

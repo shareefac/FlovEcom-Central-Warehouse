@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Mapping;
 
+use CW\Admin\ApprovalRules;
 use CW\Audit;
 use CW\Auth\Permissions;
 use CW\Caller;
@@ -39,7 +40,7 @@ use CW\Staff\StaffRoles;
 final class KeySample
 {
     public const NAME_PATTERN = '/^[A-Za-z0-9._-]{1,40}$/D';
-    /** The owner's spot-check is 20 proposals: no smaller sample can unlock a bulk confirm. */
+    /** The owner's spot-check was 20 proposals (decision 2): the default of approvals.spot_check_size; minSize() reads the setting. */
     public const MIN_SIZE = 20;
     public const DEFAULT_SIZE = 20;
     public const MAX_SIZE = 200;
@@ -56,6 +57,15 @@ final class KeySample
 
     public function __construct(private readonly Db $db)
     {
+    }
+
+    /**
+     * The spot-check size now (approvals.spot_check_size on the Approval rules page, 0019, Y11; MIN_SIZE = 20 when the setting does
+     * not exist): a new sample has at least this many members, and a smaller one never unlocks a bulk confirm.
+     */
+    public static function minSize(Db $db): int
+    {
+        return max(1, min(self::MAX_SIZE, ApprovalRules::number($db, 'approvals.spot_check_size')));
     }
 
     /** @return list<array{name: string, min: int, max: int}> highest first */
@@ -154,13 +164,15 @@ final class KeySample
      * @return array<string, mixed> name, seed (stored only), method, band_version, size, population, strata, excluded, units, members
      *         (stored only: position, proposal_id, listing_id, stratum, confidence), sample_id (stored), backfill, overrides
      */
-    public function create(Caller $by, string $name, int $size = self::DEFAULT_SIZE, bool $apply = false, array $afterFailed = []): array
+    public function create(Caller $by, string $name, ?int $size = null, bool $apply = false, array $afterFailed = []): array
     {
         if (preg_match(self::NAME_PATTERN, $name) !== 1) {
             throw new CwException('bad_name', 'a sample name is 1-40 of [A-Za-z0-9._-]', 400);
         }
-        if ($size < self::MIN_SIZE || $size > self::MAX_SIZE) {
-            throw new CwException('bad_size', 'the sample size is ' . self::MIN_SIZE . '..' . self::MAX_SIZE, 400);
+        $min = self::minSize($this->db);
+        $size ??= $min;
+        if ($size < $min || $size > self::MAX_SIZE) {
+            throw new CwException('bad_size', 'the sample size is ' . $min . '..' . self::MAX_SIZE, 400);
         }
         $staff = self::lead($this->db, $by);
         if ($this->db->value('SELECT id FROM key_sample WHERE name = ?', [$name]) !== null) {
@@ -348,7 +360,7 @@ final class KeySample
     {
         $out = [];
         $size = (int) $k['sample_size'];
-        if ($size < self::MIN_SIZE) {
+        if ($size < self::minSize($this->db)) {
             $out[] = 'sample_too_small';
         }
         [$byStratum, $stored] = $this->stored((int) $k['id'], $k);

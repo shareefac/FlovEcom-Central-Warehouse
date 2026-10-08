@@ -29,5 +29,6 @@
     <button type="submit" class="primary"><?= $word('SIGN_IN', 'sign_in') ?></button>
   </form>
   <p class="hint"><?= $word('UI', 'login_first_time') ?></p>
+  <p class="hint"><a href="/ui/enrol"><?= $word('ENROL', 'link') ?></a></p>
   <p class="hint"><?= $word('UI', 'login_stuck') ?></p>
 </section>

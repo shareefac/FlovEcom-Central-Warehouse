@@ -7,9 +7,11 @@ namespace CW\Ui;
 use CW\Auth\Permissions;
 use CW\Company\CompanyDetails;
 use CW\Mapping\KeyHold;
+use CW\Ops\IntegrityRuns;
 use CW\Mapping\KeySample;
 use CW\PurchaseOrders\PurchaseOrders;
 use CW\Reorder\ReorderList;
+use CW\Staff\RoleRequests;
 use CW\Staff\StaffAdmin;
 use CW\Staff\StaffRoles;
 
@@ -65,6 +67,8 @@ final class HomeCounts
                 'staff' => $this->staff(),
                 'receiving' => $this->receiving(),
                 'incidents' => (int) ($this->ctx->badges()['incidents_open'] ?? 0),
+                'integrity' => (new IntegrityRuns($this->ctx->db))->latest(),
+                'staff_requests' => (new RoleRequests($this->ctx->db))->decidableCount($this->ctx->me()->id, $this->ctx->me()->roles),
                 default => throw new \InvalidArgumentException("no Home fact {$key}"),
             };
         }
@@ -214,7 +218,7 @@ final class HomeCounts
      */
     private function staff(): array
     {
-        $out = ['test' => [], 'reviewers' => 0, 'clashes' => []];
+        $out = ['test' => [], 'reviewers' => 0, 'clashes' => [], 'min' => Controller\PeopleController::minReviewers($this->ctx->db)];
         foreach (StaffRoles::people($this->ctx->db) as $p) {
             if (!$p['is_active']) {
                 continue;

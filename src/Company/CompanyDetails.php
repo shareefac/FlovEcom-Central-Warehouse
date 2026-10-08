@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Company;
 
+use CW\Admin\ApprovalRules;
 use CW\Audit;
 use CW\Auth\Permissions;
 use CW\Caller;
@@ -214,7 +215,9 @@ final class CompanyDetails
             $next = $cur['version'] + 1;
             $baselineVersion = $baseline === null || $baseline['version'] === 0 ? null : $baseline['version'];
             $this->insert($db, $next, 'confirm', $fields, $caller, $baselineVersion, null, $caller);
-            if ($watchedChanged !== [] && in_array($me['id'], self::watchedChangers($rows, $baseline['version'] ?? 0, $cur['version']), true)) {
+            if ($watchedChanged !== [] && in_array($me['id'], self::watchedChangers($rows, $baseline['version'] ?? 0, $cur['version']), true)
+                && ApprovalRules::on($db, 'approvals.company_own_change')) {
+                // The owner may switch this check off on the Approval rules page (0019, Y11).
                 $task = $this->openReview($db, $next, $caller);
             }
             Audit::write($db, $caller, 'company.confirm', 'company_profile', (string) $next, null, ['version' => $next, 'confirms_version' => $cur['version'],

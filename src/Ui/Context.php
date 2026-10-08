@@ -46,7 +46,7 @@ final class Context
     private ?array $checks = null;
 
     /** Pages without a menu item of their own => the menu item that stays marked. */
-    private const ACTIVE_ALIAS = ['reasons' => 'settings', 'series' => 'settings'];
+    private const ACTIVE_ALIAS = ['reasons' => 'settings', 'series' => 'settings', 'setting' => 'settings', 'access' => 'settings'];
 
     /**
      * @param array<string, string> $params route parameters

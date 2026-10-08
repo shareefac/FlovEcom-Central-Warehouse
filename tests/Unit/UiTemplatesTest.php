@@ -41,7 +41,9 @@ final class UiTemplatesTest extends TestCase
             'home', 'people', 'person', 'documents', 'document', 'reviews', 'reasons', 'series', 'settings', 'suppliers', 'supplier', 'supplier_form',
             'supplier_items', 'supplier_item', 'supplier_item_form', 'purchase_orders', 'purchase_order', 'purchase_order_edit', 'reorder', 'reorder_item',
             'reorder_brands', 'reorder_anomalies', 'sales_history', 'company', 'company_form', 'duplicates', 'duplicate_group', 'item_cards', 'item_card_form',
-            'item_cards_import', 'barcode_reviews', 'cards', 'receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents'] as $t) {
+            'item_cards_import', 'barcode_reviews', 'cards', 'receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents',
+            'setting', 'config_history', 'approvals', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet', 'enrol',
+            'staff_requests'] as $t) {
             self::assertContains($t . '.php', $names);
         }
         self::assertSame([], array_filter($names, static fn (string $n): bool => preg_match('/^[a-z][a-z_]*\.php$/', $n) !== 1), 'names View::render accepts');
@@ -206,6 +208,37 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('data-unsaved-text=', $templates['receipt_bench.php']);
         self::assertStringContainsString('data-not-here=', $templates['receipt_bench.php']);
         self::assertStringContainsString('data-too-big=', $templates['receipt_files.php']);
+    }
+
+    /**
+     * The set-it-yourself pages (0019; docs/decisions.md Y36): every table is a `table.stack` whose cells say what they are on a phone,
+     * times are UK time ($when), and no word is typed in the template: every word comes from Words (the website commands come from
+     * Admin\Sites, in <code>). The QR code is markup only: no image, no SVG, no inline style.
+     */
+    public function testTheSetItYourselfPagesTurnIntoCardsAndTakeEveryWordFromWords(): void
+    {
+        $templates = self::templates();
+        foreach (['setting', 'config_history', 'approvals', 'reasons', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet',
+            'enrol', 'staff_requests', 'people', 'person', 'settings'] as $name) {
+            $src = $templates[$name . '.php'];
+            preg_match_all('/<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
+            foreach ($tables as $t) {
+                self::assertMatchesRegularExpression('/class="[^"]*\bstack\b/', $t[1], "{$name}: {$t[0]} is cards on a phone");
+            }
+            preg_match_all('/<td\b[^>]*>/i', $src, $cells);
+            foreach ($cells[0] as $td) {
+                self::assertMatchesRegularExpression('/data-label=|class="[^"]*\bc-(status|next|head)\b/', $td, "{$name}: {$td} says what it is on a phone");
+            }
+            foreach (['(UTC)', '$dt(', '<svg', '<img', 'data:'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old}");
+            }
+            if (in_array($name, ['people', 'person', 'settings'], true)) {
+                continue; // older pages: their words were checked by the start and settings pass (U41)
+            }
+            $text = (string) preg_replace(['/<\?.*?\?>/s', '/<[^>]*>/', '/&[a-z]+;/'], ' ', $src);
+            self::assertSame([], preg_match_all('/[A-Za-z]{2,}/', $text, $m) > 0 ? $m[0] : [], "{$name}: a word typed in the template instead of taken from Words");
+        }
+        self::assertStringContainsString('<i class="d"></i>', $templates['staff_sheet.php'], 'the QR code is one element per module');
     }
 
     public function testEveryPostFormCarriesTheCsrfToken(): void

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Admin\ApprovalRules;
 use CW\Company\CompanyDetails;
 use CW\Documents\NumberSeries;
 use CW\Output\CsvWriter;
@@ -14,27 +15,15 @@ use CW\Ui\Words;
 
 /**
  * Reference lists (reference.view, every role): the reason codes (I22; also as CSV for Excel), the number series
- * with the document types and their review rules (I19, I20), and the settings with the VAT codes (I38-I41). Read-only:
- * these lists are changed by a migration or an admin tool on the server only (the app login has SELECT on reason_code,
- * document_type, app_setting and vat_code, and moves number_series.last_no only by posting). The settings page starts with
- * the company details (their own screen since 0013: CompanyController, I90).
+ * with the document types and their review rules (I19, I20), and the settings with the VAT codes (I38-I41). Since the
+ * set-it-yourself pack (0019, Y4, Y12) each setting opens its own page (SettingsController) and each reason too
+ * (ReasonsController), where an admin or a reviewer changes them; the approval rules have their own page (ApprovalsController).
+ * The settings page starts with the company details (their own screen since 0013: CompanyController, I90).
  */
 final class ReferenceController
 {
     /** The order the screens list the document types in (the flow of goods, not the alphabet). */
     public const TYPE_ORDER = ['PO', 'GRN', 'SINV', 'DN', 'CNT', 'ADJ', 'WO', 'TRD'];
-
-    public function reasons(Context $ctx): HtmlResponse
-    {
-        $rows = [];
-        foreach (self::reasonRows($ctx) as $r) {
-            // The screen's words for where a reason is used and which way it moves stock (the CSV keeps the codes).
-            $r['used_for'] = ucfirst(implode(', ', array_map(static fn (string $u): string => Words::of('REASON_USE', trim($u)), explode(',', (string) $r['applies_to']))));
-            $r['way'] = Words::of('REASON_USE', (string) $r['direction']);
-            $rows[] = $r;
-        }
-        return $ctx->page('reasons', ['reasons' => $rows], 200, ['title' => Words::title('reasons'), 'active' => 'reasons']);
-    }
 
     public function reasonsCsv(Context $ctx): HtmlResponse
     {
@@ -116,11 +105,21 @@ final class ReferenceController
         }
         uksort($rules, static fn (string $a, string $b): int => array_search($a, self::TYPE_ORDER, true) <=> array_search($b, self::TYPE_ORDER, true));
         $topics = [];
+        $names = [];
+        foreach ($ctx->db->all("SELECT id, display_name FROM staff_user WHERE id IN (SELECT CAST(SUBSTRING(updated_actor, 7) AS UNSIGNED) FROM app_setting "
+            . "WHERE updated_actor LIKE 'staff:%')") as $u) {
+            $names['staff:' . $u['id']] = (string) $u['display_name'];
+        }
         foreach ($ctx->settings()->all() as $s) {
             $key = (string) $s['key'];
+            if (isset(ApprovalRules::SWITCHES[$key]) || isset(ApprovalRules::NUMBERS[$key])) {
+                continue; // the approval rules have their own page (one place for one thing, Y9)
+            }
             $value = $s['value'];
+            $actor = (string) $s['updated_actor'];
             $topics[Words::settingTopic($key)][] = [
                 'key' => $key,
+                'href' => Html::url('/ui/reference/settings/setting', ['key' => $key]),
                 'name' => Words::settingName($key),
                 'help' => Words::settingHelp($key, (string) $s['description']),
                 'value' => match (true) {
@@ -129,9 +128,11 @@ final class ReferenceController
                     default => (string) $s['display'],
                 },
                 'agreed' => !$s['provisional'],
-                'changed' => str_starts_with((string) $s['updated_actor'], 'system:')
-                    ? Words::say('SETTINGS_PAGE', 'set_up', Html::day((string) $s['updated_at']))
-                    : Words::say('SETTINGS_PAGE', 'on_server', Html::when((string) $s['updated_at'])),
+                'changed' => match (true) {
+                    str_starts_with($actor, 'staff:') => Words::say('SETTINGS_PAGE', 'by', Html::when((string) $s['updated_at']), $names[$actor] ?? $actor),
+                    in_array($actor, ['system:migrate', 'system:history'], true) => Words::say('SETTINGS_PAGE', 'set_up', Html::day((string) $s['updated_at'])),
+                    default => Words::say('SETTINGS_PAGE', 'on_server', Html::when((string) $s['updated_at'])),
+                },
             ];
         }
         // Topics in the order of Words::SETTING_TOPIC, and the settings of a topic in the order of Words::SETTING (the
@@ -152,6 +153,8 @@ final class ReferenceController
             'topics' => $topics,
             'rules' => array_values($rules),
             'vat' => $ctx->db->all('SELECT code, label, rate_percent, is_active FROM vat_code ORDER BY sort_order, code'),
+            'canChange' => $ctx->me()->can('settings.manage'),
+            'lookOnly' => $ctx->me()->can('settings.manage') ? null : Words::CONFIG['look_only'],
         ], 200, ['title' => Words::MENU['settings'], 'active' => 'settings']);
     }
 

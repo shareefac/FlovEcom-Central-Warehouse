@@ -8,9 +8,11 @@ use CW\Company\CompanyDetails;
 
 /**
  * CW's typed settings (app_setting, 0009; docs/decisions.md I38-I41): the supplier approval rules (decision 11), the cost
- * write-back switch (decision 12) and, from the later I-2 tasks, the PO and reorder defaults. Read-only for the app login
- * (Grants::READ_ONLY); bin/settings.php --admin changes a value (audit setting.change). Rows are read once per instance (a
- * request or a job sees one consistent set).
+ * write-back switch (decision 12) and, from the later I-2 tasks, the PO and reorder defaults; since 0019 the approval switches
+ * (approvals.*: Admin\ApprovalRules), the spot-check size and the staff set-up window. Since 0019 (the set-it-yourself pack, Y4)
+ * the Settings page changes them (change(): an admin or a reviewer, settings.manage, with a reason; every change is a version in
+ * config_change and an audit row); bin/settings.php --admin keeps working through the same code (set()). Rows are read once per
+ * instance (a request or a job sees one consistent set).
  *
  * The company details of the PO letterhead (decision 9) were company.* settings until 0013; they are now versions in
  * company_profile, added and confirmed by staff on the Company details screen (CW\Company\CompanyDetails, I90-I99).
@@ -58,6 +60,10 @@ final class Settings
         // The site stock writer (IM10, 0018; I148-I166): the sites a receipt's selling mode lands on, as channel codes.
         'site_writer.receipt_mode_sites' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
             'pattern_says' => 'channel codes separated by commas, like vapeandgo,electrofag (empty: none)'],
+        // The set-it-yourself pack (0019, Y5-Y8): the spot-check size (KeySample), the staff set-up window, the reviewers asked for.
+        'approvals.spot_check_size' => ['min' => 5, 'max' => 200],
+        'staff.setup_hours' => ['min' => 1, 'max' => 336],
+        'staff.min_reviewers' => ['min' => 1, 'max' => 10],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];
@@ -260,44 +266,79 @@ final class Settings
     }
 
     /**
-     * Changes one setting (bin/settings.php --admin; the app login cannot: READ_ONLY). $raw is parsed for the key's type
-     * and checked against its rule; $confirm also marks it as confirmed by the owner (provisional = 0). Writes
-     * updated_actor = system:settings and updated_at, and audit setting.change {key, before, after, reason}. Returns
-     * ['changed' => bool, 'before' => typed, 'after' => typed]; nothing is written when neither the value nor the
-     * provisional flag changes. A company.* key is refused (400 company_details): the company details have their own
-     * screen and history since 0013 (I91).
+     * Changes one setting the way bin/settings.php does (a system caller): $confirm also marks it as agreed by the owner
+     * (provisional = 0); otherwise the agreed mark stays as it is. See change().
      *
-     * @return array{changed: bool, before: mixed, after: mixed}
+     * @return array{changed: bool, before: mixed, after: mixed, version: int}
      */
     public function set(Caller $caller, string $key, string $raw, string $reason, bool $confirm = false): array
+    {
+        return $this->change($caller, $key, $raw, $reason, $confirm ? true : null, null);
+    }
+
+    /**
+     * Changes one setting (the Settings page and bin/settings.php; Y4). $raw is parsed for the key's type and checked against its
+     * rule; $agreed true marks the value agreed by the owner (provisional = 0), false marks it not agreed yet, null keeps the mark.
+     * $seen: the setting's history version the form was drawn with (409 changed_meanwhile when someone changed it since; null:
+     * no check, the CLI). A staff caller needs settings.manage (an admin or a reviewer, re-read inside the transaction); a CLI tool
+     * (system caller) may. Writes value_json, provisional, updated_actor (the caller) and updated_at, the next config_change
+     * version (`change`, or `agree` / `unagree` when only the mark moved) and audit setting.change {key, before, after, reason,
+     * version}. Nothing is written when neither the value nor the mark changes. A company.* key is refused (400
+     * company_details): the company details have their own screen and history since 0013 (I91).
+     *
+     * @return array{changed: bool, before: mixed, after: mixed, version: int}
+     */
+    public function change(Caller $caller, string $key, string $raw, string $reason, ?bool $agreed = null, ?int $seen = null): array
     {
         if (str_starts_with($key, 'company.')) {
             throw new CwException('company_details', 'the company details are no longer settings: a reviewer adds, changes and confirms them on the '
                 . 'Company details screen (Reference > Company details, ' . self::COMPANY_SCREEN . '), which keeps every version', 400);
         }
-        $reason = trim($reason);
-        if (mb_strlen($reason) < 3 || mb_strlen($reason) > 500 || !mb_check_encoding($reason, 'UTF-8')) {
-            throw new CwException('bad_reason', 'say in 3 to 500 characters why the setting changes', 400);
-        }
-        return $this->db->transaction(function (Db $db) use ($caller, $key, $raw, $reason, $confirm): array {
-            $row = $db->one('SELECT setting_key, value_type, value_json, provisional FROM app_setting WHERE setting_key = ? FOR UPDATE', [$key])
+        $reason = \CW\Admin\ConfigHistory::reason($reason);
+        return $this->db->transaction(function (Db $db) use ($caller, $key, $raw, $reason, $agreed, $seen): array {
+            \CW\Admin\ConfigHistory::authorise($db, $caller);
+            $row = $db->one('SELECT setting_key, value_type, CAST(value_json AS CHAR) AS value_json, provisional FROM app_setting WHERE setting_key = ? FOR UPDATE', [$key])
                 ?? throw new CwException('unknown_setting', 'there is no setting ' . mb_substr($key, 0, 64), 400);
+            \CW\Admin\ConfigHistory::checkSeen($db, 'setting', $key, $seen);
             $type = (string) $row['value_type'];
             $after = self::parse($type, $raw);
             $this->checkRule($key, $after);
             $before = self::decode($type, (string) $row['value_json']);
             $json = self::encode($type, $after);
-            $provisional = $confirm ? 0 : (int) $row['provisional'];
-            if ($before === $after && $provisional === (int) $row['provisional']) {
-                return ['changed' => false, 'before' => $before, 'after' => $after];
+            $was = (int) $row['provisional'];
+            $provisional = $agreed === null ? $was : ($agreed ? 0 : 1);
+            $version = \CW\Admin\ConfigHistory::version($db, 'setting', $key);
+            if ($before === $after && $provisional === $was) {
+                return ['changed' => false, 'before' => $before, 'after' => $after, 'version' => $version];
             }
-            $db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON), provisional = ?, updated_actor = 'system:settings', updated_at = NOW(6) WHERE setting_key = ?",
-                [$json, $provisional, $key]);
-            Audit::write($db, $caller, 'setting.change', 'app_setting', $key, null, ['key' => $key, 'before' => $before, 'after' => $after, 'reason' => $reason]
-                + ($provisional !== (int) $row['provisional'] ? ['confirmed' => true] : []));
+            $old = \CW\Admin\ConfigHistory::state($db, 'setting', $key);
+            $db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON), provisional = ?, updated_actor = ?, updated_at = NOW(6) WHERE setting_key = ?',
+                [$json, $provisional, $caller->actor, $key]);
+            $new = \CW\Admin\ConfigHistory::state($db, 'setting', $key) ?? throw new \LogicException("setting {$key} vanished");
+            $action = $before !== $after ? 'change' : ($provisional === 0 ? 'agree' : 'unagree');
+            $v = \CW\Admin\ConfigHistory::record($db, $caller, 'setting', $key, $action, $old ?? $new, $new, $reason);
+            Audit::write($db, $caller, 'setting.change', 'app_setting', $key, null, ['key' => $key, 'before' => $before, 'after' => $after, 'reason' => $reason,
+                'version' => $v['version']] + ($provisional !== $was ? ($provisional === 0 ? ['confirmed' => true] : ['agreed' => false]) : []));
             $this->rows = null;
-            return ['changed' => true, 'before' => $before, 'after' => $after];
+            return ['changed' => true, 'before' => $before, 'after' => $after, 'version' => $v['version']];
         });
+    }
+
+    /**
+     * A bool setting read straight from the database (the approval switches, Admin\ApprovalRules): $default when the row does not
+     * exist (a schema before 0019) or is not a bool. Read on every call: a switch changed on the screen applies to the next action.
+     */
+    public static function flag(Db $db, string $key, bool $default): bool
+    {
+        $v = $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ? AND value_type = 'bool'", [$key]);
+        return $v === null ? $default : trim((string) $v) === 'true';
+    }
+
+    /** An int setting read straight from the database: $default when the row does not exist, is not an int or is not set. */
+    public static function number(Db $db, string $key, int $default): int
+    {
+        $v = $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ? AND value_type = 'int'", [$key]);
+        return $v === null || preg_match('/^-?\d{1,9}$/D', trim((string) $v)) !== 1 ? $default : (int) trim((string) $v);
     }
 
     /** The JSON a typed value is stored as ("" for not set; a decimal as a JSON string). */

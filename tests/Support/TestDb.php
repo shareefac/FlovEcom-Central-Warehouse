@@ -78,7 +78,8 @@ final class TestDb
 
     /**
      * Empties every table except schema_migrations, the seeded warehouses and the seeded reference lists
-     * (SEED_TABLES); the number series (one seeded row per prefix) are set back to 0 (pad 6) instead of deleted.
+     * (SEED_TABLES); the number series (one seeded row per prefix) are set back to 0 (pad 6) instead of deleted; config_change
+     * keeps the baselines 0019 wrote (the history of the seeded rows starts there).
      */
     public static function clean(Db $db): void
     {
@@ -89,6 +90,13 @@ final class TestDb
         try {
             foreach ($tables as $t) {
                 $t = (string) $t;
+                if ($t === 'reason_code') {
+                    // A reason a test added (the screens add them since 0019) goes even when the test died before its own clean-up:
+                    // the seeded ones are exactly those with a 0019 baseline.
+                    $db->exec("DELETE FROM reason_code WHERE code NOT IN (SELECT subject_key FROM config_change WHERE subject_type = 'reason' "
+                        . "AND action = 'baseline' AND actor = 'system:migrate')");
+                    continue;
+                }
                 if ($t === 'schema_migrations' || in_array($t, self::SEED_TABLES, true)) {
                     continue;
                 }
@@ -99,6 +107,12 @@ final class TestDb
                 if ($t === 'warehouse') {
                     $in = implode(',', array_fill(0, count(self::SEED_WAREHOUSES), '?'));
                     $db->exec("DELETE FROM warehouse WHERE code NOT IN ({$in})", self::SEED_WAREHOUSES);
+                    continue;
+                }
+                if ($t === 'config_change') {
+                    // 0019's baselines of the seeded rows stay (version 1 of each); a test's changes go with the test (it puts the
+                    // rows back itself, like every other change of a seed table).
+                    $db->exec("DELETE FROM config_change WHERE action <> 'baseline' OR actor <> 'system:migrate'");
                     continue;
                 }
                 $db->pdo()->exec('DELETE FROM ' . Db::ident($t));

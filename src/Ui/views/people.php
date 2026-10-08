@@ -13,10 +13,48 @@
   <?= $explain('admin_off', \CW\Ui\Words::UI['off']) ?>
 </div>
 <?php endif; ?>
-<?php if ($lookOnly === null): ?>
-<p class="muted"><?= $word('STAFF', 'add') ?></p>
+<?php if ($requests > 0): ?>
+<p class="note"><?= $say('STAFF', 'requests_open', $requests) ?></p>
 <?php endif; ?>
-<p><a href="/ui/people.csv"><?= $word('STAFF', 'download') ?></a></p>
+<?php if ($error !== null): ?>
+<p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
+<?php endif; ?>
+<?php if ($canManage): ?>
+<p class="muted"><?= $word('STAFF', 'add') ?></p>
+<details class="fold add-person"<?php if ($error !== null): ?> open<?php endif; ?>>
+  <summary><?= $word('STAFF', 'add_title') ?></summary>
+  <div class="head-help">
+    <p class="muted"><?= $word('STAFF', 'add_text') ?></p>
+    <?= $explain('sign_up', \CW\Ui\Words::STAFF['add_title']) ?>
+  </div>
+  <form class="roles" method="post" action="/ui/people">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <label><?= $word('STAFF', 'add_name') ?>
+      <input type="text" name="name" value="<?= $e($typed['name']) ?>" maxlength="128" required<?php if ($errorCode === 'bad_name'): ?> aria-invalid="true"<?php endif; ?>>
+    </label>
+    <label><?= $word('STAFF', 'add_email') ?>
+      <input type="email" name="email" value="<?= $e($typed['email']) ?>" maxlength="191" autocomplete="off" required<?php if (in_array($errorCode, ['bad_email', 'staff_exists'], true)): ?> aria-invalid="true"<?php endif; ?>>
+    </label>
+    <p><strong><?= $word('STAFF', 'add_jobs') ?></strong></p>
+    <div class="role-grid">
+<?php foreach ($groups as $g): ?>
+      <fieldset class="role-group">
+        <legend><?= $e($g['label']) ?></legend>
+<?php foreach ($g['roles'] as $r): ?>
+        <label class="role-choice">
+          <input type="checkbox" name="role_<?= $e($r['role']) ?>" value="1"<?php if ($r['checked']): ?> checked<?php endif; ?>>
+          <span class="role-name"><?= $e($r['name']) ?> <small class="role-code"><?= $say('STAFF', 'code', $r['role']) ?></small></span>
+          <span class="role-desc"><?= $e($r['description']) ?></span>
+        </label>
+<?php endforeach; ?>
+      </fieldset>
+<?php endforeach; ?>
+    </div>
+    <button type="submit" class="primary"><?= $word('STAFF', 'add_button') ?></button>
+  </form>
+</details>
+<?php endif; ?>
+<p><a href="/ui/people.csv"><?= $word('STAFF', 'download') ?></a> <a href="/ui/reference/access"><?= $word('PAGE_TITLE', 'access') ?></a></p>
 <div class="table-wrap">
 <table class="stack list people">
   <thead>
@@ -43,3 +81,40 @@
   </tbody>
 </table>
 </div>
+
+<section aria-labelledby="devices-h">
+  <h2 id="devices-h"><?= $word('STAFF', 'devices') ?></h2>
+<?php if ($devices === []): ?>
+  <p class="muted"><?= $word('STAFF', 'devices_none') ?></p>
+<?php else: ?>
+  <p class="muted"><?= $word('STAFF', 'devices_text') ?></p>
+  <div class="table-wrap">
+  <table class="stack list devices">
+    <thead>
+      <tr>
+        <th scope="col"><?= $word('STAFF', 'device_person') ?></th>
+        <th scope="col"><?= $word('STAFF', 'device_since') ?></th>
+        <th scope="col"><?= $word('STAFF', 'device_seen') ?></th>
+        <th scope="col"><?= $word('STAFF', 'device_from') ?></th>
+<?php if ($canManage): ?>
+        <th scope="col"><span class="visually-hidden"><?= $word('STAFF', 'sign_out_device') ?></span></th>
+<?php endif; ?>
+      </tr>
+    </thead>
+    <tbody>
+<?php foreach ($devices as $d): ?>
+      <tr>
+        <th scope="row" class="c-head"><a href="<?= $u('/ui/people/' . $d['staff_user_id']) ?>"><?= $e($d['name']) ?></a><?php if ($d['staff_user_id'] === $meId): ?> <span class="muted"><?= $word('STAFF', 'you') ?></span><?php endif; ?></th>
+        <td data-label="<?= $word('STAFF', 'device_since') ?>"><?= $when($d['created_at']) ?></td>
+        <td data-label="<?= $word('STAFF', 'device_seen') ?>"><?= $when($d['last_seen_at']) ?></td>
+        <td data-label="<?= $word('STAFF', 'device_from') ?>"><code><?= $e($d['ip'] ?? '') ?></code></td>
+<?php if ($canManage): ?>
+        <td class="c-next"><?php if ($d['staff_user_id'] !== $meId): ?><form class="inline" method="post" action="<?= $u('/ui/people/' . $d['staff_user_id'] . '/sign-out') ?>"><input type="hidden" name="csrf" value="<?= $e($csrf) ?>"><input type="hidden" name="session" value="<?= $e($d['handle']) ?>"><input type="hidden" name="back" value="list"><button type="submit"><?= $word('STAFF', 'sign_out_device') ?></button></form><?php endif; ?></td>
+<?php endif; ?>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+<?php endif; ?>
+</section>

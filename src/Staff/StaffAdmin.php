@@ -10,6 +10,7 @@ use CW\Auth\Sessions;
 use CW\Caller;
 use CW\CwException;
 use CW\Db;
+use CW\Settings;
 
 /**
  * Staff accounts for the /ui screens (plan §11, design A.9): several roles each (staff_role, 0007, I10), an
@@ -94,7 +95,10 @@ final class StaffAdmin
      *
      * @param array<mixed> $roles
      * @param array<mixed>|null $rolesSeen
-     * @return array{before: list<string>, after: list<string>, added: list<string>, removed: list<string>, result: string}
+     * While the owner has the staff-grant rule on (approvals.staff_grant, Y25) a person at a screen adding Admin or Reviewer gets
+     * result `requested` (with `request`): nothing is applied until a reviewer says OK (RoleRequests).
+     *
+     * @return array{before: list<string>, after: list<string>, added: list<string>, removed: list<string>, result: string, request?: int}
      */
     public function setRoles(Caller $caller, int $staffUserId, array $roles, ?array $rolesSeen): array
     {
@@ -115,6 +119,11 @@ final class StaffAdmin
             }
             if ($added !== []) {
                 self::refusePlaceholder($caller, $u['email'], 'given a role');
+            }
+            if (RoleRequests::applies($db, $caller, $added)) {
+                // Admin or Reviewer waits for a reviewer's OK while the owner has that rule on (approvals.staff_grant, Y25).
+                $request = RoleRequests::open($db, $caller, $staffUserId, $u['email'] === null ? null : (string) $u['email'], $before, $after);
+                return ['before' => $before, 'after' => $after, 'added' => $added, 'removed' => $removed, 'result' => 'requested', 'request' => $request];
             }
             foreach ($live as $r) {
                 if (in_array((string) $r['role'], $removed, true)) {
@@ -216,6 +225,130 @@ final class StaffAdmin
         });
         return ['id' => $done['id'], 'email' => $email, 'roles' => $done['roles'], 'active' => $done['active'], 'password' => $password,
             'otpauth' => $secret === null ? null : Totp::uri($secret, $email), 'sessions_ended' => $done['sessions_ended']];
+    }
+
+    /**
+     * Sets a person up on the Staff and access page (G06, docs/decisions.md Y20): the account, its jobs and a NEW sign-in secret,
+     * returned ONCE (the screen draws it as a QR code and the setup key, and stores neither); no password exists that anybody
+     * knows. Until setup_until (now + staff.setup_hours) the person opens /ui/enrol on their own device, types their e-mail and the
+     * 6 numbers of their code app, and chooses their own password (Enrolment). The same rules as create(): an admin (staff.manage),
+     * never a placeholder address, a valid job set (Admin only with Look only, Accountant, Auditor). While the staff-grant rule is on,
+     * Admin and Reviewer wait for a reviewer's OK: the account gets its other jobs now (maybe none) and `request` names the request.
+     *
+     * @param list<string> $roles
+     * @return array{id: int, email: string, roles: list<string>, request: ?int, otpauth: string, secret: string, setup_until: string}
+     */
+    public function enrol(Caller $caller, string $email, array $roles, SecretBox $box, ?string $name): array
+    {
+        $email = strtolower(trim($email));
+        if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || strlen($email) > 191) {
+            throw new CwException('bad_email', 'a valid e-mail address is required', 400, ['field' => 'email']);
+        }
+        $name = trim((string) preg_replace('/\s+/u', ' ', $name ?? ''));
+        if (mb_strlen($name) < 2 || mb_strlen($name) > 128) {
+            throw new CwException('bad_name', 'a name of 2 to 128 characters is required', 400, ['field' => 'name']);
+        }
+        $roles = Permissions::checkRoleSet($roles);
+        $hash = password_hash(self::password() . bin2hex(random_bytes(16)), PASSWORD_ARGON2ID); // nobody knows it: the person sets their own
+        $secret = Totp::newSecret();
+        $enc = $box->encrypt($secret);
+        $done = $this->db->transaction(function (Db $db) use ($caller, $email, $roles, $name, $hash, $enc): array {
+            $this->authorise($db, $caller, null);
+            self::refusePlaceholder($caller, $email, 'given a role');
+            if ($db->value('SELECT id FROM staff_user WHERE email = ? OR username = ?', [$email, mb_substr($email, 0, 64)]) !== null) {
+                throw new CwException('staff_exists', "a staff user {$email} already exists", 409, ['field' => 'email']);
+            }
+            $hours = Settings::number($db, 'staff.setup_hours', 48);
+            $id = $db->insert(
+                'INSERT INTO staff_user (username, display_name, email, password_hash, password_must_change, setup_until, totp_secret_enc, is_active) '
+                . 'VALUES (?, ?, ?, ?, 0, NOW(6) + INTERVAL ? HOUR, ?, 1)',
+                [mb_substr($email, 0, 64), $name, $email, $hash, $hours, $enc],
+            );
+            $now = RoleRequests::applies($db, $caller, $roles) ? array_values(array_diff($roles, \CW\Admin\ApprovalRules::GUARDED_ROLES)) : $roles;
+            foreach ($now as $role) {
+                $db->exec('INSERT INTO staff_role (staff_user_id, role, granted_by) VALUES (?, ?, ?)', [$id, $role, $caller->staffUserId]);
+            }
+            $until = (string) $db->value('SELECT setup_until FROM staff_user WHERE id = ?', [$id]);
+            Audit::write($db, $caller, 'staff.create', 'staff_user', (string) $id, null, ['email' => $email, 'roles' => $now, 'via' => 'screen', 'setup_until' => $until]);
+            $request = $now === $roles ? null : RoleRequests::open($db, $caller, $id, $email, $now, $roles);
+            return ['id' => $id, 'roles' => $now, 'request' => $request, 'setup_until' => $until];
+        });
+        return $done + ['email' => $email, 'otpauth' => Totp::uri($secret, $email), 'secret' => $secret];
+    }
+
+    /**
+     * A new sign-in secret for a person whose phone is lost or new (G06, Y22): returned ONCE (QR code and setup key); the old codes
+     * stop at once and the person is signed out everywhere. They sign in with their password and the new code (a person who never
+     * finished setting up gets a fresh set-up window). The caller rules of setRoles() (an admin, never their own account); never a
+     * placeholder account (409 placeholder_account).
+     *
+     * @return array{id: int, email: string, otpauth: string, secret: string, sessions_ended: int}
+     */
+    public function resetAuthenticator(Caller $caller, int $staffUserId, SecretBox $box): array
+    {
+        $secret = Totp::newSecret();
+        $enc = $box->encrypt($secret);
+        $done = $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $enc): array {
+            $u = $this->authorise($db, $caller, $staffUserId);
+            self::refusePlaceholder($caller, $u['email'], 'given a sign-in code');
+            $hours = Settings::number($db, 'staff.setup_hours', 48);
+            $db->exec('UPDATE staff_user SET totp_secret_enc = ?, totp_last_step = NULL, '
+                . 'setup_until = IF(setup_until IS NULL, NULL, NOW(6) + INTERVAL ? HOUR) WHERE id = ?', [$enc, $hours, $staffUserId]);
+            $ended = (new Sessions($db))->revokeAll($staffUserId);
+            Audit::write($db, $caller, 'staff.reset', 'staff_user', (string) $staffUserId, null,
+                ['email' => $u['email'], 'new_password' => false, 'new_totp' => true, 'via' => 'screen', 'sessions_ended' => $ended]);
+            return ['email' => (string) $u['email'], 'sessions_ended' => $ended];
+        });
+        return ['id' => $staffUserId, 'email' => $done['email'], 'otpauth' => Totp::uri($secret, $done['email']), 'secret' => $secret,
+            'sessions_ended' => $done['sessions_ended']];
+    }
+
+    /**
+     * Lets a person choose a new password (G06, Y22): their old password stops working at once (nobody knows the new hash) and they
+     * are signed out everywhere; until setup_until (now + staff.setup_hours) they set a new one at /ui/enrol with their e-mail and
+     * the code of their phone. No password is ever shown in a browser. The caller rules of setRoles(); never a placeholder.
+     *
+     * @return array{id: int, email: string, setup_until: string, sessions_ended: int}
+     */
+    public function resetPassword(Caller $caller, int $staffUserId): array
+    {
+        $hash = password_hash(self::password() . bin2hex(random_bytes(16)), PASSWORD_ARGON2ID);
+        return $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $hash): array {
+            $u = $this->authorise($db, $caller, $staffUserId);
+            self::refusePlaceholder($caller, $u['email'], 'given a new password');
+            $hours = Settings::number($db, 'staff.setup_hours', 48);
+            $db->exec('UPDATE staff_user SET password_hash = ?, password_must_change = 0, setup_until = NOW(6) + INTERVAL ? HOUR WHERE id = ?',
+                [$hash, $hours, $staffUserId]);
+            $ended = (new Sessions($db))->revokeAll($staffUserId);
+            $until = (string) $db->value('SELECT setup_until FROM staff_user WHERE id = ?', [$staffUserId]);
+            Audit::write($db, $caller, 'staff.reset', 'staff_user', (string) $staffUserId, null,
+                ['email' => $u['email'], 'new_password' => 'chosen_by_the_person', 'new_totp' => false, 'via' => 'screen', 'setup_until' => $until,
+                    'sessions_ended' => $ended]);
+            return ['id' => $staffUserId, 'email' => (string) $u['email'], 'setup_until' => $until, 'sessions_ended' => $ended];
+        });
+    }
+
+    /**
+     * Signs a person out of one device ($handle: StaffSessions::HANDLE hex characters of the session's id) or of every device
+     * (null), from the Staff and access pages (G06, Y23). The caller rules of setRoles() (an admin, never their own account here:
+     * they sign out with the button of their own account panel). Returns how many sessions ended (0: it had ended already).
+     */
+    public function signOut(Caller $caller, int $staffUserId, ?string $handle): int
+    {
+        if ($handle !== null && !StaffSessions::isHandle($handle)) {
+            throw new CwException('bad_session', 'that does not name a signed-in device', 400);
+        }
+        return $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $handle): int {
+            $u = $this->authorise($db, $caller, $staffUserId);
+            $ended = $handle === null ? (new Sessions($db))->revokeAll($staffUserId)
+                : $db->exec("UPDATE staff_session SET revoked = 1, revoked_at = NOW(6) WHERE staff_user_id = ? AND revoked = 0 AND id LIKE CONCAT(?, '%')",
+                    [$staffUserId, $handle]);
+            if ($ended > 0) {
+                Audit::write($db, $caller, 'staff.sign_out', 'staff_user', (string) $staffUserId, null,
+                    ['email' => $u['email'], 'which' => $handle ?? 'all', 'sessions_ended' => $ended]);
+            }
+            return $ended;
+        });
     }
 
     /**

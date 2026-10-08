@@ -110,10 +110,13 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame(['revoked_at' => ['Update'], 'revoked_by' => ['Update']], Grants::desiredColumns('staff_role'));
         // 0008 (I17-I23): seeded reference lists are read-only; a series moves only its last number; a document's identity
         // is frozen; a review task changes only its decision; stored files and their attachments are history; draft lines are free.
-        foreach (['reason_code', 'document_type'] as $t) {
-            self::assertSame(['Select'], Grants::desired($t), $t);
-            self::assertSame([], Grants::desiredColumns($t), $t);
-        }
+        // Since 0019 (Y3) the screens change them: a reason is added, renamed or switched off (never deleted); a document type's
+        // rules are updated (no type is added or removed: they come with their code).
+        self::assertSame(['Select', 'Insert'], Grants::desired('reason_code'));
+        self::assertSame(['label' => ['Update'], 'is_active' => ['Update']], Grants::desiredColumns('reason_code'));
+        self::assertSame(['Select'], Grants::desired('document_type'));
+        self::assertSame(['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action'],
+            array_keys(Grants::desiredColumns('document_type')));
         foreach (['number_series', 'document', 'review_task', 'stored_file', 'document_file', 'document_posting'] as $t) {
             self::assertSame(['Select', 'Insert'], Grants::desired($t), $t);
         }
@@ -133,10 +136,10 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame(Grants::FULL, Grants::desired('document_line'));
         // 0009 (I38-I47): settings and VAT codes are read-only; suppliers, supplier items and import runs are never deleted; the
         // price history is append-only.
-        foreach (['app_setting', 'vat_code'] as $t) {
-            self::assertSame(['Select'], Grants::desired($t), $t);
-            self::assertContains($t, Grants::READ_ONLY);
-        }
+        self::assertSame(['Select'], Grants::desired('vat_code'));
+        self::assertContains('vat_code', Grants::READ_ONLY);
+        self::assertSame(['Select'], Grants::desired('app_setting'), 'no setting is added or removed by the app (they come by migration)');
+        self::assertSame(['value_json', 'provisional', 'updated_actor', 'updated_at'], array_keys(Grants::desiredColumns('app_setting')), 'since 0019 (Y3)');
         foreach (['supplier', 'supplier_item', 'import_run'] as $t) {
             self::assertSame(['Select', 'Insert', 'Update'], Grants::desired($t), $t);
             self::assertContains($t, Grants::NO_DELETE);
@@ -167,7 +170,7 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame(['Select', 'Insert'], Grants::desired('company_profile'));
         self::assertSame([], Grants::desiredColumns('company_profile'));
         self::assertContains('company_profile', Grants::APPEND_ONLY);
-        self::assertSame(['Select'], Grants::desired('app_setting'), 'still read-only: the company details left it, nothing gained a write path');
+        self::assertNotContains('app_setting', Grants::READ_ONLY, 'the Settings page changes values since 0019 (Y3): column grants only');
         // 0014 (M30): a hold and its release are rows of their own, never rewritten or removed.
         self::assertSame(['Select', 'Insert'], Grants::desired('key_bulk_hold'));
         self::assertSame([], Grants::desiredColumns('key_bulk_hold'));
@@ -194,6 +197,19 @@ final class GrantsTest extends IntegrationTestCase
         // 0018 (IM10, I151): an item's mode on a site is changed, never removed; its log is append-only.
         self::assertSame(['Select', 'Insert', 'Update'], Grants::desired('item_channel_mode'));
         self::assertSame(['Select', 'Insert'], Grants::desired('item_channel_mode_log'));
+        // 0019 (the set-it-yourself pack, Y3): the configuration history and the safety checks' results are append-only; a
+        // warehouse, a place and a staff role request are never deleted and their identity is frozen.
+        foreach (['config_change', 'integrity_run'] as $t) {
+            self::assertSame(['Select', 'Insert'], Grants::desired($t), $t);
+            self::assertSame([], Grants::desiredColumns($t), $t);
+            self::assertContains($t, Grants::APPEND_ONLY);
+        }
+        self::assertSame(['Select', 'Insert'], Grants::desired('warehouse'));
+        self::assertSame(['name', 'is_sellable', 'is_active', 'stock_owner', 'owner_entity', 'note', 'updated_at'], array_keys(Grants::desiredColumns('warehouse')));
+        self::assertSame(['Select', 'Insert'], Grants::desired('warehouse_location'));
+        self::assertSame(['name', 'is_active', 'note'], array_keys(Grants::desiredColumns('warehouse_location')));
+        self::assertSame(['Select', 'Insert'], Grants::desired('staff_role_request'));
+        self::assertSame(['state', 'decided_by', 'decided_at', 'decision_note'], array_keys(Grants::desiredColumns('staff_role_request')));
     }
 
     public function testApplyConvergesAndTheAppLoginIsLimited(): void
@@ -456,8 +472,8 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM reason_code'), (int) $app->value('SELECT COUNT(*) FROM reason_code'), 'the app login reads them all');
         self::assertSame(8, (int) $app->value('SELECT COUNT(*) FROM document_type'));
         foreach ([
-            "INSERT INTO reason_code (code, label, applies_to) VALUES ('xx', 'x', 'adjustment')", "UPDATE reason_code SET label = 'x'", 'DELETE FROM reason_code',
-            "INSERT INTO document_type (code, prefix, name, phase) VALUES ('XX', 'XX', 'x', 'I-9')", "UPDATE document_type SET review_rule = 'none'",
+            'DELETE FROM reason_code',
+            "INSERT INTO document_type (code, prefix, name, phase) VALUES ('XX', 'XX', 'x', 'I-9')",
             'DELETE FROM document_type', 'DELETE FROM number_series', 'DELETE FROM document', 'DELETE FROM review_task', 'DELETE FROM stored_file',
             'DELETE FROM document_file', 'UPDATE stored_file SET note = NULL', 'UPDATE document_file SET role = role',
             "UPDATE document_posting SET posted_hash = REPEAT('0', 64)", 'UPDATE document_posting SET posted_at = NOW(6)', 'DELETE FROM document_posting',
@@ -470,6 +486,9 @@ final class GrantsTest extends IntegrationTestCase
             'UPDATE document SET reverses_id = NULL', 'UPDATE document SET created_by = NULL', "UPDATE document SET created_actor = 'x'",
             'UPDATE document SET created_at = NOW(6)', "UPDATE review_task SET kind = 'approval'", 'UPDATE review_task SET opened_by = NULL',
             'UPDATE review_task SET subject_id = 1', 'UPDATE review_task SET units = 0',
+            // Since 0019 (Y3) a reason is renamed or switched off and a type's rules change on the screens: nothing else of them.
+            "UPDATE reason_code SET applies_to = 'adjustment'", "UPDATE reason_code SET code = 'x'", 'UPDATE reason_code SET system_only = 0',
+            "UPDATE document_type SET prefix = 'ZZ'", "UPDATE document_type SET name = 'x'",
         ] as $sql) {
             self::assertSame(self::COLUMN_DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
         }
@@ -555,9 +574,14 @@ final class GrantsTest extends IntegrationTestCase
         foreach ([
             'DELETE FROM supplier', 'DELETE FROM supplier_item', 'DELETE FROM import_run', 'DELETE FROM supplier_item_price',
             'UPDATE supplier_item_price SET pack_price = 0', 'UPDATE supplier_item_price SET source = \'po\'',
-            "UPDATE app_setting SET description = 'x'", 'DELETE FROM app_setting', "UPDATE vat_code SET label = 'x'", 'DELETE FROM vat_code',
+            'DELETE FROM app_setting', "UPDATE vat_code SET label = 'x'", 'DELETE FROM vat_code',
+            "INSERT INTO app_setting (setting_key, value_type, value_json, description) VALUES ('x.y', 'int', '1', 'x')",
         ] as $sql) {
             self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+        }
+        // Since 0019 (Y3): a setting's value and its agreed mark change on the Settings page, nothing else of it.
+        foreach (["UPDATE app_setting SET description = 'x'", "UPDATE app_setting SET value_type = 'text'", "UPDATE app_setting SET setting_key = 'x.y'"] as $sql) {
+            self::assertSame(self::COLUMN_DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
         }
         $app->pdo()->beginTransaction();
         self::assertNull($app->one('SELECT id FROM supplier WHERE id = 0 FOR UPDATE'));
@@ -881,6 +905,59 @@ CW-" . sprintf('%06d', $b) . ",20
         self::assertSame([], Invariants::check(self::$db));
         foreach (['DELETE FROM item_channel_mode', 'DELETE FROM item_channel_mode_log', 'UPDATE item_channel_mode_log SET version = 9'] as $sql) {
             self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+        }
+    }
+
+    /**
+     * 0019 as the app login (the set-it-yourself pack, Y3): a setting changed and agreed, a document type's rule, a reason added,
+     * renamed and switched off, a warehouse added with a place, switched off and on, and a request for Admin or Reviewer decided, with
+     * exactly these rights (locking reads included); the configuration history and the safety checks' results are append-only;
+     * nothing of these is ever deleted. The configuration then checks clean (K1-K3).
+     */
+    public function testTheSetItYourselfFlowAsTheAppLogin(): void
+    {
+        Grants::apply(self::$db, TestDb::name(), self::$user);
+        $app = $this->appSession();
+        $saved = self::$db->all('SELECT setting_key, CAST(value_json AS CHAR) AS v, provisional, updated_actor FROM app_setting');
+        $rules = self::$db->all('SELECT * FROM document_type');
+        try {
+            $admin = Caller::staff($this->staffWith('admin'));
+            $reviewer = Caller::staff($this->staffWith('reviewer'));
+            $r = (new \CW\Settings($app))->change($admin, 'suppliers.approval_due_days', '5', 'owner asked for five', true, 1);
+            self::assertSame([true, 3, 5, 2], [$r['changed'], $r['before'], $r['after'], $r['version']]);
+            $r = (new \CW\Admin\DocumentRules($app))->set($reviewer, 'PO', ['approval' => false], 'leave it for now', 1);
+            self::assertSame('none', $r['after']['approval_rule']);
+            $reasons = new \CW\Admin\ReasonCodes($app);
+            $reasons->add($admin, 'seal', 'Broken seal', ['write_off'], 'decrease', false, false, 'found at the bench');
+            $reasons->rename($reviewer, 'seal', 'Broken seal on the pack', 'clearer', 1);
+            $reasons->setActive($admin, 'seal', false, 'not used', 2);
+            $wh = new \CW\Admin\Warehouses($app);
+            $w = $wh->add($admin, 'VPG2', 'VPG 2 room', false, false, 'other', 'VPG 2', null, 'the owner\'s second account');
+            $place = $wh->addPlace($admin, self::warehouseId('MAIN'), 'OVERFLOW', 'Overflow room', null, 'part of the main stock');
+            $wh->setActive($reviewer, $w['id'], false, 'empty for now', 1);
+            $wh->setActive($reviewer, $w['id'], true, 'back in use', 2);
+            $wh->setPlaceActive($admin, $place['id'], false, 'not used now', 1);
+            self::assertSame([], \CW\Admin\ConfigInvariants::check(self::$db));
+            self::assertSame(1, (new \CW\Ops\IntegrityRuns($app))->record(gmdate('Y-m-d H:i:s'), [], ['ms' => 1], 'system:test') > 0 ? 1 : 0);
+            foreach (['UPDATE config_change SET reason = \'x\'', 'DELETE FROM config_change', 'UPDATE integrity_run SET ok = 1', 'DELETE FROM integrity_run',
+                'DELETE FROM warehouse', 'DELETE FROM warehouse_location', 'DELETE FROM staff_role_request'] as $sql) {
+                self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+            }
+            foreach (["UPDATE warehouse SET code = 'X'", 'UPDATE warehouse SET is_system = 0', 'UPDATE warehouse_location SET warehouse_id = 1',
+                'UPDATE staff_role_request SET staff_user_id = 1', "UPDATE staff_role_request SET roles_after = '[]'"] as $sql) {
+                self::assertSame(self::COLUMN_DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
+            }
+        } finally {
+            foreach ($saved as $r) {
+                self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON), provisional = ?, updated_actor = ? WHERE setting_key = ?',
+                    [$r['v'], (int) $r['provisional'], $r['updated_actor'], $r['setting_key']]);
+            }
+            foreach ($rules as $r) {
+                self::$db->exec('UPDATE document_type SET review_rule = ?, review_limit_units = ?, review_due_days = ?, approval_rule = ?, approval_limit_units = ?, '
+                    . 'reject_action = ? WHERE code = ?', [$r['review_rule'], $r['review_limit_units'], $r['review_due_days'], $r['approval_rule'],
+                        $r['approval_limit_units'], $r['reject_action'], $r['code']]);
+            }
+            self::$db->exec("DELETE FROM reason_code WHERE code = 'seal'");
         }
     }
 

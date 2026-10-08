@@ -301,9 +301,14 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe());
         $xp = new \DOMXPath($page->dom());
         // Plan F418-F424: plain names by topic, "Not agreed yet", no decision numbers, no server command, one card per setting on a phone.
-        self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM app_setting'), $xp->query('//table[contains(@class, "settings")]/tbody/tr')->length);
-        self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM app_setting WHERE provisional = 1'),
+        // The approval rules have their own page since 0019 (Y9): one place for one thing.
+        $rules = [...array_keys(\CW\Admin\ApprovalRules::SWITCHES), ...array_keys(\CW\Admin\ApprovalRules::NUMBERS)];
+        $in = implode(', ', array_fill(0, count($rules), '?'));
+        self::assertSame((int) self::$db->value("SELECT COUNT(*) FROM app_setting WHERE setting_key NOT IN ({$in})", $rules),
+            $xp->query('//table[contains(@class, "settings")]/tbody/tr')->length);
+        self::assertSame((int) self::$db->value("SELECT COUNT(*) FROM app_setting WHERE provisional = 1 AND setting_key NOT IN ({$in})", $rules),
             $xp->query('//table[contains(@class, "settings")]//span[contains(@class, "chip") and text()="Not agreed yet"]')->length);
+        self::assertSame(0, $xp->query('//table[contains(@class, "settings")]//code[. = "suppliers.approval_due_days"]')->length);
         self::assertSame($xp->query('//table[contains(@class, "settings")]')->length, $xp->query('//table[contains(@class, "settings") and contains(@class, "stack")]')->length);
         self::assertStringNotContainsString('company.legal_name', $page->text(), 'the company details have their own screen since 0013 (I91)');
         self::assertStringContainsString('Company details Our name, numbers and addresses, printed on every purchase order. Not confirmed', $page->text());
@@ -312,7 +317,8 @@ final class SupplierScreensTest extends KernelUiTestCase
             'string(//table[contains(@class, "settings")]/tbody/tr[th/small/code = "' . $key . '"])')));
         self::assertStringStartsWith('Copy CW costs to the websites costs.site_writeback Not agreed yet No Write the warehouse average cost', $row('costs.site_writeback'));
         self::assertStringContainsString('When CW was set up', $row('costs.site_writeback'));
-        self::assertStringStartsWith('Days a reviewer has to approve a supplier suppliers.approval_due_days Not agreed yet 3 ', $row('suppliers.approval_due_days'));
+        self::assertStringStartsWith(Words::settingName('reorder.default_safety_days') . ' reorder.default_safety_days Not agreed yet 5 ',
+            $row('reorder.default_safety_days'));
         foreach (['bin/settings.php', 'provisional', 'decision', 'Phase', 'UTC'] as $gone) {
             self::assertStringNotContainsString($gone, $page->text());
         }
@@ -322,8 +328,9 @@ final class SupplierScreensTest extends KernelUiTestCase
             . 'If the reviewer says not OK, the order stays and the buyer cancels or corrects it.', $po);
         self::assertSame(6, $xp->query('//table[contains(@class, "vat")]/tbody/tr')->length);
         self::assertStringContainsString('Reverse charge', $page->text());
-        self::assertSame(['/ui/reference/reasons', '/ui/reference/series'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array($xp->query('//p[@class="see-also"]/a'))), 'the two lists are reached from here (F424)');
+        self::assertSame(['/ui/reference/reasons', '/ui/reference/series', '/ui/reference/approvals', '/ui/reference/warehouses', '/ui/reference/access'],
+            array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//p[@class="see-also"]/a'))),
+            'the two lists are reached from here (F424), and since 0019 the approval rules, the warehouses and who can do what');
     }
 
     public function testEvidenceUploads(): void

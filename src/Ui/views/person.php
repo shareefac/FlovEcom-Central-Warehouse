@@ -14,6 +14,21 @@
   <?= $explain('admin_off', \CW\Ui\Words::UI['off']) ?>
 </div>
 <?php endif; ?>
+<?php if ($request !== null): ?>
+<div class="alert waiting person-request" role="note">
+  <p class="alert-title"><?= $say('STAFF', 'request_waiting', $jobs($request['after']), (string) ($request['requested_by_name'] ?? ''), \CW\Ui\Html::when($request['requested_at'])) ?></p>
+<?php if ($canManage): ?>
+  <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/request/withdraw') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="request" value="<?= $e($request['id']) ?>">
+    <button type="submit"><?= $word('STAFF', 'request_withdraw') ?></button>
+  </form>
+<?php endif; ?>
+</div>
+<?php endif; ?>
+<?php if ($setup !== null): ?>
+<p class="note"><?php if ($setup['open']): ?><?= $say('STAFF', 'setup_open', \CW\Ui\Html::when($setup['until'])) ?><?php else: ?><?= $say('STAFF', 'setup_over', \CW\Ui\Html::when($setup['until'])) ?><?php endif; ?></p>
+<?php endif; ?>
 <dl class="wide">
   <dt><?= $word('STAFF', 'email') ?></dt><dd><?= $e($person['email'] ?? '') ?></dd>
   <dt><?= $word('STAFF', 'jobs') ?></dt><dd><?= $jobs($roles) ?></dd>
@@ -73,8 +88,69 @@
 <?php endif; ?>
   </form>
 <?php endif; ?>
+<?php if (!$placeholder): ?>
+  <div class="head-help">
+    <h3><?= $word('STAFF', 'new_code') ?></h3>
+    <?= $explain('sign_up', \CW\Ui\Words::STAFF['new_code']) ?>
+  </div>
+  <p class="muted"><?= $word('STAFF', 'new_code_text') ?></p>
+  <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/authenticator') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('STAFF', 'new_code_confirm') ?></label>
+    <button type="submit" class="danger"><?= $word('STAFF', 'new_code') ?></button>
+  </form>
+  <h3><?= $word('STAFF', 'new_password') ?></h3>
+  <p class="muted"><?= $word('STAFF', 'new_password_text') ?></p>
+  <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/password') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('STAFF', 'new_password_confirm') ?></label>
+    <button type="submit" class="danger"><?= $word('STAFF', 'new_password') ?></button>
+  </form>
+<?php endif; ?>
 </section>
 <?php endif; ?>
+
+<section aria-labelledby="devices-h">
+  <h2 id="devices-h"><?= $word('STAFF', 'devices') ?></h2>
+<?php if ($devices === []): ?>
+  <p class="muted"><?= $word('STAFF', 'person_devices_none') ?></p>
+<?php else: ?>
+  <div class="table-wrap">
+  <table class="stack list devices">
+    <thead>
+      <tr>
+        <th scope="col"><?= $word('STAFF', 'device_since') ?></th>
+        <th scope="col"><?= $word('STAFF', 'device_seen') ?></th>
+        <th scope="col"><?= $word('STAFF', 'device_from') ?></th>
+<?php if ($canManage): ?>
+        <th scope="col"><span class="visually-hidden"><?= $word('STAFF', 'sign_out_device') ?></span></th>
+<?php endif; ?>
+      </tr>
+    </thead>
+    <tbody>
+<?php foreach ($devices as $d): ?>
+      <tr>
+        <th scope="row" class="c-head"><?= $when($d['created_at']) ?></th>
+        <td data-label="<?= $word('STAFF', 'device_seen') ?>"><?= $when($d['last_seen_at']) ?></td>
+        <td data-label="<?= $word('STAFF', 'device_from') ?>"><code><?= $e($d['ip'] ?? '') ?></code></td>
+<?php if ($canManage): ?>
+        <td class="c-next"><form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/sign-out') ?>"><input type="hidden" name="csrf" value="<?= $e($csrf) ?>"><input type="hidden" name="session" value="<?= $e($d['handle']) ?>"><button type="submit"><?= $word('STAFF', 'sign_out_device') ?></button></form></td>
+<?php endif; ?>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+<?php if ($canManage): ?>
+  <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/sign-out') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="session" value="all">
+    <button type="submit" class="danger"><?= $word('STAFF', 'sign_out_all') ?></button>
+    <span class="muted"><?= $word('STAFF', 'sign_out_all_note') ?></span>
+  </form>
+<?php endif; ?>
+<?php endif; ?>
+</section>
 
 <section aria-labelledby="history-h">
   <h2 id="history-h"><?= $word('STAFF', 'history') ?></h2>

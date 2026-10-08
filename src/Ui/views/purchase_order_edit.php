@@ -181,7 +181,7 @@
       <button type="submit" name="action" value="approve" class="primary btn big"><span class="btn-title"><?php if ($overLimit): ?><?= $word('PO', 'confirm_over_limit') ?><?php else: ?><?= $word('ORDER', 'confirm_draft') ?><?php endif; ?></span>
         <span class="sub"><?php if ($overLimit): ?><?= $word('ORDER', 'confirm_over_does') ?><?php else: ?><?= $word('ORDER', 'confirm_does') ?><?php endif; ?></span></button>
     </div>
-    <p class="hint"><?php if ($overLimit): ?><?= $word('PO', 'confirm_over_limit_note') ?> <?= $say('ORDER', 'confirm_note_under', $limit) ?><?php else: ?><?= $word('ORDER', 'confirm_note') ?> <?= $say('ORDER', 'confirm_note_limit', $limit) ?><?php endif; ?></p>
+    <p class="hint"><?php if ($overLimit): ?><?= $word('PO', 'confirm_over_limit_note') ?> <?= $say('ORDER', 'confirm_note_under', $limit) ?><?php else: ?><?= $word('ORDER', 'confirm_note') ?><?php if ($limit !== null): ?> <?= $say('ORDER', 'confirm_note_limit', $limit) ?><?php endif; ?><?php endif; ?></p>
   </section>
 </form>
 

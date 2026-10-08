@@ -8,6 +8,7 @@
         "ext-json": "*",
         "ext-pdo": "*",
         "ext-pdo_mysql": "*",
+        "bacon/bacon-qr-code": "^3.1",
         "openspout/openspout": "^4.32",
         "setasign/fpdf": "1.8.2"
     },

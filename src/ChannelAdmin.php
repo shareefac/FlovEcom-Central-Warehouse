@@ -191,6 +191,47 @@ final class ChannelAdmin
         });
     }
 
+    /**
+     * Moves a website to another sellable warehouse (bin/channel_set.php --warehouse; G05, docs/decisions.md Y31): every listing of the
+     * site then sells from it, so the feed tells the site to re-snapshot (Stock::assignSellableWarehouse, audited channel.warehouse
+     * through its idempotency row, plus channel.warehouse_move {from, to, by}). A dry run ($apply false) only reads and reports. The
+     * target must exist, be sellable and switched on (0019); moving to where it sells now changes nothing.
+     *
+     * @return array{code: string, from: ?string, to: string, changed: bool, applied: bool, warnings: list<string>}
+     */
+    public function moveWarehouse(string $code, string $warehouseCode, string $actor, bool $apply): array
+    {
+        $actor = trim($actor);
+        if ($actor === '' || strlen($actor) > 64 || preg_match('/^[\x20-\x7e]+$/', $actor) !== 1) {
+            throw new CwException('bad_actor', 'the actor must be 1-64 printable characters', 400);
+        }
+        $c = $this->db->one('SELECT c.id, CAST(c.mode AS CHAR) AS mode, w.code AS wh FROM channel c LEFT JOIN channel_warehouse cw ON cw.channel_id = c.id AND cw.is_sellable = 1 '
+            . 'LEFT JOIN warehouse w ON w.id = cw.warehouse_id WHERE c.code = ?', [$code]) ?? throw new CwException('unknown_channel', "no channel {$code}", 404);
+        $to = $this->db->one('SELECT id, code, is_sellable, is_active FROM warehouse WHERE code = ?', [strtoupper(trim($warehouseCode))])
+            ?? throw new CwException('unknown_warehouse', "no warehouse {$warehouseCode}", 404);
+        if ((int) $to['is_sellable'] !== 1) {
+            throw new CwException('not_sellable', "warehouse {$to['code']} is not sellable (the Warehouses page changes that, with a confirmation)", 422);
+        }
+        if ((int) $to['is_active'] !== 1) {
+            throw new CwException('warehouse_off', "warehouse {$to['code']} is switched off", 422);
+        }
+        $from = $c['wh'] === null ? null : (string) $c['wh'];
+        $out = ['code' => $code, 'from' => $from, 'to' => (string) $to['code'], 'changed' => $from !== (string) $to['code'], 'applied' => false, 'warnings' => []];
+        if ($out['changed'] && (string) $c['mode'] !== 'off') {
+            $out['warnings'][] = "the site is {$c['mode']}: every listing of it sells from {$to['code']} from its next feed poll (it re-snapshots)";
+        }
+        if (!$apply || !$out['changed']) {
+            return $out;
+        }
+        $r = (new Stock($this->db))->assignSellableWarehouse(Caller::system('channel_admin'), (int) $c['id'], (string) $to['code'], 'channel_set:warehouse:' . bin2hex(random_bytes(12)));
+        if ($r->status !== 200) {
+            throw new CwException((string) ($r->body['error'] ?? 'refused'), (string) ($r->body['message'] ?? 'the move was refused'), $r->status);
+        }
+        Audit::write($this->db, Caller::system('channel_admin'), 'channel.warehouse_move', 'channel', $code, null, ['from' => $from, 'to' => $to['code'], 'by' => $actor]);
+        $out['applied'] = true;
+        return $out;
+    }
+
     /** @param list<string> $ips @return list<string> */
     private static function sorted(array $ips): array
     {

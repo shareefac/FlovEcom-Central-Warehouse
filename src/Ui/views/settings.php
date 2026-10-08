@@ -1,6 +1,6 @@
 <h1><?= $word('MENU', 'settings') ?></h1>
-<?= $intro('settings') ?>
-<p class="see-also"><a href="/ui/reference/reasons"><?= $word('PAGE_TITLE', 'reasons') ?></a> <a href="/ui/reference/series"><?= $word('PAGE_TITLE', 'series') ?></a></p>
+<?= $intro('settings', $lookOnly) ?>
+<p class="see-also"><a href="/ui/reference/reasons"><?= $word('PAGE_TITLE', 'reasons') ?></a> <a href="/ui/reference/series"><?= $word('PAGE_TITLE', 'series') ?></a> <a href="/ui/reference/approvals"><?= $word('MENU', 'approvals') ?></a> <a href="/ui/reference/warehouses"><?= $word('MENU', 'warehouses') ?></a> <a href="/ui/reference/access"><?= $word('PAGE_TITLE', 'access') ?></a></p>
 <section class="card company-summary<?php if (!$company['confirmed']): ?> waiting<?php endif; ?>" aria-labelledby="company-h">
   <h2 id="company-h"><?= $word('MENU', 'company') ?></h2>
   <p><?= $word('SETTINGS_PAGE', 'company_text') ?><?php if ($company['legal_name'] !== ''): ?>: <strong><?= $e($company['legal_name']) ?></strong><?php endif; ?>.
@@ -30,7 +30,7 @@
   <tbody>
 <?php foreach ($rows as $s): ?>
     <tr class="<?php if ($s['agreed']): ?>done<?php else: ?>needs<?php endif; ?>">
-      <th scope="row" class="c-head"><?= $e($s['name']) ?> <small class="muted"><code><?= $e($s['key']) ?></code></small></th>
+      <th scope="row" class="c-head"><a class="o-name" href="<?= $e($s['href']) ?>"><?= $e($s['name']) ?></a> <small class="muted"><code><?= $e($s['key']) ?></code></small></th>
       <td class="c-status"><?php if ($s['agreed']): ?><?= $chip('done', \CW\Ui\Words::SETTINGS_PAGE['agreed']) ?><?php else: ?><?= $chip('needs', \CW\Ui\Words::SETTINGS_PAGE['not_agreed']) ?><?php endif; ?></td>
       <td data-label="<?= $word('SETTINGS_PAGE', 'value') ?>" class="pre"><?php if ($s['value'] === null): ?><span class="muted"><?= $word('SETTINGS_PAGE', 'not_set') ?></span><?php else: ?><?= $e($s['value']) ?><?php endif; ?></td>
       <td data-label="<?= $word('SETTINGS_PAGE', 'what') ?>"><?= $e($s['help']) ?></td>
@@ -46,7 +46,7 @@
   <h2><?= $word('SETTINGS_PAGE', 'rules') ?></h2>
   <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
 </div>
-<p class="muted"><?= $word('SETTINGS_PAGE', 'rules_text') ?></p>
+<p class="muted"><?= $word('SETTINGS_PAGE', 'rules_text') ?> <?= $word('SETTINGS_PAGE', 'approval_rules_text') ?> <a href="/ui/reference/approvals"><?= $word('MENU', 'approvals') ?></a></p>
 <ul class="plain rules-list">
 <?php foreach ($rules as $r): ?>
   <li><strong><?= $e($r['name']) ?>:</strong> <?= $e($r['review']) ?><?php if ($r['approval'] !== null): ?> <?= $e($r['approval']) ?><?php endif; ?> <?= $e($r['reject']) ?></li>

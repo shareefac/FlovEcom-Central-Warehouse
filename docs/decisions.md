@@ -6271,3 +6271,202 @@ Tests changed: `SellingModeScreenTest` (a live channel with the writer off, a sh
 "Stock link on"), `ReceivingScreensTest` (the bench refuses the paperwork first: the desk's refused card and filter, the bench card stops counting
 it; "Find a line" without the number keypad; the scan question in the product's name), `HomeTasksTest::testTheDeliveryCards` (the refused card,
 its place and link). Not checked in a real browser (none on this box or on staging): ops.md's list, with U92's two checks added.
+
+## The set-it-yourself pack (slot `set1`, 8 Oct 2026)
+
+The owner's rule of 8 Oct 2026: **no hard-coding** — every rule, number, limit, list and choice they named is changed by them on a CW
+screen, with an audit trail. Matrix items G01-G07, G36, G37. Code: `migrations/0019_set_it_yourself.sql`, `src/Admin/{ConfigHistory,
+ConfigInvariants,DocumentRules,ReasonCodes,Warehouses,ApprovalRules,Sites,AuditSearch}.php` (new), `src/Staff/{Enrolment,RoleRequests,
+StaffSessions}.php` (new), `src/Ops/IntegrityRuns.php`, `src/Output/QrCode.php` (new), `src/Settings.php` (`change()`, `flag()`,
+`number()`), `src/Staff/StaffAdmin.php` (`enrol()`, `resetAuthenticator()`, `resetPassword()`, `signOut()`), `src/ChannelAdmin.php`
+(`moveWarehouse()`), `src/Suppliers/{Suppliers,SupplierInvariants}.php`, `src/Mapping/{DecisionService,KeySample}.php`,
+`src/Company/CompanyDetails.php`, `src/Documents/Documents.php`, `src/Invariants.php` (`nightly()`), `src/Auth/Permissions.php`,
+`src/Schema/Grants.php`, `src/Ui/{Words,ConfigWords,Kernel,Context,HomeTasks,HomeCounts}.php`, controllers `Settings`, `Approvals`,
+`Reasons`, `Warehouses`, `System`, `Access`, `StaffRequests` (new), `Reference`, `People`, `Auth`; templates `setting`, `config_history`,
+`approvals`, `reason`, `warehouses`, `warehouse`, `sites`, `integrity`, `audit`, `access`, `staff_sheet`, `enrol`, `staff_requests` (new),
+`settings`, `reasons`, `people`, `person`, `login`; `bin/{settings,document_rules,channel_set,invariants}.php`; Composer
+`bacon/bacon-qr-code` ^3.1.
+
+**Y1. Who changes settings, rules and lists: an admin AND a reviewer (`settings.manage`).** The owner (reviewer) and Fazil (admin) are the
+only users who change configuration. The new permission `settings.manage` is held by `admin` and `reviewer`: it changes settings, the
+approval rules, reasons for stock changes, warehouses and their places. **This overrides I12 for settings only**: Admin still never
+posts, reviews, approves or decides stock records or matches; the setting services check `settings.manage` themselves (a staff caller
+without it gets 403 `role_not_allowed`, a website 403 `staff_required`); the server's tools (`bin/settings.php --admin`,
+`bin/document_rules.php --admin`) keep working as before. Three more permissions, all read only: `audit.view` (admin, reviewer, auditor,
+accountant: the audit log), `system.view` (admin, reviewer, auditor, manager: the Websites and Safety checks pages) and `staff.approve`
+(reviewer: the OK of a grant of Admin or Reviewer while the owner has that rule on, Y25). Everyone keeps `reference.view`: they see every
+setting, rule, reason and warehouse, with "You can look; Admins and Reviewers change …".
+
+**Y2. One history for every configuration change (`config_change`) and its nightly checks K1-K3.** Each change of a setting, a reason, a
+kind of record's rules, a warehouse or a place is a numbered version of that subject (`subject_type`, `subject_key`, `version`, `action`,
+`state` = the tracked fields after, `before_state`, `reason`, `actor`, `staff_user_id`, time), append-only. 0019 writes version 1
+(`baseline`, actor `system:migrate`) of every row that existed, with what the schema held then (also a value someone had changed with the
+CLI). A subject without a history (a row added by a later migration) gets its `system:history` baseline the first time it changes. The
+CHECKs: a version after the first has its reason and the row before it; version 1 is a baseline or an add. Optimistic concurrency: every
+form carries the version it was drawn with (`seen`); a change against a newer version is refused (409 `changed_meanwhile`, who and when).
+`Admin\ConfigInvariants` (K1: versions 1..N without gaps; K2: every current row equals its latest version — a change made around the
+history, e.g. by hand in SQL, is named with its before and after; K3: a staff actor matches its `staff_user_id`) runs nightly through
+`Invariants::nightly()` (`bin/invariants.php`), **not** in `Invariants::check()`: the tests change seed rows with admin SQL to set up
+their cases.
+
+**Y3. Grants: least privilege, histories append-only.** cw_app: `config_change` and `integrity_run` SELECT + INSERT; `app_setting`
+SELECT + UPDATE of `value_json`, `provisional`, `updated_actor`, `updated_at` only (never a new or removed setting, never its name, type
+or description: settings come by migration); `document_type` SELECT + UPDATE of its six rule columns only; `reason_code` SELECT + INSERT
++ UPDATE of `label`, `is_active` (never deleted, never a code or a use changed); `warehouse` SELECT + INSERT + UPDATE of `name`,
+`is_sellable`, `is_active`, `stock_owner`, `owner_entity`, `note`, `updated_at`; `warehouse_location` SELECT + INSERT + UPDATE of `name`,
+`is_active`, `note`; `staff_role_request` SELECT + INSERT + UPDATE of its decision columns; nothing is ever deleted. `vat_code` and
+`schema_migrations` stay read only. `Grants::UPDATE_ONLY_COLUMNS` is the new kind (no INSERT, column UPDATE only).
+
+**Y4. A setting on its own page (G01).** Settings and lists → a setting: what it does, its value now, whether the owner agreed it, who
+changed it last, and every change (when, who, from what to what, why). An admin or a reviewer types a new value (a field for its type:
+yes/no, a whole number, a decimal, a date, one line or several), ticks "The owner has agreed this value" or not, and says why (3 to 500
+characters). `Settings::change` checks the permission, the version, the value (`Settings::parse` and `Settings::RULES`: the page shows
+the allowed values in words, e.g. "From 0 to 120.") and records the version and the audit entry `setting.change` (with `version`). A
+refusal keeps what was typed. The approval rules are changed only on the Approval rules page (one place for one thing: their setting page
+looks only, a POST is refused 409); the company details only on their own page (I90). `bin/settings.php` keeps working (it now records a
+version too).
+
+**Y5. `approvals.spot_check_size` (20, 5 to 200).** The size of a Key spot check (`KeySample::minSize`): a smaller sample never
+confirms the rest together. It was the constant 20; the words no longer say 20.
+
+**Y6. `staff.setup_hours` (48, 1 to 336).** How long a person added on the screen has to set up their sign-in at /ui/enrol (Y20), and
+how long a new password window stays open (Y22).
+
+**Y7. The approval switches (`approvals.*`) as settings, seeded as the system worked before.** `approvals.supplier_activation`,
+`approvals.match_multiple`, `approvals.match_counted`, `approvals.company_own_change` on; `approvals.staff_grant` **off** (the owner's
+Q8 answer "leave it for now": extra approvals off by default). With `suppliers.change_review` and `suppliers.approval_due_days` (0009)
+they make `Admin\ApprovalRules::SWITCHES` and `NUMBERS`; each is read from the database on every use (`ApprovalRules::on/number`), and
+a switch missing from an older schema reads as its default. All provisional.
+
+**Y8. `staff.min_reviewers` (2, 1 to 10).** How many people with a working Reviewer job Home asks for (the "reviewers" card): it was
+the constant 2.
+
+**Y9. The Approval rules page (G03).** Settings → Approval rules: every rule that makes work wait for a second person, in one list —
+each kind of record, suppliers, matching, the company details, staff access — with what it does now in a sentence, an On/Off chip, a
+form per rule (an admin or a reviewer; a reason each time) and its history. The two-person rules that are not switches (changing a
+match once the website sells warehouse stock, matching to a product someone said is wrong, a join a Matcher asks for) are listed as
+always on. The page says that other approvals (write-offs over a value, settings changes, warehouse changes) are not built and to ask
+Fazil. While the staff rule is on and nobody else has a working Reviewer job, the page says changes would wait.
+
+**Y10. The rules of each kind of record (`Admin\DocumentRules`).** One service for the screen and `bin/document_rules.php`: the reviewer
+check after a record is final (every one / only over a limit / none) and its days (1 to 120), what Not OK does (cancel with a
+cancellation record / only record it), and the blocking OK first where a kind has one (purchase orders over a net value; stock put back
+without a supplier document). The OK first is switched **off** by setting `approval_rule = 'none'`; its limit is kept, so switching it on
+again restores the same rule. The CLI gains `--approval=on|off` and `--reject=reverse|record`. Audit `document_type.change` with the
+version. The kinds not in use yet keep their rules for when they come ("Not in use yet"). `Documents` reads a kind's rules on
+every use (it kept them for the life of the object before), so a change works at once also in a long-lived process; while the
+purchase orders' OK first is off, the order pages no longer say "over £… a reviewer must OK it" (`ORDERS['how_4_off']`).
+
+**Y11. What each switch does, and the invariants that still hold.** `approvals.supplier_activation` off: a buyer's request makes a
+supplier usable at once, recorded as approved alone (`supplier.approved_alone`, and for an overseas supplier `route_alone`) with the
+version of the switch as evidence (`alone_change_id` → `config_change`, audit `supplier.activate_alone`); a later reviewer approval
+clears the marks. The nightly S2/S3 accept a supplier approved alone only when that version is of this switch, said off, was made before
+the approval (300 s slack for clocks) and was still in force then. `approvals.match_multiple` off: a match where 1 sale is not 1 product
+needs no second matching lead; `approvals.match_counted` off: joining or splitting counted products needs none (the stock is still
+counted again afterwards); `approvals.company_own_change` off: a reviewer's own change of the company details gets no second reviewer's
+check; `approvals.spot_check_size`: Y5. The rules that protect stock and money (a match changed while the website sells warehouse stock,
+ReviewInvolvement, nobody approves their own work) are not switches.
+
+**Y12. Reasons for stock changes (G02).** Settings and lists → Reasons for stock changes: an admin or a reviewer adds a reason (a short
+code of 2 to 32 small letters, digits or _, which never changes; a name; where it is used; which way stock goes; whether it needs a note
+or is a free gift; it goes before "Other"), renames it, switches it off (no longer offered; a record using it cannot be made final;
+records that used it keep it) or on again, each with a reason. A reason CW sets itself (`system_only`, e.g. "Rejected at review") is
+locked. Nothing is ever deleted. Audit `reason.add`, `reason.rename`, `reason.switch_off`, `reason.switch_on`.
+
+**Y14. Warehouses (G04).** Settings → Warehouses: every warehouse with what it holds now (in the building, sold waiting to ship,
+reserved, products with stock), whose stock it is, whether websites sell from it and which, and its places. An admin or a reviewer adds a
+warehouse (a short code that never changes; a name; whose stock; a note), renames it, says whose stock it holds, lets websites sell from
+it or stops that, switches it off or on, each with a reason. Never deleted. MAIN, VERIFY and UNSTAMPED are the system's
+(`warehouse.is_system`): renamed only.
+
+**Y15. Whose stock (`warehouse.stock_owner`: own / other, `owner_entity`).** The owner's "VPG 2" room holds stock owned by another account:
+a warehouse with `stock_owner = 'other'` and the account's name, **never sellable** (a CHECK). It moves into our stock later with a sales
+or release invoice (not built: Phase I-4). A sellable warehouse cannot be given to another account (409 `sellable_warehouse`).
+
+**Y16. Switching a warehouse off.** Only an empty one: no stock (on hand, allocated or held), no website assigned, no record waiting
+(draft or awaiting approval) that names it, no open recount; the refusal names what is left. A switched-off warehouse is refused for a new
+record (422 `warehouse_inactive` in `Documents`). A system warehouse is never switched off (a CHECK).
+
+**Y17. Letting websites sell from a warehouse needs a confirmation tick.** "Yes, websites may sell from this warehouse" (or "may no
+longer"): the change is refused without it (422 `confirm_needed` / `unconfirmed`), and while a website uses the warehouse (409
+`warehouse_in_use`, naming them). Pointing a website at a warehouse stays a server step (Y31).
+
+**Y18. Places inside a warehouse (`warehouse_location`), optional.** A shelf or a room (code `A-01`, `OVERFLOW`), added, renamed, switched
+off (refused while a record that is not final names it) and on, each with a reason; nothing ever asks for a place and stock is not split
+by place. `document_line.location_id` exists (nullable) for later; no screen writes it yet.
+
+**Y19. VPG 2 and the overflow room are not seeded.** 0019 creates no warehouse: the page's tip tells the owner to add the VPG 2 room as
+"Another account's stock" and the overflow room as a place inside the main warehouse (the owner's rooms are their decision).
+
+**Y20. A person is added on the screen and sets their own password (G06).** Staff → Staff and access → "Add a staff member" (an admin,
+`staff.manage`): name, e-mail, jobs (the same job rules as before: Admin only with Look only, Accountant, Auditor; never a placeholder
+address). The account has a random password nobody knows and a new sign-in secret, and `setup_until` = now + `staff.setup_hours`. The
+person scans the QR code, opens /ui/enrol, types their e-mail, the 6 numbers and a new password, and is signed in. Audit `staff.create`
+(`via: screen`, never the secret).
+
+**Y21. The QR code (`bacon/bacon-qr-code` ^3.1, BSD-2-Clause, with `dasprid/enum`).** Only its encoder is used
+(`Output\QrCode::matrix`, error correction M); the page draws the matrix as a grid of HTML elements styled black on white (no image,
+no SVG, no `data:` URI: the CSP and staging's missing gd). The secret is shown once, in the answer to the POST only (the setup key beside
+it, `Cache-Control: no-store` as every page); it is never stored in clear or shown again.
+
+**Y22. A new sign-in code, a new password.** On the person's page (an admin, never their own account, each with a tick): "Make a new
+sign-in code" (lost or new phone: the old code stops, they are signed out everywhere, the sheet shows the new QR code once; someone who
+never finished setting up gets a fresh window) and "Let them choose a new password" (the old password stops, they are signed out
+everywhere, and they choose a new one at /ui/enrol within `staff.setup_hours`). No password is ever shown in a browser. Audit
+`staff.reset` (`via: screen`).
+
+**Y23. Who is signed in, and signing a device out.** Staff and access lists every live session (person, since, last active, address);
+the person's page lists theirs. An admin signs one device out (by a 16-character handle of the session id, never the id) or a person out
+everywhere; never their own session here (they use their own Sign out). Audit `staff.sign_out`.
+
+**Y24. /ui/enrol: the same protection as the sign-in.** A public page with the pre-login token; the throttle per account and per address
+(`LoginLimiter`, a wrong code counts); a code used once; one answer for every failure (unknown e-mail, an account not waiting to set up,
+an expired window, a wrong code); the new password's own rules first (no attempt counted for a typo). Audit `staff.setup` /
+`staff.setup_fail`. The sign-in page links to it.
+
+**Y25. Giving someone Admin or Reviewer waits for a reviewer while `approvals.staff_grant` is on (off by default).** The admin's change
+(or a new person's Admin/Reviewer jobs) becomes a request (`staff_role_request`, one open per person); the person keeps their other jobs
+now. A reviewer with a working job who is neither the person nor the requester says OK (the grant is made with the requester as
+`granted_by`) or Not OK with a reason; a request whose person's jobs changed meanwhile is withdrawn as stale; the admin can withdraw it.
+Reviewers get a Home card and the "Staff access to OK" page. Audit `staff.role_request`, `staff.roles` (`request`, `requested_by`,
+`approved_by`).
+
+**Y30. The Websites page (G05), read only.** Settings → Websites (`system.view`): each website's mode in CW and the mode it reports, a
+mismatch, last contact (and "No contact for …" when it should be calling), its queue to CW and failed items, how far it is behind CW's
+stock changes, the warehouse it sells from, the stock writer. Changing a website stays on the server (mode, writer, allowed addresses,
+key, warehouse): the page shows Fazil the exact `bin/` commands in its folded technical details only.
+
+**Y31. `bin/channel_set.php --warehouse=CODE`.** Moves a website to another sellable, switched-on warehouse (dry run unless `--apply`;
+alone, not with other changes; warns unless the website is off; audit `channel.warehouse_move`).
+
+**Y32. The audit log (G07), read only.** Settings → Audit log (`audit.view`): search by day (from/to, the last 7 days by default, at most
+366), person, CW's own jobs or the websites, kind of record and its number, what was done (a kind or one action); newest first, 100 a page;
+each entry in words. "Download as a spreadsheet" gives the same search as CSV (formula-safe, at most 20,000 rows; times in UTC as stored,
+the column says so).
+
+**Y33. The nightly safety check on screen (G36).** `bin/invariants.php` records each run in `integrity_run` (when, ok, how many problems,
+the first 200 as text, figures; append-only; `run_by system:invariants`) and now runs K1-K3 too. Settings → Safety checks
+(`system.view`) shows the last run and earlier ones; Home shows "The nightly safety check found N problems" first (rank 5) when the last run
+failed, and a card when no run finished for 36 hours, to the people with `system.view`.
+
+**Y35. Who can do what (G37).** Settings and lists → Who can do what: the rules that always apply, each job with what it may do, and each
+thing with the jobs that may do it, from `Permissions::MAP` (the one source), in words (`Words::PERMISSION`). Everyone may look.
+
+**Y36. Words and tests.** Every word of the new pages is in `Ui\Words` (new groups `CONFIG`, `CONFIG_ACTION`, `CONFIG_ERROR`,
+`SETTING_EDIT`, `SETTING_NOTICE`, `APPROVALS`, `RULE`, `REASONS_EDIT`, `REASON_NOTICE`, `WAREHOUSES`, `WHY_NOT_EMPTY`, `WAREHOUSE_NOTICE`,
+`MODE`, `SITES`, `SITE_COMMAND`, `INTEGRITY`, `AUDIT`, `AUDIT_RECORD`, `AUDIT_FAMILY`, `AUDIT_ACTION`, `PERMISSION`, `ACCESS`, `ENROL`,
+`SHEET`, `STAFF_REQUESTS`); refusals and notices are full sentences ending "Nothing was saved." where nothing was; no word names a setting
+key or a server command; every table is cards on a phone. Tests: `tests/Unit/SetItYourselfUnitTest.php`, `tests/Integration/Admin/
+{ConfigServices,ApprovalSwitches,AuditSearch}Test.php`, `tests/Integration/Staff/StaffSetUpTest.php`, `tests/Integration/Migration0019Test.php`,
+`tests/Integration/UiKernel/SetItYourselfScreensTest.php`, plus `GrantsTest`, `WordsTest`, `UiTemplatesTest`, `PermissionsTest`,
+`HomeTasksTest`, `ChannelSetToolTest`, `OpsScriptsTest`. `TestDb::clean` keeps 0019's baselines and removes any reason without one.
+
+**Y37. Provisional (the owner to confirm).** The permission sets of Y1 (`audit.view` for the accountant; `system.view` for the auditor and
+the manager); the defaults of Y5-Y8 and the switches of Y7; the 300-second clock slack of Y11; the set-up window of 48 hours; the
+"empty" test of Y16; the CSV cap of 20,000 rows and the 366-day window; the 36 hours before "the check has not run"; the wording of every
+new page.
+
+**Y38. Open issues (not built).** The stock API (`Movements`) does not refuse a switched-off warehouse yet (only new records do); a
+warehouse switched off at the same moment as a delivery is booked into it is not locked against that race; places are not used by any
+record yet; the sign-in limits, session lengths and the set-up of the first admin stay constants or server tools; the release invoice
+that moves VPG 2 stock into ours is Phase I-4; nobody checked the pages in a browser yet.

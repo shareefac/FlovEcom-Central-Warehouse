@@ -12,6 +12,8 @@ use CW\ConfigException;
 use CW\CwException;
 use CW\Db;
 use CW\Ops\TestRefPurge;
+use CW\Ui\Controller\AccessController;
+use CW\Ui\Controller\ApprovalsController;
 use CW\Ui\Controller\AuthController;
 use CW\Ui\Controller\BarcodesController;
 use CW\Ui\Controller\CompanyController;
@@ -24,6 +26,7 @@ use CW\Ui\Controller\ItemCardsController;
 use CW\Ui\Controller\ItemController;
 use CW\Ui\Controller\PeopleController;
 use CW\Ui\Controller\PurchaseOrdersController;
+use CW\Ui\Controller\ReasonsController;
 use CW\Ui\Controller\ReceivingController;
 use CW\Ui\Controller\ReferenceController;
 use CW\Ui\Controller\ReorderController;
@@ -33,8 +36,12 @@ use CW\Ui\Controller\SalesHistoryController;
 use CW\Ui\Controller\SamplesController;
 use CW\Ui\Controller\SearchController;
 use CW\Ui\Controller\SellingModeController;
+use CW\Ui\Controller\SettingsController;
+use CW\Ui\Controller\StaffRequestsController;
 use CW\Ui\Controller\SupplierItemsController;
 use CW\Ui\Controller\SuppliersController;
+use CW\Ui\Controller\SystemController;
+use CW\Ui\Controller\WarehousesController;
 
 /**
  * The /ui staff screens (plan §7.1, §11): one request in, one HTML page out.
@@ -346,6 +353,9 @@ final class Kernel
         // The sign-out address opened from the history or a bookmark (behaviour item 2, F043): never signs anybody out (a GET
         // could be sent by any page); signed in it leads Home, signed out to the sign-in page.
         $r->add('GET', '/ui/logout', Route::PUBLIC, $auth->signedOut(...));
+        // A person sets their own password with their phone's code (G06, Y20, Y22): set up on the screen, or told to choose a new one.
+        $r->add('GET', '/ui/enrol', Route::PUBLIC, $auth->enrolForm(...));
+        $r->add('POST', '/ui/enrol', Route::PUBLIC, $auth->enrol(...));
         $r->add('GET', '/ui/password', Route::ANY, $auth->passwordForm(...));
         $r->add('POST', '/ui/password', Route::ANY, $auth->password(...));
         $r->add('GET', '/ui', Route::ANY, $dash->index(...));
@@ -395,6 +405,18 @@ final class Kernel
         $r->add('POST', '/ui/people/{id}/roles', 'staff.manage', $people->roles(...));
         $r->add('POST', '/ui/people/{id}/active', 'staff.manage', $people->active(...));
         $r->add('GET', '/ui/people.csv', 'staff.view', $people->csv(...));
+        // The set-it-yourself pack (G06, Y20-Y25): add a person (their QR code once), a new sign-in code, a new password chosen by the
+        // person, signing out one device or all, withdrawing a request for Admin or Reviewer. Only an admin (staff.manage), checked
+        // again by StaffAdmin / RoleRequests; a reviewer decides the requests (staff.approve).
+        $r->add('POST', '/ui/people', 'staff.manage', $people->create(...));
+        $r->add('POST', '/ui/people/{id}/authenticator', 'staff.manage', $people->authenticator(...));
+        $r->add('POST', '/ui/people/{id}/password', 'staff.manage', $people->password(...));
+        $r->add('POST', '/ui/people/{id}/sign-out', 'staff.manage', $people->signOut(...));
+        $r->add('POST', '/ui/people/{id}/request/withdraw', 'staff.manage', $people->withdrawRequest(...));
+        $requests = new StaffRequestsController();
+        $r->add('GET', '/ui/staff-requests', 'staff.approve', $requests->index(...));
+        $r->add('POST', '/ui/staff-requests/{id}/approve', 'staff.approve', $requests->approve(...));
+        $r->add('POST', '/ui/staff-requests/{id}/reject', 'staff.approve', $requests->reject(...));
         // Documents (IM1, I17-I27): the list and pages for documents.view; posting and reversing are checked per type by
         // CW\Documents\Documents (doc.<TYPE>.post), the kind of a review task likewise (documents.review / documents.approve).
         $r->add('GET', '/ui/documents', 'documents.view', $documents->index(...));
@@ -405,10 +427,34 @@ final class Kernel
         $r->add('GET', '/ui/documents/{id}/pdf', 'documents.view', $documents->pdf(...));
         $r->add('POST', '/ui/documents/{id}/reverse', 'documents.view', $documents->reverse(...));
         $r->add('GET', '/ui/files/{id}', 'documents.view', $files->show(...));
-        $r->add('GET', '/ui/reference/reasons', 'reference.view', $reference->reasons(...));
+        // The set-it-yourself pack (0019, Y4-Y19, Y30-Y35): everyone looks at the settings, rules, reasons and warehouses
+        // (reference.view); an admin or a reviewer changes them (settings.manage, checked again by the services). The websites, the
+        // safety checks (system.view) and the audit log (audit.view) are read only.
+        $reasons = new ReasonsController();
+        $r->add('GET', '/ui/reference/reasons', 'reference.view', $reasons->index(...));
+        $r->add('POST', '/ui/reference/reasons', 'settings.manage', $reasons->add(...));
+        $r->add('GET', '/ui/reference/reasons/reason', 'reference.view', $reasons->show(...));
+        $r->add('POST', '/ui/reference/reasons/reason', 'settings.manage', $reasons->change(...));
         $r->add('GET', '/ui/reference/reasons.csv', 'reference.view', $reference->reasonsCsv(...));
         $r->add('GET', '/ui/reference/series', 'reference.view', $reference->series(...));
         $r->add('GET', '/ui/reference/settings', 'reference.view', $reference->settings(...));
+        $setting = new SettingsController();
+        $r->add('GET', '/ui/reference/settings/setting', 'reference.view', $setting->show(...));
+        $r->add('POST', '/ui/reference/settings/setting', 'settings.manage', $setting->save(...));
+        $approvals = new ApprovalsController();
+        $r->add('GET', '/ui/reference/approvals', 'reference.view', $approvals->index(...));
+        $r->add('POST', '/ui/reference/approvals', 'settings.manage', $approvals->save(...));
+        $warehouses = new WarehousesController();
+        $r->add('GET', '/ui/reference/warehouses', 'reference.view', $warehouses->index(...));
+        $r->add('POST', '/ui/reference/warehouses', 'settings.manage', $warehouses->add(...));
+        $r->add('GET', '/ui/reference/warehouses/{id}', 'reference.view', $warehouses->show(...));
+        $r->add('POST', '/ui/reference/warehouses/{id}', 'settings.manage', $warehouses->change(...));
+        $r->add('GET', '/ui/reference/access', 'reference.view', (new AccessController())->index(...));
+        $system = new SystemController();
+        $r->add('GET', '/ui/system/sites', 'system.view', $system->sites(...));
+        $r->add('GET', '/ui/system/checks', 'system.view', $system->checks(...));
+        $r->add('GET', '/ui/system/audit', 'audit.view', $system->audit(...));
+        $r->add('GET', '/ui/system/audit.csv', 'audit.view', $system->auditCsv(...));
         // The company details printed on POs (I90-I99): everyone reads; company.edit saves, company.confirm confirms and decides a
         // review of another reviewer's change (reviewer today, never admin; checked again by CW\Company\CompanyDetails).
         $company = new CompanyController();

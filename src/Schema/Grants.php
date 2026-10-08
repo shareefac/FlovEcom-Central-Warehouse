@@ -44,10 +44,14 @@ final class Grants
      * the nightly invariants compare it with its last log row (G6).
      * item_channel_mode_log: every write of an item's selling mode on one site (0018, IM10, I151): the app login may UPDATE
      * item_channel_mode, so the nightly invariants compare it with its last log row (W1).
+     * config_change: the history of every configuration row the screens change (0019, Y2): the app login may UPDATE some columns of
+     * app_setting, document_type, reason_code and warehouse, so the nightly check compares each with its latest version (K1-K3).
+     * integrity_run: one row per nightly check (0019, Y33): what the Safety checks page shows is never rewritten.
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
         'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
-        'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change', 'grn_posting', 'item_selling_mode_log', 'item_channel_mode_log'];
+        'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change', 'grn_posting', 'item_selling_mode_log', 'item_channel_mode_log',
+        'config_change', 'integrity_run'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -73,13 +77,25 @@ final class Grants
             'cancel_reason', 'review_state'],
         'barcode_review' => ['status', 'decision', 'decided_units', 'decided_by', 'decided_actor', 'decided_at', 'note'],
         'incident' => ['status', 'resolution', 'resolved_by', 'resolved_actor', 'resolved_at'],
+        'reason_code' => ['label', 'is_active'],
+        'warehouse' => ['name', 'is_sellable', 'is_active', 'stock_owner', 'owner_entity', 'note', 'updated_at'],
+        'warehouse_location' => ['name', 'is_active', 'note'],
+        'staff_role_request' => ['state', 'decided_by', 'decided_at', 'decision_note'],
     ];
     /**
-     * reason_code / document_type: seeded reference lists, changed only by a migration (I22, I19). app_setting: changed by
-     * bin/settings.php with the admin login (I38; the company details moved to company_profile in 0013, I91); vat_code: by a
-     * migration (I-2).
+     * Tables the app login reads and may only UPDATE in the listed columns: no INSERT and no DELETE (0019, Y3). A setting's value
+     * and whether the owner agreed it (rows come by migration only); a document type's review and approval rules (the types come by
+     * migration). Every change writes its config_change version in the same transaction (Admin\ConfigHistory).
      */
-    public const READ_ONLY = ['schema_migrations', 'reason_code', 'document_type', 'app_setting', 'vat_code'];
+    public const UPDATE_ONLY_COLUMNS = [
+        'app_setting' => ['value_json', 'provisional', 'updated_actor', 'updated_at'],
+        'document_type' => ['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action'],
+    ];
+    /**
+     * vat_code: changed by a migration (I-2). reason_code, document_type and app_setting were read-only until 0019: the screens
+     * change them now (Y3: reason_code in UPDATE_COLUMNS, the other two in UPDATE_ONLY_COLUMNS).
+     */
+    public const READ_ONLY = ['schema_migrations', 'vat_code'];
     /**
      * Rows the app never deletes: a listing (reservation_unit.listing_id has no FK, so deleting a listing
      * that only ever sold while unlinked would orphan its holding-ledger units), an item (merged, never
@@ -103,7 +119,7 @@ final class Grants
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */
     public static function desired(string $table): array
     {
-        if (in_array($table, self::READ_ONLY, true)) {
+        if (in_array($table, self::READ_ONLY, true) || isset(self::UPDATE_ONLY_COLUMNS[$table])) {
             return ['Select'];
         }
         if (in_array($table, self::APPEND_ONLY, true) || isset(self::UPDATE_COLUMNS[$table])) {
@@ -119,7 +135,7 @@ final class Grants
     public static function desiredColumns(string $table): array
     {
         $out = [];
-        foreach (self::UPDATE_COLUMNS[$table] ?? [] as $column) {
+        foreach (self::UPDATE_COLUMNS[$table] ?? self::UPDATE_ONLY_COLUMNS[$table] ?? [] as $column) {
             $out[$column] = ['Update'];
         }
         return $out;

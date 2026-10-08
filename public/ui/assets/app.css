@@ -1090,3 +1090,29 @@ form.selling-mode-form .btn.big { width: auto; }
   table.grn-lines select, table.grn-lines input.short, table.grn-lines input[type="text"] { width: 100%; max-width: none; }
   form.grn-editor fieldset.scan input[type="search"] { min-width: 0; width: 100%; }
 }
+
+/* ---------- 19. The set-it-yourself pack: rules, warehouses, websites, checks, the audit log, who can do what, the sign-up QR code ---------- */
+article.card.rule, article.card.site, article.card.request { margin: 0 0 16px; }
+article.card.rule h3, article.card.site h2, article.card.request h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 0; }
+article.card.rule > p { max-width: 75ch; }
+article.card.rule details.fold, article.card.site details.fold { margin-top: 12px; }
+section.rules { margin-bottom: 2rem; }
+.jobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 16px; margin: 0 0 1.5rem; }
+.jobs > section.card { margin: 0; }
+.jobs > section.card.mine { border: 2px solid var(--accent); }
+.jobs h3 { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-top: 0; }
+pre.json { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: .875rem; margin: 0; max-width: 60ch; }
+ul.commands li { margin-bottom: 10px; }
+ul.commands code { display: inline-block; padding: 4px 6px; background: var(--sunk); border-radius: 4px; }
+ul.problems { padding-left: 1.1rem; }
+ul.problems code { font-size: .875rem; }
+.setup-key code { font-size: 1.25rem; letter-spacing: .06em; }
+ol.steps li { margin-bottom: 6px; }
+/* The QR code: one element per module, black on white in every theme (a code app reads dark on light), with its quiet zone. */
+.qr { display: inline-flex; flex-direction: column; background: #fff; padding: 0; margin: 8px 0 12px; line-height: 0;
+  border: 1px solid var(--line); forced-color-adjust: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.qr-row { display: flex; }
+.qr-row i { display: block; width: 5px; height: 5px; background: #fff; }
+.qr-row i.d { background: #000; }
+@media (min-width: 420px) { .qr-row i { width: 6px; height: 6px; } }
+.enrol h1 { margin-bottom: .25rem; }

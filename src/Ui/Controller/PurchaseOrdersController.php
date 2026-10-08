@@ -115,7 +115,9 @@ final class PurchaseOrdersController
             'canPost' => $canPost,
             'lookOnly' => $canPost ? null : Words::whoCan('doc.PO.post'),
             'limit' => self::LIST_LIMIT,
-            'approvalLimit' => Html::money((int) $ctx->documents()->typeInfo('PO')['approval_limit_units']),
+            // null while the owner has the OK first of orders switched off (Approval rules page, 0019, Y10).
+            'approvalLimit' => $ctx->documents()->typeInfo('PO')['approval_rule'] === 'none' ? null
+                : Html::money((int) $ctx->documents()->typeInfo('PO')['approval_limit_units']),
             'error' => $error,
         ], $status, ['title' => Words::MENU['orders'], 'active' => 'orders']);
     }
@@ -555,6 +557,7 @@ final class PurchaseOrdersController
         }
         $type = $docs->typeInfo('PO');
         $limit = (int) $type['approval_limit_units'];
+        $okFirst = $type['approval_rule'] !== 'none'; // the owner may switch the OK first off (Approval rules page, Y10)
         $state = self::stateCode($doc, $po);
         $data = [
             'doc' => $doc,
@@ -572,8 +575,8 @@ final class PurchaseOrdersController
             'state' => $state,
             'warnings' => in_array($doc->status, ['draft', 'awaiting_approval'], true) ? PoWarnings::plain($svc->warnings($doc->id), $supplierName, $products) : [],
             'companyNote' => self::companyNote($ctx, $po),
-            'limit' => Html::money($limit),
-            'overLimit' => $netE2 > 0 && PoMath::approvalUnits($netE2) > $limit,
+            'limit' => $okFirst ? Html::money($limit) : null,
+            'overLimit' => $okFirst && $netE2 > 0 && PoMath::approvalUnits($netE2) > $limit,
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
             // A cancel or correct sent without a reason (behaviour item 6): that form opens again at its list.

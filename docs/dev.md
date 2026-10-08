@@ -92,6 +92,10 @@ and single quotes for strings; `sql_require_primary_key = 1` (every table needs 
    `[$db, $dir] = MigrationFixture::upTo('m6', '0005_listing_barcodes_index.sql')`, insert the rows as they were,
    `MigrationFixture::migrateRest($db, $dir, '0006_value_core.sql')`, assert, `MigrationFixture::drop('m6', $dir)` in tearDown
    (`tests/Integration/Migration0006Test.php`).
+5. A migration that adds a configuration row (a setting, a reason, a document type, a warehouse) also inserts its version 1 into
+   `config_change` (`action = 'baseline'`, `actor = 'system:migrate'`, the row's tracked fields as `ConfigHistory::TRACKED` lists
+   them; see 0019): the nightly K1–K3 then hold, and `TestDb::clean` keeps the row (a reason without a baseline is removed as a
+   test's leftover). Without it the first change on a screen writes a `system:history` baseline itself.
 
 ## The HTTP API on staging (slot `api`)
 
@@ -213,6 +217,11 @@ The rules (plan `/root/cw_work/ui_clarity/plan.md` §7):
     its `detail`) in the UI layer: `Words::ERROR`, a controller's `plain()`; a code without words shows the service's message
     as a sentence followed by "Nothing was saved.". `Document::label()` stays (file names, service messages).
 19. Tests assert words through the `Words` constants, not copied strings, so a wording change edits one place.
+20. No hard-coding (the owner's rule of 8 Oct 2026, `docs/decisions.md` Y1-Y38): a number, limit, list or rule the owner may
+    want to change is a setting (`Settings::RULES` gives its allowed values), a reason, a document rule or an approval switch
+    (`Admin\ApprovalRules`), read where it is used, never a constant; it is changed on its page with a reason (the
+    `config_history` partial shows its versions) and a form carries the version it was drawn with (`seen`). The words never
+    repeat the number ("a spot check of the size on the Approval rules page", not "20").
 
 Words that are provisional until the owner confirms them (band names, "website product" / "warehouse product", "match",
 "Matching lead", "second OK", the staging strip, "Coming later" without dates, the behaviour items) are listed in
@@ -373,10 +382,24 @@ Words that are provisional until the owner confirms them (band names, "website p
 | `src/Ui/Controller/SellingModeController.php`, `views/item.php` (section `#selling-mode`) | the selling-mode switch on the item page, `POST /ui/items/{id}/selling-mode` (`modes.set`) (I158) |
 | `tests/Unit/SiteViewTest.php`, `tests/Integration/SiteWriter/`, `Migration0018Test`, `tests/Integration/UiKernel/SellingModeScreenTest.php` | the rules; the feed (switch, blocks, per-site modes, blocks of the item card, moves, invariants); a receipt's modes on the feed; the schema; the screen |
 | Vape and Go connector 0.4.0 (`App_proto/src/central_warehouse`: `lib/writer.php`, `bin/cw_notify.php`, `sql/cw_connector_v3.sql`, `tests/writer_*_test.php`) | the site's half (SC6–SC14): the worker's `writer` step, the guards H11–H14, the read-only admin fields, EMAIL SAFETY; not committed |
+| `migrations/0019_set_it_yourself.sql` | the set-it-yourself pack (Y1–Y38): `config_change` (every configuration change as a version, baselines of every seeded row), `integrity_run`, `warehouse_location`, `staff_role_request`; warehouse owner/active/system columns; `staff_user.setup_until`; the supplier's approved-alone evidence; the `approvals.*` and `staff.*` settings |
+| `src/Admin/{ConfigHistory,ConfigInvariants}.php` | the history of settings, reasons, document rules, warehouses and places (`record()` inside the change's transaction, `checkSeen()` for the form's version, `authorise()` = `settings.manage`) and its nightly checks K1–K3 (`Invariants::nightly()`) |
+| `src/Admin/{DocumentRules,ReasonCodes,Warehouses,ApprovalRules}.php`, `src/Settings.php` `change()` | the services behind the screens and the CLI: a kind of record's rules, reasons, warehouses and places, the approval switches (`ApprovalRules::on/number`, read live); a setting changed with a reason and a version |
+| `src/Admin/{Sites,AuditSearch}.php`, `src/Ops/IntegrityRuns.php` | read side of the Websites page, the audit log search and CSV, the safety check's runs (written by `bin/invariants.php`) |
+| `src/Staff/{Enrolment,RoleRequests,StaffSessions}.php`, `StaffAdmin::enrol/resetAuthenticator/resetPassword/signOut`, `src/Output/QrCode.php` | adding a person with a QR code, /ui/enrol, the resets, signed-in devices, the staff-grant requests; the QR matrix (`bacon/bacon-qr-code`) |
+| `src/Ui/Controller/{Settings,Approvals,Reasons,Warehouses,System,Access,StaffRequests}Controller.php`, `src/Ui/ConfigWords.php`, views `setting`, `config_history`, `approvals`, `reason(s)`, `warehouse(s)`, `sites`, `integrity`, `audit`, `access`, `staff_sheet`, `enrol`, `staff_requests` | the set-it-yourself screens; `ConfigWords` says a version's who/what in words |
+| `tests/Unit/SetItYourselfUnitTest.php`, `tests/Integration/Admin/`, `tests/Integration/Staff/StaffSetUpTest.php`, `Migration0019Test`, `tests/Integration/UiKernel/SetItYourselfScreensTest.php` | the services, the switches' effects (and S2/S3), the audit search, the staff set-up, the baselines, the screens end to end |
 
 Document and file tests notes:
 - `TestDb::clean()` keeps the seeded `reason_code` and `document_type` rows (a test that changes one restores it) and sets
   every `number_series` back to 0 (pad 6) instead of deleting it.
+- Since 0019 `TestDb::clean()` also keeps 0019's `config_change` baselines (and deletes every other version), and deletes any
+  `reason_code` without a baseline (one a test added, even if it died before its tearDown). A test that changes a setting, a
+  document rule or a seeded warehouse through a service restores the row in tearDown (the history goes with `clean()`).
+  `ConfigInvariants` is not in `Invariants::check()` (asserted after every stock test): a test that wants K1–K3 calls
+  `ConfigInvariants::check()` itself.
+- Composer: `bacon/bacon-qr-code` ^3.1 (with `dasprid/enum`; BSD-2-Clause) draws the sign-up QR code; only its encoder is used
+  (no gd, no imagick: the page draws the matrix as HTML, Y21).
 - A test that books stock with `Movements::bookForDocument` / `reverseDocument` directly must give its document ids real
   posted rows (`FixtureDocuments::posted($db, $id, 'ADJ', $no[, $reversesId])`, numbers 1, 2, ... per type): every
   `StockTestCase` asserts `Invariants::check`, which now includes the document checks D1–D7.

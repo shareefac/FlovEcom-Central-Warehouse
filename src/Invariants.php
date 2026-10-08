@@ -51,10 +51,20 @@ namespace CW;
  *     (CW\SiteWriter\SiteWriterInvariants W1-W2, I163).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
+ *
+ * nightly() (bin/invariants.php, the Safety checks page) adds the configuration checks K1-K3 (Admin\ConfigInvariants, 0019, Y2):
+ * the settings, reason codes, document rules, warehouses and places the screens change, each against its latest history version.
+ * They are not part of check(): tests set a setting or a rule with the admin login for the length of one test.
  */
 final class Invariants
 {
     private const MAX_PER_CHECK = 50;
+
+    /** @return list<string> check() and the configuration checks K1-K3: what the nightly run reports. */
+    public static function nightly(Db $db): array
+    {
+        return [...self::check($db), ...Admin\ConfigInvariants::check($db)];
+    }
 
     /** @return list<string> */
     public static function check(Db $db): array

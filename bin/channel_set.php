@@ -16,8 +16,11 @@ declare(strict_types=1);
  *   php bin/channel_set.php --code=vapeandgo --ips=203.0.113.7,198.51.100.0/24 --apply
  *   php bin/channel_set.php --code=vapeandgo --ips=none --apply                    # empty: every call refused
  *   php bin/channel_set.php --code=vapeandgo --writer=on --actor="Hari" --apply   # CW writes the site's stock, mode, threshold
+ *   php bin/channel_set.php --code=vapeandgo --warehouse=MAIN2 --actor="Hari" --apply   # sell from another sellable warehouse (alone)
  *       [--db=<schema>] [--admin]
  *
+ * --warehouse moves the site to another sellable, switched-on warehouse (ChannelAdmin::moveWarehouse, G05; given alone: no --mode,
+ * --ips or --writer in the same run); every listing of the site then sells from it (the site re-snapshots).
  * --ips REPLACES the allowlist (addresses or CIDR blocks; a /0 block is refused); `none` empties it.
  * --actor names the person behind the change (default: the login running the tool, SUDO_USER first).
  * The site sees a new mode on its next call (X-CW-Channel-Mode). No key is read or printed.
@@ -30,16 +33,17 @@ use CW\Ops\Cli;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-const USAGE = 'usage: php bin/channel_set.php --code=<channel> [--mode=off|shadow|live] [--ips=<a,b/24>|none] [--writer=on|off] [--actor=<who>] [--apply]';
+const USAGE = 'usage: php bin/channel_set.php --code=<channel> [--mode=off|shadow|live] [--ips=<a,b/24>|none] [--writer=on|off] [--actor=<who>] [--apply]'
+    . "\n       php bin/channel_set.php --code=<channel> --warehouse=<CODE> [--actor=<who>] [--apply]";
 
-exit(Cli::main('channel_set', ['code:', 'mode:', 'ips:', 'writer:', 'actor:', 'apply'], USAGE, static function (Cli $cli, array $opts): int {
+exit(Cli::main('channel_set', ['code:', 'mode:', 'ips:', 'writer:', 'warehouse:', 'actor:', 'apply'], USAGE, static function (Cli $cli, array $opts): int {
     // getopt() silently drops "--ips=" and would take the next option as the value of "--ips": refuse both.
     foreach (array_slice($_SERVER['argv'] ?? [], 1) as $arg) {
-        if (in_array($arg, ['--code=', '--mode=', '--ips=', '--writer=', '--actor='], true)) {
+        if (in_array($arg, ['--code=', '--mode=', '--ips=', '--writer=', '--warehouse=', '--actor='], true)) {
             throw new InvalidArgumentException("{$arg} has no value (use --ips=none to empty the allowlist)");
         }
     }
-    foreach (['code', 'mode', 'ips', 'writer', 'actor'] as $k) {
+    foreach (['code', 'mode', 'ips', 'writer', 'warehouse', 'actor'] as $k) {
         $v = $opts[$k] ?? null;
         if (is_array($v)) {
             throw new InvalidArgumentException("--{$k} given more than once");
@@ -68,14 +72,34 @@ exit(Cli::main('channel_set', ['code:', 'mode:', 'ips:', 'writer:', 'actor:', 'a
             default => throw new InvalidArgumentException('--writer is on or off'),
         };
     }
-    if ($mode === null && $ips === null && $writer === null) {
-        throw new InvalidArgumentException('give --mode, --ips, --writer or more; ' . USAGE);
+    $warehouse = is_string($opts['warehouse'] ?? null) ? $opts['warehouse'] : null;
+    if ($warehouse !== null && ($mode !== null || $ips !== null || $writer !== null)) {
+        throw new InvalidArgumentException('give --warehouse alone (no --mode, --ips or --writer in the same run)');
+    }
+    if ($mode === null && $ips === null && $writer === null && $warehouse === null) {
+        throw new InvalidArgumentException('give --mode, --ips, --writer, --warehouse or more; ' . USAGE);
     }
     $actor = $opts['actor'] ?? null;
     if (!is_string($actor)) {
         $actor = getenv('SUDO_USER') ?: (function_exists('posix_getpwuid') ? (posix_getpwuid(posix_geteuid())['name'] ?? '') : '') ?: get_current_user();
     }
     $apply = array_key_exists('apply', $opts);
+    if ($warehouse !== null) {
+        try {
+            $m = (new ChannelAdmin($cli->db))->moveWarehouse($code, $warehouse, (string) $actor, $apply);
+        } catch (CwException $e) {
+            $cli->error($e->getMessage());
+            return Cli::PROBLEM;
+        }
+        $out = ["channel {$m['code']} [{$cli->schema}]", 'warehouse: ' . ($m['from'] ?? '(none)') . ($m['changed'] ? " -> {$m['to']}" : ' (unchanged)')];
+        foreach ($m['warnings'] as $w) {
+            $out[] = "warning: {$w}";
+        }
+        $out[] = !$m['changed'] ? 'nothing to change' : ($m['applied'] ? 'applied by ' . trim((string) $actor) . '; audited: channel.warehouse, channel.warehouse_move'
+            : 'dry run: nothing written; run again with --apply');
+        fwrite(STDOUT, implode("\n", $out) . "\n");
+        return Cli::OK;
+    }
 
     try {
         $r = (new ChannelAdmin($cli->db))->configure($code, $mode, $ips, (string) $actor, $apply, $writer);

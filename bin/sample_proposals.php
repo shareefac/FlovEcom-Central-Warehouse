@@ -58,7 +58,8 @@ exit(Cli::main('sample_proposals', ['name:', 'by:', 'size:', 'apply', 'after-fai
         if (isset($opts['seed'])) {
             throw new InvalidArgumentException('--seed is not taken: the server draws the seed when the sample is stored');
         }
-        $size = Cli::intOpt($opts, 'size', KeySample::DEFAULT_SIZE, KeySample::MIN_SIZE, KeySample::MAX_SIZE);
+        $min = KeySample::minSize($db); // approvals.spot_check_size (the Approval rules page)
+        $size = Cli::intOpt($opts, 'size', $min, $min, KeySample::MAX_SIZE);
         $after = is_string($opts['after-failed'] ?? null) ? array_values(array_filter(array_map('trim', explode(',', $opts['after-failed'])), 'strlen')) : [];
         $apply = array_key_exists('apply', $opts);
         $staff = $db->value('SELECT id FROM staff_user WHERE email = ?', [strtolower($email)]);

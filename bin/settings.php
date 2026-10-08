@@ -9,12 +9,13 @@ declare(strict_types=1);
  *   php bin/settings.php --set=<key> (--value=<v> | --value-file=<path>) --reason="<3..500 characters>" [--confirmed] --admin [--db=<schema>]
  *
  * --list prints one line per setting: key, type, value, [provisional] and the owner decision it implements (the app login
- * can read the table). --set changes one value: the app login has SELECT only on app_setting, so a change needs the admin
- * login (--admin); it is parsed for the setting's type (int, decimal, bool true|false, string one line, text up to 4000
+ * can read the table). --set changes one value; on the server it needs the admin login (--admin: the CLI is the break-glass,
+ * day to day an admin or a reviewer changes settings on the Settings page, docs/decisions.md Y4); it is parsed for the setting's type (int, decimal, bool true|false, string one line, text up to 4000
  * characters with line breaks — give a multi-line text with --value-file —, date YYYY-MM-DD; an empty value clears a
  * string, text, number or date), checked against the key's rule (Settings::RULES), written with updated_actor
- * system:settings and audited setting.change {key, before, after, reason}. --confirmed also records that the owner
- * confirmed the value (the setting is no longer marked provisional).
+ * system:settings, recorded as the setting's next history version (config_change, the Settings page shows it) and audited
+ * setting.change {key, before, after, reason, version}. --confirmed also records that the owner confirmed the value (the setting
+ * is no longer marked provisional).
  *
  * The company details (company.*) are not settings since 0013: a reviewer adds, changes and confirms them on the Company
  * details screen (/ui/reference/company, docs/decisions.md I91), which keeps every version; --set=company.<anything> is
@@ -36,7 +37,7 @@ $usage = 'usage: php bin/settings.php --list | --set=<key> (--value=<v> | --valu
 // Refused before connecting: without --admin the tool would connect as the app login, which may only read settings.
 $pre = getopt('', ['set:', 'admin', 'help']);
 if (is_array($pre) && isset($pre['set']) && !isset($pre['help']) && !array_key_exists('admin', $pre)) {
-    fwrite(STDERR, gmdate('Y-m-d\TH:i:s\Z') . " settings ERROR settings change needs --admin (cw_app has SELECT only)\n");
+    fwrite(STDERR, gmdate('Y-m-d\TH:i:s\Z') . " settings ERROR settings change needs --admin (on the server; staff change settings on the Settings page)\n");
     exit(Cli::PROBLEM);
 }
 

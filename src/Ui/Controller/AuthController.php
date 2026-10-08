@@ -7,6 +7,7 @@ namespace CW\Ui\Controller;
 use CW\Auth\Login;
 use CW\Auth\LoginLimiter;
 use CW\Auth\Sessions;
+use CW\Staff\Enrolment;
 use CW\Ui\Context;
 use CW\Ui\HtmlResponse;
 use CW\Ui\Kernel;
@@ -26,7 +27,7 @@ final class AuthController
     /** The longest page path carried through the sign-in. */
     private const MAX_BACK = 512;
     /** Addresses never returned to: the sign-in pages themselves, and downloads (a file, not a page to land on). */
-    private const NO_BACK = '#^/ui/(login|logout|password)(/|\?|$)|^/ui/(files|assets)/|(\.(csv|pdf|xlsx|css|js)|/pdf)(\?|$)#';
+    private const NO_BACK = '#^/ui/(login|logout|password|enrol)(/|\?|$)|^/ui/(files|assets)/|(\.(csv|pdf|xlsx|css|js)|/pdf)(\?|$)#';
 
     public function loginForm(Context $ctx): HtmlResponse
     {
@@ -139,6 +140,60 @@ final class AuthController
             $error = Words::SIGN_IN['wrong_current'];
         }
         return $ctx->page('password', ['error' => $error], 422, ['title' => Words::title('password'), 'active' => 'password']);
+    }
+
+    /** /ui/enrol (G06, docs/decisions.md Y20, Y22): a person sets their own password with their e-mail and their phone's code. */
+    public function enrolForm(Context $ctx): HtmlResponse
+    {
+        return $this->enrolPage($ctx, '', null, 200);
+    }
+
+    /**
+     * Sets the password and signs the person in (Staff\Enrolment: the throttle and the code as at the sign-in; one answer for every
+     * failure). The new password's own rules are checked first (no attempt is counted for a typo of the password).
+     */
+    public function enrol(Context $ctx): HtmlResponse
+    {
+        $req = $ctx->req;
+        $email = mb_strcut((string) ($req->field('email') ?? ''), 0, 320, 'UTF-8');
+        $code = preg_replace('/\s+/', '', $req->field('code') ?? '') ?? '';
+        $new = $req->field('new') ?? '';
+        $again = $req->field('again') ?? '';
+        $error = null;
+        if (mb_strlen($new) < Login::MIN_PASSWORD) {
+            $error = sprintf(Words::SIGN_IN['too_short'], Login::MIN_PASSWORD);
+        } elseif (mb_strlen($new) > Login::MAX_PASSWORD) {
+            $error = sprintf(Words::SIGN_IN['too_long'], Login::MAX_PASSWORD);
+        } elseif ($new !== $again) {
+            $error = Words::SIGN_IN['mismatch'];
+        } elseif (strcasecmp($new, trim($email)) === 0) {
+            $error = Words::SIGN_IN['email'];
+        }
+        if ($error !== null) {
+            return $this->enrolPage($ctx, $email, $error, 422);
+        }
+        if (strlen($code) > 16) {
+            $code = '';
+        }
+        $result = (new Enrolment($ctx->db, new LoginLimiter($ctx->db), $ctx->secretBox()))
+            ->complete($email, $code, $new, $req->ip, $req->header('user-agent'), $req->cookie(Kernel::SESSION_COOKIE));
+        if ($result['status'] === 'ok' && $result['token'] !== null) {
+            return HtmlResponse::redirect('/ui/')->withCookie(Kernel::SESSION_COOKIE, $result['token'], $req->secure)->withoutCookie(Kernel::PRE_COOKIE, $req->secure);
+        }
+        if ($result['status'] === 'locked') {
+            return $this->enrolPage($ctx, $email, Words::SIGN_IN['locked'], 429)->withHeader('Retry-After', (string) LoginLimiter::WINDOW_SECONDS);
+        }
+        return $this->enrolPage($ctx, $email, Words::ENROL['failed'], 401);
+    }
+
+    private function enrolPage(Context $ctx, string $email, ?string $error, int $status): HtmlResponse
+    {
+        $pre = $ctx->pre;
+        $fresh = $pre === null;
+        $pre ??= rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $res = $ctx->page('enrol', ['error' => $error, 'email' => mb_strcut($email, 0, 191, 'UTF-8'), 'csrf' => $ctx->csrf->forPre($pre), 'min' => Login::MIN_PASSWORD],
+            $status, ['title' => Words::title('enrol')]);
+        return $fresh ? $res->withCookie(Kernel::PRE_COOKIE, $pre, $ctx->req->secure, 3600) : $res;
     }
 
     private function service(Context $ctx): Login

@@ -41,7 +41,9 @@ final class Words
         'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
         'SELLING', 'SELLING_NOTICE', 'SITE_SYNC', 'SELLING_ERROR', 'MODE_MEANING', 'RECEIPT_STATE', 'BENCH_STATE', 'INCIDENT_WHERE',
         'INCIDENT_KIND', 'INCIDENT_STATE', 'RECEIPT_FILE', 'STAMP_TYPE', 'UNSTAMPED_ACTION', 'MODE_SOURCE', 'RECEIVING', 'RECEIPT', 'BENCH', 'INCIDENTS',
-        'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN'];
+        'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN', 'CONFIG', 'CONFIG_ACTION', 'CONFIG_ERROR', 'SETTING_EDIT', 'SETTING_NOTICE',
+        'APPROVALS', 'REASONS_EDIT', 'REASON_NOTICE', 'WAREHOUSES', 'WHY_NOT_EMPTY', 'WAREHOUSE_NOTICE', 'MODE', 'SITES', 'SITE_COMMAND', 'INTEGRITY', 'AUDIT',
+        'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -177,6 +179,11 @@ final class Words
         'people' => 'Staff and access',
         'company' => 'Company details',
         'settings' => 'Settings and lists',
+        'approvals' => 'Approval rules',
+        'warehouses' => 'Warehouses',
+        'sites' => 'Websites',
+        'integrity' => 'Safety checks',
+        'audit' => 'Audit log',
     ];
 
     /** One line under each menu item on Home ("What you can use"). */
@@ -185,7 +192,7 @@ final class Words
         'reviews' => 'Other people\'s work that needs your OK or your check.',
         'review' => 'Match each website product to its warehouse product.',
         'pending' => 'Matches that need a second matching lead before they take effect.',
-        'samples' => '20 random strong matches, checked by one matching lead.',
+        'samples' => 'Random strong matches, checked by one matching lead before the rest are confirmed together.',
         'duplicates' => 'Vape and Go pages that may be the same product.',
         'reorder' => 'What to buy now, worked out from sales.',
         'orders' => 'The orders we send to suppliers.',
@@ -200,6 +207,11 @@ final class Words
         'people' => 'Who can use this system and what they may do.',
         'company' => 'Our name and addresses, printed on every purchase order.',
         'settings' => 'How the system is set up, with the reasons and number lists.',
+        'approvals' => 'Which work waits for a second person, and the limits.',
+        'warehouses' => 'Where stock is kept, whose it is, and what the websites sell from.',
+        'sites' => 'How each website\'s link with the warehouse is doing.',
+        'integrity' => 'The nightly check that stock figures and records agree.',
+        'audit' => 'Everything that was changed, by whom and when.',
     ];
 
     /** The phone tab bar: menu key => short name (Ui\Tabs picks up to four, then "More"). */
@@ -260,6 +272,9 @@ final class Words
         'supplier_new' => 'New supplier',
         'reorder_brands' => 'Brand settings',
         'reorder_anomalies' => 'Days to leave out of sales',
+        'access' => 'Who can do what',
+        'enrol' => 'Set up my sign-in',
+        'staff_requests' => 'Staff access to OK',
     ];
 
     /**
@@ -283,8 +298,8 @@ final class Words
         // The same page when there is nothing for this person to choose (R2 review, 7 Oct): matched already, or another lead's spot check.
         'listing_matched' => ['This website product is matched to a warehouse product.', 'Check the match. The box "Is this the same product?" says what you can do.'],
         'listing_spot' => ['This website product is in a spot check.', 'You can look; only the spot check\'s owner decides it.'],
-        'samples' => ['20 random strong matches that one matching lead checks.', 'If all 20 are right, the rest are confirmed together.'],
-        'sample' => ['One spot check of 20 strong matches.', 'Open each one and say yes only if it is right. The button below opens the next one.'],
+        'samples' => ['Random strong matches that one matching lead checks.', 'If all of them are right, the rest are confirmed together.'],
+        'sample' => ['One spot check of random strong matches.', 'Open each one and say yes only if it is right. The button below opens the next one.'],
         'duplicates' => ['Vape and Go pages that may be the same product.', 'A matching lead decides: same product (join them) or different (keep them apart).'],
         'duplicate_group' => ['Pages that may sell the same product.', 'Compare them. If they are the same product, join them so they share one stock figure. If not, keep them apart.'],
         'search' => ['Find a warehouse product or a website product.', 'Type a product name, scan a barcode, or type a CW number.'],
@@ -314,7 +329,22 @@ final class Words
         'supplier_item' => ['One product as this supplier sells it: pack, price history and whether this is its main supplier.', ''],
         'company' => ['Our name, numbers and addresses as printed on every purchase order.', 'A reviewer fills them in and confirms them.'],
         'company_edit' => ['Type or correct our details, then save.', 'Then press "These details are correct" on the next page.'],
-        'settings' => ['How the system is set up.', 'To change a setting, ask ' . self::ASK . '.'],
+        'settings' => ['How the system is set up.', 'Open a setting to change it. Say why each time: every change is kept with who, when and why.'],
+        'setting' => ['One setting: what it does, its value now, and every change.', 'Type the new value, say why, then save it.'],
+        'approvals' => ['Which work waits for a second person, and which a reviewer checks afterwards.',
+            'Switch a rule on or off, or change its limit. Say why each time.'],
+        'reason' => ['One reason for a stock change, and every change to it.', 'Rename it, or switch it off or on again.'],
+        'warehouses' => ['Where stock is kept, whose stock it is, and which warehouses the websites sell from.',
+            'Open a warehouse to rename it, switch it off, or add the places inside it.'],
+        'warehouse' => ['One warehouse: its stock, whose it is, and the places inside it.', 'Change it with the boxes below. Say why each time.'],
+        'sites' => ['Each website and how its link with the warehouse is doing.', 'Changes are made on the server by ' . self::ASK . ', with the owner\'s OK.'],
+        'integrity' => ['Every night the system checks that its stock figures and records agree with each other.',
+            'If a check finds a problem, tell ' . self::ASK . ' the same day.'],
+        'audit' => ['Everything that was changed in this system, by whom and when.', 'Search by person, day, record or what was done. Nothing here can be changed.'],
+        'access' => ['What each job may do in this system.', 'Admins give people their jobs on the Staff and access page.'],
+        'enrol' => ['Choose your own password.', 'Use your e-mail and the 6-digit code from the code app on your phone.'],
+        'staff_sheet' => ['Give this code to the person now. It is shown only once.', 'They scan it with the code app on their phone, then set up their sign-in.'],
+        'staff_requests' => ['Changes of staff access that wait for your OK.', 'Check each one, then say OK or Not OK.'],
         'reasons' => ['The reasons people choose when stock goes up or down outside a sale.', ''],
         'series' => ['Each kind of record has its own numbers (PO-000001, PO-000002 …), with no gaps.', ''],
         'people' => ['Everyone who can use this system and what they may do.', 'Tap a name to change their access.'],
@@ -743,6 +773,14 @@ final class Words
         'receiving.backdate_max_days' => 'Days back a delivery may be dated',
         'receiving.mode_after_out_of_stock' => 'Selling mode after Out-Of-Stock',
         'site_writer.receipt_mode_sites' => 'Websites where a delivery sets the selling mode',
+        'approvals.supplier_activation' => 'New suppliers need a reviewer\'s OK',
+        'approvals.match_multiple' => 'Matches where 1 sale is not 1 product need a second OK',
+        'approvals.match_counted' => 'Joining counted products needs a second OK',
+        'approvals.company_own_change' => 'Own change of the company details is checked',
+        'approvals.staff_grant' => 'Giving Admin or Reviewer needs a reviewer\'s OK',
+        'approvals.spot_check_size' => 'Matches in a spot check',
+        'staff.setup_hours' => 'Hours to set up a sign-in',
+        'staff.min_reviewers' => 'Reviewers needed',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -798,6 +836,10 @@ final class Words
         'bad_version' => 'This form is out of date. Nothing was saved. Reload the page and fill it in again.',
         'bad_form' => 'This form is incomplete. Nothing was saved. Reload the page and try again.',
         'unknown_file' => 'We cannot find this file. The link may be old or wrong.',
+        'no_setting' => 'We cannot find this setting. The link may be old.',
+        'no_reason' => 'We cannot find this reason. The link may be old.',
+        'no_warehouse' => 'We cannot find this warehouse. The link may be old.',
+        'no_request' => 'We cannot find this request. It may be decided already.',
         // A line of a record whose reason needs a note (Documents names the line in detail.line).
         'note_required_line' => 'Line %s needs a note: its reason needs one. Write it on the line, or as a note for the whole record. Nothing was saved.',
         // Downloads scoped like the pages that link them (FilesController).
@@ -823,19 +865,19 @@ final class Words
             . 'so stock and sales are kept together on one product. Nothing changes on the website. If you joined two that are different, **Undo the join**: the page gets its own product '
             . 'back (with its stock, less what sold since), or becomes a new product. Once the website sells warehouse stock, joining or undoing needs a second matching lead.',
         'second_ok' => 'Some work needs two people, so one mistake cannot change stock or money on its own. **OK first:** nothing happens until a second person says yes '
-            . '(new suppliers, orders over the approval limit, matches where 1 sale is not 1 product, or the website already sells warehouse stock). '
-            . '**Check after:** it happens at once, and a reviewer checks it later (every confirmed order and supplier change within 7 days, every delivery '
-            . 'booked in within 3). **Nobody approves or checks their own work.** If you made it, or checked the delivery at the goods-in bench, someone '
-            . 'else must.',
+            . '(for example a new supplier, or an order over the approval limit). '
+            . '**Check after:** it happens at once, and a reviewer checks it later (for example every confirmed order and every delivery booked in). '
+            . '**Nobody approves or checks their own work.** If you made it, or checked the delivery at the goods-in bench, someone '
+            . 'else must. The Approval rules page lists every rule, its limit and its days.',
         // Correction a (7 Oct): never suggest a second account (the spot check owner-1 belongs to this account).
         'admin_off' => 'Admin gives people access. To keep that safe, the person who gives access must not also approve work. '
             . 'So while an account has Admin, its working jobs (Reviewer, Matching lead, Buyer …) are switched off. '
             . 'Only these jobs still work: Look only (matching), Accountant, Auditor. Ask ' . self::ASK . ' to take Admin off the account that does the work.',
-        'spot_check' => 'Instead of checking every strong match one by one, one matching lead checks 20 picked at random. '
-            . 'If all 20 are right, the rest are confirmed together in one step (' . self::ASK . ' runs it, and it can be undone). '
+        'spot_check' => 'Instead of checking every strong match one by one, one matching lead checks a number of them picked at random '
+            . '(the Approval rules page says how many). If all are right, the rest are confirmed together in one step (' . self::ASK . ' runs it, and it can be undone). '
             . 'If even one is wrong, the rest must be checked one by one.',
         'sale_uses' => 'Most website products are single items: 1 sale uses 1 warehouse product. A 10-pack page uses 10. '
-            . 'If this number is wrong, stock goes wrong, so anything other than 1 needs a second OK.',
+            . 'If this number is wrong, stock goes wrong, so anything other than 1 needs a second OK while that approval rule is on.',
         'stock_rule' => '**Website uses its own stock (not linked yet):** the website still uses its own stock figure. '
             . '**Website sells warehouse stock only:** the website can sell only what the warehouse has. '
             . '**Can sell when out:** customers can order and wait. **Not for sale.** '
@@ -856,6 +898,17 @@ final class Words
             . 'marks what arrived on the purchase order, opens an incident for each problem the bench found, and sets the selling mode on the websites '
             . 'deliveries reach. A reviewer checks every delivery within 3 days, and Not OK takes it back. Nobody checks a delivery they keyed, booked in, '
             . 'checked at the bench, or set the supplier invoice of.',
+        'stock_owner' => '**Ours:** the stock belongs to our company; it is sold once a website sells from the warehouse. **Another account\'s:** for example the '
+            . 'VPG 2 room: the stock belongs to someone else, is never sold from, and moves into our stock only with a release invoice.',
+        'places' => 'A **place** is a shelf or a room inside a warehouse, for example the overflow room. Places are optional: nothing asks for one, '
+            . 'and stock is not split by place yet.',
+        'sign_up' => 'A new person gets a **QR code**, shown once on your screen. They scan it with a code app on their phone (Google Authenticator, '
+            . 'Microsoft Authenticator). Then they open "Set up my sign-in", type their e-mail and the 6 numbers from the app, and choose their own '
+            . 'password. Nobody else ever sees it.',
+        'safety_check' => 'Every night the system adds up every stock figure and checks it against the movements behind it, and checks that records, '
+            . 'checks, approvals and settings agree. A **problem** means two of them disagree somewhere. Nothing is fixed by itself.',
+        'site_modes' => '**Off:** the website and the warehouse do not talk. **Watching only:** CW follows the website\'s sales without changing what it '
+            . 'sells. **Live:** the website sells warehouse stock.',
         'selling_mode' => 'What a website shows for a product whose stock rule is still "Website uses its own stock". **In-Stock:** it sells whatever the stock figure says. '
             . '**From-Warehouse:** it sells while there is stock. **Out-Of-Stock:** it does not sell. A website takes the mode from here only once its stock '
             . 'link is on. A delivery booked in sets the mode too, on the websites deliveries reach.',
@@ -1190,6 +1243,26 @@ final class Words
             'text' => 'The yellow note at the top of the page says why, and who can fix it.',
             'what' => 'You see your jobs. Until Admin is taken off this account, you can look but not approve or decide.',
             'button' => 'See your access',
+        ],
+        'integrity' => [
+            'title' => 'The nightly safety check found %s problems',
+            'title_one' => 'The nightly safety check found 1 problem',
+            'text' => 'Stock figures or records do not agree somewhere. Nothing is fixed by itself.',
+            'what' => 'You see what was found. Tell ' . self::ASK . ' the same day.',
+            'button' => 'See the safety checks',
+        ],
+        'integrity_stale' => [
+            'title' => 'The nightly safety check has not run since %s',
+            'text' => 'It should run every night.',
+            'what' => 'Tell ' . self::ASK . ', so he can start it again.',
+            'button' => 'See the safety checks',
+        ],
+        'staff_requests' => [
+            'title' => 'Staff access waiting for your OK',
+            'unit' => ['waits for you', 'wait for you'],
+            'text' => 'An admin gave someone the Admin or Reviewer job. It works only after a reviewer says OK.',
+            'what' => 'You check each one and say OK or Not OK.',
+            'button' => 'Open the list',
         ],
         'no_job' => [
             'title' => 'You cannot use anything yet',
@@ -1544,8 +1617,8 @@ final class Words
         'see_company' => 'See the company details',
         'edit_company' => 'Add or change the company details',
         'settings' => 'Settings',
-        'settings_text' => '"Not agreed yet" means the owner still has to say yes to this value. To change a setting, tell ' . self::ASK
-            . ' the new value and why: it is changed on the server and logged. Company details: use the box above.',
+        'settings_text' => '"Not agreed yet" means the owner still has to say yes to this value. Open a setting to change it or to mark it agreed. '
+            . 'Company details: use the box above. Approval rules have their own page.',
         'setting' => 'Setting',
         'value' => 'Value',
         'status' => 'Status',
@@ -1558,6 +1631,11 @@ final class Words
         'no' => 'No',
         'set_up' => 'When CW was set up (%s)',
         'on_server' => '%s (changed on the server)',
+        'by' => '%s by %s',
+        'open' => 'Open',
+        'approval_rules' => 'Approval rules',
+        'approval_rules_text' => 'Who checks what, the limits and the days are changed on the Approval rules page.',
+        'access' => 'Who can do what',
         'rules' => 'Who checks what',
         'rules_text' => 'Only the kinds of record in use today. Nobody checks their own work.',
         'rule_all' => 'a reviewer checks every one within %s days.',
@@ -1627,6 +1705,8 @@ final class Words
         'company' => 'Company details',
         'receiving' => 'Deliveries',
         'site_writer' => 'Websites',
+        'approvals' => 'Approval rules',
+        'staff' => 'Staff',
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -1661,11 +1741,21 @@ final class Words
         'reorder.promo_min_units' => 'Third promotion check: the brand sold at least this many items that day.',
         'reorder.stale_history_days' => 'Warn when a website\'s loaded sales end more than this many days ago.',
         'company.confirmed' => 'Until the owner confirms the company details, every purchase order PDF says DO NOT SEND.',
+        'approvals.supplier_activation' => 'A new supplier, a supplier used again, and an overseas supplier\'s duty-stamp arrangement wait for a reviewer\'s OK. '
+            . 'Off: a buyer\'s request makes the supplier usable at once, marked "approved alone".',
+        'approvals.match_multiple' => 'A match where 1 sale uses more or less than 1 warehouse product waits for a second matching lead.',
+        'approvals.match_counted' => 'Joining (or undoing a join of) products whose stock was counted waits for a second matching lead.',
+        'approvals.company_own_change' => 'A reviewer who confirms their own change of our name, numbers, purchasing e-mail or delivery address gets another '
+            . 'reviewer\'s check afterwards.',
+        'approvals.staff_grant' => 'Giving someone the Admin or Reviewer job waits for a reviewer\'s OK. Off: the admin\'s change works at once.',
+        'approvals.spot_check_size' => 'How many strong matches a spot check holds. A smaller spot check never confirms the rest together.',
+        'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in.',
+        'staff.min_reviewers' => 'Staff and access and Home warn when fewer people than this can approve work.',
     ];
 
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */
     public const STAFF = [
-        'add' => 'To add a new staff member, send their name, e-mail and job to the developer. They set up the account and the phone code.',
+        'add' => 'To add a staff member, use "Add a staff member" below. You then show them a QR code to scan with the code app on their phone.',
         'look_only' => 'You can look; only the Admin changes things.',
         'download' => 'Download as a spreadsheet (CSV, opens in Excel)',
         'name' => 'Name',
@@ -1721,6 +1811,45 @@ final class Words
         'placeholder' => 'A test account is never switched on or given a job here: it could be used to give a second OK to your own work. '
             . 'Nothing was changed. For a real person, ask the developer to create a proper account.',
         'not_admin' => 'Only the Admin changes staff access. Nothing was changed.',
+        // The set-it-yourself pack (G06): adding people, their sign-in, their devices, requests for Admin or Reviewer
+        'add_title' => 'Add a staff member',
+        'add_text' => 'Fill in their name, e-mail and jobs. The next page shows a QR code once: they scan it with the code app on their phone, '
+            . 'then choose their own password. No password is shown to you.',
+        'add_name' => 'Their name',
+        'add_email' => 'Their e-mail address',
+        'add_jobs' => 'Their jobs',
+        'add_button' => 'Add them and show their sign-in code',
+        'devices' => 'Signed in now',
+        'devices_text' => 'Each line is a phone or computer where someone is signed in.',
+        'devices_none' => 'Nobody is signed in right now.',
+        'person_devices_none' => 'This person is not signed in anywhere right now.',
+        'device_person' => 'Person',
+        'device_since' => 'Signed in',
+        'device_seen' => 'Last active',
+        'device_from' => 'From address',
+        'sign_out_device' => 'Sign out this device',
+        'sign_out_all' => 'Sign them out everywhere',
+        'sign_out_all_note' => 'They can sign in again straight away with their password and code.',
+        'setup_open' => 'Waiting to set up their sign-in until %s.',
+        'setup_over' => 'Their time to set up the sign-in ran out on %s. Make a new sign-in code for them.',
+        'new_code' => 'Make a new sign-in code',
+        'new_code_text' => 'For a lost or new phone. Their old code stops at once and they are signed out everywhere. '
+            . 'You then show them a new QR code to scan.',
+        'new_code_confirm' => 'Yes, their old code stops now',
+        'new_password' => 'Let them choose a new password',
+        'new_password_text' => 'For a forgotten password. Their old password stops at once and they are signed out everywhere. '
+            . 'They choose a new one on the "Set up my sign-in" page with the 6 numbers on their phone.',
+        'new_password_confirm' => 'Yes, their old password stops now',
+        'reset_unconfirmed' => 'Tick the box first. Nothing was changed.',
+        'request_waiting' => 'Waiting for a reviewer\'s OK: their jobs become %s. Asked by %s on %s.',
+        'request_withdraw' => 'Withdraw this request',
+        'requests_open' => 'Changes of staff access waiting for a reviewer\'s OK: %s.',
+        'requests_link' => 'See them',
+        'request_open' => 'A change of this person\'s jobs already waits for a reviewer. Nothing was saved. Withdraw it first.',
+        'bad_name' => 'Type their name (2 to 128 characters). Nothing was saved.',
+        'bad_email' => 'Type a real e-mail address. Nothing was saved.',
+        'staff_exists' => 'Someone with this e-mail address is already set up. Nothing was saved. Open them in the list below.',
+        'bad_session' => 'That device is not signed in any more. Nothing was changed.',
     ];
 
     /** Notices after a click on a staff member's page (PeopleController::NOTICES). */
@@ -1729,6 +1858,15 @@ final class Words
         'roles_unchanged' => 'Nothing changed: the person already had exactly these jobs.',
         'deactivated' => 'Done: this person can no longer sign in. They were signed out everywhere.',
         'activated' => 'Done: this person can sign in again.',
+        'requested' => 'Saved as a request: Admin and Reviewer need a reviewer\'s OK first. Nothing changes until a reviewer says OK.',
+        'password_reset' => 'Done: their old password no longer works and they were signed out everywhere. They choose a new one on the "Set up my sign-in" page.',
+        'signed_out' => 'Done: they were signed out of that device.',
+        'signed_out_all' => 'Done: they were signed out everywhere.',
+        'not_signed_in' => 'Nothing changed: they were not signed in there any more.',
+        'request_withdrawn' => 'Done: the request was withdrawn. Their jobs did not change.',
+        'request_approved' => 'Done: you said OK. Their jobs changed.',
+        'request_rejected' => 'Done: you said Not OK. Their jobs did not change.',
+        'request_stale' => 'Nothing changed: their jobs had changed since the request was made, so the request was withdrawn.',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2162,7 +2300,7 @@ final class Words
         'started_by' => 'Started by',
         'together' => 'Confirmed together',
         'undone' => '(%s undone)',
-        'unusable' => 'This spot check cannot be used (it has fewer than 20, or it changed after it was made). Ask ' . self::ASK . ' to start a new one.',
+        'unusable' => 'This spot check cannot be used (it is smaller than the spot check size on the Approval rules page, or it changed after it was made). Ask ' . self::ASK . ' to start a new one.',
         'passed' => 'All %s are right. The other strong matches can now be confirmed together. Ask ' . self::ASK . ' to run it for you.',
         'failed_one' => 'This spot check failed: 1 of the %s was wrong or changed. The rest cannot be confirmed together. Check them one by one in Strong matches.',
         'failed_many' => 'This spot check failed: %s of the %s were wrong or changed. The rest cannot be confirmed together. Check them one by one in Strong matches.',
@@ -2205,7 +2343,7 @@ final class Words
 
     /** Why a spot check cannot unlock the bulk step (KeySample::fitness codes), for the technical details. */
     public const SAMPLE_FIT = [
-        'sample_too_small' => 'fewer than 20 matches',
+        'sample_too_small' => 'fewer matches than the spot check size',
         'draw_not_reproducible' => 'its matches are not what its seed picks',
         'stratum_short' => 'too few matches from one level of how sure the AI was',
     ];
@@ -2500,6 +2638,7 @@ final class Words
         'how_2' => 'The buyer sends the PDF to the supplier, then records it here.',
         'how_3' => 'A reviewer checks every confirmed order within 7 days.',
         'how_4' => 'Over %s (before VAT), a reviewer must OK the order before it gets a number.',
+        'how_4_off' => 'No order needs a reviewer\'s OK before it gets a number: the owner switched that off on the Approval rules page.',
         'how_fix' => 'A confirmed order cannot be changed: cancel it, or press Correct to make a corrected copy.',
         'new' => 'Start a new order',
         'new_text' => 'Choose the supplier. Then add products by scanning or searching.',
@@ -4650,6 +4789,639 @@ final class Words
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
+    // The set-it-yourself pack (8 Oct 2026, the owner's rule: no hard-coding; docs/decisions.md Y1-Y40): settings, approval
+    // rules, reasons, warehouses and places changed on the screens with a reason and a history; the websites' status; the safety
+    // checks; the audit log; who can do what; staff set up by QR code. Service messages are never edited: the pages translate
+    // them by error code (CONFIG_ERROR, STAFF).
+
+    /** Words every change page shares: the reason, the history, look-only. */
+    public const CONFIG = [
+        'reason' => 'Why are you changing this?',
+        'reason_hint' => 'At least 3 characters. It is kept with the change, for everyone to see.',
+        'history' => 'Changes',
+        'history_none' => 'No change since the system was set up.',
+        'when' => 'When',
+        'who' => 'Who',
+        'what' => 'What changed',
+        'why' => 'Why',
+        'set_up' => 'set up by CW',
+        'server' => 'on the server',
+        'look_only' => 'Admins and Reviewers',
+        'first' => 'As set up',
+        'added' => 'Added',
+        'yes' => 'Yes',
+        'no' => 'No',
+        'on' => 'On',
+        'off' => 'Off',
+        'not_set' => 'not set',
+        'technical' => 'Technical details (for ' . self::ASK . ')',
+        'change' => 'Change',
+    ];
+
+    /** What a change was (config_change.action) in the history lists. */
+    public const CONFIG_ACTION = [
+        'baseline' => 'As the system was set up',
+        'add' => 'Added',
+        'change' => 'Changed',
+        'agree' => 'Marked as agreed',
+        'unagree' => 'Marked as not agreed yet',
+        'rename' => 'Renamed',
+        'switch_off' => 'Switched off',
+        'switch_on' => 'Switched on again',
+        'sellable' => 'Selling from it changed',
+        'owner' => 'Whose stock changed',
+    ];
+
+    /** The change pages' refusals, by the service's error code (the service messages stay the API's). */
+    public const CONFIG_ERROR = [
+        'bad_reason' => 'Say why in 3 to 500 characters. Nothing was saved.',
+        'changed_meanwhile' => 'Someone else changed this while you had the page open (%s, %s). Nothing was saved. What is in use now is shown: check it, then save again.',
+        'role_not_allowed' => 'Only Admins and Reviewers change settings, rules and lists. Nothing was saved.',
+        'staff_not_allowed' => 'Your account cannot change this any more. Nothing was saved.',
+        'bad_value' => 'This is not a value this setting takes. Nothing was saved.',
+        'bad_limit' => 'A limit is a whole number from 0 to 2,000,000,000. Nothing was saved.',
+        'bad_days' => 'The days to check are a whole number from 1 to 120. Nothing was saved.',
+        'bad_rule' => 'Choose how a reviewer checks from the list. Nothing was saved.',
+        'limit_required' => 'This rule needs its limit. Nothing was saved. Type the limit, then save again.',
+        'no_approval_rule' => 'This kind of record has no OK first. Nothing was saved.',
+        'bad_reject_action' => 'Choose what Not OK does from the list. Nothing was saved.',
+        'nothing_to_change' => 'Nothing to save: change something first.',
+        'bad_code_reason' => 'The code is 2 to 32 small letters, digits or _, starting with a letter. Nothing was saved.',
+        'bad_code_warehouse' => 'The short code is 2 to 32 capital letters, digits or _, starting with a letter. Nothing was saved.',
+        'bad_code_place' => 'The short code is 1 to 31 capital letters, digits, _ or -. Nothing was saved.',
+        'bad_label' => 'The name is 2 to 100 characters. Nothing was saved.',
+        'bad_name' => 'The name is 2 to 100 characters. Nothing was saved.',
+        'bad_note' => 'A note is at most 255 characters. Nothing was saved.',
+        'bad_owner' => 'Say whose stock it is, and for another account its name (2 to 64 characters). Nothing was saved.',
+        'bad_uses' => 'Tick where the reason is used. Nothing was saved.',
+        'bad_direction' => 'Choose which way stock goes. Nothing was saved.',
+        'reason_exists' => 'There is a reason with this code already. Nothing was saved. Rename it or switch it on again instead.',
+        'reason_locked' => 'CW sets this reason itself, so it is never changed. Nothing was saved.',
+        'warehouse_exists' => 'There is a warehouse with this short code already. Nothing was saved.',
+        'place_exists' => 'This warehouse has a place with this short code already. Nothing was saved.',
+        'system_warehouse' => 'The system works with this warehouse, so this never changes. Nothing was saved.',
+        'warehouse_off' => 'This warehouse is switched off: switch it on first. Nothing was saved.',
+        'other_not_sellable' => 'Another account\'s stock is never sold from: it moves into our stock with a release invoice first. Nothing was saved.',
+        'confirm_needed' => 'Tick the box to confirm first: this changes what the websites may sell. Nothing was saved.',
+        'warehouse_in_use' => 'Websites use this warehouse (%s). Nothing was saved. Ask ' . self::ASK . ' to move them to another warehouse first.',
+        'sellable_warehouse' => 'Websites may sell from this warehouse: stop that first. Nothing was saved.',
+        'warehouse_not_empty' => 'This warehouse is not empty: %s. Nothing was saved. It is switched off only when it is empty.',
+        'place_in_use' => 'A record that is not final yet names this place. Nothing was saved.',
+        'unconfirmed' => 'Tick the box to confirm first. Nothing was saved.',
+        'unknown_place' => 'We cannot find this place in this warehouse. Nothing was changed.',
+        'unknown_reason' => 'We cannot find this reason. Nothing was changed.',
+        'unknown_warehouse' => 'We cannot find this warehouse. Nothing was changed.',
+        'unknown_type' => 'We cannot find this kind of record. Nothing was changed.',
+        'unknown_setting' => 'We cannot find this setting. Nothing was changed.',
+    ];
+
+    /** The page of one setting (/ui/reference/settings/setting). */
+    public const SETTING_EDIT = [
+        'now' => 'Value now',
+        'what' => 'What it does',
+        'status' => 'Agreed by the owner',
+        'last' => 'Last changed',
+        'value' => 'New value',
+        'agreed' => 'The owner has agreed this value',
+        'save' => 'Save the setting',
+        'look_only' => 'You can look; Admins and Reviewers change settings.',
+        'type_int' => 'A whole number.',
+        'type_decimal' => 'A number like 0.50 (a point, no comma).',
+        'type_date' => 'A date.',
+        'type_string' => 'One line of text.',
+        'type_text' => 'Several lines are fine.',
+        'type_bool' => 'Yes or no.',
+        'range' => 'From %s to %s.',
+        'vat' => 'A VAT code in use: S, R, Z, E, RC or OS.',
+        'one_of' => 'One of: %s.',
+        'sites' => 'Website short codes, separated by commas, for example vapeandgo,electrofag. Leave it empty for none.',
+        'empty' => 'Leave it empty for "not set".',
+        'approvals' => 'This is an approval rule: change it on the Approval rules page.',
+        'company' => 'The company details have their own page.',
+    ];
+
+    /** Notices after saving a setting (ReferenceController). */
+    public const SETTING_NOTICE = [
+        'saved' => 'Saved. The new value works from now on.',
+        'agreed' => 'Saved: the value is marked as agreed by the owner.',
+        'unagreed' => 'Saved: the value is marked as not agreed yet.',
+        'unchanged' => 'Nothing changed: the setting already had this value.',
+    ];
+
+    /** The Approval rules page (/ui/reference/approvals). */
+    public const APPROVALS = [
+        'records' => 'Records: who checks, and what needs an OK first',
+        'records_text' => 'One rule for each kind of record. Kinds not in use yet keep their rule for when they come.',
+        'suppliers' => 'Suppliers',
+        'matching' => 'Matching products',
+        'company' => 'Company details',
+        'staff' => 'Staff access',
+        'in_use' => 'In use',
+        'later' => 'Not in use yet',
+        'review' => 'Reviewer check after it is final',
+        'review_all' => 'Every one',
+        'review_over' => 'Only those over a limit',
+        'review_none' => 'No check',
+        'review_limit' => 'The limit for "only those over a limit" (items)',
+        'days' => 'Days a reviewer has to check it (1 to 120)',
+        'ok_first' => 'A reviewer\'s OK first',
+        'ok_limit_PO' => 'Above this net value in £, no VAT (whole pounds)',
+        'ok_limit_ADJ' => 'Above this many items put back',
+        'reject' => 'What "Not OK" does',
+        'reject_reverse' => 'Cancel it with a cancellation record',
+        'reject_record' => 'Only record it (the person who made it fixes it)',
+        'change_rule' => 'Change this rule',
+        'save_rule' => 'Save the rule',
+        'save' => 'Save',
+        'number' => 'New number',
+        'history' => 'Changes to this rule',
+        'no_ok' => 'No OK needed first.',
+        'units_cancel' => 'Putting back more than %s items without a supplier document needs a reviewer\'s OK first, also when a record is cancelled.',
+        'always' => 'These always need a second OK and are not switched here: changing a match once the website sells warehouse stock, matching to a product '
+            . 'someone said is wrong, and a join a Matcher asks for.',
+        'others' => 'Other things could wait for a second person too, for example write-offs over a value, settings changes or warehouse changes. '
+            . 'They are not built yet. Tell ' . self::ASK . ' if you want one.',
+        'requests' => 'Changes of staff access waiting for a reviewer\'s OK: %s.',
+        'requests_link' => 'See them',
+        'nobody_can' => 'Nobody else can say OK now: no other person has a Reviewer job that works. Changes would wait until there is one.',
+        'saved' => 'Saved. The rule works like this from now on.',
+        'unchanged' => 'Nothing changed: the rule was already like that.',
+        'look_only' => 'You can look; Admins and Reviewers change the rules.',
+    ];
+
+    /** One switchable or numbered approval rule (Admin\ApprovalRules): its title and what it does on, off, or with its number. */
+    public const RULE = [
+        'approvals.supplier_activation' => [
+            'title' => 'New suppliers',
+            'on' => 'A new supplier, a supplier used again, and an overseas supplier\'s duty-stamp arrangement wait for a reviewer\'s OK before anyone orders from them.',
+            'off' => 'Off: a buyer\'s request makes the supplier usable at once. The supplier page says it was approved alone.',
+        ],
+        'suppliers.change_review' => [
+            'title' => 'Changed supplier details',
+            'on' => 'When the details of a supplier we order from change, a reviewer checks them afterwards. Orders are not stopped.',
+            'off' => 'Off: changed supplier details are not checked by a reviewer.',
+        ],
+        'suppliers.approval_due_days' => [
+            'title' => 'Days to decide a supplier',
+            'now' => 'A reviewer should decide a supplier approval within %s days.',
+            'label' => 'Days (1 to 120)',
+        ],
+        'approvals.match_multiple' => [
+            'title' => 'Matches where 1 sale is not 1 product',
+            'on' => 'A match where 1 sale uses more or less than 1 warehouse product waits for a second matching lead.',
+            'off' => 'Off: one person makes such a match alone.',
+        ],
+        'approvals.match_counted' => [
+            'title' => 'Joining products whose stock was counted',
+            'on' => 'Joining products whose stock was counted in the warehouse, or undoing such a join, waits for a second matching lead.',
+            'off' => 'Off: one matching lead does it alone. The stock is still counted again afterwards.',
+        ],
+        'approvals.spot_check_size' => [
+            'title' => 'Spot check size',
+            'now' => 'A spot check holds %s strong matches. A smaller one never confirms the rest together.',
+            'label' => 'Matches (5 to 200)',
+        ],
+        'approvals.company_own_change' => [
+            'title' => 'Your own change of the company details',
+            'on' => 'A reviewer who changes and confirms our name, numbers, purchasing e-mail or delivery address themselves gets another reviewer\'s check afterwards.',
+            'off' => 'Off: such a change is not checked by a second reviewer.',
+        ],
+        'approvals.staff_grant' => [
+            'title' => 'Giving someone Admin or Reviewer',
+            'on' => 'Giving someone the Admin or Reviewer job waits for a reviewer\'s OK. Nothing changes until then.',
+            'off' => 'Off: the admin\'s change works at once.',
+        ],
+    ];
+
+    /** Reasons for stock changes: adding, renaming, switching off (/ui/reference/reasons, /reason). */
+    public const REASONS_EDIT = [
+        'add_title' => 'Add a reason',
+        'code' => 'Short code (for files and spreadsheets)',
+        'code_hint' => 'Small letters and digits, for example seal or damp. It never changes.',
+        'name' => 'Name people see',
+        'uses' => 'Used for',
+        'direction' => 'Stock goes',
+        'needs_note' => 'Needs a note',
+        'gift' => 'It is a free gift',
+        'add_button' => 'Add the reason',
+        'rename' => 'Rename it',
+        'rename_button' => 'Save the name',
+        'switch' => 'Switch it off or on',
+        'switch_off_text' => 'A switched-off reason is no longer offered, and a record using it cannot be made final. Records that used it keep it.',
+        'switch_off_button' => 'Switch this reason off',
+        'switch_on_button' => 'Switch this reason on again',
+        'locked' => 'CW sets this reason itself: it is never changed.',
+        'status_on' => 'In use',
+        'status_off' => 'Switched off',
+        'status' => 'In use',
+        'facts' => 'About this reason',
+        'look_only' => 'You can look; Admins and Reviewers change reasons.',
+    ];
+
+    /** Notices after a change of a reason. */
+    public const REASON_NOTICE = [
+        'added' => 'Done: the reason was added. It is offered from now on.',
+        'renamed' => 'Saved: the reason has its new name.',
+        'off' => 'Done: the reason is switched off.',
+        'on' => 'Done: the reason is switched on again.',
+        'unchanged' => 'Nothing changed: the reason was already like that.',
+    ];
+
+    /** Warehouses and the places inside them (/ui/reference/warehouses, /{id}). */
+    public const WAREHOUSES = [
+        'name' => 'Warehouse',
+        'status' => 'In use',
+        'sold_from' => 'Websites sell from it',
+        'owner' => 'Whose stock',
+        'stock' => 'In the building',
+        'places' => 'Places inside',
+        'ours' => 'Ours',
+        'theirs' => '%s (another account)',
+        'stock_line' => '%s items, %s products',
+        'none' => 'none',
+        'status_on' => 'In use',
+        'status_off' => 'Switched off',
+        'yes_sites' => 'Yes: %s',
+        'yes_no_site' => 'Yes (no website yet)',
+        'no' => 'No',
+        'built_in' => 'The system works with this warehouse: it is never switched off, and whether websites sell from it never changes.',
+        'tip' => 'The VPG 2 room: add it with "Another account\'s stock" (it is never sold from). The overflow room: open the main warehouse and add it as a place inside it.',
+        'add_title' => 'Add a warehouse',
+        'code' => 'Short code',
+        'code_hint' => 'Capital letters and digits, for example ROOM2. It never changes.',
+        'wh_name' => 'Name',
+        'owner_q' => 'Whose stock is kept here?',
+        'owner_ours' => 'Ours',
+        'owner_other' => 'Another account\'s, for example VPG 2 (never sold from)',
+        'owner_name' => 'Name of that account',
+        'sellable' => 'Websites may sell from it',
+        'sellable_confirm' => 'Yes, websites may sell from this warehouse',
+        'note' => 'Note (optional)',
+        'add_button' => 'Add the warehouse',
+        'code_label' => 'Short code',
+        'stock_now' => 'Stock here now',
+        'in_building' => 'In the building',
+        'sold_waiting' => 'Sold, waiting to ship',
+        'reserved' => 'Reserved (not paid)',
+        'with_stock' => 'Products with stock',
+        'websites' => 'Websites selling from it',
+        'assigned' => 'Other websites using it',
+        'rename' => 'Name and note',
+        'rename_button' => 'Save the name and note',
+        'owner_title' => 'Whose stock',
+        'owner_button' => 'Save whose stock it is',
+        'sellable_title' => 'Can websites sell from it?',
+        'sellable_now_yes' => 'Websites may sell from it.',
+        'sellable_now_no' => 'Websites may not sell from it.',
+        'sellable_text' => 'This changes what the websites may sell. A website sells from it only once ' . self::ASK . ' points the website at it on the server.',
+        'sellable_confirm_off' => 'Yes, websites may no longer sell from it',
+        'sellable_on_button' => 'Let websites sell from it',
+        'sellable_off_button' => 'Stop websites selling from it',
+        'in_use' => 'Websites sell from it now (%s): ' . self::ASK . ' moves them to another warehouse first.',
+        'switch_title' => 'Switch it off or on',
+        'switch_off_text' => 'Only an empty warehouse is switched off: no stock, no website, no record waiting. It is never deleted.',
+        'switch_off_confirm' => 'Yes, switch it off',
+        'switch_off_button' => 'Switch this warehouse off',
+        'switch_on_button' => 'Switch it on again',
+        'not_empty' => 'It cannot be switched off yet: %s.',
+        'places_title' => 'Places inside (optional)',
+        'places_text' => 'Shelves or rooms inside this warehouse, for example the overflow room. Nothing asks for a place: stock is not split by place yet.',
+        'places_none' => 'No places yet.',
+        'place_code' => 'Short code',
+        'place_code_hint' => 'Capital letters, digits and -, for example A-01 or OVERFLOW.',
+        'place_name' => 'Name',
+        'place_add' => 'Add a place',
+        'place_add_button' => 'Add the place',
+        'place_change' => 'Change this place',
+        'place_rename_button' => 'Save the place',
+        'place_off_button' => 'Switch this place off',
+        'place_on_button' => 'Switch this place on again',
+        'history' => 'Changes to this warehouse',
+        'look_only' => 'You can look; Admins and Reviewers change warehouses.',
+    ];
+
+    /** Why a warehouse cannot be switched off (Admin\Warehouses::notEmpty). */
+    public const WHY_NOT_EMPTY = [
+        'stock' => 'it holds stock',
+        'website' => 'a website uses it',
+        'records' => 'a record that is not final names it',
+        'counts' => 'a recount is open there',
+    ];
+
+    /** Notices after a change of a warehouse or a place. */
+    public const WAREHOUSE_NOTICE = [
+        'added' => 'Done: the warehouse was added.',
+        'saved' => 'Saved.',
+        'unchanged' => 'Nothing changed: it was already like that.',
+        'off' => 'Done: the warehouse is switched off.',
+        'on' => 'Done: the warehouse is switched on again.',
+        'place_added' => 'Done: the place was added.',
+        'place_saved' => 'Saved: the place is changed.',
+    ];
+
+    /** A website's mode (channel.mode, the site's own CW_MODE). */
+    public const MODE = [
+        'off' => 'Off',
+        'shadow' => 'Watching only',
+        'live' => 'Live',
+    ];
+
+    /** The Websites page (/ui/system/sites). */
+    public const SITES = [
+        'mode' => 'In CW',
+        'site_mode' => 'The website says',
+        'contact' => 'Last contact',
+        'queue' => 'Waiting to send to CW',
+        'dead' => 'Failed for good',
+        'feed' => 'Stock changes not taken yet',
+        'sells_from' => 'Sells from',
+        'writer' => 'Stock writer',
+        'mismatch' => 'The website runs in another mode than CW. The lower one applies.',
+        'never' => 'never',
+        'ago' => '%s (%s ago)',
+        'no_contact' => 'No contact for %s.',
+        'no_contact_ever' => 'It has not contacted CW yet.',
+        'queue_line' => '%s changes, the oldest %s old',
+        'nothing' => 'nothing',
+        'not_reported' => 'not reported yet',
+        'feed_line' => '%s (CW stock reached it up to %s)',
+        'writer_on' => 'On',
+        'writer_waiting' => 'Switched on: starts when the website is live',
+        'writer_off' => 'Off',
+        'code' => 'Short code',
+        'connector' => 'Connector version',
+        'key' => 'Key set',
+        'ips' => 'Allowed addresses',
+        'commands' => 'What ' . self::ASK . ' runs on the CW server to change this website. Each one is a test run until he adds the apply option.',
+        'none' => 'There is no website yet.',
+        'seconds' => '%s seconds',
+        'minutes' => '%s minutes',
+        'hours' => '%s hours',
+        'days' => '%s days',
+    ];
+
+    /** What each server command of the Websites page does (Admin\Sites::commands). */
+    public const SITE_COMMAND = [
+        'mode' => 'Move to the next mode',
+        'writer' => 'Switch the stock writer',
+        'ips' => 'Change the allowed addresses',
+        'warehouse' => 'Sell from another warehouse',
+        'key' => 'Make a new key',
+        'health' => 'List the problems of every website',
+    ];
+
+    /** The Safety checks page (/ui/system/checks). */
+    public const INTEGRITY = [
+        'last' => 'Last check',
+        'result_ok' => 'Everything agreed',
+        'result_bad' => '%s problems found',
+        'result_one' => '1 problem found',
+        'took' => 'Finished %s, after %s seconds.',
+        'details' => 'What was found (for ' . self::ASK . ')',
+        'more' => 'Only the first %s are kept here. The server log has all of them.',
+        'earlier' => 'Earlier checks',
+        'when' => 'When',
+        'result' => 'Result',
+        'none' => 'No check has run yet. It runs every night.',
+        'stale' => 'The last check finished %s. It should run every night: tell ' . self::ASK . '.',
+        'tell' => 'Tell ' . self::ASK . ' the same day. Nothing is fixed by itself.',
+    ];
+
+    /** The audit log (/ui/system/audit). */
+    public const AUDIT = [
+        'from' => 'From',
+        'to' => 'To',
+        'who' => 'Who',
+        'everyone' => 'Everyone',
+        'system' => 'Set up by CW (jobs on the server)',
+        'sites' => 'Websites',
+        'record' => 'Kind of record',
+        'any' => 'Any',
+        'id' => 'Record number',
+        'action' => 'What was done',
+        'anything' => 'Anything',
+        'search' => 'Search',
+        'clear' => 'Clear the search',
+        'download' => 'Download as a spreadsheet (CSV, opens in Excel)',
+        'shown' => '%s entries, newest first.',
+        'older' => 'Older entries',
+        'none' => 'Nothing was recorded for this search.',
+        'none_text' => 'Try more days, or clear the search.',
+        'when' => 'When',
+        'details' => 'Details',
+        'ip' => 'From address',
+        'cw' => 'set up by CW',
+        'bad_filter' => 'This search cannot be done: %s. Nothing was searched.',
+    ];
+
+    /** audit_log.entity_type => the kind of record (the audit log's filter and rows; another type is made readable). */
+    public const AUDIT_RECORD = [
+        'app_setting' => 'Setting',
+        'barcode_review' => 'Barcode to check',
+        'brand' => 'Brand',
+        'channel' => 'Website',
+        'company_profile' => 'Company details',
+        'demand_anomaly' => 'Days left out of sales',
+        'document' => 'Record',
+        'document_type' => 'Rule of a kind of record',
+        'import_run' => 'Import',
+        'incident' => 'Incident',
+        'item_card' => 'Product card',
+        'key_sample' => 'Spot check',
+        'listing' => 'Website product',
+        'match_decision' => 'Match',
+        'match_run' => 'Computer check',
+        'reason_code' => 'Reason for a stock change',
+        'reservation' => 'Website order',
+        'sales_import_batch' => 'Sales data',
+        'sku' => 'Warehouse product',
+        'sku_barcode' => 'Barcode',
+        'staff_user' => 'Staff member',
+        'stored_file' => 'File',
+        'supplier' => 'Supplier',
+        'supplier_item' => 'Supplier\'s product',
+        'warehouse' => 'Warehouse',
+        'warehouse_location' => 'Place in a warehouse',
+    ];
+
+    /** The first part of an audit action => what kind of thing was done (the audit log's filter and rows). */
+    public const AUDIT_FAMILY = [
+        'setting' => 'Settings',
+        'document_type' => 'Rules of records',
+        'reason' => 'Reasons for stock changes',
+        'warehouse' => 'Warehouses',
+        'location' => 'Places in warehouses',
+        'staff' => 'Staff access',
+        'login' => 'Signing in',
+        'logout' => 'Signing out',
+        'password' => 'Passwords',
+        'supplier' => 'Suppliers',
+        'supplier_item' => 'Suppliers\' products',
+        'po' => 'Purchase orders',
+        'document' => 'Records',
+        'grn' => 'Deliveries',
+        'incident' => 'Incidents',
+        'company' => 'Company details',
+        'item_card' => 'Product cards',
+        'sku_barcode' => 'Barcodes',
+        'barcode_review' => 'Barcodes to check',
+        'mapping' => 'Matching',
+        'listing' => 'Website products',
+        'channel' => 'Websites',
+        'reorder' => 'What to buy',
+        'sales' => 'Sales data',
+        'selling_mode' => 'Selling modes',
+        'reservation' => 'Website orders',
+        'file' => 'Files',
+    ];
+
+    /** audit_log.action => what was done, for the actions people look for most (the others: their kind, AUDIT_FAMILY). */
+    public const AUDIT_ACTION = [
+        'setting.change' => 'Setting changed',
+        'document_type.change' => 'Rule of a kind of record changed',
+        'reason.add' => 'Reason added',
+        'reason.rename' => 'Reason renamed',
+        'reason.switch_off' => 'Reason switched off',
+        'reason.switch_on' => 'Reason switched on again',
+        'warehouse.add' => 'Warehouse added',
+        'warehouse.rename' => 'Warehouse renamed',
+        'warehouse.sellable' => 'Selling from a warehouse changed',
+        'warehouse.owner' => 'Whose stock a warehouse holds changed',
+        'warehouse.switch_off' => 'Warehouse switched off',
+        'warehouse.switch_on' => 'Warehouse switched on again',
+        'location.add' => 'Place added',
+        'location.rename' => 'Place renamed',
+        'location.switch_off' => 'Place switched off',
+        'location.switch_on' => 'Place switched on again',
+        'staff.create' => 'Staff member added',
+        'staff.roles' => 'Jobs changed',
+        'staff.activate' => 'Can sign in again',
+        'staff.deactivate' => 'Stopped from signing in',
+        'staff.reset' => 'Sign-in reset',
+        'staff.sign_out' => 'Signed out by an admin',
+        'staff.setup' => 'Set up their sign-in',
+        'staff.setup_fail' => 'Sign-in set-up did not work',
+        'staff.role_request' => 'Asked for Admin or Reviewer',
+        'staff.role_request_reject' => 'Request for Admin or Reviewer refused',
+        'staff.role_request_withdraw' => 'Request for Admin or Reviewer withdrawn',
+        'login.ok' => 'Signed in',
+        'login.fail' => 'Sign-in did not work',
+        'logout' => 'Signed out',
+        'password.change' => 'Password changed',
+        'password.fail' => 'Wrong old password',
+        'supplier.activate_alone' => 'Supplier switched on without a second person',
+        'channel.mode' => 'Website mode changed',
+        'channel.allowlist' => 'Website addresses changed',
+        'channel.site_writer' => 'Stock writer switched',
+        'channel.warehouse_move' => 'Website moved to another warehouse',
+    ];
+
+    /** What each permission lets a person do (the "Who can do what" page; Permissions::MAP). */
+    public const PERMISSION = [
+        'catalogue.view' => 'Look at products and find them',
+        'linking.view' => 'Look at the matching pages',
+        'mapping.decide' => 'Match website products to warehouse products',
+        'mapping.approve' => 'Give the second OK of a match, decide when clues disagree, join duplicates',
+        'staff.view' => 'Look at staff and their access',
+        'staff.manage' => 'Add staff, give jobs, reset a sign-in, stop people signing in',
+        'reference.view' => 'Look at the settings, rules and lists',
+        'documents.view' => 'Look at records',
+        'documents.review' => 'Check other people\'s records',
+        'documents.approve' => 'Give the OK a record waits for',
+        'accounts.view' => 'Look at stock values for the accounts (coming later)',
+        'doc.PO.post' => 'Make, confirm, send, cancel and correct purchase orders',
+        'doc.GRN.post' => 'Book in deliveries and check them at the goods-in bench',
+        'doc.SINV.post' => 'Book supplier invoices (coming later)',
+        'doc.DN.post' => 'Send goods back to suppliers (coming later)',
+        'doc.CNT.post' => 'Count stock on the shelves (coming later)',
+        'doc.ADJ.post' => 'Correct stock (coming later)',
+        'doc.WO.post' => 'Write stock off (coming later)',
+        'doc.TRD.post' => 'Trade sales (coming later)',
+        'suppliers.view' => 'Look at suppliers',
+        'suppliers.manage' => 'Add and change suppliers',
+        'suppliers.approve' => 'Approve suppliers',
+        'purchasing.view' => 'Look at purchase orders',
+        'reorder.view' => 'Look at what to buy and the sales data',
+        'reorder.manage' => 'Change the what-to-buy settings and work sales out again',
+        'company.edit' => 'Change the company details',
+        'company.confirm' => 'Confirm the company details',
+        'catalogue.edit' => 'Change product cards and barcodes',
+        'receiving.view' => 'Look at deliveries',
+        'incidents.view' => 'Look at incidents',
+        'incidents.resolve' => 'Close incidents',
+        'modes.set' => 'Set the selling mode on the websites',
+        'settings.manage' => 'Change settings, approval rules, reasons and warehouses',
+        'audit.view' => 'Read the audit log',
+        'system.view' => 'Look at the websites\' link and the safety checks',
+        'staff.approve' => 'Give the OK when someone is given Admin or Reviewer',
+    ];
+
+    /** The "Who can do what" page (/ui/reference/access). */
+    public const ACCESS = [
+        'rules' => 'Rules that always apply',
+        'rule_own' => 'Nobody approves or checks their own work.',
+        'rule_admin' => 'Admin can only go with %s. While an account has Admin, its other jobs are switched off.',
+        'rule_settings' => 'Admins and Reviewers change settings, approval rules, reasons and warehouses. Admin still never makes, checks or approves stock records or matches.',
+        'rule_approvals' => 'Which work waits for a second person is on the Approval rules page.',
+        'by_job' => 'What each job may do',
+        'by_task' => 'Who may do each thing',
+        'task' => 'What',
+        'who' => 'Who',
+        'can' => 'Can:',
+        'people' => 'Staff and access',
+    ];
+
+    /** Setting up one's own sign-in (/ui/enrol, public). */
+    public const ENROL = [
+        'email' => 'E-mail address',
+        'code' => '6-digit code from the code app on your phone',
+        'code_hint' => 'It changes every 30 seconds.',
+        'new' => 'Your new password (at least %s characters)',
+        'again' => 'Your new password again',
+        'save' => 'Save my password and sign in',
+        'failed' => 'That did not work. Check your e-mail and the 6 numbers, and wait for the next code. If your time to set up ran out, ask ' . self::ASK . ' for a new sign-in code.',
+        'back' => 'Back to sign in',
+        'link' => 'First time, or told to choose a new password? Set up my sign-in',
+    ];
+
+    /** The sign-up sheet (the answer of "Add them" and "Make a new sign-in code"; shown once). */
+    public const SHEET = [
+        'title' => 'Sign-in code for %s',
+        'once' => 'Shown only now. When you leave this page, this code is gone.',
+        'steps' => 'What %s does now',
+        'step_app' => 'Install a code app on the phone, for example Google Authenticator or Microsoft Authenticator.',
+        'step_scan' => 'In the app, tap + and choose "Scan a QR code". Scan the code below.',
+        'step_open' => 'On the phone or a computer, open %s and choose "Set up my sign-in".',
+        'step_type' => 'Type the e-mail, the 6 numbers the app shows, and a new password of at least %s characters.',
+        'step_by' => 'Do it before %s. After that, ask %s for a new code.',
+        'step_signin' => 'Sign in as usual with the password and the 6 numbers from the new code.',
+        'qr' => 'QR code for the code app',
+        'key' => 'Cannot scan it? In the app choose "Enter a setup key" and type this key:',
+        'account' => 'Account name: %s',
+        'done' => 'Done: back to %s',
+        'requested' => 'Admin and Reviewer wait for a reviewer\'s OK. Until then they have these jobs: %s.',
+    ];
+
+    /** The reviewers' list of staff access waiting for an OK (/ui/staff-requests). */
+    public const STAFF_REQUESTS = [
+        'none' => 'Nothing is waiting for your OK.',
+        'person' => 'Person',
+        'now' => 'Jobs now',
+        'asked' => 'Jobs asked for',
+        'by' => 'Asked by',
+        'on' => 'Asked on',
+        'ok' => 'OK: give these jobs',
+        'note' => 'Why not? (at least 3 characters)',
+        'not_ok' => 'Not OK: keep their jobs as they are',
+        'yours' => 'You asked for this, or it is about you: another reviewer must decide.',
+        'own_request' => 'You asked for this change, so another reviewer must decide it. Nothing was changed.',
+        'own_account' => 'This is about your own access, so another reviewer must decide it. Nothing was changed.',
+        'request_closed' => 'This request was decided or withdrawn already. Nothing was changed.',
+        'note_required' => 'Say why not in 3 to 500 characters. Nothing was changed.',
+        'role_not_allowed' => 'Only a Reviewer whose job works decides this. Nothing was changed.',
+    ];
+
+    // ------------------------------------------------------------------------------------------------------------------
     // Status chip tones: needs (you act), done, waiting (someone else), blocked, info, off
 
     public const TONES = ['needs', 'done', 'waiting', 'blocked', 'info', 'off'];
@@ -4673,6 +5445,7 @@ final class Words
         'RECEIPT_STATE' => ['draft' => 'needs', 'awaiting_approval' => 'waiting', 'posted' => 'done', 'reversed' => 'off', 'cancelled' => 'off'],
         'BENCH_STATE' => ['todo' => 'needs', 'part' => 'needs', 'done' => 'done', 'refused' => 'blocked'],
         'INCIDENT_STATE' => ['open' => 'needs', 'resolved' => 'done', 'dismissed' => 'off'],
+        'MODE' => ['off' => 'off', 'shadow' => 'waiting', 'live' => 'done'],
     ];
 
     // ==================================================================================================================

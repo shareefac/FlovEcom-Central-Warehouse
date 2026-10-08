@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Mapping;
 
+use CW\Admin\ApprovalRules;
 use CW\Audit;
 use CW\Auth\Permissions;
 use CW\Caller;
@@ -878,6 +879,13 @@ final class DecisionService
                 $needs = array_values(array_unique($needs));
                 break;
         }
+        // The owner's approval switches (Approval rules page, 0019, Y11): a two-person case switched off is decided by one.
+        if ($needs !== [] && !ApprovalRules::on($this->db, 'approvals.match_multiple')) {
+            $needs = array_values(array_diff($needs, ['units_per_item']));
+        }
+        if ($needs !== [] && !ApprovalRules::on($this->db, 'approvals.match_counted')) {
+            $needs = array_values(array_diff($needs, ['counted_item']));
+        }
         if (in_array($action, self::LINK_OUTCOMES, true) && ($units < 1 || $units > self::MAX_UNITS)) {
             throw new CwException('bad_units', 'units_per_item must be 1..' . self::MAX_UNITS, 400);
         }
@@ -1133,7 +1141,7 @@ final class DecisionService
         foreach ($moves as $i => $m) {
             $fromId = (int) $m['from']['id'];
             $toId = (int) $m['to']['id'];
-            if ($m['one_person'] && $this->counted([$fromId, $toId]) !== []) {
+            if ($m['one_person'] && ApprovalRules::on($this->db, 'approvals.match_counted') && $this->counted([$fromId, $toId]) !== []) {
                 throw new CwException('counted_meanwhile', 'one of the items was counted a moment ago: reload the page (a counted item needs a second person)', 409);
             }
             $doc = 'merge:' . $m['merge_id'];

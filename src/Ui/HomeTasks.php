@@ -25,8 +25,11 @@ final class HomeTasks
 {
     /** Card key => its place: blocking others (< 100), the owner's own checks (100-199), routine (200+). */
     public const RANK = [
+        'integrity' => 5,
+        'integrity_stale' => 6,
         'company_confirm' => 10,
         'approvals' => 20,
+        'staff_requests' => 25,
         'second_ok' => 30,
         'test_accounts' => 40,
         'own_clash' => 41,
@@ -73,6 +76,8 @@ final class HomeTasks
         'staff' => ['staff.manage'],
         'receiving' => ['doc.GRN.post'],
         'incidents' => ['incidents.resolve'],
+        'integrity' => ['system.view'],
+        'staff_requests' => ['staff.approve'],
     ];
 
     /** The lists of "Other website products to match", in the order the button takes the first one with work. */
@@ -112,6 +117,8 @@ final class HomeTasks
      *  staff     {test: list<{id, name}>, reviewers: int, clashes: list<{id, name, off: list<string>}>}
      *  receiving {bench: int (deliveries not booked in that wait for the goods-in bench), to_post: int (checked at the bench, not booked in)}
      *  incidents int (open incidents, the badge's count)
+ *  integrity {ok: bool, problems: int, finished_at: string, hours: int}|null: the latest nightly safety check (null: none ran yet)
+ *  staff_requests int (open requests for Admin or Reviewer this reviewer may decide)
      *  checks    also `deliveries` (optional): the part of `review` that is deliveries booked in (their own card)
      *
      * @param list<string> $roles
@@ -238,9 +245,10 @@ final class HomeTasks
                     ['button' => self::word('test_accounts', $one ? 'button' : 'button_many')]);
             }
             $reviewers = (int) ($staff['reviewers'] ?? 0);
-            if ($reviewers < PeopleController::MIN_REVIEWERS) {
+            $min = (int) ($staff['min'] ?? PeopleController::MIN_REVIEWERS); // staff.min_reviewers (the Settings page)
+            if ($reviewers < $min) {
                 $out[] = self::card('reviewers', ['title' => self::word('reviewers', $reviewers === 0 ? 'title_none' : 'title'),
-                    'text' => sprintf(self::word('reviewers', 'text'), Html::int(PeopleController::MIN_REVIEWERS)), 'href' => '/ui/people']);
+                    'text' => sprintf(self::word('reviewers', 'text'), Html::int($min)), 'href' => '/ui/people']);
             }
             foreach ($staff['clashes'] ?? [] as $c) {
                 if ((int) $c['id'] === $meId) {
@@ -254,6 +262,22 @@ final class HomeTasks
                     'text' => sprintf(self::word('admin_clash', 'text'), $c['name'], $jobs),
                     'button' => sprintf(self::word('admin_clash', 'button'), $c['name']), 'href' => '/ui/people/' . (int) $c['id']]);
             }
+        }
+
+        // The nightly safety check (G36): a problem it found, or no check for STALE_HOURS (only once one has ever run).
+        $check = $f['integrity'] ?? null;
+        if ($can('system.view') && is_array($check)) {
+            if (!$check['ok']) {
+                $out[] = self::card('integrity', ['title' => (int) $check['problems'] === 1 ? self::word('integrity', 'title_one')
+                    : sprintf(self::word('integrity', 'title'), Html::int((int) $check['problems'])), 'href' => '/ui/system/checks', 'tone' => 'blocked']);
+            } elseif ((int) $check['hours'] >= \CW\Ops\IntegrityRuns::STALE_HOURS) {
+                $out[] = self::card('integrity_stale', ['title' => sprintf(self::word('integrity_stale', 'title'), Html::when((string) $check['finished_at'])),
+                    'href' => '/ui/system/checks', 'tone' => 'blocked']);
+            }
+        }
+        // Grants of Admin or Reviewer waiting for this reviewer's OK (approvals.staff_grant, Y25).
+        if ($can('staff.approve')) {
+            $out[] = self::counted('staff_requests', (int) ($f['staff_requests'] ?? 0), '/ui/staff-requests');
         }
 
         $ranked = [];

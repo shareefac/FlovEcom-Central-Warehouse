@@ -58,10 +58,11 @@ final class HomeTasksTest extends TestCase
 
     public function testNeedsAsksOnlyForTheFactsTheJobsUse(): void
     {
-        self::assertSame(['company', 'checks', 'samples', 'held', 'duplicates', 'pending', 'bands', 'barcodes', 'sales'], HomeTasks::needs(self::OWNER));
+        self::assertSame(['company', 'checks', 'samples', 'held', 'duplicates', 'pending', 'bands', 'barcodes', 'sales', 'integrity', 'staff_requests'],
+            HomeTasks::needs(self::OWNER));
         self::assertSame(['company', 'orders', 'demand', 'sales', 'suppliers'], HomeTasks::needs(['buyer']));
-        self::assertSame(['staff'], HomeTasks::needs(['admin']));
-        self::assertSame(['staff'], HomeTasks::needs(['admin', 'mapping_lead', 'reviewer']), 'Admin switches the owner\'s jobs off: no matching or checking counts');
+        self::assertSame(['staff', 'integrity'], HomeTasks::needs(['admin']), 'the admin looks after the system: the nightly safety check (G36)');
+        self::assertSame(['staff', 'integrity'], HomeTasks::needs(['admin', 'mapping_lead', 'reviewer']), 'Admin switches the owner\'s jobs off: no matching or checking counts');
         self::assertSame(['bands'], HomeTasks::needs(['mapper']));
         self::assertSame([], HomeTasks::needs(['viewer']), 'look only: nothing to count');
         self::assertSame([], HomeTasks::needs([]));
@@ -283,5 +284,43 @@ final class HomeTasksTest extends TestCase
         self::assertArrayNotHasKey('href', $card, 'nothing to open');
         self::assertArrayNotHasKey('job', $card);
         self::assertSame('blocked', $card['tone']);
+    }
+
+    /**
+     * The set-it-yourself pack (G36, Y25, Y8): the nightly safety check's card for the people who look after the system (a problem
+     * found, or no check for STALE_HOURS once one has run; nothing before the first run), a reviewer's card for grants of Admin or
+     * Reviewer waiting for their OK, and the reviewers card following staff.min_reviewers.
+     */
+    public function testTheSafetyCheckStaffRequestAndReviewerCards(): void
+    {
+        $bad = HomeTasks::build(1, ['admin'], ['staff' => ['test' => [], 'reviewers' => 2, 'clashes' => [], 'min' => 2],
+            'integrity' => ['ok' => false, 'problems' => 3, 'finished_at' => '2026-10-08 02:47:00', 'hours' => 2]]);
+        self::assertSame(['integrity'], self::keys($bad['jobs']));
+        self::assertSame(sprintf(Words::TASK['integrity']['title'], '3'), $bad['jobs'][0]['title']);
+        self::assertSame('/ui/system/checks', $bad['jobs'][0]['href']);
+        self::assertTrue($bad['jobs'][0]['hero'] ?? false, 'a broken check comes first');
+        $one = HomeTasks::build(1, ['admin'], ['integrity' => ['ok' => false, 'problems' => 1, 'finished_at' => '2026-10-08 02:47:00', 'hours' => 2]]);
+        self::assertSame(Words::TASK['integrity']['title_one'], $one['jobs'][0]['title']);
+        $stale = HomeTasks::build(1, ['reviewer'], ['integrity' => ['ok' => true, 'problems' => 0, 'finished_at' => '2026-10-05 02:47:00',
+            'hours' => \CW\Ops\IntegrityRuns::STALE_HOURS]]);
+        self::assertSame(['integrity_stale'], self::keys($stale['jobs']));
+        self::assertStringContainsString('5 Oct 2026', $stale['jobs'][0]['title']);
+        $fresh = HomeTasks::build(1, ['reviewer'], ['integrity' => ['ok' => true, 'problems' => 0, 'finished_at' => '2026-10-08 02:47:00', 'hours' => 3]]);
+        self::assertSame([], self::keys($fresh['jobs']), 'a fresh check that held: no card');
+        self::assertSame([], self::keys(HomeTasks::build(1, ['reviewer'], ['integrity' => null])['jobs']), 'no check ran yet: no card');
+        self::assertSame([], self::keys(HomeTasks::build(1, ['buyer'], ['integrity' => ['ok' => false, 'problems' => 2, 'finished_at' => '2026-10-08 02:47:00',
+            'hours' => 1]])['jobs']), 'not for a buyer (system.view)');
+
+        $req = HomeTasks::build(1, ['reviewer'], ['staff_requests' => 2]);
+        self::assertSame(['staff_requests'], self::keys($req['jobs']));
+        self::assertSame('/ui/staff-requests', $req['jobs'][0]['href']);
+        self::assertSame(2, $req['jobs'][0]['count']);
+        self::assertSame([], self::keys(HomeTasks::build(1, ['reviewer'], ['staff_requests' => 0])['jobs']));
+
+        $few = HomeTasks::build(1, ['admin'], ['staff' => ['test' => [], 'reviewers' => 1, 'clashes' => [], 'min' => 1]]);
+        self::assertSame([], self::keys($few['jobs']), 'the owner set staff.min_reviewers to 1: one reviewer is enough');
+        $more = HomeTasks::build(1, ['admin'], ['staff' => ['test' => [], 'reviewers' => 2, 'clashes' => [], 'min' => 3]]);
+        self::assertSame(['reviewers'], self::keys($more['jobs']));
+        self::assertSame(sprintf(Words::TASK['reviewers']['text'], '3'), $more['jobs'][0]['text']);
     }
 }

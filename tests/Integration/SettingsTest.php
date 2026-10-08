@@ -20,6 +20,7 @@ use CW\Tests\Support\TestDb;
 final class SettingsTest extends IntegrationTestCase
 {
     private const DENIED = 1142;
+    private const COLUMN_DENIED = 1143;
 
     /** @var array<string, string> setting_key => value_json before the test */
     private array $saved = [];
@@ -126,7 +127,7 @@ final class SettingsTest extends IntegrationTestCase
     {
         $r = self::cli('--set=suppliers.approval_due_days', '--value=5', '--reason=owner asked for a week');
         self::assertSame(1, $r['code'], $r['err'] . $r['out']);
-        self::assertStringContainsString('settings change needs --admin (cw_app has SELECT only)', $r['err']);
+        self::assertStringContainsString('settings change needs --admin (on the server; staff change settings on the Settings page)', $r['err']);
         self::assertSame(3, (new Settings(self::$db))->get('suppliers.approval_due_days'), 'unchanged');
 
         $r = self::cli('--admin', '--set=suppliers.approval_due_days', '--value=5', '--reason=owner asked for five days');
@@ -136,7 +137,7 @@ final class SettingsTest extends IntegrationTestCase
         self::assertSame(['5', 'system:settings', 1], [$row['v'], $row['updated_actor'], (int) $row['provisional']]);
         $audit = self::$db->one("SELECT actor, entity_type, entity_id, detail FROM audit_log WHERE action = 'setting.change' ORDER BY id DESC LIMIT 1");
         self::assertSame(['system:settings', 'app_setting', 'suppliers.approval_due_days'], [$audit['actor'], $audit['entity_type'], $audit['entity_id']]);
-        self::assertEquals(['after' => 5, 'before' => 3, 'key' => 'suppliers.approval_due_days', 'reason' => 'owner asked for five days'],
+        self::assertEquals(['after' => 5, 'before' => 3, 'key' => 'suppliers.approval_due_days', 'reason' => 'owner asked for five days', 'version' => 2],
             json_decode((string) $audit['detail'], true));
 
         $r = self::cli('--admin', '--set=suppliers.approval_due_days', '--value=5', '--reason=again');
@@ -209,7 +210,12 @@ final class SettingsTest extends IntegrationTestCase
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'setting.change'"));
     }
 
-    public function testTheAppLoginCannotWriteSettingsOrVatCodes(): void
+    /**
+     * The app login and the settings (0009, I38; since 0019, Y3): it reads them all; it changes a setting's value, whether the owner
+     * agreed it and who changed it last (the Settings page, through Settings::change, which checks the person), never its name, type
+     * or description, and never adds or removes one; the VAT codes stay read only.
+     */
+    public function testTheAppLoginChangesOnlyASettingsValueAndNeverTheVatCodes(): void
     {
         $config = TestDb::config();
         $user = $config->appDbUser();
@@ -219,7 +225,6 @@ final class SettingsTest extends IntegrationTestCase
         self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM app_setting'), (int) $app->value('SELECT COUNT(*) FROM app_setting'), 'the app login reads them');
         self::assertSame(3, (new Settings($app))->get('suppliers.approval_due_days'));
         foreach ([
-            "UPDATE app_setting SET value_json = CAST('5' AS JSON) WHERE setting_key = 'suppliers.approval_due_days'",
             "INSERT INTO app_setting (setting_key, value_type, value_json, description) VALUES ('x.y', 'string', '\"\"', 'x')",
             'DELETE FROM app_setting',
             "UPDATE vat_code SET rate_percent = 0 WHERE code = 'S'",
@@ -228,11 +233,11 @@ final class SettingsTest extends IntegrationTestCase
         ] as $sql) {
             self::assertSame(self::DENIED, self::mysqlError(static fn () => $app->exec($sql)), $sql);
         }
-        try {
-            (new Settings($app))->set(Caller::system('test'), 'suppliers.approval_due_days', '5', 'as the app login');
-            self::fail('the app login changed a setting');
-        } catch (\PDOException $e) {
-            self::assertSame(self::DENIED, Db::driverCode($e));
+        foreach (["UPDATE app_setting SET description = 'x'", "UPDATE app_setting SET value_type = 'text'", "UPDATE app_setting SET setting_key = 'x.y'"] as $sql) {
+            self::assertSame(self::COLUMN_DENIED, self::mysqlError(static fn () => $app->exec($sql)), $sql);
         }
+        $r = (new Settings($app))->set(Caller::system('test'), 'suppliers.approval_due_days', '5', 'as the app login');
+        self::assertSame([true, 3, 5, 2], [$r['changed'], $r['before'], $r['after'], $r['version']], 'kept as version 2 of its history');
+        self::assertSame(5, (new Settings(self::$db))->get('suppliers.approval_due_days'));
     }
 }

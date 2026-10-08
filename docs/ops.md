@@ -10,7 +10,7 @@ staging cluster. Nothing touches a live or proto site or database.
 |---|---|---|---|
 | `bin/expire_reservations.php` | every minute | Expires unpaid holds past their TTL (§3, §4 step 3). It selects due ids without locks, then handles each hold in its own transaction through `Reservations::expireDue`: lock, re-check, release the held units, status `expired`. Runs batches of 500 until none is due or 50 s have passed. A hold that fails is logged and skipped (H4). | 0 ok · 1 some holds failed · 3 cannot run |
 | `bin/prune_changes.php --days=14` | 03:17 | Deletes change-feed rows (`stock_change`) older than 14 days, except the newest row of each item/listing/channel/global scope, so no listing's version moves (H2). Short autocommit deletes; safe while the service runs. `--dry-run` only counts. | 0 ok · 3 cannot run |
-| `bin/invariants.php` | 03:47 | The nightly bucket check (`CW\Invariants`, D44), run on one consistent snapshot (H5): cached buckets = unit states = ledger sums, unit states match their reservations; since C0 also the per-item value sequence (checks 7–9, I3): one seq per on_hand ledger row, seqs 1..N per item matching its clock, seq order = ledger id order within a balance; since 0008 also the document base (D1–D7, `CW\Documents\DocumentInvariants`): gapless numbers per series, whole reversal pairs that net to zero, ledger rows naming posted documents by their number, review tasks on the right documents and never decided by the document's own people, line items that exist, and every posted document against its write-once posting record (`document_posting`: number, hash, poster, time, and its header and lines re-hashed; I33). | 0 ok · **1 mismatch** · 3 cannot run |
+| `bin/invariants.php` | 03:47 | The nightly bucket check (`CW\Invariants`, D44), run on one consistent snapshot (H5): cached buckets = unit states = ledger sums, unit states match their reservations; since C0 also the per-item value sequence (checks 7–9, I3): one seq per on_hand ledger row, seqs 1..N per item matching its clock, seq order = ledger id order within a balance; since 0008 also the document base (D1–D7, `CW\Documents\DocumentInvariants`): gapless numbers per series, whole reversal pairs that net to zero, ledger rows naming posted documents by their number, review tasks on the right documents and never decided by the document's own people, line items that exist, and every posted document against its write-once posting record (`document_posting`: number, hash, poster, time, and its header and lines re-hashed; I33); since 0019 also the configuration history (K1–K3, Y2: a setting, rule, reason or warehouse changed around its history), and every run is recorded in `integrity_run` (Settings → Safety checks; a failed run is Home's first card, Y33). | 0 ok · **1 mismatch** · 3 cannot run |
 | `deploy/staging/seal_file_store.sh /srv/cw-docs` | every minute | The document store's seal sweep (I36): every stored file not yet immutable becomes root:www-data 0440 and `chattr +i`, so it cannot be rewritten in place, removed or renamed. Silent when nothing is new; does nothing before `install_file_store.sh`. Log: `/var/log/cw/seal_file_store.log`. | 0 ok · **1 a file could not be sealed** · 3 cannot run |
 | `bin/verify_files.php` | 04:27 (only once `/srv/cw-docs` exists) | Re-hashes every stored file (I23, I36); a missing or changed file goes to syslog too (`journalctl -t cw-files`). | 0 ok · **1 missing or changed** · 3 cannot run |
 | `bin/health_alert.php` | not scheduled (stub) | Lists shadow/live channels that stopped heartbeating (no heartbeat, or none for 180 s), report dead letters, or run another mode than CW's (H8). Prints only. | 0 ok · 1 problems printed · 3 cannot run |
@@ -137,6 +137,28 @@ INSERT, UPDATE; `item_card_change`: SELECT, INSERT; `barcode_review`: SELECT, IN
 run, never the code first (the item page, the reorder list and PO approval read `item_card`). On `cw_staging` (at 0015) it is the only
 PENDING file. Check afterwards: the three tables exist and are empty; `php bin/migrate.php --status` lists no PENDING file;
 `php bin/invariants.php` says `ok` (it now runs IC1–IC3 too). Then the dry run of the barcode sync ("Item cards and barcodes" below).
+
+**`0019_set_it_yourself.sql` (the set-it-yourself pack, `docs/decisions.md` Y1–Y38; not applied yet):** new tables `config_change` and
+`integrity_run` (cw_app SELECT, INSERT), `warehouse_location` (SELECT, INSERT, UPDATE of name/is_active/note), `staff_role_request`
+(SELECT, INSERT, UPDATE of its decision columns); new columns on `warehouse` (`is_active`, `stock_owner`, `owner_entity`, `is_system`,
+`note`, `sort_order`), `document_line.location_id`, `staff_user.setup_until`, `supplier.approved_alone`/`route_alone`/`alone_change_id`;
+eight new settings (`approvals.*`, `staff.setup_hours`, `staff.min_reviewers`, all provisional; `approvals.staff_grant` off); a
+baseline version of every setting, reason, document rule and warehouse; cw_app gains column UPDATE on `app_setting` and `document_type`
+and INSERT on `reason_code` (Y3). It needs the code of the same commit (the screens, `Settings::change`, the new Composer package
+`bacon/bacon-qr-code`, which `install_cron.sh` installs) and never the code first. On `cw_staging` (at 0018) it is the only PENDING
+file:
+
+```bash
+scripts/remote.sh set1 vendor/bin/phpunit && scripts/remote.sh ui vendor/bin/phpunit && scripts/remote.sh api vendor/bin/phpunit --filter 'Integration\\Api'
+scripts/remote.sh set1 php tests/concurrency/hammer.php --seed=20261011
+scripts/remote.sh set1 bash deploy/staging/install_cron.sh --migrate
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/migrate.php --status --db=cw_staging'   # no PENDING
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/invariants.php --db=cw_staging'        # ok (K1-K3 included)
+```
+
+Check afterwards: `SELECT COUNT(*) FROM config_change` = settings + reasons + 8 document rules + warehouses, all `baseline`;
+`SELECT * FROM integrity_run` has the run just made; the owner opens Settings → Approval rules and sees every rule as before (the staff
+rule off); Staff → Staff and access shows "Add a staff member". Nothing changes for the websites.
 
 ### API log rotation (staging)
 
@@ -1779,6 +1801,9 @@ php bin/settings.php --list                                                     
 php bin/settings.php --set=receiving.backdate_max_days --value=14 --reason='owner: two weeks' --admin
 ```
 
+Since 0019 the owner and Fazil change these on the screens (Settings → Settings and lists → the setting; "Changing settings and rules
+yourself" below); the CLI stays for the server.
+
 ### Deploying IM6 to staging (the owner's go first)
 
 `0017_receiving.sql` is the next file after 0016: five new tables (`goods_receipt`, `grn_line`, `grn_posting`, `incident`,
@@ -1936,3 +1961,29 @@ cw_app holds SELECT, INSERT, UPDATE on `item_channel_mode` and SELECT, INSERT on
   on; the admin refuses rather than write what the next reconcile would undo. Try again; `cw_status` shows the connection.
 - A sale that is not off the site's figure after the writer was switched off: the worker applies it a minute later (`writer_unwound`);
   `cw_status` `writer.decrement_skips_open` counts the ones still waiting.
+
+## Changing settings and rules yourself (`docs/decisions.md` Y1–Y38; the owner's rule of 8 Oct 2026)
+
+Who: the owner (Reviewer) and Fazil (Admin) — permission `settings.manage`. Everyone else can look. Every change asks **why** (3 to 500
+characters), is kept as a numbered version (who, when, before, after, why) under "Changes" on its page, and is in the audit log. A form
+left open while someone else changed the same thing is refused ("Someone else changed this while you had the page open"): reload, check,
+save again. Nothing on these pages is ever deleted.
+
+| What | Where (menu) | Notes |
+|---|---|---|
+| A setting's value, and "the owner has agreed it" | Settings → Settings and lists → click the setting | Allowed values are shown under the field. The approval rules and the company details have their own pages. |
+| Which work waits for a second person | Settings → Approval rules | Each kind of record (reviewer check after it is final: every one / over a limit / none, the days, what Not OK does, the OK first and its limit); suppliers (new supplier OK, changed details check, days to decide); matching (1 sale ≠ 1 product, joining counted products, spot check size); your own change of the company details; giving someone Admin or Reviewer (off by default). Switching an OK first off keeps its limit. |
+| Reasons for stock changes | Settings → Settings and lists → Reasons for stock changes | Add (short code never changes), rename, switch off / on. CW's own reasons are locked. |
+| Warehouses and places inside them | Settings → Warehouses | Add (e.g. the VPG 2 room as "Another account's stock": never sold from), rename, whose stock, websites may sell from it (tick to confirm; Fazil then points a website at it on the server), switch off (only when empty) / on. Places (e.g. OVERFLOW in the main warehouse) are optional. |
+| Staff: add a person, a new sign-in code, a new password, sign out a device | Staff → Staff and access (Admin) | The QR code is shown once; the person finishes at /ui/enrol within `staff.setup_hours` (48 h). With the staff rule on, Admin/Reviewer waits for a reviewer: Staff access to OK (Home card). |
+| Websites (look) | Settings → Websites | Mode, last contact, queue, how far behind, warehouse, stock writer. Changes stay on the server: the commands are in "Technical details". |
+| Safety checks (look) | Settings → Safety checks | The nightly check's results; a problem is Home's first card. Tell Fazil the same day. |
+| Audit log (look, CSV) | Settings → Audit log | Search by person, day, record, what was done; "Download as a spreadsheet". |
+| Who can do what (look) | Settings → Settings and lists → Who can do what | From the permission map. |
+
+On the server (Fazil): `php bin/settings.php --admin --set=<key> --value=<v> --reason='…'` and `php bin/document_rules.php --admin
+--type=PO --approval=off --reason='…'` do the same as the screens and record a version too. `php bin/channel_set.php --code=<site>
+--warehouse=<CODE> --actor="<name>"` (dry run; `--apply`) moves a website to another sellable warehouse. A change made by hand in SQL
+is reported by the nightly check (K2: "changed outside its history"): record it again through the screen or the CLI so its history
+matches.
+

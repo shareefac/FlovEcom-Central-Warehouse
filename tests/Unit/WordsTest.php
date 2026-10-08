@@ -279,7 +279,7 @@ final class WordsTest extends TestCase
             self::assertTrue(Words::has('REASON_USE', trim($use, " '")), $use);
         }
         $keys = [];
-        foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql'] as $file) {
+        foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql', '0019_set_it_yourself.sql'] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
         }
@@ -426,5 +426,55 @@ final class WordsTest extends TestCase
         self::assertSame('12 KB', Html::size(12 * 1024));
         self::assertSame('1.5 MB', Html::size((int) (1.5 * 1024 * 1024)));
         self::assertSame('2 MB', Html::size(2 * 1024 * 1024));
+    }
+
+    /**
+     * The set-it-yourself pack (0019; docs/decisions.md Y36): every permission, approval rule, kind of change, reason a warehouse is
+     * not empty, website mode and server command has its words; every refusal and notice is a full sentence; no word names a
+     * setting key or a server command.
+     */
+    public function testEveryCodeOfTheSetItYourselfPagesHasAWord(): void
+    {
+        foreach ([
+            'PERMISSION' => array_keys(Permissions::MAP),
+            'RULE' => [...array_keys(\CW\Admin\ApprovalRules::SWITCHES), ...array_keys(\CW\Admin\ApprovalRules::NUMBERS)],
+            'CONFIG_ACTION' => ['baseline', 'add', 'change', 'agree', 'unagree', 'rename', 'switch_off', 'switch_on', 'sellable', 'owner'],
+            'WHY_NOT_EMPTY' => ['stock', 'website', 'records', 'counts'],
+            'MODE' => \CW\ChannelAdmin::MODES,
+            'SITE_COMMAND' => array_column(\CW\Admin\Sites::commands(['code' => 'vapeandgo', 'mode' => 'off', 'writer' => false]), 'what'),
+            'CONFIG_ERROR' => ['bad_reason', 'changed_meanwhile', 'role_not_allowed', 'bad_value', 'bad_limit', 'bad_days', 'bad_rule', 'limit_required',
+                'no_approval_rule', 'bad_reject_action', 'bad_code_reason', 'bad_code_warehouse', 'bad_code_place', 'bad_label', 'bad_name', 'bad_note', 'bad_owner',
+                'bad_uses', 'bad_direction', 'reason_exists', 'reason_locked', 'warehouse_exists', 'place_exists', 'system_warehouse', 'warehouse_off',
+                'other_not_sellable', 'confirm_needed', 'warehouse_in_use', 'sellable_warehouse', 'warehouse_not_empty', 'place_in_use'],
+            'STAFF' => ['request_open', 'bad_name', 'bad_email', 'staff_exists', 'bad_session'],
+            'STAFF_REQUESTS' => ['own_request', 'own_account', 'request_closed', 'note_required', 'role_not_allowed'],
+            'ERROR' => ['no_setting', 'no_reason', 'no_warehouse', 'no_request'],
+        ] as $group => $codes) {
+            foreach ($codes as $code) {
+                self::assertTrue(Words::has($group, (string) $code), "{$group}: no word for `{$code}`");
+            }
+        }
+        foreach (\CW\Admin\ApprovalRules::SWITCHES as $key => $default) {
+            self::assertSame(['title', 'on', 'off'], array_keys(Words::RULE[$key]), $key);
+        }
+        foreach (\CW\Admin\ApprovalRules::NUMBERS as $key => $default) {
+            self::assertStringContainsString('%s', Words::RULE[$key]['now'], $key);
+        }
+        foreach ([Words::CONFIG_ERROR, Words::SETTING_NOTICE, Words::REASON_NOTICE, Words::WAREHOUSE_NOTICE, Words::STAFF_REQUESTS] as $texts) {
+            foreach ($texts as $code => $text) {
+                if (in_array($code, ['none', 'person', 'now', 'asked', 'by', 'on', 'ok', 'note', 'not_ok', 'yours'], true)) {
+                    continue; // labels, not refusals
+                }
+                self::assertMatchesRegularExpression('/^[A-Z"].*[.:]$/s', $text, "{$code}: a full sentence (writing rule 7)");
+            }
+        }
+        // Writing rule 12: the commands of the Websites page are not words: they come from Admin\Sites, folded for Fazil only.
+        foreach (\CW\Admin\Sites::commands(['code' => 'vapeandgo', 'mode' => 'shadow', 'writer' => true]) as $c) {
+            self::assertStringStartsWith('php bin/', $c['command']);
+        }
+        // The fixed 20 left the spot check's words: the size is the Approval rules page's (approvals.spot_check_size).
+        foreach ([Words::MENU_HELP['samples'], Words::PAGE_INTRO['samples'][0], Words::PAGE_INTRO['sample'][0], Words::HELP['spot_check']] as $text) {
+            self::assertStringNotContainsString('20', $text);
+        }
     }
 }

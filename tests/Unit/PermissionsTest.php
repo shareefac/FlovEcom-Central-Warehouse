@@ -179,7 +179,11 @@ final class PermissionsTest extends TestCase
                 self::assertFalse(Permissions::can($set, $perm), implode('+', $set) . " never holds {$perm}");
             }
         }
-        self::assertSame(['catalogue.view', 'linking.view', 'staff.view', 'staff.manage', 'reference.view'], Permissions::permissionsOf(['admin']));
+        // The owner's decision of 8 Oct 2026 (Y1): admin also changes settings, rules and lists, reads the audit log and looks at the
+        // websites and the safety checks. It overrides I12 for those only: still no doc.*, mapping.*, review or approval.
+        self::assertSame(['catalogue.view', 'linking.view', 'staff.view', 'staff.manage', 'reference.view', 'settings.manage', 'audit.view', 'system.view'],
+            Permissions::permissionsOf(['admin']));
+        self::assertFalse(Permissions::can(['admin'], 'staff.approve'), 'admin never gives the OK of a grant of Admin or Reviewer');
         // A set that breaks the rule (only admin SQL can write one) is read fail-closed: the conflicting roles count for nothing.
         self::assertFalse(Permissions::can(['admin', 'mapper'], 'mapping.decide'));
         self::assertFalse(Permissions::can(['admin', 'reviewer'], 'documents.review'));
@@ -191,6 +195,29 @@ final class PermissionsTest extends TestCase
         self::assertTrue(Permissions::can(['admin', 'buyer'], 'staff.manage'));
         self::assertTrue(Permissions::can(['admin', 'auditor', 'buyer'], 'accounts.view'), 'the compatible roles still count');
         self::assertTrue(Permissions::can(['mapper', 'reviewer'], 'mapping.decide'), 'without admin, every role counts');
+    }
+
+    /**
+     * The set-it-yourself pack (0019; docs/decisions.md Y1): settings, rules and lists are changed by an admin AND a reviewer (the
+     * owner and Fazil); the audit log is read by those who check and the admin; the websites and the safety checks are looked at; a
+     * grant of Admin or Reviewer is given its OK by a reviewer. The owner's account (Admin + Reviewer + Matching lead) changes
+     * settings through its Admin job.
+     */
+    public function testTheSetItYourselfPermissions(): void
+    {
+        self::assertSame(['admin', 'reviewer'], Permissions::MAP['settings.manage']);
+        self::assertSame(['admin', 'reviewer', 'auditor', 'accountant'], Permissions::MAP['audit.view']);
+        self::assertSame(['admin', 'reviewer', 'auditor', 'manager'], Permissions::MAP['system.view']);
+        self::assertSame(['reviewer'], Permissions::MAP['staff.approve']);
+        self::assertTrue(Permissions::can(['admin', 'mapping_lead', 'reviewer'], 'settings.manage'), 'the owner\'s account, through Admin');
+        self::assertTrue(Permissions::can(['admin', 'mapping_lead', 'reviewer'], 'audit.view'));
+        self::assertFalse(Permissions::can(['admin', 'mapping_lead', 'reviewer'], 'staff.approve'), 'its Reviewer job is off while it has Admin');
+        self::assertTrue(Permissions::can(['mapping_lead', 'reviewer'], 'staff.approve'));
+        foreach (['buyer', 'mapper', 'mapping_lead', 'stock_controller', 'auditor', 'accountant', 'viewer', 'manager'] as $role) {
+            self::assertFalse(Permissions::can([$role], 'settings.manage'), "{$role} never changes settings");
+        }
+        self::assertTrue(Permissions::can(['auditor'], 'audit.view'));
+        self::assertFalse(Permissions::can(['buyer'], 'audit.view'));
     }
 
     public function testCheckRoleSet(): void
@@ -270,8 +297,15 @@ final class PermissionsTest extends TestCase
         $reviewer = Permissions::menu(['reviewer']);
         self::assertSame(['Waiting for me'], array_column($reviewer[1]['items'], 'label'));
         self::assertSame(['What to buy', 'Purchase orders', 'Suppliers', 'Sales data'], array_column($reviewer[2]['items'], 'label'));
-        self::assertSame(['Company details', 'Settings and lists'], array_column(Permissions::menu(['viewer'])[3]['items'], 'label'),
-            'Settings: the company details first (every role reads them; I90), the reason codes and number series are linked from Settings and lists');
+        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses'], array_column(Permissions::menu(['viewer'])[3]['items'], 'label'),
+            'Settings: the company details first (every role reads them; I90), the reason codes, number series and "Who can do what" are linked '
+            . 'from Settings and lists; the approval rules and the warehouses for everyone to read (0019)');
+        $settings = static fn (array $roles): array => array_column(array_values(array_filter(Permissions::menu($roles), static fn (array $s): bool => $s['key'] === 'settings'))[0]['items'], 'label');
+        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses', 'Websites', 'Safety checks', 'Audit log'], $settings(['admin']));
+        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses', 'Websites', 'Safety checks', 'Audit log'], $settings(['reviewer']));
+        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses', 'Audit log'], $settings(['accountant']));
+        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses', 'Websites', 'Safety checks'], $settings(['manager']));
+        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses'], $settings(['buyer']));
         $mapper = Permissions::menu(['mapper']);
         self::assertSame(['/ui/'], array_column($mapper[0]['items'], 'path'), 'Home first');
         self::assertSame(['/ui/review', '/ui/review', '/ui/review/samples', '/ui/review/duplicates'], array_column($mapper[1]['items'], 'path'));

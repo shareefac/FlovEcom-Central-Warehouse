@@ -24,7 +24,8 @@ use CW\Ui\Words;
  * The posting permissions (doc.<TYPE>.post) are proposals pending the owner's decisions 3 and 11 (I16); the Phase I-2
  * purchasing permissions (suppliers.*, purchasing.view, reorder.*) likewise (I40), the company details' (company.*, I90), the
  * item card's (catalogue.edit, I109), receiving's (receiving.view, incidents.*, I141) and the selling-mode switch's
- * (modes.set, I158).
+ * (modes.set, I158). settings.manage (admin AND reviewer) is the owner's decision of 8 Oct 2026 (Y1): it overrides I12 for the
+ * settings, rules and lists only.
  */
 final class Permissions
 {
@@ -113,6 +114,17 @@ final class Permissions
         // website for a legacy item (a receipt's line sets it too, doc.GRN.post). The people who set modes on ERPNext invoice lines
         // and item saves today (the purchasing desk and managers), the stock controller, and the manager (sell policies). Never admin.
         'modes.set' => ['purchasing_desk', 'purchasing_manager', 'stock_controller', 'manager'],
+        // The set-it-yourself pack (0019; docs/decisions.md Y1, the owner's decision of 8 Oct 2026): settings, approval rules, reason
+        // codes, warehouses and their places are changed on the screens by an admin AND a reviewer (the owner and Fazil). This
+        // overrides I12 for settings only: Admin still never posts, reviews or decides stock or matching. Everyone reads them
+        // (reference.view).
+        'settings.manage' => ['admin', 'reviewer'],
+        // The audit log (G07): read only, for the people who check and the admin.
+        'audit.view' => ['admin', 'reviewer', 'auditor', 'accountant'],
+        // The websites' status and the nightly safety checks (G05, G36): read only.
+        'system.view' => ['admin', 'reviewer', 'auditor', 'manager'],
+        // A reviewer's OK of a grant of Admin or Reviewer, while the owner has that rule on (approvals.staff_grant, Y25).
+        'staff.approve' => ['reviewer'],
     ];
 
     /**
@@ -160,10 +172,17 @@ final class Permissions
         ['section' => 'staff', 'items' => [
             ['perm' => 'staff.view', 'key' => 'people', 'path' => '/ui/people'],
         ]],
-        // The settings page links to the reason codes and the number series (no menu item of their own).
+        // The settings page links to the reason codes, the number series and "Who can do what" (no menu item of their own). The
+        // set-it-yourself pack (0019) adds the approval rules and the warehouses (everyone looks; settings.manage changes), the
+        // websites and the safety checks (system.view) and the audit log (audit.view).
         ['section' => 'settings', 'items' => [
             ['perm' => 'reference.view', 'key' => 'company', 'path' => '/ui/reference/company'],
             ['perm' => 'reference.view', 'key' => 'settings', 'path' => '/ui/reference/settings'],
+            ['perm' => 'reference.view', 'key' => 'approvals', 'path' => '/ui/reference/approvals'],
+            ['perm' => 'reference.view', 'key' => 'warehouses', 'path' => '/ui/reference/warehouses'],
+            ['perm' => 'system.view', 'key' => 'sites', 'path' => '/ui/system/sites'],
+            ['perm' => 'system.view', 'key' => 'integrity', 'path' => '/ui/system/checks'],
+            ['perm' => 'audit.view', 'key' => 'audit', 'path' => '/ui/system/audit'],
         ]],
     ];
 

@@ -213,6 +213,43 @@ final class ChannelSetToolTest extends ApiKernelTestCase
         return (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action IN ('channel.mode', 'channel.allowlist')");
     }
 
+    /**
+     * G05 (docs/decisions.md Y31): --warehouse moves a website to another sellable, switched-on warehouse (Stock::assignSellableWarehouse:
+     * the feed re-snapshots), a dry run unless --apply, given alone, audited channel.warehouse and channel.warehouse_move.
+     */
+    public function testTheWarehouseMove(): void
+    {
+        $this->apiSite('vpg', 'shadow', ['203.0.113.7']);
+        self::$db->exec("INSERT INTO warehouse (code, name, is_sellable) VALUES ('MAIN2', 'Second building', 1), ('SHELF', 'Not sold from', 0), "
+        . "('MAIN3', 'Third building', 1)");
+        [$code, $out, $err] = self::tool('--code=vpg', '--warehouse=MAIN2', '--actor=Hari');
+        self::assertSame(0, $code, $err);
+        self::assertStringContainsString("warehouse: MAIN -> MAIN2\n", $out);
+        self::assertStringContainsString('dry run: nothing written', $out);
+        self::assertStringContainsString('warning: the site is shadow', $out);
+        self::assertSame('MAIN', self::$db->value('SELECT w.code FROM channel_warehouse cw JOIN warehouse w ON w.id = cw.warehouse_id JOIN channel c ON c.id = cw.channel_id '
+            . "WHERE c.code = 'vpg' AND cw.is_sellable = 1"));
+        [$code, , $err] = self::tool('--code=vpg', '--warehouse=SHELF', '--apply');
+        self::assertSame(1, $code);
+        self::assertStringContainsString('not sellable', $err);
+        [$code, , $err] = self::tool('--code=vpg', '--warehouse=MAIN2', '--mode=live');
+        self::assertSame(2, $code, 'alone');
+        [$code, $out, $err] = self::tool('--code=vpg', '--warehouse=main2', '--actor=Hari', '--apply');
+        self::assertSame(0, $code, $err);
+        self::assertStringContainsString('applied by Hari; audited: channel.warehouse, channel.warehouse_move', $out);
+        self::assertSame('MAIN2', self::$db->value('SELECT w.code FROM channel_warehouse cw JOIN warehouse w ON w.id = cw.warehouse_id JOIN channel c ON c.id = cw.channel_id '
+            . "WHERE c.code = 'vpg' AND cw.is_sellable = 1"));
+        self::assertSame(['by' => 'Hari', 'from' => 'MAIN', 'to' => 'MAIN2'],
+            self::detail((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'channel.warehouse_move'")));
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'channel.warehouse'"));
+        [$code, $out] = self::tool('--code=vpg', '--warehouse=MAIN2', '--apply');
+        self::assertSame([0, true], [$code, str_contains($out, 'nothing to change')]);
+        self::$db->exec("UPDATE warehouse SET is_active = 0 WHERE code = 'MAIN3'");
+        [$code, , $err] = self::tool('--code=vpg', '--warehouse=MAIN3', '--apply');
+        self::assertSame(1, $code);
+        self::assertStringContainsString('switched off', $err);
+    }
+
     /** @return array{0: int, 1: string, 2: string} exit status, stdout, stderr */
     private static function tool(string ...$args): array
     {

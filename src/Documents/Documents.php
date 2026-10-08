@@ -77,8 +77,6 @@ final class Documents
     private readonly Movements $moves;
     /** @var \Closure(): \DateTimeImmutable */
     private readonly \Closure $clock;
-    /** @var array<string, array<string, mixed>> document_type rows by code (seeded; changed only by a migration) */
-    private array $types = [];
 
     /**
      * @param array<string, DocumentHandler> $handlers type code => handler (DocumentHandlers::all in production)
@@ -726,8 +724,8 @@ final class Documents
                 $awaiting ? $staffId : null, $awaiting ? $now : null],
         );
         $this->db->exec(
-            'INSERT INTO document_line (document_id, line_no, sku_id, warehouse_id, qty, unit_cost, amount, reason_code, description) '
-            . 'SELECT ?, line_no, sku_id, warehouse_id, -qty, unit_cost, -amount, reason_code, description FROM document_line WHERE document_id = ? ORDER BY line_no',
+            'INSERT INTO document_line (document_id, line_no, sku_id, warehouse_id, location_id, qty, unit_cost, amount, reason_code, description) '
+            . 'SELECT ?, line_no, sku_id, warehouse_id, location_id, -qty, unit_cost, -amount, reason_code, description FROM document_line WHERE document_id = ? ORDER BY line_no',
             [$revId, $orig->id],
         );
         return $revId;
@@ -967,14 +965,13 @@ final class Documents
     /** @return array<string, mixed> */
     private function typeRow(string $code): array
     {
-        if (!isset($this->types[$code])) {
-            $r = $this->db->one('SELECT * FROM document_type WHERE code = ?', [$code]);
-            if ($r === null) {
-                throw new CwException('unknown_type', "there is no document type {$code}", 400, ['type' => mb_substr($code, 0, 16)]);
-            }
-            $this->types[$code] = $r;
+        // Read on every use, never kept: the rules are changed on the Approval rules page (0019, Y10) and a long-lived service
+        // must apply the rules in force now.
+        $r = $this->db->one('SELECT * FROM document_type WHERE code = ?', [$code]);
+        if ($r === null) {
+            throw new CwException('unknown_type', "there is no document type {$code}", 400, ['type' => mb_substr($code, 0, 16)]);
         }
-        return $this->types[$code];
+        return $r;
     }
 
     /** @param array<string, mixed> $t */
@@ -1201,11 +1198,15 @@ final class Documents
 
     private function warehouseId(string $code, string $field): int
     {
-        $id = $this->db->value('SELECT id FROM warehouse WHERE code = ?', [$code]);
-        if ($id === null) {
+        $w = $this->db->one('SELECT id, is_active FROM warehouse WHERE code = ?', [$code]);
+        if ($w === null) {
             throw new CwException('unknown_warehouse', "{$field}: there is no warehouse " . mb_substr($code, 0, 32), 422, ['field' => $field]);
         }
-        return (int) $id;
+        if ((int) $w['is_active'] !== 1) {
+            // Switched off on the Warehouses page (0019, Y16): no new record names it.
+            throw new CwException('warehouse_inactive', "{$field}: warehouse " . mb_substr($code, 0, 32) . ' is switched off', 422, ['field' => $field]);
+        }
+        return (int) $w['id'];
     }
 
     /** A signed GBP amount with at most 12 integer digits and 6 decimals, as its canonical 6-decimal string. */
