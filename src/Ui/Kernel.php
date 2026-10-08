@@ -97,7 +97,8 @@ final class Kernel
     public static function fromEnvironment(): self
     {
         return new self(
-            static fn (): Db => Db::connect(Config::loadApp()->dbApp()),
+            // A persistent link: the worker's next page skips the TCP + TLS + login handshake (Db's class comment says why it is safe).
+            static fn (): Db => Db::connect(Config::loadApp()->dbApp(), true),
             static fn (): ?string => Config::loadApp()->get('ui_secret_key'),
             static function (string $message): void {
                 error_log('[cw-ui] ' . $message);

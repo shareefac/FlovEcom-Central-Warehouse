@@ -15,6 +15,15 @@ use PDOStatement;
  *  - runs with time_zone '+00:00', READ COMMITTED, a fixed sql_mode (no ANSI_QUOTES) and
  *    utf8mb4_0900_ai_ci, whatever the server defaults are (DO managed MySQL defaults to ANSI),
  *  - throws PDOException on every error, uses native prepares and returns native ints.
+ *
+ * A persistent connection (connect(..., persistent: true); only the staff screens' kernel in php-fpm asks for one) is kept
+ * open by the php-fpm worker for its next request, which then skips the TCP + TLS + login handshake (about 40 ms on staging).
+ * It is safe because nothing of a request outlives it on the link: PDO pings the link before reusing it (a dead one is
+ * replaced) and rolls back a transaction it began when the request's PDO object is freed; every connect() of a reused link
+ * also rolls back (a transaction begun outside PDO), releases every named lock (the GET_LOCK of a request that died before
+ * its finally), selects the schema again, sets the session variables above again and checks TLS again. CW sets no other
+ * session state: no user variables, temporary tables, LOCK TABLES or session variables outside connect() (Ops\Snapshot's
+ * one-transaction isolation is the API's, not the screens'). Tests: tests/Integration/DbPersistentTest.php.
  */
 final class Db
 {
@@ -36,7 +45,11 @@ final class Db
     {
     }
 
-    public static function connect(DbSettings $s): self
+    /**
+     * @param bool $persistent keep the link open in this php-fpm worker for its next request (see the class comment); never
+     *        in a test or a CLI tool, where two connect() calls must give two sessions
+     */
+    public static function connect(DbSettings $s, bool $persistent = false): self
     {
         $dsn = sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $s->host, $s->port);
         if ($s->database !== null) {
@@ -56,7 +69,18 @@ final class Db
             // Any SSL option makes mysqlnd negotiate TLS; the check below makes it mandatory.
             PDO::MYSQL_ATTR_SSL_CA => $ca,
             PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => $s->verifiesServerCert(),
+            PDO::ATTR_PERSISTENT => $persistent,
         ]);
+
+        if ($persistent) {
+            // A link an earlier request of this worker used: no transaction or named lock of that request survives, and the
+            // schema is chosen again (a test slot's schema is dropped and re-created under its idle links).
+            $pdo->exec('ROLLBACK');
+            $pdo->query('SELECT RELEASE_ALL_LOCKS()')->fetchAll();
+            if ($s->database !== null) {
+                $pdo->exec('USE ' . self::ident($s->database));
+            }
+        }
 
         $pdo->exec("SET SESSION time_zone = '+00:00', SESSION transaction_isolation = 'READ-COMMITTED', "
             . "SESSION sql_mode = '" . self::SQL_MODE . "', SESSION collation_connection = 'utf8mb4_0900_ai_ci'");
