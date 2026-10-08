@@ -1085,6 +1085,16 @@ Renewal is certbot's systemd timer (deploy hook reloads Apache). Logs: `/var/log
 hourly at 20 MB) and `/var/log/apache2/cw-https.{access,error}.log`. To switch it off again:
 `a2dissite cw-https cw-acme && systemctl reload apache2`.
 
+### Changing the public web server's settings (`install_web.sh`)
+
+Once the public vhost is on, `enable_https.sh` is not run again: a changed `php-fpm-cw-web.conf` or `apache-cw-https.conf` goes out
+with `scripts/remote.sh <slot> bash deploy/staging/install_web.sh` (`--check` first: it shows the diff and installs nothing). It
+installs both, enables `mod_http2`, puts the old files back if `php-fpm -t` or `apache2ctl configtest` refuses, reloads, and checks
+`/ui/login` (200 over HTTP/2), a versioned asset (`Cache-Control: public, max-age=31536000, immutable`), `/favicon.ico` (404 from
+Apache) and `/v1/health` (401). Run it after `install_cron.sh` has copied the code it needs. Since 8 Oct 2026 (branch `perf`): the
+pool is `pm = dynamic` (2 at start, 1-3 idle, 10 at most; the staff screens keep a persistent database link per worker), HTTP/2,
+`KeepAliveTimeout 60` and the favicon rule.
+
 ### UI log rotation and failures
 
 `install_ui.sh` installs `/etc/cw/logrotate-cw-ui.conf` and `/etc/cron.d/cw-ui-logrotate` (hourly, own state file

@@ -79,7 +79,7 @@ if ! command -v certbot >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot >/dev/null
     say "certbot installed"
 fi
-a2enmod -q ssl headers rewrite proxy proxy_fcgi setenvif >/dev/null
+a2enmod -q ssl headers rewrite proxy proxy_fcgi setenvif http2 >/dev/null
 a2dismod -q remoteip >/dev/null 2>&1 || true
 
 # 3. php-fpm pool (+ hourly size-based log rotation).
