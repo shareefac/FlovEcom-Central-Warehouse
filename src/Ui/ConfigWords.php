@@ -98,7 +98,7 @@ final class ConfigWords
     {
         return match ($type) {
             'setting' => ['value' => Words::SETTING_EDIT['now'], 'provisional' => Words::SETTING_EDIT['status']],
-            'reason' => ['label' => Words::REASONS_EDIT['name'], 'is_active' => Words::REASONS_EDIT['status']],
+            'reason' => ['label' => Words::REASONS_EDIT['name'], 'applies_to' => Words::REASONS_EDIT['uses_title'], 'is_active' => Words::REASONS_EDIT['status']],
             'document_rule' => ['review_rule' => Words::APPROVALS['review'], 'review_limit_units' => Words::APPROVALS['review_limit'],
                 'review_due_days' => Words::APPROVALS['days'], 'approval_rule' => Words::APPROVALS['ok_first'], 'approval_limit_units' => Words::APPROVALS['number'],
                 'reject_action' => Words::APPROVALS['reject']],
@@ -127,6 +127,10 @@ final class ConfigWords
                 'reject_action' => Words::APPROVALS[(string) $v === 'record' ? 'reject_record' : 'reject_reverse'],
                 default => $v === null ? Words::CONFIG['not_set'] : number_format((int) $v),
             };
+        }
+        if ($type === 'reason' && $field === 'applies_to') {
+            $uses = array_values(array_filter(explode(',', (string) $v), static fn (string $u): bool => $u !== ''));
+            return $uses === [] ? Words::CONFIG['not_set'] : ucfirst(implode(', ', array_map(static fn (string $u): string => Words::of('REASON_USE', $u), $uses)));
         }
         if ($type === 'warehouse' && $field === 'stock_owner') {
             return Words::WAREHOUSES[(string) $v === 'other' ? 'owner_other' : 'owner_ours'];

@@ -17,7 +17,8 @@ use CW\Staff\StaffRoles;
 /**
  * The owner's spot-check of Key proposals (docs/decisions.md M28; the owner's decision (2) of 2 Oct 2026).
  *
- * create(): a named sample of `size` (at least MIN_SIZE = 20) Key proposals drawn from the POPULATION: every open Key
+ * create(): a named sample of `size` (at least the spot-check size on the Approval rules page, approvals.spot_check_size: 20
+ * unless the owner changes it; the size in force is stored with the sample, Y47) Key proposals drawn from the POPULATION: every open Key
  * proposal that KeyEligibility lets a bulk confirm link at that moment (the proved bases of older proposals are written
  * first, M27), minus every proposal already in another sample's population, minus every listing of a FAILED sample's
  * population (unless an audited override names that sample: then only proposals made after it, and only once a new
@@ -34,7 +35,7 @@ use CW\Staff\StaffRoles;
  * empty), while the owner held mapping_lead, and that link is still the listing's current one. Rejected, decided
  * otherwise, replaced by a later proposal, waiting for (or decided with) a second person, decided by anyone but the owner,
  * by the owner without mapping_lead, or relinked since: the sample FAILED and the bulk confirm refuses it for good.
- * status() also says whether the sample is FIT for a bulk confirm at all: at least MIN_SIZE members, every non-empty
+ * status() also says whether the sample is FIT for a bulk confirm at all: at least the size in force when it was drawn, every non-empty
  * stratum holding at least its allocated share, and the members exactly what the stored seed draws.
  */
 final class KeySample
@@ -61,7 +62,8 @@ final class KeySample
 
     /**
      * The spot-check size now (approvals.spot_check_size on the Approval rules page, 0019, Y11; MIN_SIZE = 20 when the setting does
-     * not exist): a new sample has at least this many members, and a smaller one never unlocks a bulk confirm.
+     * not exist): a NEW sample has at least this many members, and the size in force when it is drawn is stored with it
+     * (key_sample.required_size, Y47): a sample is judged against that, so changing the setting later affects only new samples.
      */
     public static function minSize(Db $db): int
     {
@@ -228,11 +230,11 @@ final class KeySample
         }
         $out['seed'] = $seed;
         $out['members'] = $members;
-        $out['sample_id'] = $this->db->transaction(function (Db $db) use ($by, $staff, $name, $seed, $size, $population, $strataOut, $excluded, $byStratum, $members, $checked, $overrides): int {
+        $out['sample_id'] = $this->db->transaction(function (Db $db) use ($by, $staff, $name, $seed, $size, $min, $population, $strataOut, $excluded, $byStratum, $members, $checked, $overrides): int {
             $sid = $db->insert(
-                'INSERT INTO key_sample (name, seed, method, band_version, sample_size, population, strata, excluded, overrides, created_by, actor) '
-                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [$name, $seed, self::METHOD, Band::VERSION, $size, $population, Idempotency::json($strataOut),
+                'INSERT INTO key_sample (name, seed, method, band_version, sample_size, required_size, population, strata, excluded, overrides, created_by, actor) '
+                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [$name, $seed, self::METHOD, Band::VERSION, $size, $min, $population, Idempotency::json($strataOut),
                     $excluded === [] ? null : Idempotency::json($excluded), $overrides === [] ? null : Idempotency::json($overrides), $staff['id'], $by->actor],
             );
             $position = array_column($members, 'position', 'proposal_id');
@@ -247,7 +249,7 @@ final class KeySample
                     . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?)')), array_merge(...$chunk));
             }
             Audit::write($db, $by, 'mapping.key_sample', 'key_sample', (string) $sid, null, [
-                'name' => $name, 'seed' => $seed, 'method' => self::METHOD, 'band_version' => Band::VERSION, 'size' => $size,
+                'name' => $name, 'seed' => $seed, 'method' => self::METHOD, 'band_version' => Band::VERSION, 'size' => $size, 'required_size' => $min,
                 'population' => $population, 'strata' => $strataOut, 'excluded' => $excluded, 'overrides' => $overrides,
                 'sample' => array_map(static fn (array $m): array => [$m['position'], $m['proposal_id']], $members),
             ]);
@@ -349,7 +351,9 @@ final class KeySample
     }
 
     /**
-     * Why a sample cannot unlock a bulk confirm ([] = it can): smaller than MIN_SIZE (`sample_too_small`), a non-empty stratum
+     * Why a sample cannot unlock a bulk confirm ([] = it can): smaller than the spot-check size in force when it was drawn
+     * (`sample_too_small`: key_sample.required_size, Y47; never today's setting, so raising it does not disqualify a sample in
+     * progress, and lowering it does not bless a sample drawn under a bigger rule), a non-empty stratum
      * short of its allocated share or of at least one member (`stratum_short:<name>`), or members other than what the stored
      * seed draws from the stored population (`draw_not_reproducible`).
      *
@@ -360,7 +364,7 @@ final class KeySample
     {
         $out = [];
         $size = (int) $k['sample_size'];
-        if ($size < self::minSize($this->db)) {
+        if ($size < (int) ($k['required_size'] ?? $size)) {
             $out[] = 'sample_too_small';
         }
         [$byStratum, $stored] = $this->stored((int) $k['id'], $k);

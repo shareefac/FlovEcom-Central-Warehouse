@@ -13,13 +13,14 @@
     </label>
     <label><?= $word('SUPPLIERS', 'search') ?> <input type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100"></label>
     <label class="choice"><input type="checkbox" name="due" value="1"<?php if ($filters['due']): ?> checked<?php endif; ?>> <?= $say('SUPPLIERS', 'due', $dueDays) ?></label>
+    <label class="choice"><input type="checkbox" name="alone" value="1"<?php if ($filters['alone']): ?> checked<?php endif; ?>> <?= $word('SUPPLIERS', 'alone_filter') ?></label>
     <button type="submit"><?= $word('SUPPLIERS', 'filter') ?></button>
   </form>
   <p class="actions">
 <?php if ($canManage): ?>
     <a class="btn primary" href="/ui/purchasing/suppliers/new"><?= $word('SUPPLIERS', 'new') ?></a>
 <?php endif; ?>
-    <a href="<?= $u('/ui/purchasing/suppliers.csv', ['status' => $filters['status'], 'q' => $filters['q'], 'due' => $filters['due'] ? '1' : null]) ?>"><?= $word('SUPPLIERS', 'download') ?></a>
+    <a href="<?= $u('/ui/purchasing/suppliers.csv', ['status' => $filters['status'], 'q' => $filters['q'], 'due' => $filters['due'] ? '1' : null, 'alone' => $filters['alone'] ? '1' : null]) ?>"><?= $word('SUPPLIERS', 'download') ?></a>
   </p>
 </div>
 <?php if ($rows === [] && $filtered): ?>
@@ -44,7 +45,7 @@
 <?php foreach ($rows as $r): ?>
     <tr class="<?= $e(\CW\Ui\Words::tone('SUPPLIER_STATUS', (string) $r['status'])) ?>">
       <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/purchasing/suppliers/' . $r['id']) ?>"><?= $e($r['name']) ?></a><span class="o-no"><?= $e($r['code']) ?><?php if ((int) $r['is_overseas'] === 1): ?> · <?= $word('SUPPLIERS', 'abroad') ?><?php endif; ?></span></th>
-      <td class="c-status"><?= $stateChip('SUPPLIER_STATUS', (string) $r['status']) ?></td>
+      <td class="c-status"><?= $stateChip('SUPPLIER_STATUS', (string) $r['status']) ?><?php if ($r['status'] === 'active' && (int) $r['approved_alone'] + (int) $r['route_alone'] > 0 && $r['alone_checked_by'] === null): ?> <?= $chip('needs', \CW\Ui\Words::SUPPLIERS['alone_chip']) ?><?php endif; ?></td>
       <td data-label="<?= $word('SUPPLIERS', 'next_check') ?>"><?php if ($r['dd_next_review_on'] !== null): ?><?= $day($r['dd_next_review_on']) ?><?php endif; ?><?php if ($r['dd_overdue']): ?> <?= $chip('blocked', \CW\Ui\Words::SUPPLIERS['overdue']) ?><?php endif; ?></td>
       <td class="num" data-label="<?= $word('SUPPLIERS', 'products') ?>"><?= $n($r['items']) ?></td>
       <td data-label="<?= $word('SUPPLIERS', 'approved') ?>"><?php if ($r['approved_at'] !== null): ?><?= $say('SUPPLIERS', 'approved_line', \CW\Ui\Html::when($r['approved_at']), (string) ($r['approved_by_name'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?><?php else: ?><span class="muted"><?= $word('SUPPLIERS', 'not_yet') ?></span><?php endif; ?></td>

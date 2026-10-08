@@ -326,6 +326,34 @@ final class KeyBulkTest extends MappingTestCase
     // M28: the bulk confirm
     // ------------------------------------------------------------------------------------------
 
+    /**
+     * The spot-check size is the Approval rules page's (approvals.spot_check_size, 5 to 200; review findings I2, I3, Y46-Y47): a
+     * smaller setting draws a smaller sample (the database's CHECK follows the setting's range), and a sample is judged by the size in
+     * force when it was drawn, so raising the setting later does not disqualify it, and a new sample needs the new size.
+     */
+    public function testASmallerSpotCheckIsDrawnAndKeepsTheSizeItWasDrawnWith(): void
+    {
+        $pop = $this->population(7, 3);
+        $owner = $pop['owner'];
+        $settings = new \CW\Settings(self::$db);
+        try {
+            $settings->set(Caller::system('settings'), 'approvals.spot_check_size', '8', 'a smaller spot check for this test');
+            self::assertSame(8, KeySample::minSize(self::$db));
+            $made = $this->samples()->create($owner, 'small-1', null, true);
+            self::assertSame([8, 10], [$made['size'], $made['population']]);
+            self::assertSame([8, 8], array_map('intval', array_values((array) self::$db->one('SELECT sample_size, required_size FROM key_sample WHERE id = ?',
+                [$made['sample_id']]))), 'the size in force is stored with the sample');
+            self::assertSame([], $this->samples()->status('small-1')['fit']);
+            $settings->set(Caller::system('settings'), 'approvals.spot_check_size', '9', 'a bigger spot check from now on');
+            self::assertSame([], $this->samples()->status('small-1')['fit'], 'raising the setting does not disqualify a sample already drawn');
+            self::refused(400, 'bad_size', fn () => $this->samples()->create($owner, 'small-2', 8, false));
+            self::assertSame(3819, self::mysqlError(static fn () => self::$db->exec("UPDATE key_sample SET required_size = 9 WHERE name = 'small-1'")),
+                'a sample is never smaller than the size it needs');
+        } finally {
+            self::$db->exec("UPDATE app_setting SET value_json = CAST('20' AS JSON), updated_actor = 'system:migrate' WHERE setting_key = 'approvals.spot_check_size'");
+        }
+    }
+
     public function testTheBulkConfirmRefusesUntilTheOwnerHasConfirmedEverySampleMember(): void
     {
         $pop = $this->population(16, 8);

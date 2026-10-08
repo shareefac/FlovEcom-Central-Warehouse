@@ -17,7 +17,8 @@ use CW\Db;
  *  - An admin or a reviewer (settings.manage) adds a warehouse, renames it, switches it off (only when it is empty: no stock, no
  *    website selling from it, no open record or count naming it) or on again, and says whose stock it holds: our own, or another
  *    account's (the VPG 2 room: never sellable, a CHECK; its stock is released into the main warehouse by a release invoice, a
- *    later pack). Nothing is ever deleted (Q9).
+ *    later pack). Whose stock changes only while the warehouse is empty, with a confirmation tick (Y48): otherwise another
+ *    account's stock would become ours, and sellable, with no document. Nothing is ever deleted (Q9).
  *  - Whether websites may sell from a warehouse (`is_sellable`) changes only with a confirmation (`$confirmed`, the page's tick),
  *    never for MAIN, VERIFY and UNSTAMPED (the code names them: D11), never while a website is assigned to it (the composite FK
  *    of D9 would refuse it anyway), and never for another account's stock.
@@ -153,8 +154,9 @@ final class Warehouses
                 throw new CwException('warehouse_exists', "there is a warehouse {$code} already", 409, ['field' => 'code']);
             }
             $sort = (int) ($db->value('SELECT MAX(sort_order) FROM warehouse') ?? 0) + 10;
-            $id = $db->insert('INSERT INTO warehouse (code, name, is_sellable, is_active, stock_owner, owner_entity, is_system, note, sort_order) '
-                . 'VALUES (?, ?, ?, 1, ?, ?, 0, ?, ?)', [$code, $name, $sellable ? 1 : 0, $owner, $ownerName, $note, min(65535, $sort)]);
+            // is_system is never named: the app login may not (Grants::INSERT_COLUMNS), so it is 0, its default.
+            $id = $db->insert('INSERT INTO warehouse (code, name, is_sellable, is_active, stock_owner, owner_entity, note, sort_order) '
+                . 'VALUES (?, ?, ?, 1, ?, ?, ?, ?)', [$code, $name, $sellable ? 1 : 0, $owner, $ownerName, $note, min(65535, $sort)]);
             $after = ConfigHistory::state($db, 'warehouse', $code) ?? throw new \LogicException('the warehouse just added is missing');
             $v = ConfigHistory::record($db, $caller, 'warehouse', $code, 'add', null, $after, $reason);
             Audit::write($db, $caller, 'warehouse.add', 'warehouse', $code, null, ['id' => $id, 'after' => $after, 'reason' => $reason, 'version' => $v['version']]);
@@ -206,22 +208,35 @@ final class Warehouses
     }
 
     /**
-     * Whose stock the warehouse holds: own, or another account's ($ownerName). Another account's stock is never sellable (409
-     * sellable_warehouse: make it not sellable first); never for MAIN, VERIFY, UNSTAMPED (409 system_warehouse).
+     * Whose stock the warehouse holds: own, or another account's ($ownerName). Only while the warehouse is EMPTY (notEmpty(): no
+     * stock, no website, no record waiting, no open recount; 409 owner_not_empty with detail.why), in either direction: the stock
+     * of another account becomes ours only through a release invoice (Y15), never by renaming the room it is in, and ours never
+     * becomes someone else's without a document either (review finding I4). Only with $confirmed (the page's tick; 422
+     * unconfirmed). Another account's stock is never sellable (409 sellable_warehouse: make it not sellable first); never for
+     * MAIN, VERIFY, UNSTAMPED (409 system_warehouse). Renaming the other account (other to other) is a change of whose stock it
+     * is too, so it follows the same rules.
      *
      * @return array{changed: bool}
      */
-    public function setOwner(Caller $caller, int $id, string $owner, ?string $ownerName, string $reason, ?int $seen = null): array
+    public function setOwner(Caller $caller, int $id, string $owner, ?string $ownerName, bool $confirmed, string $reason, ?int $seen = null): array
     {
         [$owner, $ownerName] = self::owner($owner, $ownerName);
         return $this->changeWarehouse($caller, $id, $reason, $seen, 'owner',
             static fn (array $b): array => ['stock_owner' => $owner, 'owner_entity' => $ownerName] + $b,
-            static function (Db $db, array $w) use ($owner, $ownerName): void {
+            static function (Db $db, array $w) use ($owner, $ownerName, $confirmed): void {
                 if ($w['is_system'] === 1) {
                     throw new CwException('system_warehouse', "{$w['code']} is one of the three warehouses the system works with: its stock is ours", 409);
                 }
                 if ($owner === 'other' && $w['is_sellable'] === 1) {
                     throw new CwException('sellable_warehouse', "websites may sell from {$w['code']}: make it not sellable first", 409);
+                }
+                $why = self::notEmpty($db, (int) $w['id']);
+                if ($why !== []) {
+                    throw new CwException('owner_not_empty', "{$w['code']} is not empty (" . implode(', ', $why) . '): whose stock it holds changes only while it is '
+                        . 'empty; another account\'s stock becomes ours only through a release invoice', 409, ['why' => $why]);
+                }
+                if (!$confirmed) {
+                    throw new CwException('unconfirmed', 'tick the confirmation first: this changes whose stock the warehouse holds', 422, ['field' => 'confirm']);
                 }
                 $db->exec('UPDATE warehouse SET stock_owner = ?, owner_entity = ? WHERE id = ?', [$owner, $ownerName, $w['id']]);
             });

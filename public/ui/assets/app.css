@@ -715,6 +715,9 @@ ol.cards > li { margin: 0; }
 .task p.text { color: var(--ink); max-width: 60ch; }
 .task-what { max-width: 60ch; font-size: .9375rem; color: var(--ink-2); }
 .task-what strong { color: var(--ink); }
+.task-lines { margin: 0; padding-left: 1.1em; font-size: .9375rem; color: var(--ink-2); max-width: 70ch; }
+.task-lines li { margin: 2px 0; overflow-wrap: anywhere; }
+.setup-code code { letter-spacing: .08em; }
 .task-actions { margin-top: auto !important; padding-top: 4px; }
 .task.hero { grid-column: 1 / -1; border: 2px solid var(--accent); border-left-width: 6px; }
 .task.hero .count { font-size: 2.75rem; }

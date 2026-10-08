@@ -17,9 +17,13 @@ use CW\DbSettings;
  *    UPDATE on exactly those columns (e.g. match_decision may only change state, applied_at and
  *    second_by; decisions are never rewritten or deleted)
  *  - schema_migrations and the seeded reference lists (READ_ONLY): SELECT only (migrations run as the admin login)
+ *  - tables whose new rows may name only some columns (INSERT_COLUMNS: a warehouse is never added as a system one): SELECT,
+ *    column-level INSERT on those columns (the rest take their defaults), and column-level UPDATE as UPDATE_COLUMNS says
  *  - no database-level (db.*) grant, so a table added later has no rights until apply() runs.
  * Grants are compared with mysql.tables_priv / mysql.columns_priv and only the difference is
- * granted/revoked, so there is never a window in which the app loses its rights.
+ * granted/revoked, so there is never a window in which the app loses its rights (except once, when a table moves from a
+ * table-level to a column-level privilege: a table-level REVOKE also drops that table's column-level grants, so the column-level
+ * ones are granted right after it, in the same run).
  */
 final class Grants
 {
@@ -77,10 +81,19 @@ final class Grants
             'cancel_reason', 'review_state'],
         'barcode_review' => ['status', 'decision', 'decided_units', 'decided_by', 'decided_actor', 'decided_at', 'note'],
         'incident' => ['status', 'resolution', 'resolved_by', 'resolved_actor', 'resolved_at'],
-        'reason_code' => ['label', 'is_active'],
+        'reason_code' => ['label', 'applies_to', 'is_active'],
         'warehouse' => ['name', 'is_sellable', 'is_active', 'stock_owner', 'owner_entity', 'note', 'updated_at'],
         'warehouse_location' => ['name', 'is_active', 'note'],
-        'staff_role_request' => ['state', 'decided_by', 'decided_at', 'decision_note'],
+        'staff_role_request' => ['state', 'decided_by', 'decided_at', 'decision_note', 'used_at'],
+    ];
+    /**
+     * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the
+     * others take their defaults). A warehouse added on the screen is never one of the system's own (is_system stays 0, its
+     * default: MAIN, VERIFY and UNSTAMPED come by migration; review nit of 8 Oct 2026), and its id and times are the server's.
+     * Such a table's table-level grant is SELECT (+ UPDATE of UPDATE_COLUMNS, column-level as before).
+     */
+    public const INSERT_COLUMNS = [
+        'warehouse' => ['code', 'name', 'is_sellable', 'is_active', 'stock_owner', 'owner_entity', 'note', 'sort_order'],
     ];
     /**
      * Tables the app login reads and may only UPDATE in the listed columns: no INSERT and no DELETE (0019, Y3). A setting's value
@@ -119,7 +132,7 @@ final class Grants
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */
     public static function desired(string $table): array
     {
-        if (in_array($table, self::READ_ONLY, true) || isset(self::UPDATE_ONLY_COLUMNS[$table])) {
+        if (in_array($table, self::READ_ONLY, true) || isset(self::UPDATE_ONLY_COLUMNS[$table]) || isset(self::INSERT_COLUMNS[$table])) {
             return ['Select'];
         }
         if (in_array($table, self::APPEND_ONLY, true) || isset(self::UPDATE_COLUMNS[$table])) {
@@ -131,12 +144,15 @@ final class Grants
         return self::FULL;
     }
 
-    /** @return array<string, list<string>> column => column privileges (mysql.columns_priv spelling) the app login should hold */
+    /** @return array<string, list<string>> column => column privileges (mysql.columns_priv spelling: Insert, Update) the app login should hold */
     public static function desiredColumns(string $table): array
     {
         $out = [];
+        foreach (self::INSERT_COLUMNS[$table] ?? [] as $column) {
+            $out[$column] = ['Insert'];
+        }
         foreach (self::UPDATE_COLUMNS[$table] ?? self::UPDATE_ONLY_COLUMNS[$table] ?? [] as $column) {
-            $out[$column] = ['Update'];
+            $out[$column] = [...($out[$column] ?? []), 'Update'];
         }
         return $out;
     }

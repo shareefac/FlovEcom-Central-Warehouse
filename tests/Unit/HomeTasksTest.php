@@ -58,11 +58,11 @@ final class HomeTasksTest extends TestCase
 
     public function testNeedsAsksOnlyForTheFactsTheJobsUse(): void
     {
-        self::assertSame(['company', 'checks', 'samples', 'held', 'duplicates', 'pending', 'bands', 'barcodes', 'sales', 'integrity', 'staff_requests'],
-            HomeTasks::needs(self::OWNER));
+        self::assertSame(['company', 'checks', 'samples', 'held', 'duplicates', 'pending', 'bands', 'barcodes', 'sales', 'integrity', 'staff_requests',
+            'watch', 'setup_closed'], HomeTasks::needs(self::OWNER), 'a reviewer also looks at the staff and rule changes (I1) and closed set-ups (I5)');
         self::assertSame(['company', 'orders', 'demand', 'sales', 'suppliers'], HomeTasks::needs(['buyer']));
-        self::assertSame(['staff', 'integrity'], HomeTasks::needs(['admin']), 'the admin looks after the system: the nightly safety check (G36)');
-        self::assertSame(['staff', 'integrity'], HomeTasks::needs(['admin', 'mapping_lead', 'reviewer']), 'Admin switches the owner\'s jobs off: no matching or checking counts');
+        self::assertSame(['staff', 'integrity', 'setup_closed'], HomeTasks::needs(['admin']), 'the admin looks after the system: the nightly safety check (G36), closed set-ups (I5)');
+        self::assertSame(['staff', 'integrity', 'setup_closed'], HomeTasks::needs(['admin', 'mapping_lead', 'reviewer']), 'Admin switches the owner\'s jobs off: no matching or checking counts');
         self::assertSame(['bands'], HomeTasks::needs(['mapper']));
         self::assertSame([], HomeTasks::needs(['viewer']), 'look only: nothing to count');
         self::assertSame([], HomeTasks::needs([]));

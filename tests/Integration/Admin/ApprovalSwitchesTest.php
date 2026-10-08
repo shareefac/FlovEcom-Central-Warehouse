@@ -49,8 +49,9 @@ final class ApprovalSwitchesTest extends SupplierTestCase
     {
         $buyer = $this->staffUser('buyer');
         $admin = $this->staffUser('admin');
+        $owner = $this->staffUser('reviewer');
         self::assertTrue(ApprovalRules::on(self::$db, 'approvals.supplier_activation'), 'on by default: the rule as it was');
-        $this->set($admin, 'approvals.supplier_activation', 'false');
+        $this->set($owner, 'approvals.supplier_activation', 'false'); // switching a rule off needs a Reviewer (I1)
         self::assertFalse(ApprovalRules::on(self::$db, 'approvals.supplier_activation'));
         $off = ConfigHistory::latest(self::$db, 'setting', 'approvals.supplier_activation');
         self::assertSame(['value' => 'false', 'provisional' => 1], $off['state']);
@@ -90,11 +91,48 @@ final class ApprovalSwitchesTest extends SupplierTestCase
         self::assertSame([], SupplierInvariants::check(self::$db));
     }
 
+    /**
+     * Review findings M1 and M2 (Y49): a supplier made usable by one person names the version of the switch read with its row locked;
+     * the list marks it "approved alone" (and filters on it) until a reviewer who did not make it usable gives the OK afterwards; the
+     * marks themselves stay as the evidence S2/S3 check.
+     */
+    public function testASupplierApprovedAloneIsMarkedUntilAReviewerChecksIt(): void
+    {
+        $buyer = $this->staffUser('buyer');
+        $owner = $this->staffUser('reviewer');
+        $this->set($owner, 'approvals.supplier_activation', 'false');
+        $off = ConfigHistory::latest(self::$db, 'setting', 'approvals.supplier_activation');
+        $s = $this->draft($buyer);
+        $s = $this->sup->requestActivation($buyer, (int) $s['id'], (int) $s['version']);
+        self::assertSame([1, $off['id'], null], [(int) $s['approved_alone'], (int) $s['alone_change_id'], $s['alone_checked_by']]);
+        self::refused(403, 'role_not_allowed', fn () => $this->sup->checkAlone($buyer, (int) $s['id'], (int) $s['version'], null));
+        self::refused(403, 'admin_cannot_review', fn () => $this->sup->checkAlone($this->staffUser('admin'), (int) $s['id'], (int) $s['version'], null));
+        self::refused(409, 'version_conflict', fn () => $this->sup->checkAlone($owner, (int) $s['id'], (int) $s['version'] - 1, null));
+        $checked = $this->sup->checkAlone($owner, (int) $s['id'], (int) $s['version'], 'details and proof look right');
+        self::assertSame([1, $owner->staffUserId], [(int) $checked['approved_alone'], (int) $checked['alone_checked_by']], 'the evidence stays; the mark goes');
+        self::assertNotNull($checked['alone_checked_at']);
+        self::assertContains('supplier.alone_checked', $this->supplierAudits((int) $s['id']));
+        self::refused(409, 'alone_checked', fn () => $this->sup->checkAlone($this->staffUser('reviewer'), (int) $s['id'], (int) $checked['version'], null));
+        self::assertSame([], SupplierInvariants::check(self::$db));
+        // A supplier approved by two people has nothing to check afterwards.
+        $this->set($owner, 'approvals.supplier_activation', 'true');
+        $t = $this->draft($buyer);
+        $t = $this->sup->requestActivation($buyer, (int) $t['id'], (int) $t['version']);
+        $t = $this->sup->approve($owner, $this->openTask((int) $t['id']), null);
+        self::refused(409, 'not_alone', fn () => $this->sup->checkAlone($this->staffUser('reviewer'), (int) $t['id'], (int) $t['version'], null));
+        // The person who made it usable alone never checks it themselves.
+        $this->set($owner, 'approvals.supplier_activation', 'false');
+        $lead = $this->staffUser(['buyer', 'reviewer']);
+        $u = $this->draft($lead);
+        $u = $this->sup->requestActivation($lead, (int) $u['id'], (int) $u['version']);
+        self::refused(403, 'own_supplier', fn () => $this->sup->checkAlone($lead, (int) $u['id'], (int) $u['version'], null));
+    }
+
     public function testAVersionOfTheSwitchThatWasNoLongerInForceIsFound(): void
     {
         $buyer = $this->staffUser('buyer');
         $admin = $this->staffUser('admin');
-        $this->set($admin, 'approvals.supplier_activation', 'false');
+        $this->set($this->staffUser('reviewer'), 'approvals.supplier_activation', 'false');
         $s = $this->draft($buyer);
         $s = $this->sup->requestActivation($buyer, (int) $s['id'], (int) $s['version']);
         self::assertSame([], SupplierInvariants::check(self::$db));
@@ -114,7 +152,7 @@ final class ApprovalSwitchesTest extends SupplierTestCase
         $r = $this->decide($lead, 'link', $e, ['sku_id' => $sku, 'units_per_item' => 10]);
         self::assertSame(['pending_second', ['units_per_item']], [$r['state'], $r['needs_second']], 'on: a second matching lead');
         $this->ds->withdraw($lead, $r['decision_id']);
-        $this->set($admin, 'approvals.match_multiple', 'false');
+        $this->set($this->staffUser('reviewer'), 'approvals.match_multiple', 'false');
         $r = $this->decide($lead, 'link', $e, ['sku_id' => $sku, 'units_per_item' => 10]);
         self::assertSame(['applied', []], [$r['state'], $r['needs_second']], 'off: one person');
         self::assertSame(10, $this->link($e)['units_per_item']);
@@ -128,7 +166,7 @@ final class ApprovalSwitchesTest extends SupplierTestCase
         $m = $this->decide($lead, 'merge_skus', $l, ['sku_id' => $keep, 'merge_from_sku_id' => $from]);
         self::assertSame(['pending_second', ['counted_item']], [$m['state'], $m['needs_second']]);
         $this->ds->withdraw($lead, $m['decision_id']);
-        $this->set($admin, 'approvals.match_counted', 'false');
+        $this->set($this->staffUser('reviewer'), 'approvals.match_counted', 'false');
         $m = $this->decide($lead, 'merge_skus', $l, ['sku_id' => $keep, 'merge_from_sku_id' => $from]);
         self::assertSame(['applied', []], [$m['state'], $m['needs_second']]);
         $this->assertBal(8, 0, 0, $keep);
@@ -146,18 +184,78 @@ final class ApprovalSwitchesTest extends SupplierTestCase
             'delivery_address' => "Unit 4, Example Park\nLeeds LS2 2BB"];
         $svc->save($owner, 0, $details);
         $svc->confirm($owner, 1);
-        $this->set($admin, 'approvals.company_own_change', 'false');
+        $this->set($this->staffUser('reviewer'), 'approvals.company_own_change', 'false');
         $svc->save($owner, 2, ['delivery_address' => "Unit 9, Elsewhere\nBradford BD1 1AA"] + $details, 'moved warehouse');
         $c = $svc->confirm($owner, 3);
         self::assertSame(['confirmed', null, ['delivery_address']], [$c['result'], $c['review_task'], $c['watched_changed']], 'off: no second reviewer');
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM review_task WHERE subject_type = 'company'"));
 
-        // The spot check size (decision 2: 20) is the setting now: a smaller sample is refused, and a bigger rule makes old ones unfit.
+        // The spot check size (decision 2: 20) is the setting now: a smaller NEW sample is refused (a sample already drawn keeps the
+        // size it was drawn with: KeySampleSizeTest, Y47).
         self::assertSame(20, KeySample::minSize(self::$db));
-        $this->set($admin, 'approvals.spot_check_size', '30');
+        $this->set($admin, 'approvals.spot_check_size', '30'); // bigger: stricter, the admin may
         self::assertSame(30, KeySample::minSize(self::$db));
         self::refused(400, 'bad_size', fn () => (new KeySample(self::$db))->create($this->staffUser('mapping_lead'), 'small', 20, false));
         self::refused(400, 'bad_value', fn () => $this->set($admin, 'approvals.spot_check_size', '4'));
+        self::refused(403, 'loosen_needs_reviewer', fn () => $this->set($admin, 'approvals.spot_check_size', '25'), 'smaller: looser, a Reviewer only');
+    }
+
+    /**
+     * Review finding I1 (Y45): the admin a rule restrains cannot lift it. Switching a rule off, a smaller spot check, fewer checks of a
+     * kind of record, a higher limit, the OK first off: a Reviewer only (403 loosen_needs_reviewer, nothing saved, no version). Making
+     * a rule stricter, or only marking it agreed: an admin too. The server's tools may do both. The audit row says `loosened`.
+     */
+    public function testLooseningAnApprovalRuleNeedsAReviewerTighteningDoesNot(): void
+    {
+        $admin = $this->staffUser('admin');
+        $owner = $this->staffUser('reviewer');
+        $both = $this->staffUser('admin');
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role, granted_by) VALUES (?, 'reviewer', NULL)", [$both->staffUserId]);
+        $settings = new Settings(self::$db);
+        $rules = new \CW\Admin\DocumentRules(self::$db);
+        $saved = self::$db->all('SELECT * FROM document_type');
+        try {
+            foreach (array_keys(ApprovalRules::SWITCHES) as $key) {
+                $was = ApprovalRules::on(self::$db, $key);
+                if (!$was) {
+                    $this->set($admin, $key, 'true'); // switching on is stricter: the admin may
+                    self::assertTrue(ApprovalRules::on(self::$db, $key), $key);
+                }
+                $v = ConfigHistory::version(self::$db, 'setting', $key);
+                self::refused(403, 'loosen_needs_reviewer', fn () => $this->set($admin, $key, 'false'), $key);
+                self::refused(403, 'loosen_needs_reviewer', fn () => $this->set($both, $key, 'false'), "{$key}: Admin switches the Reviewer job off");
+                self::assertTrue(ApprovalRules::on(self::$db, $key), "{$key}: nothing saved");
+                self::assertSame($v, ConfigHistory::version(self::$db, 'setting', $key), "{$key}: no version");
+                // Only marking it agreed is no loosening.
+                $settings->change($admin, $key, 'true', 'the owner agreed it', true);
+                $this->set($owner, $key, 'false');
+                self::assertFalse(ApprovalRules::on(self::$db, $key), $key);
+                $audit = json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'setting.change' AND entity_id = ? ORDER BY id DESC LIMIT 1",
+                    [$key]), true);
+                self::assertTrue($audit['loosened'] ?? false, "{$key}: the audit row says loosened");
+                if ($was) {
+                    $this->set($admin, $key, 'true');
+                }
+            }
+            // A kind of record's rules: the OK first off, a higher limit, fewer checks need a Reviewer; a lower limit does not.
+            self::refused(403, 'loosen_needs_reviewer', fn () => $rules->set($admin, 'PO', ['approval' => false], 'leave it'));
+            self::refused(403, 'loosen_needs_reviewer', fn () => $rules->set($admin, 'PO', ['approval' => true, 'approval_limit_units' => '50000'], 'more'));
+            self::refused(403, 'loosen_needs_reviewer', fn () => $rules->set($admin, 'PO', ['review_rule' => 'none'], 'fewer checks'));
+            self::refused(403, 'loosen_needs_reviewer', fn () => $rules->set($admin, 'ADJ', ['reject_action' => 'record'], 'only record'));
+            self::assertSame(5000, $rules->set($admin, 'PO', ['approval' => true, 'approval_limit_units' => '5000'], 'stricter')['after']['approval_limit_units']);
+            self::assertSame(30, $rules->set($admin, 'PO', ['review_due_days' => '30'], 'more days to check')['after']['review_due_days'], 'days: either way');
+            $r = $rules->set($owner, 'PO', ['approval' => false], 'leave it for now');
+            self::assertSame('none', $r['after']['approval_rule']);
+            self::assertTrue(json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'document_type.change' ORDER BY id DESC LIMIT 1"), true)['loosened']);
+            // The server's tool (root) may.
+            self::assertSame('none', $rules->set(Caller::system('document_rules'), 'ADJ', ['approval' => false], 'server')['after']['approval_rule']);
+        } finally {
+            foreach ($saved as $r) {
+                self::$db->exec('UPDATE document_type SET review_rule = ?, review_limit_units = ?, review_due_days = ?, approval_rule = ?, approval_limit_units = ?, '
+                    . 'reject_action = ? WHERE code = ?', [$r['review_rule'], $r['review_limit_units'], $r['review_due_days'], $r['approval_rule'],
+                        $r['approval_limit_units'], $r['reject_action'], $r['code']]);
+            }
+        }
     }
 
     public function testASwitchMissingFromAnOlderSchemaReadsAsItsDefault(): void

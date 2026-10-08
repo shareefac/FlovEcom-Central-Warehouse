@@ -94,8 +94,11 @@ and single quotes for strings; `sql_require_primary_key = 1` (every table needs 
    (`tests/Integration/Migration0006Test.php`).
 5. A migration that adds a configuration row (a setting, a reason, a document type, a warehouse) also inserts its version 1 into
    `config_change` (`action = 'baseline'`, `actor = 'system:migrate'`, the row's tracked fields as `ConfigHistory::TRACKED` lists
-   them; see 0019): the nightly K1–K3 then hold, and `TestDb::clean` keeps the row (a reason without a baseline is removed as a
-   test's leftover). Without it the first change on a screen writes a `system:history` baseline itself.
+   them; see 0019): the nightly K1–K4 then hold (K4 reports a live row with no history at all), and `TestDb::clean` keeps the row (a
+   reason without a baseline is removed as a test's leftover). A migration that UPDATEs a configuration row that has a history writes
+   its next version N+1 in the same file (`action = 'change'`, `actor = 'system:migrate'`, a `reason` of 3 or more characters, the
+   tracked row before it as `before_state` and after it as `state`; 0019's last statements do it for the reasons of the order screens),
+   so K2 holds; `TestDb::clean` keeps every `system:migrate` version.
 
 ## The HTTP API on staging (slot `api`)
 
@@ -241,6 +244,12 @@ Words that are provisional until the owner confirms them (band names, "website p
   `--roles=a,b` replaces the person's roles (stderr `roles: x -> a,b`, audited `staff.roles`; the break-glass when no admin can
   sign in); on its own it keeps their sessions, the new roles apply on their next request. Day to day an admin changes roles and
   switches accounts off on `/ui/people` (I13).
+- **On the screens (Y20-Y22, Y40-Y44)**: an admin adds a person (a sign-up sheet: QR code + one-time set-up code), makes a new sign-up
+  sheet, a new sign-in code or lets someone choose a new password on Staff → Staff and access. A sheet's secret works once (at /ui/enrol
+  with the set-up code, or at /ui/login with the person's own password for a new sign-in code) and leads to `/ui/new-code`, the person's
+  own page with a fresh secret confirmed before any session (`Staff\Enrolment`, cookie `cw_setup`); `staff_user.totp_state` says whose
+  the secret is. The two resets refuse each other while the other is open (`ck_staff_user_one_factor`), so an admin never holds both
+  factors of anybody. The server's tools above stay the break-glass (their secrets are the person's own: `own`).
 - **Sign in**: `/ui/login` takes e-mail, password and the current 6-digit code together; the first sign-in forces
   `/ui/password`. Test copy (slot `ui`, schema `cw_test_ui`): `http://127.0.0.1:8080/ui/login` with
   `Host: cw-ui.staging.invalid`, on the staging box only (e.g. through an SSH tunnel: `ssh -L 8080:127.0.0.1:8080 ...` and a
@@ -383,10 +392,10 @@ Words that are provisional until the owner confirms them (band names, "website p
 | `tests/Unit/SiteViewTest.php`, `tests/Integration/SiteWriter/`, `Migration0018Test`, `tests/Integration/UiKernel/SellingModeScreenTest.php` | the rules; the feed (switch, blocks, per-site modes, blocks of the item card, moves, invariants); a receipt's modes on the feed; the schema; the screen |
 | Vape and Go connector 0.4.0 (`App_proto/src/central_warehouse`: `lib/writer.php`, `bin/cw_notify.php`, `sql/cw_connector_v3.sql`, `tests/writer_*_test.php`) | the site's half (SC6–SC14): the worker's `writer` step, the guards H11–H14, the read-only admin fields, EMAIL SAFETY; not committed |
 | `migrations/0019_set_it_yourself.sql` | the set-it-yourself pack (Y1–Y38): `config_change` (every configuration change as a version, baselines of every seeded row), `integrity_run`, `warehouse_location`, `staff_role_request`; warehouse owner/active/system columns; `staff_user.setup_until`; the supplier's approved-alone evidence; the `approvals.*` and `staff.*` settings |
-| `src/Admin/{ConfigHistory,ConfigInvariants}.php` | the history of settings, reasons, document rules, warehouses and places (`record()` inside the change's transaction, `checkSeen()` for the form's version, `authorise()` = `settings.manage`) and its nightly checks K1–K3 (`Invariants::nightly()`) |
+| `src/Admin/{ConfigHistory,ConfigInvariants}.php` | the history of settings, reasons, document rules, warehouses and places (`record()` inside the change's transaction, `checkSeen()` for the form's version, `authorise()` = `settings.manage`) and its nightly checks K1–K4 (`Invariants::nightly()`); loosening an approval rule needs `staff.approve` (`ApprovalRules::loosens/authoriseLoosening`, `DocumentRules::loosens`, Y45) |
 | `src/Admin/{DocumentRules,ReasonCodes,Warehouses,ApprovalRules}.php`, `src/Settings.php` `change()` | the services behind the screens and the CLI: a kind of record's rules, reasons, warehouses and places, the approval switches (`ApprovalRules::on/number`, read live); a setting changed with a reason and a version |
 | `src/Admin/{Sites,AuditSearch}.php`, `src/Ops/IntegrityRuns.php` | read side of the Websites page, the audit log search and CSV, the safety check's runs (written by `bin/invariants.php`) |
-| `src/Staff/{Enrolment,RoleRequests,StaffSessions}.php`, `StaffAdmin::enrol/resetAuthenticator/resetPassword/signOut`, `src/Output/QrCode.php` | adding a person with a QR code, /ui/enrol, the resets, signed-in devices, the staff-grant requests; the QR matrix (`bacon/bacon-qr-code`) |
+| `src/Staff/{Enrolment,RoleRequests,StaffSessions,SetupCode}.php`, `StaffAdmin::enrol/newSheet/resetAuthenticator/resetPassword/setupInfo/signOut`, `src/Output/QrCode.php` | adding a person with a sign-up sheet (QR code + one-time set-up code), /ui/enrol and /ui/new-code (the person's own fresh secret, confirmed before any session; an admin never holds both factors: Y40-Y44), the resets, signed-in devices, the staff-grant and staff-reset requests; the QR matrix (`bacon/bacon-qr-code`) |
 | `src/Ui/Controller/{Settings,Approvals,Reasons,Warehouses,System,Access,StaffRequests}Controller.php`, `src/Ui/ConfigWords.php`, views `setting`, `config_history`, `approvals`, `reason(s)`, `warehouse(s)`, `sites`, `integrity`, `audit`, `access`, `staff_sheet`, `enrol`, `staff_requests` | the set-it-yourself screens; `ConfigWords` says a version's who/what in words |
 | `tests/Unit/SetItYourselfUnitTest.php`, `tests/Integration/Admin/`, `tests/Integration/Staff/StaffSetUpTest.php`, `Migration0019Test`, `tests/Integration/UiKernel/SetItYourselfScreensTest.php` | the services, the switches' effects (and S2/S3), the audit search, the staff set-up, the baselines, the screens end to end |
 
@@ -396,8 +405,14 @@ Document and file tests notes:
 - Since 0019 `TestDb::clean()` also keeps 0019's `config_change` baselines (and deletes every other version), and deletes any
   `reason_code` without a baseline (one a test added, even if it died before its tearDown). A test that changes a setting, a
   document rule or a seeded warehouse through a service restores the row in tearDown (the history goes with `clean()`).
-  `ConfigInvariants` is not in `Invariants::check()` (asserted after every stock test): a test that wants K1–K3 calls
-  `ConfigInvariants::check()` itself.
+  `ConfigInvariants` is not in `Invariants::check()` (asserted after every stock test): a test that wants K1–K4 calls
+  `ConfigInvariants::check()` itself. `TestDb::clean()` keeps every version a migration wrote (`actor = 'system:migrate'`: 0019's
+  baselines and the version 2 of the order screens' reasons), not only the baselines.
+- Staff set-up tests (`tests/Integration/Staff/StaffSetUpTest.php`): a sheet's code works once and the replay guard (`totp_last_step`)
+  refuses the same 30 seconds twice, so a test clears `totp_last_step` before the next step (`next()`, as `signIn()` does). The
+  throttle (10 failures per account in 15 minutes) is moved out of the way by dating the account's `login_attempt` rows a day back
+  when a test tries many wrong answers on purpose. Loosening an approval rule needs a Reviewer: a test switches a rule off as a
+  reviewer (`staffUser('reviewer')`) or as a server tool (`Caller::system(...)`), never as an admin.
 - Composer: `bacon/bacon-qr-code` ^3.1 (with `dasprid/enum`; BSD-2-Clause) draws the sign-up QR code; only its encoder is used
   (no gd, no imagick: the page draws the matrix as HTML, Y21).
 - A test that books stock with `Movements::bookForDocument` / `reverseDocument` directly must give its document ids real

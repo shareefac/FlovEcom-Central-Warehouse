@@ -35,6 +35,27 @@
     <p class="actions"><button type="submit" class="primary"><?= $word('REASONS_EDIT', 'rename_button') ?></button></p>
   </form>
 </section>
+<section aria-labelledby="uses-h">
+  <h2 id="uses-h"><?= $word('REASONS_EDIT', 'uses_title') ?></h2>
+  <p class="muted"><?= $word('REASONS_EDIT', 'uses_text') ?></p>
+  <form class="record" method="post" action="/ui/reference/reasons/reason">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="code" value="<?= $e($r['code']) ?>">
+    <input type="hidden" name="seen" value="<?= $e($seen) ?>">
+    <input type="hidden" name="do" value="uses">
+    <fieldset>
+      <legend><?= $word('REASONS_EDIT', 'uses') ?></legend>
+<?php foreach ($uses as $use): ?>
+      <label class="choice"><input type="checkbox" name="use_<?= $e($use['code']) ?>" value="1"<?php if ($use['checked']): ?> checked<?php endif; ?>> <?= $e($use['name']) ?></label>
+<?php endforeach; ?>
+    </fieldset>
+    <label><?= $word('CONFIG', 'reason') ?>
+      <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
+      <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'uses'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
+    </label>
+    <p class="actions"><button type="submit" class="primary"><?= $word('REASONS_EDIT', 'uses_button') ?></button></p>
+  </form>
+</section>
 <section aria-labelledby="switch-h">
   <h2 id="switch-h"><?= $word('REASONS_EDIT', 'switch') ?></h2>
   <p class="muted"><?= $word('REASONS_EDIT', 'switch_off_text') ?></p>

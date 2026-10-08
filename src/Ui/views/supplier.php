@@ -15,6 +15,29 @@
 <p class="muted"><?= $say('SUPPLIER', 'last_note', (string) $s['last_decision_note']) ?></p>
 <?php endif; ?>
 
+<?php if ($alone !== null): ?>
+<section class="card decide-box<?php if ($alone['may_check']): ?> waiting<?php endif; ?>" id="alone" aria-labelledby="alone-h">
+  <div class="head-help">
+    <h2 id="alone-h"><?= $word('SUPPLIER', 'alone_title') ?> <?php if ($alone['checked'] === null): ?><?= $chip('needs', \CW\Ui\Words::SUPPLIERS['alone_chip']) ?><?php else: ?><?= $chip('done', \CW\Ui\Words::SUPPLIER['alone_done']) ?><?php endif; ?></h2>
+    <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
+  </div>
+  <p><?= $e($alone['text']) ?></p>
+<?php if ($alone['checked'] !== null): ?>
+  <p><?= $e($alone['checked']) ?></p>
+<?php elseif ($alone['may_check']): ?>
+  <p class="muted"><?= $word('SUPPLIER', 'alone_does') ?></p>
+  <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/check-alone') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
+    <label><?= $word('SUPPLIER', 'note_optional') ?> <input type="text" name="note" maxlength="500"></label>
+    <button type="submit" class="primary"><?= $word('SUPPLIER', 'alone_ok') ?></button>
+  </form>
+<?php elseif ($alone['refusal'] !== null): ?>
+  <p class="note read-only"><?= $e($alone['refusal']) ?></p>
+<?php endif; ?>
+</section>
+<?php endif; ?>
+
 <?php foreach (['activation', 'route', 'review'] as $slot): ?>
 <?php if ($open[$slot] !== null): ?>
 <?php $t = $open[$slot]; ?>

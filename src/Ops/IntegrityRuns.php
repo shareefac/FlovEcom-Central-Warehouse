@@ -25,7 +25,8 @@ final class IntegrityRuns
     }
 
     /**
-     * Records one run (outside any transaction: the check runs on a read-only snapshot first).
+     * Records one run (outside any transaction: the check runs on a read-only snapshot first). $startedAt is the database's clock
+     * (SELECT NOW(6) before the run), as finished_at (NOW(6) here): one clock for both.
      *
      * @param list<string> $problems
      * @param array<string, int|string> $stats

@@ -24,6 +24,13 @@
 <?php if (isset($c['text'])): ?>
     <p class="text"><?= $e($c['text']) ?></p>
 <?php endif; ?>
+<?php if (isset($c['lines'])): ?>
+    <ul class="task-lines">
+<?php foreach ($c['lines'] as $line): ?>
+      <li><?= $e($line) ?></li>
+<?php endforeach; ?>
+    </ul>
+<?php endif; ?>
 <?php if (isset($c['what'])): ?>
     <p class="task-what"><strong><?= $word('UI', 'what_happens') ?></strong> <?= $e($c['what']) ?></p>
 <?php endif; ?>

@@ -379,7 +379,8 @@ final class UiUnitTest extends TestCase
             }
             // GET /ui/logout only leads on (behaviour item 2): Home when signed in, the sign-in page when not; it shows and changes nothing.
             // GET/POST /ui/enrol (G06, Y20): a person sets their own password with their phone's code (Staff\Enrolment's throttle).
-            if (!in_array($key, ['GET /ui/login', 'POST /ui/login', 'GET /ui/logout', 'GET /ui/enrol', 'POST /ui/enrol'], true)) {
+            // GET/POST /ui/new-code (Y40-Y43): the person's own page with a fresh code, opened only with the step cookie of that browser.
+            if (!in_array($key, ['GET /ui/login', 'POST /ui/login', 'GET /ui/logout', 'GET /ui/enrol', 'POST /ui/enrol', 'GET /ui/new-code', 'POST /ui/new-code'], true)) {
                 self::assertNotSame(Route::PUBLIC, $access, "{$key} must need a sign-in");
             }
             // The set-it-yourself pack (0019, Y1): every change of a setting, rule, reason or warehouse needs settings.manage.
@@ -414,9 +415,11 @@ final class UiUnitTest extends TestCase
         self::assertSame('company.confirm', $byPath['POST /ui/reference/company/reviews/{id}/reject']);
         self::assertSame('reference.view', $byPath['GET /ui/reference/company/sample.pdf']);
         self::assertSame('public', $byPath['GET /ui/logout'], 'the sign-out address opened from the history leads on (behaviour item 2); it signs nobody out');
-        self::assertSame(10, $people, 'GET /ui/people, GET /ui/people.csv, GET /ui/people/{id}, POST .../roles, POST .../active; since 0019 POST /ui/people '
-            . '(add a person), .../authenticator, .../password, .../sign-out, .../request/withdraw');
+        self::assertSame(11, $people, 'GET /ui/people, GET /ui/people.csv, GET /ui/people/{id}, POST .../roles, POST .../active; since 0019 POST /ui/people '
+            . '(add a person), .../sheet, .../authenticator, .../password, .../sign-out, .../request/withdraw');
         self::assertSame(Route::PUBLIC, $byPath['GET /ui/enrol']);
+        self::assertSame(Route::PUBLIC, $byPath['GET /ui/new-code']);
+        self::assertSame(Route::PUBLIC, $byPath['POST /ui/new-code']);
         self::assertSame('staff.approve', $byPath['POST /ui/staff-requests/{id}/approve']);
         self::assertSame('audit.view', $byPath['GET /ui/system/audit.csv']);
         self::assertArrayHasKey('POST /ui/people/{id}/roles', $byPath);

@@ -51,7 +51,7 @@ final class SuppliersController
         return $ctx->page('suppliers', [
             'rows' => $rows,
             'filters' => $f,
-            'filtered' => $f['status'] !== null || $f['q'] !== '' || $f['due'],
+            'filtered' => $f['status'] !== null || $f['q'] !== '' || $f['due'] || $f['alone'],
             'statuses' => self::STATUS_LABELS,
             'canManage' => $canManage,
             'lookOnly' => $canManage ? null : Words::whoCan('suppliers.manage'),
@@ -183,6 +183,19 @@ final class SuppliersController
         return HtmlResponse::redirect(Html::url('/ui/purchasing/suppliers/' . $id, ['notice' => 'requested']));
     }
 
+    /** A reviewer's OK afterwards of a supplier made usable by one person alone (M2, Y49): the "approved alone" mark goes. */
+    public function checkAlone(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        $version = UiRequest::id($ctx->req->field('version'));
+        try {
+            $ctx->suppliers()->checkAlone($ctx->caller(), $id, $version ?? 0, $ctx->req->field('note'));
+        } catch (CwException $e) {
+            return $this->card($ctx, $id, $e->httpStatus, $e);
+        }
+        return HtmlResponse::redirect(Html::url('/ui/purchasing/suppliers/' . $id, ['notice' => 'alone_checked']));
+    }
+
     public function deactivate(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
@@ -285,7 +298,7 @@ final class SuppliersController
         $db = $ctx->db;
         $today = $svc->today();
         $ids = array_filter([$s['created_by'], $s['updated_by'], $s['details_changed_by'], $s['approved_by'], $s['dd_checked_by'],
-            $s['import_route_approved_by'], $s['deactivated_by']], static fn (mixed $v): bool => $v !== null);
+            $s['import_route_approved_by'], $s['deactivated_by'], $s['alone_checked_by']], static fn (mixed $v): bool => $v !== null);
         $names = [];
         if ($ids !== []) {
             foreach ($db->all('SELECT id, display_name FROM staff_user WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')',
@@ -360,6 +373,24 @@ final class SuppliersController
                 . 'JOIN document d ON d.id = p.document_id WHERE p.supplier_id = ? ORDER BY d.id DESC LIMIT 10',
                 [$id],
             )) : null;
+        // Made usable by one person while the second person was switched off (M2, Y49): who, and whether a reviewer checked it since.
+        $alone = null;
+        if ($s['status'] === 'active' && (int) $s['approved_alone'] + (int) $s['route_alone'] > 0) {
+            $checked = $s['alone_checked_by'] !== null;
+            $no = $checked ? null : Suppliers::refusal($me->id, $me->roles, $s, ['opened_by' => null, 'kind' => 'approval']);
+            if (!$checked && $no === null && (((int) $s['approved_alone'] === 1 && (int) $s['approved_by'] === $me->id)
+                || ((int) $s['route_alone'] === 1 && (int) $s['import_route_approved_by'] === $me->id))) {
+                $no = ['code' => 'own_supplier', 'message' => Words::SUPPLIER['alone_yours']];
+            }
+            $alone = [
+                'text' => (int) $s['approved_alone'] === 1
+                    ? Words::say('SUPPLIER', 'alone_text', (string) ($name($s['approved_by']) ?? ''), Html::when((string) $s['approved_at']))
+                    : Words::say('SUPPLIER', 'alone_route_text', (string) ($name($s['import_route_approved_by']) ?? ''), Html::when((string) $s['import_route_approved_at'])),
+                'checked' => $checked ? Words::say('SUPPLIER', 'alone_checked', (string) ($name($s['alone_checked_by']) ?? ''), Html::when((string) $s['alone_checked_at'])) : null,
+                'may_check' => !$checked && $no === null,
+                'refusal' => $checked || $no === null ? null : (($no['code'] ?? '') === 'role_not_allowed' ? Words::SUPPLIER['alone_look'] : Words::refusal($no)),
+            ];
+        }
         // The details that are empty are named once (F373).
         $empty = [];
         foreach (['legal_name', 'company_number', 'vat_number', 'contact_name', 'phone', 'payment_terms', 'default_lead_days', 'review_days', 'min_order_value'] as $k) {
@@ -381,6 +412,7 @@ final class SuppliersController
             'missingText' => self::fields($missing),
             'emptyText' => Words::andList($empty),
             'open' => $open,
+            'alone' => $alone,
             'history' => self::history($tasks),
             'files' => $files,
             'items' => ['n' => (int) ($items['n'] ?? 0), 'active' => (int) ($items['active'] ?? 0), 'preferred' => (int) ($items['preferred'] ?? 0),
@@ -596,11 +628,13 @@ final class SuppliersController
             'status' => in_array($req->param('status'), Suppliers::STATUSES, true) ? $req->param('status') : null,
             'q' => mb_substr(trim($req->param('q') ?? ''), 0, 100),
             'due' => $req->param('due') === '1',
+            // Made usable by one person while the second person was switched off, and not checked by a reviewer since (M2, Y49).
+            'alone' => $req->param('alone') === '1',
         ];
     }
 
     /**
-     * @param array{status: ?string, q: string, due: bool} $f
+     * @param array{status: ?string, q: string, due: bool, alone: bool} $f
      * @return list<array<string, mixed>>
      */
     private function rows(Context $ctx, array $f, ?int $limit): array
@@ -615,6 +649,9 @@ final class SuppliersController
             $like = '%' . addcslashes($f['q'], '%_\\') . '%';
             $where[] = '(s.code LIKE ? OR s.name LIKE ? OR s.legal_name LIKE ? OR s.vat_number LIKE ? OR s.erp_name LIKE ?)';
             array_push($params, $like, $like, $like, $like, $like);
+        }
+        if ($f['alone']) {
+            $where[] = "s.status = 'active' AND s.approved_alone + s.route_alone > 0 AND s.alone_checked_by IS NULL";
         }
         if ($f['due']) {
             $where[] = 's.dd_next_review_on <= ?';

@@ -31,6 +31,7 @@ final class DashboardController
 {
     public const NOTICES = [
         'password_changed' => Words::SIGN_IN['changed'],
+        'signed_in_new_code' => Words::NEW_CODE['done'],
     ];
     /** "What is this system?" is open for this many days after the account was made (plan §3.1). */
     public const ABOUT_OPEN_DAYS = 14;

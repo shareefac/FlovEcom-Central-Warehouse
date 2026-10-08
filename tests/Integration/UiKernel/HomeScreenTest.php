@@ -138,8 +138,9 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::HOME['needs'], $home->text());
         $cards = self::cardsOf($home);
         // What holds others up first (the company details, an approval), then the owner's own checks, then routine work.
-        self::assertSame(['company_confirm', 'approvals', 'spot_check', 'set_aside', 'duplicates', 'strong'], array_column($cards, 'key'));
-        self::assertSame(['Job 1 Start here', 'Job 2', 'Job 3', 'Job 4', 'Job 5', 'Job 6'], array_column($cards, 'job'));
+        // Then a note (no job): the people this test added on the server in the last days (Y45, the reviewers' "to look at").
+        self::assertSame(['company_confirm', 'approvals', 'spot_check', 'set_aside', 'duplicates', 'strong', 'watch'], array_column($cards, 'key'));
+        self::assertSame(['Job 1 Start here', 'Job 2', 'Job 3', 'Job 4', 'Job 5', 'Job 6', ''], array_column($cards, 'job'));
         self::assertStringContainsString('6 jobs need you. Start with the top one.', $home->text());
         $by = self::byKey($cards);
         self::assertSame([Words::TASK['company_confirm']['button_missing'], '/ui/reference/company'], [$by['company_confirm']['button'], $by['company_confirm']['href']]);

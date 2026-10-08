@@ -26,8 +26,11 @@ use CW\Ui\Words;
  *  - the switches and numbers of Admin\ApprovalRules (suppliers, matching, the spot check, the company details, staff access).
  *
  * Everyone looks (reference.view); an admin or a reviewer (settings.manage) changes a rule with a reason, through DocumentRules::set
- * or Settings::change (each re-checks the permission and the version the form was drawn with). One form per rule; a refusal comes
- * back on that rule's card, in words, with what was typed kept.
+ * or Settings::change (each re-checks the permission and the version the form was drawn with). Switching a rule off or making it
+ * looser needs a Reviewer (review finding I1, Y45: the admin a rule restrains cannot lift it); the page says so to an admin. A
+ * setting's card also carries "the owner has agreed this rule" (M5). Switching a rule off never releases work already waiting.
+ * Not OK on a purchase order only records it (M7). One form per rule; a refusal comes back on that rule's card, in words, with
+ * what was typed kept.
  */
 final class ApprovalsController
 {
@@ -49,6 +52,7 @@ final class ApprovalsController
             $typed[$f] = $req->field($f);
         }
         $typed['reason'] = $reason;
+        $typed['agreed'] = $req->field('agreed') === '1' ? '1' : '0';
         if ($seen === null || preg_match('/^\d{1,9}$/D', $seen) !== 1 || !in_array($kind, ['document', 'switch', 'number'], true)) {
             return $this->page($ctx, 400, $key, new CwException('bad_form', Words::ERROR['bad_form'], 400), $typed);
         }
@@ -73,7 +77,7 @@ final class ApprovalsController
                     return $ctx->error(404, 'not_found', 'no such rule', ['/ui/reference/approvals', Words::MENU['approvals']]);
                 }
                 $value = $kind === 'switch' ? ($typed['value'] === 'true' ? 'true' : 'false') : (string) $typed['value'];
-                $r = $ctx->settings()->change($ctx->caller(), $key, $value, $reason, null, (int) $seen);
+                $r = $ctx->settings()->change($ctx->caller(), $key, $value, $reason, $typed['agreed'] === '1', (int) $seen);
             }
         } catch (CwException $e) {
             return $this->page($ctx, $e->httpStatus, $key, $e, $typed);
@@ -134,11 +138,19 @@ final class ApprovalsController
                     continue;
                 }
                 $value = $settings->get($key);
+                $provisional = true;
+                foreach ($settings->all() as $row) {
+                    if ($row['key'] === $key) {
+                        $provisional = $row['provisional'];
+                    }
+                }
                 $words = Words::RULE[$key];
                 $card = ['kind' => $kind, 'key' => $key, 'anchor' => self::anchor($key), 'title' => $words['title'],
                     'seen' => ConfigHistory::version($db, 'setting', $key), 'history' => ConfigWords::history($db, 'setting', $key, $kind === 'switch' ? 'bool' : 'int'),
                     'error' => $mine && $error !== null ? self::plain($error) : null, 'errorCode' => $mine ? $error?->errorCode : null,
-                    'reason' => $mine ? (string) ($typed['reason'] ?? '') : ''];
+                    'reason' => $mine ? (string) ($typed['reason'] ?? '') : '', 'agreed' => !$provisional,
+                    'agreedTick' => $mine && isset($typed['agreed']) ? $typed['agreed'] === '1' : !$provisional,
+                    'note' => $words['note'] ?? null];
                 if ($kind === 'switch') {
                     $on = $value === true;
                     $card += ['on' => $on, 'text' => $words[$on ? 'on' : 'off'],
@@ -153,7 +165,7 @@ final class ApprovalsController
         }
         $requests = (int) $db->value("SELECT COUNT(*) FROM staff_role_request WHERE state = 'open'");
         $reviewers = 0;
-        if (ApprovalRules::on($db, 'approvals.staff_grant')) {
+        if (ApprovalRules::on($db, 'approvals.staff_grant') || ApprovalRules::on($db, 'approvals.staff_reset')) {
             foreach (StaffRoles::people($db) as $p) {
                 $reviewers += $p['is_active'] && Permissions::can($p['roles'], 'staff.approve') ? 1 : 0;
             }
@@ -164,7 +176,9 @@ final class ApprovalsController
             'lookOnly' => $canEdit ? null : Words::CONFIG['look_only'],
             'requests' => $requests,
             'canDecideRequests' => $ctx->me()->can('staff.approve'),
-            'nobodyCan' => ApprovalRules::on($db, 'approvals.staff_grant') && $reviewers === 0,
+            'nobodyCan' => (ApprovalRules::on($db, 'approvals.staff_grant') || ApprovalRules::on($db, 'approvals.staff_reset')) && $reviewers === 0,
+            // Switching a rule off or making it looser needs a Reviewer (I1): an admin is told before they try.
+            'loosenNote' => $canEdit && !$ctx->me()->can(ApprovalRules::LOOSEN_PERMISSION) ? Words::APPROVALS['loosen_admin'] : null,
         ], $status, ['title' => Words::MENU['approvals'], 'active' => 'approvals', 'notice' => $notice]);
     }
 
@@ -199,6 +213,7 @@ final class ApprovalsController
             'sentences' => array_values(array_filter([ucfirst($review), $approval, $reject])),
             'seen' => (int) $r['version'],
             'hasApproval' => $r['approval_kind'] !== null,
+            'recordOnly' => in_array($code, DocumentRules::REJECT_RECORD_ONLY, true),
             'okLabel' => Words::APPROVALS['ok_limit_' . $code] ?? Words::APPROVALS['number'],
             'form' => [
                 'review_rule' => (string) ($t['review_rule'] ?? $r['review_rule']),

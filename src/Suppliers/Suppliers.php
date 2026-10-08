@@ -356,12 +356,16 @@ final class Suppliers
             }
             $reason = $s['approved_at'] === null ? 'new_supplier' : 'reactivation';
             $now = $this->nowDb();
-            if (!ApprovalRules::on($db, 'approvals.supplier_activation')) {
+            // The switch and its evidence from ONE read, its row locked FOR SHARE until this transaction ends (review finding M1):
+            // the switch cannot change between deciding "alone" and naming the version that allowed it.
+            $switch = ApprovalRules::lockedSwitch($db, 'approvals.supplier_activation');
+            if (!$switch['on']) {
                 // The owner switched the second person off (Approval rules page, Y11): the request activates the supplier at once,
                 // recorded as approved alone with the version of the switch that allowed it (S2, S3 check both).
-                $evidence = ApprovalRules::evidence($db, 'approvals.supplier_activation');
+                $evidence = $switch['evidence'] ?? throw new \LogicException('a switch that is off has a version');
                 $overseas = (int) $s['is_overseas'] === 1;
                 $db->exec("UPDATE supplier SET status = 'active', approved_by = ?, approved_at = ?, approved_alone = 1, route_alone = ?, alone_change_id = ?, "
+                    . 'alone_checked_by = NULL, alone_checked_at = NULL, '
                     . 'deactivated_by = NULL, deactivated_at = NULL, deactivate_reason = NULL, import_route_approved_by = ?, import_route_approved_at = ?, '
                     . 'version = version + 1, updated_by = ?, updated_actor = ?, updated_at = ? WHERE id = ?',
                     [$me['id'], $now, $overseas ? 1 : 0, $evidence, $overseas ? $me['id'] : null, $overseas ? $now : null, $me['id'], $caller->actor, $now, $id]);
@@ -411,6 +415,45 @@ final class Suppliers
     }
 
     /**
+     * A reviewer's OK, afterwards, of a supplier made usable by one person while the second person was switched off (approved_alone
+     * and/or route_alone; review finding M2, Y49): the supplier list's "approved alone" mark goes (alone_checked_by / _at); the
+     * marks themselves stay as the evidence S2 and S3 check. The same decider rules as a task's (refusal(): a reviewer, never
+     * admin, not the creator or the last changer) and never the person who made the one-person approval (403 own_supplier). 409
+     * not_alone (nothing approved alone), alone_checked (checked already), version_conflict; audit supplier.alone_checked.
+     *
+     * @return array<string, mixed>
+     */
+    public function checkAlone(Caller $caller, int $id, int $expectedVersion, ?string $note): array
+    {
+        $note = self::optNote($note);
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $expectedVersion, $note): array {
+            $me = $this->staff($caller, null);
+            $s = $this->lock($id);
+            $this->checkVersion($s, $expectedVersion);
+            if ($s['status'] !== 'active' || (int) $s['approved_alone'] + (int) $s['route_alone'] === 0) {
+                throw new CwException('not_alone', "{$s['code']} was not made usable by one person alone: there is nothing to check afterwards", 409);
+            }
+            if ($s['alone_checked_by'] !== null) {
+                throw new CwException('alone_checked', "{$s['code']} was checked afterwards already", 409);
+            }
+            $no = self::refusal($me['id'], $me['roles'], $s, ['opened_by' => null, 'kind' => 'approval']);
+            if ($no === null && (((int) $s['approved_alone'] === 1 && (int) $s['approved_by'] === $me['id'])
+                || ((int) $s['route_alone'] === 1 && (int) $s['import_route_approved_by'] === $me['id']))) {
+                $no = ['code' => 'own_supplier', 'message' => 'You made this supplier usable alone: another reviewer must check it.'];
+            }
+            if ($no !== null) {
+                throw new CwException($no['code'], $no['message'], 403);
+            }
+            $now = $this->nowDb();
+            $db->exec('UPDATE supplier SET alone_checked_by = ?, alone_checked_at = ?, version = version + 1, updated_by = ?, updated_actor = ?, updated_at = ?, '
+                . 'last_decision_note = ? WHERE id = ?', [$me['id'], $now, $me['id'], $caller->actor, $now, $note, $id]);
+            Audit::write($db, $caller, 'supplier.alone_checked', 'supplier', (string) $id, null, ['code' => $s['code'], 'approved_alone' => (int) $s['approved_alone'] === 1,
+                'route_alone' => (int) $s['route_alone'] === 1, 'change_id' => $s['alone_change_id'] === null ? null : (int) $s['alone_change_id'], 'note' => $note]);
+            return $this->get($id);
+        });
+    }
+
+    /**
      * A second person approves an open supplier task (suppliers.approve and refusal() == null; $note optional, at most 500
      * characters):
      *  - an activation (new_supplier / reactivation): the supplier is active (approved_by/at; for an overseas supplier
@@ -437,7 +480,8 @@ final class Suppliers
                 $overseas = (int) $s['is_overseas'] === 1;
                 $this->decideTask($taskId, 'approved', $me['id'], $note, $now);
                 $db->exec("UPDATE supplier SET status = 'active', approved_by = ?, approved_at = ?, deactivated_by = NULL, deactivated_at = NULL, deactivate_reason = NULL, "
-                    . 'approved_alone = 0, route_alone = 0, alone_change_id = NULL, import_route_approved_by = ?, import_route_approved_at = ?, ' . $base . ' WHERE id = ?',
+                    . 'approved_alone = 0, route_alone = 0, alone_change_id = NULL, alone_checked_by = NULL, alone_checked_at = NULL, '
+                    . 'import_route_approved_by = ?, import_route_approved_at = ?, ' . $base . ' WHERE id = ?',
                     [$me['id'], $now, $overseas ? $me['id'] : null, $overseas ? $now : null, $me['id'], $caller->actor, $now, $note, $sid]);
             } elseif ($task['kind'] === 'approval' && $task['reason'] === 'import_route') {
                 if ($s['status'] !== 'active' || ((int) $s['is_overseas'] === 1 && $s['import_route'] === null)) {
@@ -446,7 +490,8 @@ final class Suppliers
                 $this->decideTask($taskId, 'approved', $me['id'], $note, $now);
                 if ((int) $s['is_overseas'] === 1) {
                     $db->exec('UPDATE supplier SET import_route_approved_by = ?, import_route_approved_at = ?, route_alone = 0, '
-                        . 'alone_change_id = IF(approved_alone = 1, alone_change_id, NULL), ' . $base . ' WHERE id = ?',
+                        . 'alone_change_id = IF(approved_alone = 1, alone_change_id, NULL), alone_checked_at = IF(approved_alone = 1, alone_checked_at, NULL), '
+                        . 'alone_checked_by = IF(approved_alone = 1, alone_checked_by, NULL), ' . $base . ' WHERE id = ?',
                         [$me['id'], $now, $me['id'], $caller->actor, $now, $note, $sid]);
                 } else {
                     // The supplier was made UK: the second person confirms it no longer needs an import route (I72).
@@ -617,19 +662,27 @@ final class Suppliers
                 $set['import_route_approved_by'] = null;
                 $set['import_route_approved_at'] = null;
                 $set['route_alone'] = 0;
+                if ((int) $s['approved_alone'] === 0) {
+                    $set['alone_checked_by'] = null;
+                    $set['alone_checked_at'] = null;
+                }
             }
             if ($s['status'] === 'active') {
                 if ($isOverseas && self::str($after['import_route']) === null) {
                     throw new CwException('supplier_incomplete', 'an overseas supplier needs its import route (how and where UK duty stamps are applied)', 422,
                         ['missing' => ['import_route']]);
                 }
-                $alone = $routeChanged && !ApprovalRules::on($db, 'approvals.supplier_activation');
+                // The switch and its evidence from one locked read (M1), as requestActivation().
+                $switch = $routeChanged ? ApprovalRules::lockedSwitch($db, 'approvals.supplier_activation') : ['on' => true, 'evidence' => null];
+                $alone = $routeChanged && !$switch['on'];
                 if ($alone && $isOverseas) {
                     // The second person is switched off (Y11): the new route is approved by this person, with the switch's version.
                     $set['import_route_approved_by'] = $me['id'];
                     $set['import_route_approved_at'] = $now;
                     $set['route_alone'] = 1;
-                    $set['alone_change_id'] = ApprovalRules::evidence($db, 'approvals.supplier_activation');
+                    $set['alone_change_id'] = $switch['evidence'];
+                    $set['alone_checked_by'] = null;
+                    $set['alone_checked_at'] = null;
                 }
                 // The supplier row is written first (the task rows are locked after it, I21).
                 $this->writeRow($id, $set, $me['id'], $caller->actor, $now);

@@ -9,6 +9,7 @@ use CW\Documents\Documents;
 use CW\Tests\Support\Documents\FixtureAdjustmentHandler;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
+use CW\Ui\Words;
 
 /**
  * The reference screens (reference.view, every role; I20, I22) and the CSV downloads (I25): 22 reason codes, 8 number
@@ -27,7 +28,7 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//table[contains(@class, "reasons") and contains(@class, "stack")]')->length, 'one card per reason on a phone');
         self::assertStringContainsString('Free gift (not vaping/nicotine products from 29 Oct 2026)', $reasons->text());
         self::assertStringContainsString('Replaced by an amended order', $reasons->text());
-        self::assertSame(['Rejected at review', 'In use', 'review_rejected', 'Cancellations', 'Up or down', 'No', 'No', 'Yes'],
+        self::assertSame(['Rejected at review', 'In use', 'review_rejected', ucfirst(Words::REASON_USE['reversal']), 'Up or down', 'No', 'No', 'Yes'],
             array_map(static fn (\DOMNode $c): string => trim((string) $c->textContent), iterator_to_array($xp->query('//table[contains(@class, "reasons")]/tbody/tr[24]/*'))),
             'the reason by its name first, its code kept for the files (plan §1.9)');
         self::assertSame('Reasons for stock changes', trim((string) $xp->evaluate('string(//main//h1)')));

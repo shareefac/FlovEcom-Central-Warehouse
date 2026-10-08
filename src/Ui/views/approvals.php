@@ -9,6 +9,10 @@
 <?php if ($nobodyCan): ?>
 <p class="note" role="alert"><?= $word('APPROVALS', 'nobody_can') ?></p>
 <?php endif; ?>
+<p class="muted"><?= $word('APPROVALS', 'loosen_rule') ?> <?= $word('APPROVALS', 'not_release') ?></p>
+<?php if ($loosenNote !== null): ?>
+<p class="note"><?= $e($loosenNote) ?></p>
+<?php endif; ?>
 <?php foreach ($sections as $section): ?>
 <section class="rules" aria-labelledby="sec-<?= $e($section['key']) ?>">
   <h2 id="sec-<?= $e($section['key']) ?>"><?= $e($section['title']) ?></h2>
@@ -23,6 +27,9 @@
 <?php elseif ($c['kind'] === 'switch'): ?>
       <?php if ($c['on']): ?><?= $chip('done', \CW\Ui\Words::CONFIG['on']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::CONFIG['off']) ?><?php endif; ?>
 <?php endif; ?>
+<?php if ($c['kind'] !== 'document'): ?>
+      <?php if ($c['agreed']): ?><?= $chip('done', \CW\Ui\Words::SETTINGS_PAGE['agreed']) ?><?php else: ?><?= $chip('needs', \CW\Ui\Words::SETTINGS_PAGE['not_agreed']) ?><?php endif; ?>
+<?php endif; ?>
     </h3>
 <?php if ($c['kind'] === 'document'): ?>
 <?php foreach ($c['sentences'] as $line): ?>
@@ -30,6 +37,9 @@
 <?php endforeach; ?>
 <?php else: ?>
     <p><?= $e($c['text']) ?></p>
+<?php if ($c['note'] !== null): ?>
+    <p class="muted"><?= $e($c['note']) ?></p>
+<?php endif; ?>
 <?php endif; ?>
 <?php if ($c['error'] !== null): ?>
     <p class="error" role="alert" data-code="<?= $e($c['errorCode']) ?>"><?= $e($c['error']) ?></p>
@@ -66,12 +76,17 @@
           </label>
         </fieldset>
 <?php endif; ?>
+<?php if ($c['recordOnly']): ?>
+        <input type="hidden" name="reject_action" value="record">
+        <p class="muted"><?= $word('APPROVALS', 'reject_record_only') ?></p>
+<?php else: ?>
         <label><?= $word('APPROVALS', 'reject') ?>
           <select name="reject_action">
             <option value="reverse"<?php if ($c['form']['reject_action'] === 'reverse'): ?> selected<?php endif; ?>><?= $word('APPROVALS', 'reject_reverse') ?></option>
             <option value="record"<?php if ($c['form']['reject_action'] === 'record'): ?> selected<?php endif; ?>><?= $word('APPROVALS', 'reject_record') ?></option>
           </select>
         </label>
+<?php endif; ?>
 <?php $reasonTyped = $c['form']['reason']; ?>
 <?php elseif ($c['kind'] === 'switch'): ?>
         <fieldset>
@@ -85,6 +100,9 @@
           <input type="text" name="value" inputmode="numeric" value="<?= $e($c['typed']) ?>" maxlength="9" required>
         </label>
 <?php $reasonTyped = $c['reason']; ?>
+<?php endif; ?>
+<?php if ($c['kind'] !== 'document'): ?>
+        <label class="choice"><input type="checkbox" name="agreed" value="1"<?php if ($c['agreedTick']): ?> checked<?php endif; ?>> <?= $word('APPROVALS', 'agreed') ?></label>
 <?php endif; ?>
         <label><?= $word('CONFIG', 'reason') ?>
           <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>

@@ -20,6 +20,12 @@ use CW\Db;
  * The kind of a type's blocking approval is fixed (APPROVAL_KIND): switching it off sets approval_rule 'none' and keeps the
  * limit; switching it on puts the type's kind back. The "stock put back" approval also covers a cancellation that puts more
  * than its limit back on hand (I32: Documents::positiveLimit reads the types with that kind).
+ *
+ * Making a rule looser (loosens(): fewer checks, a higher limit, the OK first off or a higher limit for it, Not OK that only
+ * records instead of cancelling) needs a Reviewer (ApprovalRules::authoriseLoosening, review finding I1); the audit row says
+ * `loosened`. Not OK on a purchase order only records it (REJECT_RECORD_ONLY, a CHECK since 0019: an order a delivery was booked
+ * against cannot be cancelled, so "cancel it" would fail exactly when it matters; review finding M7). A rule switched off never
+ * releases records already waiting for an OK.
  */
 final class DocumentRules
 {
@@ -30,6 +36,10 @@ final class DocumentRules
     public const LIMIT_MAX = 2_000_000_000;
     public const DAYS_MIN = 1;
     public const DAYS_MAX = 120;
+    /** The kinds whose Not OK can only record it (ck_document_type_po_reject). */
+    public const REJECT_RECORD_ONLY = ['PO'];
+    /** The review rules from the strictest. */
+    private const REVIEW_RANK = ['all' => 2, 'over_limit' => 1, 'none' => 0];
     /** The fields of a rule, in the order the CLI prints a change. */
     public const FIELDS = ['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action'];
 
@@ -88,14 +98,40 @@ final class DocumentRules
             if ($after === $before) {
                 return ['changed' => false, 'before' => $before, 'after' => $after, 'version' => $version];
             }
+            $loosened = self::loosens($before, $after);
+            if ($loosened) {
+                ApprovalRules::authoriseLoosening($db, $caller);
+            }
             $db->exec('UPDATE document_type SET review_rule = ?, review_limit_units = ?, review_due_days = ?, approval_rule = ?, approval_limit_units = ?, '
                 . 'reject_action = ? WHERE code = ?', [$after['review_rule'], $after['review_limit_units'], $after['review_due_days'], $after['approval_rule'],
                     $after['approval_limit_units'], $after['reject_action'], $type]);
             $v = ConfigHistory::record($db, $caller, 'document_rule', $type, 'change', $before, $after, $reason);
             Audit::write($db, $caller, 'document_type.change', 'document_type', $type, null,
-                ['type' => $type, 'before' => $before, 'after' => $after, 'reason' => $reason, 'version' => $v['version']]);
+                ['type' => $type, 'before' => $before, 'after' => $after, 'reason' => $reason, 'version' => $v['version']] + ($loosened ? ['loosened' => true] : []));
             return ['changed' => true, 'before' => $before, 'after' => $after, 'version' => $v['version']];
         });
+    }
+
+    /**
+     * Whether the rules $after are looser than $before (pure): a weaker review rule (all > over a limit > none) or, over a limit
+     * both times, a higher limit; the OK first switched off, or on both times with a higher limit; Not OK that only records where it
+     * cancelled. The days to check restrain nobody: never looser.
+     *
+     * @param array<string, mixed> $before
+     * @param array<string, mixed> $after
+     */
+    public static function loosens(array $before, array $after): bool
+    {
+        $rb = self::REVIEW_RANK[$before['review_rule']] ?? 0;
+        $ra = self::REVIEW_RANK[$after['review_rule']] ?? 0;
+        if ($ra < $rb || ($ra === $rb && $after['review_rule'] === 'over_limit' && (int) $after['review_limit_units'] > (int) $before['review_limit_units'])) {
+            return true;
+        }
+        if ($before['approval_rule'] !== 'none' && ($after['approval_rule'] === 'none'
+            || (int) $after['approval_limit_units'] > (int) $before['approval_limit_units'])) {
+            return true;
+        }
+        return $before['reject_action'] === 'reverse' && $after['reject_action'] === 'record';
     }
 
     /**
@@ -162,6 +198,10 @@ final class DocumentRules
         if (array_key_exists('reject_action', $change)) {
             if (!in_array($change['reject_action'], self::REJECT_ACTIONS, true)) {
                 throw new CwException('bad_reject_action', 'what Not OK does is reverse or record', 400, ['field' => 'reject_action']);
+            }
+            if ($change['reject_action'] !== 'record' && in_array($type, self::REJECT_RECORD_ONLY, true)) {
+                throw new CwException('reject_record_only', "Not OK on a {$type} only records it: an order a delivery was booked against cannot be cancelled", 400,
+                    ['field' => 'reject_action']);
             }
             $after['reject_action'] = $change['reject_action'];
         }

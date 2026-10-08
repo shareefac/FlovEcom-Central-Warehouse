@@ -66,6 +66,8 @@ final class Kernel
     public const CSP = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
     public const SESSION_COOKIE = 'cw_session';
     public const PRE_COOKIE = 'cw_pre';
+    /** The step token of a sign-in being set up (Staff\Enrolment, /ui/new-code): only the browser that passed the first step has it. */
+    public const SETUP_COOKIE = 'cw_setup';
 
     private const BUSY_CODES = [1205, 1213];
     private const UNAVAILABLE_CODES = [1040, 1044, 1045, 1049, 1203, 2002, 2003, 2005, 2006, 2013];
@@ -356,6 +358,8 @@ final class Kernel
         // A person sets their own password with their phone's code (G06, Y20, Y22): set up on the screen, or told to choose a new one.
         $r->add('GET', '/ui/enrol', Route::PUBLIC, $auth->enrolForm(...));
         $r->add('POST', '/ui/enrol', Route::PUBLIC, $auth->enrol(...));
+        $r->add('GET', '/ui/new-code', Route::PUBLIC, $auth->newCodeForm(...));
+        $r->add('POST', '/ui/new-code', Route::PUBLIC, $auth->newCode(...));
         $r->add('GET', '/ui/password', Route::ANY, $auth->passwordForm(...));
         $r->add('POST', '/ui/password', Route::ANY, $auth->password(...));
         $r->add('GET', '/ui', Route::ANY, $dash->index(...));
@@ -409,6 +413,7 @@ final class Kernel
         // person, signing out one device or all, withdrawing a request for Admin or Reviewer. Only an admin (staff.manage), checked
         // again by StaffAdmin / RoleRequests; a reviewer decides the requests (staff.approve).
         $r->add('POST', '/ui/people', 'staff.manage', $people->create(...));
+        $r->add('POST', '/ui/people/{id}/sheet', 'staff.manage', $people->newSheet(...));
         $r->add('POST', '/ui/people/{id}/authenticator', 'staff.manage', $people->authenticator(...));
         $r->add('POST', '/ui/people/{id}/password', 'staff.manage', $people->password(...));
         $r->add('POST', '/ui/people/{id}/sign-out', 'staff.manage', $people->signOut(...));
@@ -479,6 +484,7 @@ final class Kernel
         $r->add('POST', '/ui/purchasing/suppliers/{id}', 'suppliers.manage', $suppliers->update(...));
         $r->add('POST', '/ui/purchasing/suppliers/{id}/request-activation', 'suppliers.manage', $suppliers->requestActivation(...));
         $r->add('POST', '/ui/purchasing/suppliers/{id}/deactivate', 'suppliers.manage', $suppliers->deactivate(...));
+        $r->add('POST', '/ui/purchasing/suppliers/{id}/check-alone', 'suppliers.approve', $suppliers->checkAlone(...));
         $r->add('POST', '/ui/purchasing/suppliers/{id}/evidence', 'suppliers.manage', $suppliers->evidence(...));
         $r->add('GET', '/ui/purchasing/suppliers/{id}/items', 'suppliers.view', $supplierItems->index(...));
         $r->add('GET', '/ui/purchasing/suppliers/{id}/items.csv', 'suppliers.view', $supplierItems->csv(...));

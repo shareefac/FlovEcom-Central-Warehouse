@@ -114,6 +114,17 @@ final class ConfigServicesTest extends DocumentTestCase
         self::assertContains('config reason damaged: versions 1..3 in 2 rows (expected 1..2, starting with a baseline or an add)', $v);
         self::assertContains('config reason damaged version 3: actor staff:999 does not match staff NULL', $v);
         self::$db->exec("DELETE FROM config_change WHERE subject_key = 'damaged' AND version = 3");
+        // K4 (M8): a row added around the services (the app login may INSERT warehouses and reasons) has no history at all.
+        self::$db->exec("INSERT INTO warehouse (code, name) VALUES ('BYHAND', 'Added by hand')");
+        self::$db->exec("INSERT INTO reason_code (code, label, applies_to) VALUES ('by_hand', 'By hand', 'adjustment')");
+        try {
+            $v = ConfigInvariants::check(self::$db);
+            self::assertContains("config warehouse BYHAND: the row has no history (added outside the screens and the migrations' baselines)", $v);
+            self::assertContains("config reason by_hand: the row has no history (added outside the screens and the migrations' baselines)", $v);
+        } finally {
+            self::$db->exec("DELETE FROM warehouse WHERE code = 'BYHAND'");
+            self::$db->exec("DELETE FROM reason_code WHERE code = 'by_hand'");
+        }
     }
 
     public function testTheRulesOfAKindOfRecordAndTheOkFirstSwitchedOff(): void
@@ -125,7 +136,9 @@ final class ConfigServicesTest extends DocumentTestCase
         $a = $this->item('strict', 10);
         // On (the 0008 default): 40 found units without a supplier document wait for a reviewer's OK.
         self::assertSame('awaiting_approval', $this->posted($sc, [['sku_id' => $a, 'qty' => 40]], [])->status);
-        $r = $rules->set($admin, 'ADJ', ['approval' => false], 'leave it for now', 1);
+        // Switching the OK first off is looser: a Reviewer only (I1); the admin is refused.
+        self::refused(403, 'loosen_needs_reviewer', fn () => $rules->set($admin, 'ADJ', ['approval' => false], 'leave it for now', 1));
+        $r = $rules->set($reviewer, 'ADJ', ['approval' => false], 'leave it for now', 1);
         self::assertSame(['positive_without_supplier_doc', 'none', 10, 2], [$r['before']['approval_rule'], $r['after']['approval_rule'],
             $r['after']['approval_limit_units'], $r['version']]);
         self::assertSame('posted', $this->posted($sc, [['sku_id' => $a, 'qty' => 40]], [])->status, 'off: it posts at once (and is reviewed after)');
@@ -133,13 +146,69 @@ final class ConfigServicesTest extends DocumentTestCase
         self::assertSame(['positive_without_supplier_doc', 50], [$r['after']['approval_rule'], $r['after']['approval_limit_units']]);
         self::assertSame('posted', $this->posted($sc, [['sku_id' => $a, 'qty' => 40]], [])->status, '40 is under the new limit');
         self::assertSame('awaiting_approval', $this->posted($sc, [['sku_id' => $a, 'qty' => 51]], [])->status);
-        $r = $rules->set($admin, 'ADJ', ['review_rule' => 'over_limit', 'review_limit_units' => '5', 'review_due_days' => '14', 'reject_action' => 'record'], 'fewer checks', 3);
+        $r = $rules->set($reviewer, 'ADJ', ['review_rule' => 'over_limit', 'review_limit_units' => '5', 'review_due_days' => '14', 'reject_action' => 'record'], 'fewer checks', 3);
         self::assertSame(['over_limit', 5, 14, 'record'], [$r['after']['review_rule'], $r['after']['review_limit_units'], $r['after']['review_due_days'], $r['after']['reject_action']]);
         self::refused(409, 'changed_meanwhile', fn () => $rules->set($admin, 'ADJ', ['review_due_days' => '3'], 'from an old page', 3));
         self::assertSame(['changed' => false], array_intersect_key($rules->set($admin, 'ADJ', ['review_due_days' => '14'], 'same', 4), ['changed' => 1]));
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'document_type.change' AND entity_id = 'ADJ' "
             . "AND JSON_EXTRACT(detail, '$.version') = 4"));
         self::assertSame([], ConfigInvariants::check(self::$db));
+    }
+
+    /**
+     * Review finding M6 (Y52): switching a reason off stops NEW records using it, never a reviewer's OK of a record already waiting
+     * with it. And M10: the posting's audit row names the version of its kind's rule it was posted under.
+     */
+    public function testASwitchedOffReasonDoesNotBlockTheOkOfARecordAlreadyWaiting(): void
+    {
+        [$reviewer, $sc] = [$this->staffUser('reviewer'), $this->staffUser('stock_controller')];
+        $a = $this->item('strict', 10);
+        // 40 found units without a supplier document wait for a reviewer's OK (ADJ's OK first, 0008).
+        $waiting = $this->posted($sc, [['sku_id' => $a, 'qty' => 40]], ['reason_code' => 'found']);
+        self::assertSame('awaiting_approval', $waiting->status);
+        (new ReasonCodes(self::$db))->setActive($reviewer, 'found', false, 'we stop using it');
+        try {
+            $doc = $this->docs->approve($reviewer, $this->openTask($waiting->id, 'approval'), 'checked the paperwork');
+            self::assertSame('posted', $doc->status, 'the record waiting with the reason gets its OK');
+            $audit = json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'document.post' AND entity_id = ?", [(string) $doc->id]), true);
+            self::assertSame(ConfigHistory::version(self::$db, 'document_rule', 'ADJ'), $audit['rule_version'], 'M10: the rule\'s version with the posting');
+            // A new record with it is refused.
+            self::refused(422, 'reason_inactive', fn () => $this->posted($sc, [['sku_id' => $a, 'qty' => 2]], ['reason_code' => 'found']));
+        } finally {
+            self::$db->exec("UPDATE reason_code SET is_active = 1 WHERE code = 'found'");
+        }
+    }
+
+    /**
+     * Review finding I6 (Y51): the order screens' reasons are the Reasons page's: placed there (where it is used), switched on, by
+     * their own name. A reason added for cancelling orders is offered and accepted; one taken off the list or switched off is refused.
+     */
+    public function testTheOrderScreensReasonsComeFromTheReasonsPage(): void
+    {
+        $admin = $this->staffUser('admin');
+        $reasons = new ReasonCodes(self::$db);
+        $codes = static fn (string $use): array => array_column(\CW\PurchaseOrders\PurchaseOrders::reasons(self::$db, $use), 'code');
+        self::assertSame(['entered_in_error', 'supplier_cannot_supply', 'not_needed', 'duplicate', 'other'], $codes('po_cancel'), 'seeded by 0019: what the code listed');
+        self::assertSame(['entered_in_error', 'po_amended', 'supplier_cannot_supply', 'other'], $codes('po_amend'));
+        self::assertSame($codes('po_cancel'), $codes('po_draft_cancel'));
+        try {
+            $reasons->add($admin, 'price_too_high', 'The price went up', ['po_cancel', 'po_draft_cancel'], 'either', false, false, 'the owner asked for it');
+            self::assertContains('price_too_high', $codes('po_cancel'));
+            self::assertNotContains('price_too_high', $codes('reversal'), 'not offered on other records');
+            $reasons->setUses($admin, 'duplicate', ['reversal', 'po_draft_cancel'], 'no longer for confirmed orders', 2);
+            self::assertNotContains('duplicate', $codes('po_cancel'));
+            self::assertContains('duplicate', $codes('po_draft_cancel'));
+            self::assertSame(['uses', 'change', 'baseline'], array_column(ConfigHistory::history(self::$db, 'reason', 'duplicate'), 'action'));
+            self::refused(400, 'bad_uses', fn () => $reasons->setUses($admin, 'duplicate', [], 'nowhere', 3));
+            self::refused(409, 'reason_locked', fn () => $reasons->setUses($admin, 'review_rejected', ['reversal', 'po_cancel'], 'try', 1));
+            $reasons->setActive($admin, 'not_needed', false, 'switched off for the test', 2);
+            self::assertNotContains('not_needed', $codes('po_draft_cancel'));
+            self::assertSame([], ConfigInvariants::check(self::$db));
+        } finally {
+            self::$db->exec("UPDATE reason_code SET applies_to = 'reversal,po_cancel,po_draft_cancel' WHERE code = 'duplicate'");
+            self::$db->exec("UPDATE reason_code SET is_active = 1 WHERE code = 'not_needed'");
+            self::$db->exec("DELETE FROM reason_code WHERE code = 'price_too_high'");
+        }
     }
 
     public function testReasonsAreAddedRenamedAndSwitchedOffNeverDeleted(): void
@@ -191,7 +260,7 @@ final class ConfigServicesTest extends DocumentTestCase
         $room = $wh->add($reviewer, 'ROOM2', 'Room 2', false, false, 'own', null, null, 'a second room');
         self::refused(422, 'confirm_needed', fn () => $wh->setSellable($admin, $room['id'], true, false, 'no tick', 1));
         self::assertSame(['changed' => true], $wh->setSellable($admin, $room['id'], true, true, 'sell from it', 1));
-        self::refused(409, 'sellable_warehouse', fn () => $wh->setOwner($admin, $room['id'], 'other', 'VPG 2', 'theirs now', 2));
+        self::refused(409, 'sellable_warehouse', fn () => $wh->setOwner($admin, $room['id'], 'other', 'VPG 2', true, 'theirs now', 2));
         foreach (['MAIN', 'VERIFY', 'UNSTAMPED'] as $code) {
             $id = self::warehouseId($code);
             self::refused(409, 'system_warehouse', fn () => $wh->setActive($admin, $id, false, 'off'));
@@ -221,5 +290,35 @@ final class ConfigServicesTest extends DocumentTestCase
         $all = array_column($wh->all(), null, 'code');
         self::assertSame([0, 0, 0, 0], array_values($all['ROOM2']['stock']));
         self::assertSame(['all' => 1, 'active' => 0], $all['MAIN']['places']);
+    }
+
+    /**
+     * Review finding I4 (Y48): whose stock a warehouse holds changes only while it is EMPTY, in either direction, and only with the
+     * confirmation tick: another account's stock never becomes ours (and sellable) without a release invoice.
+     */
+    public function testWhoseStockAWarehouseHoldsChangesOnlyWhileItIsEmptyAndWithATick(): void
+    {
+        $admin = $this->staffUser('admin');
+        $wh = new Warehouses(self::$db);
+        $vpg2 = $wh->add($admin, 'VPG2', 'VPG 2 room', false, false, 'other', 'VPG 2', null, 'the owner\'s second account');
+        $a = $this->item('strict', 0);
+        $this->ok($this->book('goods_in', $a, 5, 'VPG2'));
+        $e = self::refused(409, 'owner_not_empty', fn () => $wh->setOwner($admin, $vpg2['id'], 'own', null, true, 'ours now', 1));
+        self::assertSame(['stock'], $e->detail['why']);
+        self::refused(409, 'owner_not_empty', fn () => $wh->setOwner($admin, $vpg2['id'], 'other', 'VPG Two Ltd', true, 'renamed account', 1),
+            'another account\'s name is whose stock it is too');
+        self::assertSame(['other', 'VPG 2', false], [$wh->get($vpg2['id'])['stock_owner'], $wh->get($vpg2['id'])['owner_entity'], $wh->get($vpg2['id'])['is_sellable']]);
+        self::assertSame(1, ConfigHistory::version(self::$db, 'warehouse', 'VPG2'), 'nothing saved');
+        // Ours with stock: never given to another account either.
+        $room = $wh->add($admin, 'ROOM5', 'Room 5', false, false, 'own', null, null, 'a spare room');
+        $this->ok($this->book('goods_in', $a, 2, 'ROOM5'));
+        self::refused(409, 'owner_not_empty', fn () => $wh->setOwner($admin, $room['id'], 'other', 'VPG 2', true, 'theirs now', 1));
+        // Empty: with the tick only.
+        $this->ok($this->book('adjustment', $a, -5, 'VPG2'));
+        self::refused(422, 'unconfirmed', fn () => $wh->setOwner($admin, $vpg2['id'], 'own', null, false, 'ours now', 1));
+        self::assertSame(['changed' => true], $wh->setOwner($admin, $vpg2['id'], 'own', null, true, 'ours now: the room is empty', 1));
+        self::assertSame(['own', null], [$wh->get($vpg2['id'])['stock_owner'], $wh->get($vpg2['id'])['owner_entity']]);
+        $this->ok($this->book('adjustment', $a, -2, 'ROOM5'));
+        self::assertSame([], ConfigInvariants::check(self::$db));
     }
 }

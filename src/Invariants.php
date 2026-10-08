@@ -52,7 +52,7 @@ namespace CW;
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  *
- * nightly() (bin/invariants.php, the Safety checks page) adds the configuration checks K1-K3 (Admin\ConfigInvariants, 0019, Y2):
+ * nightly() (bin/invariants.php, the Safety checks page) adds the configuration checks K1-K4 (Admin\ConfigInvariants, 0019, Y2, Y53):
  * the settings, reason codes, document rules, warehouses and places the screens change, each against its latest history version.
  * They are not part of check(): tests set a setting or a rule with the admin login for the length of one test.
  */
@@ -60,7 +60,7 @@ final class Invariants
 {
     private const MAX_PER_CHECK = 50;
 
-    /** @return list<string> check() and the configuration checks K1-K3: what the nightly run reports. */
+    /** @return list<string> check() and the configuration checks K1-K4: what the nightly run reports. */
     public static function nightly(Db $db): array
     {
         return [...self::check($db), ...Admin\ConfigInvariants::check($db)];

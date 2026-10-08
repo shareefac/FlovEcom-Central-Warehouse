@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * The nightly invariant check (plan §14; CW\Invariants::nightly, D44): cached buckets = unit states =
  * ledger sums, unit states agree with their reservations, the modules' own checks, and since 0019 the configuration the screens
- * change (K1-K3). docs/ops.md: nightly.
+ * change (K1-K4). docs/ops.md: nightly.
  *
  *   php bin/invariants.php [--db=cw_staging] [--admin]
  *
@@ -17,7 +17,6 @@ declare(strict_types=1);
  * change the exit code.
  */
 
-use CW\Clock;
 use CW\Db;
 use CW\Invariants;
 use CW\Ops\Cli;
@@ -32,7 +31,9 @@ exit(Cli::main(
     'usage: php bin/invariants.php',
     static function (Cli $cli, array $opts): int {
         $started = hrtime(true);
-        $startedAt = Clock::db(Clock::now());
+        // The database's clock, as finished_at (IntegrityRuns::record: NOW(6)): one clock for both (review nit), so a run never
+        // looks as if it finished before it started (ck_integrity_run) when the box's and the database's clocks differ.
+        $startedAt = (string) $cli->db->value('SELECT NOW(6)');
         [$violations, $balances, $units] = Snapshot::read($cli->db, static fn (Db $db): array => [
             Invariants::nightly($db),
             (int) $db->value('SELECT COUNT(*) FROM stock_balance'),

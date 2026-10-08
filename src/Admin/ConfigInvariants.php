@@ -16,6 +16,9 @@ use CW\Db;
  *  K2. every row that has a history equals its latest version (the tracked fields, ConfigHistory::TRACKED), and every subject with
  *      a history still exists (nothing is ever deleted, Q9).
  *  K3. who: a version made by a person (`staff:<id>`) names that person in staff_user_id; one made by a job names nobody.
+ *  K4. every live configuration row (setting, reason, kind of record, warehouse, place) has a history (review finding M8): the app
+ *      login may INSERT warehouses, places and reasons, so a row added around the services (with no `add` version) is found; a
+ *      migration that adds one writes its baseline (docs/dev.md rule 5).
  */
 final class ConfigInvariants
 {
@@ -24,7 +27,7 @@ final class ConfigInvariants
     /** @return list<string> */
     public static function check(Db $db): array
     {
-        return [...self::sequence($db), ...self::current($db), ...self::who($db)];
+        return [...self::sequence($db), ...self::current($db), ...self::who($db), ...self::covered($db)];
     }
 
     /** @return list<string> K1 */
@@ -74,6 +77,27 @@ final class ConfigInvariants
                         }
                     }
                     $v[] = "config {$type} {$key}: changed outside its history since version {$h['version']} (" . implode(', ', $diff) . ')';
+                }
+            }
+        }
+        return $v;
+    }
+
+    /** @return list<string> K4 */
+    private static function covered(Db $db): array
+    {
+        $v = [];
+        $known = [];
+        foreach ($db->all('SELECT DISTINCT subject_type, subject_key FROM config_change') as $r) {
+            $known[(string) $r['subject_type']][(string) $r['subject_key']] = true;
+        }
+        foreach (ConfigHistory::TYPES as $type) {
+            foreach (array_keys(self::liveRows($db, $type)) as $key) {
+                if (!isset($known[$type][(string) $key])) {
+                    $v[] = "config {$type} {$key}: the row has no history (added outside the screens and the migrations' baselines)";
+                    if (count($v) >= self::MAX_PER_CHECK) {
+                        return $v;
+                    }
                 }
             }
         }

@@ -72,7 +72,7 @@ final class WarehousesController
         try {
             $r = match ($do) {
                 'rename' => $s->rename($c, $id, $typed['name'], $typed['note'], $typed['reason'], $v),
-                'owner' => $s->setOwner($c, $id, $typed['owner'], $typed['owner_name'], $typed['reason'], $v),
+                'owner' => $s->setOwner($c, $id, $typed['owner'], $typed['owner_name'], $typed['confirm'], $typed['reason'], $v),
                 'sellable' => $s->setSellable($c, $id, $req->field('sellable') === '1', $typed['confirm'], $typed['reason'], $v),
                 'switch_off', 'switch_on' => $s->setActive($c, $id, $do === 'switch_on', $typed['reason'], $v),
                 'place_add' => ['changed' => true] + $s->addPlace($c, $id, $typed['code'], $typed['name'], $typed['note'], $typed['reason']),
@@ -101,10 +101,15 @@ final class WarehousesController
             'changed_meanwhile' => Words::say('CONFIG_ERROR', 'changed_meanwhile', ConfigWords::who((string) ($e->detail['by'] ?? ''), null),
                 Html::when(is_string($e->detail['at'] ?? null) ? $e->detail['at'] : null)),
             'warehouse_in_use' => Words::say('CONFIG_ERROR', 'warehouse_in_use', implode(', ', array_map('strval', (array) ($e->detail['websites'] ?? [])))),
-            'warehouse_not_empty' => Words::say('CONFIG_ERROR', 'warehouse_not_empty',
-                implode(', ', array_map(static fn (mixed $w): string => Words::of('WHY_NOT_EMPTY', (string) $w), (array) ($e->detail['why'] ?? [])))),
+            'warehouse_not_empty', 'owner_not_empty' => Words::say('CONFIG_ERROR', $e->errorCode, self::whyNotEmpty((array) ($e->detail['why'] ?? []))),
             default => Words::CONFIG_ERROR[$e->errorCode] ?? Words::error($e->errorCode, $e->getMessage()),
         };
+    }
+
+    /** Why a warehouse is not empty, in words ("it holds stock, a website uses it"). @param array<mixed> $why Warehouses::notEmpty() */
+    public static function whyNotEmpty(array $why): string
+    {
+        return implode(', ', array_map(static fn (mixed $w): string => Words::of('WHY_NOT_EMPTY', (string) $w), $why));
     }
 
     /** The place $placeId when it is inside warehouse $id (else 404 through the service). */

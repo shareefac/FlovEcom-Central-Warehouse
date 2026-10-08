@@ -43,7 +43,8 @@ final class Words
         'INCIDENT_KIND', 'INCIDENT_STATE', 'RECEIPT_FILE', 'STAMP_TYPE', 'UNSTAMPED_ACTION', 'MODE_SOURCE', 'RECEIVING', 'RECEIPT', 'BENCH', 'INCIDENTS',
         'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN', 'CONFIG', 'CONFIG_ACTION', 'CONFIG_ERROR', 'SETTING_EDIT', 'SETTING_NOTICE',
         'APPROVALS', 'REASONS_EDIT', 'REASON_NOTICE', 'WAREHOUSES', 'WHY_NOT_EMPTY', 'WAREHOUSE_NOTICE', 'MODE', 'SITES', 'SITE_COMMAND', 'INTEGRITY', 'AUDIT',
-        'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE'];
+        'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
+        'WATCH'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -275,6 +276,7 @@ final class Words
         'access' => 'Who can do what',
         'enrol' => 'Set up my sign-in',
         'staff_requests' => 'Staff access to OK',
+        'new_code' => 'Your own sign-in code',
     ];
 
     /**
@@ -342,8 +344,9 @@ final class Words
             'If a check finds a problem, tell ' . self::ASK . ' the same day.'],
         'audit' => ['Everything that was changed in this system, by whom and when.', 'Search by person, day, record or what was done. Nothing here can be changed.'],
         'access' => ['What each job may do in this system.', 'Admins give people their jobs on the Staff and access page.'],
-        'enrol' => ['Choose your own password.', 'Use your e-mail and the 6-digit code from the code app on your phone.'],
-        'staff_sheet' => ['Give this code to the person now. It is shown only once.', 'They scan it with the code app on their phone, then set up their sign-in.'],
+        'enrol' => ['Set up your own sign-in.', 'Use your e-mail, the set-up code on your sheet and the 6-digit code from the code app on your phone.'],
+        'new_code' => ['This code is for you only.', 'Scan it with the code app on your phone, then type its 6 numbers to finish.'],
+        'staff_sheet' => ['Give this sheet to the person now. It is shown only once.', 'They use it once; then their own page gives them a code nobody else sees.'],
         'staff_requests' => ['Changes of staff access that wait for your OK.', 'Check each one, then say OK or Not OK.'],
         'reasons' => ['The reasons people choose when stock goes up or down outside a sale.', ''],
         'series' => ['Each kind of record has its own numbers (PO-000001, PO-000002 …), with no gaps.', ''],
@@ -656,7 +659,11 @@ final class Words
         'other' => 'Another way',
     ];
 
-    /** Why an order was cancelled or corrected (PurchaseOrders::CANCEL_REASONS, AMEND_REASONS). */
+    /**
+     * Why an order was cancelled or corrected: only a FALLBACK. The order screens show each reason's own name from the Reasons page
+     * (PurchaseOrdersController::reasonLabel; review finding I6), which the owner renames there; these words are used only for a
+     * reason without a name to show.
+     */
     public const REASON = [
         'not_needed' => 'Not needed any more',
         'supplier_cannot_supply' => 'Supplier cannot supply',
@@ -778,6 +785,9 @@ final class Words
         'approvals.match_counted' => 'Joining counted products needs a second OK',
         'approvals.company_own_change' => 'Own change of the company details is checked',
         'approvals.staff_grant' => 'Giving Admin or Reviewer needs a reviewer\'s OK',
+        'approvals.staff_reset' => 'Resetting an Admin\'s or a Reviewer\'s sign-in needs a reviewer\'s OK',
+        'staff.setup_max_fails' => 'Wrong tries before a sign-in set-up closes',
+        'staff.sign_in_address' => 'Sign-in address',
         'approvals.spot_check_size' => 'Matches in a spot check',
         'staff.setup_hours' => 'Hours to set up a sign-in',
         'staff.min_reviewers' => 'Reviewers needed',
@@ -902,9 +912,11 @@ final class Words
             . 'VPG 2 room: the stock belongs to someone else, is never sold from, and moves into our stock only with a release invoice.',
         'places' => 'A **place** is a shelf or a room inside a warehouse, for example the overflow room. Places are optional: nothing asks for one, '
             . 'and stock is not split by place yet.',
-        'sign_up' => 'A new person gets a **QR code**, shown once on your screen. They scan it with a code app on their phone (Google Authenticator, '
-            . 'Microsoft Authenticator). Then they open "Set up my sign-in", type their e-mail and the 6 numbers from the app, and choose their own '
-            . 'password. Nobody else ever sees it.',
+        'sign_up' => 'A new person gets a **sign-up sheet**, shown once on your screen: a QR code and a set-up code. They scan the QR code with a code '
+            . 'app on their phone (Google Authenticator, Microsoft Authenticator), open "Set up my sign-in" and type their e-mail, the set-up code and '
+            . 'the 6 numbers from the app. That sheet then stops working: **their own page** shows a new code, which they scan, and they choose their own '
+            . 'password. Nobody else ever sees that code or the password. A new sign-in code for a lost phone works the same way, but only together '
+            . 'with their own password. You never hold both of anybody\'s keys, so you can never sign in as them.',
         'safety_check' => 'Every night the system adds up every stock figure and checks it against the movements behind it, and checks that records, '
             . 'checks, approvals and settings agree. A **problem** means two of them disagree somewhere. Nothing is fixed by itself.',
         'site_modes' => '**Off:** the website and the warehouse do not talk. **Watching only:** CW follows the website\'s sales without changing what it '
@@ -1028,6 +1040,7 @@ final class Words
         'ignored_30' => 'Sold but ignored (30 days)',
         'no_sales' => 'no sales yet',
         'uses' => 'What you can use',
+        'to_look' => 'To look at',
     ];
 
     /** "What is this system?" (plan §3.3), one paragraph each: open for a person's first 14 days, then folded. */
@@ -1260,9 +1273,26 @@ final class Words
         'staff_requests' => [
             'title' => 'Staff access waiting for your OK',
             'unit' => ['waits for you', 'wait for you'],
-            'text' => 'An admin gave someone the Admin or Reviewer job. It works only after a reviewer says OK.',
+            'text' => 'An admin gave someone the Admin or Reviewer job, or asked to reset their sign-in. It happens only after a reviewer says OK.',
             'what' => 'You check each one and say OK or Not OK.',
             'button' => 'Open the list',
+        ],
+        // Review finding I1 (Y45): what an admin did to staff access and the approval rules lately, for the reviewers to look at.
+        'watch' => [
+            'title' => 'Staff and rule changes to look at',
+            'unit' => ['change in the last %s days', 'changes in the last %s days'],
+            'text' => 'People added, sign-ins reset and approval rules made looser. Check that each one was wanted.',
+            'what' => 'You read each one. If one was not wanted, tell the owner and ' . self::ASK . ' the same day.',
+            'button' => 'Open the audit log',
+        ],
+        // Review finding I5 (Y42): a set-up window closed after too many wrong tries.
+        'setup_closed' => [
+            'title' => 'A sign-in set-up was closed after too many wrong tries',
+            'unit' => ['person', 'people'],
+            'text' => 'Someone typed wrong codes at "Set up my sign-in" too often, so it closed. If the person did not make those tries, someone else did.',
+            'what' => 'Ask the person. If it was them, the admin makes them a new sheet. If not, tell the owner.',
+            'button' => 'See who',
+            'button_admin' => 'Open their page',
         ],
         'no_job' => [
             'title' => 'You cannot use anything yet',
@@ -1690,7 +1720,11 @@ final class Words
         'count' => 'stock counts',
         'return' => 'customer returns',
         'supplier_return' => 'returns to suppliers',
-        'reversal' => 'cancellations',
+        'reversal' => 'cancelling records (deliveries and others)',
+        // The order screens (Y51).
+        'po_cancel' => 'cancelling a confirmed order',
+        'po_draft_cancel' => 'cancelling an order not confirmed yet',
+        'po_amend' => 'correcting a confirmed order',
         'increase' => 'Up',
         'decrease' => 'Down',
         'either' => 'Up or down',
@@ -1748,8 +1782,11 @@ final class Words
         'approvals.company_own_change' => 'A reviewer who confirms their own change of our name, numbers, purchasing e-mail or delivery address gets another '
             . 'reviewer\'s check afterwards.',
         'approvals.staff_grant' => 'Giving someone the Admin or Reviewer job waits for a reviewer\'s OK. Off: the admin\'s change works at once.',
+        'approvals.staff_reset' => 'A new sign-in code, password or sign-up sheet for someone with Admin or Reviewer waits for a reviewer\'s OK. Off: the admin makes it at once.',
+        'staff.setup_max_fails' => 'After this many wrong tries, a sign-in set-up closes: the person cannot try again until the admin makes a new sheet, and Home says so.',
+        'staff.sign_in_address' => 'The address staff open to sign in, for example https://warehouse.example.com. The sign-up sheets print it. Leave it empty until you know it.',
         'approvals.spot_check_size' => 'How many strong matches a spot check holds. A smaller spot check never confirms the rest together.',
-        'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in.',
+        'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Staff and access and Home warn when fewer people than this can approve work.',
     ];
 
@@ -1813,12 +1850,12 @@ final class Words
         'not_admin' => 'Only the Admin changes staff access. Nothing was changed.',
         // The set-it-yourself pack (G06): adding people, their sign-in, their devices, requests for Admin or Reviewer
         'add_title' => 'Add a staff member',
-        'add_text' => 'Fill in their name, e-mail and jobs. The next page shows a QR code once: they scan it with the code app on their phone, '
-            . 'then choose their own password. No password is shown to you.',
+        'add_text' => 'Fill in their name, e-mail and jobs. The next page shows their sign-up sheet once: a QR code and a set-up code. They use it once, '
+            . 'then their own page gives them a code nobody else sees, and they choose their own password. No password is shown to you.',
         'add_name' => 'Their name',
         'add_email' => 'Their e-mail address',
         'add_jobs' => 'Their jobs',
-        'add_button' => 'Add them and show their sign-in code',
+        'add_button' => 'Add them and show their sign-up sheet',
         'devices' => 'Signed in now',
         'devices_text' => 'Each line is a phone or computer where someone is signed in.',
         'devices_none' => 'Nobody is signed in right now.',
@@ -1831,25 +1868,48 @@ final class Words
         'sign_out_all' => 'Sign them out everywhere',
         'sign_out_all_note' => 'They can sign in again straight away with their password and code.',
         'setup_open' => 'Waiting to set up their sign-in until %s.',
-        'setup_over' => 'Their time to set up the sign-in ran out on %s. Make a new sign-in code for them.',
+        'setup_over' => 'Their time to set up the sign-in ran out on %s. Make a new sign-up sheet for them.',
         'new_code' => 'Make a new sign-in code',
         'new_code_text' => 'For a lost or new phone. Their old code stops at once and they are signed out everywhere. '
-            . 'You then show them a new QR code to scan.',
+            . 'You then show them a new QR code. It works only together with their own password, once: then their own page gives them a code nobody else sees.',
         'new_code_confirm' => 'Yes, their old code stops now',
         'new_password' => 'Let them choose a new password',
         'new_password_text' => 'For a forgotten password. Their old password stops at once and they are signed out everywhere. '
-            . 'They choose a new one on the "Set up my sign-in" page with the 6 numbers on their phone.',
+            . 'You then show them a set-up code. On the "Set up my sign-in" page they use it with the code app on their own phone, and choose a new password.',
         'new_password_confirm' => 'Yes, their old password stops now',
         'reset_unconfirmed' => 'Tick the box first. Nothing was changed.',
         'request_waiting' => 'Waiting for a reviewer\'s OK: their jobs become %s. Asked by %s on %s.',
         'request_withdraw' => 'Withdraw this request',
         'requests_open' => 'Changes of staff access waiting for a reviewer\'s OK: %s.',
         'requests_link' => 'See them',
-        'request_open' => 'A change of this person\'s jobs already waits for a reviewer. Nothing was saved. Withdraw it first.',
+        'request_open' => 'A request about this person already waits for a reviewer. Nothing was saved. Withdraw it first.',
         'bad_name' => 'Type their name (2 to 128 characters). Nothing was saved.',
         'bad_email' => 'Type a real e-mail address. Nothing was saved.',
         'staff_exists' => 'Someone with this e-mail address is already set up. Nothing was saved. Open them in the list below.',
         'bad_session' => 'That device is not signed in any more. Nothing was changed.',
+        // Who holds which sign-in factor (review finding B1, Y40-Y44): the person page's sign-in part.
+        'set_up' => 'Set up their sign-in',
+        'set_up_at' => '%s, from address %s',
+        'set_up_not_yet' => 'not yet',
+        'set_up_server' => 'on the server',
+        'setup_not_done' => 'They have not set up their sign-in. Make a new sign-up sheet for them.',
+        'setup_pending' => 'They are setting up their sign-in right now (a new code waits on their own page).',
+        'setup_closed' => 'Their set-up closed on %s after too many wrong tries. If they did not make the tries, tell the owner. Make them a new sheet.',
+        'password_open' => 'They can choose a new password with their set-up code until %s.',
+        'code_waiting' => 'A new sign-in code waits: they sign in with it and their own password.',
+        'new_sheet' => 'Make a new sign-up sheet',
+        'new_sheet_text' => 'For someone who has not finished setting up: the sheet was lost, or their time ran out. The old sheet stops working.',
+        'new_sheet_confirm' => 'Yes, the old sheet stops now',
+        'code_blocked' => 'Not now: they can choose a new password with a set-up code until %s. You never hold both a set-up code and a sign-in code of anybody.',
+        'password_blocked' => 'Not now: a new sign-in code waits for them. They sign in with it and their own password first.',
+        'both_lost' => 'Lost both the phone and the password? That is done on the server: ask ' . self::ASK . '.',
+        'reset_waiting' => 'Waiting for a reviewer\'s OK: %s. Asked by %s on %s.',
+        'reset_ok' => 'A reviewer said OK to %s (%s, %s). Make it now: the OK works once.',
+        // Refusals of the resets, by code (PeopleController::plain).
+        'not_set_up' => 'They have not finished setting up yet. Nothing was changed. Make a new sign-up sheet instead.',
+        'already_set_up' => 'They have set up their sign-in already. Nothing was changed. Make a new sign-in code, or let them choose a new password.',
+        'code_refused_open' => 'Not done: they can still choose a new password with a set-up code. Nothing was changed. A new sign-in code waits until that time is over.',
+        'code_reset_open' => 'Not done: a new sign-in code waits for them. Nothing was changed. They sign in with it and their own password first.',
     ];
 
     /** Notices after a click on a staff member's page (PeopleController::NOTICES). */
@@ -1859,7 +1919,7 @@ final class Words
         'deactivated' => 'Done: this person can no longer sign in. They were signed out everywhere.',
         'activated' => 'Done: this person can sign in again.',
         'requested' => 'Saved as a request: Admin and Reviewer need a reviewer\'s OK first. Nothing changes until a reviewer says OK.',
-        'password_reset' => 'Done: their old password no longer works and they were signed out everywhere. They choose a new one on the "Set up my sign-in" page.',
+        'password_reset' => 'Done: their old password no longer works and they were signed out everywhere. Give them the set-up code: they choose a new password on the "Set up my sign-in" page.',
         'signed_out' => 'Done: they were signed out of that device.',
         'signed_out_all' => 'Done: they were signed out everywhere.',
         'not_signed_in' => 'Nothing changed: they were not signed in there any more.',
@@ -1867,6 +1927,10 @@ final class Words
         'request_approved' => 'Done: you said OK. Their jobs changed.',
         'request_rejected' => 'Done: you said Not OK. Their jobs did not change.',
         'request_stale' => 'Nothing changed: their jobs had changed since the request was made, so the request was withdrawn.',
+        'sheet_shown' => 'This form was sent already: its sheet was shown once and is not shown again. If it was lost, make a new one.',
+        'reset_requested' => 'Saved as a request: a reviewer must say OK first. Nothing changed yet. Once they say OK, come back here and make it.',
+        'reset_approved' => 'Done: you said OK. An admin can now make the reset, once.',
+        'reset_rejected' => 'Done: you said Not OK. Their sign-in was not reset.',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -3003,6 +3067,10 @@ final class Words
         'unknown_supplier' => 'We cannot find this supplier. The link may be old or wrong.',
         'unknown_supplier_item' => 'We cannot find this supplier\'s product. The link may be old or wrong.',
         'unknown_channel' => 'There is no sales data for that website.',
+        'not_alone' => 'Nothing was changed: this supplier was not made usable by one person alone.',
+        'alone_checked' => 'Nothing was changed: a reviewer checked this supplier already.',
+        'own_supplier' => 'You made or changed this supplier, so another reviewer must decide. Nothing was changed.',
+        'admin_cannot_review' => 'Admin cannot check or approve work. Nothing was changed.',
     ];
 
     /** The warnings on a draft and on the send box (PurchaseOrders::warnings / sendWarnings, translated by Ui\PoWarnings). */
@@ -3368,6 +3436,9 @@ final class Words
         'overdue' => 'Overdue',
         'open' => 'Open',
         'not_yet' => 'not yet',
+        // Made usable by one person while the second person was switched off, and not checked by a reviewer since (M2, Y49).
+        'alone_filter' => 'Approved by one person, not checked yet',
+        'alone_chip' => 'Approved alone',
     ];
 
     /** One supplier (/ui/purchasing/suppliers/{id}, plan §6.28). */
@@ -3495,6 +3566,16 @@ final class Words
         'h_decided_note' => '%s by %s on %s: "%s"',
         'h_open' => 'Waiting. Check by %s.',
         'h_withdrawn' => 'Cancelled by the person who asked.',
+        // A supplier made usable by one person while the second person was switched off (M2, Y49).
+        'alone_title' => 'Made usable by one person',
+        'alone_text' => '%s made it usable alone on %s, while the second person was switched off.',
+        'alone_route_text' => '%s approved alone how duty stamps are put on its goods, on %s, while the second person was switched off.',
+        'alone_checked' => '%s checked it afterwards and gave the OK on %s.',
+        'alone_done' => 'Checked',
+        'alone_does' => 'Check the details and the proof documents, then give your OK: the "approved alone" mark goes. Nothing else changes.',
+        'alone_ok' => 'OK: I checked this supplier',
+        'alone_yours' => 'You made this supplier usable alone, so another reviewer checks it.',
+        'alone_look' => 'A reviewer checks it and gives the OK.',
     ];
 
     /** A supplier's details by name (Suppliers::LABELS keys): what is missing, what a refusal is about. */
@@ -3613,6 +3694,7 @@ final class Words
         'rejected' => 'Done: you said not OK. Your note is kept on the supplier.',
         'deactivated' => 'Stopped: no new order can be confirmed for this supplier.',
         'evidence' => 'Done: the proof document is kept on the supplier.',
+        'alone_checked' => 'Done: you gave your OK. The supplier is no longer marked "approved alone".',
     ];
 
     /** A supplier's products (/ui/purchasing/suppliers/{id}/items, supplier-items/{id}, plan §6.30). */
@@ -4828,6 +4910,7 @@ final class Words
         'rename' => 'Renamed',
         'switch_off' => 'Switched off',
         'switch_on' => 'Switched on again',
+        'uses' => 'Where it is used changed',
         'sellable' => 'Selling from it changed',
         'owner' => 'Whose stock changed',
     ];
@@ -4873,6 +4956,9 @@ final class Words
         'unknown_warehouse' => 'We cannot find this warehouse. Nothing was changed.',
         'unknown_type' => 'We cannot find this kind of record. Nothing was changed.',
         'unknown_setting' => 'We cannot find this setting. Nothing was changed.',
+        'owner_not_empty' => 'This warehouse is not empty: %s. Nothing was saved. Whose stock it holds changes only while it is empty.',
+        'loosen_needs_reviewer' => 'Only a Reviewer switches an approval rule off or makes it looser. Nothing was saved. Ask a Reviewer, or make the rule stricter instead.',
+        'reject_record_only' => 'Not OK on a purchase order only records it: an order with deliveries cannot be cancelled. Nothing was saved.',
     ];
 
     /** The page of one setting (/ui/reference/settings/setting). */
@@ -4898,6 +4984,7 @@ final class Words
         'empty' => 'Leave it empty for "not set".',
         'approvals' => 'This is an approval rule: change it on the Approval rules page.',
         'company' => 'The company details have their own page.',
+        'address' => 'An address starting with https://, without anything after the name, for example https://warehouse.example.com.',
     ];
 
     /** Notices after saving a setting (ReferenceController). */
@@ -4947,6 +5034,12 @@ final class Words
         'saved' => 'Saved. The rule works like this from now on.',
         'unchanged' => 'Nothing changed: the rule was already like that.',
         'look_only' => 'You can look; Admins and Reviewers change the rules.',
+        // Review findings I1, M5, M7 and the nit of 8 Oct 2026.
+        'loosen_rule' => 'Switching a rule off, or making it looser, needs a Reviewer. Making it stricter needs an Admin or a Reviewer.',
+        'not_release' => 'Switching a rule off does not let through work already waiting for an OK: that still waits for its OK.',
+        'loosen_admin' => 'You can make a rule stricter here. To switch one off or make it looser, ask a Reviewer.',
+        'reject_record_only' => 'Not OK on a purchase order only records it: the buyer then cancels or corrects the order. An order with deliveries cannot be cancelled.',
+        'agreed' => 'The owner has agreed this rule',
     ];
 
     /** One switchable or numbered approval rule (Admin\ApprovalRules): its title and what it does on, off, or with its number. */
@@ -4980,6 +5073,7 @@ final class Words
             'title' => 'Spot check size',
             'now' => 'A spot check holds %s strong matches. A smaller one never confirms the rest together.',
             'label' => 'Matches (5 to 200)',
+            'note' => 'A change works for new spot checks only. A spot check already drawn keeps the size it was drawn with.',
         ],
         'approvals.company_own_change' => [
             'title' => 'Your own change of the company details',
@@ -4990,6 +5084,12 @@ final class Words
             'title' => 'Giving someone Admin or Reviewer',
             'on' => 'Giving someone the Admin or Reviewer job waits for a reviewer\'s OK. Nothing changes until then.',
             'off' => 'Off: the admin\'s change works at once.',
+        ],
+        'approvals.staff_reset' => [
+            'title' => 'Resetting the sign-in of an Admin or a Reviewer',
+            'on' => 'A new sign-in code, a new password or a new sign-up sheet for someone with Admin or Reviewer waits for a reviewer\'s OK. '
+                . 'The admin then makes it, once. With only one Reviewer, a reset of that Reviewer is done on the server.',
+            'off' => 'Off: the admin makes it at once. The admin still never holds both keys of anybody.',
         ],
     ];
 
@@ -5007,7 +5107,8 @@ final class Words
         'rename' => 'Rename it',
         'rename_button' => 'Save the name',
         'switch' => 'Switch it off or on',
-        'switch_off_text' => 'A switched-off reason is no longer offered, and a record using it cannot be made final. Records that used it keep it.',
+        'switch_off_text' => 'A switched-off reason is no longer offered, and a new record using it cannot be made final. Records that used it keep it, '
+            . 'and a record already waiting for a reviewer\'s OK can still get its OK.',
         'switch_off_button' => 'Switch this reason off',
         'switch_on_button' => 'Switch this reason on again',
         'locked' => 'CW sets this reason itself: it is never changed.',
@@ -5016,6 +5117,10 @@ final class Words
         'status' => 'In use',
         'facts' => 'About this reason',
         'look_only' => 'You can look; Admins and Reviewers change reasons.',
+        // Where a reason is offered, also on the order screens (review finding I6, Y51).
+        'uses_title' => 'Where it is offered',
+        'uses_text' => 'Tick the lists that offer this reason, also the order screens\' lists. Records that used it keep it.',
+        'uses_button' => 'Save where it is offered',
     ];
 
     /** Notices after a change of a reason. */
@@ -5025,6 +5130,7 @@ final class Words
         'off' => 'Done: the reason is switched off.',
         'on' => 'Done: the reason is switched on again.',
         'unchanged' => 'Nothing changed: the reason was already like that.',
+        'uses_saved' => 'Saved: the reason is offered in the lists you ticked.',
     ];
 
     /** Warehouses and the places inside them (/ui/reference/warehouses, /{id}). */
@@ -5098,6 +5204,10 @@ final class Words
         'place_on_button' => 'Switch this place on again',
         'history' => 'Changes to this warehouse',
         'look_only' => 'You can look; Admins and Reviewers change warehouses.',
+        // Whose stock changes only while the warehouse is empty, with a tick (review finding I4, Y48).
+        'owner_text' => 'Whose stock it holds changes only while the warehouse is empty. Another account\'s stock becomes ours only with a release invoice.',
+        'owner_confirm' => 'Yes, change whose stock this warehouse holds',
+        'owner_not_empty' => 'Whose stock it holds cannot change now: %s. It changes only while the warehouse is empty. Another account\'s stock becomes ours only with a release invoice.',
     ];
 
     /** Why a warehouse cannot be switched off (Admin\Warehouses::notEmpty). */
@@ -5314,6 +5424,12 @@ final class Words
         'channel.allowlist' => 'Website addresses changed',
         'channel.site_writer' => 'Stock writer switched',
         'channel.warehouse_move' => 'Website moved to another warehouse',
+        'staff.setup_start' => 'Started setting up their sign-in',
+        'staff.new_code' => 'Set up a new sign-in code',
+        'staff.setup_closed' => 'Sign-in set-up closed after too many wrong tries',
+        'staff.reset_request' => 'Asked for a reviewer\'s OK to reset a sign-in',
+        'staff.reset_request_approve' => 'Reset of a sign-in OK\'d',
+        'supplier.alone_checked' => 'Supplier made usable alone: checked afterwards',
     ];
 
     /** What each permission lets a person do (the "Who can do what" page; Permissions::MAP). */
@@ -5374,32 +5490,84 @@ final class Words
     /** Setting up one's own sign-in (/ui/enrol, public). */
     public const ENROL = [
         'email' => 'E-mail address',
+        'setup_code' => 'Set-up code from your sheet',
+        'setup_code_hint' => 'Three groups of letters and digits, for example 7KQ2M-X9D4H-RT3WP. Small or capital letters both work.',
         'code' => '6-digit code from the code app on your phone',
         'code_hint' => 'It changes every 30 seconds.',
         'new' => 'Your new password (at least %s characters)',
         'again' => 'Your new password again',
-        'save' => 'Save my password and sign in',
-        'failed' => 'That did not work. Check your e-mail and the 6 numbers, and wait for the next code. If your time to set up ran out, ask ' . self::ASK . ' for a new sign-in code.',
+        'next' => 'Next: my own sign-in code',
+        'what_next' => 'Next, your own page shows a new code for your code app. You scan it, type its 6 numbers and choose your password.',
+        'failed' => 'That did not work. Check your e-mail, the set-up code and the 6 numbers, and wait for the next code. Each set-up code works once. '
+            . 'After a few wrong tries, or when your time runs out, ask ' . self::ASK . ' for a new sheet.',
         'back' => 'Back to sign in',
         'link' => 'First time, or told to choose a new password? Set up my sign-in',
     ];
 
+    /**
+     * The person's own page with a fresh sign-in code (/ui/new-code, public; review finding B1, docs/decisions.md Y40-Y43): after
+     * "Set up my sign-in" or a sign-in with a new sign-in code, the person scans a code only they see and confirms it.
+     */
+    public const NEW_CODE = [
+        'by' => 'Finish this now: this page works until %s, on this phone or computer only. Nobody else sees this code.',
+        'step_scan' => 'In your code app, tap + and scan this QR code, or type the key below.',
+        'step_old' => 'When you save, the code you used a moment ago stops working. You can then delete it from the app.',
+        'step_type' => 'Type the 6 numbers the app shows for this NEW code.',
+        'code' => '6-digit code of the new code in your app',
+        'save_enrol' => 'Save my new code and password, and sign in',
+        'save_login' => 'Save my new code and sign in',
+        'failed' => 'That did not work: type the 6 numbers of the NEW code, and wait for the next one if it just changed. After a few wrong tries this page closes.',
+        'gone' => 'This set-up has ended.',
+        'gone_text' => 'It was finished, its time ran out, or there were too many wrong tries. If you finished it, just sign in. Otherwise ask '
+            . self::ASK . ' for a new sheet.',
+        'done' => 'Done: your new code works and you are signed in. Delete the old code from your app.',
+    ];
+
+    /** What a reset waiting for a reviewer's OK is (staff_role_request.kind; approvals.staff_reset, Y44). */
+    public const RESET_KIND = [
+        'roles' => 'a change of jobs',
+        'reset_code' => 'a new sign-in code or sign-up sheet',
+        'reset_password' => 'a new password',
+    ];
+
+    /**
+     * Home's card for reviewers (review finding I1, Y45): every staff member added, every sign-in reset and every approval rule made
+     * looser in the last days. One line each.
+     */
+    public const WATCH = [
+        'staff.create' => '%s: %s added %s.',
+        'staff.reset' => '%s: %s reset the sign-in of %s.',
+        'loosened' => '%s: %s made a rule looser: %s.',
+        'server' => 'the server',
+        'more' => 'And %s more: see the audit log.',
+        'rule_doc' => 'checks of %s',
+    ];
+
     /** The sign-up sheet (the answer of "Add them" and "Make a new sign-in code"; shown once). */
     public const SHEET = [
-        'title' => 'Sign-in code for %s',
-        'once' => 'Shown only now. When you leave this page, this code is gone.',
+        'title_signup' => 'Sign-up sheet for %s',
+        'title_code' => 'New sign-in code for %s',
+        'title_password' => 'New password for %s: the set-up code',
+        'once' => 'Shown only now. When you leave this page, this sheet is gone.',
         'steps' => 'What %s does now',
         'step_app' => 'Install a code app on the phone, for example Google Authenticator or Microsoft Authenticator.',
         'step_scan' => 'In the app, tap + and choose "Scan a QR code". Scan the code below.',
         'step_open' => 'On the phone or a computer, open %s and choose "Set up my sign-in".',
-        'step_type' => 'Type the e-mail, the 6 numbers the app shows, and a new password of at least %s characters.',
-        'step_by' => 'Do it before %s. After that, ask %s for a new code.',
-        'step_signin' => 'Sign in as usual with the password and the 6 numbers from the new code.',
+        'step_type' => 'Type the e-mail, the set-up code below and the 6 numbers the app shows.',
+        'step_password_type' => 'Type the e-mail, the set-up code below and the 6 numbers of the code app on their own phone.',
+        'step_own' => 'The next page shows a new code for them only. They scan it, type its 6 numbers and choose a password of at least %s characters.',
+        'step_signin' => 'Open %s and sign in as usual: the e-mail, their own password and the 6 numbers of this code.',
+        'step_signin_own' => 'The next page shows a new code for them only. They scan it and type its 6 numbers. The code on this sheet then stops working.',
+        'step_by' => 'Do it before %s. After that, ask %s for a new sheet.',
         'qr' => 'QR code for the code app',
         'key' => 'Cannot scan it? In the app choose "Enter a setup key" and type this key:',
+        'setup_code' => 'Set-up code (it works once):',
+        'code_note' => 'This code works only together with their own password, and only once.',
         'account' => 'Account name: %s',
         'done' => 'Done: back to %s',
         'requested' => 'Admin and Reviewer wait for a reviewer\'s OK. Until then they have these jobs: %s.',
+        'no_address' => 'the sign-in page of CW (ask %s for its address)',
+        'address_missing' => 'The sign-in address is not set, so sheets cannot print it. Set it on the Settings page: "Sign-in address".',
     ];
 
     /** The reviewers' list of staff access waiting for an OK (/ui/staff-requests). */
@@ -5419,6 +5587,17 @@ final class Words
         'request_closed' => 'This request was decided or withdrawn already. Nothing was changed.',
         'note_required' => 'Say why not in 3 to 500 characters. Nothing was changed.',
         'role_not_allowed' => 'Only a Reviewer whose job works decides this. Nothing was changed.',
+        // Who the person is and how they set up their sign-in (review finding I1), and resets (Y44).
+        'what' => 'What is asked',
+        'email' => 'Their e-mail',
+        'made' => 'Account made',
+        'set_up' => 'Set up their sign-in',
+        'set_up_at' => '%s, from address %s',
+        'set_up_not_yet' => 'not yet',
+        'set_up_server' => 'on the server',
+        'not_set_up_note' => 'They have not set up their sign-in yet. Check with the person that this is really them before you say OK.',
+        'ok_reset' => 'OK: the admin may make it, once',
+        'not_ok_reset' => 'Not OK: no reset',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------

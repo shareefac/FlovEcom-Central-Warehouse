@@ -16,7 +16,11 @@
 <?php endif; ?>
 <?php if ($request !== null): ?>
 <div class="alert waiting person-request" role="note">
+<?php if ($request['kind'] === 'roles'): ?>
   <p class="alert-title"><?= $say('STAFF', 'request_waiting', $jobs($request['after']), (string) ($request['requested_by_name'] ?? ''), \CW\Ui\Html::when($request['requested_at'])) ?></p>
+<?php else: ?>
+  <p class="alert-title"><?= $say('STAFF', 'reset_waiting', \CW\Ui\Words::of('RESET_KIND', $request['kind']), (string) ($request['requested_by_name'] ?? ''), \CW\Ui\Html::when($request['requested_at'])) ?></p>
+<?php endif; ?>
 <?php if ($canManage): ?>
   <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/request/withdraw') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
@@ -26,8 +30,19 @@
 <?php endif; ?>
 </div>
 <?php endif; ?>
-<?php if ($setup !== null): ?>
-<p class="note"><?php if ($setup['open']): ?><?= $say('STAFF', 'setup_open', \CW\Ui\Html::when($setup['until'])) ?><?php else: ?><?= $say('STAFF', 'setup_over', \CW\Ui\Html::when($setup['until'])) ?><?php endif; ?></p>
+<?php if ($approvedReset !== null): ?>
+<p class="note"><?= $say('STAFF', 'reset_ok', \CW\Ui\Words::of('RESET_KIND', $approvedReset['kind']), (string) ($approvedReset['decided_by_name'] ?? ''), \CW\Ui\Html::when($approvedReset['decided_at'])) ?></p>
+<?php endif; ?>
+<?php if ($setup['closed_at'] !== null): ?>
+<p class="note" role="alert"><?= $say('STAFF', 'setup_closed', \CW\Ui\Html::when($setup['closed_at'])) ?></p>
+<?php elseif ($setup['pending']): ?>
+<p class="note"><?= $word('STAFF', 'setup_pending') ?></p>
+<?php elseif ($setup['until'] !== null && $setup['open']): ?>
+<p class="note"><?= $say('STAFF', $setup['state'] === 'signup' ? 'setup_open' : 'password_open', \CW\Ui\Html::when($setup['until'])) ?></p>
+<?php elseif ($setup['state'] === 'signup'): ?>
+<p class="note"><?php if ($setup['until'] !== null): ?><?= $say('STAFF', 'setup_over', \CW\Ui\Html::when($setup['until'])) ?><?php else: ?><?= $word('STAFF', 'setup_not_done') ?><?php endif; ?></p>
+<?php elseif ($setup['state'] === 'reset'): ?>
+<p class="note"><?= $word('STAFF', 'code_waiting') ?></p>
 <?php endif; ?>
 <dl class="wide">
   <dt><?= $word('STAFF', 'email') ?></dt><dd><?= $e($person['email'] ?? '') ?></dd>
@@ -35,6 +50,7 @@
   <dt><?= $word('STAFF', 'can_sign_in') ?></dt><dd><?php if ($person['is_active']): ?><?= $chip('done', \CW\Ui\Words::STAFF['yes']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::STAFF['no']) ?><?php endif; ?></dd>
   <dt><?= $word('STAFF', 'last_signed_in') ?></dt><dd><?php if ($person['last_login_at'] === null): ?><span class="muted"><?= $word('STAFF', 'never') ?></span><?php else: ?><?= $when($person['last_login_at']) ?><?php endif; ?></dd>
   <dt><?= $word('STAFF', 'added_on') ?></dt><dd><?= $day($person['created_at']) ?></dd>
+  <dt><?= $word('STAFF', 'set_up') ?></dt><dd><?php if ($setup['finished'] === null): ?><span class="muted"><?= $word('STAFF', $setup['state'] === 'signup' ? 'set_up_not_yet' : 'set_up_server') ?></span><?php else: ?><?= $say('STAFF', 'set_up_at', \CW\Ui\Html::when($setup['finished']['at']), (string) ($setup['finished']['ip'] ?? '')) ?><?php endif; ?></dd>
 </dl>
 
 <?php if ($readOnly !== null): ?>
@@ -89,23 +105,51 @@
   </form>
 <?php endif; ?>
 <?php if (!$placeholder): ?>
+<?php if ($addressMissing): ?>
+  <p class="note"><?= $word('SHEET', 'address_missing') ?></p>
+<?php endif; ?>
+<?php if ($setup['state'] === 'signup'): ?>
+  <div class="head-help">
+    <h3><?= $word('STAFF', 'new_sheet') ?></h3>
+    <?= $explain('sign_up', \CW\Ui\Words::STAFF['new_sheet']) ?>
+  </div>
+  <p class="muted"><?= $word('STAFF', 'new_sheet_text') ?></p>
+  <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/sheet') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="form_key" value="<?= $e($formKeys['sheet']) ?>">
+    <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('STAFF', 'new_sheet_confirm') ?></label>
+    <button type="submit" class="danger"><?= $word('STAFF', 'new_sheet') ?></button>
+  </form>
+<?php else: ?>
   <div class="head-help">
     <h3><?= $word('STAFF', 'new_code') ?></h3>
     <?= $explain('sign_up', \CW\Ui\Words::STAFF['new_code']) ?>
   </div>
   <p class="muted"><?= $word('STAFF', 'new_code_text') ?></p>
+<?php if ($setup['until'] !== null && $setup['open']): ?>
+  <p class="note read-only"><?= $say('STAFF', 'code_blocked', \CW\Ui\Html::when($setup['until'])) ?></p>
+<?php else: ?>
   <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/authenticator') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="form_key" value="<?= $e($formKeys['code']) ?>">
     <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('STAFF', 'new_code_confirm') ?></label>
     <button type="submit" class="danger"><?= $word('STAFF', 'new_code') ?></button>
   </form>
+<?php endif; ?>
   <h3><?= $word('STAFF', 'new_password') ?></h3>
   <p class="muted"><?= $word('STAFF', 'new_password_text') ?></p>
+<?php if ($setup['state'] === 'reset'): ?>
+  <p class="note read-only"><?= $word('STAFF', 'password_blocked') ?></p>
+<?php else: ?>
   <form class="inline" method="post" action="<?= $u('/ui/people/' . $person['id'] . '/password') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="form_key" value="<?= $e($formKeys['password']) ?>">
     <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('STAFF', 'new_password_confirm') ?></label>
     <button type="submit" class="danger"><?= $word('STAFF', 'new_password') ?></button>
   </form>
+<?php endif; ?>
+  <p class="muted"><?= $word('STAFF', 'both_lost') ?></p>
+<?php endif; ?>
 <?php endif; ?>
 </section>
 <?php endif; ?>

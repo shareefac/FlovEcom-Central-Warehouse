@@ -24,6 +24,11 @@ use CW\Staff\Totp;
  *      same code cannot both win)
  *   4. a NEW session (the old cookie's session is revoked: rotation), audit_log `login.ok`
  * Every failure is a login_attempt row (feeds the throttle) and an audit_log `login.fail` row.
+ *
+ * Whose secret the account holds (staff_user.totp_state; review finding B1, docs/decisions.md Y43): `own`, the steps above; `reset`,
+ * a "new sign-in code" an admin saw: the right password and its code issue NO session; that code dies and the person goes to their
+ * own page to confirm a fresh secret first (status `new_code` with the step token: Staff\Enrolment); `signup`, a sign-up sheet's:
+ * never at the sign-in (only /ui/enrol, with its set-up code), refused like a wrong password.
  */
 final class Login
 {
@@ -39,7 +44,9 @@ final class Login
     }
 
     /**
-     * @return array{status: 'ok'|'invalid'|'locked', token: ?string, must_change: bool}
+     * `new_code`: the password and a "new sign-in code" were right; `token` is the step token of the fresh secret (no session yet).
+     *
+     * @return array{status: 'ok'|'invalid'|'locked'|'new_code', token: ?string, must_change: bool}
      */
     public function attempt(
         string $email,
@@ -57,7 +64,7 @@ final class Login
     /**
      * attempt() under the limiter's locks.
      *
-     * @return array{status: 'ok'|'invalid'|'locked', token: ?string, must_change: bool}
+     * @return array{status: 'ok'|'invalid'|'locked'|'new_code', token: ?string, must_change: bool}
      */
     private function attemptLocked(
         ?string $login,
@@ -71,7 +78,7 @@ final class Login
             return ['status' => 'locked', 'token' => null, 'must_change' => false];
         }
         $user = $login === null ? null : $this->db->one(
-            'SELECT id, password_hash, password_must_change, totp_secret_enc, is_active FROM staff_user WHERE email = ?',
+            'SELECT id, password_hash, password_must_change, totp_secret_enc, totp_state, is_active FROM staff_user WHERE email = ?',
             [$login],
         );
         if ($user === null) {
@@ -80,7 +87,7 @@ final class Login
         }
         $id = (int) $user['id'];
         $passwordOk = password_verify($password, (string) $user['password_hash']);
-        if (!$passwordOk || (int) $user['is_active'] !== 1 || $user['totp_secret_enc'] === null) {
+        if (!$passwordOk || (int) $user['is_active'] !== 1 || $user['totp_secret_enc'] === null || $user['totp_state'] === 'signup') {
             return $this->fail($login, $id, $ip, 'password');
         }
         $secret = $this->box->decrypt((string) $user['totp_secret_enc']);
@@ -88,6 +95,14 @@ final class Login
         $step = Totp::verify($secret, $code, $last === null ? null : (int) $last);
         if ($step === null) {
             return $this->fail($login, $id, $ip, 'totp');
+        }
+        if ($user['totp_state'] === 'reset') {
+            // A "new sign-in code" with the current password: no session; the person confirms a fresh secret on their own page first.
+            $next = (new \CW\Staff\Enrolment($this->db, $this->limiter, $this->box))->beginFromLogin($id, $step, $ip);
+            if ($next === null) {
+                return $this->fail($login, $id, $ip, 'totp'); // the same code, used a moment ago
+            }
+            return ['status' => 'new_code', 'token' => $next, 'must_change' => false];
         }
         $claimed = $this->db->exec(
             'UPDATE staff_user SET totp_last_step = ?, last_login_at = NOW(6) WHERE id = ? AND (totp_last_step IS NULL OR totp_last_step < ?)',

@@ -13,35 +13,56 @@ use CW\Db;
 use CW\Settings;
 
 /**
- * Staff accounts for the /ui screens (plan §11, design A.9): several roles each (staff_role, 0007, I10), an
- * argon2id password hash and a TOTP secret encrypted with app.env `ui_secret_key` (SecretBox). create() returns
- * the one-time password and the otpauth:// URI ONCE to the tool that prints them; neither is stored in clear or
- * written to the audit log. Accounts are created on the server only (bin/create_staff.php): a secret is never
- * shown in a browser (I13).
+ * Staff accounts for the /ui screens (plan §11, design A.9): several roles each (staff_role, 0007, I10), an argon2id password hash
+ * and a TOTP secret encrypted with app.env `ui_secret_key` (SecretBox). Accounts are never deleted or re-created: decisions and
+ * audit rows name them.
  *
- * setRoles() / setActive() are what the People and roles screen does (and bin/reset_staff.php --roles): only an
- * admin (re-read inside the transaction) or a CLI tool (system caller), never on one's own account; a role set
- * always passes Permissions::checkRoleSet (admin never posts, reviews or decides, I12). A grant is revoked, never
- * deleted, so the history of who held what stays (staff_role.revoked_at / revoked_by). Both lock the caller's and
- * the person's staff_user rows in id order first, so two admins changing each other at the same moment queue, and
- * the second sees what the first did (it may no longer be an admin).
+ * Who holds which sign-in factor (review finding B1; docs/decisions.md Y20-Y22 as amended by Y40-Y44, which replace I13's
+ * "secrets only on the server" and I35's "resets only with bin/reset_staff.php"). An admin works on the Staff and access screen,
+ * but NEVER holds both factors of anybody, so they can never sign in as someone else:
  *
- * reset() is the recovery for an existing account (a leaked or lost TOTP seed, a forgotten password,
- * someone leaving): accounts are never deleted or re-created, because decisions and audit rows name
- * them. It issues a new one-time password (to be changed at the next sign-in) and/or a new TOTP seed,
- * and/or switches the account off or on; every reset signs the person out everywhere. It follows the same
- * caller rules as setRoles() (I35: today only bin/reset_staff.php calls it, as a system caller; a future screen
- * calling it with a staff caller gets the admin and own-account checks, not a silent bypass).
+ *  - enrol() adds a person: the sheet the admin hands over carries a sign-up secret (QR code) and a one-time set-up code; nobody
+ *    knows the account's password. The person starts /ui/enrol with their e-mail, the set-up code and the 6 numbers of the sheet's
+ *    secret (Enrolment::start); that secret and the code die at that first use, and the person's own page shows a FRESH secret
+ *    (QR code and key, no-store) which they confirm with one code while choosing their password (Enrolment::confirm). Only then
+ *    is a session issued. The admin never sees the fresh secret. totp_state says whose the current secret is: `signup` until the
+ *    person has finished, then `own`.
+ *  - newSheet() replaces the sheet of someone who never finished (lost, or the window ran out): an account nobody has finished
+ *    setting up has no factor of a person to protect.
+ *  - resetAuthenticator() (a lost phone, for someone who HAS finished) gives a "new sign-in code" sheet (totp_state `reset`): it
+ *    works only at /ui/login together with the person's CURRENT password (Login), never at /ui/enrol, and leads straight to the
+ *    same rotate-and-confirm step. Refused while a set-up window is open (409 setup_open: the admin would hold the set-up code and
+ *    the code app's secret) and for someone who never finished (409 not_set_up: newSheet()).
+ *  - resetPassword() (a forgotten password) opens a set-up window with a new one-time set-up code (the sheet shows that code only):
+ *    the person starts /ui/enrol with it and the code app on THEIR phone, then rotates and chooses a password. Refused while the
+ *    current secret is a sheet's (409 not_set_up / code_reset_open): the admin would hold that secret and the set-up code.
+ *  - Someone who lost both the phone and the password is recovered on the server (bin/reset_staff.php, the break-glass).
+ *  - While the owner has approvals.staff_reset on (off by default), a reset of someone holding Admin or Reviewer waits for a
+ *    reviewer's OK first (RoleRequests, kind reset_code / reset_password): the admin then carries it out once (result
+ *    `requested` until then).
  *
- * Placeholder accounts (an e-mail under `.invalid`, such as the mapping_lead the first load ran as) are never
- * switched on or given a role by a staff caller (409 placeholder_account, I35): an active placeholder is a working
- * second identity that defeats the two-person rule (U23), and enable_https.sh checks for it only once. The CLI
- * (a system caller, root on the server) remains the break-glass.
+ * create() / reset() are the server's tools (bin/create_staff.php, bin/reset_staff.php; system callers): they print a one-time
+ * password and/or an otpauth:// URI ONCE on the server's terminal, never to a browser; the account's secret is then the person's
+ * own (totp_state `own`). Neither is stored in clear or written to the audit log.
+ *
+ * setRoles() / setActive() are what the People and roles screen does (and bin/reset_staff.php --roles): only an admin (re-read
+ * inside the transaction) or a CLI tool (system caller), never on one's own account; a role set always passes
+ * Permissions::checkRoleSet (admin never posts, reviews or decides, I12). A grant is revoked, never deleted. Every method locks the
+ * caller's and the person's staff_user rows in id order first, so two admins changing each other at the same moment queue.
+ * Switching someone off ends their sessions and closes any set-up window or half-finished set-up (review finding M3).
+ *
+ * Placeholder accounts (an e-mail under `.invalid`, such as the mapping_lead the first load ran as) are never switched on, given a
+ * role or given a sign-in by a staff caller (409 placeholder_account, I35): an active placeholder is a working second identity
+ * that defeats the two-person rule (U23). The CLI (a system caller, root on the server) remains the break-glass.
  */
 final class StaffAdmin
 {
     public const PASSWORD_LENGTH = 20;
     private const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    /** Ends a half-finished set-up (the fresh secret waiting on someone's page). */
+    public const CLEAR_NEXT = 'totp_next_enc = NULL, totp_next_token = NULL, totp_next_until = NULL, totp_next_route = NULL, totp_next_fails = 0';
+    /** Closes a set-up window (and its one-time code). */
+    public const CLOSE_WINDOW = 'setup_until = NULL, setup_code_hash = NULL, setup_fails = 0';
 
     public function __construct(private readonly Db $db)
     {
@@ -145,8 +166,9 @@ final class StaffAdmin
 
     /**
      * Switches a person's account on or off (the People and roles screen); the same admin and own-account rules as
-     * setRoles(). Switching off ends every session of the person at once (their next request goes to the sign-in).
-     * Nothing changed (and no session ended): result `unchanged`, no audit.
+     * setRoles(). Switching off ends every session of the person at once (their next request goes to the sign-in), closes their
+     * set-up window and any half-finished set-up (M3: a switched-off account has nothing open to guess at). Nothing changed (and no
+     * session ended): result `unchanged`, no audit.
      *
      * @return array{id: int, email: ?string, active: bool, sessions_ended: int, result: string}
      */
@@ -158,21 +180,33 @@ final class StaffAdmin
             if ($active && !$was) {
                 self::refusePlaceholder($caller, $u['email'], 'switched on');
             }
+            $closed = 0;
             if ($was !== $active) {
                 $db->exec('UPDATE staff_user SET is_active = ? WHERE id = ?', [$active ? 1 : 0, $staffUserId]);
             }
+            if (!$active) {
+                $closed = $db->exec('UPDATE staff_user SET ' . self::CLOSE_WINDOW . ', ' . self::CLEAR_NEXT
+                    . ' WHERE id = ? AND (setup_until IS NOT NULL OR totp_next_token IS NOT NULL)', [$staffUserId]);
+            }
             $ended = $active ? 0 : (new Sessions($db))->revokeAll($staffUserId);
             $email = $u['email'] === null ? null : (string) $u['email'];
-            if ($was === $active && $ended === 0) {
+            if ($was === $active && $ended === 0 && $closed === 0) {
                 return ['id' => $staffUserId, 'email' => $email, 'active' => $active, 'sessions_ended' => 0, 'result' => 'unchanged'];
             }
             Audit::write($db, $caller, $active ? 'staff.activate' : 'staff.deactivate', 'staff_user', (string) $staffUserId, null,
-                ['email' => $email, 'active' => $active, 'sessions_ended' => $ended]);
+                ['email' => $email, 'active' => $active, 'sessions_ended' => $ended] + ($closed > 0 ? ['setup_closed' => true] : []));
             return ['id' => $staffUserId, 'email' => $email, 'active' => $active, 'sessions_ended' => $ended, 'result' => 'changed'];
         });
     }
 
     /**
+     * The server's recovery of an existing account (bin/reset_staff.php, a system caller; the screens use the methods below): a new
+     * one-time password (to be changed at the next sign-in) and/or a new TOTP secret, printed once on the server, and/or the account
+     * switched off or on; every reset signs the person out everywhere. A new secret is the person's own from then on (totp_state
+     * `own`), and any set-up window or half-finished set-up closes (a password exists now, or the account is off). An account that
+     * never finished setting up needs a new secret with its new password (400 needs_new_totp: its secret is a sheet's). The caller
+     * rules of setRoles() (I35: a staff caller gets the admin and own-account checks, not a silent bypass).
+     *
      * @param bool|null $active false: switch the account off; true: on; null: leave it
      * @return array{id: int, email: string, roles: list<string>, active: bool, password: ?string, otpauth: ?string, sessions_ended: int}
      */
@@ -201,6 +235,10 @@ final class StaffAdmin
             if ($active === true && (int) $u['is_active'] !== 1) {
                 self::refusePlaceholder($caller, $u['email'], 'switched on');
             }
+            $state = (string) $db->value('SELECT totp_state FROM staff_user WHERE id = ?', [$id]);
+            if ($hash !== null && $enc === null && $state === 'signup') {
+                throw new CwException('needs_new_totp', "{$email} never finished setting up: its secret is a sign-up sheet's. Give a new TOTP secret too (--new-totp)", 400);
+            }
             $set = [];
             $args = [];
             if ($hash !== null) {
@@ -208,12 +246,15 @@ final class StaffAdmin
                 $args[] = $hash;
             }
             if ($enc !== null) {
-                $set[] = 'totp_secret_enc = ?, totp_last_step = NULL';
+                $set[] = "totp_secret_enc = ?, totp_last_step = NULL, totp_state = 'own'";
                 $args[] = $enc;
             }
             if ($active !== null) {
                 $set[] = 'is_active = ?';
                 $args[] = $active ? 1 : 0;
+            }
+            if ($hash !== null || $enc !== null || $active === false) {
+                $set[] = self::CLOSE_WINDOW . ', ' . self::CLEAR_NEXT;
             }
             $db->exec('UPDATE staff_user SET ' . implode(', ', $set) . ' WHERE id = ?', [...$args, $id]);
             $ended = (new Sessions($db))->revokeAll($id);
@@ -228,15 +269,16 @@ final class StaffAdmin
     }
 
     /**
-     * Sets a person up on the Staff and access page (G06, docs/decisions.md Y20): the account, its jobs and a NEW sign-in secret,
-     * returned ONCE (the screen draws it as a QR code and the setup key, and stores neither); no password exists that anybody
-     * knows. Until setup_until (now + staff.setup_hours) the person opens /ui/enrol on their own device, types their e-mail and the
-     * 6 numbers of their code app, and chooses their own password (Enrolment). The same rules as create(): an admin (staff.manage),
-     * never a placeholder address, a valid job set (Admin only with Look only, Accountant, Auditor). While the staff-grant rule is on,
-     * Admin and Reviewer wait for a reviewer's OK: the account gets its other jobs now (maybe none) and `request` names the request.
+     * Adds a person on the Staff and access page (G06; Y20 as amended by Y40-Y42): the account, its jobs, a sign-up secret and a
+     * one-time set-up code, returned ONCE for the sign-up sheet (the screen draws the QR code; nothing secret is stored in clear or
+     * shown again); no password exists that anybody knows (totp_state `signup`, setup_until = now + staff.setup_hours). The person
+     * finishes at /ui/enrol (Enrolment): the sheet's secret and code die at their first use and the person's own page shows a fresh
+     * secret the admin never sees. The same rules as create(): an admin (staff.manage), never a placeholder address, a valid job set
+     * (Admin only with Look only, Accountant, Auditor). While the staff-grant rule is on, Admin and Reviewer wait for a reviewer's OK:
+     * the account gets its other jobs now (maybe none) and `request` names the request.
      *
      * @param list<string> $roles
-     * @return array{id: int, email: string, roles: list<string>, request: ?int, otpauth: string, secret: string, setup_until: string}
+     * @return array{id: int, email: string, roles: list<string>, request: ?int, otpauth: string, secret: string, setup_code: string, setup_until: string}
      */
     public function enrol(Caller $caller, string $email, array $roles, SecretBox $box, ?string $name): array
     {
@@ -249,10 +291,11 @@ final class StaffAdmin
             throw new CwException('bad_name', 'a name of 2 to 128 characters is required', 400, ['field' => 'name']);
         }
         $roles = Permissions::checkRoleSet($roles);
-        $hash = password_hash(self::password() . bin2hex(random_bytes(16)), PASSWORD_ARGON2ID); // nobody knows it: the person sets their own
+        $hash = self::unknownPassword(); // nobody knows it: the person sets their own
         $secret = Totp::newSecret();
         $enc = $box->encrypt($secret);
-        $done = $this->db->transaction(function (Db $db) use ($caller, $email, $roles, $name, $hash, $enc): array {
+        $code = SetupCode::new();
+        $done = $this->db->transaction(function (Db $db) use ($caller, $email, $roles, $name, $hash, $enc, $code): array {
             $this->authorise($db, $caller, null);
             self::refusePlaceholder($caller, $email, 'given a role');
             if ($db->value('SELECT id FROM staff_user WHERE email = ? OR username = ?', [$email, mb_substr($email, 0, 64)]) !== null) {
@@ -260,9 +303,9 @@ final class StaffAdmin
             }
             $hours = Settings::number($db, 'staff.setup_hours', 48);
             $id = $db->insert(
-                'INSERT INTO staff_user (username, display_name, email, password_hash, password_must_change, setup_until, totp_secret_enc, is_active) '
-                . 'VALUES (?, ?, ?, ?, 0, NOW(6) + INTERVAL ? HOUR, ?, 1)',
-                [mb_substr($email, 0, 64), $name, $email, $hash, $hours, $enc],
+                'INSERT INTO staff_user (username, display_name, email, password_hash, password_must_change, setup_until, setup_code_hash, totp_secret_enc, '
+                . "totp_state, is_active) VALUES (?, ?, ?, ?, 0, NOW(6) + INTERVAL ? HOUR, ?, ?, 'signup', 1)",
+                [mb_substr($email, 0, 64), $name, $email, $hash, $hours, SetupCode::hash($code), $enc],
             );
             $now = RoleRequests::applies($db, $caller, $roles) ? array_values(array_diff($roles, \CW\Admin\ApprovalRules::GUARDED_ROLES)) : $roles;
             foreach ($now as $role) {
@@ -273,16 +316,61 @@ final class StaffAdmin
             $request = $now === $roles ? null : RoleRequests::open($db, $caller, $id, $email, $now, $roles);
             return ['id' => $id, 'roles' => $now, 'request' => $request, 'setup_until' => $until];
         });
-        return $done + ['email' => $email, 'otpauth' => Totp::uri($secret, $email), 'secret' => $secret];
+        return $done + ['email' => $email, 'otpauth' => Totp::uri($secret, $email), 'secret' => $secret, 'setup_code' => $code];
     }
 
     /**
-     * A new sign-in secret for a person whose phone is lost or new (G06, Y22): returned ONCE (QR code and setup key); the old codes
-     * stop at once and the person is signed out everywhere. They sign in with their password and the new code (a person who never
-     * finished setting up gets a fresh set-up window). The caller rules of setRoles() (an admin, never their own account); never a
-     * placeholder account (409 placeholder_account).
+     * A new sign-up sheet for someone who never finished setting up (the sheet was lost, or its window ran out or closed after too
+     * many wrong tries; Y41): a new sign-up secret and set-up code and a new window, returned ONCE; the old sheet stops working. 409
+     * already_set_up for someone who finished (resetAuthenticator / resetPassword then). The caller rules of setRoles(), never a
+     * placeholder; while approvals.staff_reset is on, someone holding Admin or Reviewer needs a reviewer's OK first (result
+     * `requested`).
      *
-     * @return array{id: int, email: string, otpauth: string, secret: string, sessions_ended: int}
+     * @return array{result: string, request: ?int, id: int, email: string, otpauth: ?string, secret: ?string, setup_code: ?string, setup_until: ?string, sessions_ended: int}
+     */
+    public function newSheet(Caller $caller, int $staffUserId, SecretBox $box): array
+    {
+        $secret = Totp::newSecret();
+        $enc = $box->encrypt($secret);
+        $code = SetupCode::new();
+        $done = $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $enc, $code): array {
+            $u = $this->authorise($db, $caller, $staffUserId);
+            self::refusePlaceholder($caller, $u['email'], 'given a sign-in code');
+            if ($db->value('SELECT totp_state FROM staff_user WHERE id = ?', [$staffUserId]) !== 'signup') {
+                throw new CwException('already_set_up', 'this person has set up their sign-in already: make a new sign-in code or let them choose a new password', 409);
+            }
+            $request = $this->resetGate($db, $caller, $staffUserId, $u, 'reset_code');
+            if ($request !== null) {
+                return ['result' => 'requested', 'request' => $request, 'email' => (string) $u['email'], 'setup_until' => null, 'sessions_ended' => 0];
+            }
+            $hours = Settings::number($db, 'staff.setup_hours', 48);
+            $db->exec('UPDATE staff_user SET totp_secret_enc = ?, totp_last_step = NULL, password_hash = ?, password_must_change = 0, '
+                . 'setup_until = NOW(6) + INTERVAL ? HOUR, setup_code_hash = ?, setup_fails = 0, setup_closed_at = NULL, ' . self::CLEAR_NEXT . ' WHERE id = ?',
+                [$enc, self::unknownPassword(), $hours, SetupCode::hash($code), $staffUserId]);
+            $ended = (new Sessions($db))->revokeAll($staffUserId);
+            $until = (string) $db->value('SELECT setup_until FROM staff_user WHERE id = ?', [$staffUserId]);
+            Audit::write($db, $caller, 'staff.reset', 'staff_user', (string) $staffUserId, null,
+                ['email' => $u['email'], 'new_password' => false, 'new_totp' => true, 'new_sheet' => true, 'via' => 'screen', 'setup_until' => $until,
+                    'sessions_ended' => $ended]);
+            return ['result' => 'done', 'request' => null, 'email' => (string) $u['email'], 'setup_until' => $until, 'sessions_ended' => $ended];
+        });
+        $shown = $done['result'] === 'done';
+        return ['result' => $done['result'], 'request' => $done['request'], 'id' => $staffUserId, 'email' => $done['email'],
+            'otpauth' => $shown ? Totp::uri($secret, $done['email']) : null, 'secret' => $shown ? $secret : null, 'setup_code' => $shown ? $code : null,
+            'setup_until' => $done['setup_until'], 'sessions_ended' => $done['sessions_ended']];
+    }
+
+    /**
+     * A new sign-in code for someone who HAS set up their sign-in and lost or replaced their phone (Y22 as amended by Y43): a "new
+     * sign-in code" secret, returned ONCE for its sheet; their old codes stop at once and they are signed out everywhere. That
+     * secret works ONLY at /ui/login together with the person's CURRENT password, and leads straight to their own page with a fresh
+     * secret they confirm (Login, Enrolment): it never works at /ui/enrol, and the admin never learns the password. Refused while a
+     * set-up window is open (409 setup_open: with the window's set-up code the admin would hold both factors) and for someone who
+     * never finished (409 not_set_up: newSheet()). The caller rules of setRoles() (an admin, never their own account); never a
+     * placeholder (409 placeholder_account); while approvals.staff_reset is on, someone holding Admin or Reviewer needs a
+     * reviewer's OK first (result `requested`, nothing changed).
+     *
+     * @return array{result: string, request: ?int, id: int, email: string, otpauth: ?string, secret: ?string, sessions_ended: int}
      */
     public function resetAuthenticator(Caller $caller, int $staffUserId, SecretBox $box): array
     {
@@ -291,41 +379,108 @@ final class StaffAdmin
         $done = $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $enc): array {
             $u = $this->authorise($db, $caller, $staffUserId);
             self::refusePlaceholder($caller, $u['email'], 'given a sign-in code');
-            $hours = Settings::number($db, 'staff.setup_hours', 48);
-            $db->exec('UPDATE staff_user SET totp_secret_enc = ?, totp_last_step = NULL, '
-                . 'setup_until = IF(setup_until IS NULL, NULL, NOW(6) + INTERVAL ? HOUR) WHERE id = ?', [$enc, $hours, $staffUserId]);
+            $st = $db->one('SELECT totp_state, setup_until > NOW(6) AS open FROM staff_user WHERE id = ?', [$staffUserId]) ?? [];
+            if (($st['totp_state'] ?? null) === 'signup') {
+                throw new CwException('not_set_up', 'this person never finished setting up: make a new sign-up sheet instead', 409);
+            }
+            if ((int) ($st['open'] ?? 0) === 1) {
+                throw new CwException('setup_open', 'this person may still choose a new password with the set-up code: a new sign-in code waits until that window '
+                    . 'has closed (an admin never holds both a set-up code and a sign-in code of anybody)', 409);
+            }
+            $request = $this->resetGate($db, $caller, $staffUserId, $u, 'reset_code');
+            if ($request !== null) {
+                return ['result' => 'requested', 'request' => $request, 'email' => (string) $u['email'], 'sessions_ended' => 0];
+            }
+            $db->exec("UPDATE staff_user SET totp_secret_enc = ?, totp_last_step = NULL, totp_state = 'reset', " . self::CLOSE_WINDOW . ', ' . self::CLEAR_NEXT
+                . ' WHERE id = ?', [$enc, $staffUserId]);
             $ended = (new Sessions($db))->revokeAll($staffUserId);
             Audit::write($db, $caller, 'staff.reset', 'staff_user', (string) $staffUserId, null,
                 ['email' => $u['email'], 'new_password' => false, 'new_totp' => true, 'via' => 'screen', 'sessions_ended' => $ended]);
-            return ['email' => (string) $u['email'], 'sessions_ended' => $ended];
+            return ['result' => 'done', 'request' => null, 'email' => (string) $u['email'], 'sessions_ended' => $ended];
         });
-        return ['id' => $staffUserId, 'email' => $done['email'], 'otpauth' => Totp::uri($secret, $done['email']), 'secret' => $secret,
-            'sessions_ended' => $done['sessions_ended']];
+        $shown = $done['result'] === 'done';
+        return ['result' => $done['result'], 'request' => $done['request'], 'id' => $staffUserId, 'email' => $done['email'],
+            'otpauth' => $shown ? Totp::uri($secret, $done['email']) : null, 'secret' => $shown ? $secret : null, 'sessions_ended' => $done['sessions_ended']];
     }
 
     /**
-     * Lets a person choose a new password (G06, Y22): their old password stops working at once (nobody knows the new hash) and they
-     * are signed out everywhere; until setup_until (now + staff.setup_hours) they set a new one at /ui/enrol with their e-mail and
-     * the code of their phone. No password is ever shown in a browser. The caller rules of setRoles(); never a placeholder.
+     * Lets someone who HAS set up their sign-in choose a new password (Y22 as amended by Y43): their old password stops at once (a
+     * random hash nobody knows), they are signed out everywhere, and a set-up window opens (now + staff.setup_hours) with a new
+     * one-time set-up code, returned ONCE for its sheet (no QR code: the person keeps the code app they have). The person starts
+     * /ui/enrol with their e-mail, that code and the 6 numbers of THEIR phone, then confirms a fresh secret and chooses the password.
+     * Refused while the current secret is a sheet's (409 not_set_up for someone who never finished; 409 code_reset_open while a new
+     * sign-in code is not used yet: the admin holds that secret). The caller rules of setRoles(); never a placeholder; while
+     * approvals.staff_reset is on, someone holding Admin or Reviewer needs a reviewer's OK first (result `requested`).
      *
-     * @return array{id: int, email: string, setup_until: string, sessions_ended: int}
+     * @return array{result: string, request: ?int, id: int, email: string, setup_code: ?string, setup_until: ?string, sessions_ended: int}
      */
     public function resetPassword(Caller $caller, int $staffUserId): array
     {
-        $hash = password_hash(self::password() . bin2hex(random_bytes(16)), PASSWORD_ARGON2ID);
-        return $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $hash): array {
+        $hash = self::unknownPassword();
+        $code = SetupCode::new();
+        $done = $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $hash, $code): array {
             $u = $this->authorise($db, $caller, $staffUserId);
             self::refusePlaceholder($caller, $u['email'], 'given a new password');
+            $state = (string) $db->value('SELECT totp_state FROM staff_user WHERE id = ?', [$staffUserId]);
+            if ($state === 'signup') {
+                throw new CwException('not_set_up', 'this person never finished setting up: make a new sign-up sheet instead', 409);
+            }
+            if ($state === 'reset') {
+                throw new CwException('code_reset_open', 'this person has a new sign-in code they have not used yet: they sign in with it and their password first '
+                    . '(an admin never holds both a sign-in code and a set-up code of anybody)', 409);
+            }
+            $request = $this->resetGate($db, $caller, $staffUserId, $u, 'reset_password');
+            if ($request !== null) {
+                return ['result' => 'requested', 'request' => $request, 'email' => (string) $u['email'], 'setup_until' => null, 'sessions_ended' => 0];
+            }
             $hours = Settings::number($db, 'staff.setup_hours', 48);
-            $db->exec('UPDATE staff_user SET password_hash = ?, password_must_change = 0, setup_until = NOW(6) + INTERVAL ? HOUR WHERE id = ?',
-                [$hash, $hours, $staffUserId]);
+            $db->exec('UPDATE staff_user SET password_hash = ?, password_must_change = 0, setup_until = NOW(6) + INTERVAL ? HOUR, setup_code_hash = ?, '
+                . 'setup_fails = 0, setup_closed_at = NULL, ' . self::CLEAR_NEXT . ' WHERE id = ?', [$hash, $hours, SetupCode::hash($code), $staffUserId]);
             $ended = (new Sessions($db))->revokeAll($staffUserId);
             $until = (string) $db->value('SELECT setup_until FROM staff_user WHERE id = ?', [$staffUserId]);
             Audit::write($db, $caller, 'staff.reset', 'staff_user', (string) $staffUserId, null,
                 ['email' => $u['email'], 'new_password' => 'chosen_by_the_person', 'new_totp' => false, 'via' => 'screen', 'setup_until' => $until,
                     'sessions_ended' => $ended]);
-            return ['id' => $staffUserId, 'email' => (string) $u['email'], 'setup_until' => $until, 'sessions_ended' => $ended];
+            return ['result' => 'done', 'request' => null, 'email' => (string) $u['email'], 'setup_until' => $until, 'sessions_ended' => $ended];
         });
+        return ['result' => $done['result'], 'request' => $done['request'], 'id' => $staffUserId, 'email' => $done['email'],
+            'setup_code' => $done['result'] === 'done' ? $code : null, 'setup_until' => $done['setup_until'], 'sessions_ended' => $done['sessions_ended']];
+    }
+
+    /**
+     * Where a person's sign-in stands, for their page and the reviewers' request cards: whose secret it is (state own / signup /
+     * reset), the set-up window (until, open, wrong tries, closed after too many), whether a fresh secret waits on their page, and
+     * when and from which address they last finished setting up (/ui/enrol or a new sign-in code: audit staff.setup / staff.new_code).
+     *
+     * @return array{state: string, until: ?string, open: bool, fails: int, closed_at: ?string, pending: bool, finished: ?array{at: string, ip: ?string, how: string}}
+     */
+    public static function setupInfo(Db $db, int $staffUserId): array
+    {
+        $u = $db->one('SELECT totp_state, setup_until, setup_until > NOW(6) AS open, setup_fails, setup_closed_at, '
+            . '(totp_next_token IS NOT NULL AND totp_next_until > NOW(6)) AS pending FROM staff_user WHERE id = ?', [$staffUserId]) ?? [];
+        $f = $db->one("SELECT created_at, ip, action FROM audit_log WHERE entity_type = 'staff_user' AND entity_id = ? AND action IN ('staff.setup', 'staff.new_code') "
+            . 'ORDER BY id DESC LIMIT 1', [(string) $staffUserId]);
+        return ['state' => (string) ($u['totp_state'] ?? 'own'), 'until' => ($u['setup_until'] ?? null) === null ? null : (string) $u['setup_until'],
+            'open' => (int) ($u['open'] ?? 0) === 1, 'fails' => (int) ($u['setup_fails'] ?? 0),
+            'closed_at' => ($u['setup_closed_at'] ?? null) === null ? null : (string) $u['setup_closed_at'], 'pending' => (int) ($u['pending'] ?? 0) === 1,
+            'finished' => $f === null ? null : ['at' => (string) $f['created_at'], 'ip' => $f['ip'] === null ? null : (string) $f['ip'],
+                'how' => $f['action'] === 'staff.setup' ? 'enrol' : 'new_code']];
+    }
+
+    /**
+     * approvals.staff_reset (Y44): null when the reset may go ahead now (the rule is off, the person holds neither Admin nor Reviewer,
+     * the caller is a server tool, or a reviewer's OK of this kind waits unused: it is used now); otherwise the id of the request
+     * opened for a reviewer (409 request_open when one waits already). Inside the reset's transaction, the person's row locked.
+     *
+     * @param array<string, mixed> $u the person's row (authorise())
+     */
+    private function resetGate(Db $db, Caller $caller, int $staffUserId, array $u, string $kind): ?int
+    {
+        $roles = StaffRoles::of($db, $staffUserId);
+        if (!RoleRequests::resetApplies($db, $caller, $roles) || RoleRequests::useApprovedReset($db, $staffUserId, $kind) !== null) {
+            return null;
+        }
+        return RoleRequests::openReset($db, $caller, $staffUserId, $u['email'] === null ? null : (string) $u['email'], $kind, $roles);
     }
 
     /**
@@ -404,6 +559,12 @@ final class StaffAdmin
         $out = array_values(array_unique(array_filter($roles, static fn (mixed $r): bool => is_string($r) && $r !== '')));
         sort($out);
         return $out;
+    }
+
+    /** A password hash nobody knows (a set-up window or a forgotten password: the person chooses their own). */
+    private static function unknownPassword(): string
+    {
+        return password_hash(self::password() . bin2hex(random_bytes(16)), PASSWORD_ARGON2ID);
     }
 
     private static function password(): string

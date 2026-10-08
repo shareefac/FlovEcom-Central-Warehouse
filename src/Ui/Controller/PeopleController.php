@@ -7,6 +7,8 @@ namespace CW\Ui\Controller;
 use CW\Auth\Login;
 use CW\Auth\Permissions;
 use CW\CwException;
+use CW\Db;
+use CW\OpResult;
 use CW\Output\CsvWriter;
 use CW\Output\QrCode;
 use CW\Settings;
@@ -15,6 +17,7 @@ use CW\Staff\StaffAdmin;
 use CW\Staff\StaffRoles;
 use CW\Staff\StaffSessions;
 use CW\Ui\Context;
+use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\Words;
@@ -22,19 +25,24 @@ use CW\Ui\Words;
 /**
  * Staff and access (IM1, I13): who works on CW, what jobs (roles) they hold, since when and who gave them. Admin and
  * auditor look (staff.view); only an admin changes roles or switches an account on or off (staff.manage), never
- * their own, through StaffAdmin (which re-checks all of it inside its transaction). New people and their secrets
- * are made on the server (bin/create_staff.php): a one-time password or sign-in seed never appears in a browser.
+ * their own, through StaffAdmin (which re-checks all of it inside its transaction). Until the set-it-yourself pack new people
+ * and their secrets were made on the server only (I13); since Y20-Y22 / Y40-Y44 (below) the admin adds people and resets
+ * sign-ins here, a sheet's secret shown once and never the person's for good.
  *
  * The role form carries the roles the page was drawn with (`roles_seen`): when another admin changed them since,
  * the save is refused 409 and the page says what they are now. Every refusal re-renders the page under its status
  * (422 role_conflict / no_roles, 409 roles_changed, 403 own_account, 409 placeholder_account) with the error and the
  * choices kept. A placeholder account (an e-mail under .invalid) is never switched on or given a role here (I35).
  *
- * Since the set-it-yourself pack (G06, docs/decisions.md Y20-Y25) the admin also adds people here (StaffAdmin::enrol: the answer
- * shows their sign-in QR code ONCE, nothing secret is stored or shown again, no password ever appears), makes a new sign-in code
- * for a lost phone (resetAuthenticator, the QR code once again), lets a person choose a new password (resetPassword: they set it
- * themselves at /ui/enrol), and signs people out of one device or all (signOut); every live session is listed. While the owner
- * has the staff-grant rule on, giving Admin or Reviewer becomes a request a reviewer decides (RoleRequests).
+ * Since the set-it-yourself pack (G06, docs/decisions.md Y20-Y25, amended by Y40-Y44) the admin also adds people here
+ * (StaffAdmin::enrol: the answer is their sign-up sheet, shown ONCE: a QR code and a one-time set-up code; nothing secret is stored
+ * or shown again, no password ever appears), makes a new sign-up sheet for someone who never finished (newSheet), a new sign-in code
+ * for a lost phone (resetAuthenticator: it works only with the person's own password) and lets a person choose a new password
+ * (resetPassword: a sheet with a set-up code only; they finish with the code app on their own phone). The admin never holds both
+ * factors of anybody: each person finishes on their own page with a fresh secret the admin never sees. Each of those forms runs once
+ * (FormOnce, M4): sent again, it shows no new secret. Signing people out of one device or all (signOut); every live session is
+ * listed. While the owner has the staff-grant / staff-reset rules on, giving Admin or Reviewer, or resetting the sign-in of someone
+ * who has them, becomes a request a reviewer decides first (RoleRequests).
  */
 final class PeopleController
 {
@@ -118,8 +126,9 @@ final class PeopleController
     }
 
     /**
-     * Adds a person (G06, Y20): the answer is their sign-up sheet with the QR code, shown ONCE (no redirect: a reload asks the
-     * browser to send the form again, which StaffAdmin refuses as staff_exists). A refusal comes back on the list, typed kept.
+     * Adds a person (G06, Y20, Y40): the answer is their sign-up sheet with the QR code and the set-up code, shown ONCE (no redirect:
+     * a reload asks the browser to send the form again, which StaffAdmin refuses as staff_exists). A refusal comes back on the list,
+     * typed kept.
      */
     public function create(Context $ctx): HtmlResponse
     {
@@ -136,40 +145,57 @@ final class PeopleController
         } catch (CwException $e) {
             return $this->listPage($ctx, StaffRoles::people($ctx->db), [], $e->httpStatus, $e, $typed);
         }
-        return $this->sheet($ctx, $made['id'], $typed['name'], $made['email'], $made['otpauth'], $made['secret'], $made['setup_until'],
-            $made['request'] === null ? null : $made['roles']);
+        return $this->sheet($ctx, 'signup', $made['id'], (string) $ctx->db->value('SELECT display_name FROM staff_user WHERE id = ?', [$made['id']]), $made['email'],
+            $made['otpauth'], $made['secret'], $made['setup_code'], $made['setup_until'], $made['request'] === null ? null : $made['roles']);
     }
 
-    /** A new sign-in code for a lost or new phone (Y22): the sheet with the QR code, once. Needs its tick. */
+    /** A new sign-up sheet for someone who never finished setting up (Y41): the sheet once. Needs its tick; runs once (FormOnce). */
+    public function newSheet(Context $ctx): HtmlResponse
+    {
+        return $this->reset($ctx, 'sheet', static fn (Context $ctx, Db $db, int $id): array => (new StaffAdmin($db))->newSheet($ctx->caller(), $id, $ctx->secretBox()));
+    }
+
+    /** A new sign-in code for a lost or new phone (Y22, Y43): the sheet with the QR code, once. Needs its tick; runs once (FormOnce, M4). */
     public function authenticator(Context $ctx): HtmlResponse
     {
-        $id = $ctx->id();
-        if ($ctx->req->field('confirm') !== '1') {
-            return $this->personPage($ctx, $id, 422, new CwException('unconfirmed', Words::STAFF['reset_unconfirmed'], 422), null);
-        }
-        try {
-            $r = (new StaffAdmin($ctx->db))->resetAuthenticator($ctx->caller(), $id, $ctx->secretBox());
-        } catch (CwException $e) {
-            return $this->personPage($ctx, $id, $e->httpStatus, $e, null);
-        }
-        $name = (string) $ctx->db->value('SELECT display_name FROM staff_user WHERE id = ?', [$id]);
-        $until = $ctx->db->value('SELECT setup_until FROM staff_user WHERE id = ?', [$id]);
-        return $this->sheet($ctx, $id, $name, $r['email'], $r['otpauth'], $r['secret'], $until === null ? null : (string) $until, null);
+        return $this->reset($ctx, 'code', static fn (Context $ctx, Db $db, int $id): array => (new StaffAdmin($db))->resetAuthenticator($ctx->caller(), $id, $ctx->secretBox()));
     }
 
-    /** Lets the person choose a new password at /ui/enrol (Y22): nothing secret is shown. Needs its tick. */
+    /** Lets the person choose a new password (Y22, Y43): the sheet with the set-up code, once. Needs its tick; runs once (FormOnce). */
     public function password(Context $ctx): HtmlResponse
+    {
+        return $this->reset($ctx, 'password', static fn (Context $ctx, Db $db, int $id): array => (new StaffAdmin($db))->resetPassword($ctx->caller(), $id));
+    }
+
+    /**
+     * One of the three resets: the tick, then the service inside FormOnce (the same form sent again replays the first answer's
+     * redirect, "shown once already", and makes nothing new), then the sheet. A reset waiting for a reviewer (approvals.staff_reset)
+     * goes back to the person's page.
+     *
+     * @param \Closure(Context, Db, int): array<string, mixed> $do
+     */
+    private function reset(Context $ctx, string $kind, \Closure $do): HtmlResponse
     {
         $id = $ctx->id();
         if ($ctx->req->field('confirm') !== '1') {
             return $this->personPage($ctx, $id, 422, new CwException('unconfirmed', Words::STAFF['reset_unconfirmed'], 422), null);
         }
+        $made = null;
         try {
-            (new StaffAdmin($ctx->db))->resetPassword($ctx->caller(), $id);
+            $r = FormOnce::run($ctx, 'ui.staff.reset_' . $kind, ['id' => $id], static function (Db $db) use ($ctx, $id, $do, &$made): OpResult {
+                $made = $do($ctx, $db, $id);
+                return OpResult::of(303, ['result' => $made['result'],
+                    'redirect' => Html::url("/ui/people/{$id}", ['notice' => $made['result'] === 'requested' ? 'reset_requested' : 'sheet_shown'])]);
+            });
         } catch (CwException $e) {
             return $this->personPage($ctx, $id, $e->httpStatus, $e, null);
         }
-        return HtmlResponse::redirect("/ui/people/{$id}?notice=password_reset");
+        if ($made === null || $made['result'] !== 'done') {
+            return FormOnce::redirect($r); // sent again (nothing new was made), or waiting for a reviewer
+        }
+        $name = (string) $ctx->db->value('SELECT display_name FROM staff_user WHERE id = ?', [$id]);
+        return $this->sheet($ctx, $kind === 'sheet' ? 'signup' : $kind, $id, $name, (string) $made['email'], $made['otpauth'] ?? null, $made['secret'] ?? null,
+            $made['setup_code'] ?? null, $made['setup_until'] ?? null, null);
     }
 
     /** Signs a person out of one device (`session`: its handle) or everywhere (`session=all`), Y23. */
@@ -186,7 +212,7 @@ final class PeopleController
         return HtmlResponse::redirect(Html::url($back, ['notice' => $ended === 0 ? 'not_signed_in' : ($which === 'all' ? 'signed_out_all' : 'signed_out')]));
     }
 
-    /** Withdraws the open request for Admin or Reviewer (Y25). */
+    /** Withdraws the open request for Admin or Reviewer, or for a reset (Y25, Y44). */
     public function withdrawRequest(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
@@ -199,26 +225,41 @@ final class PeopleController
     }
 
     /**
-     * The sign-up sheet (Y21): the QR code of the otpauth address and the setup key, ONCE, in this answer only (no-store); the steps
-     * the person follows; when their set-up window ends; the jobs waiting for a reviewer's OK.
+     * The address staff open, from the setting staff.sign_in_address (the Settings page; review nit: never the Host header a
+     * request carried), with $path; null while it is not set.
+     */
+    public static function signInAddress(Context $ctx, string $path): ?string
+    {
+        $base = $ctx->settings()->has('staff.sign_in_address') ? trim((string) $ctx->settings()->get('staff.sign_in_address')) : '';
+        return $base === '' ? null : rtrim($base, '/') . $path;
+    }
+
+    /**
+     * A sheet (Y21, Y40-Y43), ONCE, in this answer only (no-store): `signup` (a new person or a new sign-up sheet: the QR code, its key
+     * and the set-up code, for /ui/enrol), `code` (a new sign-in code: the QR code and its key, used with their own password at the
+     * sign-in), `password` (a new password: the set-up code only, used with the code app on their own phone at /ui/enrol). The steps
+     * the person follows, when their window ends, the jobs waiting for a reviewer's OK.
      *
      * @param list<string>|null $waiting the jobs the person has until a reviewer's OK (null: no request)
      */
-    private function sheet(Context $ctx, int $id, string $name, string $email, string $otpauth, string $secret, ?string $until, ?array $waiting): HtmlResponse
+    private function sheet(Context $ctx, string $kind, int $id, string $name, string $email, ?string $otpauth, ?string $secret, ?string $setupCode, ?string $until,
+        ?array $waiting): HtmlResponse
     {
-        $host = (string) ($ctx->req->header('host') ?? '');
-        $address = ($ctx->req->secure ? 'https://' : 'http://') . $host . '/ui/enrol';
+        $address = self::signInAddress($ctx, $kind === 'code' ? '/ui/login' : '/ui/enrol');
         return $ctx->page('staff_sheet', [
+            'kind' => $kind,
             'id' => $id,
             'name' => $name,
             'email' => $email,
-            'qr' => QrCode::matrix($otpauth),
-            'key' => trim(implode(' ', str_split($secret, 4))),
-            'address' => $address,
+            'qr' => $otpauth === null ? null : QrCode::matrix($otpauth),
+            'key' => $secret === null ? null : trim(implode(' ', str_split($secret, 4))),
+            'setupCode' => $setupCode,
+            'address' => $address ?? Words::say('SHEET', 'no_address', Words::ASK),
+            'addressMissing' => $address === null,
             'until' => $until,
             'minPassword' => Login::MIN_PASSWORD,
             'waiting' => $waiting === null ? null : Words::roles($waiting),
-        ], 200, ['title' => Words::say('SHEET', 'title', $name), 'active' => 'people']);
+        ], 200, ['title' => Words::say('SHEET', 'title_' . $kind, $name), 'active' => 'people']);
     }
 
     /**
@@ -314,7 +355,7 @@ final class PeopleController
     private function personPage(Context $ctx, int $id, int $status, ?CwException $error, ?array $chosen, ?string $notice = null): HtmlResponse
     {
         $db = $ctx->db;
-        $person = $db->one('SELECT id, display_name, email, is_active, last_login_at, created_at, setup_until, setup_until > NOW(6) AS setup_open FROM staff_user WHERE id = ?', [$id]);
+        $person = $db->one('SELECT id, display_name, email, is_active, last_login_at, created_at FROM staff_user WHERE id = ?', [$id]);
         if ($person === null) {
             return $ctx->error(404, 'unknown_staff', 'there is no such person', ['/ui/people', Words::MENU['people']]);
         }
@@ -362,9 +403,12 @@ final class PeopleController
             'adminCompatible' => Words::andList(array_map(static fn (string $r): string => Words::of('ROLE', $r), Permissions::ADMIN_COMPATIBLE), 'or'),
             'placeholder' => StaffAdmin::isPlaceholder($person['email']),
             'devices' => StaffSessions::live($db, $id),
-            'setup' => $person['setup_until'] === null ? null : ['until' => (string) $person['setup_until'], 'open' => (int) $person['setup_open'] === 1],
+            'setup' => StaffAdmin::setupInfo($db, $id),
             'request' => (new RoleRequests($db))->openFor($id),
+            'approvedReset' => RoleRequests::approvedReset($db, $id),
             'canManage' => $me->can('staff.manage') && $me->id !== $id,
+            'formKeys' => ['sheet' => FormOnce::newKey(), 'code' => FormOnce::newKey(), 'password' => FormOnce::newKey()],
+            'addressMissing' => self::signInAddress($ctx, '/ui/enrol') === null,
         ], $status, ['title' => (string) $person['display_name'], 'active' => 'people', 'notice' => $notice]);
     }
 
@@ -390,7 +434,8 @@ final class PeopleController
             'own_account' => Words::STAFF['own_account'],
             'placeholder_account' => Words::STAFF['placeholder'],
             'role_not_allowed' => Words::STAFF['not_admin'],
-            'request_open', 'bad_name', 'bad_email', 'staff_exists', 'bad_session' => Words::STAFF[$e->errorCode],
+            'request_open', 'bad_name', 'bad_email', 'staff_exists', 'bad_session', 'not_set_up', 'code_reset_open', 'already_set_up' => Words::STAFF[$e->errorCode],
+            'setup_open' => Words::STAFF['code_refused_open'],
             'request_closed', 'unknown_request' => Words::STAFF_REQUESTS['request_closed'],
             default => Words::error($e->errorCode, $e->getMessage()),
         };

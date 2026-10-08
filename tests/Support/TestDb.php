@@ -79,7 +79,7 @@ final class TestDb
     /**
      * Empties every table except schema_migrations, the seeded warehouses and the seeded reference lists
      * (SEED_TABLES); the number series (one seeded row per prefix) are set back to 0 (pad 6) instead of deleted; config_change
-     * keeps the baselines 0019 wrote (the history of the seeded rows starts there).
+     * keeps the versions the migrations wrote (0019's baselines and the reasons' version 2: the history of the seeded rows).
      */
     public static function clean(Db $db): void
     {
@@ -110,9 +110,10 @@ final class TestDb
                     continue;
                 }
                 if ($t === 'config_change') {
-                    // 0019's baselines of the seeded rows stay (version 1 of each); a test's changes go with the test (it puts the
-                    // rows back itself, like every other change of a seed table).
-                    $db->exec("DELETE FROM config_change WHERE action <> 'baseline' OR actor <> 'system:migrate'");
+                    // The versions the migrations wrote stay (0019's baselines of the seeded rows, and the versions a migration added
+                    // when it changed a row: docs/dev.md rule 5); a test's changes go with the test (it puts the rows back itself, like
+                    // every other change of a seed table).
+                    $db->exec("DELETE FROM config_change WHERE actor <> 'system:migrate'");
                     continue;
                 }
                 $db->pdo()->exec('DELETE FROM ' . Db::ident($t));

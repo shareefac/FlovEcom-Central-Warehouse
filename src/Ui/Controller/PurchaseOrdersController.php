@@ -600,15 +600,31 @@ final class PurchaseOrdersController
                 'fileColumns' => array_values(array_diff(PoLinesFile::COLUMNS, ['line', 'item_name'])),
                 'maxMb' => intdiv(PoLinesFile::MAX_BYTES, 1_048_576),
                 'maxRows' => PoLinesFile::MAX_ROWS,
-                'cancelReasons' => array_map(static fn (string $c): array => ['code' => $c, 'label' => Words::of('REASON', $c)], self::DRAFT_CANCEL_REASONS),
+                'cancelReasons' => self::reasonChoices($db, 'draft_cancel'),
             ];
             return $ctx->page('purchase_order_edit', $data, $status, $layout);
         }
         return $ctx->page('purchase_order', $data + $this->viewData($ctx, $doc, $po, $canPost, $supplierName), $status, $layout);
     }
 
-    /** The reasons a draft is cancelled for, in the order the editor offers them. */
-    private const DRAFT_CANCEL_REASONS = ['not_needed', 'supplier_cannot_supply', 'entered_in_error', 'duplicate', 'other'];
+    /**
+     * The reasons an order form offers (review finding I6, Y51): from the Reasons page (PurchaseOrders::reasons: where it is used,
+     * switched on), each with its own name; Words::REASON only when a reason has no name to show.
+     *
+     * @return list<array{code: string, label: string}>
+     */
+    public static function reasonChoices(\CW\Db $db, string $kind): array
+    {
+        return array_map(static fn (array $r): array => ['code' => $r['code'], 'label' => self::reasonLabel($r['code'], $r['label'])],
+            PurchaseOrders::reasons($db, PurchaseOrders::REASON_USES[$kind]));
+    }
+
+    /** A reason's name as people read it: its label from the Reasons page, the Words fallback only when it has none. */
+    public static function reasonLabel(string $code, ?string $label): string
+    {
+        $label = trim((string) $label);
+        return $label !== '' ? $label : Words::of('REASON', $code);
+    }
 
     /** "PO-000123 – Elux Wholesale", "New order for Elux Wholesale (draft, no PO number yet)", "Order for … (no number yet)" (F259, F359). */
     public static function title(Document $doc, string $supplier): string
@@ -690,9 +706,7 @@ final class PurchaseOrdersController
         $state = $po['state'] ?? null;
         $received = (int) $db->value('SELECT COALESCE(SUM(received_units), 0) FROM po_line WHERE document_id = ?', [$doc->id]);
         $posted = $doc->status === 'posted';
-        $reasons = $db->all("SELECT code, label FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND system_only = 0 AND is_active = 1 ORDER BY sort_order, code");
-        $pick = static fn (array $codes): array => array_values(array_map(static fn (array $r): array => ['code' => $r['code'], 'label' => Words::has('REASON', (string) $r['code'])
-            ? Words::of('REASON', (string) $r['code']) : (string) $r['label']], array_filter($reasons, static fn (array $r): bool => in_array($r['code'], $codes, true))));
+
         $cancellable = $canPost && (($posted && $received === 0 && !in_array($state, ['received', 'closed'], true)) || $doc->status === 'draft'
             || ($doc->status === 'awaiting_approval' && $doc->submittedBy === $me->id));
         $send = $canPost && $posted && in_array($state, ['approved', 'sent'], true) ? PoWarnings::send($this->service($ctx)->sendWarnings($doc->id)) : ['texts' => [], 'company' => false];
@@ -702,7 +716,8 @@ final class PurchaseOrdersController
             'people' => ['created' => $name($doc->createdBy) ?? Words::ANOMALIES['set_up'], 'submitted' => $name($doc->submittedBy), 'posted' => $name($doc->postedBy),
                 'cancelled' => $name($doc->cancelledBy), 'sent' => $name($po['sent_by'] ?? null), 'closed' => $name($po['closed_by'] ?? null)],
             'reversal' => $revDoc,
-            'reversalReason' => $revDoc === null || $revDoc->reasonCode === null ? null : Words::of('REASON', $revDoc->reasonCode),
+            'reversalReason' => $revDoc === null || $revDoc->reasonCode === null ? null
+                : self::reasonLabel($revDoc->reasonCode, (string) ($db->value('SELECT label FROM reason_code WHERE code = ?', [$revDoc->reasonCode]) ?? '')),
             'cancelReason' => $doc->cancelReason,
             'amends' => ($po['amends_document_id'] ?? null) === null ? null : $db->one('SELECT id, number FROM document WHERE id = ?', [(int) $po['amends_document_id']]),
             'amendedBy' => array_map(static fn (array $a): array => $a + ['label' => $a['number'] ?? Words::ORDER['a_draft']], $amendedBy),
@@ -727,8 +742,9 @@ final class PurchaseOrdersController
             'sendVia' => array_map(static fn (string $code): string => Words::of('SEND_VIA', $code), array_combine(array_keys(PurchaseOrders::SEND_VIA), array_keys(PurchaseOrders::SEND_VIA))),
             'sendWarnings' => $send['texts'],
             'sendCompany' => $send['company'],
-            'cancelReasons' => $pick(PurchaseOrders::CANCEL_REASONS),
-            'amendReasons' => $pick(PurchaseOrders::AMEND_REASONS),
+            // A draft, or an order waiting for its OK, is cancelled for a draft's reasons; a confirmed one for a confirmed order's.
+            'cancelReasons' => self::reasonChoices($db, $posted ? 'cancel' : 'draft_cancel'),
+            'amendReasons' => self::reasonChoices($db, 'amend'),
             'formKey' => $canPost ? FormOnce::newKey() : null,
         ];
     }

@@ -58,7 +58,13 @@ final class SetItYourselfUnitTest extends TestCase
         self::assertSame(array_replace($po, ['review_rule' => 'over_limit', 'review_limit_units' => 25]),
             DocumentRules::apply('PO', $po, ['review_rule' => 'over_limit', 'review_limit_units' => 25]));
         self::assertSame(14, DocumentRules::apply('PO', $po, ['review_due_days' => '14'])['review_due_days']);
-        self::assertSame('reverse', DocumentRules::apply('PO', $po, ['reject_action' => 'reverse'])['reject_action']);
+        // Not OK on a purchase order only records it (M7): an order with deliveries cannot be cancelled.
+        try {
+            DocumentRules::apply('PO', $po, ['reject_action' => 'reverse']);
+            self::fail('a PO\'s Not OK is record only');
+        } catch (\CW\CwException $e) {
+            self::assertSame(['reject_record_only', 400], [$e->errorCode, $e->httpStatus]);
+        }
         $adj = ['review_rule' => 'all', 'review_limit_units' => null, 'review_due_days' => 3, 'approval_rule' => 'positive_without_supplier_doc',
             'approval_limit_units' => 10, 'reject_action' => 'reverse'];
         self::assertSame('none', DocumentRules::apply('ADJ', $adj, ['approval' => false])['approval_rule']);
@@ -85,6 +91,58 @@ final class SetItYourselfUnitTest extends TestCase
             } catch (CwException $e) {
                 self::assertSame([$code, 400], [$e->errorCode, $e->httpStatus], json_encode($change));
             }
+        }
+    }
+
+    /**
+     * Review finding I1 (Y45): which changes make an approval rule LOOSER (they need a Reviewer). A switch off, a smaller spot check, a
+     * weaker review, a higher limit, the OK first off or a higher limit for it, Not OK that only records. Tightening, the days to
+     * decide and a rule that is not one: never.
+     */
+    public function testWhatMakesAnApprovalRuleLooser(): void
+    {
+        foreach (array_keys(\CW\Admin\ApprovalRules::SWITCHES) as $key) {
+            self::assertTrue(\CW\Admin\ApprovalRules::loosens($key, true, false), "{$key}: on -> off");
+            self::assertFalse(\CW\Admin\ApprovalRules::loosens($key, false, true), "{$key}: off -> on");
+            self::assertFalse(\CW\Admin\ApprovalRules::loosens($key, true, true), "{$key}: unchanged");
+        }
+        self::assertTrue(\CW\Admin\ApprovalRules::loosens('approvals.spot_check_size', 20, 10));
+        self::assertFalse(\CW\Admin\ApprovalRules::loosens('approvals.spot_check_size', 20, 30));
+        self::assertFalse(\CW\Admin\ApprovalRules::loosens('suppliers.approval_due_days', 3, 30), 'days to decide restrain nobody');
+        self::assertFalse(\CW\Admin\ApprovalRules::loosens('po.default_vat_code', 'S', 'Z'), 'not an approval rule');
+        self::assertTrue(\CW\Admin\ApprovalRules::isRule('approvals.staff_reset'));
+
+        $po = ['review_rule' => 'all', 'review_limit_units' => null, 'review_due_days' => 7, 'approval_rule' => 'over_value', 'approval_limit_units' => 10000,
+            'reject_action' => 'record'];
+        $looser = static fn (array $change): bool => DocumentRules::loosens($po, DocumentRules::apply('PO', $po, $change));
+        self::assertTrue($looser(['review_rule' => 'over_limit', 'review_limit_units' => 5]), 'every one -> over a limit');
+        self::assertTrue($looser(['review_rule' => 'none']));
+        self::assertTrue($looser(['approval' => false]), 'the OK first off');
+        self::assertTrue($looser(['approval_limit_units' => '20000']), 'a higher limit for the OK first');
+        self::assertFalse($looser(['approval_limit_units' => '5000']), 'a lower limit is stricter');
+        self::assertFalse($looser(['review_due_days' => '30']), 'the days to check restrain nobody');
+        $over = DocumentRules::apply('PO', $po, ['review_rule' => 'over_limit', 'review_limit_units' => 5]);
+        self::assertTrue(DocumentRules::loosens($over, DocumentRules::apply('PO', $over, ['review_limit_units' => 50])), 'over a higher limit');
+        self::assertFalse(DocumentRules::loosens($over, DocumentRules::apply('PO', $over, ['review_rule' => 'all'])), 'back to every one: stricter');
+        $adj = ['review_rule' => 'all', 'review_limit_units' => null, 'review_due_days' => 3, 'approval_rule' => 'positive_without_supplier_doc',
+            'approval_limit_units' => 10, 'reject_action' => 'reverse'];
+        self::assertTrue(DocumentRules::loosens($adj, DocumentRules::apply('ADJ', $adj, ['reject_action' => 'record'])), 'Not OK only records: looser');
+        self::assertFalse(DocumentRules::loosens(['reject_action' => 'record'] + $adj, $adj), 'Not OK cancels again: stricter');
+    }
+
+    /** Review finding I5 (Y42): the one-time set-up code: at least 60 bits, easy to type, read kindly, stored as a hash. */
+    public function testTheSetUpCodeIsLongAndReadKindly(): void
+    {
+        $code = \CW\Staff\SetupCode::new();
+        self::assertMatchesRegularExpression('/^[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}-[0-9A-HJKMNP-TV-Z]{5}$/D', $code);
+        self::assertGreaterThanOrEqual(60, \CW\Staff\SetupCode::LENGTH * log(strlen(\CW\Staff\SetupCode::ALPHABET), 2), 'at least 60 bits');
+        self::assertNotSame($code, \CW\Staff\SetupCode::new());
+        $hash = \CW\Staff\SetupCode::hash($code);
+        self::assertMatchesRegularExpression('/^[0-9a-f]{64}$/D', (string) $hash);
+        self::assertSame($hash, \CW\Staff\SetupCode::hash(' ' . strtolower(str_replace('-', ' ', $code)) . ' '), 'case, spaces and dashes do not matter');
+        self::assertSame(\CW\Staff\SetupCode::hash('10000-00000-0000A'), \CW\Staff\SetupCode::hash('lOooo-ooooo-oooOa'), 'O, I and L read as 0, 1 and 1');
+        foreach (['', 'ABCDE-FGHJK', 'ABCDE-FGHJK-MNPQRS', 'ABCDE-FGHJK-MNPQU', str_repeat('A', 100)] as $bad) {
+            self::assertNull(\CW\Staff\SetupCode::hash($bad), $bad);
         }
     }
 

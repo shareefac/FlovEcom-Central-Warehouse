@@ -60,20 +60,27 @@ final class ReasonsController
         $code = (string) ($req->field('code') ?? '');
         $do = (string) ($req->field('do') ?? '');
         $seen = $req->field('seen');
-        $typed = ['label' => (string) ($req->field('label') ?? ''), 'reason' => (string) ($req->field('reason') ?? ''), 'do' => $do];
-        if ($seen === null || preg_match('/^\d{1,9}$/D', $seen) !== 1 || !in_array($do, ['rename', 'off', 'on'], true)) {
+        $uses = [];
+        foreach (ReasonCodes::USES as $use) {
+            if ($req->field('use_' . $use) === '1') {
+                $uses[] = $use;
+            }
+        }
+        $typed = ['label' => (string) ($req->field('label') ?? ''), 'reason' => (string) ($req->field('reason') ?? ''), 'do' => $do, 'uses' => $uses];
+        if ($seen === null || preg_match('/^\d{1,9}$/D', $seen) !== 1 || !in_array($do, ['rename', 'uses', 'off', 'on'], true)) {
             return $this->reasonPage($ctx, $code, 400, new CwException('bad_form', Words::ERROR['bad_form'], 400), $typed);
         }
         $service = new ReasonCodes($ctx->db);
         try {
             $r = match ($do) {
                 'rename' => $service->rename($ctx->caller(), $code, $typed['label'], $typed['reason'], (int) $seen),
+                'uses' => $service->setUses($ctx->caller(), $code, $uses, $typed['reason'], (int) $seen),
                 default => $service->setActive($ctx->caller(), $code, $do === 'on', $typed['reason'], (int) $seen),
             };
         } catch (CwException $e) {
             return $this->reasonPage($ctx, $code, $e->httpStatus, $e, $typed);
         }
-        $notice = !$r['changed'] ? 'unchanged' : ($do === 'rename' ? 'renamed' : $do);
+        $notice = !$r['changed'] ? 'unchanged' : match ($do) { 'rename' => 'renamed', 'uses' => 'uses_saved', default => $do };
         return HtmlResponse::redirect(Html::url('/ui/reference/reasons/reason', ['code' => $code, 'notice' => $notice]));
     }
 
@@ -117,7 +124,7 @@ final class ReasonsController
         ], $status, ['title' => Words::title('reasons'), 'active' => 'reasons', 'notice' => $notice]);
     }
 
-    /** @param array<string, string>|null $typed */
+    /** @param array<string, mixed>|null $typed */
     private function reasonPage(Context $ctx, string $code, int $status, ?CwException $error, ?array $typed, ?string $notice = null): HtmlResponse
     {
         $r = (new ReasonCodes($ctx->db))->get($code);
@@ -134,6 +141,8 @@ final class ReasonsController
             'lookOnly' => $ctx->me()->can('settings.manage') ? null : Words::REASONS_EDIT['look_only'],
             'seen' => ConfigHistory::version($ctx->db, 'reason', $code),
             'typed' => ['label' => $typed['label'] ?? $r['label'], 'reason' => $typed['reason'] ?? '', 'do' => $typed['do'] ?? ''],
+            'uses' => array_map(static fn (string $u): array => ['code' => $u, 'name' => ucfirst(Words::of('REASON_USE', $u)),
+                'checked' => in_array($u, ($typed['do'] ?? '') === 'uses' ? (array) ($typed['uses'] ?? []) : $r['uses'], true)], ReasonCodes::USES),
             'history' => ConfigWords::history($ctx->db, 'reason', $code),
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,

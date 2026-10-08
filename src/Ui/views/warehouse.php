@@ -53,6 +53,10 @@
     <h2 id="owner-h"><?= $word('WAREHOUSES', 'owner_title') ?></h2>
     <?= $explain('stock_owner', \CW\Ui\Words::WAREHOUSES['owner']) ?>
   </div>
+<?php if ($w['not_empty'] !== []): ?>
+  <p class="note read-only"><?= $say('WAREHOUSES', 'owner_not_empty', $notEmpty) ?></p>
+<?php else: ?>
+  <p class="muted"><?= $word('WAREHOUSES', 'owner_text') ?></p>
   <form class="record" method="post" action="<?= $u('/ui/reference/warehouses/' . $w['id']) ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="do" value="owner">
@@ -65,12 +69,14 @@
         <input type="text" name="owner_name" value="<?= $e($typed['owner_name']) ?>" maxlength="64">
       </label>
     </fieldset>
+    <label class="choice"><input type="checkbox" name="confirm" value="1" required> <?= $word('WAREHOUSES', 'owner_confirm') ?></label>
     <label><?= $word('CONFIG', 'reason') ?>
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'owner'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
     <p class="actions"><button type="submit" class="primary"><?= $word('WAREHOUSES', 'owner_button') ?></button></p>
   </form>
+<?php endif; ?>
 </section>
 <section aria-labelledby="sell-h">
   <h2 id="sell-h"><?= $word('WAREHOUSES', 'sellable_title') ?></h2>

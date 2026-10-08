@@ -43,7 +43,7 @@ final class UiTemplatesTest extends TestCase
             'reorder_brands', 'reorder_anomalies', 'sales_history', 'company', 'company_form', 'duplicates', 'duplicate_group', 'item_cards', 'item_card_form',
             'item_cards_import', 'barcode_reviews', 'cards', 'receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents',
             'setting', 'config_history', 'approvals', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet', 'enrol',
-            'staff_requests'] as $t) {
+            'staff_requests', 'new_code'] as $t) {
             self::assertContains($t . '.php', $names);
         }
         self::assertSame([], array_filter($names, static fn (string $n): bool => preg_match('/^[a-z][a-z_]*\.php$/', $n) !== 1), 'names View::render accepts');
@@ -219,7 +219,7 @@ final class UiTemplatesTest extends TestCase
     {
         $templates = self::templates();
         foreach (['setting', 'config_history', 'approvals', 'reasons', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet',
-            'enrol', 'staff_requests', 'people', 'person', 'settings'] as $name) {
+            'enrol', 'new_code', 'staff_requests', 'people', 'person', 'settings'] as $name) {
             $src = $templates[$name . '.php'];
             preg_match_all('/<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {
@@ -239,6 +239,7 @@ final class UiTemplatesTest extends TestCase
             self::assertSame([], preg_match_all('/[A-Za-z]{2,}/', $text, $m) > 0 ? $m[0] : [], "{$name}: a word typed in the template instead of taken from Words");
         }
         self::assertStringContainsString('<i class="d"></i>', $templates['staff_sheet.php'], 'the QR code is one element per module');
+        self::assertStringContainsString('<i class="d"></i>', $templates['new_code.php'], 'the person\'s own page draws its fresh code the same way');
     }
 
     public function testEveryPostFormCarriesTheCsrfToken(): void

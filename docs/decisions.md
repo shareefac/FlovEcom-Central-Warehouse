@@ -1984,6 +1984,8 @@ account off or on. Rules, all enforced again by `StaffAdmin` inside its transact
   second finds it is no longer an admin (403) instead of both succeeding and leaving no admin.
 - **Creation and secrets stay on the server:** new people are made with `bin/create_staff.php`; a one-time password or TOTP
   seed is never shown in a browser (the list says so). `StaffAdmin::create` called by a staff caller needs admin too.
+  **Replaced on 8 Oct 2026 by Y20-Y22 (and Y40-Y44):** an admin adds people and resets sign-ins on the screen; a sheet's secret is shown
+  once and is never the person's for good.
 
 **I14. Menus and the home page (amends U13).** The navigation is `Permissions::menu($roles)`: grouped sections (Linking,
 Items, Purchasing, Receiving, Stock control, Trade, Document reviews, Documents, Accounts, Reference, Admin), only the items
@@ -2344,7 +2346,8 @@ requester's (`posted_by`, `posted_actor` and the ledger's actor, as the spec say
 `document.reverse`, I32) audit row now has the reviewer as actor, with their IP, and `on_behalf_of` (the requester) and
 `approved_by` in its detail: a forensic query by actor no longer shows a posting by someone who was not there.
 
-**I35. Staff administration hardening (amends I10, I12, I13, I15, U23).**
+**I35. Staff administration hardening (amends I10, I12, I13, I15, U23; its "resets only by bin/reset_staff.php" is replaced by Y20-Y22 and
+Y40-Y44 on 8 Oct 2026: the screens reset sign-ins, an admin never holding both factors).**
 - **`StaffAdmin::reset()` follows `setRoles()`'s caller rules** (`authorise()`: admin only, never one's own account, staff
   only): it checked nothing, so a future screen calling it would have let a buyer re-issue their own one-time password or
   switch anyone off (review probe). Only `bin/reset_staff.php` calls it today, as a system caller, which still passes.
@@ -6312,8 +6315,9 @@ their cases.
 **Y3. Grants: least privilege, histories append-only.** cw_app: `config_change` and `integrity_run` SELECT + INSERT; `app_setting`
 SELECT + UPDATE of `value_json`, `provisional`, `updated_actor`, `updated_at` only (never a new or removed setting, never its name, type
 or description: settings come by migration); `document_type` SELECT + UPDATE of its six rule columns only; `reason_code` SELECT + INSERT
-+ UPDATE of `label`, `is_active` (never deleted, never a code or a use changed); `warehouse` SELECT + INSERT + UPDATE of `name`,
-`is_sellable`, `is_active`, `stock_owner`, `owner_entity`, `note`, `updated_at`; `warehouse_location` SELECT + INSERT + UPDATE of `name`,
++ UPDATE of `label`, `is_active` (never deleted, never a code changed; since the review fixes also `applies_to`, where a reason is
+offered, Y51); `warehouse` SELECT + INSERT (since the review fixes column-level: never
+`is_system`, its id or its times, Y54) + UPDATE of `name`, `is_sellable`, `is_active`, `stock_owner`, `owner_entity`, `note`, `updated_at`; `warehouse_location` SELECT + INSERT + UPDATE of `name`,
 `is_active`, `note`; `staff_role_request` SELECT + INSERT + UPDATE of its decision columns; nothing is ever deleted. `vat_code` and
 `schema_migrations` stay read only. `Grants::UPDATE_ONLY_COLUMNS` is the new kind (no INSERT, column UPDATE only).
 
@@ -6329,8 +6333,8 @@ version too).
 **Y5. `approvals.spot_check_size` (20, 5 to 200).** The size of a Key spot check (`KeySample::minSize`): a smaller sample never
 confirms the rest together. It was the constant 20; the words no longer say 20.
 
-**Y6. `staff.setup_hours` (48, 1 to 336).** How long a person added on the screen has to set up their sign-in at /ui/enrol (Y20), and
-how long a new password window stays open (Y22).
+**Y6. `staff.setup_hours` (48, 1 to 168; the maximum was 336 until the review fix Y42).** How long a person added on the screen has to set
+up their sign-in at /ui/enrol (Y20), and how long a new password window stays open (Y22).
 
 **Y7. The approval switches (`approvals.*`) as settings, seeded as the system worked before.** `approvals.supplier_activation`,
 `approvals.match_multiple`, `approvals.match_counted`, `approvals.company_own_change` on; `approvals.staff_grant` **off** (the owner's
@@ -6398,22 +6402,28 @@ by place. `document_line.location_id` exists (nullable) for later; no screen wri
 **Y19. VPG 2 and the overflow room are not seeded.** 0019 creates no warehouse: the page's tip tells the owner to add the VPG 2 room as
 "Another account's stock" and the overflow room as a place inside the main warehouse (the owner's rooms are their decision).
 
-**Y20. A person is added on the screen and sets their own password (G06).** Staff → Staff and access → "Add a staff member" (an admin,
-`staff.manage`): name, e-mail, jobs (the same job rules as before: Admin only with Look only, Accountant, Auditor; never a placeholder
-address). The account has a random password nobody knows and a new sign-in secret, and `setup_until` = now + `staff.setup_hours`. The
-person scans the QR code, opens /ui/enrol, types their e-mail, the 6 numbers and a new password, and is signed in. Audit `staff.create`
-(`via: screen`, never the secret).
+**Y20. A person is added on the screen and sets up their own sign-in (G06; amended by Y40-Y42; Y20-Y22 replace I13's "new people and
+their secrets only on the server" and I35's "resets only with bin/reset_staff.php").** Staff → Staff and access → "Add a staff member" (an
+admin, `staff.manage`): name, e-mail, jobs (the same job rules as before: Admin only with Look only, Accountant, Auditor; never a
+placeholder address). The account has a random password nobody knows, a sign-up secret (`totp_state = 'signup'`), a one-time set-up code
+and `setup_until` = now + `staff.setup_hours`. The person scans the sheet's QR code, opens /ui/enrol, types their e-mail, the set-up code
+and the 6 numbers; the sheet's secret and code then die, and their OWN page shows a fresh secret which they scan and confirm with one code
+while choosing their password (Y40). Only then are they signed in. Audit `staff.create` (`via: screen`, never a secret).
 
-**Y21. The QR code (`bacon/bacon-qr-code` ^3.1, BSD-2-Clause, with `dasprid/enum`).** Only its encoder is used
+**Y21. The QR code (`bacon/bacon-qr-code` ^3.1, BSD-2-Clause, with `dasprid/enum`; with Y20 and Y22 this replaces I13 and I35: secrets are
+now shown in a browser, once, and a sheet's secret is never the person's for good, Y40).** Only its encoder is used
 (`Output\QrCode::matrix`, error correction M); the page draws the matrix as a grid of HTML elements styled black on white (no image,
 no SVG, no `data:` URI: the CSP and staging's missing gd). The secret is shown once, in the answer to the POST only (the setup key beside
 it, `Cache-Control: no-store` as every page); it is never stored in clear or shown again.
 
-**Y22. A new sign-in code, a new password.** On the person's page (an admin, never their own account, each with a tick): "Make a new
-sign-in code" (lost or new phone: the old code stops, they are signed out everywhere, the sheet shows the new QR code once; someone who
-never finished setting up gets a fresh window) and "Let them choose a new password" (the old password stops, they are signed out
-everywhere, and they choose a new one at /ui/enrol within `staff.setup_hours`). No password is ever shown in a browser. Audit
-`staff.reset` (`via: screen`).
+**Y22. A new sign-in code, a new password, a new sign-up sheet (amended by Y41, Y43; with Y20 they replace I13 and I35).** On the
+person's page (an admin, never their own account, each with a tick, each form run once: Y45 M4): "Make a new sign-up sheet" for someone
+who never finished setting up (Y41); "Make a new sign-in code" (lost or new phone, someone who finished: the old code stops, they are signed
+out everywhere, the sheet's code works ONLY at /ui/login with their own password and leads to their own page with a fresh secret, Y43);
+"Let them choose a new password" (the old password stops, they are signed out everywhere, the sheet shows a set-up code only; they finish at
+/ui/enrol with it and the code app on their own phone, then the fresh secret and a password). The two resets refuse each other while the
+other is open, so an admin never holds both factors of anybody (Y43). No password is ever shown in a browser. Audit `staff.reset`
+(`via: screen`).
 
 **Y23. Who is signed in, and signing a device out.** Staff and access lists every live session (person, since, last active, address);
 the person's page lists theirs. An admin signs one device out (by a 16-character handle of the session id, never the id) or a person out
@@ -6470,3 +6480,119 @@ new page.
 warehouse switched off at the same moment as a delivery is booked into it is not locked against that race; places are not used by any
 record yet; the sign-in limits, session lengths and the set-up of the first admin stay constants or server tools; the release invoice
 that moves VPG 2 stock into ours is Phase I-4; nobody checked the pages in a browser yet.
+
+## The set-it-yourself pack: the review fixes (slot `fix1`, 8 Oct 2026)
+
+The review of commit 7ff2e3c found one blocker (B1), six important findings (I1-I6), nine minors (M1-M10) and five nits. Code:
+`migrations/0019_set_it_yourself.sql` (amended in place: it was not applied anywhere but in test schemas, which are re-created on every
+run), `src/Staff/{StaffAdmin,Enrolment,SetupCode,RoleRequests,Totp}.php`, `src/Auth/{Login,Sessions}.php`, `src/Admin/{ApprovalRules,
+DocumentRules,ReasonCodes,Warehouses,ConfigInvariants}.php`, `src/Settings.php`, `src/Mapping/KeySample.php`, `src/Suppliers/Suppliers.php`,
+`src/PurchaseOrders/PurchaseOrders.php`, `src/Documents/Documents.php`, `src/Schema/Grants.php`, `src/Ui/{HomeTasks,HomeCounts,ConfigWords,
+Words,Kernel}.php`, controllers `Auth`, `People`, `StaffRequests`, `Approvals`, `Reasons`, `Warehouses`, `Suppliers`, `PurchaseOrders`,
+`Settings`, `Dashboard`; templates `enrol`, `new_code` (new), `staff_sheet`, `person`, `staff_requests`, `approvals`, `reason`,
+`warehouse`, `suppliers`, `supplier`, `cards`; `bin/invariants.php`.
+
+**Y40. The admin never holds both sign-in factors of anybody (B1).** A sheet an admin saw is never somebody's sign-in. `staff_user.totp_state`
+says whose the current authenticator secret is: `own` (made on the person's own page, or printed by the server's tools), `signup` (a
+sign-up sheet's: works only at /ui/enrol, with the one-time set-up code), `reset` (a "new sign-in code" sheet's: works only at /ui/login,
+with the person's CURRENT password). Either sheet's secret dies at its first use (`totp_secret_enc` NULL), and the browser that used it gets
+a step token (cookie `cw_setup`, 15 minutes; only its sha256 is stored) for /ui/new-code: the person's OWN page with a FRESH secret (QR code
+and key, `Cache-Control: no-store` like every page), confirmed with one code (and, after /ui/enrol, the new password) before any session
+exists (`Staff\Enrolment::start`, `beginFromLogin`, `pending`, `confirm`). The fresh secret is then the account's (`own`). Audit
+`staff.setup_start`, `staff.setup` (from /ui/enrol) or `staff.new_code` (from a new sign-in code), with the address: the reviewers' cards
+show when and from where a person finished. Result, tested whichever order the resets are done in, with or without an account the admin
+added: the admin never finishes /ui/enrol or /ui/login as the person (`StaffSetUpTest::testTheAdminCanNeverSignInAsSomeoneElseWhateverTheyReset`).
+Limit: before a NEW person has finished, whoever holds their sheet can finish it; that is the admin making an account, which the reviewers'
+Home card (Y45) and the request cards show (when it was made, when and from where it was set up).
+
+**Y41. A new sign-up sheet for someone who never finished.** `StaffAdmin::newSheet` (person page, "Make a new sign-up sheet"): a new
+sign-up secret, set-up code and window; the old sheet stops. Only while `totp_state = 'signup'` (409 `already_set_up` otherwise): an account
+nobody has finished setting up has no factor of a person to protect, so it is allowed while a window is open too. The two resets of Y43 are
+refused for such an account (409 `not_set_up`).
+
+**Y42. The set-up window is hard to guess (I5).** /ui/enrol needs a one-time set-up code printed on the sheet: 15 characters of Crockford's
+base32 in three groups (`7KQ2M-X9D4H-RT3WP`, 75 bits; case, spaces and dashes do not matter, O/I/L read as 0/1/1), stored as sha256 only
+(`setup_code_hash`), used up at the first right answer. Each window takes at most `staff.setup_max_fails` wrong tries (5; 1 to 20; the
+Settings page): then it closes (`setup_until` NULL, `setup_closed_at`, audit `staff.setup_closed`) and Home shows the card "A sign-in set-up
+was closed after too many wrong tries" to admins (button: the person) and reviewers (button: the audit log); a new sheet clears it. The
+fresh secret's step has the same cap. `staff.setup_hours` is at most 168 (a week). The sign-in's throttle (`LoginLimiter`) applies too.
+
+**Y43. The two resets refuse each other (B1 c).** `resetAuthenticator` (someone who finished) is refused while a set-up window is open (409
+`setup_open`: the admin would hold that window's set-up code and the new sign-in code); `resetPassword` is refused while the secret is a
+sheet's (409 `code_reset_open` for a new sign-in code not used yet; 409 `not_set_up` for someone who never finished). The database holds it
+too: `ck_staff_user_one_factor` (a `reset` secret never with a window). A person who lost both the phone and the password is recovered on the
+server (`bin/reset_staff.php --new-password --new-totp`, the break-glass; for an account that never finished, a new password needs a new
+secret too: 400 `needs_new_totp`). The server's tools give the person their own secret (`own`).
+
+**Y44. Resetting an Admin's or a Reviewer's sign-in can wait for a reviewer (B1 d): `approvals.staff_reset`, OFF by default** (the owner
+chose extra approvals off). On the Approval rules page, Staff access. While on, a new sign-in code, new password or new sign-up sheet for
+someone who holds Admin or Reviewer becomes a request (`staff_role_request.kind` `reset_code` / `reset_password`; result `requested`, nothing
+changed); a reviewer who is neither the person nor the requester says OK or Not OK on "Staff access to OK"; an OK lets any admin carry the
+reset out ONCE within `staff.setup_hours` (`used_at`). With only one Reviewer, a reset of that Reviewer then needs the server (the page warns
+when nobody can say OK). Audit `staff.reset_request`, `staff.reset_request_approve`.
+
+**Y45. Loosening an approval rule needs a Reviewer (I1); what the admins did is on the reviewers' Home.** Switching off any rule of the
+Approval rules page (`ApprovalRules::SWITCHES`, `approvals.staff_reset` included), a smaller spot check, and for a kind of record fewer
+checks (every one > over a limit > none), a higher limit, the OK first off or a higher limit for it, Not OK that only records: only a person
+holding `staff.approve` (a Reviewer whose job Admin does not switch off); 403 `loosen_needs_reviewer` otherwise, nothing saved. Making a rule
+stricter, marking it agreed and the days to decide stay with `settings.manage`; the server's tools may do both. The audit rows say
+`loosened`. Checked on cw_staging before building (read only, 8 Oct 2026): staff 1 (the owner: Reviewer, Matching lead) is active and holds
+`staff.approve`; staff 3 (Fazil: Admin) does not; nobody is locked out. A Home card for reviewers ("Staff and rule changes to look at") lists
+every `staff.create`, `staff.reset` and loosened rule of the audit log's default window (7 days, `AuditSearch::DEFAULT_DAYS`), one line each
+(when, who, whom or which rule; the server's tools as "the server"), newest first, 8 lines and "and N more" (index `ix_audit_action`). The
+request cards of "Staff access to OK" show the person's e-mail, when the account was made, and whether, when and from which address they set
+up their sign-in, and what is asked (jobs or a reset).
+
+**Y46. Spot checks of 5 or more (I2).** 0019 replaces 0012's `CHECK (sample_size >= 20 …)` with `sample_size >= 5 AND sample_size <=
+population`, the setting's own range. `KeyBulkTest::testASmallerSpotCheckIsDrawnAndKeepsTheSizeItWasDrawnWith` lowers the size and draws.
+
+**Y47. A spot check is judged by the size in force when it was drawn (I3).** `key_sample.required_size` (backfilled with each sample's own
+size: staging's owner-1, 20 of 20, stays fit; `CHECK (required_size >= 5 AND sample_size >= required_size)`); `KeySample::fitness` compares
+with it, never with today's setting. The Approval rules card says that a change works for new spot checks only.
+
+**Y48. Whose stock a warehouse holds changes only while it is empty (I4).** `Warehouses::setOwner` refuses an owner change in either
+direction (and a change of the other account's name) while `notEmpty()` finds anything (409 `owner_not_empty`, in words), and needs the
+confirmation tick (422 `unconfirmed`); the page hides the form and says why. Another account's stock becomes ours only through a release
+invoice (Y15, Phase I-4).
+
+**Y49. A supplier approved alone is marked until a reviewer checks it (M1, M2).** `Suppliers::requestActivation` and a route change read the
+`approvals.supplier_activation` row FOR SHARE and take the evidence version from that same read (`ApprovalRules::lockedSwitch`): the switch
+cannot change in between. The suppliers list shows an "Approved alone" chip and has a filter "Approved by one person, not checked yet"; on
+the supplier's page a reviewer who neither created, last changed nor made it usable gives "OK: I checked this supplier"
+(`Suppliers::checkAlone`, `supplier.alone_checked_by/_at`, audit `supplier.alone_checked`): the mark goes, the evidence columns stay for S2
+and S3. A new one-person approval clears an earlier check.
+
+**Y50. Not OK on a purchase order only records it (M7).** `DocumentRules::apply` refuses `reverse` for PO (400 `reject_record_only`) and 0019
+adds `ck_document_type_po_reject`: an order a delivery was booked against cannot be cancelled (`po_has_receipts`), so "cancel it" would fail
+exactly when it matters. The PO card of the Approval rules page says so instead of offering the choice.
+
+**Y51. The order screens' reasons come from the Reasons page (I6).** `reason_code.applies_to` gains `po_cancel` (cancelling a confirmed
+order), `po_draft_cancel` (a draft or an order waiting for its OK) and `po_amend` (correcting a confirmed order); 0019 seeds them on the
+reasons the code listed (`not_needed`, `duplicate`: cancel and draft cancel; `supplier_cannot_supply`, `entered_in_error`, `other`: all three;
+`po_amended`: amend) as version 2 of each reason's history (actor `system:migrate`). `PurchaseOrders::reasons()` builds every list (placed
+there, switched on, not CW's own, in the page's order) and `cancel` / `amend` accept only those (400 `bad_reason`); a reason's note rule is
+the reason's own (`needs_note`); `Documents::reverse` takes the use. The screens show each reason's own name (`Words::REASON` is a fallback
+only). The Reasons page sets where a reason is offered ("Where it is offered", `ReasonCodes::setUses`, a version `uses`); the app login may
+UPDATE `applies_to`. `PurchaseOrders::CANCEL_REASONS` / `AMEND_REASONS` and the controller's draft list are gone.
+
+**Y52. A switched-off reason does not block a record already waiting (M6).** A reviewer's OK of a record that waits for it
+(`Documents::approve`) accepts its reasons as they were when it was sent (switched off or no longer offered since: fine; it must still exist
+and not be CW's own). A switched-off reason still stops every NEW record. The Reasons page says so.
+
+**Y53. The configuration history is complete (M8, M9, M10).** Nightly K4 (`ConfigInvariants`): every live setting, reason, kind of record,
+warehouse and place has a history (the app login may INSERT warehouses, places and reasons). docs/dev.md rule 5: a migration that changes a
+configuration row writes version N+1 with actor `system:migrate` and a reason (0019 does, for the reasons of Y51); `TestDb::clean` keeps every
+`system:migrate` version. docs/ops.md lists the two pre-flight queries for 0019. The `document.post`, `document.submit` and
+`document.reverse` audit rows carry `rule_version`, the version of the kind's rule in force (read with the rule in one statement).
+
+**Y54. The nits.** `bin/invariants.php` takes `started_at` from the database's clock, as `finished_at`; the sheets print the address of the
+setting `staff.sign_in_address` (Settings page, "Sign-in address", empty until set: the sheet then says to ask Fazil), never the Host header;
+the app login INSERTs a warehouse naming only its own columns (`Grants::INSERT_COLUMNS`: never `is_system`, its id or its times);
+`Sessions::revokeAll` counts only the sessions that were still live (it still closes the others); the Approval rules page says that switching
+a rule off does not let through work already waiting. "Make a new sign-in code", "Let them choose a new password" and "Make a new sign-up
+sheet" run once per form (`FormOnce`, M4): sent again, the page says the sheet was shown already and nothing new is made. Switching someone off
+(the screen or `bin/reset_staff.php --deactivate`) closes their set-up window and any half-finished set-up (M3).
+
+**Y55. Left for later (as asked).** Purchase orders and deliveries always book into MAIN (the VPG 2 pack). `Admin\ApprovalRules::GUARDED_ROLES`
+and `Permissions::MAP` stay code (a Permissions screen comes with the UI rework). The race of a switched-off warehouse with a delivery booked
+into it at the same moment (Y38) is unchanged.

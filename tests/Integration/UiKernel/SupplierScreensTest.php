@@ -181,6 +181,45 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::SUPPLIER['ask_again'], $buyer->follow($d)->text());
     }
 
+    /**
+     * Review finding M2 (Y49): a supplier made usable by one person (the second person switched off) carries an "approved alone" chip
+     * on the list, which a filter finds, until a reviewer gives the OK afterwards on its page.
+     */
+    public function testASupplierApprovedAloneIsMarkedOnTheListUntilAReviewerChecksIt(): void
+    {
+        $buyerUser = $this->uiUser('buyer');
+        $was = self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'approvals.supplier_activation'");
+        (new \CW\Settings(self::$db))->set(Caller::system('settings'), 'approvals.supplier_activation', 'false', 'one person for this test');
+        try {
+            $sup = new Suppliers(self::$db);
+            $d = $this->draft($buyerUser['id'], ['name' => 'Alone Supplies']);
+            $s = $sup->requestActivation(Caller::staff($buyerUser['id']), (int) $d['id'], (int) $d['version']);
+            self::assertSame(1, (int) $s['approved_alone']);
+            $this->draft($buyerUser['id'], ['name' => 'Draft Supplies']);
+            $buyer = $this->signIn($buyerUser);
+            $list = $buyer->get('/ui/purchasing/suppliers');
+            self::assertStringContainsString(Words::SUPPLIERS['alone_chip'], $list->text());
+            $only = $buyer->get('/ui/purchasing/suppliers', ['alone' => '1']);
+            self::assertStringContainsString('Alone Supplies', $only->text());
+            self::assertStringNotContainsString('Draft Supplies', $only->text(), 'the filter shows the suppliers approved alone only');
+            $page = $buyer->get('/ui/purchasing/suppliers/' . $s['id']);
+            self::assertStringContainsString(Words::SUPPLIER['alone_title'], $page->text());
+            self::assertFalse($page->hasForm('/ui/purchasing/suppliers/' . $s['id'] . '/check-alone'), 'a buyer looks');
+            $rev = $this->signIn($this->uiUser('reviewer'));
+            $card = $rev->get('/ui/purchasing/suppliers/' . $s['id']);
+            $form = $card->form('/ui/purchasing/suppliers/' . $s['id'] . '/check-alone');
+            self::assertNotSame([], $form);
+            $r = $rev->post('/ui/purchasing/suppliers/' . $s['id'] . '/check-alone', $form);
+            self::assertSame(303, $r->status, $r->describe());
+            self::assertSame(Words::SUPPLIER_NOTICE['alone_checked'], trim((string) (new \DOMXPath($rev->follow($r)->dom()))->evaluate('string(//p[contains(@class, "notice")])')));
+            self::assertStringNotContainsString('Alone Supplies', $buyer->get('/ui/purchasing/suppliers', ['alone' => '1'])->text(), 'checked: the mark goes');
+            self::assertSame(403, $buyer->post('/ui/purchasing/suppliers/' . $s['id'] . '/check-alone', ['csrf' => $this->token($buyer), 'version' => '1'])->status);
+        } finally {
+            self::$db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON), updated_actor = 'system:migrate' WHERE setting_key = 'approvals.supplier_activation'",
+                [(string) $was]);
+        }
+    }
+
     public function testAChangeReviewAppearsInTheQueueAndIsDecidedOnTheCard(): void
     {
         $buyerUser = $this->uiUser('buyer');

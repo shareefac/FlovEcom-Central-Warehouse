@@ -30,6 +30,7 @@ final class HomeTasks
         'company_confirm' => 10,
         'approvals' => 20,
         'staff_requests' => 25,
+        'setup_closed' => 27,
         'second_ok' => 30,
         'test_accounts' => 40,
         'own_clash' => 41,
@@ -56,8 +57,11 @@ final class HomeTasks
         'barcodes' => 250,
     ];
 
-    /** Cards that inform and wait (no job number, after the jobs). */
-    public const NOTES = ['company_wait', 'old_sales'];
+    /**
+     * Cards that inform and wait (no job number, after the jobs): the company details a buyer waits for, old sales data, and for a
+     * reviewer the staff and rule changes of the last days to look at (Y45: nothing waits on them, so it is not a job).
+     */
+    public const NOTES = ['company_wait', 'old_sales', 'watch'];
 
     /** Fact (HomeCounts) => the permissions whose cards use it (any one of them). */
     public const FACTS = [
@@ -78,7 +82,11 @@ final class HomeTasks
         'incidents' => ['incidents.resolve'],
         'integrity' => ['system.view'],
         'staff_requests' => ['staff.approve'],
+        'watch' => ['staff.approve'],
+        'setup_closed' => ['staff.manage', 'staff.approve'],
     ];
+    /** Lines the "changes to look at" card shows (the rest: the audit log). */
+    public const WATCH_LINES = 8;
 
     /** The lists of "Other website products to match", in the order the button takes the first one with work. */
     public const OTHER_BANDS = ['Check', 'New item', "Can't tell", 'Manual'];
@@ -119,6 +127,9 @@ final class HomeTasks
      *  incidents int (open incidents, the badge's count)
  *  integrity {ok: bool, problems: int, finished_at: string, hours: int}|null: the latest nightly safety check (null: none ran yet)
  *  staff_requests int (open requests for Admin or Reviewer this reviewer may decide)
+ *  watch     list<{at: string, action: string, who: ?string, person: ?string, rule: ?string}>: people added, sign-ins reset and
+ *            approval rules made looser in the last 7 days, newest first (review finding I1)
+ *  setup_closed list<{id: int, name: string}>: active people whose sign-in set-up closed after too many wrong tries (I5)
      *  checks    also `deliveries` (optional): the part of `review` that is deliveries booked in (their own card)
      *
      * @param list<string> $roles
@@ -275,9 +286,28 @@ final class HomeTasks
                     'href' => '/ui/system/checks', 'tone' => 'blocked']);
             }
         }
-        // Grants of Admin or Reviewer waiting for this reviewer's OK (approvals.staff_grant, Y25).
+        // Grants of Admin or Reviewer waiting for this reviewer's OK (approvals.staff_grant, Y25), and resets (staff_reset, Y44).
         if ($can('staff.approve')) {
             $out[] = self::counted('staff_requests', (int) ($f['staff_requests'] ?? 0), '/ui/staff-requests');
+            // What the admins did to staff access and the approval rules lately (I1, Y45): one line each.
+            $watch = is_array($f['watch'] ?? null) ? $f['watch'] : [];
+            if ($watch !== []) {
+                $lines = array_map(self::watchLine(...), array_slice($watch, 0, self::WATCH_LINES));
+                if (count($watch) > self::WATCH_LINES) {
+                    $lines[] = sprintf(Words::WATCH['more'], Html::int(count($watch) - self::WATCH_LINES));
+                }
+                $out[] = self::counted('watch', count($watch), '/ui/system/audit', ['lines' => $lines, 'tone' => 'info', 'chip' => Words::HOME['to_look'],
+                    'unit' => sprintf(Words::TASK['watch']['unit'][count($watch) === 1 ? 0 : 1], Html::int(\CW\Admin\AuditSearch::DEFAULT_DAYS))]);
+            }
+        }
+        // Sign-in set-ups closed after too many wrong tries (I5, Y42): the admin makes a new sheet; a reviewer asks the person.
+        $closed = is_array($f['setup_closed'] ?? null) ? $f['setup_closed'] : [];
+        if ($closed !== [] && ($can('staff.manage') || $can('staff.approve'))) {
+            $admin = $can('staff.manage');
+            $one = count($closed) === 1;
+            $out[] = self::counted('setup_closed', count($closed),
+                $admin ? ($one ? '/ui/people/' . (int) $closed[0]['id'] : '/ui/people') : Html::url('/ui/system/audit', ['action' => 'staff.setup_closed']),
+                ['button' => self::word('setup_closed', $admin && $one ? 'button_admin' : 'button'), 'tone' => 'blocked']);
         }
 
         $ranked = [];
@@ -296,6 +326,18 @@ final class HomeTasks
             $jobs[] = $card + ['job' => $n + 1] + ($n === 0 ? ['hero' => true] : []);
         }
         return ['jobs' => $jobs, 'notes' => $notes];
+    }
+
+    /** One line of the "changes to look at" card. @param array<string, mixed> $w */
+    private static function watchLine(array $w): string
+    {
+        $who = $w['who'] ?? Words::WATCH['server'];
+        $at = Html::when((string) $w['at']);
+        return match ($w['action']) {
+            'staff.create' => sprintf(Words::WATCH['staff.create'], $at, $who, (string) ($w['person'] ?? '')),
+            'staff.reset' => sprintf(Words::WATCH['staff.reset'], $at, $who, (string) ($w['person'] ?? '')),
+            default => sprintf(Words::WATCH['loosened'], $at, $who, (string) ($w['rule'] ?? '')),
+        };
     }
 
     /** A card with a count, or null when nothing waits (the card is left out). @param array<string, mixed> $over */

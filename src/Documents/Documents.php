@@ -233,16 +233,17 @@ final class Documents
 
     /**
      * Reverses a posted document voluntarily (a correction: I18). Needs doc.<TYPE>.post and a reason that applies to
-     * reversals (not CW's own; a note when the reason needs one). 409 not_reversible for a draft, a reversed document or
+     * reversals ($use: `reversal`, or the purchase-order screens' po_cancel / po_amend, Y51; not CW's own; a note when the reason
+     * needs one). 409 not_reversible for a draft, a reversed document or
      * a reversal; 409 reversal_pending while a reversal request of it waits for approval. A reversal that puts more
      * units back on hand than the "positive without a supplier document" limit waits for a blocking approval (I32:
      * awaiting_approval, nothing numbered or booked); otherwise it is posted now and reviewed under the type's rule (its
      * units: what it moved). Returns the reversal.
      */
-    public function reverse(Caller $caller, int $id, string $reasonCode, ?string $note): Document
+    public function reverse(Caller $caller, int $id, string $reasonCode, ?string $note, string $use = 'reversal'): Document
     {
         $note = self::optText($note, 'note', 1000);
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $reasonCode, $note): Document {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $reasonCode, $note, $use): Document {
             $me = $this->staff($caller);
             $row = $this->lock($id);
             $t = $this->typeRow((string) $row['doc_type']);
@@ -261,7 +262,7 @@ final class Documents
                 throw new CwException('reversal_pending', "{$doc->label()} already has a reversal waiting for approval: a reviewer decides it, "
                     . 'or its requester withdraws it', 409, ['reversal_id' => (int) $pending]);
             }
-            $reason = $this->reason($reasonCode, 'reversal', 'reason_code', true);
+            $reason = $this->reason($reasonCode, $use, 'reason_code', true);
             if ((int) $reason['needs_note'] === 1 && $note === null) {
                 throw new CwException('note_required', "the reason {$reasonCode} needs a note", 422, ['field' => 'note']);
             }
@@ -322,7 +323,9 @@ final class Documents
                 return $this->postReversal(Caller::staff($requester), $requester, $orig, $doc->id, $t, $handler, 'approved', false, $reviewer);
             }
             $lines = $this->lines($doc->id);
-            $this->validateForPosting($doc, $lines);
+            // A record already waiting keeps the reasons it was sent with (M6): a reason switched off (or no longer offered for
+            // this kind) since then does not block the reviewer's OK; it stops new records only.
+            $this->validateForPosting($doc, $lines, true);
             $handler->validate($db, $doc, $lines);
             $this->decideTask($taskId, 'approved', $me['id'], $note, $now);
             Audit::write($db, $reviewer, 'document.approve', 'document', (string) $doc->id, null,
@@ -634,7 +637,8 @@ final class Documents
         $hash = $this->markPosted($doc, $lines, $number, $posterId, $poster->actor, $now, $approver === null ? 'not_required' : 'approved');
         $opKey = "doc:{$doc->id}:post";
         Audit::write($this->db, $approver ?? $poster, 'document.post', 'document', (string) $doc->id, $opKey,
-            ['type' => $doc->docType, 'number' => $number, 'lines' => count($lines), 'posted_hash' => $hash]
+            ['type' => $doc->docType, 'number' => $number, 'lines' => count($lines), 'posted_hash' => $hash,
+                'rule_version' => isset($t['rule_version']) ? (int) $t['rule_version'] : null]
             + ($approver === null ? [] : ['on_behalf_of' => $posterId, 'approved_by' => $approver->staffUserId]));
         $posted = $this->get($doc->id);
         $units = $handler->post($this->db, $posted, $lines, $poster, $opKey);
@@ -680,7 +684,8 @@ final class Documents
             [$doc->id, (string) $t['approval_rule'], $units, $staffId, $caller->actor, $now, self::dueAt($now, (int) $t['review_due_days'])],
         );
         Audit::write($this->db, $caller, 'document.submit', 'document', (string) $doc->id, null,
-            ['type' => $doc->docType, 'rule' => $t['approval_rule'], 'units' => $units, 'limit' => (int) $t['approval_limit_units']]);
+            ['type' => $doc->docType, 'rule' => $t['approval_rule'], 'units' => $units, 'limit' => (int) $t['approval_limit_units'],
+                'rule_version' => isset($t['rule_version']) ? (int) $t['rule_version'] : null]);
         return $this->get($doc->id);
     }
 
@@ -760,7 +765,8 @@ final class Documents
         $opKey = "doc:{$revId}:reverse";
         Audit::write($this->db, $approver ?? $poster, 'document.reverse', 'document', (string) $revId, $opKey,
             ['type' => $orig->docType, 'number' => $number, 'reverses' => $orig->id, 'reverses_number' => $orig->number, 'reason' => $draft->reasonCode,
-                'note' => $draft->note, 'posted_hash' => $hash] + ($approver === null ? [] : ['on_behalf_of' => $posterId, 'approved_by' => $approver->staffUserId]));
+                'note' => $draft->note, 'posted_hash' => $hash, 'rule_version' => isset($t['rule_version']) ? (int) $t['rule_version'] : null]
+                + ($approver === null ? [] : ['on_behalf_of' => $posterId, 'approved_by' => $approver->staffUserId]));
         $reversal = $this->get($revId);
         $handler->reverse($this->db, $orig, $reversal, $lines, $poster, $opKey);
         $this->moves->reverseDocument($poster, $orig->id, ['document_id' => $revId, 'doc_ref' => $number], $opKey);
@@ -789,7 +795,7 @@ final class Documents
         );
         Audit::write($this->db, $caller, 'document.submit', 'document', (string) $revId, null,
             ['type' => $orig->docType, 'rule' => 'positive_without_supplier_doc', 'units' => $units, 'limit' => $limit, 'reverses' => $orig->id,
-                'reverses_number' => $orig->number, 'reason' => $reasonCode, 'note' => $note]);
+                'reverses_number' => $orig->number, 'reason' => $reasonCode, 'note' => $note, 'rule_version' => isset($t['rule_version']) ? (int) $t['rule_version'] : null]);
         return $this->get($revId);
     }
 
@@ -967,7 +973,9 @@ final class Documents
     {
         // Read on every use, never kept: the rules are changed on the Approval rules page (0019, Y10) and a long-lived service
         // must apply the rules in force now.
-        $r = $this->db->one('SELECT * FROM document_type WHERE code = ?', [$code]);
+        // With the version of the rule in force (one statement: the row and its history agree), for the posting's audit row (M10).
+        $r = $this->db->one("SELECT t.*, (SELECT MAX(c.version) FROM config_change c WHERE c.subject_type = 'document_rule' AND c.subject_key = t.code) AS rule_version "
+            . 'FROM document_type t WHERE t.code = ?', [$code]);
         if ($r === null) {
             throw new CwException('unknown_type', "there is no document type {$code}", 400, ['type' => mb_substr($code, 0, 16)]);
         }
@@ -984,17 +992,20 @@ final class Documents
     /**
      * The checks every posting makes whatever its type, again at posting time (a draft may be days old): lines exist,
      * reason codes are still active and applicable, notes are there where a reason needs one, items are not merged.
+     * $waiting: a reviewer's OK of a record that waited for it (approve()): its reasons were checked when it was sent, and a
+     * reason switched off or no longer offered for this kind since then does not block the OK (review finding M6, Y52); the
+     * reason must still exist and still needs its note.
      *
      * @param list<array<string, mixed>> $lines
      */
-    private function validateForPosting(Document $doc, array $lines): void
+    private function validateForPosting(Document $doc, array $lines, bool $waiting = false): void
     {
         if ($lines === []) {
             throw new CwException('no_lines', "{$doc->label()} has no lines", 422);
         }
         $use = self::REASON_USE[$doc->docType] ?? null;
         if ($doc->reasonCode !== null) {
-            $r = $this->reason($doc->reasonCode, $use, 'reason_code', true);
+            $r = $this->reason($doc->reasonCode, $use, 'reason_code', true, $waiting);
             if ((int) $r['needs_note'] === 1 && $doc->note === null) {
                 throw new CwException('note_required', "the reason {$doc->reasonCode} needs a note", 422, ['field' => 'note']);
             }
@@ -1002,7 +1013,7 @@ final class Documents
         $skus = [];
         foreach ($lines as $l) {
             if ($l['reason_code'] !== null) {
-                $r = $this->reason($l['reason_code'], $use, "lines[{$l['line_no']}].reason_code", true);
+                $r = $this->reason($l['reason_code'], $use, "lines[{$l['line_no']}].reason_code", true, $waiting);
                 if ((int) $r['needs_note'] === 1 && $l['description'] === null && $doc->note === null) {
                     throw new CwException('note_required', "line {$l['line_no']}: the reason {$l['reason_code']} needs a description or a document note", 422,
                         ['line' => $l['line_no']]);
@@ -1032,15 +1043,21 @@ final class Documents
     /**
      * A reason code as a document may use it: known (422 unknown_reason), applying to $use (422 reason_not_applicable;
      * null = the type carries no reasons), active (422 reason_inactive), and when chosen by staff not CW's own (422
-     * reason_system_only).
+     * reason_system_only). $waiting (a record already waiting for its OK, M6): only known and not CW's own.
      *
      * @return array<string, mixed>
      */
-    private function reason(string $code, ?string $use, string $field, bool $staffChoice): array
+    private function reason(string $code, ?string $use, string $field, bool $staffChoice, bool $waiting = false): array
     {
         $r = $this->db->one('SELECT code, applies_to, needs_note, system_only, is_active FROM reason_code WHERE code = ?', [$code]);
         if ($r === null) {
             throw new CwException('unknown_reason', "{$field}: there is no reason code " . mb_substr($code, 0, 40), 422, ['field' => $field]);
+        }
+        if ($waiting) {
+            if ($staffChoice && (int) $r['system_only'] === 1) {
+                throw new CwException('reason_system_only', "{$field}: {$code} is set by CW itself, never chosen on a form", 422, ['field' => $field]);
+            }
+            return $r;
         }
         if ($use === null || !in_array($use, explode(',', (string) $r['applies_to']), true)) {
             throw new CwException('reason_not_applicable', "{$field}: {$code} is not a reason for " . ($use === null ? 'this document type' : str_replace('_', ' ', $use) . 's'), 422,

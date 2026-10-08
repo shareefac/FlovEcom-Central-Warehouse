@@ -53,7 +53,9 @@ final class WordsTest extends TestCase
             'DOC_STATUS' => Document::STATUSES,
             'PO_STATE' => ['draft', 'awaiting_approval', ...PurchaseOrders::STATES],
             'SEND_VIA' => array_keys(PurchaseOrders::SEND_VIA),
-            'REASON' => array_values(array_unique([...PurchaseOrders::CANCEL_REASONS, ...PurchaseOrders::AMEND_REASONS])),
+            'REASON' => ['not_needed', 'supplier_cannot_supply', 'entered_in_error', 'duplicate', 'po_amended', 'other'],
+            'REASON_USE' => array_values(\CW\Admin\ReasonCodes::USES),
+            'RESET_KIND' => \CW\Staff\RoleRequests::KINDS,
             'SUPPLIER_STATUS' => Suppliers::STATUSES,
             'CHECK_REASON' => ['all_documents', 'over_limit', 'positive_without_supplier_doc', ...Suppliers::APPROVAL_REASONS, 'import_route', 'supplier_changed',
                 'company_changed'],
@@ -438,15 +440,16 @@ final class WordsTest extends TestCase
         foreach ([
             'PERMISSION' => array_keys(Permissions::MAP),
             'RULE' => [...array_keys(\CW\Admin\ApprovalRules::SWITCHES), ...array_keys(\CW\Admin\ApprovalRules::NUMBERS)],
-            'CONFIG_ACTION' => ['baseline', 'add', 'change', 'agree', 'unagree', 'rename', 'switch_off', 'switch_on', 'sellable', 'owner'],
+            'CONFIG_ACTION' => ['baseline', 'add', 'change', 'agree', 'unagree', 'rename', 'switch_off', 'switch_on', 'sellable', 'owner', 'uses'],
             'WHY_NOT_EMPTY' => ['stock', 'website', 'records', 'counts'],
             'MODE' => \CW\ChannelAdmin::MODES,
             'SITE_COMMAND' => array_column(\CW\Admin\Sites::commands(['code' => 'vapeandgo', 'mode' => 'off', 'writer' => false]), 'what'),
             'CONFIG_ERROR' => ['bad_reason', 'changed_meanwhile', 'role_not_allowed', 'bad_value', 'bad_limit', 'bad_days', 'bad_rule', 'limit_required',
                 'no_approval_rule', 'bad_reject_action', 'bad_code_reason', 'bad_code_warehouse', 'bad_code_place', 'bad_label', 'bad_name', 'bad_note', 'bad_owner',
                 'bad_uses', 'bad_direction', 'reason_exists', 'reason_locked', 'warehouse_exists', 'place_exists', 'system_warehouse', 'warehouse_off',
-                'other_not_sellable', 'confirm_needed', 'warehouse_in_use', 'sellable_warehouse', 'warehouse_not_empty', 'place_in_use'],
-            'STAFF' => ['request_open', 'bad_name', 'bad_email', 'staff_exists', 'bad_session'],
+                'other_not_sellable', 'confirm_needed', 'warehouse_in_use', 'sellable_warehouse', 'warehouse_not_empty', 'place_in_use', 'owner_not_empty',
+                'loosen_needs_reviewer', 'reject_record_only', 'unconfirmed'],
+            'STAFF' => ['request_open', 'bad_name', 'bad_email', 'staff_exists', 'bad_session', 'not_set_up', 'already_set_up', 'code_refused_open', 'code_reset_open'],
             'STAFF_REQUESTS' => ['own_request', 'own_account', 'request_closed', 'note_required', 'role_not_allowed'],
             'ERROR' => ['no_setting', 'no_reason', 'no_warehouse', 'no_request'],
         ] as $group => $codes) {
@@ -462,7 +465,8 @@ final class WordsTest extends TestCase
         }
         foreach ([Words::CONFIG_ERROR, Words::SETTING_NOTICE, Words::REASON_NOTICE, Words::WAREHOUSE_NOTICE, Words::STAFF_REQUESTS] as $texts) {
             foreach ($texts as $code => $text) {
-                if (in_array($code, ['none', 'person', 'now', 'asked', 'by', 'on', 'ok', 'note', 'not_ok', 'yours'], true)) {
+                if (in_array($code, ['none', 'person', 'now', 'asked', 'by', 'on', 'ok', 'note', 'not_ok', 'yours', 'what', 'email', 'made', 'set_up', 'set_up_at',
+                    'set_up_not_yet', 'set_up_server', 'ok_reset', 'not_ok_reset'], true)) {
                     continue; // labels, not refusals
                 }
                 self::assertMatchesRegularExpression('/^[A-Z"].*[.:]$/s', $text, "{$code}: a full sentence (writing rule 7)");

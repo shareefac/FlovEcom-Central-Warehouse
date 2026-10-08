@@ -75,7 +75,7 @@ final class SettingsController
             $parts[] = sprintf(Words::SETTING_EDIT['one_of'], implode(', ', $rule['in']));
         }
         if (isset($rule['pattern'])) {
-            $parts[] = Words::SETTING_EDIT['sites'];
+            $parts[] = Words::SETTING_EDIT[$key === 'staff.sign_in_address' ? 'address' : 'sites'];
         }
         if (in_array($type, ['int', 'decimal', 'date', 'string'], true) && !isset($rule['min'])) {
             $parts[] = Words::SETTING_EDIT['empty'];

@@ -6,8 +6,12 @@ namespace CW\Staff;
 
 /**
  * RFC 6238 TOTP (SHA-1, 6 digits, 30 s: what every authenticator app reads from an otpauth:// URI)
- * and RFC 4648 base32 for the shared secret. The secret is stored encrypted (SecretBox) and shown
- * to its owner once, as the otpauth:// URI, by bin/create_staff.php.
+ * and RFC 4648 base32 for the shared secret. The secret is stored encrypted (SecretBox, staff_user.totp_secret_enc) and is
+ * shown once, as the otpauth:// URI: by bin/create_staff.php / bin/reset_staff.php on the server's terminal, or as a QR code on
+ * a sheet an admin hands over (StaffAdmin::enrol / newSheet / resetAuthenticator). A sheet's secret is never the person's for
+ * good (staff_user.totp_state `signup` / `reset`): it works once, and the person's OWN page then shows a fresh secret that only
+ * they see, confirmed with one code before any session (Staff\Enrolment; docs/decisions.md Y40-Y43). verify() refuses a step at
+ * or below the last one accepted (totp_last_step), so a code works once.
  */
 final class Totp
 {

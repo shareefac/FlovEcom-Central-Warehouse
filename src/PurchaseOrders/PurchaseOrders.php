@@ -47,9 +47,12 @@ final class PurchaseOrders
     public const SOURCES = ['manual', 'reorder', 'copy', 'amend', 'import_file', 'erp_seed'];
     public const SEND_VIA = ['email' => 'e-mail', 'portal' => 'supplier portal', 'phone' => 'phone', 'in_person' => 'in person', 'imported' => 'imported',
         'other' => 'other'];
-    /** Reasons a buyer gives when cancelling a posted PO (reversal reasons, spec 0010); po_amended is the amendment's own. */
-    public const CANCEL_REASONS = ['not_needed', 'supplier_cannot_supply', 'entered_in_error', 'duplicate', 'other'];
-    public const AMEND_REASONS = ['po_amended', 'supplier_cannot_supply', 'entered_in_error', 'other'];
+    /**
+     * Where a reason is offered on the order screens (reason_code.applies_to, 0019; review finding I6, Y51): cancelling a confirmed
+     * order (`cancel`), a draft or an order waiting for its OK (`draft_cancel`), correcting a confirmed order (`amend`). The lists
+     * come from the Reasons page (reasons()), never from the code: the owner adds, renames, switches off and places reasons there.
+     */
+    public const REASON_USES = ['cancel' => 'po_cancel', 'draft_cancel' => 'po_draft_cancel', 'amend' => 'po_amend'];
     /** The states in which goods are still expected (onOrder, applyReceipt). */
     public const OPEN_STATES = ['approved', 'sent', 'part_received'];
     public const STATES = ['approved', 'sent', 'part_received', 'received', 'closed', 'cancelled'];
@@ -393,13 +396,12 @@ final class PurchaseOrders
      * Cancels a PO: a draft is cancelled (the reason's label and the note as its cancel reason); an approval request is
      * withdrawn and cancelled by the person who asked for it (others: 409 awaiting_approval); a posted PO is reversed
      * (Documents::reverse: a cancellation document numbered in the PO series, reviewed like a PO; refused with 409
-     * po_has_receipts once goods were received: close it instead). Returns the PO.
+     * po_has_receipts once goods were received: close it instead). The reason is one the Reasons page offers for that kind of
+     * cancellation now (REASON_USES: po_draft_cancel before the order is confirmed, po_cancel after; 400 bad_reason), with its note
+     * when it needs one (422 note_required). Returns the PO.
      */
     public function cancel(Caller $caller, int $id, int $version, string $reason, ?string $note): Document
     {
-        if (!in_array($reason, self::CANCEL_REASONS, true)) {
-            throw new CwException('bad_reason', 'choose why the order is cancelled', 400, ['field' => 'reason_code']);
-        }
         return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $reason, $note): Document {
             $me = $this->poster($caller);
             $row = $this->lockPo($id);
@@ -408,13 +410,15 @@ final class PurchaseOrders
                 throw new CwException('not_cancellable', "{$this->label($row)} is itself a cancellation", 409);
             }
             $note = $note === null || trim($note) === '' ? null : trim($note);
-            $label = (string) $db->value('SELECT label FROM reason_code WHERE code = ?', [$reason]);
-            $text = mb_substr($label . ($note === null ? '' : ': ' . $note), 0, Documents::NOTE_MAX);
+            // The reason must be one the Reasons page offers for this kind of cancellation now (I6).
+            $use = self::REASON_USES[$row['status'] === 'posted' ? 'cancel' : 'draft_cancel'];
+            $r = self::reasonFor($db, $use, $reason, 'choose why the order is cancelled');
+            if ((int) $r['needs_note'] === 1 && $note === null) {
+                throw new CwException('note_required', 'say why in the note', 422, ['field' => 'note']);
+            }
+            $text = mb_substr((string) $r['label'] . ($note === null ? '' : ': ' . $note), 0, Documents::NOTE_MAX);
             switch ($row['status']) {
                 case 'draft':
-                    if ($reason === 'other' && $note === null) {
-                        throw new CwException('note_required', 'say why in the note', 422, ['field' => 'note']);
-                    }
                     return $this->docs->cancelDraft($caller, $id, $version, $text);
                 case 'awaiting_approval':
                     if ((int) $row['submitted_by'] !== $me['id']) {
@@ -425,12 +429,39 @@ final class PurchaseOrders
                     $doc = $this->docs->withdraw($caller, $task);
                     return $this->docs->cancelDraft($caller, $id, $doc->version, $text);
                 case 'posted':
-                    $this->docs->reverse($caller, $id, $reason, $note);
+                    $this->docs->reverse($caller, $id, $reason, $note, $use);
                     return $this->docs->get($id);
                 default:
                     throw new CwException('not_cancellable', "{$this->label($row)} is " . str_replace('_', ' ', (string) $row['status']) . ': nothing to cancel', 409);
             }
         });
+    }
+
+    /**
+     * The reasons the order screens offer for $use (REASON_USES): switched on, not CW's own, placed there on the Reasons page; in
+     * the page's order, with the name people read (the reason's own label: the Reasons page renames it).
+     *
+     * @return list<array{code: string, label: string, needs_note: bool}>
+     */
+    public static function reasons(Db $db, string $use): array
+    {
+        $out = [];
+        foreach ($db->all('SELECT code, label, needs_note FROM reason_code WHERE FIND_IN_SET(?, applies_to) > 0 AND is_active = 1 AND system_only = 0 '
+            . 'ORDER BY sort_order, code', [$use]) as $r) {
+            $out[] = ['code' => (string) $r['code'], 'label' => (string) $r['label'], 'needs_note' => (int) $r['needs_note'] === 1];
+        }
+        return $out;
+    }
+
+    /**
+     * A reason as the order screens may use it for $use now (400 bad_reason otherwise: unknown, not placed there, switched off, or
+     * CW's own). @return array<string, mixed> the reason_code row
+     */
+    private static function reasonFor(Db $db, string $use, string $code, string $why): array
+    {
+        $r = $db->one('SELECT code, label, needs_note FROM reason_code WHERE code = ? AND FIND_IN_SET(?, applies_to) > 0 AND is_active = 1 AND system_only = 0',
+            [$code, $use]);
+        return $r ?? throw new CwException('bad_reason', $why, 400, ['field' => 'reason_code']);
     }
 
     /**
@@ -457,11 +488,9 @@ final class PurchaseOrders
      */
     public function amend(Caller $caller, int $id, string $reason, ?string $note): Document
     {
-        if (!in_array($reason, self::AMEND_REASONS, true)) {
-            throw new CwException('bad_reason', 'choose why the order is amended', 400, ['field' => 'reason_code']);
-        }
         return $this->db->transaction(function (Db $db) use ($caller, $id, $reason, $note): Document {
             $this->poster($caller);
+            self::reasonFor($db, self::REASON_USES['amend'], $reason, 'choose why the order is amended');
             $row = $this->lockPo($id);
             if ($row['status'] !== 'posted' || $row['reverses_id'] !== null) {
                 throw new CwException('not_amendable', "{$this->label($row)} is " . ($row['reverses_id'] !== null ? 'a cancellation' : str_replace('_', ' ', (string) $row['status']))
@@ -470,7 +499,7 @@ final class PurchaseOrders
             $po = $this->poRow($id);
             $db->one('SELECT id FROM supplier WHERE id = ? FOR SHARE', [(int) $po['supplier_id']]);
             $lines = $this->copyLines($id, (int) $po['supplier_id']);
-            $rev = $this->docs->reverse($caller, $id, $reason, $note);
+            $rev = $this->docs->reverse($caller, $id, $reason, $note, self::REASON_USES['amend']);
             $new = $this->createDraft($caller, (int) $po['supplier_id'], ['external_ref' => $row['external_ref'], 'note' => $row['note'],
                 'expected_date' => $po['expected_date']], 'amend', $id);
             $new = $this->saveDraft($caller, $new->id, $new->version, [], $lines);

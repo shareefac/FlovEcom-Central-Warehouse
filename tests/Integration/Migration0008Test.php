@@ -32,7 +32,9 @@ final class Migration0008Test extends IntegrationTestCase
         foreach (['destroyed', 'unstamped_found', 'data_correction', 'other'] as $c) {
             self::assertSame(1, $flags($c)['needs_note'], $c);
         }
-        self::assertSame('adjustment,write_off,count,return,supplier_return,reversal', self::$db->value("SELECT applies_to FROM reason_code WHERE code = 'other'"));
+        // 0019 (Y51) adds the order screens' uses to the reasons they offered, `other` among them.
+        self::assertSame('adjustment,write_off,count,return,supplier_return,reversal,po_cancel,po_draft_cancel,po_amend',
+            self::$db->value("SELECT applies_to FROM reason_code WHERE code = 'other'"));
         self::assertSame(['increase', 'decrease', 'either'], [self::$db->value("SELECT direction FROM reason_code WHERE code = 'found'"),
             self::$db->value("SELECT direction FROM reason_code WHERE code = 'damaged'"), self::$db->value("SELECT direction FROM reason_code WHERE code = 'recount'")]);
         self::assertSame(['entered_in_error', 'duplicate', 'review_rejected', 'other'],

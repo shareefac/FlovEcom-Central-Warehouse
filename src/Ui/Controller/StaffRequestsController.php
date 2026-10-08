@@ -11,15 +11,18 @@ use CW\Ui\HtmlResponse;
 use CW\Ui\Words;
 
 /**
- * Staff access to OK (docs/decisions.md Y25): while the owner has the staff-grant rule on (approvals.staff_grant, the Approval
+ * Staff access to OK (docs/decisions.md Y25, Y44): while the owner has the staff-grant rule on (approvals.staff_grant, the Approval
  * rules page; off by default), an admin's grant of Admin or Reviewer waits here until a reviewer who neither asked for it nor is the
- * person says OK or Not OK (staff.approve; Staff\RoleRequests checks it all again). Home's card and the Approval rules page link
- * here; it has no menu item (empty while the rule is off).
+ * person says OK or Not OK (staff.approve; Staff\RoleRequests checks it all again); likewise a reset of the sign-in of someone with
+ * Admin or Reviewer while approvals.staff_reset is on. Each card says who the person is (e-mail, when the account was made) and
+ * whether and how they set up their sign-in: when, and from which address (review finding I1: a reviewer can tell an account an
+ * admin set up and used themselves). Home's card and the Approval rules page link here; it has no menu item.
  */
 final class StaffRequestsController
 {
     public const NOTICES = ['approved' => Words::STAFF_NOTICE['request_approved'], 'rejected' => Words::STAFF_NOTICE['request_rejected'],
-        'stale' => Words::STAFF_NOTICE['request_stale']];
+        'stale' => Words::STAFF_NOTICE['request_stale'], 'reset_approved' => Words::STAFF_NOTICE['reset_approved'],
+        'reset_rejected' => Words::STAFF_NOTICE['reset_rejected']];
 
     public function index(Context $ctx): HtmlResponse
     {
@@ -52,7 +55,8 @@ final class StaffRequestsController
         $rows = [];
         foreach ((new RoleRequests($ctx->db))->pending($ctx->me()->id) as $r) {
             $rows[] = $r + ['error' => $errorId === $r['id'] && $error !== null
-                ? (Words::STAFF_REQUESTS[$error->errorCode] ?? Words::error($error->errorCode, $error->getMessage())) : null];
+                ? (Words::STAFF_REQUESTS[$error->errorCode] ?? Words::error($error->errorCode, $error->getMessage())) : null,
+                'setup' => \CW\Staff\StaffAdmin::setupInfo($ctx->db, (int) $r['staff_user_id'])];
         }
         $general = $error !== null && !in_array($errorId, array_column($rows, 'id'), true)
             ? (Words::STAFF_REQUESTS[$error->errorCode] ?? Words::error($error->errorCode, $error->getMessage())) : null;

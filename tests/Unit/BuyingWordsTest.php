@@ -51,7 +51,10 @@ final class BuyingWordsTest extends TestCase
             'BARCODE_DECISION' => $decisions,
             'BARCODE_SOURCE' => [ItemBarcodes::SOURCE_MANUAL, BarcodeSync::SOURCE, BarcodeSeeder::SOURCE, Reband::SOURCE, 'review'],
             'SEND_VIA' => array_keys(PurchaseOrders::SEND_VIA),
-            'REASON' => [...PurchaseOrders::CANCEL_REASONS, ...PurchaseOrders::AMEND_REASONS],
+            // The fallback words of the reasons 0010 and 0008 seeded for the order screens (the screens show each reason's own name, I6).
+            'REASON' => ['not_needed', 'supplier_cannot_supply', 'entered_in_error', 'duplicate', 'po_amended', 'other'],
+            'REASON_USE' => array_values(\CW\Admin\ReasonCodes::USES),
+            'RESET_KIND' => \CW\Staff\RoleRequests::KINDS,
         ] as $group => $codes) {
             foreach ($codes as $code) {
                 self::assertTrue(Words::has($group, $code), "{$group}: no word for `{$code}`");

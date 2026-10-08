@@ -38,7 +38,9 @@ final class Migration0010Test extends IntegrationTestCase
 
     public function testTheReasonsAndSettings(): void
     {
-        self::assertSame([['po_amended', 'reversal', 0, 0], ['supplier_cannot_supply', 'reversal', 0, 0], ['not_needed', 'reversal', 0, 0]],
+        // 0019 (Y51) adds where the order screens offer them.
+        self::assertSame([['po_amended', 'reversal,po_amend', 0, 0], ['supplier_cannot_supply', 'reversal,po_cancel,po_draft_cancel,po_amend', 0, 0],
+            ['not_needed', 'reversal,po_cancel,po_draft_cancel', 0, 0]],
             array_map(static fn (array $r): array => [(string) $r['code'], (string) $r['applies_to'], (int) $r['needs_note'], (int) $r['system_only']],
                 self::$db->all("SELECT code, applies_to, needs_note, system_only FROM reason_code WHERE code IN ('po_amended', 'supplier_cannot_supply', 'not_needed') "
                     . 'ORDER BY sort_order')));

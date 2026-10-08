@@ -18,6 +18,11 @@ use CW\Db;
  * asked, if the person's jobs are still what they were) or Not OK (with a note). The admin who asked, or another admin, may
  * withdraw it. One open request per person. CLI tools (bin/reset_staff.php, bin/create_staff.php) stay the break-glass and never
  * wait. Every step is audited (staff.role_request, staff.roles with approved_by, staff.role_request_reject / _withdraw).
+ *
+ * Since Y44 the same table holds a reset of the sign-in of someone holding Admin or Reviewer while approvals.staff_reset is on
+ * (off by default): `kind` reset_code (a new sign-in code or sign-up sheet) or reset_password. A reviewer's OK applies nothing by
+ * itself (no secret is made for somebody who is not there to hand it over): it lets an admin carry the reset out ONCE within
+ * staff.setup_hours (`used_at`, StaffAdmin). Audit staff.reset_request, staff.reset_request_approve.
  */
 final class RoleRequests
 {
@@ -37,6 +42,72 @@ final class RoleRequests
     {
         return $caller->staffUserId !== null && array_intersect($added, ApprovalRules::GUARDED_ROLES) !== []
             && ApprovalRules::on($db, 'approvals.staff_grant');
+    }
+
+    /** The kinds of request (staff_role_request.kind). */
+    public const KINDS = ['roles', 'reset_code', 'reset_password'];
+
+    /**
+     * Whether a reset of a person's sign-in by $caller waits for a reviewer (approvals.staff_reset, Y44): a person at a screen,
+     * resetting someone who holds Admin or Reviewer now, while the rule is on.
+     *
+     * @param list<string> $roles the person's live jobs
+     */
+    public static function resetApplies(Db $db, Caller $caller, array $roles): bool
+    {
+        return $caller->staffUserId !== null && array_intersect($roles, ApprovalRules::GUARDED_ROLES) !== []
+            && ApprovalRules::on($db, 'approvals.staff_reset');
+    }
+
+    /**
+     * A reviewer's OK of a reset of $kind for the person, not used yet and given within staff.setup_hours: marked used now (inside the
+     * reset's transaction: a refused reset rolls it back) and its id returned; null when there is none.
+     */
+    public static function useApprovedReset(Db $db, int $staffUserId, string $kind): ?int
+    {
+        $hours = \CW\Settings::number($db, 'staff.setup_hours', 48);
+        $id = $db->value("SELECT id FROM staff_role_request WHERE staff_user_id = ? AND kind = ? AND state = 'approved' AND used_at IS NULL "
+            . 'AND decided_at > NOW(6) - INTERVAL ? HOUR ORDER BY id DESC LIMIT 1 FOR UPDATE', [$staffUserId, $kind, $hours]);
+        if ($id === null) {
+            return null;
+        }
+        $db->exec('UPDATE staff_role_request SET used_at = NOW(6) WHERE id = ? AND used_at IS NULL', [(int) $id]);
+        return (int) $id;
+    }
+
+    /**
+     * The reviewer's OK of a reset waiting to be carried out (the person's page): id, kind, who decided and when; null when none.
+     *
+     * @return array{id: int, kind: string, decided_by_name: ?string, decided_at: string}|null
+     */
+    public static function approvedReset(Db $db, int $staffUserId): ?array
+    {
+        $hours = \CW\Settings::number($db, 'staff.setup_hours', 48);
+        $r = $db->one("SELECT r.id, r.kind, r.decided_at, u.display_name FROM staff_role_request r LEFT JOIN staff_user u ON u.id = r.decided_by "
+            . "WHERE r.staff_user_id = ? AND r.kind <> 'roles' AND r.state = 'approved' AND r.used_at IS NULL AND r.decided_at > NOW(6) - INTERVAL ? HOUR "
+            . 'ORDER BY r.id DESC LIMIT 1', [$staffUserId, $hours]);
+        return $r === null ? null : ['id' => (int) $r['id'], 'kind' => (string) $r['kind'],
+            'decided_by_name' => $r['display_name'] === null ? null : (string) $r['display_name'], 'decided_at' => (string) $r['decided_at']];
+    }
+
+    /**
+     * Opens a request for a reset of $kind (inside StaffAdmin's transaction, the person's row locked). 409 request_open when any
+     * request waits for the person already.
+     *
+     * @param list<string> $roles the person's live jobs
+     */
+    public static function openReset(Db $db, Caller $caller, int $staffUserId, ?string $email, string $kind, array $roles): int
+    {
+        if ($db->value("SELECT id FROM staff_role_request WHERE staff_user_id = ? AND state = 'open'", [$staffUserId]) !== null) {
+            throw new CwException('request_open', 'a request about this person is already waiting for a reviewer: withdraw it first', 409);
+        }
+        $guarded = array_values(array_intersect($roles, ApprovalRules::GUARDED_ROLES));
+        $json = json_encode(array_values($roles), JSON_THROW_ON_ERROR);
+        $id = $db->insert('INSERT INTO staff_role_request (staff_user_id, kind, roles_before, roles_after, guarded, requested_by, requested_actor) '
+            . 'VALUES (?, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), ?, ?)',
+            [$staffUserId, $kind, $json, $json, json_encode($guarded, JSON_THROW_ON_ERROR), $caller->staffUserId, $caller->actor]);
+        Audit::write($db, $caller, 'staff.reset_request', 'staff_user', (string) $staffUserId, null, ['email' => $email, 'request' => $id, 'kind' => $kind]);
+        return $id;
     }
 
     /**
@@ -61,7 +132,8 @@ final class RoleRequests
     }
 
     /**
-     * A reviewer's decision. Approving applies the change asked for, as one transaction with the person's row locked (granted_by =
+     * A reviewer's decision. Approving a reset (kind reset_*) lets an admin carry it out once (StaffAdmin). Approving jobs applies
+     * the change asked for, as one transaction with the person's row locked (granted_by =
      * the admin who asked; the audit row staff.roles names the reviewer as actor and approved_by), unless the person's jobs changed
      * since it was asked: then it is withdrawn ("their jobs changed meanwhile"; result `stale`) and nothing else changes. Not OK
      * needs a note of 3-500 characters (400 note_required). 403 role_not_allowed (no staff.approve: a reviewer whose job Admin does
@@ -101,10 +173,19 @@ final class RoleRequests
             }
             $u = $db->one('SELECT id, email FROM staff_user WHERE id = ? FOR UPDATE', [$staffId]) ?? throw new \LogicException('the request names nobody');
             $now = (string) $db->value('SELECT NOW(6)');
+            $kind = (string) $r['kind'];
             if (!$approve) {
                 $db->exec("UPDATE staff_role_request SET state = 'rejected', decided_by = ?, decided_at = ?, decision_note = ? WHERE id = ?", [$me, $now, $note, $requestId]);
-                Audit::write($db, $caller, 'staff.role_request_reject', 'staff_user', (string) $staffId, null, ['request' => $requestId, 'note' => $note]);
-                return ['result' => 'rejected', 'staff_user_id' => $staffId];
+                Audit::write($db, $caller, 'staff.role_request_reject', 'staff_user', (string) $staffId, null, ['request' => $requestId, 'kind' => $kind, 'note' => $note]);
+                return ['result' => $kind === 'roles' ? 'rejected' : 'reset_rejected', 'staff_user_id' => $staffId];
+            }
+            if ($kind !== 'roles') {
+                // A reset: the OK lets an admin carry it out once (StaffAdmin); nothing secret is made here.
+                $db->exec("UPDATE staff_role_request SET state = 'approved', decided_by = ?, decided_at = ?, decision_note = ? WHERE id = ?",
+                    [$me, $now, $note === '' ? null : $note, $requestId]);
+                Audit::write($db, $caller, 'staff.reset_request_approve', 'staff_user', (string) $staffId, null,
+                    ['email' => $u['email'], 'request' => $requestId, 'kind' => $kind, 'requested_by' => $r['requested_by'] === null ? null : (int) $r['requested_by']]);
+                return ['result' => 'reset_approved', 'staff_user_id' => $staffId];
             }
             $before = self::roles($r['roles_before']);
             $after = Permissions::checkRoleSet(self::roles($r['roles_after']));
@@ -163,8 +244,8 @@ final class RoleRequests
     public function pending(?int $me = null): array
     {
         $out = [];
-        foreach ($this->db->all("SELECT r.*, u.display_name AS person, u.email, q.display_name AS requested_by_name FROM staff_role_request r "
-            . 'JOIN staff_user u ON u.id = r.staff_user_id LEFT JOIN staff_user q ON q.id = r.requested_by '
+        foreach ($this->db->all("SELECT r.*, u.display_name AS person, u.email, u.created_at AS person_created_at, q.display_name AS requested_by_name "
+            . 'FROM staff_role_request r JOIN staff_user u ON u.id = r.staff_user_id LEFT JOIN staff_user q ON q.id = r.requested_by '
             . "WHERE r.state = 'open' ORDER BY r.requested_at, r.id") as $r) {
             $out[] = self::row($r) + ['can' => $me !== null && (int) $r['staff_user_id'] !== $me && ($r['requested_by'] === null || (int) $r['requested_by'] !== $me)];
         }
@@ -174,8 +255,8 @@ final class RoleRequests
     /** @return array<string, mixed>|null the person's open request */
     public function openFor(int $staffUserId): ?array
     {
-        $r = $this->db->one("SELECT r.*, u.display_name AS person, u.email, q.display_name AS requested_by_name FROM staff_role_request r "
-            . 'JOIN staff_user u ON u.id = r.staff_user_id LEFT JOIN staff_user q ON q.id = r.requested_by '
+        $r = $this->db->one("SELECT r.*, u.display_name AS person, u.email, u.created_at AS person_created_at, q.display_name AS requested_by_name "
+            . 'FROM staff_role_request r JOIN staff_user u ON u.id = r.staff_user_id LEFT JOIN staff_user q ON q.id = r.requested_by '
             . "WHERE r.staff_user_id = ? AND r.state = 'open'", [$staffUserId]);
         return $r === null ? null : self::row($r);
     }
@@ -193,7 +274,8 @@ final class RoleRequests
     /** @param array<string, mixed> $r @return array<string, mixed> */
     private static function row(array $r): array
     {
-        return ['id' => (int) $r['id'], 'staff_user_id' => (int) $r['staff_user_id'], 'person' => (string) $r['person'], 'email' => $r['email'],
+        return ['id' => (int) $r['id'], 'kind' => (string) ($r['kind'] ?? 'roles'), 'staff_user_id' => (int) $r['staff_user_id'], 'person' => (string) $r['person'],
+            'email' => $r['email'], 'person_created_at' => isset($r['person_created_at']) ? (string) $r['person_created_at'] : null,
             'before' => self::roles($r['roles_before']), 'after' => self::roles($r['roles_after']), 'guarded' => self::roles($r['guarded']),
             'requested_by' => $r['requested_by'] === null ? null : (int) $r['requested_by'], 'requested_by_name' => $r['requested_by_name'],
             'requested_at' => (string) $r['requested_at']];

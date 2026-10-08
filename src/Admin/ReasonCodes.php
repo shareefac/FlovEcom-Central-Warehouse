@@ -10,16 +10,18 @@ use CW\CwException;
 use CW\Db;
 
 /**
- * The reasons for stock changes (reason_code, 0008; docs/decisions.md I22, Y12): an admin or a reviewer (settings.manage) adds a
- * reason, renames one, or switches one off or on again, with a reason for the change. A reason is never deleted (documents name
- * it: Q9), and what a reason is (its code, where it is used, which way it moves stock, whether it needs a note or is a free gift)
- * is fixed once it is added: renaming changes only the words people read. The reasons set by CW itself (system_only:
- * opening_rebase, review_rejected) are locked. A switched-off reason is not offered and is refused when a record is posted
- * (Documents: 422 reason_inactive); records that used it keep it. Every change is a config_change version and an audit row.
+ * The reasons for stock changes and for cancelling or correcting orders (reason_code, 0008; docs/decisions.md I22, Y12, Y51): an
+ * admin or a reviewer (settings.manage) adds a reason, renames one, says where it is offered (setUses: the stock records, the
+ * cancellations, and the order screens' three lists, review finding I6), or switches one off or on again, with a reason for the
+ * change. A reason is never deleted (documents name it: Q9); its code, which way it moves stock and whether it needs a note or is a
+ * free gift are fixed once it is added. The reasons set by CW itself (system_only: opening_rebase, review_rejected) are locked. A
+ * switched-off reason is not offered and is refused when a NEW record is made final (Documents: 422 reason_inactive); records that
+ * used it keep it, and a record already waiting for a reviewer's OK still gets its OK (M6, Y52). Every change is a config_change
+ * version and an audit row.
  */
 final class ReasonCodes
 {
-    public const USES = ['adjustment', 'write_off', 'count', 'return', 'supplier_return', 'reversal'];
+    public const USES = ['adjustment', 'write_off', 'count', 'return', 'supplier_return', 'reversal', 'po_cancel', 'po_draft_cancel', 'po_amend'];
     public const DIRECTIONS = ['increase', 'decrease', 'either'];
     public const LABEL_MAX = 100;
     /** New reasons go before `other` (999), which stays last. */
@@ -73,11 +75,7 @@ final class ReasonCodes
             throw new CwException('bad_code', 'a reason code is 2 to 32 lower-case letters, digits or _, starting with a letter', 400, ['field' => 'code']);
         }
         $label = self::label($label);
-        $uses = array_values(array_unique(array_map('strval', $uses)));
-        if ($uses === [] || array_diff($uses, self::USES) !== []) {
-            throw new CwException('bad_uses', 'choose where the reason is used: ' . implode(', ', self::USES), 400, ['field' => 'uses']);
-        }
-        usort($uses, static fn (string $a, string $b): int => array_search($a, self::USES, true) <=> array_search($b, self::USES, true));
+        $uses = self::uses($uses);
         if (!in_array($direction, self::DIRECTIONS, true)) {
             throw new CwException('bad_direction', 'the direction is increase, decrease or either', 400, ['field' => 'direction']);
         }
@@ -108,6 +106,22 @@ final class ReasonCodes
         $label = self::label($label);
         return $this->change($caller, $code, $reason, $seen, 'rename', static fn (array $before): array => ['label' => $label] + $before,
             static fn (Db $db) => $db->exec('UPDATE reason_code SET label = ? WHERE code = ?', [$label, $code]));
+    }
+
+    /**
+     * Where a reason is offered (Y51): a non-empty subset of USES (400 bad_uses). Records that used it keep it; a record already
+     * waiting for an OK still gets it (M6). 409 reason_locked for a reason CW sets itself, 404 unknown_reason, 409 changed_meanwhile.
+     *
+     * @param list<string> $uses
+     * @return array{changed: bool, reason: array<string, mixed>}
+     */
+    public function setUses(Caller $caller, string $code, array $uses, string $reason, ?int $seen = null): array
+    {
+        $reason = ConfigHistory::reason($reason);
+        $uses = self::uses($uses);
+        $set = implode(',', $uses);
+        return $this->change($caller, $code, $reason, $seen, 'uses', static fn (array $before): array => ['applies_to' => $set] + $before,
+            static fn (Db $db) => $db->exec('UPDATE reason_code SET applies_to = ? WHERE code = ?', [$set, $code]));
     }
 
     /**
@@ -148,6 +162,22 @@ final class ReasonCodes
                 ['code' => $code, 'before' => $before, 'after' => $after, 'reason' => $reason, 'version' => $v['version']]);
             return ['changed' => true, 'reason' => $this->get($code) ?? []];
         });
+    }
+
+    /**
+     * A non-empty subset of USES, in USES's order (the SET's order: the stored text and the history compare equal). 400 bad_uses.
+     *
+     * @param array<mixed> $uses
+     * @return list<string>
+     */
+    private static function uses(array $uses): array
+    {
+        $uses = array_values(array_unique(array_map('strval', $uses)));
+        if ($uses === [] || array_diff($uses, self::USES) !== []) {
+            throw new CwException('bad_uses', 'choose where the reason is used: ' . implode(', ', self::USES), 400, ['field' => 'uses']);
+        }
+        usort($uses, static fn (string $a, string $b): int => array_search($a, self::USES, true) <=> array_search($b, self::USES, true));
+        return $uses;
     }
 
     private static function label(string $label): string

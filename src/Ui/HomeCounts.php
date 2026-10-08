@@ -69,8 +69,46 @@ final class HomeCounts
                 'incidents' => (int) ($this->ctx->badges()['incidents_open'] ?? 0),
                 'integrity' => (new IntegrityRuns($this->ctx->db))->latest(),
                 'staff_requests' => (new RoleRequests($this->ctx->db))->decidableCount($this->ctx->me()->id, $this->ctx->me()->roles),
+                'watch' => $this->watch(),
+                'setup_closed' => array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['display_name']],
+                    $this->ctx->db->all('SELECT id, display_name FROM staff_user WHERE is_active = 1 AND setup_closed_at IS NOT NULL ORDER BY setup_closed_at DESC LIMIT 50')),
                 default => throw new \InvalidArgumentException("no Home fact {$key}"),
             };
+        }
+        return $out;
+    }
+
+    /**
+     * People added, sign-ins reset and approval rules made looser in the audit log's default window (AuditSearch::DEFAULT_DAYS: the
+     * card's button opens the same days), newest first (review finding I1): when, who did it, whom, which rule. One indexed read
+     * per action (ix_audit_action).
+     *
+     * @return list<array{at: string, action: string, who: ?string, person: ?string, rule: ?string}>
+     */
+    private function watch(): array
+    {
+        $db = $this->ctx->db;
+        $out = [];
+        foreach ($db->all(
+            'SELECT a.id, a.created_at, a.action, a.entity_id, CAST(a.detail AS CHAR) AS detail, u.display_name AS who, p.display_name AS person FROM audit_log a '
+            . 'LEFT JOIN staff_user u ON u.id = a.staff_user_id '
+            . "LEFT JOIN staff_user p ON a.entity_type = 'staff_user' AND p.id = CAST(a.entity_id AS UNSIGNED) "
+            . "WHERE a.action IN ('staff.create', 'staff.reset', 'setting.change', 'document_type.change') "
+            . 'AND a.created_at > NOW(6) - INTERVAL ' . \CW\Admin\AuditSearch::DEFAULT_DAYS . ' DAY ORDER BY a.id DESC LIMIT 200',
+        ) as $r) {
+            $action = (string) $r['action'];
+            $detail = json_decode((string) ($r['detail'] ?? ''), true);
+            $detail = is_array($detail) ? $detail : [];
+            $rule = null;
+            if ($action === 'setting.change' || $action === 'document_type.change') {
+                if (($detail['loosened'] ?? false) !== true) {
+                    continue;
+                }
+                $key = (string) $r['entity_id'];
+                $rule = $action === 'setting.change' ? (Words::RULE[$key]['title'] ?? Words::settingName($key)) : sprintf(Words::WATCH['rule_doc'], Words::docType($key, true));
+            }
+            $out[] = ['at' => (string) $r['created_at'], 'action' => $action, 'who' => $r['who'] === null ? null : (string) $r['who'],
+                'person' => $r['person'] === null ? null : (string) $r['person'], 'rule' => $rule];
         }
         return $out;
     }

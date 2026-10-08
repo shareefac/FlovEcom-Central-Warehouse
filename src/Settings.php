@@ -62,8 +62,13 @@ final class Settings
             'pattern_says' => 'channel codes separated by commas, like vapeandgo,electrofag (empty: none)'],
         // The set-it-yourself pack (0019, Y5-Y8): the spot-check size (KeySample), the staff set-up window, the reviewers asked for.
         'approvals.spot_check_size' => ['min' => 5, 'max' => 200],
-        'staff.setup_hours' => ['min' => 1, 'max' => 336],
+        // At most a week (review finding I5): a set-up window open longer is a longer chance to guess.
+        'staff.setup_hours' => ['min' => 1, 'max' => 168],
+        'staff.setup_max_fails' => ['min' => 1, 'max' => 20],
         'staff.min_reviewers' => ['min' => 1, 'max' => 10],
+        // The address printed on the sign-up sheets (review nit: never the Host header a request happened to carry).
+        'staff.sign_in_address' => ['pattern' => '#^https?://[A-Za-z0-9.-]{1,200}(:[0-9]{1,5})?$#D',
+            'pattern_says' => 'the address of the sign-in page without a path, like https://warehouse.example.com'],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];
@@ -283,8 +288,10 @@ final class Settings
      * no check, the CLI). A staff caller needs settings.manage (an admin or a reviewer, re-read inside the transaction); a CLI tool
      * (system caller) may. Writes value_json, provisional, updated_actor (the caller) and updated_at, the next config_change
      * version (`change`, or `agree` / `unagree` when only the mark moved) and audit setting.change {key, before, after, reason,
-     * version}. Nothing is written when neither the value nor the mark changes. A company.* key is refused (400
-     * company_details): the company details have their own screen and history since 0013 (I91).
+     * version, loosened when an approval rule became looser}. Nothing is written when neither the value nor the mark changes. A
+     * company.* key is refused (400 company_details): the company details have their own screen and history since 0013 (I91).
+     * Loosening an approval rule (Admin\ApprovalRules::loosens: a switch off, a smaller spot check) needs a Reviewer (403
+     * loosen_needs_reviewer, review finding I1); tightening it, or only marking it agreed, needs settings.manage as any change.
      *
      * @return array{changed: bool, before: mixed, after: mixed, version: int}
      */
@@ -311,6 +318,10 @@ final class Settings
             if ($before === $after && $provisional === $was) {
                 return ['changed' => false, 'before' => $before, 'after' => $after, 'version' => $version];
             }
+            $loosened = \CW\Admin\ApprovalRules::loosens($key, $before, $after);
+            if ($loosened) {
+                \CW\Admin\ApprovalRules::authoriseLoosening($db, $caller);
+            }
             $old = \CW\Admin\ConfigHistory::state($db, 'setting', $key);
             $db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON), provisional = ?, updated_actor = ?, updated_at = NOW(6) WHERE setting_key = ?',
                 [$json, $provisional, $caller->actor, $key]);
@@ -318,7 +329,8 @@ final class Settings
             $action = $before !== $after ? 'change' : ($provisional === 0 ? 'agree' : 'unagree');
             $v = \CW\Admin\ConfigHistory::record($db, $caller, 'setting', $key, $action, $old ?? $new, $new, $reason);
             Audit::write($db, $caller, 'setting.change', 'app_setting', $key, null, ['key' => $key, 'before' => $before, 'after' => $after, 'reason' => $reason,
-                'version' => $v['version']] + ($provisional !== $was ? ($provisional === 0 ? ['confirmed' => true] : ['agreed' => false]) : []));
+                'version' => $v['version']] + ($provisional !== $was ? ($provisional === 0 ? ['confirmed' => true] : ['agreed' => false]) : [])
+                + ($loosened ? ['loosened' => true] : []));
             $this->rows = null;
             return ['changed' => true, 'before' => $before, 'after' => $after, 'version' => $v['version']];
         });

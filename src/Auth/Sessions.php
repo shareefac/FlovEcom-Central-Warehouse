@@ -88,12 +88,18 @@ final class Sessions
         }
     }
 
-    /** Signs a person out everywhere, this browser included (password change, staff reset). Returns the sessions ended. */
+    /**
+     * Signs a person out everywhere, this browser included (password change, staff reset). Returns how many sessions were still
+     * LIVE (review nit: an idle or too old session that was never revoked is closed too, but not counted as "signed out").
+     */
     public function revokeAll(int $staffUserId): int
     {
-        return $this->db->exec(
-            'UPDATE staff_session SET revoked = 1, revoked_at = NOW(6) WHERE staff_user_id = ? AND revoked = 0',
+        $live = $this->db->exec(
+            'UPDATE staff_session SET revoked = 1, revoked_at = NOW(6) WHERE staff_user_id = ? AND revoked = 0 AND mfa_at IS NOT NULL '
+            . 'AND created_at > NOW(6) - INTERVAL ' . self::ABSOLUTE_SECONDS . ' SECOND AND last_seen_at > NOW(6) - INTERVAL ' . self::IDLE_SECONDS . ' SECOND',
             [$staffUserId],
         );
+        $this->db->exec('UPDATE staff_session SET revoked = 1, revoked_at = NOW(6) WHERE staff_user_id = ? AND revoked = 0', [$staffUserId]);
+        return $live;
     }
 }

@@ -113,7 +113,8 @@ final class GrantsTest extends IntegrationTestCase
         // Since 0019 (Y3) the screens change them: a reason is added, renamed or switched off (never deleted); a document type's
         // rules are updated (no type is added or removed: they come with their code).
         self::assertSame(['Select', 'Insert'], Grants::desired('reason_code'));
-        self::assertSame(['label' => ['Update'], 'is_active' => ['Update']], Grants::desiredColumns('reason_code'));
+        // Since the review fixes (Y51) also where a reason is offered (applies_to: the order screens' lists come from the Reasons page).
+        self::assertSame(['label' => ['Update'], 'applies_to' => ['Update'], 'is_active' => ['Update']], Grants::desiredColumns('reason_code'));
         self::assertSame(['Select'], Grants::desired('document_type'));
         self::assertSame(['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action'],
             array_keys(Grants::desiredColumns('document_type')));
@@ -204,12 +205,17 @@ final class GrantsTest extends IntegrationTestCase
             self::assertSame([], Grants::desiredColumns($t), $t);
             self::assertContains($t, Grants::APPEND_ONLY);
         }
-        self::assertSame(['Select', 'Insert'], Grants::desired('warehouse'));
-        self::assertSame(['name', 'is_sellable', 'is_active', 'stock_owner', 'owner_entity', 'note', 'updated_at'], array_keys(Grants::desiredColumns('warehouse')));
+        // A warehouse is added naming only its own columns (column-level INSERT, review nit of 8 Oct 2026): never is_system (MAIN, VERIFY,
+        // UNSTAMPED come by migration), never its id or times.
+        self::assertSame(['Select'], Grants::desired('warehouse'));
+        self::assertSame(['code' => ['Insert'], 'name' => ['Insert', 'Update'], 'is_sellable' => ['Insert', 'Update'], 'is_active' => ['Insert', 'Update'],
+            'stock_owner' => ['Insert', 'Update'], 'owner_entity' => ['Insert', 'Update'], 'note' => ['Insert', 'Update'], 'sort_order' => ['Insert'],
+            'updated_at' => ['Update']], Grants::desiredColumns('warehouse'));
         self::assertSame(['Select', 'Insert'], Grants::desired('warehouse_location'));
         self::assertSame(['name', 'is_active', 'note'], array_keys(Grants::desiredColumns('warehouse_location')));
         self::assertSame(['Select', 'Insert'], Grants::desired('staff_role_request'));
-        self::assertSame(['state', 'decided_by', 'decided_at', 'decision_note'], array_keys(Grants::desiredColumns('staff_role_request')));
+        // used_at: an approved reset carried out once (Y44).
+        self::assertSame(['state', 'decided_by', 'decided_at', 'decision_note', 'used_at'], array_keys(Grants::desiredColumns('staff_role_request')));
     }
 
     public function testApplyConvergesAndTheAppLoginIsLimited(): void
@@ -487,7 +493,7 @@ final class GrantsTest extends IntegrationTestCase
             'UPDATE document SET created_at = NOW(6)', "UPDATE review_task SET kind = 'approval'", 'UPDATE review_task SET opened_by = NULL',
             'UPDATE review_task SET subject_id = 1', 'UPDATE review_task SET units = 0',
             // Since 0019 (Y3) a reason is renamed or switched off and a type's rules change on the screens: nothing else of them.
-            "UPDATE reason_code SET applies_to = 'adjustment'", "UPDATE reason_code SET code = 'x'", 'UPDATE reason_code SET system_only = 0',
+            "UPDATE reason_code SET direction = 'either'", "UPDATE reason_code SET code = 'x'", 'UPDATE reason_code SET system_only = 0',
             "UPDATE document_type SET prefix = 'ZZ'", "UPDATE document_type SET name = 'x'",
         ] as $sql) {
             self::assertSame(self::COLUMN_DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
@@ -930,7 +936,8 @@ CW-" . sprintf('%06d', $b) . ",20
             $reasons = new \CW\Admin\ReasonCodes($app);
             $reasons->add($admin, 'seal', 'Broken seal', ['write_off'], 'decrease', false, false, 'found at the bench');
             $reasons->rename($reviewer, 'seal', 'Broken seal on the pack', 'clearer', 1);
-            $reasons->setActive($admin, 'seal', false, 'not used', 2);
+            $reasons->setUses($admin, 'seal', ['write_off', 'po_cancel'], 'also for cancelled orders', 2);
+            $reasons->setActive($admin, 'seal', false, 'not used', 3);
             $wh = new \CW\Admin\Warehouses($app);
             $w = $wh->add($admin, 'VPG2', 'VPG 2 room', false, false, 'other', 'VPG 2', null, 'the owner\'s second account');
             $place = $wh->addPlace($admin, self::warehouseId('MAIN'), 'OVERFLOW', 'Overflow room', null, 'part of the main stock');
@@ -938,15 +945,21 @@ CW-" . sprintf('%06d', $b) . ",20
             $wh->setActive($reviewer, $w['id'], true, 'back in use', 2);
             $wh->setPlaceActive($admin, $place['id'], false, 'not used now', 1);
             self::assertSame([], \CW\Admin\ConfigInvariants::check(self::$db));
+            // M1: a one-person approval reads its switch FOR SHARE as the app login (column-level UPDATE is enough for a locking read).
+            $locked = $app->transaction(static fn (Db $db): array => \CW\Admin\ApprovalRules::lockedSwitch($db, 'approvals.supplier_activation'));
+            self::assertSame(['on' => true, 'evidence' => null], $locked);
             self::assertSame(1, (new \CW\Ops\IntegrityRuns($app))->record(gmdate('Y-m-d H:i:s'), [], ['ms' => 1], 'system:test') > 0 ? 1 : 0);
             foreach (['UPDATE config_change SET reason = \'x\'', 'DELETE FROM config_change', 'UPDATE integrity_run SET ok = 1', 'DELETE FROM integrity_run',
                 'DELETE FROM warehouse', 'DELETE FROM warehouse_location', 'DELETE FROM staff_role_request'] as $sql) {
                 self::assertSame(self::DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
             }
             foreach (["UPDATE warehouse SET code = 'X'", 'UPDATE warehouse SET is_system = 0', 'UPDATE warehouse_location SET warehouse_id = 1',
-                'UPDATE staff_role_request SET staff_user_id = 1', "UPDATE staff_role_request SET roles_after = '[]'"] as $sql) {
+                'UPDATE staff_role_request SET staff_user_id = 1', "UPDATE staff_role_request SET roles_after = '[]'", "UPDATE staff_role_request SET kind = 'roles'",
+                // The app login never adds a system warehouse, nor names a warehouse's id (review nit of 8 Oct 2026).
+                "INSERT INTO warehouse (code, name, is_system) VALUES ('SYSX', 'Not ours to add', 1)", "INSERT INTO warehouse (id, code, name) VALUES (99, 'IDX', 'An id')"] as $sql) {
                 self::assertSame(self::COLUMN_DENIED, self::mysqlError(fn () => $app->exec($sql)), $sql);
             }
+            self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM warehouse WHERE code IN ('SYSX', 'IDX')"));
         } finally {
             foreach ($saved as $r) {
                 self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON), provisional = ?, updated_actor = ? WHERE setting_key = ?',
