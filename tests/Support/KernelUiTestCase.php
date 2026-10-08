@@ -154,12 +154,10 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * The main navigation of a page as the person sees it (I14, plan §2): section heading => its items, each
-     * ['label' => visible text, 'href' => link or null for a "coming in Phase ..." placeholder]. The visible text leaves out
-     * the words only a screen reader hears (.visually-hidden: "3 waiting for your second OK" after a badge is "3"). The first
-     * section is Home (its heading is hidden on screen: Home is a single link).
+     * The sidebar of a page as the person sees it (Ui\Sections; owner's request of 8 Oct 2026): section name => its link and the
+     * count shown after it (0 when none). The name leaves out the words only a screen reader hears (.visually-hidden) and the count.
      *
-     * @return array<string, list<array{label: string, href: ?string}>>
+     * @return array<string, array{href: string, count: int}>
      */
     protected static function nav(UiResponse $r): array
     {
@@ -167,19 +165,72 @@ abstract class KernelUiTestCase extends MappingTestCase
         $navs = $xp->query('//nav[@aria-label="Main"]');
         self::assertLessThanOrEqual(1, $navs === false ? 0 : $navs->length, 'one main menu per page');
         $out = [];
-        foreach ($xp->query('//nav[@aria-label="Main"]/div[contains(concat(" ", @class, " "), " menu-group ")]') ?: [] as $group) {
-            $label = trim((string) $xp->evaluate('string(span[@class="menu-label"])', $group));
-            $items = [];
-            foreach ($xp->query('a | span[@class="soon"]', $group) ?: [] as $item) {
-                /** @var \DOMElement $item */
-                $text = '';
-                foreach ($xp->query('.//text()[not(ancestor::*[contains(concat(" ", @class, " "), " visually-hidden ")])]', $item) ?: [] as $t) {
-                    $text .= $t->textContent;
-                }
-                $items[] = ['label' => trim((string) preg_replace('/\s+/u', ' ', $text)),
-                    'href' => $item->nodeName === 'a' ? $item->getAttribute('href') : null];
+        foreach ($xp->query('//nav[@aria-label="Main"]/ul[@class="nav"]/li/a[@class="nav-item"]') ?: [] as $a) {
+            /** @var \DOMElement $a */
+            $label = trim((string) $xp->evaluate('string(span[@class="nav-label"])', $a));
+            $out[$label] = ['href' => $a->getAttribute('href'), 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $a)->item(0))];
+        }
+        return $out;
+    }
+
+    /** The sidebar section marked current (aria-current), or null. */
+    protected static function currentSection(UiResponse $r): ?string
+    {
+        $xp = new \DOMXPath($r->dom());
+        $a = $xp->query('//nav[@aria-label="Main"]//a[@class="nav-item" and @aria-current="page"]')->item(0);
+        return $a === null ? null : trim((string) $xp->evaluate('string(span[@class="nav-label"])', $a));
+    }
+
+    /**
+     * The tab bar of a page (the current section's tabs, under its name): label, link (null for a tab not built yet), count and
+     * whether it is the current one.
+     *
+     * @return list<array{label: string, href: ?string, count: int, current: bool}>
+     */
+    protected static function sectionTabs(UiResponse $r): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $out = [];
+        foreach ($xp->query('//header[@class="pagebar"]/nav[@class="tabs"]/*[contains(concat(" ", @class, " "), " tab ")]') ?: [] as $t) {
+            /** @var \DOMElement $t */
+            $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $t)), 'href' => $t->nodeName === 'a' ? $t->getAttribute('href') : null,
+                'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ") and not(contains(@class, "soon"))]', $t)->item(0)),
+                'current' => $t->getAttribute('aria-current') === 'page'];
+        }
+        return $out;
+    }
+
+    /** @return list<string> the labels of the page's tabs (sectionTabs) */
+    protected static function tabLabels(UiResponse $r): array
+    {
+        return array_column(self::sectionTabs($r), 'label');
+    }
+
+    /** The label of the current tab, or null. */
+    protected static function currentTab(UiResponse $r): ?string
+    {
+        foreach (self::sectionTabs($r) as $t) {
+            if ($t['current']) {
+                return $t['label'];
             }
-            $out[$label] = $items;
+        }
+        return null;
+    }
+
+    /**
+     * The segmented filter of a page (inside a tab): label, link, count, current.
+     *
+     * @return list<array{label: string, href: string, count: int, current: bool}>
+     */
+    protected static function segments(UiResponse $r): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $out = [];
+        foreach ($xp->query('//nav[@class="seg"]/a[@class="seg-item"]') ?: [] as $a) {
+            /** @var \DOMElement $a */
+            $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $a)), 'href' => $a->getAttribute('href'),
+                'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $a)->item(0)),
+                'current' => $a->getAttribute('aria-current') === 'page'];
         }
         return $out;
     }
@@ -194,6 +245,19 @@ abstract class KernelUiTestCase extends MappingTestCase
             $out[] = ['label' => trim((string) $xp->evaluate('string(span[not(@class)])', $a)), 'href' => $a->getAttribute('href')];
         }
         return $out;
+    }
+
+    /** The text of a node without what only a screen reader hears ('' for none). */
+    private static function visibleText(\DOMXPath $xp, ?\DOMNode $node): string
+    {
+        if ($node === null) {
+            return '';
+        }
+        $text = '';
+        foreach ($xp->query('.//text()[not(ancestor::*[contains(concat(" ", @class, " "), " visually-hidden ")])]', $node) ?: [] as $t) {
+            $text .= $t->textContent;
+        }
+        return trim((string) preg_replace('/[\s,]+/u', '', $text));
     }
 
     protected static function statusOf(UiResponse $r): string

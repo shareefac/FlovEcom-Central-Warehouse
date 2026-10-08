@@ -12,10 +12,9 @@ use CW\Ui\Words;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The one permission map (I11, I12, I14, I16): every role and permission it names exists, every menu item points
- * at a real route guarded by the same permission (screens not built yet are named on Home instead), admin never posts,
- * reviews or decides, and the three people of the owner's acceptance test (buyer, purchasing desk, reviewer) see three
- * different menus.
+ * The one permission map (I11, I12, I14, I16): every role and permission it names exists, the screens not built yet are
+ * no routes (the Dashboard names them), and admin never posts, reviews or decides. The navigation built from it (every page a
+ * real route guarded by the same permission, the owner's acceptance test of three different menus) is SectionsTest.
  */
 final class PermissionsTest extends TestCase
 {
@@ -64,7 +63,8 @@ final class PermissionsTest extends TestCase
         }
     }
 
-    public function testEveryMenuItemIsAPermittedLiveRouteWithItsWords(): void
+    /** The screens not built yet are named on the Dashboard (Words::COMING_LATER) and are no routes yet. The navigation: SectionsTest. */
+    public function testTheScreensNotBuiltYetAreNoRoutes(): void
     {
         $kernel = new Kernel(static fn (): never => throw new \RuntimeException('no database'), static fn (): ?string => null, static function (): void {
         });
@@ -74,44 +74,10 @@ final class PermissionsTest extends TestCase
                 $gets[$route->pattern] = $route->access;
             }
         }
-        $keys = [];
-        foreach (Permissions::MENU as $section) {
-            self::assertArrayHasKey($section['section'], Words::SECTION, 'every section has its heading');
-            self::assertNotSame([], $section['items'], $section['section']);
-            foreach ($section['items'] as $item) {
-                $what = "{$section['section']} / {$item['key']}";
-                self::assertArrayHasKey($item['perm'], Permissions::MAP, $what);
-                self::assertSame([], array_diff(array_keys($item), ['perm', 'key', 'path', 'query', 'badge']), $what);
-                self::assertArrayHasKey($item['path'], $gets, "{$what}: a real GET route");
-                self::assertTrue($gets[$item['path']] === $item['perm'] || $gets[$item['path']] === 'any',
-                    "{$what}: the menu shows the item to exactly the people the route lets in");
-                self::assertArrayHasKey($item['key'], Words::MENU, "{$what}: its name");
-                self::assertArrayHasKey($item['key'], Words::MENU_HELP, "{$what}: its line on Home");
-                $keys[] = $item['key'];
-                if (isset($item['badge'])) {
-                    self::assertContains($item['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open'],
-                        "{$what}: a count Ui\\Context::badges() computes");
-                    self::assertArrayHasKey($item['badge'], Words::BADGE, "{$what}: the words a screen reader hears");
-                }
-            }
-        }
-        self::assertSame(array_values(array_unique($keys)), $keys, 'a key marks one item');
-        self::assertSame(['home', 'check', 'match', 'buy', 'receive', 'products', 'records', 'staff', 'settings'], array_column(Permissions::MENU, 'section'),
-            'the owner\'s daily work first (plan §2.1); Deliveries after Buying since IM6');
-        self::assertSame(['Home', 'To check', 'Match products', 'Buying', 'Deliveries', 'Products', 'Records', 'Staff', 'Settings'],
-            array_map(static fn (string $k): string => Words::SECTION[$k], array_column(Permissions::MENU, 'section')));
-        // The screens not built yet are not in the menu: Home names them (Words::COMING_LATER), they are no routes yet.
         foreach (Permissions::COMING_LATER as $later) {
             self::assertArrayHasKey($later['perm'], Permissions::MAP);
             self::assertArrayHasKey($later['key'], Words::COMING_LATER);
             self::assertNotContains($later['perm'], array_values($gets), "{$later['key']}: no screen yet");
-        }
-        foreach (Permissions::LIFT as $key => $rule) {
-            self::assertContains($key, array_column(Permissions::MENU, 'section'));
-            self::assertArrayHasKey($rule['needs'], Permissions::MAP);
-            foreach ($rule['unless'] as $p) {
-                self::assertArrayHasKey($p, Permissions::MAP);
-            }
         }
     }
 
@@ -143,9 +109,6 @@ final class PermissionsTest extends TestCase
             self::assertTrue(Permissions::can([$role], 'reference.view'), "{$role} reads the company details");
         }
         self::assertTrue(Permissions::can(['reviewer', 'mapping_lead'], 'company.edit'), "the owner's roles on staging");
-        $settings = array_values(array_filter(Permissions::MENU, static fn (array $s): bool => $s['section'] === 'settings'))[0]['items'];
-        self::assertSame(['Company details', 'reference.view', 'company', '/ui/reference/company'],
-            [Words::MENU[$settings[0]['key']], $settings[0]['perm'], $settings[0]['key'], $settings[0]['path']], 'first under Settings: one of the owner\'s open jobs');
     }
 
     /** The item card (IM3, I109, provisional): everyone reads cards and barcodes; the catalogue team changes them; never admin. */
@@ -157,13 +120,6 @@ final class PermissionsTest extends TestCase
             self::assertTrue(Permissions::can([$role], 'catalogue.view'), "{$role} reads item cards");
         }
         self::assertFalse(Permissions::can(['admin', 'stock_controller'], 'catalogue.edit'), 'a set breaking the admin rule is read fail-closed');
-        $items = array_values(array_filter(Permissions::MENU, static fn (array $s): bool => $s['section'] === 'products'))[0]['items'];
-        self::assertSame([['cards', 'catalogue.view', '/ui/items/cards'], ['barcodes', 'catalogue.edit', '/ui/items/barcodes']],
-            array_map(static fn (array $i): array => [$i['key'], $i['perm'], $i['path']], $items));
-        self::assertSame('barcodes_open', $items[1]['badge']);
-        $products = static fn (array $roles): array => array_column(array_values(array_filter(Permissions::menu($roles), static fn (array $s): bool => $s['key'] === 'products'))[0]['items'], 'label');
-        self::assertSame(['Product list'], $products(['buyer']), 'the barcodes to check are for the people who decide them');
-        self::assertSame(['Product list', 'Barcodes to check'], $products(['stock_controller']));
     }
 
     public function testAdminNeverPostsReviewsOrDecides(): void
@@ -254,66 +210,17 @@ final class PermissionsTest extends TestCase
         Permissions::can(['admin'], 'staff.mange');
     }
 
-    /**
-     * The owner's acceptance test (I-1 §4.4), on the map: buyer, desk and reviewer see three different menus; since the I-2
-     * suppliers task the desk and the reviewer see Buying too (I40), and the auditor reads it. The menu is task-based (plan §2).
-     */
-    public function testBuyerDeskAndReviewerSeeDifferentMenus(): void
+    /** What the Dashboard's "Coming later" names for each job (the screens not built yet). */
+    public function testComingLaterNamesTheScreensNotBuiltYet(): void
     {
-        $sections = static fn (array $roles): array => array_column(Permissions::menu($roles), 'section');
-        self::assertSame(['Home', 'Buying', 'Products', 'Records', 'Settings'], $sections(['buyer']));
-        self::assertSame(['Home', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], $sections(['purchasing_desk']));
-        self::assertSame(['Home', 'To check', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], $sections(['reviewer']),
-            'the reviewer reads the receipts it reviews and the incidents (IM6, I141)');
-        self::assertSame(['Home', 'Staff', 'Match products', 'Products', 'Settings'], $sections(['admin']), 'Staff lifted: the admin\'s work');
-        self::assertSame(['Home', 'Match products', 'Buying', 'Deliveries', 'Products', 'Records', 'Staff', 'Settings'], $sections(['auditor']));
-        self::assertSame(['Home', 'To check', 'Match products', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'],
-            $sections(['mapper', 'purchasing_manager', 'reviewer']), 'several roles: the union, in menu order');
-        self::assertSame(['Home', 'To check', 'Match products', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], $sections(['mapping_lead', 'reviewer']),
-            'the owner\'s daily view (plan §2.2)');
-        self::assertSame(['Home', 'Products', 'Buying', 'Deliveries', 'Records', 'Settings'], $sections(['stock_controller']), 'Products lifted: no matching, buying or checking work');
-        self::assertSame(['Home', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], $sections(['purchasing_manager']), 'a purchasing manager buys: no lift');
-        self::assertSame(['Home', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], $sections(['goods_in']), 'goods in: the bench (IM6)');
-        self::assertSame(['Home', 'Match products', 'Products', 'Settings'], $sections(['mapping_lead']), 'a matching lead matches: no lift');
-        self::assertSame(['Home', 'Match products', 'Products', 'Records', 'Settings'], $sections(['warehouse']));
-        self::assertSame(['Home', 'Match products', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], $sections(['manager']));
-        self::assertSame(['Home', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], $sections(['accountant']), 'the accountant reads the receipts');
-        self::assertSame([], Permissions::menu([]), 'no roles, no menu');
-        self::assertNotSame(Permissions::menu(['buyer']), Permissions::menu(['purchasing_desk']));
-
-        $buyer = Permissions::menu(['buyer']);
-        self::assertSame(['What to buy', 'Purchase orders', 'Suppliers', 'Sales data'], array_column($buyer[1]['items'], 'label'));
-        self::assertSame(['/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers', '/ui/purchasing/sales-history'],
-            array_column($buyer[1]['items'], 'path'), 'every Buying item is live (the suppliers, pos and reorder tasks)');
-        $desk = Permissions::menu(['purchasing_desk']);
-        self::assertSame(['Purchase orders', 'Suppliers'], array_column($desk[1]['items'], 'label'), 'no what to buy for the desk');
-        self::assertSame(['Receive + invoice', 'Goods-in bench', 'Incidents'], array_column($desk[2]['items'], 'label'));
-        self::assertSame(['/ui/receiving', '/ui/receiving/bench', '/ui/receiving/incidents'], array_column($desk[2]['items'], 'path'), 'live since IM6 (I141)');
-        self::assertSame('incidents_open', $desk[2]['items'][2]['badge'] ?? null);
-        self::assertSame(['invoices', 'returns', 'trade'], Permissions::comingLater(['purchasing_desk']), 'named on Home, not in the menu; receiving is built');
+        self::assertSame(['invoices', 'returns', 'trade'], Permissions::comingLater(['purchasing_desk']), 'named on the Dashboard; receiving is built');
         self::assertSame([], Permissions::comingLater(['goods_in']));
         self::assertSame([], Permissions::comingLater(['buyer']));
         self::assertSame(['counts', 'adjustments'], Permissions::comingLater(['stock_controller']));
-        $reviewer = Permissions::menu(['reviewer']);
-        self::assertSame(['Waiting for me'], array_column($reviewer[1]['items'], 'label'));
-        self::assertSame(['What to buy', 'Purchase orders', 'Suppliers', 'Sales data'], array_column($reviewer[2]['items'], 'label'));
-        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses'], array_column(Permissions::menu(['viewer'])[3]['items'], 'label'),
-            'Settings: the company details first (every role reads them; I90), the reason codes, number series and "Who can do what" are linked '
-            . 'from Settings and lists; the approval rules and the warehouses for everyone to read (0019)');
-        $settings = static fn (array $roles): array => array_column(array_values(array_filter(Permissions::menu($roles), static fn (array $s): bool => $s['key'] === 'settings'))[0]['items'], 'label');
-        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses', 'Websites', 'Safety checks', 'Audit log'], $settings(['admin']));
-        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses', 'Websites', 'Safety checks', 'Audit log'], $settings(['reviewer']));
-        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses', 'Audit log'], $settings(['accountant']));
-        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses', 'Websites', 'Safety checks'], $settings(['manager']));
-        self::assertSame(['Company details', 'Settings and lists', 'Approval rules', 'Warehouses'], $settings(['buyer']));
-        $mapper = Permissions::menu(['mapper']);
-        self::assertSame(['/ui/'], array_column($mapper[0]['items'], 'path'), 'Home first');
-        self::assertSame(['/ui/review', '/ui/review', '/ui/review/samples', '/ui/review/duplicates'], array_column($mapper[1]['items'], 'path'));
-        self::assertSame([['queue' => 'Key'], ['queue' => 'pending']], array_column($mapper[1]['items'], 'query'));
     }
 
     /** Admin switches the working roles off (I12, read fail-closed): the screens say which, and which page Admin alone keeps from them. */
-    public function testSwitchedOffRolesAndTheLift(): void
+    public function testSwitchedOffRoles(): void
     {
         self::assertSame(['mapping_lead', 'reviewer'], Permissions::switchedOff(['admin', 'mapping_lead', 'reviewer']), "the owner's staging account");
         self::assertSame([], Permissions::switchedOff(['admin', 'viewer', 'accountant', 'auditor']), 'the compatible roles still work');
@@ -332,18 +239,6 @@ final class PermissionsTest extends TestCase
         self::assertFalse(Permissions::blockedByAdmin(['admin', 'mapping_lead', 'reviewer'], 'linking.view'), 'admin opens it anyway');
         self::assertFalse(Permissions::blockedByAdmin(['admin', 'mapping_lead', 'reviewer'], 'doc.PO.post'), 'none of the roles would hold it');
         self::assertFalse(Permissions::blockedByAdmin(['buyer'], 'documents.review'));
-        // The lift changes the order only: the same sections and items, Staff or Products in second place.
-        foreach ([['admin'], ['stock_controller'], ['admin', 'auditor']] as $roles) {
-            $menu = Permissions::menu($roles);
-            $plain = array_column($menu, 'key');
-            sort($plain);
-            $all = array_values(array_filter(array_column(Permissions::MENU, 'section'), static fn (string $k): bool => in_array($k, array_column($menu, 'key'), true)));
-            sort($all);
-            self::assertSame($all, $plain, implode('+', $roles));
-        }
-        self::assertSame('staff', Permissions::menu(['admin', 'auditor'])[1]['key']);
-        self::assertSame('products', Permissions::menu(['stock_controller'])[1]['key']);
-        self::assertSame('check', Permissions::menu(['stock_controller', 'reviewer'])[1]['key'], 'a reviewer checks: To check stays second');
     }
 
     private static function refused(int $status, string $code, callable $fn): CwException

@@ -1,3 +1,30 @@
+<?php $newActions = $newActions ?? []; ?>
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+  <?= $partial('split', ['actions' => $newActions]) ?>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('RECEIVING', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
+  <details class="tb-pop">
+    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($filtered): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
+    <div class="pop pop-form">
+      <label><?= $word('RECEIVING', 'show') ?>
+        <select name="state">
+          <option value=""><?= $word('RECEIVING', 'all') ?></option>
+<?php foreach ($states as $code => $label): ?>
+          <option value="<?= $e($code) ?>"<?php if ($filters['state'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+        </select>
+      </label>
+      <label><?= $word('RECEIPT', 'supplier') ?>
+        <select name="supplier">
+          <option value=""><?= $word('RECEIVING', 'any_supplier') ?></option>
+<?php foreach ($suppliers as $s): ?>
+          <option value="<?= $e($s['id']) ?>"<?php if ($filters['supplier'] === (int) $s['id']): ?> selected<?php endif; ?>><?= $e($s['name']) ?></option>
+<?php endforeach; ?>
+        </select>
+      </label>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/receiving"><?= $word('RECEIVING', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+    </div>
+  </details>
+</form>
 <div class="head-help">
   <h1><?= $word('MENU', 'receiving') ?></h1>
   <?= $explain('posting', \CW\Ui\Words::RECEIVING['posting_label']) ?>
@@ -50,35 +77,15 @@
 </section>
 <?php endif; ?>
 
-<form class="filters" method="get" action="/ui/receiving">
-  <label><?= $word('RECEIVING', 'show') ?>
-    <select name="state">
-      <option value=""><?= $word('RECEIVING', 'all') ?></option>
-<?php foreach ($states as $code => $label): ?>
-      <option value="<?= $e($code) ?>"<?php if ($filters['state'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
-<?php endforeach; ?>
-    </select>
-  </label>
-  <label><?= $word('RECEIPT', 'supplier') ?>
-    <select name="supplier">
-      <option value=""><?= $word('RECEIVING', 'any_supplier') ?></option>
-<?php foreach ($suppliers as $s): ?>
-      <option value="<?= $e($s['id']) ?>"<?php if ($filters['supplier'] === (int) $s['id']): ?> selected<?php endif; ?>><?= $e($s['name']) ?></option>
-<?php endforeach; ?>
-    </select>
-  </label>
-  <label><?= $word('RECEIVING', 'search') ?> <input type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100"></label>
-  <button type="submit"><?= $word('RECEIVING', 'filter') ?></button>
-</form>
 
 <?php if ($rows === [] && $filtered): ?>
 <?= $empty(\CW\Ui\Words::RECEIVING['none_filter'], \CW\Ui\Words::RECEIVING['none_filter_text'], '/ui/receiving', \CW\Ui\Words::RECEIVING['clear']) ?>
 <?php elseif ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::RECEIVING['none'], \CW\Ui\Words::RECEIVING[$canPost ? 'none_desk' : 'none_text']) ?>
 <?php else: ?>
-<p class="muted"><?php if (count($rows) === 1): ?><?= $word('RECEIVING', 'total_one') ?><?php else: ?><?= $say('RECEIVING', 'total_many', count($rows)) ?><?php endif; ?></p>
+<div class="board-head"><h2 class="board-title"><?= $word('MENU', 'receiving') ?></h2><p class="board-note"><?php if (count($rows) === 1): ?><?= $word('RECEIVING', 'total_one') ?><?php else: ?><?= $say('RECEIVING', 'total_many', count($rows)) ?><?php endif; ?></p></div>
 <div class="table-wrap">
-<table class="stack list receipts">
+<table class="stack list receipts board">
   <thead>
     <tr>
       <th scope="col"><?= $word('RECEIVING', 'delivery') ?></th>

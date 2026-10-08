@@ -1,3 +1,4 @@
+<p class="crumbs"><a href="/ui/items/cards"><?= $word('MENU', 'cards') ?></a></p>
 <h1><?= $e($sku['name']) ?> <span class="muted">(<?= $e($sku['code']) ?>)</span></h1>
 <?= $intro('item') ?>
 

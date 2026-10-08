@@ -6596,3 +6596,107 @@ sheet" run once per form (`FormOnce`, M4): sent again, the page says the sheet w
 **Y55. Left for later (as asked).** Purchase orders and deliveries always book into MAIN (the VPG 2 pack). `Admin\ApprovalRules::GUARDED_ROLES`
 and `Permissions::MAP` stay code (a Permissions screen comes with the UI rework). The race of a switched-off warehouse with a delivery booked
 into it at the same moment (Y38) is unchanged.
+
+## Seven sections and tabs, the v4 look (slots `uiv4`, `ui`, 8 Oct 2026)
+
+The owner's requests of 8 Oct 2026: "sidebar name make professional and make related tabs", then "keep monday.com same font and color
+and ALIGNMENT". Approved previews: /root/cw_work/ui_design/v3/ (the sections and tabs) and v4/ (the look). Permissions and behaviour are
+unchanged: every route keeps its permission check, every old address still opens.
+
+**U95. One map for the navigation.** `src/Ui/Sections.php` holds the seven sidebar sections (Dashboard, Products, Stock, Purchasing,
+Reports, Approvals, Settings), the tabs of each and the segments inside some tabs. Each page names its path, the permission its route
+checks, the request paths that belong to it (`match`), its count (`badge`) and its create button (`new`). The sidebar, the tab bar, the
+segmented filter, the phone bar, the Dashboard's "What you can use" (`Sections::menu`, the old shape) and the tests read it; no view names
+a page. `Permissions::MENU`, `LIFT`, `menu()` and `Ui\Tabs` are gone (the "lift" of a section is moot with seven fixed items).
+`tests/Unit/SectionsTest.php` checks every page against the router (a real GET route guarded by exactly that permission) and that every
+staff GET route belongs to a section.
+
+**U96. Who sees what.** A tab shows when the person may open at least one of its pages and links to the first; a section shows when one of
+its tabs does, so a section of only "Soon" tabs is hidden (Reports for people without the audit log). Settings › Users opens the people
+list for staff.view and "Roles and permissions" (`/ui/reference/access`, reference.view) for everyone else. Goods In's Checking segment is
+for doc.GRN.post, as the bench was.
+
+**U97. The current page comes from the request, not the controller.** `Sections::locate` matches the path and query (the most literal
+pattern wins; `{id}` is a number, `*` any rest, `?queue=pending` a query value), so a detail page (an order, a delivery's bench check, one
+reason) and a form sent back with an error keep their section, tab and segment marked; a refused page (403) stays in its section without
+marking a tab the person does not have. The controllers' `active` is no longer read for the menu (it still marks "Change password").
+
+**U98. Counts.** The same counts as before, only what the person can act on (`Context::badges`, unchanged): a tab or segment shows its
+pages' count, a sidebar section the sum of its tabs' (Approvals: waiting for me, blue as v3/v4 draw it).
+
+**U99. The page frame.** The current section's page bar: its name (text, not a heading: the page's own `h1` stays the page's title, so a
+screen reader and the tests keep the page's name), one line from `Words::SECTION_DESC`, the buying flow on Purchasing, then the tabs. Under
+it the segmented filter, then the toolbar row with the page's create button on the left (only on the list page itself and for the
+people who may create: it leads to the page's own form, `#new`; app.js opens a folded form it points at), then the page body unchanged.
+The Dashboard and the password page have no page bar. The crumbs back to "Settings and lists" went from the pages that are now Settings
+tabs (and Reports › Audit Log), and the two reorder crumbs from Brands and Anomalies (now segments); the product page gained a link back
+to All Products. The find box moved from the menu to the app bar (on a phone a find button opens the search page).
+
+**U100. Standard names.** Old → new: Home → Dashboard; Products to match → Mapping (segment To review); Waiting for 2nd OK / Waiting for
+a second OK → Second approval; Possible duplicates → Duplicates; Product list → All Products; Barcodes to check → Barcodes; What to buy →
+Reorder (segment Suggestions); Sales data → Sales history; Purchase orders → Purchase Orders; Receive + invoice → Goods In (segment To
+receive); Goods-in bench → Checking; Incidents → Issues; Things to check → Waiting for me; All records → History; Staff access to OK →
+Staff requests; Company details → Company; Settings and lists → Settings (tab System); Reasons for stock changes → Reasons; How record numbers
+are made → Numbering; Approval rules → Approval Rules; Websites → Stores; Staff and access → Users; Who can do what → Roles and permissions;
+Safety checks → System checks (also the segment, one name for one thing: the brief's "Safety checks" segment); Audit log → Audit Log;
+Brand settings → Brands; Days to leave out of sales → Anomalies. References to these pages inside sentences follow (for example "on the Users
+page", "Reorder never suggests it", "under Purchasing"); the explanatory text is otherwise unchanged. "the goods-in bench" (the place) and
+"what to buy" (the plain words) stay.
+
+**U101. Stock › Overview and Movements, a first version.** `/ui/stock` and `/ui/stock/movements` (catalogue.view: the people who see a
+product's stock on its page), read only, from `stock_balance` and `stock_ledger` (`Ui\StockViews`): four figures (products, in stock,
+units, with no stock); one row per product with its on-hand figure in each warehouse, reserved and available (the sellable warehouses less
+reserved), nothing to sell first, then by name, 50 a page, filtered by warehouse, product (words, or a CW number) and "With stock / Every
+product / Below zero"; the ledger newest first by day, 50 a page by the ledger id (never an OFFSET or a COUNT over the ledger), filtered by warehouse,
+product (at most 200 products found), kind of change and figure (the stock in the building by default). Per store, the VPG 2 room and
+overflow come in a later pack; Adjustments, Counts and Transfers are "Soon" tabs.
+
+**U102. The buying flow strip.** Reorder → Purchase Order (open orders · waiting for OK) → Goods In (not booked in) → Stock updated (booked in
+this week, linking to Movements of goods in), single COUNTs on `document (doc_type, status, id)`, read on Purchasing pages only. Reorder has
+no figure: what to order is worked out per product by the list itself (too much work for every Purchasing page). A step the person cannot
+open is drawn without a link and without a figure.
+
+**U103. The v4 look.** Section 1 of `app.css` holds the Vibe tokens (MIT; light and dark) and defines the body's older token names from
+them. Figtree (400-700) and Poppins (500) are self-hosted woff2 files under `public/ui/assets/fonts/` with their OFL texts; `Ui\Assets`
+serves exactly the five the stylesheet loads (`font/woff2`, kept a year: a font never changes under its name), nothing else there (the CSP's
+`default-src 'self'` covers fonts). Status labels are the Vibe fills with white semi-bold text and keep their word and shape (the owner's
+choice over the darker WCAG fills of v2); tables are boards: 36 px rows, cell lines, the first column left-aligned and sticky with a 6 px
+strip, every other column and number centred, a status label alone in its cell fills it; tabs are 40 px with a 2 px blue line; info boxes
+are the Vibe tints; buttons and fields are 40 px on a laptop and 44 px on a phone or tablet; the Dashboard's task cards are widgets.
+
+**U104. The owner approved v4 as it is ("Keep this design exactly, I like it", 8 Oct 2026).** The real pages follow it where they
+can:
+- the app bar: the CW tile and the name on the frame, a find button and the help (`/ui/#about`) on the right (the find box moved into the
+  Dashboard's toolbar; `/ui/search` is unchanged);
+- the toolbar under the tabs (`views/split.php`, the `toolbar` forms): a blue split "New ..." button (the page's own create action, then the
+  section's others; on the Dashboard every create action the person may use), a ghost Search box, Filter as a pop-over holding the page's own
+  filters, Export at the far end where the page has a CSV. Pages with their own toolbar (`Context::OWN_TOOLBAR`: Dashboard, Purchase Orders,
+  Suppliers, Goods In) get the create actions as `newActions`; the stock pages have Search and Filter; other pages keep their filter form
+  and get the split button alone. A toolbar form has no `action` (it filters its own page), so it never shadows the page's POST form;
+  Sort is drawn only where a page can sort (none today);
+- the Dashboard: widget tiles (`Ui\DashboardTiles`: products, units in stock, matches to review, waiting for your approval, open purchase
+  orders, deliveries to receive; each only for people who may open its link; single COUNT/SUM queries), then "What needs doing" as a board
+  (`views/cards.php`): one group "Ready to do" (the jobs) and one "Good to know" (the notes), columns Task, Where (`Sections::where`), Status
+  (a full-cell label), How many, Next step; B's job number, "Start here" and "What happens:" stay in the task cell;
+- Purchase Orders: one board group per state (the state's colour, a fold chevron, a count), the "+ New purchase order" row in Draft,
+  a total row per group (value and units); "Start a new order" is a fold the split button opens;
+- Products › Mapping › To review: the toolbar (Search, Filter: website, found by, sold at least), the "strength" bar of every list (widths
+  are classes `w-1`…`w-100`: no inline style) with a legend that opens each list, then the open list as a board group in its colour
+  (strong green, likely orange, new product blue, not sure purple, clues disagree red, renamed charcoal: `Words::TONE['BAND']`);
+- All Products, Suppliers, Goods In, Reorder: the toolbar (Filter holds the page's filters, Export its CSV) and one board group; All
+  Products' rows carry their card's colour as their strip;
+- Stock › Overview: four tiles, then one row per product (its on-hand figure in each warehouse, reserved, available) grouped "Out of stock" /
+  "In stock" (U101's per-warehouse rows became per-product rows: the page is new in this pack); Movements: one group per day;
+- Approvals › Waiting for me: "OK first" (purple) and "Check after" (blue) groups; Settings › Users: one table with a "Can sign in" and a
+  "Switched off" group and a "+ New user" row; Approval Rules: each section a purple group, each rule a row of it (the rules keep their
+  own forms, so they stay cards rather than table rows);
+- status colours as v4: a draft grey, anything waiting for someone's OK purple (a new tone `review`: PO and document waiting for approval,
+  supplier waiting for approval, reviewer check pending, a review task open, a match waiting for its second OK), sent blue, part delivered
+  orange;
+- the flow strip's arrows, the tabs' count chips, the sidebar's selected fill, the white work panel, Poppins titles.
+
+**U105. Left out or later.** The preview-only parts (the "Design preview" chip and notes, the "example" chips). Sort pop-overs (no page
+sorts yet). Reorder stays one group in the list's own order (urgent first): v4's groups by supplier would reorder it. Approval Rules keep
+their cards (each holds its own change form) instead of v4's table with Edit buttons. The Mapping page shows the open list's group only:
+each list is still its own page (paged, best sellers first), the bar and legend lead to the others. Stock by Store, Sales by Store, Low
+Stock, Adjustments, Counts and Transfers are "Soon"; so is v4's "Low stock" group (it needs a setting for "low").

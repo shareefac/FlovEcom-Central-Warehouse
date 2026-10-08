@@ -14,8 +14,8 @@
 <p class="note"><?= $e($loosenNote) ?></p>
 <?php endif; ?>
 <?php foreach ($sections as $section): ?>
-<section class="rules" aria-labelledby="sec-<?= $e($section['key']) ?>">
-  <h2 id="sec-<?= $e($section['key']) ?>"><?= $e($section['title']) ?></h2>
+<section class="rules review" aria-labelledby="sec-<?= $e($section['key']) ?>">
+  <h2 class="grp-title review" id="sec-<?= $e($section['key']) ?>"><span class="grp-name"><?= $e($section['title']) ?></span><span class="grp-count"><?php if (count($section['cards']) === 1): ?><?= $word('APPROVALS', 'count_one') ?><?php else: ?><?= $say('APPROVALS', 'count_many', count($section['cards'])) ?><?php endif; ?></span></h2>
 <?php if ($section['key'] === 'records'): ?>
   <p class="muted"><?= $word('APPROVALS', 'records_text') ?></p>
 <?php endif; ?>

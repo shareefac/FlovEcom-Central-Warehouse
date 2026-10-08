@@ -7,10 +7,12 @@ namespace CW\Ui\Controller;
 use CW\Clock;
 use CW\Mapping\Proposals;
 use CW\Ui\Context;
+use CW\Ui\DashboardTiles;
 use CW\Ui\Duplicates;
 use CW\Ui\HomeCounts;
 use CW\Ui\HomeTasks;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Sections;
 use CW\Ui\Words;
 
 /**
@@ -42,12 +44,20 @@ final class DashboardController
         $me = $ctx->me();
         $counts = new HomeCounts($ctx);
         $home = HomeTasks::build($me->id, $me->roles, $counts->facts(HomeTasks::needs($me->roles)));
+        // The task board's "Where" column: the section › tab › segment each task's button opens (design v4).
+        foreach (['jobs', 'notes'] as $list) {
+            foreach ($home[$list] as $i => $c) {
+                $home[$list][$i]['where'] = isset($c['href']) ? Sections::where((string) $c['href']) : '';
+            }
+        }
         $jobs = count($home['jobs']);
         $uses = [];
         foreach ($ctx->menu() as $section) {
             foreach ($section['items'] as $item) {
                 if ($item['key'] !== 'home') {
-                    $uses[] = ['label' => $item['label'], 'path' => $item['path'], 'query' => $item['query'] ?? [], 'help' => Words::MENU_HELP[$item['key']] ?? ''];
+                    // "Stock › Overview": a tab's name with its section's (U95).
+                    $uses[] = ['label' => $section['section'] . ' › ' . $item['label'], 'path' => $item['path'], 'query' => $item['query'] ?? [],
+                        'help' => Words::MENU_HELP[$item['key']] ?? ''];
                 }
             }
         }
@@ -65,6 +75,8 @@ final class DashboardController
             'progress' => $me->can('linking.view') ? $this->progress($ctx, $counts) : null,
             'uses' => $uses,
             'later' => Words::comingLater($me->roles),
+            'tiles' => DashboardTiles::build($ctx, $counts),
+            'canFind' => $me->can('catalogue.view'),
         ], 200, ['title' => Words::HOME['title'], 'active' => 'home', 'notice' => $notice]);
     }
 

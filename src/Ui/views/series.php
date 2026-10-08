@@ -1,4 +1,3 @@
-<p class="crumbs"><a href="/ui/reference/settings"><?= $word('MENU', 'settings') ?></a></p>
 <h1><?= $word('PAGE_TITLE', 'series') ?></h1>
 <?= $intro('series') ?>
 <p class="muted"><?= $word('SETTINGS_PAGE', 'series_text') ?></p>

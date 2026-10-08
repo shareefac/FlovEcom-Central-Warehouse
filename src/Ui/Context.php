@@ -45,6 +45,12 @@ final class Context
     /** @var array{approval: int, review: int, deliveries: int}|null the review queue's tasks this person may decide, by kind (checks()) */
     private ?array $checks = null;
 
+    /**
+     * The pages that draw their own toolbar (design v4: the split create button, Search, Filter, Sort, Export in one row): they get
+     * the page's create actions as `newActions` and the layout draws none.
+     */
+    public const OWN_TOOLBAR = ['home', 'purchase_orders', 'suppliers', 'receipts'];
+
     /** Pages without a menu item of their own => the menu item that stays marked. */
     private const ACTIVE_ALIAS = ['reasons' => 'settings', 'series' => 'settings', 'setting' => 'settings', 'access' => 'settings'];
 
@@ -179,14 +185,20 @@ final class Context
         $view = new View(View::defaultDir(), $shared);
         $layout += $this->frame();
         $layout['active'] = self::ACTIVE_ALIAS[$layout['active']] ?? $layout['active'];
+        if (in_array($template, self::OWN_TOOLBAR, true)) {
+            $vars['newActions'] = $layout['actions'] ?? [];
+            $layout['actions'] = [];
+        }
         return new HtmlResponse($status, $view->page($template, $vars, $layout));
     }
 
     /**
-     * The layout's variables for this person: their menu (Permissions::menu of the roles read for this request, I14), the
-     * badge counts it shows, the phone tab bar (Tabs), whether the find box is theirs (catalogue.view), the test-system strip
-     * and the strip that says which jobs Admin switches off. During the forced password change there is no menu, no tab bar
-     * and no find box (every link would lead back to the password page): only Sign out.
+     * The layout's variables for this person, all from Ui\Sections (the roles read for this request, I14): the sidebar (`nav`), the
+     * current section's page bar with its tabs (`pagebar`), the current tab's segmented filter (`segments`), the page's create button
+     * (`actions`), the buying flow on Purchasing (`flow`, Ui\FlowCounts), the phone's bottom bar (`tabs`), whether the find box is
+     * theirs (catalogue.view), the test-system strip and the strip that says which jobs Admin switches off. The current page is found
+     * from the request's path (Sections::locate), so a detail page keeps its section and tab marked. During the forced password
+     * change there is no menu, no bar and no find box (every link would lead back to the password page): only Sign out.
      *
      * @return array<string, mixed>
      */
@@ -194,24 +206,32 @@ final class Context
     {
         $who = $this->who;
         $forced = $who !== null && $who->mustChangePassword;
-        $menu = $forced ? [] : $this->menu();
+        $roles = $who === null || $forced ? [] : $who->roles;
+        $f = Sections::frame($roles, $roles === [] ? [] : $this->badges(), $this->req->path, $this->req->query);
+        $flow = null;
+        if ($f['pagebar'] !== null && $f['pagebar']['flow']) {
+            $flow = FlowCounts::steps($this->db, Sections::visible($roles), $f['here']['tab'] ?? null);
+        }
         return [
             'title' => Words::UI['brand'],
             'active' => '',
             'notice' => null,
-            'menu' => $menu,
-            'badges' => $forced ? [] : $this->badges(),
+            'nav' => $f['nav'],
+            'pagebar' => $f['pagebar'],
+            'segments' => $f['segments'],
+            'actions' => $f['actions'],
+            'flow' => $flow,
             'searchBox' => !$forced && ($who?->can('catalogue.view') ?? false),
-            'tabs' => Tabs::of($menu),
+            'tabs' => $f['phone'],
             'testSystem' => $this->testSystem,
             'switchedOff' => $who === null ? null : Words::switchedOffNote($who->roles),
         ];
     }
 
-    /** @return list<array{section: string, key: string, items: list<array<string, mixed>>}> the signed-in person's menu ([] when nobody) */
+    /** @return list<array{section: string, key: string, items: list<array<string, mixed>>}> the signed-in person's sections and tabs ([] when nobody) */
     public function menu(): array
     {
-        return $this->who === null ? [] : Permissions::menu($this->who->roles);
+        return $this->who === null ? [] : Sections::menu($this->who->roles);
     }
 
     /**
@@ -225,7 +245,7 @@ final class Context
      *         I107), incidents_open (open incidents of posted receipts, for incidents.view, I131). Home's cards (Ui\HomeCounts)
      *         use the same numbers.
      *
-     * @return array<string, int> badge name (Permissions::MENU `badge`) => count
+     * @return array<string, int> badge name (Sections::MAP `badge`) => count
      */
     public function badges(): array
     {

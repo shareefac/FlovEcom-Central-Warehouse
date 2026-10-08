@@ -21,7 +21,7 @@
 <?php endif; ?>
 <?php if ($canManage): ?>
 <p class="muted"><?= $word('STAFF', 'add') ?></p>
-<details class="fold add-person"<?php if ($error !== null): ?> open<?php endif; ?>>
+<details class="fold add-person" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $word('STAFF', 'add_title') ?></summary>
   <div class="head-help">
     <p class="muted"><?= $word('STAFF', 'add_text') ?></p>
@@ -55,8 +55,9 @@
 </details>
 <?php endif; ?>
 <p><a href="/ui/people.csv"><?= $word('STAFF', 'download') ?></a> <a href="/ui/reference/access"><?= $word('PAGE_TITLE', 'access') ?></a></p>
+<div class="board-head"><h2 class="board-title"><?= $word('STAFF', 'board') ?></h2></div>
 <div class="table-wrap">
-<table class="stack list people">
+<table class="stack list people board">
   <thead>
     <tr>
       <th scope="col"><?= $word('STAFF', 'name') ?></th>
@@ -67,8 +68,12 @@
       <th scope="col"><?= $word('STAFF', 'added_on') ?></th>
     </tr>
   </thead>
-  <tbody>
-<?php foreach ($people as $p): ?>
+<?php foreach ([['key' => 'active', 'tone' => 'done', 'rows' => array_values(array_filter($people, static fn (array $x): bool => (bool) $x['is_active']))],
+    ['key' => 'off', 'tone' => 'waiting', 'rows' => array_values(array_filter($people, static fn (array $x): bool => !$x['is_active']))]] as $g): ?>
+<?php if ($g['rows'] !== [] || ($g['key'] === 'active' && $canManage)): ?>
+  <tbody class="grp <?= $e($g['tone']) ?>" id="g-<?= $e($g['key']) ?>">
+    <tr class="grp-head"><th colspan="6" scope="rowgroup"><span class="grp-title <?= $e($g['tone']) ?>"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"><?= $word('STAFF', 'group_' . $g['key']) ?></button><span class="grp-count"><?php if (count($g['rows']) === 1): ?><?= $word('STAFF', 'count_one') ?><?php else: ?><?= $say('STAFF', 'count_many', count($g['rows'])) ?><?php endif; ?></span></span></th></tr>
+<?php foreach ($g['rows'] as $p): ?>
     <tr class="<?php if (!$p['is_active']): ?>inactive off<?php elseif (\CW\Auth\Permissions::switchedOff($p['roles']) !== []): ?>needs<?php else: ?>done<?php endif; ?>">
       <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/people/' . $p['id']) ?>"><?= $e($p['display_name']) ?></a><?php if ($p['id'] === $meId): ?> <span class="muted"><?= $word('STAFF', 'you') ?></span><?php endif; ?></th>
       <td class="c-status"><?php if ($p['is_active']): ?><?= $chip('done', \CW\Ui\Words::STAFF['yes']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::STAFF['no']) ?><?php endif; ?></td>
@@ -78,7 +83,12 @@
       <td data-label="<?= $word('STAFF', 'added_on') ?>"><?= $day($p['created_at']) ?></td>
     </tr>
 <?php endforeach; ?>
+<?php if ($g['key'] === 'active' && $canManage): ?>
+    <tr class="grp-add"><td colspan="6" data-label=""><a class="add-item" href="#new"><?= $word('STAFF', 'add_row') ?></a></td></tr>
+<?php endif; ?>
   </tbody>
+<?php endif; ?>
+<?php endforeach; ?>
 </table>
 </div>
 

@@ -31,15 +31,14 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertSame(['Rejected at review', 'In use', 'review_rejected', ucfirst(Words::REASON_USE['reversal']), 'Up or down', 'No', 'No', 'Yes'],
             array_map(static fn (\DOMNode $c): string => trim((string) $c->textContent), iterator_to_array($xp->query('//table[contains(@class, "reasons")]/tbody/tr[24]/*'))),
             'the reason by its name first, its code kept for the files (plan §1.9)');
-        self::assertSame('Reasons for stock changes', trim((string) $xp->evaluate('string(//main//h1)')));
+        self::assertSame(Words::PAGE_TITLE['reasons'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertStringNotContainsString('Phase', $reasons->text());
         self::assertContains('/ui/reference/reasons.csv', $reasons->hrefs());
-        self::assertSame([['label' => 'Company details', 'href' => '/ui/reference/company'], ['label' => 'Settings and lists', 'href' => '/ui/reference/settings'],
-            ['label' => 'Approval rules', 'href' => '/ui/reference/approvals'], ['label' => 'Warehouses', 'href' => '/ui/reference/warehouses']],
-            self::nav($reasons)['Settings'], 'Company details since 0013 (I90), the approval rules and the warehouses since 0019 (Y9, Y14); the reason codes and '
-            . 'the number series are reached from Settings and lists');
-        self::assertSame('Settings and lists', trim((string) $xp->query('//nav[@aria-label="Main"]//a[@aria-current="page"]')->item(0)?->textContent),
-            'a list reached from Settings keeps Settings marked');
+        self::assertSame([['Company', '/ui/reference/company'], ['Warehouses', '/ui/reference/warehouses'], ['Users', '/ui/reference/access'],
+            ['Approval Rules', '/ui/reference/approvals'], ['Reasons', '/ui/reference/reasons'], ['System', '/ui/reference/settings']],
+            array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($reasons)),
+            'the tabs of Settings a buyer may open (no Stores: system.view); Users opens "Roles and permissions" for them');
+        self::assertSame(['Settings', 'Reasons'], [self::currentSection($reasons), self::currentTab($reasons)]);
 
         $series = $web->get('/ui/reference/series');
         self::assertSame(200, $series->status);
@@ -53,7 +52,10 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertSame(['Every one', 'Over £10,000 (no VAT)'], [self::column($series, 5)[0], self::column($series, 6)[0]]);
         self::assertSame('Putting back over 10 items without a supplier document', self::column($series, 6)[5]);
         self::assertSame('Over 10 items', self::column($series, 5)[4]);
-        self::assertSame('How record numbers are made', trim((string) (new \DOMXPath($series->dom()))->evaluate('string(//main//h1)')));
+        self::assertSame(Words::PAGE_TITLE['series'], trim((string) (new \DOMXPath($series->dom()))->evaluate('string(//main//h1)')));
+        self::assertSame(['Settings', 'System'], [self::currentSection($series), self::currentTab($series)]);
+        self::assertSame([['Settings', false], ['Numbering', true]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($series)),
+            'a buyer has no System checks (system.view)');
         self::assertStringNotContainsString('Phase', $series->text());
         self::assertStringNotContainsString('decision 11', $series->text());
 

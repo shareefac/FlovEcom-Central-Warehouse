@@ -47,7 +47,7 @@ final class Assets
     /** The answer for one asset request, with the same hard headers as every page. */
     public static function serve(UiRequest $req): HtmlResponse
     {
-        return Kernel::secure(self::respond($req), $req->secure);
+        return Kernel::secure(str_starts_with($req->path, '/ui/assets/fonts/') ? self::font($req) : self::respond($req), $req->secure);
     }
 
     private static function respond(UiRequest $req): HtmlResponse
@@ -103,4 +103,36 @@ final class Assets
         return (new HtmlResponse($status, $text . "\n", 'text/plain; charset=utf-8'))
             ->withHeader('X-Content-Type-Options', 'nosniff')->withHeader('Content-Security-Policy', Kernel::CSP);
     }
+
+    /**
+     * The self-hosted fonts of the stylesheet (design v4: Figtree and Poppins, SIL Open Font Licence; the licence texts sit beside
+     * them in public/ui/assets/fonts and are not served). Only the files FONTS names; a font file never changes under its name (a new
+     * cut gets a new name), so the browser keeps it for a year.
+     */
+    private static function font(UiRequest $req): HtmlResponse
+    {
+        if ($req->method !== 'GET' && $req->method !== 'HEAD') {
+            return self::plain(405, 'method not allowed')->withHeader('Allow', 'GET, HEAD');
+        }
+        if (preg_match('#^/ui/assets/fonts/([a-z0-9-]+\.woff2)$#D', $req->path, $m) !== 1 || !in_array($m[1], self::FONTS, true)) {
+            return self::plain(404, 'not found');
+        }
+        $file = self::dir() . '/fonts/' . $m[1];
+        $body = is_file($file) ? file_get_contents($file) : false;
+        if ($body === false) {
+            return self::plain(404, 'not found');
+        }
+        $etag = '"' . substr(hash('sha256', $body), 0, 32) . '"';
+        if ($req->header('if-none-match') === $etag) {
+            return (new HtmlResponse(304, '', 'font/woff2'))->withHeader('ETag', $etag)->withHeader('Cache-Control', self::FONT_CACHE)
+                ->withHeader('X-Content-Type-Options', 'nosniff');
+        }
+        return (new HtmlResponse(200, $body, 'font/woff2'))->withHeader('ETag', $etag)->withHeader('Cache-Control', self::FONT_CACHE)
+            ->withHeader('X-Content-Type-Options', 'nosniff')->withHeader('Content-Security-Policy', Kernel::CSP);
+    }
+
+    /** The font files app.css loads (section 0). */
+    public const FONTS = ['figtree-latin-400-normal.woff2', 'figtree-latin-500-normal.woff2', 'figtree-latin-600-normal.woff2',
+        'figtree-latin-700-normal.woff2', 'poppins-latin-500-normal.woff2'];
+    private const FONT_CACHE = 'public, max-age=31536000, immutable';
 }

@@ -517,7 +517,7 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertContains('/ui/review?queue=Key&channel=alt', $dash->hrefs());
         self::assertContains('/ui/review?queue=Key', $dash->hrefs());
         self::assertNotContains('/ui/review?queue=Manual', $dash->hrefs(), 'an empty queue is not a link');
-        self::assertContains('/ui/review?queue=pending', $dash->hrefs());
+        self::assertContains('/ui/review?queue=pending', $web->get('/ui/review', ['queue' => 'Key'])->hrefs(), 'Second approval is a segment of Products > Mapping');
         self::assertStringContainsString(Words::HOME['pending_one'], $dash->text());
 
         // website products, matched, sold 30d, matched share 30d (a bar and the %), sold 1 year, matched share 1 year, sold but ignored 30d

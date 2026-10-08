@@ -4,6 +4,27 @@
 
   var each = function (list, fn) { Array.prototype.forEach.call(list, fn); };
 
+  // The script runs: the CSS draws what only works with it (the boards' fold chevrons).
+  document.documentElement.classList.add('js');
+
+  // A board's group title folds its rows (design v4); without the script every group stays open.
+  each(document.querySelectorAll('button.grp-toggle[aria-controls]'), function (b) {
+    b.addEventListener('click', function () {
+      var target = document.getElementById(b.getAttribute('aria-controls'));
+      if (!target) {
+        return;
+      }
+      var open = b.getAttribute('aria-expanded') !== 'false';
+      b.setAttribute('aria-expanded', open ? 'false' : 'true');
+      if (target.tagName === 'TBODY') {
+        // A group inside one table keeps its title row: only its other rows fold.
+        target.classList.toggle('is-collapsed', open);
+      } else {
+        target.hidden = open;
+      }
+    });
+  });
+
   // The answer form of a website product: choosing "create a new product" opens "Details of the new product" (plan F199).
   var details = document.getElementById('new-product');
   if (details) {
@@ -224,6 +245,17 @@
     card.addEventListener('change', show);
     show();
   });
+
+  // A link to a folded form (the toolbar's "New user", "New warehouse", "New reason" lead to #new): the fold opens.
+  var openTarget = function () {
+    var id = window.location.hash.slice(1);
+    var el = id !== '' ? document.getElementById(id) : null;
+    if (el && el.tagName === 'DETAILS') {
+      el.open = true;
+    }
+  };
+  openTarget();
+  window.addEventListener('hashchange', openTarget);
 
   // New delivery: "receive all as ordered" follows the purchase order chosen.
   each(document.querySelectorAll('select[data-ticks]'), function (s) {

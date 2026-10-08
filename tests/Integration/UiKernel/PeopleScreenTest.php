@@ -30,7 +30,8 @@ final class PeopleScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::STAFF['add'], $list->text(), 'new people are made by the developer (F427), never a command on the screen');
         self::assertStringNotContainsString('bin/', $list->text());
         $lx = new \DOMXPath($list->dom());
-        self::assertSame('Staff and access', trim((string) $lx->evaluate('string(//main//h1)')));
+        self::assertSame(Words::MENU['people'], trim((string) $lx->evaluate('string(//main//h1)')));
+        self::assertSame(['Settings', 'Users'], [self::currentSection($list), self::currentTab($list)]);
         self::assertSame(1, $lx->query('//table[contains(@class, "people") and contains(@class, "stack")]')->length, 'one card per person on a phone (F432)');
         $row = trim((string) preg_replace('/\s+/', ' ', (string) $lx->evaluate('string(//tr[th/a/@href="/ui/people/' . $buyer['id'] . '"])')));
         self::assertStringStartsWith('Buyer 2 Yes Buyer ' . $buyer['email'] . ' never ', $row, 'Can sign in, jobs in words, "never" for no sign-in (F430, F431)');
@@ -235,14 +236,13 @@ final class PeopleScreenTest extends KernelUiTestCase
         $admin = $this->signIn($this->uiUser('admin'));
         $u = $this->uiUser(['reviewer', 'stock_controller']);
         $web = $this->signIn($u);
-        self::assertArrayHasKey('To check', self::nav($web->get('/ui/')));
+        self::assertContains(Words::MENU['reviews'], self::tabLabels($web->get('/ui/documents')));
 
         $form = $admin->get('/ui/people/' . $u['id'])->form('/ui/people/' . $u['id'] . '/roles');
         unset($form['role_reviewer']);
         self::assertSame(303, $admin->post('/ui/people/' . $u['id'] . '/roles', $form)->status);
-        $nav = self::nav($web->get('/ui/'));
-        self::assertArrayNotHasKey('To check', $nav, 'the same session, the next request');
-        self::assertSame(['Home', 'Products', 'Buying', 'Deliveries', 'Records', 'Settings'], array_keys($nav), 'a stock controller now: Products is their work');
+        self::assertSame([Words::MENU['documents']], self::tabLabels($web->get('/ui/documents')), 'the same session, the next request');
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($web->get('/ui/'))), 'a stock controller now');
         $revoked = self::$db->one("SELECT revoked_at, revoked_by FROM staff_role WHERE staff_user_id = ? AND role = 'reviewer'", [$u['id']]);
         self::assertNotNull($revoked['revoked_at']);
         self::assertSame($this->adminId(), (int) $revoked['revoked_by']);

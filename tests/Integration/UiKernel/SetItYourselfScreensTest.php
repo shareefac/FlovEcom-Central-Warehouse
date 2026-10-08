@@ -151,8 +151,9 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
         }
         self::assertNotNull((new \DOMXPath($page->dom()))->query('//article[@id="rule-PO"]')->item(0), 'the purchase orders\' rule');
         self::assertFalse($page->hasForm('/ui/reference/approvals'), 'a buyer looks');
-        self::assertSame(['/ui/reference/company', '/ui/reference/settings', '/ui/reference/approvals', '/ui/reference/warehouses'],
-            array_column(self::nav($page)['Settings'], 'href'));
+        self::assertSame(['/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals', '/ui/reference/reasons',
+            '/ui/reference/settings'], array_column(self::sectionTabs($page), 'href'), 'the Settings tabs a buyer may open');
+        self::assertSame(['Settings', 'Approval Rules'], [self::currentSection($page), self::currentTab($page)]);
 
         $rev = $this->signIn($this->uiUser('reviewer'));
         self::assertTrue($rev->get('/ui/reference/approvals')->hasForm('/ui/reference/approvals'));
@@ -379,15 +380,15 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
 
         // The safety checks: none ran yet; a failed run shows on the page and as a Home card (not a buyer's).
         self::assertStringContainsString(Words::INTEGRITY['none'], $web->get('/ui/system/checks')->text());
-        self::assertSame(0, (new \DOMXPath($web->get('/ui/')->dom()))->query('//li[@data-card="integrity"]')->length);
+        self::assertSame(0, (new \DOMXPath($web->get('/ui/')->dom()))->query('//*[@data-card="integrity"]')->length);
         (new IntegrityRuns(self::$db))->record(gmdate('Y-m-d H:i:s'), ['balance 1:5 on_hand=7 but its ledger sums to 5', 'unit 1:a is held but has no ledger rows'],
             ['ms' => 1200], 'system:invariants');
         $checks = $web->get('/ui/system/checks');
         self::assertSame(200, $checks->status, $checks->describe());
         self::assertStringContainsString(sprintf(Words::INTEGRITY['result_bad'], '2'), $checks->text());
         self::assertStringContainsString('balance 1:5 on_hand=7 but its ledger sums to 5', $checks->text());
-        self::assertSame(1, (new \DOMXPath($web->get('/ui/')->dom()))->query('//li[@data-card="integrity"]')->length);
-        self::assertSame(0, (new \DOMXPath($buyer->get('/ui/')->dom()))->query('//li[@data-card="integrity"]')->length, 'not a buyer\'s');
+        self::assertSame(1, (new \DOMXPath($web->get('/ui/')->dom()))->query('//*[@data-card="integrity"]')->length);
+        self::assertSame(0, (new \DOMXPath($buyer->get('/ui/')->dom()))->query('//*[@data-card="integrity"]')->length, 'not a buyer\'s');
 
         // The audit log: a search, a refused search, the CSV file.
         (new Settings(self::$db))->change(Caller::staff($rev['id']), 'reorder.default_safety_days', '6', 'audit me');
@@ -567,7 +568,7 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
         self::assertSame(['buyer'], StaffRoles::active(self::$db, $p['id']), 'nothing changes until a reviewer says OK');
         self::assertSame(403, $web->get('/ui/staff-requests')->status, 'the admin never gives the OK');
         $reviewer = $this->signIn($rev);
-        self::assertSame(1, (new \DOMXPath($reviewer->get('/ui/')->dom()))->query('//li[@data-card="staff_requests"]')->length);
+        self::assertSame(1, (new \DOMXPath($reviewer->get('/ui/')->dom()))->query('//*[@data-card="staff_requests"]')->length);
         $list = $reviewer->get('/ui/staff-requests');
         self::assertSame(200, $list->status, $list->describe());
         // Who the person is (I1): their e-mail, when the account was made, whether and how they set up their sign-in.
@@ -602,26 +603,29 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
         $settings->change(Caller::staff($owner['id']), 'approvals.match_counted', 'false', 'one lead is enough'); // looser: a reviewer
         $settings->change(Caller::staff($admin['id']), 'approvals.staff_grant', 'true', 'two people for Admin'); // stricter: not listed
         $home = $this->signIn($owner)->get('/ui/');
-        $card = (new \DOMXPath($home->dom()))->query('//li[@data-card="watch"]')->item(0);
+        $card = (new \DOMXPath($home->dom()))->query('//*[@data-card="watch"]')->item(0);
         self::assertNotNull($card, $home->describe());
         $text = (string) preg_replace('/\s+/u', ' ', (string) $card->textContent);
         self::assertStringContainsString(Words::TASK['watch']['title'], $text);
         self::assertStringContainsString('Kim Stock', $text, 'the person added and reset');
         self::assertStringContainsString(Words::RULE['approvals.match_counted']['title'], $text, 'the rule made looser');
         self::assertStringNotContainsString(Words::RULE['approvals.staff_grant']['title'], $text, 'a stricter rule is not listed');
-        self::assertSame(5, (new \DOMXPath($home->dom()))->query('//li[@data-card="watch"]//ul[@class="task-lines"]/li')->length,
+        self::assertSame(5, (new \DOMXPath($home->dom()))->query('//*[@data-card="watch"]//ul[@class="task-lines"]/li')->length,
             'Kim added and reset, the rule loosened, and the two accounts this test made on the server ("the server" added them)');
         self::assertStringContainsString(Words::WATCH['server'], $text);
         // The admin's Home has no such card (it is about them).
-        self::assertSame(0, (new \DOMXPath($this->signIn($admin)->get('/ui/')->dom()))->query('//li[@data-card="watch"]')->length);
+        self::assertSame(0, (new \DOMXPath($this->signIn($admin)->get('/ui/')->dom()))->query('//*[@data-card="watch"]')->length);
     }
 
     /** A reviewer's menu (the owner's job): every new Settings page, each with its heading and an intro without code words. */
     public function testTheReviewersMenuHasEveryNewPage(): void
     {
         $web = $this->signIn($this->uiUser('reviewer'));
-        self::assertSame(['/ui/reference/company', '/ui/reference/settings', '/ui/reference/approvals', '/ui/reference/warehouses', '/ui/system/sites',
-            '/ui/system/checks', '/ui/system/audit'], array_column(self::nav($web->get('/ui/'))['Settings'], 'href'));
+        self::assertSame(['/ui/reference/company', '/ui/reference/warehouses', '/ui/system/sites', '/ui/reference/access', '/ui/reference/approvals',
+            '/ui/reference/reasons', '/ui/reference/settings'], array_column(self::sectionTabs($web->get('/ui/reference/company')), 'href'));
+        self::assertSame(['Settings', 'Numbering', 'System checks'], array_column(self::segments($web->get('/ui/system/checks')), 'label'));
+        self::assertSame([['Audit Log', '/ui/system/audit', true]], array_values(array_filter(array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']],
+            self::sectionTabs($web->get('/ui/system/audit'))), static fn (array $t): bool => $t[1] !== null)), 'Reports › Audit Log; the store reports are "Soon"');
         foreach (['/ui/reference/approvals', '/ui/reference/warehouses', '/ui/system/sites', '/ui/system/checks', '/ui/system/audit', '/ui/reference/access',
             '/ui/reference/reasons'] as $path) {
             $r = $web->get($path);

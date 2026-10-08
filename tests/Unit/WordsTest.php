@@ -23,7 +23,7 @@ use CW\Ui\Controller\SamplesController;
 use CW\Ui\Duplicates;
 use CW\Ui\Html;
 use CW\Ui\Queries;
-use CW\Ui\Tabs;
+use CW\Ui\Sections;
 use CW\Ui\Words;
 use PHPUnit\Framework\TestCase;
 
@@ -74,12 +74,17 @@ final class WordsTest extends TestCase
             'FLAG' => [...Veto::SOFT_FLAGS, ...Band::CONFLICT_FLAGS],
             'VETO' => Veto::CODES,
             'REORDER_FLAG' => array_keys(ReorderController::FLAG_TEXT),
-            'SECTION' => array_column(Permissions::MENU, 'section'),
-            'MENU' => array_merge(...array_map(static fn (array $s): array => array_column($s['items'], 'key'), Permissions::MENU)),
-            'MENU_HELP' => array_merge(...array_map(static fn (array $s): array => array_column($s['items'], 'key'), Permissions::MENU)),
+            'SECTION' => array_keys(Sections::MAP),
+            'SECTION_DESC' => array_keys(Sections::MAP),
+            'MENU' => array_merge(...array_map(static fn (array $s): array => array_keys($s['tabs']), array_values(Sections::MAP))),
+            'MENU_HELP' => array_keys(array_merge(...array_map(static fn (array $s): array => array_filter($s['tabs'], static fn (array $t): bool => !isset($t['soon'])),
+                array_values(Sections::MAP)))),
+            'SEGMENT' => ['review', 'samples', 'pending', 'reorder', 'brands', 'anomalies', 'sales_history', 'receiving', 'bench', 'incidents', 'settings', 'series',
+                'integrity'],
+            'NEW' => ['orders', 'receiving', 'suppliers', 'people', 'warehouses', 'reasons'],
             'COMING_LATER' => array_column(Permissions::COMING_LATER, 'key'),
-            'BADGE' => ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open'],
-            'TAB' => ['home', ...Tabs::PRIORITY, 'more'],
+            'BADGE' => [...Sections::badgeNames(), 'section'],
+            'TAB' => ['more'],
             'ERROR_TITLE' => ['400', '403', '404', '405', '409', '413', '422', '429', '500', '503'],
             'ERROR' => ['csrf', 'lead_only', 'not_found', 'method_not_allowed', 'too_large', 'form_truncated', 'bad_form_key', 'idempotency_key_reused',
                 'unavailable', 'busy', 'internal', 'unknown_staff', 'unknown_queue'],
@@ -216,8 +221,8 @@ final class WordsTest extends TestCase
         self::assertSame('', Words::comingLater(['buyer']));
         self::assertSame('Our name, numbers and addresses as printed on every purchase order. You can look; Reviewers change this.', Words::intro('company', 'Reviewers'));
         self::assertSame('', Words::intro('no-such-page'));
-        self::assertSame('Things to check', Words::title('reviews'));
-        self::assertSame('Purchase orders', Words::title('orders'));
+        self::assertSame('Waiting for me', Words::title('reviews'));
+        self::assertSame('Purchase Orders', Words::title('orders'));
     }
 
     public function testErrorWords(): void
@@ -416,7 +421,7 @@ final class WordsTest extends TestCase
         self::assertSame('Brand new thing', Words::settingName('reorder.brand_new_thing'));
         self::assertSame('Plain', Words::settingName('plain'));
         self::assertSame('the raw text', Words::settingHelp('reorder.brand_new_thing', 'the raw text'));
-        self::assertSame('What to buy', Words::settingTopic('reorder.default_safety_days'));
+        self::assertSame('Reorder', Words::settingTopic('reorder.default_safety_days'));
         self::assertSame('Other', Words::settingTopic('nothing.known'));
         self::assertStringNotContainsString('Phase', Words::settingHelp('costs.site_writeback', 'NOT built in Phase I-2'), 'F420');
         // Refusals: by code, else the service's message; none for none.
@@ -477,7 +482,7 @@ final class WordsTest extends TestCase
             self::assertStringStartsWith('php bin/', $c['command']);
         }
         // The fixed 20 left the spot check's words: the size is the Approval rules page's (approvals.spot_check_size).
-        foreach ([Words::MENU_HELP['samples'], Words::PAGE_INTRO['samples'][0], Words::PAGE_INTRO['sample'][0], Words::HELP['spot_check']] as $text) {
+        foreach ([Words::MENU_HELP['mapping'], Words::PAGE_INTRO['samples'][0], Words::PAGE_INTRO['sample'][0], Words::HELP['spot_check']] as $text) {
             self::assertStringNotContainsString('20', $text);
         }
     }

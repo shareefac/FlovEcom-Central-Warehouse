@@ -259,8 +259,8 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $other = $this->item('legacy', 0, 'Other');
         $this->profiled($vpg, 'V1', ['barcodes' => ['4006381333931']], $other);
         (new BarcodeSync(self::$db))->run(Caller::system('sync_barcodes'), true);
-        $nav = self::nav($web->get('/ui/'));
-        self::assertSame([['label' => 'Product list', 'href' => '/ui/items/cards'], ['label' => 'Barcodes to check 1', 'href' => '/ui/items/barcodes']], $nav['Products']);
+        self::assertSame(['href' => '/ui/items/cards', 'count' => 1], self::nav($web->get('/ui/'))['Products']);
+        self::assertSame(1, array_column(self::sectionTabs($web->get('/ui/items/barcodes')), 'count', 'label')['Barcodes'], 'Products › Barcodes: 1 to check');
     }
 
     public function testBarcodesOnTheItemPageAndTheReviewQueue(): void
@@ -341,7 +341,7 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('buyer'));
         $list = $web->get('/ui/items/cards');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame('Product list', trim((string) (new \DOMXPath($list->dom()))->query('//nav[@aria-label="Main"]//a[@aria-current="page"]')->item(0)?->textContent));
+        self::assertSame(['Products', 'All Products'], [self::currentSection($list), self::currentTab($list)]);
         $codes = static fn (UiResponse $r): array => array_map(static fn (\DOMElement $a): string => trim($a->textContent),
             iterator_to_array((new \DOMXPath($r->dom()))->query('//table[contains(@class, "item-cards")]//th[@scope="row"]/a')));
         self::assertSame([self::cw($high), self::cw($low), self::cw($none)], $codes($list), 'most stock first');

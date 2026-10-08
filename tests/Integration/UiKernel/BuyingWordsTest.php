@@ -140,7 +140,7 @@ final class BuyingWordsTest extends KernelUiTestCase
         $text = (string) preg_replace('/\S+@\S+/', '', trim((string) preg_replace('/\s+/u', ' ', (string) $xp->query('//main')->item(0)?->textContent)));
         self::assertDoesNotMatchRegularExpression('/\b[a-z]+_[a-z_]+\b/', $text, "{$where}: a code on the screen (rule 2)");
         foreach (['UTC', 'Phase I-', 'bin/', 'docs/', 'Your role', 'Your roles', '(GBP)', '∞', 'MiB', 'preferred supply', 'item card', 'Item card', 'listing',
-            'Reorder list', 'Sales history', 'awaiting approval', 'Mark as sent', 'due diligence', 'Due diligence', 'Lead days'] as $word) {
+            'Reorder list', 'awaiting approval', 'Mark as sent', 'due diligence', 'Due diligence', 'Lead days'] as $word) {
             self::assertStringNotContainsString($word, $text, "{$where}: \"{$word}\"");
         }
     }

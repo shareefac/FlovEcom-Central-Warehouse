@@ -60,7 +60,9 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::assertStringContainsString(Words::SUPPLIERS['none'], $list->text());
         self::assertContains('/ui/purchasing/suppliers/new', $list->hrefs());
-        self::assertContains(['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'], self::nav($list)['Buying']);
+        self::assertSame(['Purchasing', 'Suppliers'], [self::currentSection($list), self::currentTab($list)]);
+        self::assertSame(['/ui/purchasing/suppliers/new', '/ui/purchasing/orders#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array((new \DOMXPath($list->dom()))->query('//form[@class="toolbar"]//div[@class="split"]//a'))), 'the toolbar\'s "New supplier", then the other create actions');
 
         // Create by form; the same form sent twice makes one supplier.
         $new = $buyer->get('/ui/purchasing/suppliers/new');
@@ -141,7 +143,7 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertSame("/ui/purchasing/suppliers/{$id}", $xp->query('//section[@aria-labelledby="approvals-h"]//tbody/tr/th/a')->item(0)?->getAttribute('href'));
         self::assertStringContainsString(\CW\Ui\Words::CHECK_REASON['new_supplier'], $queue->text());
         self::assertSame(\CW\Ui\Words::CHECKS['open'], trim((string) $xp->evaluate('string(//section[@aria-labelledby="approvals-h"]//tbody/tr/td[contains(@class, "c-next")]/a)')));
-        self::assertSame('Waiting for me 1', self::nav($queue)['To check'][0]['label']);
+        self::assertSame(1, self::nav($queue)['Approvals']['count']);
         $rcard = $reviewer->get("/ui/purchasing/suppliers/{$id}");
         self::assertTrue($rcard->hasForm("/ui/purchasing/suppliers/tasks/{$task}/approve"));
         self::assertFalse($rcard->hasForm('/withdraw'));
@@ -150,7 +152,7 @@ final class SupplierScreensTest extends KernelUiTestCase
         $rcard = $reviewer->follow($ok);
         self::assertStringContainsString('Yes, since ', $rcard->text());
         self::assertSame('active', self::$db->value('SELECT status FROM supplier WHERE id = ?', [$id]));
-        self::assertStringNotContainsString('class="badge"', $reviewer->get('/ui/')->body, 'nothing left to decide');
+        self::assertSame(0, array_sum(array_column(self::nav($reviewer->get('/ui/')), 'count')), 'nothing left to decide');
         // The requester's own approval is refused with the reason (a buyer who is also a reviewer).
         $both = $this->uiUser(['buyer', 'reviewer']);
         $s2 = $this->draft($both['id'], ['name' => 'Own Supplier']);
@@ -350,7 +352,7 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertSame(0, $xp->query('//table[contains(@class, "settings")]//code[. = "suppliers.approval_due_days"]')->length);
         self::assertSame($xp->query('//table[contains(@class, "settings")]')->length, $xp->query('//table[contains(@class, "settings") and contains(@class, "stack")]')->length);
         self::assertStringNotContainsString('company.legal_name', $page->text(), 'the company details have their own screen since 0013 (I91)');
-        self::assertStringContainsString('Company details Our name, numbers and addresses, printed on every purchase order. Not confirmed', $page->text());
+        self::assertStringContainsString(Words::MENU['company'] . ' Our name, numbers and addresses, printed on every purchase order. Not confirmed', $page->text());
         self::assertContains('/ui/reference/company', $page->hrefs());
         $row = static fn (string $key): string => trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate(
             'string(//table[contains(@class, "settings")]/tbody/tr[th/small/code = "' . $key . '"])')));

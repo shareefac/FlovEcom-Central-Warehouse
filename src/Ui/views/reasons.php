@@ -1,4 +1,3 @@
-<p class="crumbs"><a href="/ui/reference/settings"><?= $word('MENU', 'settings') ?></a></p>
 <h1><?= $word('PAGE_TITLE', 'reasons') ?></h1>
 <?= $intro('reasons') ?>
 <p class="muted"><?= $word('SETTINGS_PAGE', 'reasons_text') ?></p>
@@ -10,7 +9,7 @@
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
 <?php if ($canEdit): ?>
-<details class="fold add-reason"<?php if ($error !== null): ?> open<?php endif; ?>>
+<details class="fold add-reason" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $word('REASONS_EDIT', 'add_title') ?></summary>
   <form class="record" method="post" action="/ui/reference/reasons">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

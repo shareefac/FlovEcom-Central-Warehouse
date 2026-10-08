@@ -49,8 +49,10 @@ final class ReviewScreensTest extends KernelUiTestCase
         $queue = $web->get('/ui/documents/reviews');
         self::assertSame(200, $queue->status, $queue->describe());
         self::assertStringContainsString(Words::CHECKS['none'], $queue->text());
-        self::assertSame('Things to check', trim((string) (new \DOMXPath($queue->dom()))->evaluate('string(//main//h1)')), 'the title the plan names (F096)');
-        self::assertSame([['label' => 'Waiting for me', 'href' => '/ui/documents/reviews']], self::nav($queue)['To check']);
+        self::assertSame(Words::MENU['reviews'], trim((string) (new \DOMXPath($queue->dom()))->evaluate('string(//main//h1)')), 'the tab\'s name (F096)');
+        self::assertSame(['href' => '/ui/documents/reviews', 'count' => 0], self::nav($queue)['Approvals']);
+        self::assertSame([['Waiting for me', true], ['History', false], ['Staff requests', false]],
+            array_map(static fn (array $t): array => [$t['label'], $t['current']], self::sectionTabs($queue)));
 
         $poster = $this->uiUser(['stock_controller', 'reviewer']);
         $sku = self::makeSku('Screen item');
@@ -76,7 +78,8 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertSame(['Everything', 'Purchase orders', 'Deliveries', 'Stock corrections', 'Suppliers', 'Company details'],
             array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent), iterator_to_array($xp->query('//select[@name="type"]/option'))),
             'the filter offers the kinds in use (F102): PO, GRN (IM6) and the fixture ADJ here, never the kinds still to come');
-        self::assertSame('Waiting for me 3', self::nav($queue)['To check'][0]['label'], 'the badge counts what this reviewer may decide');
+        self::assertSame(3, self::nav($queue)['Approvals']['count'], 'the count is what this reviewer may decide');
+        self::assertSame(3, self::sectionTabs($queue)[0]['count']);
 
         // Approve through the form.
         $page = $web->get('/ui/documents/' . $a->id);
@@ -192,7 +195,8 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::REFUSAL['own_document'], $page->text());
         self::assertFalse($page->hasForm('/approve'));
         self::assertFalse($page->hasForm('/reject'));
-        self::assertStringNotContainsString('class="badge"', $page->body, 'their own document is not in their count');
+        self::assertSame(0, array_sum(array_column(self::nav($page), 'count')), 'their own document is not in their count');
+        self::assertSame(['Approvals', 'History'], [self::currentSection($page), self::currentTab($page)], 'a record keeps Approvals › History marked');
         $queue = $web->get('/ui/documents/reviews');
         self::assertStringContainsString(Words::REFUSAL['own_document'], $queue->text());
         self::assertNotContains('/ui/documents/reviews/' . $this->task($doc->id) . '/approve', $queue->hrefs());
@@ -249,7 +253,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertContains('/ui/documents/' . $doc->id, $list->hrefs());
         self::assertStringContainsString('Today this list holds purchase orders, deliveries and stock corrections, and their cancellations.', $list->text(),
             'the fixture ADJ is live in tests (and GRN since IM6)');
-        self::assertSame('All records', trim((string) (new \DOMXPath($list->dom()))->evaluate('string(//main//h1)')));
+        self::assertSame(Words::MENU['documents'], trim((string) (new \DOMXPath($list->dom()))->evaluate('string(//main//h1)')));
         $lxp = new \DOMXPath($list->dom());
         self::assertSame(1, $lxp->query('//table[contains(@class, "stack")]')->length, 'one card per record on a phone');
         self::assertSame(['Final', 'Draft'], [trim((string) $lxp->evaluate('string(//tbody/tr[2]/td[contains(@class, "c-status")])')),

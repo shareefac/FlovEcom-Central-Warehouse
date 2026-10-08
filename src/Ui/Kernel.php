@@ -38,6 +38,7 @@ use CW\Ui\Controller\SearchController;
 use CW\Ui\Controller\SellingModeController;
 use CW\Ui\Controller\SettingsController;
 use CW\Ui\Controller\StaffRequestsController;
+use CW\Ui\Controller\StockController;
 use CW\Ui\Controller\SupplierItemsController;
 use CW\Ui\Controller\SuppliersController;
 use CW\Ui\Controller\SystemController;
@@ -549,6 +550,11 @@ final class Kernel
         $r->add('POST', '/ui/receiving/{id}/reverse', 'doc.GRN.post', $recv->reverse(...));
         $r->add('GET', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->benchForm(...));
         $r->add('POST', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->bench(...));
+        // Stock (the owner's request of 8 Oct 2026): what each warehouse holds and every change, read only, for everyone who sees an
+        // item's stock on its page (catalogue.view). Adjustments, counts and transfers come with IM2/IM7 (Ui\Sections: "Soon").
+        $stock = new StockController();
+        $r->add('GET', '/ui/stock', 'catalogue.view', $stock->overview(...));
+        $r->add('GET', '/ui/stock/movements', 'catalogue.view', $stock->movements(...));
         return $this->router = $r;
     }
 
@@ -557,7 +563,7 @@ final class Kernel
     {
         $view = new View(View::defaultDir(), ['csrf' => '', 'who' => null]);
         $html = $view->page('error', ['status' => $status, 'code' => $code, 'heading' => Words::errorTitle($status), 'message' => $message, 'rid' => $rid],
-            ['title' => Words::errorTitle($status), 'active' => '', 'notice' => null, 'menu' => [], 'badges' => [], 'searchBox' => false,
+            ['title' => Words::errorTitle($status), 'active' => '', 'notice' => null, 'nav' => [], 'tabs' => [], 'searchBox' => false,
                 'testSystem' => $this->testSystem()]);
         return new HtmlResponse($status, $html);
     }

@@ -63,8 +63,10 @@ final class ReorderScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('REORDER', 'data_from', (string) self::$db->value("SELECT name FROM channel WHERE code = 'vapeandgo'"), '1 Jun 2026',
             '1 Oct 2026'), $page->text());
         self::assertStringNotContainsString('∞', $page->text(), 'no sales: "no sales", never ∞ (F318)');
-        self::assertSame([['label' => 'What to buy', 'href' => '/ui/purchasing/reorder'], ['label' => 'Purchase orders', 'href' => '/ui/purchasing/orders'],
-            ['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'], ['label' => 'Sales data', 'href' => '/ui/purchasing/sales-history']], self::nav($page)['Buying']);
+        self::assertSame([['Reorder', '/ui/purchasing/reorder', true], ['Purchase Orders', '/ui/purchasing/orders', false], ['Suppliers', '/ui/purchasing/suppliers', false]],
+            array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']], self::sectionTabs($page)), 'Purchasing › Reorder');
+        self::assertSame(['Suggestions', 'Brands', 'Anomalies', 'Sales history'], array_column(self::segments($page), 'label'));
+        self::assertSame('Suggestions', self::segments($page)[0]['current'] ? 'Suggestions' : null);
         $form = $page->form('/ui/purchasing/reorder/draft');
         self::assertSame('3', $form['row_count']);
         self::assertSame(['pick_' . $s['b'], 'pick_' . $s['d'], 'pick_' . $s['a']], array_values(array_filter(array_keys($form), static fn (string $k): bool => str_starts_with($k, 'pick_'))),

@@ -58,25 +58,25 @@ final class StartSettingsWordsTest extends KernelUiTestCase
         $buyer = $this->plainNames($buyer, 'Ben Buyer');
 
         $pages = [
-            [$reviewer, '/ui/documents/reviews', 'Things to check', 'reviews'],
-            [$reviewer, '/ui/documents', 'All records', 'documents'],
+            [$reviewer, '/ui/documents/reviews', 'Waiting for me', 'reviews'],
+            [$reviewer, '/ui/documents', 'History', 'documents'],
             [$reviewer, '/ui/documents/' . $doc->id, 'Stock correction ADJ-000001', 'document'],
             [$reviewer, '/ui/documents/' . $held->id, 'Stock correction (no number yet)', 'document'],
-            [$reviewer, '/ui/reference/company', 'Company details', 'company'],
+            [$reviewer, '/ui/reference/company', 'Company', 'company'],
             [$reviewer, '/ui/reference/company/edit', 'Change the company details', 'company_edit'],
-            [$reviewer, '/ui/reference/settings', 'Settings and lists', 'settings'],
-            [$reviewer, '/ui/reference/reasons', 'Reasons for stock changes', 'reasons'],
-            [$reviewer, '/ui/reference/series', 'How record numbers are made', 'series'],
+            [$reviewer, '/ui/reference/settings', 'Settings', 'settings'],
+            [$reviewer, '/ui/reference/reasons', 'Reasons', 'reasons'],
+            [$reviewer, '/ui/reference/series', 'Numbering', 'series'],
             [$reviewer, '/ui/password', 'Change password', 'password'],
-            [$buyer, '/ui/reference/company', 'Company details', 'company'],
-            [$buyer, '/ui/documents', 'All records', 'documents'],
-            [$owner, '/ui/reference/company', 'Company details', 'company'],
-            [$admin, '/ui/people', 'Staff and access', 'people'],
+            [$buyer, '/ui/reference/company', 'Company', 'company'],
+            [$buyer, '/ui/documents', 'History', 'documents'],
+            [$owner, '/ui/reference/company', 'Company', 'company'],
+            [$admin, '/ui/people', 'Users', 'people'],
             [$admin, '/ui/people/' . $owner['id'], 'Olga Owner', 'person'],
             [$admin, '/ui/people/' . $buyer['id'], 'Ben Buyer', 'person'],
-            [$auditor, '/ui/people', 'Staff and access', null],
+            [$auditor, '/ui/people', 'Users', null],
             [$auditor, '/ui/people/' . $buyer['id'], 'Ben Buyer', null],
-            [$auditor, '/ui/documents', 'All records', 'documents'],
+            [$auditor, '/ui/documents', 'History', 'documents'],
         ];
         $browsers = [];
         foreach ($pages as [$user, $path, $title, $intro]) {

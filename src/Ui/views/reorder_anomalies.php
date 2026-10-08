@@ -1,5 +1,4 @@
 <?php $v = $typed ?? []; ?>
-<p class="crumbs"><a href="/ui/purchasing/reorder"><?= $word('MENU', 'reorder') ?></a></p>
 <h1><?= $word('PAGE_TITLE', 'reorder_anomalies') ?></h1>
 <?= $intro('reorder_anomalies') ?>
 <p><?= $say('ANOMALIES', 'intro', $maxDays) ?></p>

@@ -90,7 +90,10 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         // The list and the new-order form; the same form twice: one draft.
         $list = $buyer->get('/ui/purchasing/orders');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['label' => 'Purchase orders', 'href' => '/ui/purchasing/orders'], self::nav($list)['Buying'][1]);
+        self::assertSame(['label' => 'Purchase Orders', 'href' => '/ui/purchasing/orders', 'count' => 0, 'current' => true], self::sectionTabs($list)[1]);
+        self::assertSame(['/ui/purchasing/orders#new', '/ui/purchasing/suppliers/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array((new \DOMXPath($list->dom()))->query('//form[@class="toolbar"]//div[@class="split"]//a'))), 'the toolbar\'s "New purchase order" leads to the form');
+        self::assertSame(1, (new \DOMXPath($list->dom()))->query('//*[@id="new"]//form[@action="/ui/purchasing/orders"]')->length);
         self::assertStringContainsString(Words::ORDERS['none'], $list->text());
         self::assertStringContainsString(Words::ORDERS['none_buyer'], $list->text(), 'an empty list says what to do (F304)');
         $form = ['supplier_id' => (string) $s['id']] + $list->form('/ui/purchasing/orders');

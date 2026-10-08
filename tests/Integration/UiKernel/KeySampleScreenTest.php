@@ -39,9 +39,10 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::assertStringContainsString('screen-1', $list->text());
         self::assertStringContainsString('0 of 20', $list->text());
-        self::assertContains(['label' => 'Spot check', 'href' => '/ui/review/samples'], self::nav($list)['Match products']);
-        $current = (new \DOMXPath($list->dom()))->query('//nav[@aria-label="Main"]//a[@aria-current="page"]');
-        self::assertSame('Spot check', trim((string) $current->item(0)?->textContent));
+        self::assertSame(['Products', 'Mapping'], [self::currentSection($list), self::currentTab($list)], 'Products › Mapping');
+        self::assertSame([['To review', false], ['Spot check', true], ['Second approval', false]],
+            array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($list)), '... › Spot check');
+        self::assertSame('/ui/review/samples', self::segments($list)[1]['href']);
 
         $page = $web->get('/ui/review/samples/' . $sid);
         self::assertSame(200, $page->status, $page->describe());

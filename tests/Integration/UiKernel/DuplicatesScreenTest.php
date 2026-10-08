@@ -102,7 +102,8 @@ final class DuplicatesScreenTest extends KernelUiTestCase
 
         $list = $web->get('/ui/review/duplicates');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertContains(['label' => 'Possible duplicates 2', 'href' => '/ui/review/duplicates'], self::nav($list)['Match products'], 'the badge counts open groups');
+        self::assertSame(['label' => 'Duplicates', 'href' => '/ui/review/duplicates', 'count' => 2, 'current' => true], self::sectionTabs($list)[2],
+            'the tab\'s count is the open groups');
         $rows = (new \DOMXPath($list->dom()))->query('//table[contains(@class, "dups")]/tbody/tr/th/a');
         self::assertSame(['/ui/review/duplicates/' . $x['pb'], '/ui/review/duplicates/' . $pd], [$rows->item(0)?->getAttribute('href'), $rows->item(1)?->getAttribute('href')],
             'the biggest sellers first (365 days)');
@@ -181,7 +182,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         $done = $web->follow($r);
         self::assertStringContainsString(Words::DUP_NOTICE['done'], $done->text());
         self::assertStringContainsString('Decided recently', $done->text());
-        self::assertContains(['label' => 'Possible duplicates', 'href' => '/ui/review/duplicates'], self::nav($done)['Match products']);
+        self::assertSame(0, array_column(self::sectionTabs($done), 'count', 'label')['Duplicates'], 'nothing left: no count');
 
         // The merged group: its heading says the answer (F127), and the undo. B goes back to its own item with its 8.
         $g = $web->get('/ui/review/duplicates/' . $x['pb']);
@@ -235,7 +236,7 @@ final class DuplicatesScreenTest extends KernelUiTestCase
             self::$db->value('SELECT status FROM match_proposal WHERE id = ?', [$pc])]);
         $list = $web->get('/ui/review/duplicates');
         self::assertStringContainsString(Words::DUPS['partly'], $list->text());
-        self::assertContains(['label' => 'Possible duplicates 1', 'href' => '/ui/review/duplicates'], self::nav($list)['Match products']);
+        self::assertSame(1, array_column(self::sectionTabs($list), 'count', 'label')['Duplicates']);
         // C: a different product (6000 puffs).
         $g = $web->get('/ui/review/duplicates/' . $pb);
         self::assertStringContainsString(Words::DUPS['state_same'], $g->text());

@@ -23,7 +23,8 @@ namespace CW\Ui;
  *   $stateChip($group, $code)  the chip of a status code (its word and tone from Words)
  *   $intro($page, $who)     the page's one-sentence intro (Words::PAGE_INTRO; $who = "You can look; <who> change this.")
  *   $explain($key, $label)  a "?" that unfolds one Words::HELP text (a <details>: no script)
- *   $cards($cards)          a list of task cards (job number, chip, count, "What happens:", one button)
+ *   $cards($cards, $group, $tone, $id)   the task board: one row per task (job number, title, where, status, how many, "What happens:",
+ *                           one button), under the group's title
  *   $empty($title, $text, $href, $button)   an empty state that says why and what to do next
  *
  * and `$body` in the layout. Templates never echo anything else: tests/Unit/UiTemplatesTest.php
@@ -70,7 +71,9 @@ final class View
             'stateChip' => static fn (string $group, ?string $code): string => Html::chip(Words::tone($group, $code), Words::of($group, $code)),
             'intro' => static fn (string $page, ?string $lookOnly = null): string => Html::intro(Words::intro($page, $lookOnly)),
             'explain' => static fn (string $key, ?string $label = null): string => Html::help($key, $label),
-            'cards' => fn (array $cards): string => $this->render('cards', ['list' => $cards]),
+            // The task board (design v4): one group of rows, its title in its colour; $group null = no title.
+            'cards' => fn (array $cards, ?string $group = null, string $tone = 'info', string $id = 'tasks'): string
+                => $this->render('cards', ['list' => $cards, 'group' => $group, 'tone' => $tone, 'id' => $id]),
             'empty' => static fn (string $title, string $text = '', ?string $href = null, ?string $button = null): string
                 => Html::emptyState($title, $text, $href, $button),
         ];

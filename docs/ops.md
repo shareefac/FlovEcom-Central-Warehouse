@@ -910,8 +910,20 @@ The audit trail of the purge:
 ## The staff UI (`/ui`, linking backend front end; `docs/decisions.md` U1-U17, U25-U79)
 
 Server-rendered PHP, no JavaScript framework and nothing from a third party: two static files
-(`/ui/assets/app.css`, `app.js`) served by the front controller under the CSP
+(`/ui/assets/app.css`, `app.js`) and five self-hosted fonts (`/ui/assets/fonts/*.woff2`) served by the front controller under the CSP
 `default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`.
+
+**Seven sections and tabs, design v4 (owner's request of 8 Oct 2026; U95-U105).** The sidebar is Dashboard, Products, Stock,
+Purchasing, Reports, Approvals and Settings (each with a count where something waits for the person); everything else is a tab under the
+section's name, with a segmented filter inside some tabs (Mapping: To review · Spot check · Second approval; Reorder: Suggestions ·
+Brands · Anomalies · Sales history; Goods In: To receive · Checking · Issues; System: Settings · Numbering · System checks). Purchasing
+shows the buying flow Reorder → Purchase Order → Goods In → Stock updated. A page's create button ("New purchase order", "Receive
+delivery", "New supplier", "New user", "New warehouse", "New reason") sits on the left of the row under the tabs. On a phone the
+bottom bar is Dashboard · Products · Stock · Purchasing · More. Tabs not built yet show "Soon": Stock › Adjustments, Counts, Transfers
+and Reports › Stock by Store, Sales by Store, Low Stock. No address changed; Stock › Overview (`/ui/stock`) and Movements
+(`/ui/stock/movements`) are new. The map is `src/Ui/Sections.php`; the look's tokens and fonts are at the top of `app.css`.
+
+The paragraph below describes the bodies of the pages, which kept design A's parts.
 
 **In plain words, design "A with B's parts" (owner's decision of 7 Oct 2026; U25-U79).** A sidebar on a laptop; on a phone a
 top bar, a bottom tab bar (To do and the person's main jobs, then More) and the whole menu as a sheet; white cards on grey,

@@ -1,3 +1,44 @@
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REORDER', 'product') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
+  <details class="tb-pop">
+    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($filtered): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
+    <div class="pop pop-form">
+      <label><?= $word('REORDER', 'brand') ?>
+        <select name="brand">
+          <option value=""><?= $word('REORDER', 'any_brand') ?></option>
+<?php foreach ($brands as $b): ?>
+          <option value="<?= $e($b) ?>"<?php if ($filters['brand'] !== null && mb_strtolower($filters['brand']) === mb_strtolower($b)): ?> selected<?php endif; ?>><?= $e($b) ?></option>
+<?php endforeach; ?>
+        </select>
+      </label>
+      <label><?= $word('REORDER', 'supplier') ?>
+        <select name="supplier">
+          <option value=""><?= $word('REORDER', 'any_supplier') ?></option>
+<?php foreach ($suppliers as $s): ?>
+          <option value="<?= $e($s['id']) ?>"<?php if ($filters['supplier'] === $s['id']): ?> selected<?php endif; ?>><?= $e($s['name']) ?></option>
+<?php endforeach; ?>
+        </select>
+      </label>
+      <label><?= $word('REORDER', 'show') ?>
+        <select name="show">
+          <option value="need"<?php if ($filters['show'] === 'need'): ?> selected<?php endif; ?>><?= $word('REORDER', 'show_need') ?></option>
+          <option value="all"<?php if ($filters['show'] === 'all'): ?> selected<?php endif; ?>><?= $word('REORDER', 'show_all') ?></option>
+        </select>
+      </label>
+      <label><?= $word('REORDER', 'stock') ?>
+        <select name="stock">
+          <option value="cw"<?php if ($filters['stock'] === 'cw'): ?> selected<?php endif; ?>><?= $word('REORDER', 'stock_cw') ?></option>
+          <option value="site"<?php if ($filters['stock'] === 'site'): ?> selected<?php endif; ?>><?= $word('REORDER', 'stock_site') ?></option>
+        </select>
+      </label>
+      <label class="choice"><input type="checkbox" name="urgent" value="1"<?php if ($filters['urgent']): ?> checked<?php endif; ?>> <?= $word('REORDER', 'urgent') ?></label>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/reorder"><?= $word('REORDER', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+    </div>
+  </details>
+<?php if ($rows !== []): ?>
+  <div class="tb-end"><a class="btn ghost sm" href="<?= $u('/ui/purchasing/reorder.csv', $query) ?>" title="<?= $word('REORDER', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
+<?php endif; ?>
+</form>
 <h1><?= $word('MENU', 'reorder') ?></h1>
 <?= $intro('reorder', $lookOnly) ?>
 <?php if ($lookOnly !== null): ?>
@@ -59,50 +100,14 @@
   </p>
 </section>
 
-<form class="filters" method="get" action="/ui/purchasing/reorder">
-  <label><?= $word('REORDER', 'brand') ?>
-    <select name="brand">
-      <option value=""><?= $word('REORDER', 'any_brand') ?></option>
-<?php foreach ($brands as $b): ?>
-      <option value="<?= $e($b) ?>"<?php if ($filters['brand'] !== null && mb_strtolower($filters['brand']) === mb_strtolower($b)): ?> selected<?php endif; ?>><?= $e($b) ?></option>
-<?php endforeach; ?>
-    </select>
-  </label>
-  <label><?= $word('REORDER', 'supplier') ?>
-    <select name="supplier">
-      <option value=""><?= $word('REORDER', 'any_supplier') ?></option>
-<?php foreach ($suppliers as $s): ?>
-      <option value="<?= $e($s['id']) ?>"<?php if ($filters['supplier'] === $s['id']): ?> selected<?php endif; ?>><?= $e($s['name']) ?></option>
-<?php endforeach; ?>
-    </select>
-  </label>
-  <label><?= $word('REORDER', 'product') ?> <input type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('REORDER', 'product_hint') ?>"></label>
-  <label><?= $word('REORDER', 'show') ?>
-    <select name="show">
-      <option value="need"<?php if ($filters['show'] === 'need'): ?> selected<?php endif; ?>><?= $word('REORDER', 'show_need') ?></option>
-      <option value="all"<?php if ($filters['show'] === 'all'): ?> selected<?php endif; ?>><?= $word('REORDER', 'show_all') ?></option>
-    </select>
-  </label>
-  <label><?= $word('REORDER', 'stock') ?>
-    <select name="stock">
-      <option value="cw"<?php if ($filters['stock'] === 'cw'): ?> selected<?php endif; ?>><?= $word('REORDER', 'stock_cw') ?></option>
-      <option value="site"<?php if ($filters['stock'] === 'site'): ?> selected<?php endif; ?>><?= $word('REORDER', 'stock_site') ?></option>
-    </select>
-  </label>
-  <label class="choice"><input type="checkbox" name="urgent" value="1"<?php if ($filters['urgent']): ?> checked<?php endif; ?>> <?= $word('REORDER', 'urgent') ?></label>
-  <button type="submit"><?= $word('REORDER', 'filter') ?></button>
-</form>
 
 <?php if ($rows === [] && $filtered): ?>
 <?= $empty(\CW\Ui\Words::REORDER['none_filter'], \CW\Ui\Words::REORDER['none_filter_text'], '/ui/purchasing/reorder', \CW\Ui\Words::REORDER['clear']) ?>
 <?php elseif ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::REORDER['none'], $filters['show'] === 'need' ? \CW\Ui\Words::REORDER['none_text'] : '') ?>
 <?php else: ?>
-<div class="crumbs">
-  <p class="muted"><?php if ($filters['show'] === 'need'): ?><?php if ($total === 1): ?><?= $word('REORDER', 'total_one') ?><?php else: ?><?= $say('REORDER', 'total_many', $total) ?><?php endif; ?><?php else: ?><?php if ($total === 1): ?><?= $word('REORDER', 'total_all_one') ?><?php else: ?><?= $say('REORDER', 'total_all_many', $total) ?><?php endif; ?><?php endif; ?>
-    <?= $word('REORDER', 'units') ?><?php if ($pages > 1): ?> <?= $say('REORDER', 'page', $page, $pages) ?><?php endif; ?></p>
-  <p class="actions"><a href="<?= $u('/ui/purchasing/reorder.csv', $query) ?>"><?= $word('REORDER', 'download') ?></a></p>
-</div>
+<div class="board-head"><h2 class="board-title"><?= $word('REORDER', 'board') ?></h2><p class="board-note"><?php if ($filters['show'] === 'need'): ?><?php if ($total === 1): ?><?= $word('REORDER', 'total_one') ?><?php else: ?><?= $say('REORDER', 'total_many', $total) ?><?php endif; ?><?php else: ?><?php if ($total === 1): ?><?= $word('REORDER', 'total_all_one') ?><?php else: ?><?= $say('REORDER', 'total_all_many', $total) ?><?php endif; ?><?php endif; ?>
+    <?= $word('REORDER', 'units') ?><?php if ($pages > 1): ?> <?= $say('REORDER', 'page', $page, $pages) ?><?php endif; ?></p></div>
 <?php if ($canDraft): ?>
 <form class="reorder" method="post" action="/ui/purchasing/reorder/draft">
   <input type="hidden" name="row_count" value="<?= $e(count($rows)) ?>">
@@ -117,7 +122,7 @@
   <input type="hidden" name="page" value="<?= $e($page) ?>">
 <?php endif; ?>
 <div class="table-wrap">
-<table class="stack list reorder">
+<table class="stack list reorder board info">
   <thead>
     <tr>
       <th scope="col"><?= $word('REORDER', 'product') ?></th>

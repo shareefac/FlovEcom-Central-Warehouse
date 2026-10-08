@@ -4,45 +4,53 @@
 </div>
 <?= $intro('queue_' . $qc->band, $lookOnly) ?>
 
-<nav class="tabs" aria-label="<?= $word('QUEUE', 'lists') ?>">
-<?php foreach ($bands as $b): ?>
-  <a href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel]) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php endif; ?>><?= $e($b['label']) ?> <span class="tab-count">(<?= $n($b['count']) ?>)</span></a>
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+  <input type="hidden" name="queue" value="<?= $e($qc->band) ?>">
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('QUEUE', 'text') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($qc->text) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
+  <details class="tb-pop">
+    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($qc->channel !== null || $qc->lane !== null || $qc->min > 0): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
+    <div class="pop pop-form">
+      <label><?= $word('QUEUE', 'website') ?>
+        <select name="channel">
+          <option value=""><?= $word('QUEUE', 'any_website') ?></option>
+<?php foreach ($channels as $c): ?>
+          <option value="<?= $e($c['code']) ?>"<?php if ($qc->channel === $c['code']): ?> selected<?php endif; ?>><?= $e($c['name']) ?></option>
 <?php endforeach; ?>
-</nav>
-<p class="see-also"><a href="/ui/review?queue=pending"><?= $word('MENU', 'pending') ?></a></p>
+        </select>
+      </label>
+      <label><?= $word('QUEUE', 'found_by') ?>
+        <select name="lane">
+          <option value=""><?= $word('QUEUE', 'any') ?></option>
+<?php foreach ($lanes as $lane): ?>
+          <option value="<?= $e($lane) ?>"<?php if ($qc->lane === $lane): ?> selected<?php endif; ?>><?= $word('LANE', $lane) ?></option>
+<?php endforeach; ?>
+        </select>
+      </label>
+      <label><?= $word('QUEUE', 'min') ?>
+        <input type="number" name="min" min="0" max="999999" inputmode="numeric" value="<?= $e($qc->min > 0 ? $qc->min : '') ?>">
+      </label>
+      <div class="pop-actions"><a class="btn ghost sm" href="<?= $e($clear_link) ?>"><?= $word('QUEUE', 'clear') ?></a><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+    </div>
+  </details>
+</form>
+<?php $bandTotal = array_sum(array_column($bands, 'count')); ?>
+<section class="card strength" aria-label="<?= $word('QUEUE', 'lists') ?>">
+  <p class="hint"><?= $word('QUEUE', 'strength') ?></p>
+<?php if ($bandTotal > 0): ?>
+  <div class="battery" aria-hidden="true"><?php foreach ($bands as $b): ?><?php if ($b['count'] > 0): ?><span class="<?= $e(\CW\Ui\Words::tone('BAND', $b['band'])) ?> w-<?= $e(max(1, (int) round($b['count'] * 100 / $bandTotal))) ?>"></span><?php endif; ?><?php endforeach; ?></div>
+<?php endif; ?>
+  <nav class="legend" aria-label="<?= $word('QUEUE', 'lists') ?>">
+<?php foreach ($bands as $b): ?>
+    <a class="<?= $e(\CW\Ui\Words::tone('BAND', $b['band'])) ?>" href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel]) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php endif; ?>><span class="key" aria-hidden="true"></span><?= $e($b['label']) ?> <strong class="tab-count"><?= $n($b['count']) ?></strong></a>
+<?php endforeach; ?>
+  </nav>
+</section>
 <?php if ($qc->band === 'Manual'): ?>
 <p class="note"><?= $word('QUEUE', 'renamed_note') ?></p>
 <?php endif; ?>
 <?php if ($leadOnly): ?>
 <p class="note"><?= $word('QUEUE', 'lead_only') ?></p>
 <?php endif; ?>
-
-<form class="filters" method="get" action="/ui/review">
-  <input type="hidden" name="queue" value="<?= $e($qc->band) ?>">
-  <label><?= $word('QUEUE', 'website') ?>
-    <select name="channel">
-      <option value=""><?= $word('QUEUE', 'any_website') ?></option>
-<?php foreach ($channels as $c): ?>
-      <option value="<?= $e($c['code']) ?>"<?php if ($qc->channel === $c['code']): ?> selected<?php endif; ?>><?= $e($c['name']) ?></option>
-<?php endforeach; ?>
-    </select>
-  </label>
-  <label><?= $word('QUEUE', 'found_by') ?>
-    <select name="lane">
-      <option value=""><?= $word('QUEUE', 'any') ?></option>
-<?php foreach ($lanes as $lane): ?>
-      <option value="<?= $e($lane) ?>"<?php if ($qc->lane === $lane): ?> selected<?php endif; ?>><?= $word('LANE', $lane) ?></option>
-<?php endforeach; ?>
-    </select>
-  </label>
-  <label><?= $word('QUEUE', 'min') ?>
-    <input type="number" name="min" min="0" max="999999" inputmode="numeric" value="<?= $e($qc->min > 0 ? $qc->min : '') ?>">
-  </label>
-  <label><?= $word('QUEUE', 'text') ?>
-    <input type="search" name="q" value="<?= $e($qc->text) ?>" maxlength="100">
-  </label>
-  <button type="submit"><?= $word('QUEUE', 'show') ?></button>
-</form>
 
 <?php if ($total === 0 && $filtered): ?>
 <?= $empty(\CW\Ui\Words::QUEUE['empty_filter'], \CW\Ui\Words::QUEUE['empty_filter_text'], $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
@@ -51,12 +59,14 @@
 <?php elseif ($total === 0): ?>
 <?= $empty(\CW\Ui\Words::QUEUE['empty'], \CW\Ui\Words::QUEUE['all_done'], '/ui/', \CW\Ui\Words::MENU['home']) ?>
 <?php else: ?>
-<p class="muted"><?php if ($total === 1): ?><?= $word('QUEUE', 'total_one') ?><?php else: ?><?= $say('QUEUE', 'total_many', $total) ?><?php endif; ?></p>
+<div class="board-head"><h2 class="board-title"><?= $word('QUEUE', 'board') ?></h2><p class="board-note"><?php if ($total === 1): ?><?= $word('QUEUE', 'total_one') ?><?php else: ?><?= $say('QUEUE', 'total_many', $total) ?><?php endif; ?></p></div>
 <?php endif; ?>
 
 <?php if ($rows !== []): ?>
-<div class="table-wrap">
-<table class="stack list queue">
+<?php $tone = \CW\Ui\Words::tone('BAND', $qc->band); ?>
+<h3 class="grp-title <?= $e($tone) ?>"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-band"><?= $word('BAND', $qc->band) ?></button><span class="grp-count"><?= $say('QUEUE', 'in_all', $total, count($rows)) ?></span></h3>
+<div class="table-wrap" id="g-band">
+<table class="stack list queue board <?= $e($tone) ?>">
   <thead>
     <tr>
       <th scope="col"><?= $word('QUEUE', 'product') ?></th>

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace CW\Auth;
 
 use CW\CwException;
-use CW\Ui\Words;
 
 /**
  * THE single place that says what a role may do (docs/decisions.md I11). Pure: no database. A person holds
@@ -13,8 +12,8 @@ use CW\Ui\Words;
  * on every request (Sessions::resolve) and re-read by the services inside their write transactions.
  *
  * Routes are guarded by a permission (Ui\Router validates the name, Ui\Kernel::guarded checks it), never by
- * a role name, and the menu is derived from the same map (MENU), so a page a person cannot open is neither
- * shown nor served.
+ * a role name, and the navigation (Ui\Sections) names each page with the same permission as its route, so a page a
+ * person cannot open is neither shown nor served.
  *
  * Separation of duties (I12): `admin` manages people and roles and nothing else. It may be held together
  * with read-only roles only (ADMIN_COMPATIBLE); checkRoleSet() refuses anything else, so the person who
@@ -127,74 +126,6 @@ final class Permissions
         'staff.approve' => ['reviewer'],
     ];
 
-    /**
-     * The navigation, grouped by task (plan §2.1, the owner's daily work first): what to do, not how the system is built.
-     * A section has a `section` key (its heading is Ui\Words::SECTION); an item has a `key` (its name is Ui\Words::MENU, and it
-     * marks the current page: layout `active`), the `perm` that opens it (unchanged: every item is a live GET route guarded by
-     * the same permission), its `path` (+ `query`), and optionally a `badge`, a count of Ui\Context::badges() (linking_pending,
-     * linking_duplicates, reviews_open, barcodes_open, incidents_open). Screens that are not built yet are not in the menu (COMING_LATER).
-     * menu() lifts one section to second place for a person whose main job lives lower down (LIFT).
-     */
-    public const MENU = [
-        ['section' => 'home', 'items' => [
-            ['perm' => 'catalogue.view', 'key' => 'home', 'path' => '/ui/'],
-        ]],
-        ['section' => 'check', 'items' => [
-            ['perm' => 'documents.review', 'key' => 'reviews', 'path' => '/ui/documents/reviews', 'badge' => 'reviews_open'],
-        ]],
-        ['section' => 'match', 'items' => [
-            ['perm' => 'linking.view', 'key' => 'review', 'path' => '/ui/review', 'query' => ['queue' => 'Key']],
-            ['perm' => 'linking.view', 'key' => 'pending', 'path' => '/ui/review', 'query' => ['queue' => 'pending'], 'badge' => 'linking_pending'],
-            ['perm' => 'linking.view', 'key' => 'samples', 'path' => '/ui/review/samples'],
-            ['perm' => 'linking.view', 'key' => 'duplicates', 'path' => '/ui/review/duplicates', 'badge' => 'linking_duplicates'],
-        ]],
-        ['section' => 'buy', 'items' => [
-            ['perm' => 'reorder.view', 'key' => 'reorder', 'path' => '/ui/purchasing/reorder'],
-            ['perm' => 'purchasing.view', 'key' => 'orders', 'path' => '/ui/purchasing/orders'],
-            ['perm' => 'suppliers.view', 'key' => 'suppliers', 'path' => '/ui/purchasing/suppliers'],
-            ['perm' => 'reorder.view', 'key' => 'sales_history', 'path' => '/ui/purchasing/sales-history'],
-        ]],
-        // IM6 (I-3, I141): the receipts (keying and the read-only views), the goods-in bench's list of deliveries to check, and the
-        // incident register (badge: the open incidents). Supplier invoices and returns are not built yet (COMING_LATER).
-        ['section' => 'receive', 'items' => [
-            ['perm' => 'receiving.view', 'key' => 'receiving', 'path' => '/ui/receiving'],
-            ['perm' => 'doc.GRN.post', 'key' => 'bench', 'path' => '/ui/receiving/bench'],
-            ['perm' => 'incidents.view', 'key' => 'incidents', 'path' => '/ui/receiving/incidents', 'badge' => 'incidents_open'],
-        ]],
-        // IM3 (I109): the product list (everyone) and the barcode review queue (the people who decide it).
-        ['section' => 'products', 'items' => [
-            ['perm' => 'catalogue.view', 'key' => 'cards', 'path' => '/ui/items/cards'],
-            ['perm' => 'catalogue.edit', 'key' => 'barcodes', 'path' => '/ui/items/barcodes', 'badge' => 'barcodes_open'],
-        ]],
-        ['section' => 'records', 'items' => [
-            ['perm' => 'documents.view', 'key' => 'documents', 'path' => '/ui/documents'],
-        ]],
-        ['section' => 'staff', 'items' => [
-            ['perm' => 'staff.view', 'key' => 'people', 'path' => '/ui/people'],
-        ]],
-        // The settings page links to the reason codes, the number series and "Who can do what" (no menu item of their own). The
-        // set-it-yourself pack (0019) adds the approval rules and the warehouses (everyone looks; settings.manage changes), the
-        // websites and the safety checks (system.view) and the audit log (audit.view).
-        ['section' => 'settings', 'items' => [
-            ['perm' => 'reference.view', 'key' => 'company', 'path' => '/ui/reference/company'],
-            ['perm' => 'reference.view', 'key' => 'settings', 'path' => '/ui/reference/settings'],
-            ['perm' => 'reference.view', 'key' => 'approvals', 'path' => '/ui/reference/approvals'],
-            ['perm' => 'reference.view', 'key' => 'warehouses', 'path' => '/ui/reference/warehouses'],
-            ['perm' => 'system.view', 'key' => 'sites', 'path' => '/ui/system/sites'],
-            ['perm' => 'system.view', 'key' => 'integrity', 'path' => '/ui/system/checks'],
-            ['perm' => 'audit.view', 'key' => 'audit', 'path' => '/ui/system/audit'],
-        ]],
-    ];
-
-    /**
-     * Second place in the menu for a person whose main job lives lower down (plan §2.1): staff.manage lifts Staff;
-     * catalogue.edit with no matching, buying or checking work lifts Products. Order only: nothing is added or removed.
-     */
-    public const LIFT = [
-        'staff' => ['needs' => 'staff.manage', 'unless' => []],
-        'products' => ['needs' => 'catalogue.edit', 'unless' => ['mapping.decide', 'doc.PO.post', 'suppliers.manage', 'documents.review']],
-    ];
-
     /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
     public const COMING_LATER = [
         ['key' => 'invoices', 'perm' => 'doc.SINV.post'],
@@ -263,46 +194,6 @@ final class Permissions
             }
         }
         return $set;
-    }
-
-    /**
-     * The menu the roles see: only the items they may use, sections without one left out, the words from Ui\Words, and
-     * the lifted section (LIFT) in second place. No roles, no menu.
-     *
-     * @param list<string> $roles
-     * @return list<array{section: string, key: string, items: list<array<string, mixed>>}>
-     */
-    public static function menu(array $roles): array
-    {
-        $out = [];
-        foreach (self::MENU as $section) {
-            $items = [];
-            foreach ($section['items'] as $i) {
-                if (self::can($roles, $i['perm'])) {
-                    $items[] = ['label' => Words::MENU[$i['key']]] + $i;
-                }
-            }
-            if ($items !== []) {
-                $out[] = ['section' => Words::SECTION[$section['section']], 'key' => $section['section'], 'items' => $items];
-            }
-        }
-        foreach (self::LIFT as $key => $rule) {
-            if (!self::can($roles, $rule['needs'])) {
-                continue;
-            }
-            foreach ($rule['unless'] as $other) {
-                if (self::can($roles, $other)) {
-                    continue 2;
-                }
-            }
-            $at = array_search($key, array_column($out, 'key'), true);
-            if (is_int($at) && $at > 1) {
-                $lifted = array_splice($out, $at, 1);
-                array_splice($out, 1, 0, $lifted);
-            }
-            break;
-        }
-        return $out;
     }
 
     /** @param list<string> $roles @return list<string> the COMING_LATER keys the roles will use */

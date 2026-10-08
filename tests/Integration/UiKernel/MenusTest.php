@@ -10,23 +10,16 @@ use CW\Tests\Support\KernelUiTestCase;
 use CW\Ui\Words;
 
 /**
- * Role-aware menus and permission-guarded routes (I11, I14), through the real /ui kernel as cw_app. Mirrors the
- * owner's acceptance test of Phase I-1: "sign in as buyer, desk and reviewer and see different menus"; none of them
- * sees Match products or Staff, and a page left out of a menu is also refused (403), not only hidden.
+ * Role-aware navigation and permission-guarded routes (I11, I14), through the real /ui kernel as cw_app. Mirrors the owner's
+ * acceptance test of Phase I-1: "sign in as buyer, desk and reviewer and see different menus"; a page left out of a menu is also
+ * refused (403), not only hidden.
  *
- * The menu is task-based since the plain-words redesign (plan §2, 7 Oct 2026): Home first for everyone, then To check,
- * Match products, Buying, Deliveries (IM6), Products, Records, Staff, Settings; screens not built yet are named on Home ("Coming later"),
- * never in the menu; a badge counts only what the person can act on.
+ * Since the owner's request of 8 Oct 2026 ("sidebar name make professional and make related tabs") the sidebar is seven standard
+ * names (Dashboard, Products, Stock, Purchasing, Reports, Approvals, Settings) and everything else is a tab inside its section
+ * (Ui\Sections); screens not built yet are "Soon" tabs or named on the Dashboard; a count counts only what the person can act on.
  */
 final class MenusTest extends KernelUiTestCase
 {
-    private const HOME = [['label' => 'Home', 'href' => '/ui/']];
-    private const SETTINGS = [['label' => 'Company details', 'href' => '/ui/reference/company'], ['label' => 'Settings and lists', 'href' => '/ui/reference/settings'],
-        ['label' => 'Approval rules', 'href' => '/ui/reference/approvals'], ['label' => 'Warehouses', 'href' => '/ui/reference/warehouses']];
-    /** The read-only system pages of 0019 (Y30-Y33): system.view and audit.view (a reviewer, an admin, an auditor; a manager the first two). */
-    private const SYSTEM = [['label' => 'Websites', 'href' => '/ui/system/sites'], ['label' => 'Safety checks', 'href' => '/ui/system/checks'],
-        ['label' => 'Audit log', 'href' => '/ui/system/audit']];
-
     public function testBuyerDeskAndReviewerSeeDifferentMenus(): void
     {
         $buyer = $this->signIn($this->uiUser('buyer'));
@@ -34,55 +27,58 @@ final class MenusTest extends KernelUiTestCase
         $reviewer = $this->signIn($this->uiUser('reviewer'));
 
         $deskHome = $desk->get('/ui/');
-        $b = self::nav($buyer->get('/ui/'));
-        $d = self::nav($deskHome);
-        $r = self::nav($reviewer->get('/ui/'));
-        self::assertSame(['Home', 'Buying', 'Products', 'Records', 'Settings'], array_keys($b));
-        self::assertSame(['Home', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], array_keys($d));
-        self::assertSame(['Home', 'To check', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], array_keys($r));
-        foreach (['b' => $b, 'd' => $d, 'r' => $r] as $who => $nav) {
-            self::assertSame(self::HOME, $nav['Home'], 'Home first, for everyone');
-            self::assertArrayNotHasKey('Match products', $nav);
-            self::assertArrayNotHasKey('Staff', $nav);
-            self::assertSame([['label' => 'Product list', 'href' => '/ui/items/cards']], $nav['Products'],
-                'the product list for everyone; the barcodes to check only for catalogue.edit (I109)');
-            self::assertSame([['label' => 'All records', 'href' => '/ui/documents']], $nav['Records']);
-            self::assertSame($who === 'r' ? [...self::SETTINGS, ...self::SYSTEM] : self::SETTINGS, $nav['Settings'],
-                'every role reads the company details (I90), the approval rules and the warehouses (Y9, Y14); the reviewer also the system pages');
-        }
-        self::assertSame([
-            ['label' => 'What to buy', 'href' => '/ui/purchasing/reorder'],
-            ['label' => 'Purchase orders', 'href' => '/ui/purchasing/orders'],
-            ['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'],
-            ['label' => 'Sales data', 'href' => '/ui/purchasing/sales-history'],
-        ], $b['Buying'], 'every Buying item is live (the I-2 suppliers, pos and reorder tasks)');
-        self::assertSame([
-            ['label' => 'Purchase orders', 'href' => '/ui/purchasing/orders'],
-            ['label' => 'Suppliers', 'href' => '/ui/purchasing/suppliers'],
-        ], $d['Buying'], 'the desk sees suppliers and purchase orders, not what to buy');
-        self::assertSame($b['Buying'], $r['Buying'], 'the reviewer reads the buying screens');
-        self::assertSame([['label' => 'Waiting for me', 'href' => '/ui/documents/reviews']], $r['To check']);
-        // Live since IM6 (I141): the receipts, the goods-in bench and the incident register, after Buying.
-        self::assertSame([
-            ['label' => 'Receive + invoice', 'href' => '/ui/receiving'],
-            ['label' => 'Goods-in bench', 'href' => '/ui/receiving/bench'],
-            ['label' => 'Incidents', 'href' => '/ui/receiving/incidents'],
-        ], $d['Deliveries'], 'live since IM6 (I141); supplier invoices and returns are not built yet, so not in the menu');
-        self::assertSame([['label' => 'Receive + invoice', 'href' => '/ui/receiving'], ['label' => 'Incidents', 'href' => '/ui/receiving/incidents']],
-            $r['Deliveries'], 'the reviewer reads receipts and incidents; the bench is for the people who receive');
-        // The desk's screens of Phase I-4 to I-6 are not in the menu: Home names them, without phase codes.
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($buyer->get('/ui/'))));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($deskHome)));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($reviewer->get('/ui/'))));
+        self::assertSame(['href' => '/ui/', 'count' => 0], self::nav($deskHome)['Dashboard'], 'the Dashboard first, for everyone');
+        self::assertSame('Dashboard', self::currentSection($deskHome));
+        self::assertSame([], self::sectionTabs($deskHome), 'the Dashboard has no tabs');
+
+        // Purchasing: the buyer reorders, the desk receives, the reviewer reads all four.
+        $tabs = static fn ($web): array => self::tabLabels($web->get('/ui/purchasing/orders'));
+        self::assertSame(['Reorder', 'Purchase Orders', 'Suppliers'], $tabs($buyer));
+        self::assertSame(['Purchase Orders', 'Goods In', 'Suppliers'], $tabs($desk), 'the desk sees goods in, not reorder');
+        self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Suppliers'], $tabs($reviewer));
+        self::assertNotSame($tabs($buyer), $tabs($desk));
+        self::assertSame(['/ui/purchasing/orders', '/ui/purchasing/orders', '/ui/purchasing/reorder'],
+            [self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($buyer->get('/ui/'))['Purchasing']['href']],
+            'a section links to its first tab the person may open');
+        // Goods In's segments: the bench is for the people who receive.
+        self::assertSame(['To receive', 'Checking', 'Issues'], array_column(self::segments($desk->get('/ui/receiving')), 'label'));
+        self::assertSame(['To receive', 'Issues'], array_column(self::segments($reviewer->get('/ui/receiving')), 'label'));
+        // The buying flow: every step for the reviewer; a step the buyer cannot open has no link.
+        $flow = static function ($page): array {
+            $xp = new \DOMXPath($page->dom());
+            return array_map(static fn (\DOMElement $li): array => [trim((string) $xp->evaluate('string(.//span[@class="flow-t"])', $li)),
+                $li->getElementsByTagName('a')->length === 1], iterator_to_array($xp->query('//ol[@class="flow"]/li')));
+        };
+        self::assertSame([['Reorder', true], ['Purchase Order', true], ['Goods In', true], ['Stock updated', true]], $flow($reviewer->get('/ui/purchasing/orders')));
+        self::assertSame([['Reorder', true], ['Purchase Order', true], ['Goods In', false], ['Stock updated', true]], $flow($buyer->get('/ui/purchasing/orders')));
+
+        // Approvals: the reviewer's queue; the others read the history.
+        self::assertSame(['History'], self::tabLabels($buyer->get('/ui/documents')));
+        self::assertSame(['Waiting for me', 'History', 'Staff requests'], self::tabLabels($reviewer->get('/ui/documents')));
+        // Settings: everyone reads; Stores (system.view) for the reviewer; Users leads the others to "Roles and permissions".
+        self::assertSame(['Company', 'Warehouses', 'Users', 'Approval Rules', 'Reasons', 'System'], self::tabLabels($buyer->get('/ui/reference/company')));
+        self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Approval Rules', 'Reasons', 'System'], self::tabLabels($reviewer->get('/ui/reference/company')));
+        self::assertSame('/ui/reference/access', array_column(self::sectionTabs($buyer->get('/ui/reference/company')), 'href', 'label')['Users']);
+        // Products: the product list for everyone; the barcodes to check only for catalogue.edit (I109); no matching for these jobs.
+        self::assertSame(['All Products'], self::tabLabels($buyer->get('/ui/items/cards')));
+        // Stock: everyone who sees a product's stock; the screens not built yet are "Soon" tabs, never links.
+        $stock = self::sectionTabs($desk->get('/ui/stock'));
+        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Adjustments', null], ['Counts', null], ['Transfers', null]],
+            array_map(static fn (array $t): array => [$t['label'], $t['href']], $stock));
+
+        // The desk's screens of Phase I-4 to I-6 are named on the Dashboard, without phase codes.
         self::assertStringContainsString(Words::UI['coming_later'] . ' supplier invoices, returns to suppliers, trade sales.', $deskHome->text());
         self::assertStringNotContainsString('receiving deliveries', $deskHome->text(), 'receiving is built (IM6)');
         self::assertStringNotContainsString('Phase', $deskHome->text());
         self::assertStringNotContainsString('coming_later', $deskHome->text());
-        self::assertNotSame($b, $d);
-        self::assertNotSame($d, $r);
-        self::assertNotSame($b, $r);
 
-        self::assertSame(['To do', 'Orders', 'To buy', 'Suppliers', 'More'], array_column(self::tabs($buyer->get('/ui/')), 'label'), 'the phone tab bar of a buyer');
-        self::assertSame(['/ui/', '/ui/purchasing/orders', '/ui/purchasing/reorder', '/ui/purchasing/suppliers', '#menu'], array_column(self::tabs($buyer->get('/ui/')), 'href'));
-        self::assertSame(['To do', 'Bench', 'Orders', 'Suppliers', 'More'], array_column(self::tabs($deskHome), 'label'),
-            'the delivery check is done on the tablet: the bench first (IM6)');
+        // The phone's bottom bar: Dashboard · Products · Stock · Purchasing · More (the whole sidebar).
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column(self::tabs($buyer->get('/ui/')), 'label'), 'the phone tab bar of a buyer');
+        self::assertSame(['/ui/', '/ui/items/cards', '/ui/stock', '/ui/purchasing/reorder', '#menu'], array_column(self::tabs($buyer->get('/ui/')), 'href'));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column(self::tabs($deskHome), 'label'));
     }
 
     public function testPagesOutsideTheMenuAreRefusedNotOnlyHidden(): void
@@ -91,8 +87,9 @@ final class MenusTest extends KernelUiTestCase
         $l = $this->queued($site, 'M1', 'Key', $this->item('legacy', 0, 'Menu item'), ['product_title' => 'Menu item']);
         $u = $this->uiUser('buyer');
         $buyer = $this->signIn($u);
-        foreach (['/ui/review' => [['queue' => 'Key'], 'linking.view'], '/ui/review/listing/' . $l => [[], 'linking.view'], '/ui/people' => [[], 'staff.view'],
-            '/ui/people/' . $u['id'] => [[], 'staff.view']] as $path => [$query, $perm]) {
+        foreach (['/ui/review' => [['queue' => 'Key'], 'linking.view', null], '/ui/review/listing/' . $l => [[], 'linking.view', null],
+            '/ui/people' => [[], 'staff.view', 'Users'], '/ui/people/' . $u['id'] => [[], 'staff.view', 'Users'], '/ui/system/audit' => [[], 'audit.view', null]]
+            as $path => [$query, $perm, $tab]) {
             $page = $buyer->get($path, $query);
             self::assertSame(403, $page->status, "{$path}: " . $page->describe());
             self::assertSame('role_not_allowed', $page->errorCode());
@@ -100,8 +97,11 @@ final class MenusTest extends KernelUiTestCase
             self::assertStringContainsString('This page is for ' . Words::whoCan($perm) . '. You work as: Buyer. If you need it for your work, ask '
                 . Words::ASK_ROLE . '.', $page->text());
             self::assertStringNotContainsString('role_not_allowed', $page->text(), 'the code is not printed (plan F041)');
-            self::assertSame(['Home', 'Buying', 'Products', 'Records', 'Settings'], array_keys(self::nav($page)), 'the error page keeps the menu');
+            self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($page)), 'the error page keeps the menu');
+            self::assertSame($tab, self::currentTab($page), "{$path}: the tab marked is one of theirs, or none");
         }
+        self::assertSame('Products', self::currentSection($buyer->get('/ui/review', ['queue' => 'Key'])), 'a refused page stays in its section');
+        self::assertSame([], self::sectionTabs($buyer->get('/ui/system/audit')), 'no Reports for a buyer: no tabs of a section they do not have');
         self::assertSame('This page is for Admins and Auditors. You work as: Buyer. If you need it for your work, ask Fazil (the admin).',
             \CW\Ui\Kernel::refusal('staff.view', new \CW\Auth\StaffIdentity($u['id'], $u['email'], 'Buyer', ['buyer'], false, 'x')), 'the words, once in full');
         self::assertSame(200, $buyer->get('/ui/search', ['q' => 'Menu'])->status);
@@ -119,19 +119,20 @@ final class MenusTest extends KernelUiTestCase
         $page = $both->get('/ui/review', ['queue' => 'Key']);
         self::assertSame(403, $page->status);
         self::assertStringContainsString('You work as: Buyer · Stock controller.', $page->text());
-        self::assertSame(['Home', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], array_keys(self::nav($both->get('/ui/'))),
-            'a stock controller who also buys keeps the fixed order; the stock controller reads the receipts and the incident register (IM6, I141)');
-        self::assertSame([['label' => 'Product list', 'href' => '/ui/items/cards'], ['label' => 'Barcodes to check', 'href' => '/ui/items/barcodes']],
-            self::nav($both->get('/ui/'))['Products']);
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($both->get('/ui/'))));
+        self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Suppliers'], self::tabLabels($both->get('/ui/purchasing/orders')),
+            'the stock controller reads the receipts and the issues (IM6, I141)');
+        self::assertSame([['All Products', '/ui/items/cards'], ['Barcodes', '/ui/items/barcodes']],
+            array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($both->get('/ui/items/cards'))));
 
-        // A stock controller alone: Products is their work and comes second.
+        // A stock controller alone: the phone bar still starts with Products and Stock.
         $stock = $this->signIn($this->uiUser('stock_controller'));
         $home = $stock->get('/ui/');
-        self::assertSame(['Home', 'Products', 'Buying', 'Deliveries', 'Records', 'Settings'], array_keys(self::nav($home)));
-        self::assertSame(['To do', 'Products', 'Barcodes', 'Suppliers', 'More'], array_column(self::tabs($home), 'label'));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($home)));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column(self::tabs($home), 'label'));
     }
 
-    public function testHomeIsTheSamePageForEveryoneWithMatchingProgressForLinkingRoles(): void
+    public function testTheDashboardIsTheSamePageForEveryoneWithMatchingProgressForLinkingRoles(): void
     {
         $site = $this->site('vpg');
         $this->queued($site, 'H1', 'Key', $this->item('legacy', 0, 'Home item'), ['product_title' => 'Home item']);
@@ -142,16 +143,18 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::HOME['progress'], $home->text(), 'no matching progress without linking.view');
         self::assertStringNotContainsString('coming in Phase', $home->text());
         $xp = new \DOMXPath($home->dom());
-        self::assertSame(['/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers', '/ui/purchasing/sales-history', '/ui/items/cards',
-            '/ui/documents', '/ui/reference/company', '/ui/reference/settings', '/ui/reference/approvals', '/ui/reference/warehouses'],
+        self::assertSame(['/ui/items/cards', '/ui/stock', '/ui/stock/movements', '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
+            '/ui/documents', '/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals', '/ui/reference/reasons',
+            '/ui/reference/settings'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array($xp->query('//main//ul[@class="uses"]//a'))), '"What you can use": the live links of a buyer');
+            iterator_to_array($xp->query('//main//ul[@class="uses"]//a'))), '"What you can use": the tabs a buyer may open');
         self::assertStringContainsString(Words::MENU_HELP['suppliers'], $home->text(), 'each with one line on what it is for');
-        self::assertSame(1, $xp->query('//nav[@aria-label="Main"]//form[@action="/ui/search"]')->length, 'the find box: catalogue.view, in the menu');
+        self::assertSame(1, $xp->query('//main//form[@class="toolbar" and @action="/ui/search"]//input[@name="q"]')->length, 'the find box: catalogue.view, in the Dashboard\'s toolbar');
+        self::assertSame(1, $xp->query('//header[@class="appbar"]//a[@href="/ui/search"]')->length, '... and a find button in the app bar on every page');
         $current = $xp->query('//nav[@aria-label="Main"]//a[@aria-current="page"]');
         self::assertSame(1, $current->length);
-        self::assertSame('Home', trim((string) $current->item(0)?->textContent));
-        self::assertSame(1, $xp->query('//nav[@aria-label="Main tasks"]//a[@aria-current="page" and @href="/ui/"]')->length, 'the To do tab is the current one');
+        self::assertSame('Dashboard', trim((string) $current->item(0)?->textContent));
+        self::assertSame(1, $xp->query('//nav[@aria-label="Main tasks"]//a[@aria-current="page" and @href="/ui/"]')->length, 'the Dashboard tab is the current one');
 
         $mapper = $this->signIn($this->uiUser('mapper'));
         $dash = $mapper->get('/ui/');
@@ -159,14 +162,14 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringContainsString(Words::HOME['progress'], $dash->text());
         self::assertStringContainsString(Words::HOME['to_match'], $dash->text());
         self::assertStringNotContainsString(Words::HOME['look_match'], $dash->text(), 'a matcher decides');
-        $nav = self::nav($dash);
-        self::assertSame(['Home', 'Match products', 'Products', 'Settings'], array_keys($nav));
-        self::assertSame(['/ui/review?queue=Key', '/ui/review?queue=pending', '/ui/review/samples', '/ui/review/duplicates'], array_column($nav['Match products'], 'href'));
-        self::assertSame(['Products to match', 'Waiting for 2nd OK', 'Spot check', 'Possible duplicates'], array_column($nav['Match products'], 'label'));
-        $current = (new \DOMXPath($dash->dom()))->query('//nav[@aria-label="Main"]//a[@aria-current="page"]');
-        self::assertSame(1, $current->length);
-        self::assertSame('Home', trim((string) $current->item(0)?->textContent), 'Home is the same page for a matcher');
-        self::assertSame(['To do', 'Matches', 'Duplicates', 'Products', 'More'], array_column(self::tabs($dash), 'label'));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings'], array_keys(self::nav($dash)));
+        $queue = $mapper->get('/ui/review', ['queue' => 'Key']);
+        self::assertSame([['All Products', '/ui/items/cards'], ['Mapping', '/ui/review?queue=Key'], ['Duplicates', '/ui/review/duplicates']],
+            array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($queue)));
+        self::assertSame([['To review', '/ui/review?queue=Key', true], ['Spot check', '/ui/review/samples', false], ['Second approval', '/ui/review?queue=pending', false]],
+            array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($queue)));
+        self::assertSame('Dashboard', self::currentSection($dash), 'the Dashboard is the same page for a matcher');
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings', 'More'], array_column(self::tabs($dash), 'label'));
 
         // A person whose roles were all taken away (admin SQL only) is told so and sees no menu and no tab bar.
         $none = $this->uiUser('viewer');
@@ -181,7 +184,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(403, $web->get('/ui/search')->status);
     }
 
-    public function testAdminSeesStaffAndMatchingButNoBuyingAndBadgesCountOnlyWhatThePersonCanAct(): void
+    public function testAdminSeesUsersAndMatchingButNoPurchasingAndCountsOnlyWhatThePersonCanAct(): void
     {
         $site = $this->site('vpg');
         $l = $this->queued($site, 'B1', 'Key', $this->item('legacy', 0, 'Badge item'), ['product_title' => 'Badge item']);
@@ -193,37 +196,39 @@ final class MenusTest extends KernelUiTestCase
         $admin = $this->signIn($this->uiUser('admin'));
         $page = $admin->get('/ui/');
         $nav = self::nav($page);
-        self::assertSame(['Home', 'Staff', 'Match products', 'Products', 'Settings'], array_keys($nav), 'Staff is the admin\'s work: second place');
-        self::assertArrayNotHasKey('Buying', $nav);
-        self::assertSame([['label' => 'Staff and access', 'href' => '/ui/people']], $nav['Staff']);
-        self::assertSame('Waiting for 2nd OK', $nav['Match products'][1]['label'], 'no badge: admin cannot give the second OK (plan F007)');
-        self::assertStringNotContainsString('class="badge"', $page->body);
-        self::assertSame(['To do', 'Staff', 'Matches', 'Duplicates', 'More'], array_column(self::tabs($page), 'label'));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Reports', 'Settings'], array_keys($nav), 'no Purchasing and no Approvals for the admin (I12)');
+        self::assertSame('/ui/people', array_column(self::sectionTabs($admin->get('/ui/reference/company')), 'href', 'label')['Users']);
+        $pending = $admin->get('/ui/review', ['queue' => 'pending']);
+        self::assertSame([0, 0], [array_column(self::sectionTabs($pending), 'count', 'label')['Mapping'], self::segments($pending)[2]['count']],
+            'no count: admin cannot give the second OK (plan F007)');
+        self::assertSame(0, array_sum(array_column($nav, 'count')));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Reports', 'More'], array_column(self::tabs($page), 'label'));
 
-        // A matching lead who did not make the decision: the badge, in the menu with its words for a screen reader.
+        // A matching lead who did not make the decision: the count, on Products, on Mapping and on Second approval, with its words.
         $lead = $this->uiUser('mapping_lead');
         $leadWeb = $this->signIn($lead);
-        $page = $leadWeb->get('/ui/');
-        self::assertSame('Waiting for 2nd OK 1', self::nav($page)['Match products'][1]['label']);
+        $page = $leadWeb->get('/ui/review', ['queue' => 'pending']);
+        self::assertSame(1, self::nav($page)['Products']['count']);
+        self::assertSame(1, array_column(self::sectionTabs($page), 'count', 'label')['Mapping']);
+        self::assertSame(['Second approval', 1, true], [self::segments($page)[2]['label'], self::segments($page)[2]['count'], self::segments($page)[2]['current']]);
         self::assertStringContainsString('<span class="visually-hidden"> ' . Words::BADGE['linking_pending'] . '</span>', $page->body);
         // ... and not their own decision: a second one, made by this lead, waits for another lead.
         $l2 = $this->queued($site, 'B2', 'Key', $this->item('legacy', 0, 'Badge item 2'), ['product_title' => 'Badge item 2']);
         $this->decide(Caller::staff($lead['id']), 'link', $l2, ['sku_id' => $this->item('legacy', 0, 'Other 2'), 'units_per_item' => 2,
             'proposal_id' => (int) self::$db->value("SELECT id FROM match_proposal WHERE listing_id = ? AND status = 'open'", [$l2])]);
         self::assertSame(2, (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE state = 'pending_second'"));
-        self::assertSame('Waiting for 2nd OK 1', self::nav($leadWeb->get('/ui/'))['Match products'][1]['label'], 'the lead\'s own decision is not counted');
-        self::assertSame('Waiting for 2nd OK 2', self::nav($this->signIn($this->uiUser('mapping_lead'))->get('/ui/'))['Match products'][1]['label']);
-        // The mapper sees the list but no badge: a mapper cannot give the second OK.
+        self::assertSame(1, self::segments($leadWeb->get('/ui/review', ['queue' => 'pending']))[2]['count'], 'the lead\'s own decision is not counted');
+        self::assertSame(2, self::segments($this->signIn($this->uiUser('mapping_lead'))->get('/ui/review', ['queue' => 'pending']))[2]['count']);
+        // The mapper sees the list but no count: a mapper cannot give the second OK.
         $mapperWeb = $this->signIn($this->uiUser('mapper'));
-        self::assertSame('Waiting for 2nd OK', self::nav($mapperWeb->get('/ui/'))['Match products'][1]['label']);
+        self::assertSame(0, self::segments($mapperWeb->get('/ui/review', ['queue' => 'pending']))[2]['count']);
 
         $reviewer = $this->signIn($this->uiUser('reviewer'));
-        self::assertStringNotContainsString('class="badge"', $reviewer->get('/ui/')->body, 'no linking.view, no linking count');
+        self::assertSame(0, array_sum(array_column(self::nav($reviewer->get('/ui/')), 'count')), 'no linking.view, no linking count');
         $auditor = $this->signIn($this->uiUser('auditor'));
-        self::assertSame(['Home', 'Match products', 'Buying', 'Deliveries', 'Products', 'Records', 'Staff', 'Settings'], array_keys(self::nav($auditor->get('/ui/'))),
-            'the auditor reads everything: no lift (staff.view is not staff.manage)');
-        self::assertSame(['/ui/review?queue=Key', '/ui/review?queue=pending', '/ui/review/samples', '/ui/review/duplicates'],
-            array_column(self::nav($auditor->get('/ui/'))['Match products'], 'href'));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($auditor->get('/ui/'))),
+            'the auditor reads everything');
+        self::assertSame(['All Products', 'Mapping', 'Duplicates'], self::tabLabels($auditor->get('/ui/review/duplicates')));
     }
 
     public function testTheOwnersAccountWithAdminSaysWhichJobsAreSwitchedOff(): void
@@ -240,7 +245,7 @@ final class MenusTest extends KernelUiTestCase
             . 'Ask Fazil to take Admin off this account.', (string) $strip->item(0)?->textContent);
         self::assertStringNotContainsString('second account', $page->text(), 'correction a: never suggest a second account');
         self::assertStringContainsString('You work as: Admin · Matching lead (off) · Reviewer (off)', $page->text());
-        self::assertSame(['Home', 'Staff', 'Match products', 'Products', 'Settings'], array_keys(self::nav($page)));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Reports', 'Settings'], array_keys(self::nav($page)));
 
         $refused = $web->get('/ui/documents/reviews');
         self::assertSame(403, $refused->status);
@@ -252,9 +257,9 @@ final class MenusTest extends KernelUiTestCase
         $lead = $this->signIn($this->uiUser(['mapping_lead', 'reviewer']));
         $page = $lead->get('/ui/');
         self::assertSame(0, (new \DOMXPath($page->dom()))->query('//*[contains(@class, "admin-off")]')->length);
-        self::assertSame(['Home', 'To check', 'Match products', 'Buying', 'Deliveries', 'Products', 'Records', 'Settings'], array_keys(self::nav($page)),
-            'the owner\'s daily view (plan §2.2)');
-        self::assertSame(['To do', 'Matches', 'Duplicates', 'Orders', 'More'], array_column(self::tabs($page), 'label'), 'design A\'s tab bar');
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($page)),
+            'the owner\'s daily view: all seven');
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column(self::tabs($page), 'label'), 'the phone bar the owner approved');
     }
 
     public function testARoleTakenAwayStopsWorkingOnTheNextRequest(): void
@@ -265,6 +270,26 @@ final class MenusTest extends KernelUiTestCase
         $admin = $this->uiUser('admin');
         (new StaffAdmin(self::$db))->setRoles(Caller::staff($admin['id']), $u['id'], ['buyer'], null);
         self::assertSame(403, $web->get('/ui/review', ['queue' => 'Key'])->status, 'the same session, the next request');
-        self::assertArrayNotHasKey('Match products', self::nav($web->get('/ui/')));
+        self::assertSame(['All Products'], self::tabLabels($web->get('/ui/items/cards')), 'Mapping and Duplicates gone');
+    }
+
+    /** Old menu addresses still lead where they did (bookmarks): nothing was renamed in a URL. */
+    public function testOldMenuAddressesStillOpen(): void
+    {
+        $owner = $this->signIn($this->uiUser(['mapping_lead', 'reviewer']));
+        foreach ([['/ui/', []], ['/ui/review', ['queue' => 'Key']], ['/ui/review', ['queue' => 'pending']], ['/ui/review/samples', []], ['/ui/review/duplicates', []],
+            ['/ui/purchasing/reorder', []], ['/ui/purchasing/orders', []], ['/ui/purchasing/suppliers', []], ['/ui/purchasing/sales-history', []], ['/ui/receiving', []],
+            ['/ui/receiving/incidents', []], ['/ui/items/cards', []], ['/ui/items/barcodes', []], ['/ui/documents', []], ['/ui/documents/reviews', []],
+            ['/ui/reference/company', []], ['/ui/reference/settings', []], ['/ui/reference/approvals', []], ['/ui/reference/warehouses', []],
+            ['/ui/reference/reasons', []], ['/ui/reference/series', []], ['/ui/reference/access', []], ['/ui/system/sites', []], ['/ui/system/checks', []],
+            ['/ui/system/audit', []], ['/ui/staff-requests', []], ['/ui/stock', []], ['/ui/stock/movements', []]] as [$path, $query]) {
+            $page = $owner->get($path, $query);
+            self::assertSame(200, $page->status, $path . ' ' . $page->describe());
+            self::assertNotNull(self::currentSection($page), "{$path}: its section is marked");
+        }
+        $bench = $this->signIn($this->uiUser('goods_in'));
+        self::assertSame(200, $bench->get('/ui/receiving/bench')->status);
+        $admin = $this->signIn($this->uiUser('admin'));
+        self::assertSame(200, $admin->get('/ui/people')->status);
     }
 }

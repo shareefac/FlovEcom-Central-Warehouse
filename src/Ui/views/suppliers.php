@@ -1,36 +1,36 @@
+<?php $newActions = $newActions ?? []; ?>
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+  <?= $partial('split', ['actions' => $newActions]) ?>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('SUPPLIERS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
+  <details class="tb-pop">
+    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($filtered): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
+    <div class="pop pop-form">
+      <label><?= $word('SUPPLIERS', 'status') ?>
+        <select name="status">
+          <option value=""><?= $word('SUPPLIERS', 'any_status') ?></option>
+<?php foreach ($statuses as $code => $label): ?>
+          <option value="<?= $e($code) ?>"<?php if ($filters['status'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+        </select>
+      </label>
+      <label class="choice"><input type="checkbox" name="due" value="1"<?php if ($filters['due']): ?> checked<?php endif; ?>> <?= $say('SUPPLIERS', 'due', $dueDays) ?></label>
+      <label class="choice"><input type="checkbox" name="alone" value="1"<?php if ($filters['alone']): ?> checked<?php endif; ?>> <?= $word('SUPPLIERS', 'alone_filter') ?></label>
+      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/suppliers"><?= $word('SUPPLIERS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+    </div>
+  </details>
+  <div class="tb-end"><a class="btn ghost sm" href="<?= $u('/ui/purchasing/suppliers.csv', ['status' => $filters['status'], 'q' => $filters['q'], 'due' => $filters['due'] ? '1' : null, 'alone' => $filters['alone'] ? '1' : null]) ?>" title="<?= $word('SUPPLIERS', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
+</form>
 <h1><?= $word('MENU', 'suppliers') ?></h1>
 <?= $intro('suppliers', $lookOnly) ?>
 <p class="hint"><?= $word('SUPPLIERS', 'no_bank') ?></p>
-<div class="crumbs">
-  <form class="filters" method="get" action="/ui/purchasing/suppliers">
-    <label><?= $word('SUPPLIERS', 'status') ?>
-      <select name="status">
-        <option value=""><?= $word('SUPPLIERS', 'any_status') ?></option>
-<?php foreach ($statuses as $code => $label): ?>
-        <option value="<?= $e($code) ?>"<?php if ($filters['status'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
-<?php endforeach; ?>
-      </select>
-    </label>
-    <label><?= $word('SUPPLIERS', 'search') ?> <input type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100"></label>
-    <label class="choice"><input type="checkbox" name="due" value="1"<?php if ($filters['due']): ?> checked<?php endif; ?>> <?= $say('SUPPLIERS', 'due', $dueDays) ?></label>
-    <label class="choice"><input type="checkbox" name="alone" value="1"<?php if ($filters['alone']): ?> checked<?php endif; ?>> <?= $word('SUPPLIERS', 'alone_filter') ?></label>
-    <button type="submit"><?= $word('SUPPLIERS', 'filter') ?></button>
-  </form>
-  <p class="actions">
-<?php if ($canManage): ?>
-    <a class="btn primary" href="/ui/purchasing/suppliers/new"><?= $word('SUPPLIERS', 'new') ?></a>
-<?php endif; ?>
-    <a href="<?= $u('/ui/purchasing/suppliers.csv', ['status' => $filters['status'], 'q' => $filters['q'], 'due' => $filters['due'] ? '1' : null, 'alone' => $filters['alone'] ? '1' : null]) ?>"><?= $word('SUPPLIERS', 'download') ?></a>
-  </p>
-</div>
 <?php if ($rows === [] && $filtered): ?>
 <?= $empty(\CW\Ui\Words::SUPPLIERS['none_filter'], \CW\Ui\Words::SUPPLIERS['none_filter_text'], '/ui/purchasing/suppliers', \CW\Ui\Words::SUPPLIERS['clear']) ?>
 <?php elseif ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::SUPPLIERS['none'], \CW\Ui\Words::SUPPLIERS[$canManage ? 'none_text' : 'none_look']) ?>
 <?php else: ?>
-<p class="muted"><?php if (count($rows) === 1): ?><?= $word('SUPPLIERS', 'total_one') ?><?php else: ?><?= $say('SUPPLIERS', 'total_many', count($rows)) ?><?php endif; ?></p>
+<div class="board-head"><h2 class="board-title"><?= $word('MENU', 'suppliers') ?></h2><p class="board-note"><?php if (count($rows) === 1): ?><?= $word('SUPPLIERS', 'total_one') ?><?php else: ?><?= $say('SUPPLIERS', 'total_many', count($rows)) ?><?php endif; ?></p></div>
 <div class="table-wrap">
-<table class="stack list suppliers">
+<table class="stack list suppliers board">
   <thead>
     <tr>
       <th scope="col"><?= $word('SUPPLIERS', 'supplier') ?></th>

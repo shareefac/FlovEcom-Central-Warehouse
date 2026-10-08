@@ -1,20 +1,25 @@
+<form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+  <details class="tb-pop">
+    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($type !== null): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
+    <div class="pop pop-form">
+      <label><?= $word('CHECKS', 'kind') ?>
+        <select name="type">
+          <option value=""><?= $word('CHECKS', 'everything') ?></option>
+<?php foreach ($types as $code => $name): ?>
+          <option value="<?= $e($code) ?>"<?php if ($type === $code): ?> selected<?php endif; ?>><?= $e($name) ?></option>
+<?php endforeach; ?>
+        </select>
+      </label>
+      <div class="pop-actions"><?php if ($type !== null): ?><a class="btn ghost sm" href="/ui/documents/reviews"><?= $word('CHECKS', 'show_all') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
+    </div>
+  </details>
+</form>
 <h1><?= $word('PAGE_TITLE', 'reviews') ?></h1>
 <?= $intro('reviews') ?>
 <div class="head-help">
   <p class="muted"><?= $word('CHECKS', 'how') ?></p>
   <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
 </div>
-<form class="filters" method="get" action="/ui/documents/reviews">
-  <label><?= $word('CHECKS', 'kind') ?>
-    <select name="type">
-      <option value=""><?= $word('CHECKS', 'everything') ?></option>
-<?php foreach ($types as $code => $name): ?>
-      <option value="<?= $e($code) ?>"<?php if ($type === $code): ?> selected<?php endif; ?>><?= $e($name) ?></option>
-<?php endforeach; ?>
-    </select>
-  </label>
-  <button type="submit" class="btn secondary"><?= $word('CHECKS', 'show') ?></button>
-</form>
 <?php if ($approvals === [] && $reviews === []): ?>
 <?php if ($type !== null): ?>
 <?= $empty(\CW\Ui\Words::CHECKS['none_kind'], \CW\Ui\Words::CHECKS['none_kind_text'], '/ui/documents/reviews', \CW\Ui\Words::CHECKS['show_all']) ?>
@@ -22,14 +27,14 @@
 <?= $empty(\CW\Ui\Words::CHECKS['none'], \CW\Ui\Words::CHECKS['none_text']) ?>
 <?php endif; ?>
 <?php else: ?>
-<?php foreach ([['id' => 'approvals', 'kind' => 'approval', 'rows' => $approvals], ['id' => 'reviews', 'kind' => 'review', 'rows' => $reviews]] as $list): ?>
-<section id="<?= $e($list['id']) ?>" aria-labelledby="<?= $e($list['id']) ?>-h">
-  <h2 id="<?= $e($list['id']) ?>-h"><?= $word('CHECK_KIND', $list['kind']) ?></h2>
+<?php foreach ([['id' => 'approvals', 'kind' => 'approval', 'rows' => $approvals, 'tone' => 'review'], ['id' => 'reviews', 'kind' => 'review', 'rows' => $reviews, 'tone' => 'info']] as $list): ?>
+<section class="grp-block" id="<?= $e($list['id']) ?>" aria-labelledby="<?= $e($list['id']) ?>-h">
+  <h2 class="grp-title <?= $e($list['tone']) ?>" id="<?= $e($list['id']) ?>-h"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="<?= $e($list['id']) ?>-t"><?= $word('CHECK_KIND', $list['kind']) ?></button><span class="grp-count"><?= $n(count($list['rows'])) ?></span></h2>
 <?php if ($list['rows'] === []): ?>
   <p class="muted"><?= $word('CHECKS', 'empty_list') ?></p>
 <?php else: ?>
-  <div class="table-wrap">
-  <table class="stack list checks">
+  <div class="table-wrap" id="<?= $e($list['id']) ?>-t">
+  <table class="stack list checks board <?= $e($list['tone']) ?>">
     <thead>
       <tr>
         <th scope="col"><?= $word('CHECKS', 'what') ?></th>

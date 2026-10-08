@@ -47,7 +47,7 @@ final class HomeScreenTest extends KernelUiTestCase
         $xp = new \DOMXPath($r->dom());
         $norm = static fn (string $s): string => trim((string) preg_replace('/\s+/u', ' ', $s));
         $out = [];
-        foreach ($xp->query('//main//li[@data-card]') ?: [] as $li) {
+        foreach ($xp->query('//main//*[@data-card]') ?: [] as $li) {
             /** @var \DOMElement $li */
             $buttons = $xp->query('.//a[contains(concat(" ", @class, " "), " btn ")]', $li);
             self::assertLessThanOrEqual(1, $buttons === false ? 0 : $buttons->length, 'one button per card');
@@ -133,7 +133,8 @@ final class HomeScreenTest extends KernelUiTestCase
         $web = $this->signIn($owner);
         $home = $web->get('/ui/');
         self::assertSame(200, $home->status, $home->describe());
-        self::assertSame('Home', trim((string) (new \DOMXPath($home->dom()))->evaluate('string(//main//h1)')), 'the h1 matches the tab title (plan F031, F088)');
+        self::assertSame('Dashboard', trim((string) (new \DOMXPath($home->dom()))->evaluate('string(//main//h1)')), 'the h1 matches the tab title (plan F031, F088)');
+        self::assertSame('Dashboard', self::currentSection($home));
         self::assertStringContainsString('Hello Mapping_lead-reviewer 1. You work as: Matching lead · Reviewer.', $home->text());
         self::assertStringContainsString(Words::HOME['needs'], $home->text());
         $cards = self::cardsOf($home);
@@ -147,7 +148,7 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertStringContainsString('Still missing: legal name', $by['company_confirm']['text']);
         self::assertSame(['1 waits for you', '/ui/documents/reviews#approvals'], [$by['approvals']['count'], $by['approvals']['href']]);
         // The approvals card counts what the menu badge counts: the same number, never one the person cannot clear.
-        self::assertSame([['label' => 'Waiting for me 1', 'href' => '/ui/documents/reviews']], self::nav($home)['To check']);
+        self::assertSame(['href' => '/ui/documents/reviews', 'count' => 1], self::nav($home)['Approvals']);
         $first = $s['members'][0];
         self::assertSame('Spot check home-1: are these 20 matches right?', $by['spot_check']['title']);
         self::assertSame('0 of 20 checked', $by['spot_check']['count']);
@@ -158,9 +159,9 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame(['1 to check', '/ui/review/samples/' . $sid . '#held'], [$by['set_aside']['count'], $by['set_aside']['href']]);
         self::assertSame(['1 group', '/ui/review/duplicates', Words::TASK['duplicates']['button']],
             [$by['duplicates']['count'], $by['duplicates']['href'], $by['duplicates']['button']]);
-        self::assertSame([['label' => 'Products to match', 'href' => '/ui/review?queue=Key'], ['label' => 'Waiting for 2nd OK', 'href' => '/ui/review?queue=pending'],
-            ['label' => 'Spot check', 'href' => '/ui/review/samples'], ['label' => 'Possible duplicates 1', 'href' => '/ui/review/duplicates']],
-            self::nav($home)['Match products'], 'the duplicates card and its badge agree');
+        self::assertSame(['href' => '/ui/items/cards', 'count' => 1], self::nav($home)['Products'], 'the duplicates card and the sidebar\'s count agree');
+        self::assertSame([0, 1], [array_column(self::sectionTabs($web->get('/ui/review/duplicates')), 'count', 'label')['Mapping'],
+            array_column(self::sectionTabs($web->get('/ui/review/duplicates')), 'count', 'label')['Duplicates']], '... and the Duplicates tab\'s');
         self::assertSame(['25 to confirm', '/ui/review?queue=Key'], [$by['strong']['count'], $by['strong']['href']]);
         self::assertStringContainsString(Words::UI['what_happens'] . ' ' . Words::TASK['strong']['what'], $by['strong']['text'], 'B\'s "What happens:" line');
         self::assertStringContainsString('If your spot check home-1 passes, about 4 of them are confirmed together, so do the spot check first.', $by['strong']['text']);
@@ -232,7 +233,7 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame('/ui/people/' . $owner['id'], $cards[0]['href']);
         self::assertStringNotContainsString('second account', $home->text(), 'correction a');
         self::assertStringContainsString(Words::HOME['look_match'], $home->text(), 'Matching progress: look only');
-        self::assertStringNotContainsString('class="badge"', $home->body);
+        self::assertSame(0, array_sum(array_column(self::nav($home), 'count')), 'no count: nothing this account may decide');
     }
 
     /** The admin: test accounts that can sign in, too few people who can approve work, and someone else's jobs switched off. */
@@ -260,9 +261,9 @@ final class HomeScreenTest extends KernelUiTestCase
         foreach ($cards as $c) {
             self::assertSame(200, self::open($web, (string) $c['href'])->status, "{$c['key']}: {$c['href']}");
         }
-        self::assertSame(['/ui/people', '/ui/review?queue=Key', '/ui/review?queue=pending', '/ui/review/samples', '/ui/review/duplicates', '/ui/items/cards',
-            '/ui/reference/company', '/ui/reference/settings', '/ui/reference/approvals', '/ui/reference/warehouses', '/ui/system/sites', '/ui/system/checks',
-            '/ui/system/audit'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+        self::assertSame(['/ui/items/cards', '/ui/review?queue=Key', '/ui/review/duplicates', '/ui/stock', '/ui/stock/movements', '/ui/system/audit',
+            '/ui/reference/company', '/ui/reference/warehouses', '/ui/system/sites', '/ui/people', '/ui/reference/approvals', '/ui/reference/reasons',
+            '/ui/reference/settings'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array((new \DOMXPath($home->dom()))->query('//main//ul[@class="uses"]//a'))), 'What you can use: the admin\'s menu, in menu order');
     }
 

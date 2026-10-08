@@ -1,4 +1,3 @@
-<p class="crumbs"><a href="/ui/reference/settings"><?= $word('MENU', 'settings') ?></a></p>
 <div class="head-help">
   <h1><?= $word('MENU', 'integrity') ?></h1>
   <?= $explain('safety_check', \CW\Ui\Words::MENU['integrity']) ?>

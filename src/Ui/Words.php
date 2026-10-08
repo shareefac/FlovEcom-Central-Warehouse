@@ -29,7 +29,8 @@ final class Words
     public const ASK_ROLE = 'Fazil (the admin)';
 
     /** The groups of() accepts (the constant names below). */
-    private const GROUPS = ['SITE', 'ROLE', 'ROLE_PLURAL', 'ROLE_HELP', 'ROLE_GROUP', 'SECTION', 'MENU', 'MENU_HELP', 'TAB', 'BADGE', 'COMING_LATER',
+    private const GROUPS = ['SITE', 'ROLE', 'ROLE_PLURAL', 'ROLE_HELP', 'ROLE_GROUP', 'SECTION', 'SECTION_DESC', 'MENU', 'SEGMENT', 'NEW', 'FLOW', 'MENU_HELP', 'TAB',
+        'BADGE', 'COMING_LATER',
         'PAGE_TITLE', 'BAND', 'BAND_TITLE', 'BAND_HELP', 'LANE', 'AI', 'FLAG', 'VETO', 'BAND_REASON', 'FIELD_STATE', 'NEEDS_SECOND', 'ACTION',
         'DECISION_STATE', 'LISTING_STATUS', 'POLICY', 'STOCK', 'SAMPLE_STATE', 'SAMPLE_RESULT', 'PO_STATE', 'SEND_VIA', 'REASON', 'SUPPLIER_STATUS',
         'CHECK_REASON', 'CHECK_KIND', 'REVIEW_STATE', 'TASK_STATE', 'DOC_STATUS', 'REORDER_FLAG', 'SETTING', 'ERROR_TITLE', 'ERROR', 'UI', 'HOME',
@@ -44,7 +45,7 @@ final class Words
         'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN', 'CONFIG', 'CONFIG_ACTION', 'CONFIG_ERROR', 'SETTING_EDIT', 'SETTING_NOTICE',
         'APPROVALS', 'REASONS_EDIT', 'REASON_NOTICE', 'WAREHOUSES', 'WHY_NOT_EMPTY', 'WAREHOUSE_NOTICE', 'MODE', 'SITES', 'SITE_COMMAND', 'INTEGRITY', 'AUDIT',
         'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
-        'WATCH'];
+        'WATCH', 'STOCK_VIEW', 'TILE'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -144,94 +145,147 @@ final class Words
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
-    // 2. The menu (Permissions::MENU keeps key, perm and path; its words are here)
+    // 2. The navigation (Ui\Sections keeps the sections, tabs, segments, paths and permissions; their words are here). Standard
+    //    business names (owner, 8 Oct 2026: "sidebar name make professional and make related tabs").
 
-    /** Section key => heading. */
+    /** Sidebar section key (Sections::MAP) => its name: seven items, the same in the sidebar, the page bar and the phone bar. */
     public const SECTION = [
-        'home' => 'Home',
-        'check' => 'To check',
-        'match' => 'Match products',
-        'buy' => 'Buying',
-        'receive' => 'Deliveries',
+        'dashboard' => 'Dashboard',
         'products' => 'Products',
-        'records' => 'Records',
-        'staff' => 'Staff',
+        'stock' => 'Stock',
+        'purchasing' => 'Purchasing',
+        'reports' => 'Reports',
+        'approvals' => 'Approvals',
         'settings' => 'Settings',
     ];
 
-    /** Menu (and page) key => its name. The same word in the menu, the page title and the crumbs. */
-    public const MENU = [
-        'home' => 'Home',
-        'reviews' => 'Waiting for me',
-        'review' => 'Products to match',
-        'pending' => 'Waiting for 2nd OK',
-        'samples' => 'Spot check',
-        'duplicates' => 'Possible duplicates',
-        'reorder' => 'What to buy',
-        'orders' => 'Purchase orders',
-        'suppliers' => 'Suppliers',
-        'sales_history' => 'Sales data',
-        'receiving' => 'Receive + invoice',
-        'bench' => 'Goods-in bench',
-        'incidents' => 'Incidents',
-        'cards' => 'Product list',
-        'barcodes' => 'Barcodes to check',
-        'documents' => 'All records',
-        'people' => 'Staff and access',
-        'company' => 'Company details',
-        'settings' => 'Settings and lists',
-        'approvals' => 'Approval rules',
-        'warehouses' => 'Warehouses',
-        'sites' => 'Websites',
-        'integrity' => 'Safety checks',
-        'audit' => 'Audit log',
+    /** The one line under a section's name in its page bar. */
+    public const SECTION_DESC = [
+        'dashboard' => 'What needs doing today.',
+        'products' => 'Your warehouse products, and how each store\'s products match them.',
+        'stock' => 'What is in each warehouse, and every change to it.',
+        'purchasing' => 'Buy from suppliers and receive the deliveries.',
+        'reports' => 'Figures by store, and every change made in this system.',
+        'approvals' => 'Work that needs your OK before it goes ahead, or a check after.',
+        'settings' => 'Company, warehouses, stores, users and rules.',
     ];
 
-    /** One line under each menu item on Home ("What you can use"). */
+    /** Tab (and page) key => its name. The same word in the tab, the page title and the crumbs. */
+    public const MENU = [
+        'home' => 'Dashboard',
+        // Products
+        'cards' => 'All Products',
+        'mapping' => 'Mapping',
+        'review' => 'Mapping',
+        'pending' => 'Second approval',
+        'samples' => 'Spot check',
+        'duplicates' => 'Duplicates',
+        'barcodes' => 'Barcodes',
+        // Stock
+        'stock' => 'Overview',
+        'movements' => 'Movements',
+        'adjustments' => 'Adjustments',
+        'counts' => 'Counts',
+        'transfers' => 'Transfers',
+        // Purchasing
+        'reorder' => 'Reorder',
+        'orders' => 'Purchase Orders',
+        'goods_in' => 'Goods In',
+        'suppliers' => 'Suppliers',
+        'sales_history' => 'Sales history',
+        'receiving' => 'Goods In',
+        'bench' => 'Checking',
+        'incidents' => 'Issues',
+        // Reports
+        'stock_by_store' => 'Stock by Store',
+        'sales_by_store' => 'Sales by Store',
+        'low_stock' => 'Low Stock',
+        'audit' => 'Audit Log',
+        // Approvals
+        'reviews' => 'Waiting for me',
+        'documents' => 'History',
+        'staff_requests' => 'Staff requests',
+        // Settings
+        'company' => 'Company',
+        'warehouses' => 'Warehouses',
+        'sites' => 'Stores',
+        'people' => 'Users',
+        'approvals' => 'Approval Rules',
+        'reasons' => 'Reasons',
+        'system' => 'System',
+        'settings' => 'Settings',
+        'integrity' => 'System checks',
+    ];
+
+    /** A segment of a tab (Sections::MAP `key` of a page in a tab with `segments`) => its name. */
+    public const SEGMENT = [
+        'review' => 'To review',
+        'samples' => 'Spot check',
+        'pending' => 'Second approval',
+        'reorder' => 'Suggestions',
+        'brands' => 'Brands',
+        'anomalies' => 'Anomalies',
+        'sales_history' => 'Sales history',
+        'receiving' => 'To receive',
+        'bench' => 'Checking',
+        'incidents' => 'Issues',
+        'settings' => 'Settings',
+        'series' => 'Numbering',
+        'integrity' => 'System checks',
+    ];
+
+    /** A page's create button (Sections::MAP `new`): a verb that names the result. */
+    public const NEW = [
+        'orders' => 'New purchase order',
+        'receiving' => 'Receive delivery',
+        'suppliers' => 'New supplier',
+        'people' => 'New user',
+        'warehouses' => 'New warehouse',
+        'reasons' => 'New reason',
+    ];
+
+    /** The buying flow strip on Purchasing (Ui\FlowCounts): step => name, and the figures under the names. */
+    public const FLOW = [
+        'label' => 'How buying works, step by step',
+        'reorder' => 'Reorder',
+        'orders' => 'Purchase Order',
+        'goods_in' => 'Goods In',
+        'stock' => 'Stock updated',
+        'reorder_text' => 'Suggestions from sales',
+        'orders_open' => '%s open',
+        'orders_waiting' => '%s waiting for OK',
+        'goods_in_text' => '%s not booked in',
+        'stock_text' => '%s booked in this week',
+    ];
+
+    /** One line under each tab on the Dashboard ("What you can use"). */
     public const MENU_HELP = [
         'home' => 'What is waiting for you today.',
-        'reviews' => 'Other people\'s work that needs your OK or your check.',
-        'review' => 'Match each website product to its warehouse product.',
-        'pending' => 'Matches that need a second matching lead before they take effect.',
-        'samples' => 'Random strong matches, checked by one matching lead before the rest are confirmed together.',
+        'cards' => 'Every product with its legal details and barcodes.',
+        'mapping' => 'Match each website product to its warehouse product, the spot checks and the second approvals.',
         'duplicates' => 'Vape and Go pages that may be the same product.',
+        'barcodes' => 'Barcodes the computer could not place.',
+        'stock' => 'What is in each warehouse now.',
+        'movements' => 'Every change to the stock, newest first.',
         'reorder' => 'What to buy now, worked out from sales.',
         'orders' => 'The orders we send to suppliers.',
+        'goods_in' => 'Book in each delivery against its supplier invoice, check it, and deal with what was wrong.',
         'suppliers' => 'The companies we buy from.',
-        'sales_history' => 'Units sold per day, per product.',
-        'receiving' => 'Book in each delivery against its supplier invoice.',
-        'bench' => 'Deliveries not booked in yet, and how far their check at the goods-in bench got.',
-        'incidents' => 'Goods found short, over, damaged, wrong or without a duty stamp.',
-        'cards' => 'Every product with its legal details and barcodes.',
-        'barcodes' => 'Barcodes the computer could not place.',
+        'audit' => 'Everything that was changed, by whom and when.',
+        'reviews' => 'Other people\'s work that needs your OK or your check.',
         'documents' => 'Every final record, by number.',
-        'people' => 'Who can use this system and what they may do.',
+        'staff_requests' => 'Changes of staff access that wait for your OK.',
         'company' => 'Our name and addresses, printed on every purchase order.',
-        'settings' => 'How the system is set up, with the reasons and number lists.',
-        'approvals' => 'Which work waits for a second person, and the limits.',
         'warehouses' => 'Where stock is kept, whose it is, and what the websites sell from.',
         'sites' => 'How each website\'s link with the warehouse is doing.',
-        'integrity' => 'The nightly check that stock figures and records agree.',
-        'audit' => 'Everything that was changed, by whom and when.',
+        'people' => 'Who can use this system and what they may do.',
+        'approvals' => 'Which work waits for a second person, and the limits.',
+        'reasons' => 'The reasons people choose when stock goes up or down outside a sale.',
+        'system' => 'How the system is set up, how records are numbered, and the nightly checks.',
     ];
 
-    /** The phone tab bar: menu key => short name (Ui\Tabs picks up to four, then "More"). */
+    /** The phone's bottom bar: Dashboard and the sections take their SECTION names; the last tab opens the whole menu. */
     public const TAB = [
-        'home' => 'To do',
-        'review' => 'Matches',
-        'duplicates' => 'Duplicates',
-        'orders' => 'Orders',
-        'reviews' => 'To check',
-        'reorder' => 'To buy',
-        'suppliers' => 'Suppliers',
-        'bench' => 'Bench',
-        'receiving' => 'Receive',
-        'incidents' => 'Incidents',
-        'cards' => 'Products',
-        'barcodes' => 'Barcodes',
-        'people' => 'Staff',
-        'documents' => 'Records',
-        'company' => 'Company',
         'more' => 'More',
     ];
 
@@ -241,7 +295,9 @@ final class Words
         'linking_duplicates' => 'waiting for you to decide',
         'reviews_open' => 'waiting for you',
         'barcodes_open' => 'barcodes for you to check',
-        'incidents_open' => 'incidents still open',
+        'incidents_open' => 'issues still open',
+        // A sidebar section's count: everything in it that waits for this person.
+        'section' => 'waiting for you',
     ];
 
     /** Permissions::COMING_LATER key => words for Home's "Coming later" line (no phase codes, no dates). */
@@ -262,20 +318,20 @@ final class Words
         'login' => 'Sign in',
         'password' => 'Change password',
         'search' => 'Find a product',
-        'reasons' => 'Reasons for stock changes',
-        'series' => 'How record numbers are made',
-        'reviews' => 'Things to check',
-        'pending' => 'Waiting for a second OK',
+        'reasons' => 'Reasons',
+        'series' => 'Numbering',
+        'reviews' => 'Waiting for me',
+        'pending' => 'Second approval',
         'samples' => 'Spot checks',
         'item' => 'Warehouse product',
         'card_import' => 'Change many product cards',
         'company_edit' => 'Change the company details',
         'supplier_new' => 'New supplier',
-        'reorder_brands' => 'Brand settings',
-        'reorder_anomalies' => 'Days to leave out of sales',
-        'access' => 'Who can do what',
+        'reorder_brands' => 'Brands',
+        'reorder_anomalies' => 'Anomalies',
+        'access' => 'Roles and permissions',
         'enrol' => 'Set up my sign-in',
-        'staff_requests' => 'Staff access to OK',
+        'staff_requests' => 'Staff requests',
         'new_code' => 'Your own sign-in code',
     ];
 
@@ -312,13 +368,13 @@ final class Words
         'barcodes' => ['Barcodes the computer could not place.', 'Decide which product (single or pack) each one belongs to.'],
         'reviews' => ['Other people\'s work that needs your OK or your check.', 'Do the top list first: nothing happens until you say yes.'],
         'documents' => ['Every final record (today: purchase orders and their cancellations), newest first.', ''],
-        'document' => ['The permanent record of one document and its checks.', 'To change an order, open it under Buying.'],
+        'document' => ['The permanent record of one document and its checks.', 'To change an order, open it under Purchasing.'],
         'reorder' => ['What to buy now, worked out from recent website sales (unusual days left out), delivery times, and the stock you have and have ordered.',
             'It is only a suggestion: tick what you want, change the packs if needed, press "Create draft orders", then check each draft.'],
         'reorder_item' => ['Why the list suggests this amount.', 'Buyers can change this product\'s settings below.'],
         'reorder_brands' => ['Make the list buy more or less of a whole brand.', ''],
         'reorder_anomalies' => ['Days with unusual sales (for example stockpiling before the duty) that should be left out when CW works out what to buy.', ''],
-        'sales_history' => ['Daily website sales that What to buy uses. ' . self::ASK . ' loads them from the websites.',
+        'sales_history' => ['Daily website sales that Reorder uses. ' . self::ASK . ' loads them from the websites.',
             'If a website product is not matched to a warehouse product, its sales are not used: the list below shows the biggest ones.'],
         'orders' => ['Every order to a supplier.', 'Start a new one below, or open one to see where it is.'],
         'order_draft' => ['A new order, not confirmed yet.', 'Add products by scanning or searching, check packs and prices, then confirm it. An order over the approval limit goes to a reviewer first.'],
@@ -343,7 +399,7 @@ final class Words
         'integrity' => ['Every night the system checks that its stock figures and records agree with each other.',
             'If a check finds a problem, tell ' . self::ASK . ' the same day.'],
         'audit' => ['Everything that was changed in this system, by whom and when.', 'Search by person, day, record or what was done. Nothing here can be changed.'],
-        'access' => ['What each job may do in this system.', 'Admins give people their jobs on the Staff and access page.'],
+        'access' => ['What each job may do in this system.', 'Admins give people their jobs on the Users page.'],
         'enrol' => ['Set up your own sign-in.', 'Use your e-mail, the set-up code on your sheet and the 6-digit code from the code app on your phone.'],
         'new_code' => ['This code is for you only.', 'Scan it with the code app on your phone, then type its 6 numbers to finish.'],
         'staff_sheet' => ['Give this sheet to the person now. It is shown only once.', 'They use it once; then their own page gives them a code nobody else sees.'],
@@ -361,6 +417,9 @@ final class Words
             'Open one, check each product against the paperwork, then save the check.'],
         'receipt_bench' => ['Check this delivery against its paperwork, one product at a time.',
             'For each line: is the UK duty stamp on the pack, and did anything arrive short, extra, damaged, wrong or without a stamp? Then press "Save the check".'],
+        'stock' => ['What is in each warehouse now, product by product.', 'Choose a warehouse or find a product. Open a product to see every change to its stock.'],
+        'movements' => ['Every change to the stock, newest first: what changed, where, by whom and why.',
+            'Choose a warehouse, a kind of change or a product to narrow the list.'],
         'incidents' => ['Problems the goods-in bench found in deliveries that are booked in: short, extra, damaged, the wrong product, or no duty stamp.',
             'Close each one with what was done, for example a credit asked for or the goods sent back.'],
     ];
@@ -545,6 +604,70 @@ final class Words
         'available' => 'Free to sell',
         'total' => 'Total we can sell from',
         'warehouse_MAIN' => 'Main warehouse',
+    ];
+
+    /** Stock › Overview and Stock › Movements (/ui/stock, /ui/stock/movements; StockController). */
+    public const STOCK_VIEW = [
+        'warehouse' => 'Warehouse',
+        'all_warehouses' => 'All warehouses',
+        'find' => 'Product',
+        'find_hint' => 'Name, brand or CW number',
+        'show' => 'Show',
+        'show_stock' => 'Products with stock',
+        'show_all' => 'Every product',
+        'show_negative' => 'Below zero',
+        'apply' => 'Show the list',
+        'clear' => 'Clear the filters',
+        'product' => 'Product',
+        'brand' => 'Brand',
+        'not_sellable' => 'not for sale',
+        'totals' => 'Each warehouse',
+        'products' => 'Products',
+        'rows_one' => '1 line.',
+        'rows_many' => '%s lines.',
+        'page' => 'Page %s of %s.',
+        'prev' => 'Previous page',
+        'next' => 'Next page',
+        'none' => 'No stock to show.',
+        'none_text' => 'No warehouse product has stock here yet.',
+        'none_filtered' => 'Nothing matches your filter.',
+        'none_filtered_text' => 'Your filter hides every line. Clear it to see them all.',
+        'later' => 'This first version shows the warehouse figures. Stock by store, the VPG 2 room and overflow come in a later update.',
+        // The board (design v4)
+        'figures' => 'Main figures',
+        'tile_products' => 'Products',
+        'tile_products_sub' => 'in the warehouse list',
+        'tile_in_stock' => 'Products in stock',
+        'tile_in_stock_sub' => 'at least 1 unit the websites can sell from',
+        'tile_units' => 'Units',
+        'tile_units_sub' => 'in all warehouses',
+        'tile_none' => 'Products with no stock',
+        'tile_none_sub' => 'nothing the websites can sell',
+        'board' => 'Stock by product',
+        'board_note' => 'One row per product, grouped by status.',
+        'status' => 'Status',
+        'reserved' => 'Reserved',
+        'group_out' => 'Out of stock',
+        'group_in' => 'In stock',
+        'shown' => '%s shown · %s in all',
+        'showing' => 'Showing %s of %s products.',
+        'foot' => 'Reserved = in a customer\'s checkout, or paid and not shipped yet. Available = what the websites can sell: the warehouses they sell from, less reserved.',
+        'moves_board' => 'Stock movements',
+        'moves_note' => 'Every change to stock, newest first.',
+        'moves_one' => '1 movement',
+        'moves_many' => '%s movements',
+        'moves_foot' => 'A movement is never changed or deleted. A mistake is put right with a new movement, so the history always adds up.',
+        // Movements
+        'type' => 'Kind of change',
+        'all_types' => 'Every kind',
+        'figure' => 'Figure',
+        'figure_on_hand' => 'Stock in the building',
+        'figure_all' => 'Every figure (also orders on the way)',
+        'older' => 'Older changes',
+        'newest' => 'Back to the newest',
+        'moves_none' => 'No stock changes to show.',
+        'moves_none_text' => 'Stock changes appear here once stock is booked.',
+        'moves_shown' => 'Newest first, %s at a time.',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -878,13 +1001,13 @@ final class Words
             . '(for example a new supplier, or an order over the approval limit). '
             . '**Check after:** it happens at once, and a reviewer checks it later (for example every confirmed order and every delivery booked in). '
             . '**Nobody approves or checks their own work.** If you made it, or checked the delivery at the goods-in bench, someone '
-            . 'else must. The Approval rules page lists every rule, its limit and its days.',
+            . 'else must. The Approval Rules page lists every rule, its limit and its days.',
         // Correction a (7 Oct): never suggest a second account (the spot check owner-1 belongs to this account).
         'admin_off' => 'Admin gives people access. To keep that safe, the person who gives access must not also approve work. '
             . 'So while an account has Admin, its working jobs (Reviewer, Matching lead, Buyer …) are switched off. '
             . 'Only these jobs still work: Look only (matching), Accountant, Auditor. Ask ' . self::ASK . ' to take Admin off the account that does the work.',
         'spot_check' => 'Instead of checking every strong match one by one, one matching lead checks a number of them picked at random '
-            . '(the Approval rules page says how many). If all are right, the rest are confirmed together in one step (' . self::ASK . ' runs it, and it can be undone). '
+            . '(the Approval Rules page says how many). If all are right, the rest are confirmed together in one step (' . self::ASK . ' runs it, and it can be undone). '
             . 'If even one is wrong, the rest must be checked one by one.',
         'sale_uses' => 'Most website products are single items: 1 sale uses 1 warehouse product. A 10-pack page uses 10. '
             . 'If this number is wrong, stock goes wrong, so anything other than 1 needs a second OK while that approval rule is on.',
@@ -971,13 +1094,26 @@ final class Words
         'search_button' => 'Find',
         'account' => 'Your account',
         'you_work_as' => 'You work as:',
-        'my_account' => 'Change my password',
+        'my_account' => 'Change password',
+        'open_menu' => 'Open the menu',
+        'find' => 'Find a product',
+        'soon' => 'Soon',
+        'soon_title' => 'Coming soon: not built yet',
+        'more_new' => 'More to create',
+        // The toolbar under the tabs (design v4): a split create button, then Search, Filter, Sort, and Export at the end.
+        'search' => 'Search',
+        'filter' => 'Filter',
+        'sort' => 'Sort',
+        'export' => 'Export',
+        'apply' => 'Apply',
+        'help_link' => 'Help: what this system is',
+        'fold' => 'Show or hide %s',
         'sign_out' => 'Sign out',
         'no_jobs' => 'no job yet',
         'off' => 'off',
         'help' => 'What does this mean?',
         'quote_rid' => 'If you report a problem, quote this number:',
-        'back_home' => 'Back to Home',
+        'back_home' => 'Back to the Dashboard',
         'back_sign_in' => 'Back to sign in',
         'coming_later' => 'Coming later:',
         'test_system' => 'TEST SYSTEM: nothing here is real',
@@ -1000,7 +1136,7 @@ final class Words
 
     /** Home's own words (plan §3.1, F075-F093). */
     public const HOME = [
-        'title' => 'Home',
+        'title' => 'Dashboard',
         'hello' => 'Hello %s.',
         'needs' => 'What needs doing',
         'jobs_one' => '1 job needs you. Start with it.',
@@ -1041,6 +1177,26 @@ final class Words
         'no_sales' => 'no sales yet',
         'uses' => 'What you can use',
         'to_look' => 'To look at',
+        // "What needs doing" as a board (design v4): the jobs first ("Ready to do"), then the notes
+        'ready' => 'Ready to do',
+        'tasks_one' => '1 task',
+        'tasks_many' => '%s tasks',
+        'col_task' => 'Task',
+        'col_where' => 'Where',
+        'col_status' => 'Status',
+        'col_count' => 'How many',
+        'col_next' => 'Next step',
+        'tiles' => 'Main numbers',
+    ];
+
+    /** The Dashboard's widget tiles (Ui\DashboardTiles): title, the line under the number, the link. */
+    public const TILE = [
+        'products' => ['title' => 'Products', 'sub' => 'in the warehouse list', 'link' => 'All Products'],
+        'units' => ['title' => 'Units in stock', 'sub' => 'on %s products', 'sub_one' => 'on 1 product', 'link' => 'Stock overview'],
+        'matches' => ['title' => 'Matches to review', 'sub' => 'website products with a suggested match', 'link' => 'Mapping'],
+        'approvals' => ['title' => 'Waiting for your approval', 'sub' => '%s to OK first · %s to check', 'link' => 'Approvals'],
+        'orders' => ['title' => 'Open purchase orders', 'sub' => '%s draft · %s for approval · %s confirmed or sent', 'link' => 'Purchase Orders'],
+        'deliveries' => ['title' => 'Deliveries to receive', 'sub' => 'not booked in yet', 'link' => 'Goods In'],
     ];
 
     /** "What is this system?" (plan §3.3), one paragraph each: open for a person's first 14 days, then folded. */
@@ -1212,7 +1368,7 @@ final class Words
         ],
         'old_sales' => [
             'title' => 'Sales data is %s days old',
-            'text' => 'So What to buy may be too low. Ask ' . self::ASK . ' to load the new sales.',
+            'text' => 'So Reorder may be too low. Ask ' . self::ASK . ' to load the new sales.',
             'button' => 'See the sales data',
         ],
         'supplier_drafts' => [
@@ -1258,17 +1414,17 @@ final class Words
             'button' => 'See your access',
         ],
         'integrity' => [
-            'title' => 'The nightly safety check found %s problems',
-            'title_one' => 'The nightly safety check found 1 problem',
+            'title' => 'The nightly system check found %s problems',
+            'title_one' => 'The nightly system check found 1 problem',
             'text' => 'Stock figures or records do not agree somewhere. Nothing is fixed by itself.',
             'what' => 'You see what was found. Tell ' . self::ASK . ' the same day.',
-            'button' => 'See the safety checks',
+            'button' => 'See the system checks',
         ],
         'integrity_stale' => [
-            'title' => 'The nightly safety check has not run since %s',
+            'title' => 'The nightly system check has not run since %s',
             'text' => 'It should run every night.',
             'what' => 'Tell ' . self::ASK . ', so he can start it again.',
-            'button' => 'See the safety checks',
+            'button' => 'See the system checks',
         ],
         'staff_requests' => [
             'title' => 'Staff access waiting for your OK',
@@ -1414,9 +1570,9 @@ final class Words
     public const RECORD = [
         'later' => 'The screens for %s are coming later.',
         'open_order' => 'Open the order',
-        'open_order_note' => 'Its own page under Buying: lines, sending, cancelling, and the PDF for the supplier.',
+        'open_order_note' => 'Its own page under Purchasing: lines, sending, cancelling, and the PDF for the supplier.',
         'open_receipt' => 'Open the delivery',
-        'open_receipt_note' => 'Its own page under Deliveries: lines, the goods-in bench check, problems found, and the files.',
+        'open_receipt_note' => 'Its own page under Goods In: lines, the goods-in bench check, problems found, and the files.',
         'status' => 'Status',
         'check' => 'Reviewer check',
         'not_final' => 'Not final yet',
@@ -1571,7 +1727,7 @@ final class Words
         'wrong_does' => 'If the details in use still carry this change, they are not confirmed any more: new purchase order PDFs say DO NOT SEND until someone corrects and confirms them.',
         'note_optional' => 'Note (optional)',
         'why_wrong' => 'What is wrong (required)',
-        'alone' => 'Nobody else is a Reviewer yet, so this check stays open. It stops nothing. When a second person has the Reviewer job (Staff and access), they can close it.',
+        'alone' => 'Nobody else is a Reviewer yet, so this check stays open. It stops nothing. When a second person has the Reviewer job (Users), they can close it.',
         'history' => 'History',
         'no_history' => 'No details were saved yet.',
         'h_seed' => 'Copied from the old settings',
@@ -1664,7 +1820,7 @@ final class Words
         'by' => '%s by %s',
         'open' => 'Open',
         'approval_rules' => 'Approval rules',
-        'approval_rules_text' => 'Who checks what, the limits and the days are changed on the Approval rules page.',
+        'approval_rules_text' => 'Who checks what, the limits and the days are changed on the Approval Rules page.',
         'access' => 'Who can do what',
         'rules' => 'Who checks what',
         'rules_text' => 'Only the kinds of record in use today. Nobody checks their own work.',
@@ -1734,7 +1890,7 @@ final class Words
     public const SETTING_TOPIC = [
         'po' => 'Purchase orders',
         'suppliers' => 'Suppliers',
-        'reorder' => 'What to buy',
+        'reorder' => 'Reorder',
         'costs' => 'Costs',
         'company' => 'Company details',
         'receiving' => 'Deliveries',
@@ -1763,8 +1919,8 @@ final class Words
         'reorder.default_lead_days' => 'Days from order to delivery, when neither the product, the supplier\'s product nor the supplier says.',
         'reorder.default_review_days' => 'Days until the next order to the same supplier, when the supplier does not say.',
         'reorder.default_safety_days' => 'Extra days of stock to keep (5, the same as now).',
-        'reorder.short_window_days' => 'What to buy looks at the sales of this many recent days (4 weeks).',
-        'reorder.long_window_days' => 'What to buy also looks at the sales of this many days (3 months).',
+        'reorder.short_window_days' => 'Reorder looks at the sales of this many recent days (4 weeks).',
+        'reorder.long_window_days' => 'Reorder also looks at the sales of this many days (3 months).',
         'reorder.short_weight' => 'How much the recent days weigh in the mix (0.5 = half).',
         'reorder.min_valid_days_short' => 'With fewer usable days than this, the recent days are not used.',
         'reorder.min_valid_days_long' => 'With fewer usable days than this, the longer period is not used.',
@@ -1783,11 +1939,11 @@ final class Words
             . 'reviewer\'s check afterwards.',
         'approvals.staff_grant' => 'Giving someone the Admin or Reviewer job waits for a reviewer\'s OK. Off: the admin\'s change works at once.',
         'approvals.staff_reset' => 'A new sign-in code, password or sign-up sheet for someone with Admin or Reviewer waits for a reviewer\'s OK. Off: the admin makes it at once.',
-        'staff.setup_max_fails' => 'After this many wrong tries, a sign-in set-up closes: the person cannot try again until the admin makes a new sheet, and Home says so.',
+        'staff.setup_max_fails' => 'After this many wrong tries, a sign-in set-up closes: the person cannot try again until the admin makes a new sheet, and the Dashboard says so.',
         'staff.sign_in_address' => 'The address staff open to sign in, for example https://warehouse.example.com. The sign-up sheets print it. Leave it empty until you know it.',
         'approvals.spot_check_size' => 'How many strong matches a spot check holds. A smaller spot check never confirms the rest together.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
-        'staff.min_reviewers' => 'Staff and access and Home warn when fewer people than this can approve work.',
+        'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
     ];
 
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */
@@ -1910,6 +2066,13 @@ final class Words
         'already_set_up' => 'They have set up their sign-in already. Nothing was changed. Make a new sign-in code, or let them choose a new password.',
         'code_refused_open' => 'Not done: they can still choose a new password with a set-up code. Nothing was changed. A new sign-in code waits until that time is over.',
         'code_reset_open' => 'Not done: a new sign-in code waits for them. Nothing was changed. They sign in with it and their own password first.',
+        // The board of users (design v4): one group of people who can sign in, one of people switched off
+        'board' => 'Staff accounts',
+        'group_active' => 'Can sign in',
+        'group_off' => 'Switched off',
+        'count_one' => '1 user',
+        'count_many' => '%s users',
+        'add_row' => '+ New user',
     ];
 
     /** Notices after a click on a staff member's page (PeopleController::NOTICES). */
@@ -2079,6 +2242,11 @@ final class Words
         'show' => 'Show',
         'total_one' => '1 to decide, best sellers first.',
         'total_many' => '%s to decide, best sellers first.',
+        // The board (design v4)
+        'board' => 'Matches to review',
+        'board_note' => 'Grouped by how sure the match is · best sellers first',
+        'strength' => 'Suggested matches by how sure: press one to open its list.',
+        'in_all' => '%s in all · %s shown',
         'product' => 'Website product',
         'sold_365' => 'Sold (1 year)',
         'sold_30' => 'Sold (30 days)',
@@ -2284,7 +2452,7 @@ final class Words
         'details' => 'Details:',
         'join' => 'Join products:',
         'joins' => 'joins',
-        'from_dups' => '(from Possible duplicates)',
+        'from_dups' => '(from Duplicates)',
         'undo_join' => 'Undo the join:',
         'back_to' => 'back to',
         'with_stock' => 'with the stock that came with it',
@@ -2364,7 +2532,7 @@ final class Words
         'started_by' => 'Started by',
         'together' => 'Confirmed together',
         'undone' => '(%s undone)',
-        'unusable' => 'This spot check cannot be used (it is smaller than the spot check size on the Approval rules page, or it changed after it was made). Ask ' . self::ASK . ' to start a new one.',
+        'unusable' => 'This spot check cannot be used (it is smaller than the spot check size on the Approval Rules page, or it changed after it was made). Ask ' . self::ASK . ' to start a new one.',
         'passed' => 'All %s are right. The other strong matches can now be confirmed together. Ask ' . self::ASK . ' to run it for you.',
         'failed_one' => 'This spot check failed: 1 of the %s was wrong or changed. The rest cannot be confirmed together. Check them one by one in Strong matches.',
         'failed_many' => 'This spot check failed: %s of the %s were wrong or changed. The rest cannot be confirmed together. Check them one by one in Strong matches.',
@@ -2559,9 +2727,9 @@ final class Words
         'merged' => 'Done: %s is joined.',
         'separate' => 'Done: %s is kept apart. We will not suggest these pages together again.',
         'mixed' => 'Saved: in %s the pages you marked the same are joined, the others are kept apart.',
-        'pending' => 'Saved, not live yet: joining %s needs a second matching lead\'s OK (see Waiting for 2nd OK).',
+        'pending' => 'Saved, not live yet: joining %s needs a second matching lead\'s OK (see Second approval).',
         'split' => 'Done: the join is undone. The page is back on its own warehouse product, with the stock that came with it.',
-        'split_pending' => 'Saved, not live yet: undoing the join needs a second matching lead\'s OK (see Waiting for 2nd OK).',
+        'split_pending' => 'Saved, not live yet: undoing the join needs a second matching lead\'s OK (see Second approval).',
         'done' => 'No possible duplicates are left to decide.',
         'next' => 'Here is the next group.',
         'the_group' => 'the group',
@@ -2572,7 +2740,7 @@ final class Words
         'map_version_conflict' => 'One of these pages changed since you opened this page (someone matched or joined it, or the website renamed it). '
             . 'Nothing was saved: the page shows them as they are now. Check and decide again.',
         'proposal_changed' => 'The suggestions for this group changed since you opened this page. Nothing was saved: check the page and decide again.',
-        'pending_second_exists' => 'A decision on one of these pages waits for a second OK. Nothing was saved: approve or cancel it first (Waiting for 2nd OK).',
+        'pending_second_exists' => 'A decision on one of these pages waits for a second OK. Nothing was saved: approve or cancel it first (Second approval).',
         'rejected_pair' => 'These pages cannot be joined: one of them was marked as a different product before. Nothing was saved.',
         'protected' => 'One of the products is protected (the website sells warehouse stock only): it cannot be joined or split here. Nothing was saved.',
         'counted_meanwhile' => 'One of the products had its stock counted a moment ago, so this needs a second matching lead now. Nothing was saved: decide again.',
@@ -2688,7 +2856,7 @@ final class Words
     /** How an order was made (purchase_order.source). */
     public const PO_SOURCE = [
         'manual' => 'By hand',
-        'reorder' => 'From What to buy',
+        'reorder' => 'From Reorder',
         'copy' => 'Copied from another order',
         'amend' => 'A corrected copy of another order',
         'import_file' => 'From a lines file',
@@ -2702,7 +2870,7 @@ final class Words
         'how_2' => 'The buyer sends the PDF to the supplier, then records it here.',
         'how_3' => 'A reviewer checks every confirmed order within 7 days.',
         'how_4' => 'Over %s (before VAT), a reviewer must OK the order before it gets a number.',
-        'how_4_off' => 'No order needs a reviewer\'s OK before it gets a number: the owner switched that off on the Approval rules page.',
+        'how_4_off' => 'No order needs a reviewer\'s OK before it gets a number: the owner switched that off on the Approval Rules page.',
         'how_fix' => 'A confirmed order cannot be changed: cancel it, or press Correct to make a corrected copy.',
         'new' => 'Start a new order',
         'new_text' => 'Choose the supplier. Then add products by scanning or searching.',
@@ -2768,6 +2936,19 @@ final class Words
         'next_cancelled_draft' => 'Cancelled before it was confirmed. Nothing was ordered.',
         'next_rejected' => 'A reviewer said it is not OK: cancel it or correct it.',
         'next_cancellation' => 'This record cancels %s.',
+        // The board (design v4): one group per state, a total row per group
+        'board' => 'Orders by status',
+        'group_one' => '1 order',
+        'group_many' => '%s orders',
+        'group_total' => 'Total for %s',
+        'col_status' => 'Status',
+        'col_supplier' => 'Supplier',
+        'col_value' => 'Value',
+        'col_units' => 'Units',
+        'col_expected' => 'Expected',
+        'col_next' => 'Next step',
+        'add_row' => '+ New purchase order',
+        'search_hint' => 'Number or supplier\'s reference',
     ];
 
     /** One purchase order and the draft editor (/ui/purchasing/orders/{id}, plan §6.19, 6.20). */
@@ -3182,6 +3363,7 @@ final class Words
         'skip_blocked' => 'blocked by its product card (%s)',
         'skip_merged' => 'joined into another product',
         'skip_other' => 'left out',
+        'board' => 'Suggested orders',
     ];
 
     /** The plain "Why" of a line of What to buy (Ui\ReorderWhy, plan F308); the formula stays in "Show the maths" (Reorder\Explain). */
@@ -3222,12 +3404,12 @@ final class Words
 
     /** Why this amount (/ui/purchasing/reorder/items/{id}, plan §6.23). */
     public const REORDER_ITEM = [
-        'title' => 'What to buy: %s (%s)',
+        'title' => 'Reorder: %s (%s)',
         'product_page' => 'Product page',
         'no_brand' => 'No brand',
         'merged' => 'Joined into %s: never suggested.',
         'suggest' => 'What the list suggests',
-        'not_listed' => 'This product is not on What to buy: no website sales were found for it.',
+        'not_listed' => 'This product is not on Reorder: no website sales were found for it.',
         'not_listed_text' => 'If it does sell, ask the matching team to match its website product.',
         'main_supplier' => 'Main supplier',
         'no_main' => 'None yet. Make one of its suppliers the main supplier.',
@@ -3311,7 +3493,7 @@ final class Words
         'safety_hint' => '0 to 90; empty = the normal %s',
         'note' => 'Note',
         'save' => 'Save',
-        'none' => 'No brand is on What to buy yet.',
+        'none' => 'No brand is on Reorder yet.',
         'none_text' => 'Brands show here once their products have sales.',
         'brand' => 'Brand',
         'products' => 'Products',
@@ -3327,7 +3509,7 @@ final class Words
     /** Days to leave out of sales (/ui/purchasing/reorder/anomalies, plan §6.25). */
     public const ANOMALIES = [
         'intro' => 'Add days when sales were unusual (stockpiling before the duty, a one-off promotion). Those days are ignored when CW works out what to buy. '
-            . 'Up to %s days at a time. After adding or ending, press "Work out sales again" on What to buy.',
+            . 'Up to %s days at a time. After adding or ending, press "Work out sales again" on Reorder.',
         'add' => 'Add days to leave out',
         'from' => 'First day',
         'to' => 'Last day',
@@ -3360,9 +3542,9 @@ final class Words
     public const REORDER_NOTICE = [
         'recalculated' => 'Done: sales were worked out again from the loaded sales data.',
         'drafts' => 'Draft orders made from the ticked lines: open each one, check it and confirm it.',
-        'item_saved' => 'Saved: What to buy uses these settings at once.',
-        'brand_saved' => 'Saved: What to buy uses the brand\'s settings at once.',
-        'anomaly_added' => 'Saved: these days are left out the next time sales are worked out ("Work out sales again" on What to buy).',
+        'item_saved' => 'Saved: Reorder uses these settings at once.',
+        'brand_saved' => 'Saved: Reorder uses the brand\'s settings at once.',
+        'anomaly_added' => 'Saved: these days are left out the next time sales are worked out ("Work out sales again" on Reorder).',
         'anomaly_ended' => 'Saved: these days are used again the next time sales are worked out.',
     ];
 
@@ -3381,7 +3563,7 @@ final class Words
         'last_load' => 'Last loaded',
         'last_load_line' => 'sales up to %s, loaded %s',
         'unmatched' => 'Selling on the website but not matched to a warehouse product (top %s, last %s days)',
-        'unmatched_text' => 'Their sales do not help What to buy. Ask the matching team to match these.',
+        'unmatched_text' => 'Their sales do not help Reorder. Ask the matching team to match these.',
         'all_matched' => 'Every website product that sold is matched to a warehouse product.',
         'product' => 'Website product',
         'sold' => 'Sold',
@@ -3543,7 +3725,7 @@ final class Words
         'file_line' => '%s (%s)',
         // Products and orders
         'products' => 'Products',
-        'products_line' => '%s products from this supplier. For %s of them this is the main supplier (What to buy orders from here).',
+        'products_line' => '%s products from this supplier. For %s of them this is the main supplier (Reorder buys from here).',
         'products_no_price' => '%s have no price yet.',
         'products_open' => 'Open the products',
         'products_add' => 'Add a product',
@@ -3700,7 +3882,7 @@ final class Words
     /** A supplier's products (/ui/purchasing/suppliers/{id}/items, supplier-items/{id}, plan §6.30). */
     public const SUPPLIER_ITEMS = [
         'title' => 'Products from %s',
-        'intro' => 'Prices are per pack, in £, without VAT. "Box of 24" means one box holds 24 single items. "Main supplier" means What to buy orders this product from here.',
+        'intro' => 'Prices are per pack, in £, without VAT. "Box of 24" means one box holds 24 single items. "Main supplier" means Reorder buys this product from here.',
         'add' => 'Add a product',
         'download' => 'Download for Excel (CSV)',
         'back' => 'Back to %s',
@@ -3732,7 +3914,7 @@ final class Words
         'description' => 'Their description',
         'smallest' => 'Smallest order',
         'smallest_line' => '%s packs, in steps of %s',
-        'main_yes' => 'Yes (What to buy orders from here)',
+        'main_yes' => 'Yes (Reorder buys from here)',
         'main_no' => 'No (a backup supplier)',
         'in_use' => 'Still bought here',
         'no' => 'No',
@@ -3742,9 +3924,9 @@ final class Words
         'po_price' => 'Price on the last order',
         'po_line' => '%s on %s',
         'make_main' => 'Make this the main supplier for this product',
-        'make_main_does' => 'What to buy will order this product from here. Any other supplier stops being its main supplier.',
+        'make_main_does' => 'Reorder will buy this product from here. Any other supplier stops being its main supplier.',
         'stop_main' => 'Stop using as main supplier',
-        'stop_main_does' => 'What to buy will not know where to order this product until you choose another main supplier.',
+        'stop_main_does' => 'Reorder will not know where to order this product until you choose another main supplier.',
         'others' => 'Other suppliers of this product',
         'others_none' => 'None.',
         'price' => 'Record a new price',
@@ -3760,7 +3942,7 @@ final class Words
         'moq_label' => 'Smallest order (packs)',
         'steps_label' => 'Order in steps of (packs)',
         'lead_label' => 'Delivery days (empty = the supplier\'s)',
-        'main_tick' => 'Main supplier for this product (What to buy orders from here)',
+        'main_tick' => 'Main supplier for this product (Reorder buys from here)',
         'in_use_tick' => 'We still buy this from this supplier (untick to stop)',
         'save' => 'Save',
         'history' => 'Price history',
@@ -3799,7 +3981,7 @@ final class Words
         'created' => 'Done: the product is set up with this supplier.',
         'saved' => 'Saved.',
         'unchanged' => 'Nothing changed.',
-        'preferred' => 'Done: this is now the main supplier for this product. What to buy orders it from here.',
+        'preferred' => 'Done: this is now the main supplier for this product. Reorder buys it from here.',
         'not_preferred' => 'Done: this is no longer the main supplier for this product.',
         'price' => 'Done: the price is recorded.',
         'pack_changed' => 'Saved. The pack size changed, so the price now is the newest one recorded for the new pack (none yet: record it below).',
@@ -3825,7 +4007,7 @@ final class Words
     /** The product list (/ui/items/cards). */
     public const CARDS = [
         'rules' => 'A card that breaks a rule is a warning until a person confirms its details. After that it blocks the product until a person confirms the card again. '
-            . 'A block stops What to buy, the confirming of orders and the booking in of deliveries. It does not stop website sales: take a blocked product '
+            . 'A block stops Reorder, the confirming of orders and the booking in of deliveries. It does not stop website sales: take a blocked product '
             . 'off sale on the website by hand. A website whose stock link is on shows it as Out-Of-Stock by itself.',
         'summary_products' => '%s products, %s holding stock',
         'summary_cards' => '%s with a product card, %s confirmed (%s of those holding stock)',
@@ -3886,7 +4068,7 @@ final class Words
         'changed' => 'Last changed by %s on %s: confirm it again. A rule the last confirmation blocked keeps blocking the product until then, whatever '
             . 'the details say now. A rule broken since is a warning until then.',
         'unconfirmed' => 'Last changed by %s on %s. Until a person confirms the details, a rule they break is a warning only.',
-        'blocked' => 'Blocked: What to buy never suggests it, an order with it cannot be confirmed, and a delivery of it cannot be booked in. It is still on sale '
+        'blocked' => 'Blocked: Reorder never suggests it, an order with it cannot be confirmed, and a delivery of it cannot be booked in. It is still on sale '
             . 'on the website: take it off by hand. A website whose stock link is on shows it as Out-Of-Stock by itself.',
         'still_blocked' => 'the details no longer say so, but the block stays until someone confirms the card again',
         'warning' => 'Warning: if these details are right, confirming them blocks the product.',
@@ -3952,7 +4134,7 @@ final class Words
         'flavour_hint' => 'A flavour you type here is taken as checked.',
         'flavour_file' => 'From a file, not confirmed. Saving this form leaves it so: confirm it on the product page, or type the right one.',
         'buying' => 'Buying',
-        'discontinued' => 'Not sold any more: never suggest it on What to buy',
+        'discontinued' => 'Not sold any more: never suggest it on Reorder',
         'discontinued_hint' => 'A buyer can still order it on purpose.',
         'save' => 'Save the product card',
         'cancel' => 'Cancel',
@@ -3977,7 +4159,7 @@ final class Words
         'bad_decision' => 'Choose one of the answers listed for this barcode. Nothing was saved.',
         'barcode_exists' => 'This product has this barcode already. Nothing was changed.',
         'barcode_on_other_item' => 'This barcode belongs to %s already, and a barcode belongs to one product. If it belongs here, remove it from %s first. '
-            . 'If both products\' website products carry it, decide it in Barcodes to check instead. Nothing was changed.',
+            . 'If both products\' website products carry it, decide it in Barcodes instead. Nothing was changed.',
         // "Change many product cards": a file with columns the import does not know.
         'unknown_columns' => 'Nothing was imported: the file has columns the product cards do not have: %s. Use the columns of the downloaded product list.',
     ];
@@ -4063,13 +4245,13 @@ final class Words
         'card_unchanged' => 'Nothing changed.',
         'accepted' => 'Done: the product card now has this suggestion.',
         'confirmed' => 'Confirmed: the product card. If a person confirms details that break a rule, the product is blocked instead of warned about.',
-        'confirmed_blocked' => 'Confirmed. The product breaks a rule, so it is now BLOCKED: What to buy never suggests it, an order with it cannot be confirmed, '
+        'confirmed_blocked' => 'Confirmed. The product breaks a rule, so it is now BLOCKED: Reorder never suggests it, an order with it cannot be confirmed, '
             . 'and a delivery of it cannot be booked in. It is still on sale on the website: take it off by hand. A website whose stock link is on shows it as '
             . 'Out-Of-Stock by itself. It stays blocked until someone corrects the card and confirms it again.',
         'confirmed_lifted' => 'Confirmed. The details no longer break the rules the last confirmation blocked, so the product is no longer blocked.',
         'already_confirmed' => 'The product card was already confirmed.',
         'barcode_added' => 'Done: the barcode is added.',
-        'barcode_added_unusable' => 'Added, but it cannot be used yet: it waits in Barcodes to check.',
+        'barcode_added_unusable' => 'Added, but it cannot be used yet: it waits in Barcodes.',
         'barcode_removed' => 'Done: the barcode is removed. The barcode sync will not add it back to this product.',
         'units_saved' => 'Saved: items per scan.',
         'units_unchanged' => 'Nothing changed.',
@@ -4133,7 +4315,7 @@ final class Words
         'remove_text' => 'Removes %s from %s. The barcode sync will not add it back to this product (adding it by hand stays possible).',
         'remove_why' => 'Why (optional)',
         'remove_button' => 'Remove this barcode',
-        'open_reviews' => 'Waiting in Barcodes to check:',
+        'open_reviews' => 'Waiting in Barcodes:',
         'add' => 'Add a barcode',
         'add_hint' => 'Scan or type it',
         'add_units' => 'Items per scan',
@@ -4183,19 +4365,19 @@ final class Words
         'manual' => 'Added by a person',
         'listing_sync' => 'From a website product',
         'origin_listing' => 'From the website product it was made from',
-        'review' => 'From Barcodes to check',
+        'review' => 'From Barcodes',
         'reband' => 'From the computer check',
-        'in_review' => 'waits in Barcodes to check',
+        'in_review' => 'waits in Barcodes',
     ];
 
-    /** Why a barcode waits in Barcodes to check (BarcodeReviews::REASONS keys). */
+    /** Why a barcode waits in Barcodes (BarcodeReviews::REASONS keys). */
     public const BARCODE_REASON = [
         'on_another_item' => 'On another product',
         'multipack_listing' => 'Pack or single item?',
         'removed' => 'Removed by a person',
     ];
 
-    /** The answers in Barcodes to check (BarcodeReviews::DECISIONS and RECORDED keys). */
+    /** The answers in Barcodes (BarcodeReviews::DECISIONS and RECORDED keys). */
     public const BARCODE_DECISION = [
         'keep_holder' => 'It belongs to the product that has it (the website product carries a wrong barcode)',
         'move' => 'It belongs to the website product\'s product: move it there',
@@ -4203,7 +4385,7 @@ final class Words
         'add' => 'Add it to the website product\'s product',
         'dismiss' => 'Do not add it',
         'removed' => 'Removed from the product',
-        'moved_away' => 'Moved to another product in Barcodes to check',
+        'moved_away' => 'Moved to another product in Barcodes',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -4468,7 +4650,7 @@ final class Words
         'incidents' => 'Problems found',
         'incident_line' => 'Line %s, %s: %s items %s',
         'incident_where' => '%s',
-        'close_them' => 'Close them in Incidents',
+        'close_them' => 'Close them in Issues',
         'checks' => 'Reviewer checks',
         'check_line' => '%s: opened %s by %s, check by %s.',
         'check_decided' => '%s by %s.',
@@ -4982,7 +5164,7 @@ final class Words
         'one_of' => 'One of: %s.',
         'sites' => 'Website short codes, separated by commas, for example vapeandgo,electrofag. Leave it empty for none.',
         'empty' => 'Leave it empty for "not set".',
-        'approvals' => 'This is an approval rule: change it on the Approval rules page.',
+        'approvals' => 'This is an approval rule: change it on the Approval Rules page.',
         'company' => 'The company details have their own page.',
         'address' => 'An address starting with https://, without anything after the name, for example https://warehouse.example.com.',
     ];
@@ -4995,9 +5177,11 @@ final class Words
         'unchanged' => 'Nothing changed: the setting already had this value.',
     ];
 
-    /** The Approval rules page (/ui/reference/approvals). */
+    /** The Approval Rules page (/ui/reference/approvals). */
     public const APPROVALS = [
         'records' => 'Records: who checks, and what needs an OK first',
+        'count_one' => '1 rule',
+        'count_many' => '%s rules',
         'records_text' => 'One rule for each kind of record. Kinds not in use yet keep their rule for when they come.',
         'suppliers' => 'Suppliers',
         'matching' => 'Matching products',
@@ -5280,7 +5464,7 @@ final class Words
         'health' => 'List the problems of every website',
     ];
 
-    /** The Safety checks page (/ui/system/checks). */
+    /** The System checks page (/ui/system/checks). */
     public const INTEGRITY = [
         'last' => 'Last check',
         'result_ok' => 'Everything agreed',
@@ -5378,7 +5562,7 @@ final class Words
         'mapping' => 'Matching',
         'listing' => 'Website products',
         'channel' => 'Websites',
-        'reorder' => 'What to buy',
+        'reorder' => 'Reorder',
         'sales' => 'Sales data',
         'selling_mode' => 'Selling modes',
         'reservation' => 'Website orders',
@@ -5468,7 +5652,7 @@ final class Words
         'modes.set' => 'Set the selling mode on the websites',
         'settings.manage' => 'Change settings, approval rules, reasons and warehouses',
         'audit.view' => 'Read the audit log',
-        'system.view' => 'Look at the websites\' link and the safety checks',
+        'system.view' => 'Look at the websites\' link and the system checks',
         'staff.approve' => 'Give the OK when someone is given Admin or Reviewer',
     ];
 
@@ -5478,13 +5662,13 @@ final class Words
         'rule_own' => 'Nobody approves or checks their own work.',
         'rule_admin' => 'Admin can only go with %s. While an account has Admin, its other jobs are switched off.',
         'rule_settings' => 'Admins and Reviewers change settings, approval rules, reasons and warehouses. Admin still never makes, checks or approves stock records or matches.',
-        'rule_approvals' => 'Which work waits for a second person is on the Approval rules page.',
+        'rule_approvals' => 'Which work waits for a second person is on the Approval Rules page.',
         'by_job' => 'What each job may do',
         'by_task' => 'Who may do each thing',
         'task' => 'What',
         'who' => 'Who',
         'can' => 'Can:',
-        'people' => 'Staff and access',
+        'people' => 'Users',
     ];
 
     /** Setting up one's own sign-in (/ui/enrol, public). */
@@ -5603,28 +5787,31 @@ final class Words
     // ------------------------------------------------------------------------------------------------------------------
     // Status chip tones: needs (you act), done, waiting (someone else), blocked, info, off
 
-    public const TONES = ['needs', 'done', 'waiting', 'blocked', 'info', 'off'];
+    public const TONES = ['needs', 'done', 'waiting', 'blocked', 'info', 'off', 'review'];
 
     /** group => code => tone; a code not listed is `info`. */
     public const TONE = [
         'LISTING_STATUS' => ['unmapped' => 'needs', 'suggested' => 'needs', 'mapped' => 'done', 'ignored' => 'off', 'quarantined' => 'blocked'],
-        'DECISION_STATE' => ['pending_second' => 'waiting', 'applied' => 'done', 'withdrawn' => 'off'],
-        'SAMPLE_STATE' => ['open' => 'needs', 'confirmed' => 'done', 'needed_second' => 'done', 'waiting_second' => 'waiting', 'rejected' => 'blocked',
+        'DECISION_STATE' => ['pending_second' => 'review', 'applied' => 'done', 'withdrawn' => 'off'],
+        'SAMPLE_STATE' => ['open' => 'needs', 'confirmed' => 'done', 'needed_second' => 'done', 'waiting_second' => 'review', 'rejected' => 'blocked',
             'superseded' => 'off', 'decided_otherwise' => 'blocked', 'confirmed_by_other' => 'blocked', 'confirmed_not_by_lead' => 'blocked', 'changed_since' => 'blocked'],
         'SAMPLE_RESULT' => ['waiting' => 'needs', 'passed' => 'done', 'failed' => 'blocked', 'unusable' => 'blocked'],
-        'PO_STATE' => ['draft' => 'needs', 'awaiting_approval' => 'waiting', 'approved' => 'needs', 'sent' => 'waiting', 'part_received' => 'waiting',
+        // Design v4 (owner's approval, 8 Oct 2026): a draft is grey, waiting for someone's OK purple, sent blue, part delivered orange.
+        'PO_STATE' => ['draft' => 'waiting', 'awaiting_approval' => 'review', 'approved' => 'needs', 'sent' => 'info', 'part_received' => 'needs',
             'received' => 'done', 'closed' => 'done', 'cancelled' => 'off'],
-        'SUPPLIER_STATUS' => ['draft' => 'needs', 'pending_approval' => 'waiting', 'active' => 'done', 'inactive' => 'off'],
-        'REVIEW_STATE' => ['not_required' => 'off', 'pending' => 'waiting', 'approved' => 'done', 'rejected' => 'blocked'],
-        'TASK_STATE' => ['open' => 'waiting', 'approved' => 'done', 'rejected' => 'blocked', 'withdrawn' => 'off'],
-        'DOC_STATUS' => ['draft' => 'needs', 'awaiting_approval' => 'waiting', 'posted' => 'done', 'reversed' => 'off', 'cancelled' => 'off'],
+        'SUPPLIER_STATUS' => ['draft' => 'waiting', 'pending_approval' => 'review', 'active' => 'done', 'inactive' => 'off'],
+        'REVIEW_STATE' => ['not_required' => 'off', 'pending' => 'review', 'approved' => 'done', 'rejected' => 'blocked'],
+        'TASK_STATE' => ['open' => 'review', 'approved' => 'done', 'rejected' => 'blocked', 'withdrawn' => 'off'],
+        'DOC_STATUS' => ['draft' => 'waiting', 'awaiting_approval' => 'review', 'posted' => 'done', 'reversed' => 'off', 'cancelled' => 'off'],
         'POLICY' => ['legacy' => 'off', 'strict' => 'done', 'backorder' => 'info', 'stopped' => 'blocked'],
         'FIELD_STATE' => ['same' => 'done', 'differs' => 'blocked', 'conflict' => 'blocked', 'alike' => 'info', 'spelt' => 'info', 'unknown' => 'off', 'missing' => 'off'],
         'CARD_STATE' => ['none' => 'off', 'unconfirmed' => 'needs', 'changed' => 'needs', 'confirmed' => 'done', 'warned' => 'needs', 'blocked' => 'blocked'],
-        'RECEIPT_STATE' => ['draft' => 'needs', 'awaiting_approval' => 'waiting', 'posted' => 'done', 'reversed' => 'off', 'cancelled' => 'off'],
+        'RECEIPT_STATE' => ['draft' => 'needs', 'awaiting_approval' => 'review', 'posted' => 'done', 'reversed' => 'off', 'cancelled' => 'off'],
         'BENCH_STATE' => ['todo' => 'needs', 'part' => 'needs', 'done' => 'done', 'refused' => 'blocked'],
         'INCIDENT_STATE' => ['open' => 'needs', 'resolved' => 'done', 'dismissed' => 'off'],
         'MODE' => ['off' => 'off', 'shadow' => 'waiting', 'live' => 'done'],
+        // The lists of matches as v4 colours them: strong green, likely orange, new product blue, not sure purple, clues disagree red.
+        'BAND' => ['Key' => 'done', 'Check' => 'needs', 'New item' => 'info', 'Can\'t tell' => 'review', 'Conflict' => 'blocked', 'Manual' => 'off'],
     ];
 
     // ==================================================================================================================

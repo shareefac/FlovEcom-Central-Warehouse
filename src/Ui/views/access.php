@@ -1,4 +1,3 @@
-<p class="crumbs"><a href="/ui/reference/settings"><?= $word('MENU', 'settings') ?></a></p>
 <h1><?= $word('PAGE_TITLE', 'access') ?></h1>
 <?= $intro('access') ?>
 <?php if ($canSeeStaff): ?>

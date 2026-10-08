@@ -114,7 +114,8 @@ final class MatchingWordsTest extends KernelUiTestCase
         }
         $text = trim((string) preg_replace('/\s+/u', ' ', (string) $xp->query('//main')->item(0)?->textContent));
         self::assertDoesNotMatchRegularExpression('/\b[a-z]+_[a-z_]+\b/', $text, "{$where}: a code on the screen (rule 2)");
-        foreach (['UTC', 'Phase I-', 'bin/', 'docs/', 'Your role', 'Your roles', 'proposal', 'Proposal', 'Key queue', 'spot-check', 'mapping lead', 'Second approval',
+        // "Second approval" is the name of the page since the owner's request of 8 Oct 2026 (U100); the explanations still say "second OK".
+        foreach (['UTC', 'Phase I-', 'bin/', 'docs/', 'Your role', 'Your roles', 'proposal', 'Proposal', 'Key queue', 'spot-check', 'mapping lead',
             'per item', 'Relabel', 'veto', 'judge', 'Sell policy', 'Identity card'] as $word) {
             self::assertStringNotContainsString($word, $text, "{$where}: \"{$word}\"");
         }

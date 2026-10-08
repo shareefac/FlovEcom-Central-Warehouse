@@ -330,6 +330,22 @@ final class UiSecurityTest extends UiTestCase
             self::assertStringNotContainsString('phpunit', $r->body, $path);
             self::assertStringNotContainsString('<?php', $r->body, $path);
         }
+        // The self-hosted fonts of design v4 (Figtree, Poppins: font-src 'self' through default-src): only the five the stylesheet
+        // loads, kept for a year (a font never changes under its name); the licence texts beside them are not served.
+        foreach (\CW\Ui\Assets::FONTS as $font) {
+            self::assertStringContainsString('url("fonts/' . $font . '")', $css->body, "{$font}: loaded by the stylesheet");
+            $r = $web->get('/ui/assets/fonts/' . $font);
+            self::assertSame(200, $r->status, $font);
+            self::assertSame('font/woff2', $r->header('content-type'), $font);
+            self::assertStringStartsWith('wOF2', $r->body, $font);
+            self::assertSame('public, max-age=31536000, immutable', $r->header('cache-control'), $font);
+            self::assertSame('nosniff', $r->header('x-content-type-options'));
+        }
+        foreach (['/ui/assets/fonts/OFL-Figtree.txt', '/ui/assets/fonts/other.woff2', '/ui/assets/fonts/', '/ui/assets/fonts/FIGTREE-LATIN-400-NORMAL.WOFF2',
+            '/ui/assets/fonts/figtree-latin-400-normal.woff2/x'] as $path) {
+            self::assertContains($web->send('GET', $path, null)->status, [400, 403, 404], $path);
+        }
+        self::assertSame(405, $web->post('/ui/assets/fonts/' . \CW\Ui\Assets::FONTS[0], [])->status);
         // Other files under public/ are not reachable by URL either.
         foreach (['/index.php', '/composer.json', '/src/Ui/Kernel.php', '/ui/index.php', '/ui/assets/../index.php', '/.env'] as $path) {
             $r = $web->send('GET', $path, null);

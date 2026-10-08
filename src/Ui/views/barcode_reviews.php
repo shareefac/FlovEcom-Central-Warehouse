@@ -3,7 +3,7 @@
 <?php if ($error !== null && $errorId === null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
-<nav class="tabs" aria-label="<?= $word('MENU', 'barcodes') ?>">
+<nav class="pills" aria-label="<?= $word('MENU', 'barcodes') ?>">
   <a href="/ui/items/barcodes"<?php if ($show === 'open'): ?> aria-current="page"<?php endif; ?>><?= $say('BARCODE', 'open', $open) ?></a>
   <a href="<?= $u('/ui/items/barcodes', ['show' => 'decided']) ?>"<?php if ($show === 'decided'): ?> aria-current="page"<?php endif; ?>><?= $word('BARCODE', 'decided') ?></a>
 </nav>

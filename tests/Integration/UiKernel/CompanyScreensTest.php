@@ -61,12 +61,12 @@ final class CompanyScreensTest extends KernelUiTestCase
             $settings->text());
         $page = $owner->get('/ui/reference/company');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['label' => 'Company details', 'href' => '/ui/reference/company'], self::nav($page)['Settings'][0]);
-        self::assertSame('Company details', trim((string) (new \DOMXPath($page->dom()))->query('//nav//a[@aria-current="page"]')->item(0)?->textContent));
+        self::assertSame(['label' => 'Company', 'href' => '/ui/reference/company', 'count' => 0, 'current' => true], self::sectionTabs($page)[0], 'Settings › Company');
+        self::assertSame('Settings', self::currentSection($page));
         self::assertStringContainsString('Not confirmed Every purchase order PDF says "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND"', $page->text());
         self::assertStringContainsString(Words::intro('company'), $page->text(), 'the page intro');
-        self::assertSame(['Settings and lists'], array_map(static fn (\DOMNode $a): string => trim((string) $a->textContent),
-            iterator_to_array((new \DOMXPath($page->dom()))->query('//p[@class="crumbs"]/a'))));
+        self::assertSame([], array_map(static fn (\DOMNode $a): string => trim((string) $a->textContent),
+            iterator_to_array((new \DOMXPath($page->dom()))->query('//p[@class="crumbs"]/a'))), 'a tab of Settings: no way back needed');
         self::assertStringContainsString('Still missing: legal name, company number, registered address, VAT number (or "not VAT registered"), purchasing e-mail, '
             . 'delivery address.', $page->text());
         self::assertFalse($page->hasForm('/ui/reference/company/confirm'), 'nothing to confirm yet');
@@ -273,10 +273,10 @@ final class CompanyScreensTest extends KernelUiTestCase
         self::assertSame(200, $queue->status, $queue->describe());
         self::assertStringContainsString('Company details changed (delivery address) Company details changed', $queue->text(), 'what changed, then why');
         self::assertContains('/ui/reference/company', $queue->hrefs());
-        self::assertSame('Waiting for me 1', self::nav($queue)['To check'][0]['label']);
+        self::assertSame(1, self::nav($queue)['Approvals']['count']);
         self::assertStringContainsString('Company details changed (delivery address)', $second->get('/ui/documents/reviews', ['type' => 'Company'])->text());
         self::assertStringNotContainsString('Company details changed (delivery address)', $second->get('/ui/documents/reviews', ['type' => 'PO'])->text());
-        self::assertStringNotContainsString('class="badge"', $owner->get('/ui/')->body, 'the owner cannot decide it: no count');
+        self::assertSame(0, array_sum(array_column(self::nav($owner->get('/ui/')), 'count')), 'the owner cannot decide it: no count');
         $page = $second->get('/ui/reference/company');
         $reject = $page->form("/ui/reference/company/reviews/{$task}/reject");
         self::assertSame(['csrf', 'note'], array_keys($reject));

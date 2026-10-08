@@ -1,4 +1,3 @@
-<p class="crumbs"><a href="/ui/reference/settings"><?= $word('MENU', 'settings') ?></a></p>
 <h1><?= $word('MENU', 'audit') ?></h1>
 <?= $intro('audit') ?>
 <?php if ($error !== null): ?>
