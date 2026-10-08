@@ -275,7 +275,9 @@ final class DemandBuilder
             $readFrom = max($c['start'], $c['end'] - self::READ_DAYS + 1);
             $q = [];
             $unsellable = [];
-            foreach (array_chunk(array_keys($variants), self::CHUNK) as $vchunk) {
+            // The variant ids as strings: a numeric one is an int as an array key, and a VARCHAR compared with an int is cast on every
+            // row, so MySQL read all of the site's sales history (600,000 rows) instead of the variants' own rows.
+            foreach (array_chunk(array_map('strval', array_keys($variants)), self::CHUNK) as $vchunk) {
                 $vin = implode(', ', array_fill(0, count($vchunk), '?'));
                 foreach ($this->db->all("SELECT external_variant_id, sale_date, units_online + units_office AS q FROM sales_history_day WHERE channel_id = ? "
                     . "AND external_variant_id IN ({$vin}) AND sale_date BETWEEN ? AND ?", [$cid, ...$vchunk, DemandMath::date($readFrom), DemandMath::date($c['end'])]) as $h) {

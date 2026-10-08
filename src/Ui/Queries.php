@@ -33,6 +33,8 @@ final class Queries
     /** Listings that still need a link decision. */
     private const OPEN_STATUS = "cl.status IN ('unmapped', 'suggested')";
     private const NO_PENDING = 'NOT EXISTS (SELECT 1 FROM match_decision pd WHERE pd.pending_listing_id = cl.id)';
+    /** For a query that reads only the units of listing_profile `lp`: read them from ix_listing_profile_units (0020), not the wide row. */
+    private const UNITS_HINT = '/*+ INDEX(lp ix_listing_profile_units) */ ';
 
     public function __construct(private readonly Db $db)
     {
@@ -102,7 +104,9 @@ final class Queries
         $linked = "cl.status IN ('mapped', 'quarantined')";
         $out = [];
         foreach ($this->db->all(
-            'SELECT cl.channel_id, COUNT(*) AS listings, SUM(' . $linked . ') AS linked_listings, '
+            // The units from the narrow index (0020): the optimizer would read every profile row (its JSON) by the primary key. A hint
+            // naming an index that is not there yet is ignored (a warning), so this runs before the migration too.
+            'SELECT ' . self::UNITS_HINT . 'cl.channel_id, COUNT(*) AS listings, SUM(' . $linked . ') AS linked_listings, '
             . 'COALESCE(SUM(lp.units_30d), 0) AS u30, COALESCE(SUM(IF(' . $linked . ', lp.units_30d, 0)), 0) AS l30, '
             . "COALESCE(SUM(IF(cl.status = 'ignored', lp.units_30d, 0)), 0) AS i30, "
             . 'COALESCE(SUM(lp.units_365d), 0) AS u365, COALESCE(SUM(IF(' . $linked . ', lp.units_365d, 0)), 0) AS l365, '
@@ -122,17 +126,30 @@ final class Queries
     public function queue(string $band, ?int $channelId, string $q, ?string $lane, int $min30, int $page): array
     {
         [$where, $params] = $this->queueWhere($band, $channelId, $q, $lane, $min30);
-        $from = 'FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id JOIN channel ch ON ch.id = cl.channel_id '
-            . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN sku s ON s.id = p.proposed_sku_id WHERE ' . $where;
-        $total = (int) $this->db->value('SELECT COUNT(*) ' . $from, $params);
+        // The count joins the profile only when a filter reads it: the site (an inner join on a foreign key), the profile and the
+        // item (left joins on a primary key) never change how many rows there are, and the profile's rows are wide (their JSON).
+        $profile = $min30 > 0 || trim($q) !== '' ? 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id ' : '';
+        $total = (int) $this->db->value('SELECT ' . ($profile !== '' && trim($q) === '' ? self::UNITS_HINT : '')
+            . 'COUNT(*) FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id ' . $profile
+            . 'WHERE ' . $where, $params);
         $pages = max(1, (int) ceil($total / self::PER_PAGE));
         $page = min(max(1, $page), $pages);
-        $rows = $this->db->all(
+        // The page's 50 in queue order first, on narrow index columns only (the units come from ix_listing_profile_units, 0020),
+        // then their columns: the sort no longer carries every candidate's titles, flags and item.
+        $ids = array_map('intval', $this->db->column(
+            'SELECT ' . (trim($q) === '' ? self::UNITS_HINT : '') . 'p.id FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id '
+            . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
+            . 'WHERE ' . $where . self::ORDER . ' LIMIT ? OFFSET ?',
+            [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE],
+        ));
+        $rows = $ids === [] ? [] : $this->db->all(
             'SELECT p.id AS proposal_id, p.listing_id, p.band, p.lane, p.ai_outcome, p.ai_confidence, p.ai_units_per_item, p.proposed_sku_id, '
             . 'p.proposed_new_item, p.flags, cl.channel_id, ch.code AS channel_code, cl.external_variant_id, cl.status, '
             . 'lp.product_title, lp.variant_title, lp.brand, lp.units_30d, lp.units_365d, s.code AS sku_code, s.name AS sku_name '
-            . $from . self::ORDER . ' LIMIT ? OFFSET ?',
-            [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE],
+            . 'FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id JOIN channel ch ON ch.id = cl.channel_id '
+            . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN sku s ON s.id = p.proposed_sku_id WHERE ' . $where
+            . ' AND p.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')' . self::ORDER,
+            [...$params, ...$ids],
         );
         return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages];
     }
@@ -150,15 +167,16 @@ final class Queries
             ?? ['u30' => 0, 'u365' => 0];
         $u30 = (int) $cur['u30'];
         $u365 = (int) $cur['u365'];
+        $hint = trim($q) === '' ? self::UNITS_HINT : ''; // a text filter reads the titles: the wide row anyway
         $after = $this->db->value(
-            'SELECT cl.id ' . $from . $where . ' AND (COALESCE(lp.units_365d, 0) < ? OR (COALESCE(lp.units_365d, 0) = ? AND (COALESCE(lp.units_30d, 0) < ? '
+            'SELECT ' . $hint . 'cl.id ' . $from . $where . ' AND (COALESCE(lp.units_365d, 0) < ? OR (COALESCE(lp.units_365d, 0) = ? AND (COALESCE(lp.units_30d, 0) < ? '
             . 'OR (COALESCE(lp.units_30d, 0) = ? AND cl.id > ?))))' . $order,
             [...$params, $u365, $u365, $u30, $u30, $currentId],
         );
         if ($after !== null) {
             return (int) $after;
         }
-        $first = $this->db->value('SELECT cl.id ' . $from . $where . ' AND cl.id <> ?' . $order, [...$params, $currentId]);
+        $first = $this->db->value('SELECT ' . $hint . 'cl.id ' . $from . $where . ' AND cl.id <> ?' . $order, [...$params, $currentId]);
         return $first === null ? null : (int) $first;
     }
 
@@ -490,9 +508,11 @@ final class Queries
     {
         return $this->db->all(
             'SELECT cl.id, cl.channel_id, ch.code AS channel_code, cl.external_variant_id, cl.sku_id, cl.units_per_item, cl.status, cl.map_version, '
-            . 'lp.product_title, lp.variant_title, lp.units_30d, lp.units_365d FROM channel_listing cl JOIN channel ch ON ch.id = cl.channel_id '
-            . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
-            . 'WHERE cl.sku_id = ? OR cl.id IN (SELECT h.listing_id FROM listing_map_history h WHERE h.sku_id = ?) '
+            . 'lp.product_title, lp.variant_title, lp.units_30d, lp.units_365d '
+            // One set of ids from two index lookups (the link now, the link periods; UNION: each once): "WHERE cl.sku_id = ? OR cl.id IN
+            // (...)" made MySQL read every listing of every site.
+            . 'FROM (SELECT l.id FROM channel_listing l WHERE l.sku_id = ? UNION SELECT h.listing_id FROM listing_map_history h WHERE h.sku_id = ?) ids '
+            . 'JOIN channel_listing cl ON cl.id = ids.id JOIN channel ch ON ch.id = cl.channel_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
             . 'ORDER BY (cl.sku_id = ?) DESC, ch.code, cl.id LIMIT ?',
             [$skuId, $skuId, $skuId, $limit],
         );

@@ -461,7 +461,7 @@ final class DuplicatesController
 
     private function nextId(Duplicates $dup, int $current): ?int
     {
-        $ids = array_map(static fn (array $g): int => $g['id'], $dup->openGroups(false));
+        $ids = $dup->openGroupIds(); // the order of openGroups(), from the units alone
         $at = array_search($current, $ids, true);
         if ($at !== false && isset($ids[$at + 1])) {
             return $ids[$at + 1];

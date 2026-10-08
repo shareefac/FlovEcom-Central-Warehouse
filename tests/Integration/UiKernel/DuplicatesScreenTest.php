@@ -106,6 +106,9 @@ final class DuplicatesScreenTest extends KernelUiTestCase
         $rows = (new \DOMXPath($list->dom()))->query('//table[contains(@class, "dups")]/tbody/tr/th/a');
         self::assertSame(['/ui/review/duplicates/' . $x['pb'], '/ui/review/duplicates/' . $pd], [$rows->item(0)?->getAttribute('href'), $rows->item(1)?->getAttribute('href')],
             'the biggest sellers first (365 days)');
+        $dup = new \CW\Ui\Duplicates(self::$db);
+        self::assertSame([$x['pb'], $pd], $dup->openGroupIds(), 'the next group comes from the units alone, in the same order');
+        self::assertSame(array_map(static fn (array $g): int => $g['id'], $dup->openGroups(false)), $dup->openGroupIds());
         self::assertStringContainsString('Vaporesso Xros Corex Replacement Pods', (string) $rows->item(0)?->textContent, 'the suggested keeper: more sold, a barcode');
         // What the rules say (M44): nothing against the Corex pair, a different strength (and more) for the Elfliq pair.
         self::assertStringContainsString(Words::DUPS['no_reason'], $list->text());

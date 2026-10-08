@@ -145,14 +145,22 @@ final class KeySample
     public static function draw(array $byStratum, int $size, int $seed): array
     {
         $alloc = self::allocate(array_map('count', $byStratum), $size);
+        // Each id's rank once (not two hashes per comparison: 1,371 ids took 30 ms on every page that shows a spot check); the
+        // comparisons give the same order.
+        $rank = [];
+        foreach ($byStratum as $ids) {
+            foreach ($ids as $pid) {
+                $rank[$pid] ??= self::rank($seed, $pid);
+            }
+        }
         $chosen = [];
         foreach ($byStratum as $stratum => $ids) {
-            usort($ids, static fn (int $a, int $b): int => self::rank($seed, $a) <=> self::rank($seed, $b));
+            usort($ids, static fn (int $a, int $b): int => $rank[$a] <=> $rank[$b]);
             foreach (array_slice($ids, 0, $alloc[$stratum]) as $pid) {
                 $chosen[] = $pid;
             }
         }
-        usort($chosen, static fn (int $a, int $b): int => self::rank($seed, $a) <=> self::rank($seed, $b));
+        usort($chosen, static fn (int $a, int $b): int => $rank[$a] <=> $rank[$b]);
         return $chosen;
     }
 

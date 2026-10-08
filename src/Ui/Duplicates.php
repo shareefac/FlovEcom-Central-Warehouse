@@ -110,8 +110,7 @@ final class Duplicates
      */
     public function openGroups(bool $withRules = true): array
     {
-        $open = $this->db->all('SELECT p.id, p.match_run_id, p.listing_id, p.proposed_sku_id, p.evidence, p.lane FROM match_proposal p '
-            . "WHERE p.status = 'open' AND " . DecisionService::duplicateLaneSql('p.lane') . ' ORDER BY p.id');
+        $open = $this->openLaneRows();
         if ($open === []) {
             return [];
         }
@@ -158,12 +157,76 @@ final class Duplicates
         return $out;
     }
 
+    /**
+     * The open groups' ids in openGroups() order (most units sold in 365 days, then 30 days, then id), from the units alone: what "the
+     * next group" needs after a decision, without reading every page's profile JSON, item, stock and the rules. Same groups, same
+     * units (the sales history, else the profile) and the same order as openGroups(false).
+     *
+     * @return list<int>
+     */
+    public function openGroupIds(): array
+    {
+        $open = $this->openLaneRows();
+        if ($open === []) {
+            return [];
+        }
+        $keys = [];
+        foreach ($open as $p) {
+            $keys[self::groupKey($p)] = true;
+        }
+        $groups = $this->groupsByKey(array_keys($keys));
+        $all = [];
+        foreach ($groups as $g) {
+            array_push($all, ...$g['listings']);
+        }
+        $units = $this->unitsOf(array_values(array_unique($all)));
+        $out = [];
+        foreach ($groups as $g) {
+            $ls = array_values(array_filter(array_map(static fn (int $id): ?array => $units[$id] ?? null, $g['listings'])));
+            if ($ls === []) {
+                continue;
+            }
+            $out[] = ['id' => (int) $g['id'], 'units_30d' => array_sum(array_column($ls, 0)), 'units_365d' => array_sum(array_column($ls, 1))];
+        }
+        usort($out, static fn (array $a, array $b): int => [$b['units_365d'], $b['units_30d'], $a['id']] <=> [$a['units_365d'], $a['units_30d'], $b['id']]);
+        return array_map(static fn (array $g): int => $g['id'], $out);
+    }
+
+    /**
+     * Units sold of some listings as listings() counts them (the sales history to the site's last day loaded, else the profile), from
+     * narrow columns only.
+     *
+     * @param list<int> $ids
+     * @return array<int, array{0: int, 1: int}> listing id => [30 days, 365 days]
+     */
+    private function unitsOf(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $rows = [];
+        foreach ($this->db->all('SELECT cl.id, cl.channel_id, cl.external_variant_id, lp.units_30d, lp.units_365d FROM channel_listing cl '
+            . 'JOIN channel ch ON ch.id = cl.channel_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE cl.id IN ('
+            . implode(',', array_fill(0, count($ids), '?')) . ')', $ids) as $r) {
+            $rows[(int) $r['id']] = $r;
+        }
+        $hist = $this->soldFromHistory($rows);
+        $out = [];
+        foreach ($rows as $id => $r) {
+            $out[$id] = isset($hist[$id]) ? [$hist[$id]['u30'], $hist[$id]['u365']] : [(int) ($r['units_30d'] ?? 0), (int) ($r['units_365d'] ?? 0)];
+        }
+        return $out;
+    }
+
     /** How many groups are open (the menu's badge). */
     public function openCount(): int
     {
-        return (int) $this->db->value(
+        // The open suggestions' ids from the lane index first (0020), then only their evidence: the badge is on every page of a lead.
+        $ids = $this->laneIds(true);
+        return $ids === [] ? 0 : (int) $this->db->value(
             "SELECT COUNT(DISTINCT p.match_run_id, COALESCE(CAST(JSON_EXTRACT(p.evidence, '$.group') AS CHAR), CONCAT('p', p.id))) FROM match_proposal p "
-            . "WHERE p.status = 'open' AND " . DecisionService::duplicateLaneSql('p.lane'),
+            . 'WHERE p.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ") AND p.status = 'open' AND " . DecisionService::duplicateLaneSql('p.lane'),
+            $ids,
         );
     }
 
@@ -411,7 +474,9 @@ final class Duplicates
     {
         $keys = [];
         $open = [];
-        foreach ($this->db->all('SELECT p.id, p.match_run_id, p.evidence, p.status FROM match_proposal p WHERE ' . DecisionService::duplicateLaneSql('p.lane')) as $p) {
+        $ids = $this->laneIds();
+        foreach ($ids === [] ? [] : $this->db->all('SELECT p.id, p.match_run_id, p.evidence, p.status FROM match_proposal p WHERE p.id IN ('
+            . implode(',', array_fill(0, count($ids), '?')) . ')', $ids) as $p) {
             $k = self::groupKey($p);
             $keys[$k] = true;
             if ($p['status'] === 'open') {
@@ -491,14 +556,18 @@ final class Duplicates
             . DecisionService::duplicateLaneSql('p.lane'), $listingIds) as $p) {
             $props[(int) $p['id']] = $p;
         }
-        foreach ($ls as $l) {
+        // The merge suggestions only (their ids from the lane index, 0020): the JSON tests below then read their evidence, not every
+        // proposal's.
+        $lane = $ls === [] ? [] : $this->laneIds();
+        $laneIn = implode(',', array_fill(0, count($lane), '?'));
+        foreach ($lane === [] ? [] : $ls as $l) {
             $v = (string) $l['external_variant_id'];
             $json = ctype_digit($v) && strlen($v) < 16 ? [$v, json_encode($v)] : [json_encode($v), json_encode($v)];
             foreach ($this->db->all('SELECT p.id, p.match_run_id, p.listing_id, p.evidence FROM match_proposal p JOIN channel_listing pl ON pl.id = p.listing_id '
-                . 'WHERE pl.channel_id = ? AND ' . DecisionService::duplicateLaneSql('p.lane') . " AND (JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.keeper.vpg_variant_id')) = ? "
+                . "WHERE p.id IN ({$laneIn}) AND pl.channel_id = ? AND " . DecisionService::duplicateLaneSql('p.lane') . " AND (JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.keeper.vpg_variant_id')) = ? "
                 . "OR JSON_CONTAINS(JSON_EXTRACT(p.evidence, '$.members[*].vpg_variant_id'), CAST(? AS JSON)) "
                 . "OR JSON_CONTAINS(JSON_EXTRACT(p.evidence, '$.members[*].vpg_variant_id'), CAST(? AS JSON))) LIMIT 50",
-                [(int) $l['channel_id'], $v, $json[0], $json[1]]) as $p) {
+                [...$lane, (int) $l['channel_id'], $v, $json[0], $json[1]]) as $p) {
                 $props[(int) $p['id']] = $p;
             }
         }
@@ -872,6 +941,34 @@ final class Duplicates
     {
         $g = Html::json($p['evidence'])['group'] ?? null;
         return is_int($g) || (is_string($g) && $g !== '') ? (int) $p['match_run_id'] . ':' . $g : 'p' . (int) $p['id'];
+    }
+
+    /**
+     * The ids of the merge suggestions (the open ones, or all), in id order: read from the narrow index on (status, lane) (0020) instead
+     * of every proposal row with its evidence. (Sorted here: an ORDER BY id made MySQL walk the primary key, i.e. every row.)
+     *
+     * @return list<int>
+     */
+    private function laneIds(bool $openOnly = false): array
+    {
+        $ids = array_map('intval', $this->db->column('SELECT p.id FROM match_proposal p WHERE ' . ($openOnly ? "p.status = 'open' AND " : '')
+            . DecisionService::duplicateLaneSql('p.lane')));
+        sort($ids);
+        return $ids;
+    }
+
+    /**
+     * The open merge suggestions (id, run, listing, proposed item, evidence, lane) in id order: their ids from the lane index, then their
+     * rows by primary key (the status and lane tested again on the rows).
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function openLaneRows(): array
+    {
+        $ids = $this->laneIds(true);
+        return $ids === [] ? [] : $this->db->all('SELECT p.id, p.match_run_id, p.listing_id, p.proposed_sku_id, p.evidence, p.lane FROM match_proposal p '
+            . 'WHERE p.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ") AND p.status = 'open' AND " . DecisionService::duplicateLaneSql('p.lane')
+            . ' ORDER BY p.id', $ids);
     }
 
     /** @param list<int> $ids @return list<int> the listings with a decision waiting for a second person */
