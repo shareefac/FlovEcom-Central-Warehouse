@@ -241,7 +241,7 @@ abstract class UiTestCase extends MappingTestCase
         self::assertSame(1, $scripts->length, "{$what}: one script element only");
         $script = $scripts->item(0);
         self::assertInstanceOf(\DOMElement::class, $script);
-        self::assertSame('/ui/assets/app.js', $script->getAttribute('src'), $what);
+        self::assertMatchesRegularExpression('#\A/ui/assets/app\.js\?v=[0-9a-f]{16}\z#', $script->getAttribute('src'), "{$what}: the one versioned asset");
         self::assertSame('', trim($script->textContent), "{$what}: no inline script");
         foreach (['img', 'iframe', 'frame', 'object', 'embed', 'svg', 'style', 'base', 'audio', 'video', 'source', 'math', 'applet'] as $tag) {
             self::assertSame(0, $dom->getElementsByTagName($tag)->length, "{$what}: <{$tag}> element");

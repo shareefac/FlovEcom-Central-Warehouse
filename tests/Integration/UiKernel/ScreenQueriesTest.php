@@ -97,8 +97,10 @@ final class ScreenQueriesTest extends KernelUiTestCase
         $lead = $this->staffUser('mapping_lead');
         $d = self::$db->insert("INSERT INTO match_decision (listing_id, action, sku_id, units_per_item, decided_by, actor, state, expected_map_version, applied_at) "
             . "VALUES (?, 'link', ?, 1, ?, ?, 'applied', 0, NOW(6))", [$former, $sku, $lead->staffUserId, $lead->actor]);
-        self::$db->exec('INSERT INTO listing_map_history (listing_id, sku_id, units_per_item, valid_from, valid_to, decision_id) VALUES (?, ?, 1, NOW(6) - INTERVAL 2 DAY, NOW(6) - INTERVAL 1 DAY, ?)',
-            [$former, $sku, $d]);
+        $moved = self::$db->insert("INSERT INTO match_decision (listing_id, action, sku_id, units_per_item, decided_by, actor, state, expected_map_version, applied_at) "
+            . "VALUES (?, 'link', ?, 1, ?, ?, 'applied', 1, NOW(6))", [$former, $other, $lead->staffUserId, $lead->actor]);
+        self::$db->exec('INSERT INTO listing_map_history (listing_id, sku_id, units_per_item, valid_from, valid_to, decision_id, closed_by_decision_id) '
+            . 'VALUES (?, ?, 1, NOW(6) - INTERVAL 2 DAY, NOW(6) - INTERVAL 1 DAY, ?, ?)', [$former, $sku, $d, $moved]);
         $old = self::$db->all(
             'SELECT cl.id, cl.channel_id, ch.code AS channel_code, cl.external_variant_id, cl.sku_id, cl.units_per_item, cl.status, cl.map_version, '
             . 'lp.product_title, lp.variant_title, lp.units_30d, lp.units_365d FROM channel_listing cl JOIN channel ch ON ch.id = cl.channel_id '
