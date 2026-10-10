@@ -7451,3 +7451,318 @@ that adds a value must restate every value the column has by then (`'review','st
 the whole list); an applied migration is never edited. Both builds add a list context to `BulkDecisions` (`SOURCES`, the action list
 of a context, `offered()`) and skip codes to `SKIPS`; this build moved the request checks of `run()` into `checked()`, where the
 bound on a row's numbers (M56) now is; the decision numbers of the two sections may collide (both start after M54 / U122).
+
+## Products › New Variants: a store's new variants, and the "seed" on every store (slot `newvar`, 10 Oct 2026)
+
+The owner's request of 10 Oct 2026: "new item add in any store how to here show also seed option any new each site with". That is: when a
+variant is added on any store, show it in CW; and offer the "seed" (make the warehouse item from the variant, as was done once for the
+main store's whole list) for a new variant of EVERY store. The facts that day, from the handoff of 10 Oct (this build read nothing
+on cw_staging): every store is `off`, no store sends variants, each store's list on staging was loaded by the engineer between 26
+Sep and 10 Oct, and a variant that arrives has no suggestion.
+Code: `migrations/0026_new_variants.sql`, `src/Ui/Controller/NewVariantsController.php` and the view `new_variants` (new),
+`src/Ui/Queries.php` (the New Variants reads), `src/Mapping/BulkDecisions.php` (the list `new`, the seed's skips, the checks of what
+was posted), `src/Matching/Gtin.php` (`forms()`), `src/Mapping/DecisionService.php` (one check of the note's text, M60),
+`src/Ui/Controller/{Bulk,Review}Controller.php`, the view `bulk_result`, `src/Ui/{Kernel,Sections,Words}.php`, `src/Settings.php`.
+Tests: `tests/Integration/UiKernel/NewVariantsScreenTest.php` (new), `tests/Integration/Mapping/BulkDecisionsTest.php`,
+`tests/Integration/UiKernel/BulkScreensTest.php`, `tests/Unit/GtinTest.php`; the pinned navigation, templates, words and routes in
+`SectionsTest`, `UiTemplatesTest`, `WordsTest`, `UiUnitTest`, `MenusTest`, `HomeScreenTest`, `DuplicatesScreenTest`,
+`ByProductScreenTest`; the HTTP tests `UiSecurityTest` and `UiReviewFlowTest` (slot `ui`). The page uses the owner's words of U122: a
+store's sellable option is a VARIANT, the warehouse record it is matched to an ITEM.
+This section was written beside By Item's bulk action (the section above), which was merged first and holds M55-M59 and U123-U130:
+the points here are M60-M62 and U131-U138, and the migration is 0026 after its 0025. Where the two builds met in the code: both
+add a list to `BulkDecisions` (`SOURCES` is now review, store, item, new; `actionsOf()` names each list's actions; `offered()`)
+and skip codes to `SKIPS` (By Item's three, then the nine of a bulk "create as new": each has its words in `BULK_SKIP` and, because
+By Item's words are pinned to hold every reason, in `BY_ITEM_SKIP` too); the checks of the whole request are By Item's `checked()`,
+for `run()` and its `preview()` alike, and this build's two (a New Variants request names its store; the note is text) sit there;
+the batch page takes its words from By Item's `$words`, with New Variants' action and list in them.
+
+The first version of the same day seeded any ticked variant that had no suggestion, on a barcode check alone. An independent review
+(eight findings, each confirmed by a second reviewer) showed what that makes: items from page headings, drafts and binned pages
+(their state WAS stored), a second item for a variant whose name an item already has, and a second item for a variant whose seed had
+been undone. The owner's rule is "skip anything doubtful, finish the rest, show the skipped at the end", and a duplicate item splits one
+product's stock over two records and is never deleted. So the rule of M61 replaced it before anything was merged; the eight findings
+and what answers each are named where they belong below. A second independent check of that second version (the same day) found
+the rule still trusted an open "new" suggestion for as long as it stayed open: round 2b added the guards that look at what
+happened after the check (an item made from the variant, a name taken since, a change on the website), made them the rule of every
+bulk "create as new", and corrected the words that promised more than the check does (M61, U133, U135, U138).
+
+**M60. No new way to decide: the seed is BulkDecisions' `new_item`.** New Variants only reads (two GET routes; `UiUnitTest` pins that no
+POST route starts with `/ui/review/new-variants`). Its tick boxes post to the EXISTING bulk route (`POST /ui/review/bulk`,
+`mapping.decide`) with `source=new`, and `BulkDecisions::run` does what it does for the other lists: one `DecisionService::decide`
+per ticked row, in listing order, each in its own transaction, with the version and the suggestion the page showed, a batch
+(`mapping_batch`, `screen:<id>` on every decision) and the result page (M47, M52). So the roles (M49: whoever may decide one may tick
+many), the two-person rules (M50: units per sale, a protected item, the owner's switch `approvals.mapping_bulk_second_ok`, which makes a
+new item wait for a second matching lead: nothing is made until then) and the most rows at a time (`mapping.bulk_max_rows`) are the
+existing ones. What `BulkDecisions` gained: (1) the list `new` (`SOURCES`) with its actions `NEW_ACTIONS` = create as new items,
+confirm match, ignore (`actionsOf()`, `offered()`); (2) the seed's own skips (`seedCheck()`, M61): it never makes an item the existing
+new-product check would not make, it only skips more; (3) a request of this list that names no store, or a code that is none, is
+refused whole (400, nothing written): the list is one store's. `mapping_batch.source` gains the value `new` (0026), so the result page
+says where the rows were ticked and leads back there.
+Two checks of what was posted, for every list of the route (found in review; both were there before this list and ended on the error
+page): a ticked listing number or version above 4,294,967,295 (no listing and no version has one; recorded as a skipped row it did
+not fit its column, after the rows before it had already been decided) is refused whole with the existing 400 `bad_form`
+(`BulkController`), and `BulkDecisions` refuses the same before anything is written (400 `bad_request`: ONE bound, in `checked()`,
+which By Item's build brought with its M56; both builds had found it); a note that is not valid UTF-8 text is refused there too,
+before the batch is written and before a preview is drawn (400 `bad_reason`; Ignore's second step is shown again with "The note has
+characters this system cannot read"). And the route itself reads the list a form names as one of review, store or new: By Item's
+`item` is in `BulkDecisions::SOURCES` but is NOT taken at `POST /ui/review/bulk` (its bulk action has its own route, with the
+preview first), so a form that names it there is read as a match-strength list's and refused as one (`NewVariantsScreenTest` pins
+it). `DecisionService::reason` has the same check of the note for the one-at-a-time path: that is a
+check of what was typed (the database refused the row anyway, as an error page), not a rule of matching; no decision, role or
+two-person rule of `DecisionService` changed.
+
+**M61. What a bulk "create as new" takes, and what it skips: one rule for every list.** New Variants' "Create as new items" and
+the New products list's "Create as new product" are the same check (`BulkDecisions::seedCheck()` and `nameChecks()`; Store Products
+offers no such action). It takes ONLY a variant with an OPEN suggestion that says "new product" (band `New item` and
+`proposed_new_item`, the two marks the existing new-product check asked for). What that suggestion says, exactly: when the computer
+check ran, it compared the variant with the MAIN STORE's list of variants (`tools/first_match`: two export files, no database) and
+found nothing like it. It does not say "nothing like it in the warehouse now". The check never sees an item made since by "create as
+new" from another store's variant, nor the item made from this very variant, nor the other rows ticked with it; and it speaks of the
+variant as it was that day. (The second version of this paragraph, the screen and the tests said "checked against the warehouse's
+items": wrong, found by the second independent check on 10 Oct, which confirmed five gaps. The guards numbered 1, 4, 6, 7, 9 and 10
+below close them; nothing had been merged.) A done row: a new item (a `sku` row, its CW number, origin `new_item` and the variant
+as `origin_listing_id`) made by `DecisionService` from the variant's own profile (`cardFrom`: the name is the variant's own title, else
+its product's; the brand; the details the matching features hold), and the variant matched to it, with the suggested units per sale.
+Skipped, each with its reason on the result page, nothing changed on it, in this order (the first that applies is the one recorded):
+1. an item was ALREADY MADE from this variant (`made_before`, with that item's CW number: "An item was already made from this
+   variant (CW-…): open it and decide."): `sku.origin_listing_id`, whatever became of the match since (undone, the item joined into
+   another) and whatever suggestion is open now. One read over the ticked ids on the index of 0004 (`BulkDecisions::madeFrom`). It
+   is the first check because a later computer check says "new" again of a variant whose own item it cannot see: a seed that was
+   undone would be made a second time after the next check (in either order: the check imported after the undo, or while the
+   variant was still matched);
+2. New Variants only: its open suggestion is a MATCH to an item, of any strength (`suggested_match`: "The computer suggests it is
+   CW-…: open it and decide."; the detail keeps the item's CW number);
+3. a page heading of the website (`page_heading`: the stored features' `is_placeholder`: a landing row, or a parent row that only
+   holds its options): "It is a page heading on the website, not something that is sold.";
+4. its state on the website is known and is not Published (`not_published`, with that state: Draft, Bin, …): "It is not published
+   on the website (Bin).". The state is the stored features' `variant_status`; when they give none, the `variant_status` the open
+   suggestion recorded when the computer checked it (its evidence, decoded in PHP; `BulkDecisions::siteState`). The features are
+   stored when a store's list is loaded together with a computer check (`bin/mint_vpg.php`, `bin/import_proposals.php`), and they
+   are WIPED when the variant's titles, brand, attributes or barcodes change (`ListingIngestService`): before the fallback, a binned
+   variant that was renamed read as "state not known" and was seeded. Known from neither: says nothing and skips nothing;
+5. NO open suggestion, whatever came before (never looked at, sent back for matching, a suggestion marked wrong and then sent
+   back): `not_checked` on New Variants ("The computer has not checked this variant yet. Open it and decide."), `no_suggestion` on
+   the New products list (as before). "No suggestion" never meant "new": it means nobody compared it with anything;
+6. an open suggestion that is neither "new" nor a match to an item (Not sure, Clues disagree, a renamed range with no item):
+   `not_new` on New Variants, with its strength in words ("The computer could not say what it is (Not sure – you choose): open it
+   and decide."; before, such a row ticked for Create was explained with the confirm action's sentence "…not one that may be
+   confirmed together", which names a setting that cannot change the outcome); `band_not_allowed` on the New products list (as
+   before: that list holds one strength);
+7. it CHANGED on the website after the computer checked it (`changed_since_check`: "It changed on the website after the computer
+   checked it: open it and decide."): the suggestion has a record of what it was made on (`match_proposal_basis`, M27, read by its
+   primary key) and the identity recorded there (titles, brand, attributes, barcodes: the profile's `identity_hash`) is not the
+   variant's identity now (`BulkDecisions::changedSinceCheck`). The suggestion stays open through such a change (only the
+   variant's version moves on), so without this a variant renamed to anything was seeded on the check of its old name. A
+   suggestion with NO such record (made before 0012 and never proved unchanged) skips nothing here;
+8. its barcode is on an item or on another variant of any store (`barcode_elsewhere`, the existing rule of M51, with the wider
+   look-up below);
+9. the name its item would get is the name of an item that is not joined into another (`name_elsewhere`, with that item's CW
+   number: "An item with the same name is already in the warehouse (CW-…): open it and decide."). The name is the one `cardFrom`
+   gives (the same trim and collapse of white space `mint()` stores); it is compared as the item table compares names (letter
+   case and accents do not tell two names apart), one look-up per name on the index `sku (name)` of 0026, 50 names a statement
+   (`namesTaken`). This is what stops the second of two stores' variants of one thing when they share no barcode, and a variant
+   whose name an item made since already has;
+10. two or more of the request's rows that would otherwise be made have the same name, compared without letter case
+    (`name_twice`, every row of the group: "Another row you ticked has the same name, so the two may be one item: open each and
+    decide."). Ticked one at a time, the first is made and the second then finds its name (`name_elsewhere`);
+- and, as before: a matched one (`linked`), one with a decision waiting for a second OK (`pending_second`), an ignored one
+  (`not_waiting`, with its state), one that changed since the page was drawn (`changed`, `suggestion_changed`), one of another store
+  than the page's (`other_store`), one held back or in a spot check (`held`, `in_spot_check`), one with no name at all (`no_name`),
+  and any refusal of `DecisionService` (by its code).
+A skipped variant is not lost: "Open" leads to its own page, where a person who sees its details may still match it by hand or
+create its one item (also one the computer never checked, one of a name there is, one an item was made from before:
+`DecisionService` is unchanged, and the tests pin that each of these can still be made there). An item made by mistake is not deleted
+(the owner's rule): the match is undone on the variant's page (M53) and the item stays, unmatched; no bulk action makes a second
+item from that variant afterwards (1).
+**One rule for every list (decided at the second check, 10 Oct; it reverses "the existing lists keep their rules" for these
+guards).** Until round 2b the New products list made its ticked rows whatever the stored features said, and the guards above were
+New Variants' own. The same hazards live on that list (a duplicate item, an item for a page heading), so a bulk "Create as new
+product" there now skips `made_before`, `page_heading`, `not_published` (with the fallback of 4), `changed_since_check`,
+`name_elsewhere` and `name_twice` as well. What counts as a suggestion to make on that list is exactly as it was (`no_suggestion`,
+`band_not_allowed`); `not_checked`, `suggested_match` and `not_new` stay New Variants' own. The tests that pinned the old behaviour
+were changed with it (`BulkDecisionsTest`: the draft on the New products list is now skipped). The single-variant page is untouched.
+**What the name guard does not do.** It finds exact names only (white space, letter case and, against an existing item, accents
+apart): two stores that title one thing differently still both seed, and two ticked rows that differ only by an accent are not a
+pair to `name_twice`. A new item that waits for a second OK (the owner's switch) is not an item yet, so a same-named row seeded
+meanwhile is not caught: the second person sees each one. And the item's name is the variant's OWN title when it has one: on a store
+whose variants are titled with the option only ("Blue Razz / 20mg") many rows will share a name with an item and be skipped
+(`name_elsewhere`); they are then made one at a time on their own pages, where the person types a name.
+**The barcode rule's look-up (for every list, and for the variant page's "also on" list):** `Gtin::forms()`: each barcode as it is
+stored, its key (leading zeros gone) and that key padded with zeros to every length up to 14 digits, so "5056168800073" finds a record
+that holds "05056168800073" and two different paddings of one code find each other (before: only the ticked variant's own two forms,
+so a clash was missed in one direction, and in both for two paddings). Every barcode of the variant is looked up (before: the first
+20), 200 forms a statement, each an exact match on an index (`sku_barcode`'s primary key; the multi-valued index of 0005). A code that
+differs by more than leading zeros (a hyphen inside) is still another code.
+
+**M62. Confirm match and Ignore… on this list are the existing actions.** Confirm match is offered while `mapping.bulk_confirm_bands`
+allows any strength and the filter is not "New" or "Not checked yet" (nothing there has a suggested match); each row is then checked
+on its own as M51 says: its strength must be one the setting allows (`band_not_allowed` otherwise), no veto, no flag, no failed spot
+check, no undone bulk link; a row without a suggestion is skipped (`no_suggestion`). Ignore… has its second step with the count and
+the note (U110): it is how a page heading or a binned page leaves the lists. "Not a match", "Take off the ignored list" and "Send
+back for matching" are not offered here (posted by hand: refused whole, 400).
+
+**U131. The tab and the list.** Products › New Variants (`/ui/review/new-variants`, `linking.view`), after By Item in
+`Sections::MAP`. One store at a time, chosen with the store selector of the matching pages (`store_seg`; the stores are the `channel`
+rows that have variants, by name, the first by default; a code that names none of them is answered 404 in words). Its variants FIRST
+SEEN in the period, newest first (`channel_listing.created_at`, then the id): the moment CW made the row, which a later push of the
+same variant never changes. Columns: Variant (the product's title, under it the variant's own title and the brand), Option number,
+Barcode (up to three, "+N more"), Price, Sold (30 days), Sold (1 year), First seen (UK time), Match (a chip that says what the row
+is, U133), "What the computer found" (why, U133) and Open (the variant's existing page: match by hand, or create one item with its
+details checked; coming back from there is not built). The selector's number beside a store is its variants first seen in the
+period, whatever they are. 50 a page with the existing pager.
+
+**U132. The period and its setting.** `mapping.new_variants_days` (a whole number, 30 by default, 1 to 365; Settings › System ›
+Settings › Matching products, changed with a reason as every setting, Y4; its baseline is in 0026): the period the page opens with.
+The page offers 7, 30 and 90 days, the setting's own number when it is another one, and "Any time". A period is counted back from now,
+to the second. The link of the default period carries no period, so a bookmark follows the setting; a value the page does not offer is
+the default.
+
+**U133. What a row is, the filter, the search, the CSV.** Each row says what it is, so a person sees before ticking which rows the
+seed takes (`Queries::NEW_KINDS`, `Words::NEW_VARIANT_STATE`): **New** ("When the computer checked it, it found nothing like it.": an
+open "new product" suggestion, M61), **Suggested match** (its strength and the item's CW number and name; or only its strength in
+words when the computer could not settle on an item: Not sure, Clues disagree), **Not checked yet** ("The computer has not checked it
+yet: open it to decide."), Matched ("Matched to CW-…" and the item's name; "On hold: shows as out of stock"), Waiting for a second
+OK (what waits), Ignored. A row still to match also says what the seed would find, from the SAME conditions the seed skips on
+(`BulkDecisions::madeFrom`, `changedSinceCheck`, `siteState`, `isPlaceholder`: the row and the skip ask the same functions, so
+they cannot disagree): "An item was already made from this variant (CW-…): open it to decide." in place of the New or Not checked
+sentence (under a suggested match: as a line below it); for a row marked New, "It changed on the website after the computer checked
+it: open it to decide." in place of "found nothing like it"; and below, what the website said (from the stored features, else from
+what the check recorded): "A page heading on the website, not something that is sold." or "Not published on the website (Bin)."
+(nothing when it is published or not known). A row marked New with one of these is a row the seed skips, and the row says why. A
+name that an item already has is NOT shown on the row (it would be a look-up per row on every page): it is found when the row is
+ticked. The filter (`Words::NEW_VARIANT_FILTER`): **All not matched** (the page opens with it: New, Suggested match and Not checked
+yet together), **New: the computer found nothing like it** (the rows the seed can take, less the ones it skips), **Suggested
+match**, **Not checked yet**, **All**, each with its count in the period; the counts are not narrowed by the search
+(as Store Products'). Search is Store Products': a text in the product's title, the variant's title or the brand, an option number
+whole, a barcode; white space of any kind around the text is dropped, and text that is not UTF-8 finds nothing. Export is a CSV of
+every variant of the store, period, filter and search (not only the page; at most 50,000), newest first, read 500 at a time:
+`store`, `option_number`, `product`, `variant`, `brand`, `barcodes`, `price`, `sold_30_days`, `sold_1_year`, `first_seen_utc`,
+`state` (what the row is), `cw_number` (the item matched, or the one suggested), `details` (the row's sentence and its lines). A
+file that was cut ends with "Only the first 50,000 variants are in this file.": decided from the read of the ids alone (one more
+than the file may hold is asked for, and the line is written when that one came back; `NewVariantsController::csvText`). The
+second version compared the ids with a count read a moment earlier, so a file that was NOT cut could end with that line while
+someone was deciding rows (found by the second check).
+
+**U134. The action bar, per person.** People who may decide (`mapping.decide`) get a tick box on every row still to match (New,
+Suggested match, Not checked yet; a matched, on-hold, waiting or ignored variant changes on its own page), "Select all on this
+page", and the existing bar (U108): "Create as new items" on every filter, "Confirm match" (M62), "Ignore…". One line beside the bar
+says what the seed takes: only the rows marked New; every other ticked row is skipped and listed afterwards with the reason (not
+checked yet, a suggested match, one the computer could not decide, a page heading, not published on the website, changed on the
+website after the check, an item already made from it, a name that an item already has or that two ticked rows share, a barcode
+that is already on an item or on another variant). The form carries the list as it was (store, period, filter, search, page), so a refusal and the second step of Ignore lead
+back to it; the result page leads back to New Variants for that store. Everyone else with `linking.view` sees the list, Open and
+the CSV, no boxes, no bar and no such line ("You can look; … change this.").
+
+**U135. Where new variants come from, in honest words.** A box on the page (`Words::NEW_VARIANTS` `where_from`): each store's
+connector sends the variants the store adds or changes to CW (`PUT /v1/listings`), and a variant shows here from the moment it first
+arrives; the first load of a store's list counts too; nothing is made up, a variant the store has not sent is not here. Then one
+sentence about THIS store, decided from what CW records and nothing else (`Queries::storeLink`, `NewVariantsController::sending()`):
+its mode in CW (`channel.mode`) and its connector's latest heartbeat (`channel_health`, by the index (channel_id, id)):
+- mode `off`: `store_off`, "<store> is Off in the warehouse system (Settings › Stores), so its connector sends nothing yet: its new
+  variants arrive only when its list of variants is loaded on the server (ask …)", whatever its connector reports;
+- switched on AND heard from within the time the Stores page calls recent (`Sites::STALE_AFTER_SEC`, 180 s) AND the website itself
+  did not report `off` (the lower of the two modes applies): `store_on`, "<store> is in contact with the warehouse system: its
+  connector sends its new and changed variants.";
+- switched on but never heard from, not heard from lately, or reporting `off`: `store_quiet`, "<store> is switched on in the warehouse
+  system, but its website is not sending now (Settings › Stores shows why): its new variants arrive only when its list of variants is
+  loaded on the server (ask …)". The first version said "sends" for every store that was not `off`, also while nothing could arrive
+  (an empty allowlist, no key, a connector that is not installed): found in review.
+And the day the store's newest variant was first seen.
+**A store the computer check has never marked a variant New on** gets one more sentence in the box (`never_new`,
+`Queries::everFoundNew`): "The computer check has not marked any variant of <store> as New so far (it may not cover this store yet),
+so "Create as new items" will skip every row here. To make an item from one of its variants, open the variant and create the item
+on its own page." Why: the only tool that writes a "new" suggestion is `bin/import_proposals.php`, for the store a check judged,
+and `tools/first_match/run.php` refuses the main store as the judged side (it is the list every other store is compared WITH). So
+no tool can mark a main-store variant New: its unmatched variants read "Not checked yet" for good, and the bulk seed has nothing to
+take there; each is created on its own page (or, on the server, by the first seed's tool for published main-store variants). The
+rule was not changed for it; the words were made true (the second version's "not checked yet … ask for a check" promised a check
+no tool performs for that store). The sentence is decided from data, not from a store's name (CW has no "main store" setting): the
+store has no suggestion of the strength New product in any state (open, decided, or replaced by a later check's). It is therefore
+also shown for a store no check was ever run for, and for one whose checks found nothing new: the words say only what the data
+says ("has not marked … so far (it may not cover this store yet)"). The read is asked only when the period on the page shows no
+row marked New (U136).
+On staging on 10 Oct 2026 every store is `off` and, by the handoff's dates,
+each store's whole list was loaded within the last 30 days: the default period then shows every variant still to match of a store
+there, until 30 days have passed since the load or the owner sets fewer days. For the main store those are, by the handoff, mostly
+pages left out of the first seed on purpose (binned, drafts, landing rows): they have no suggestion and their features say what they
+are, so they read "Not checked yet" with the website's line, the seed skips them, and Ignore… is what takes them out of the lists.
+
+**U136. Kept cheap; what 0026 adds.** Two indexes, both built online: `channel_listing (channel_id, created_at, id)` for the list
+(below) and `sku (name)` (`ix_sku_name`) for the name guard of M61. The reads round 2b added, measured the same way on the same
+slot schema (11 Oct 2026; 15,000 items of which 14,648 hold the variant they were made from, 38,040 variants, 5,164 suggestions of
+which 2,638 are open with a record of what they were made on, 2,597 of the strength New product: 371 open and 2,226 replaced by
+later checks; every statement's `EXPLAIN` is in `/root/cw_work/runs/newvar_explain_r2b.txt`): the items already made from 100
+ticked variants 2-3 ms (a range of `ix_sku_origin_listing`); the pre-check read of 100 ticked rows 15-18 ms (it now also brings
+each row's titles and features, to name the item, and the suggestion's record by its primary key; 5 ms before); the name guard
+0.7 ms for one name and 25-33 ms for 50 names in one statement (one `ref` look-up on `ix_sku_name` each; WITHOUT that index 2.2 s
+for the same 50, each name a pass over the items: the reason the index is in 0026); the page's 50 rows 4 ms and the item-made-before
+read 1 ms; the CSV's 500 rows 16 ms and 7 ms. `everFoundNew` reads the suggestions' own index of 0020 (status, strength, variant:
+never a suggestion's row) and each one's variant by its primary key, until one is the store's: 1-2 ms for a store that has one;
+for a store that has none it passes every "New product" suggestion of every store: 8-10 ms for 2,597 of them, 30-38 ms for
+13,727 (as if thirty more checks had run). That cost grows with every check that is imported and is paid on each view of New
+Variants for such a store (today: the main store); if it ever matters, the answer is a per-store mark written when a check is
+imported, not a faster read. For the list: `channel_listing (channel_id, created_at, id)` (`ix_channel_listing_seen`). No
+index served "one store, newest first, since a date": 0024's index starts with the item, `(channel_id, status)` is in id order within
+a status, `(channel_id, external_variant_id)` in the order of the website's ids. The reads (`Queries`), each named in an optimizer hint
+that is ignored while the index is not there: `seenRange` (a store's oldest and newest "first seen": the index's two ends);
+`storeLink` (the store's row and its latest heartbeat, both by primary key after the index's last entry); `seenSinceByStore` (the
+selector's counts: one range of the index per store in one statement); `newVariantCounts` (the filter's counts: when the period holds
+every variant of the store, which the oldest "first seen" says, Store Products' three narrow reads `storeStateCounts` and one read of
+the store's open "new product" suggestions by their strength's index; else one grouped read of the period's entries, with the
+waiting decision probed by its unique index and the open suggestion's row read only for a variant that has one); `newVariants` (the
+page's 50 ids: the period's entries backwards from now, stopping after the page. "All not matched" reads the narrow listing row;
+"Not checked yet" also probes the open suggestion's unique index; "New" and "Suggested match" join the open suggestion by that index
+AFTER the listing (`JOIN_ORDER`), so the list is read in the index's order whatever the tables hold; a search also reads the profile
+of each variant it passes, and counts its hits in a second pass); `newVariantRows` (the 50 rows by primary key, with the two stored
+marks of the website read out of the profile's features). Measured on the slot's test schema filled like staging (10 Oct 2026: the
+small cluster, MySQL 8.4, a 32 MB buffer pool; 15,000 items, 38,040 variants with profiles, 2,638 open suggestions of which 371 say
+"new", 3,000 heartbeats; the By Item build's generator with "first seen" added; every statement's `EXPLAIN` is in
+`/root/cw_work/runs/newvar_explain_r2.txt`). A store that sends as it goes (299 of its 29,000 variants first seen in 30 days): the
+two ends 4-5 ms; the store's link 3-5 ms; the selector's counts 12-22 ms; the filter's counts 16 ms (25-41 ms for 747 variants of
+which 205 have a suggestion); a page's ids 2-17 ms by filter and its rows 4 ms; a search in the period 13-15 ms. "Any time": the
+counts 31-59 ms (Store Products' reads and the "new" read); page 1 of All not matched 5-6 ms, its last page 126-204 ms; page 1 of
+New on a store of 9,000 with 371 of them 11 ms, its last page 70-78 ms (it walks the store's variants still to match); a search
+275-344 ms on the biggest store (it reads the profile of every variant, as Store Products' search does: the real profiles are about
+four times as wide as the test's, so expect more on staging). Staging today (each store's whole list first seen 14 days ago): the
+counts 34-50 ms, page 1 of All not matched 23-25 ms (it walks past the matched ones), of New 11 ms, of All 1-3 ms, a search 484-575
+ms. The CSV: every id of a store in 41-44 ms, of its variants still to match 130 ms, then 18 ms for each 500 rows. A bulk action:
+its pre-check read 5 ms for 100 rows; the barcode rule's two look-ups 1 and 2 ms for one barcode in its forms, 6 and 7 ms for 200
+forms. Without the index the same page 1 took 96-186 ms (every variant row of the store read, then sorted; 450-760 ms in an earlier
+run) and the two ends 83-94 ms. The plans: the list is a range or a backward scan of `ix_channel_listing_seen` and is never sorted;
+the period's count groups its rows in a small temporary table; every look-up is by primary key or a unique index, the barcode rule's
+by ranges of exact values. Times on that cluster vary from run to run by a factor of two or three, and the first of three runs is the
+cold one (up to 1.1 s for the whole-store search).
+
+**U137. Words.** Every word is in `Ui\Words`: `MENU`, `MENU_HELP` and `PAGE_INTRO` `new_variants`; the groups `NEW_VARIANTS` (the page),
+`NEW_VARIANT_STATE` (what a row is) and `NEW_VARIANT_FILTER`, `NEW_VARIANT_ACTION` (the bar: "Create as new items", "Confirm match",
+"Ignore…"), `NEW_VARIANT_DONE` (the result's count: "2 new items created and matched") and `NEW_VARIANT_PENDING` (what waits for a
+second OK); `BULK_SKIP` `suggested_match`, `not_checked`, `not_new`, `page_heading`, `not_published`, `made_before`,
+`changed_since_check`, `name_elsewhere`, `name_twice` (the last six are also what the New products list's result page says since
+round 2b, in these words); `NEW_VARIANTS` `made_before`, `changed`, `never_new`; `BULK_ERROR` and `MATCH_ERROR`
+`reason_text`; `ERROR` `unknown_variants_store`; the setting's name and help. They say variant and item, never "website product" or
+"warehouse product", and "product" not at all (`WordsTest::testNewVariantsSpeaksOfVariantsAndItemsAsTheOwnerDoes` pins it, and that
+no store is named). The batch page of a New Variants action says "What: Create as new items" and "Where: New Variants · <store>" in
+these words; its shared sentences (the second step of Ignore, the other skips' reasons, "Products ticked") keep the other screens'
+words until those are renamed together (U122).
+
+**U138. Not done, and open.** (1) Nothing here brings new variants in: that is each store's connector (built on the proto sites,
+switched off) or a load on the server; a nightly read-only refresh of staging's lists was asked of the owner, not built. (2) **No
+suggestion is made when a variant arrives** (the computer check is still a batch run on the server, `tools/first_match`). So a variant
+that arrives by itself reads "Not checked yet" and the bulk seed does not take it until a check has run and said "new": until a check
+on arrival exists (the mapping method's build step 3), "the seed on every store" is the seed of what the last run found new, and
+anything else is created one at a time on its own page. **For the main store no run can say "new" at all** (the check compares
+another store's list WITH the main store's; `tools/first_match/run.php` refuses the main store as the judged side): there the bulk
+seed takes nothing until a check exists that judges main-store variants against the warehouse's items, and the page says so (U135).
+Whether a bulk route for new main-store variants is wanted (that check, or the first seed's tool `bin/mint_vpg.php` run again on
+the server: by rules only, an item for each published main-store variant that is not matched) is the owner's decision; nothing was
+built for it. (3) The check compares a
+variant with the main store's list as it was on the day of the run, never with the items made since or with the other ticked
+rows. The guards of M61 answer the cases that can be read cheaply (the variant's own item, an exact name, a change of the variant
+since the check); what is still open is there under "What the name guard does not do", and the lasting answer is a check that
+compares with the warehouse's current items. (4) The website's state is known only where features were stored or a check recorded
+it (M61); for a variant that arrives by itself CW does not know it. (5) No count on the tab or on the Dashboard, and no note "new
+since you last looked". (6) No "create as new items" for a whole filter across pages: a page's ticks, at most `mapping.bulk_max_rows`.
+(7) Coming back from the variant's page to this list (By Item's U119) is not built: the brief left it out. (8) The page size, the
+three fixed periods, the CSV's 50,000 and the 180 seconds of "heard from lately" (the Stores page's own constant) are not settings.
+(9) A search over "Any time" costs what Store Products' search costs (U136). (10) The barcode rule does not see through punctuation
+inside a code (M61).

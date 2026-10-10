@@ -47,6 +47,8 @@ final class Sections
             // preview and the batch page of a bulk action started there (U127: the apply's redirect says `from=item`).
             'by_product' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/products',
                 'match' => ['/ui/review/products*', '/ui/review/batches/*?from=item']]]],
+            // One store's variants first seen in a period, its CSV, and the seed "Create as new items" on every store (U131).
+            'new_variants' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/new-variants', 'match' => ['/ui/review/new-variants*']]]],
             'duplicates' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/duplicates', 'match' => ['/ui/review/duplicates*'],
                 'badge' => 'linking_duplicates']]],
             'barcodes' => ['pages' => [['perm' => 'catalogue.edit', 'path' => '/ui/items/barcodes', 'match' => ['/ui/items/barcodes*'], 'badge' => 'barcodes_open']]],

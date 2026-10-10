@@ -34,6 +34,36 @@ final class Gtin
         return $key;
     }
 
+    /**
+     * Every text one of these barcodes may be stored as on another record: the code as given, its key (leading zeros gone) and
+     * that key padded with zeros to every length up to the 14 digits of a GTIN-14 ("5056168800073" is also "05056168800073": a
+     * website keeps a code as it was typed, and the same code is typed with and without its leading zeros). For an exact look-up
+     * of barcodes "elsewhere" on the indexes of sku_barcode and listing_profile.barcodes; never a scan. Codes that differ by
+     * anything but leading zeros (a hyphen, a space inside) are not found by it.
+     *
+     * @param list<mixed> $barcodes
+     * @return list<string>
+     */
+    public static function forms(array $barcodes): array
+    {
+        $out = [];
+        foreach ($barcodes as $b) {
+            if (!is_string($b) && !is_int($b)) {
+                continue;
+            }
+            $out[(string) $b] = true;
+            $key = self::key($b);
+            if ($key === null) {
+                continue;
+            }
+            $out[$key] = true;
+            for ($n = strlen($key) + 1; $n <= 14; $n++) {
+                $out[str_pad($key, $n, '0', STR_PAD_LEFT)] = true;
+            }
+        }
+        return array_map('strval', array_keys($out));
+    }
+
     /** Mod-10 check digit validation on the zero-padded GTIN-14. */
     public static function checkDigitOk(string $digits): bool
     {

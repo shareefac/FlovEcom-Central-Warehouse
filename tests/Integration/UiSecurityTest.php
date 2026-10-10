@@ -20,8 +20,9 @@ final class UiSecurityTest extends UiTestCase
         '/ui/items/cards', '/ui/items/cards.csv', '/ui/items/cards/import', '/ui/items/1/card', '/ui/items/barcodes',
         '/ui/receiving', '/ui/receiving/template.csv', '/ui/receiving/1', '/ui/receiving/1/bench', '/ui/receiving/bench', '/ui/receiving/incidents',
         '/ui/stock/in', '/ui/stock/out/1', '/ui/stock/adjustments', '/ui/stock/transfers/1', '/ui/stock/releases', '/ui/stock/accounts',
-        '/ui/review/products', '/ui/review/products.csv', '/ui/review/products/1/map?channel=vpg'];
-    private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw',
+        '/ui/review/products', '/ui/review/products.csv', '/ui/review/products/1/map?channel=vpg', '/ui/review/new-variants', '/ui/review/new-variants.csv',
+        '/ui/review/store', '/ui/review/batches/1'];
+    private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw', '/ui/review/bulk',
         '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',
         '/ui/review/duplicates/1/decide', '/ui/review/duplicates/1/split', '/ui/items/1/card', '/ui/items/1/card/accept', '/ui/items/1/card/confirm',
         '/ui/items/1/barcodes', '/ui/items/1/barcodes/remove', '/ui/items/1/barcodes/units', '/ui/items/cards/import', '/ui/items/barcodes/1/decide',
@@ -34,7 +35,8 @@ final class UiSecurityTest extends UiTestCase
     {
         $web = $this->browser();
         // The sign-in page leads back to the page asked for (behaviour item 1): not Home (the default), the sign-in pages or a download.
-        $noBack = ['/ui', '/ui/', '/ui/password', '/ui/reference/company/sample.pdf', '/ui/items/cards.csv', '/ui/receiving/template.csv', '/ui/review/products.csv'];
+        $noBack = ['/ui', '/ui/', '/ui/password', '/ui/reference/company/sample.pdf', '/ui/items/cards.csv', '/ui/receiving/template.csv', '/ui/review/products.csv',
+            '/ui/review/new-variants.csv'];
         foreach (self::GETS as $path) {
             $r = $web->get($path);
             self::assertSame(303, $r->status, $path);
@@ -66,7 +68,8 @@ final class UiSecurityTest extends UiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         foreach (['/ui/nope', '/ui/review/listing/abc', '/ui/review/listing/0', '/ui/review/listing/-1', '/ui/review/listing/1.5', '/ui/items/0', '/ui/items/1/x',
             '/ui/review/listing/99999', '/ui/items/99999', '/ui/review/listing/99999999999999999999999', '/ui/loginx',
-            '/ui/review/products/0/map', '/ui/review/products/abc/map', '/ui/review/products/99999/map', '/ui/review/products/1', '/ui/review/productsx'] as $path) {
+            '/ui/review/products/0/map', '/ui/review/products/abc/map', '/ui/review/products/99999/map', '/ui/review/products/1', '/ui/review/productsx',
+            '/ui/review/new-variantsx', '/ui/review/new-variants/1', '/ui/review/new-variants.csvx'] as $path) {
             $r = $web->get($path);
             self::assertSame(404, $r->status, $path);
             self::assertHardened($r, $path);
@@ -105,7 +108,13 @@ final class UiSecurityTest extends UiTestCase
             ['/ui/review/products.csv', ['q' => "\u{00A0}"]], ['/ui/review/products.csv', ['q' => "\xFF"]], ['/ui/review/products.csv', ['q' => "caf\xE9", 'cov' => 'suggested']],
             ['/ui/review/products/1/map', ['channel' => 'vpg', 'q' => "\u{3000}", 'lq' => "\xFF"]], ['/ui/review/products/1/map', ['channel' => 'vpg', 'q' => "caf\xE9", 'page' => '2']],
             ['/ui/review/listing/1', ['via' => 'product', 'product' => '1', 'channel' => 'vpg', 'lq' => "\xFF", 'pq' => "\u{00A0}", 'pp' => '-1']],
-            ['/ui/review/listing/1', ['via' => 'product', 'product' => '1', 'channel' => 'vpg', 'pq' => ['a'], 'pp' => ['2']]]] as [$path, $query]) {
+            ['/ui/review/listing/1', ['via' => 'product', 'product' => '1', 'channel' => 'vpg', 'pq' => ['a'], 'pp' => ['2']]],
+            // New Variants (U131-U138): its store, period, state, search and page, and its CSV.
+            ['/ui/review/new-variants', ['channel' => ['x'], 'period' => ['7'], 'state' => ['all'], 'q' => ['a', 'b'], 'page' => ['2'], 'all' => ['1']]],
+            ['/ui/review/new-variants', ['channel' => 'nosuchstore', 'period' => 'all']], ['/ui/review/new-variants', ['period' => '-3', 'page' => '999999999999999999']],
+            ['/ui/review/new-variants', ['q' => "\xFF", 'state' => 'all']], ['/ui/review/new-variants', ['q' => "caf\xE9", 'period' => "\xFF", 'state' => "\xFF"]],
+            ['/ui/review/new-variants', ['q' => "\u{00A0}", 'page' => '-1']], ['/ui/review/new-variants.csv', ['channel' => ['x'], 'q' => str_repeat('é', 2000)]],
+            ['/ui/review/new-variants.csv', ['q' => "\xFF", 'period' => 'all', 'state' => 'all']]] as [$path, $query]) {
             $r = $web->get($path, $query);
             self::assertLessThan(500, $r->status, $path . ' ' . json_encode($query) . ' ' . $r->describe());
         }
@@ -408,6 +417,51 @@ final class UiSecurityTest extends UiTestCase
         }
     }
 
+    /**
+     * A hand-made bulk form (the matching lists, Store Products, New Variants: one route) with a ticked number no listing can have,
+     * or a note that is not UTF-8 text, is refused whole in words: it was an error page, for the number after the rows before it had
+     * already been decided. The same note on the one-at-a-time page is refused too. Nothing is written by any of them.
+     */
+    public function testABulkFormWithANumberOutOfRangeOrANoteThatIsNotTextIsRefusedNotAnError(): void
+    {
+        $site = $this->site('vpg');
+        $sku = $this->item('legacy', 1, 'Target');
+        $strong = $this->queued($site, 'V1', 'Key', $sku, ['product_title' => 'A strong match']);
+        $found = $this->queued($site, 'V2', 'New item', null, ['product_title' => 'Found new'], ['proposed_new_item' => true]);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $base = $this->decisions();
+        $forms = [
+            'review' => ['source' => 'review', 'queue' => 'Key', 'action' => 'link', 'pick_' . $strong => '1'] + $web->get('/ui/review', ['queue' => 'Key'])->form('/ui/review/bulk'),
+            'new' => ['action' => 'new_item', 'pick_' . $found => '1'] + $web->get('/ui/review/new-variants', ['state' => 'new'])->form('/ui/review/bulk'),
+        ];
+        foreach ($forms as $what => $form) {
+            self::assertArrayHasKey('csrf', $form, $what);
+            foreach ([['pick_4294967296' => '1', 'ver_4294967296' => '0', 'prop_4294967296' => ''], ['pick_9999999999' => '1', 'ver_9999999999' => '1'],
+                ['ver_' . ($what === 'review' ? $strong : $found) => '9999999999']] as $crafted) {
+                $r = $web->post('/ui/review/bulk', $crafted + $form);
+                self::assertSame([400, 'bad_form'], [$r->status, $r->errorCode()], $what . ' ' . json_encode($crafted) . ': ' . $r->describe());
+                self::assertHardened($r, $what);
+            }
+            $r = $web->post('/ui/review/bulk', ['reason' => "\xFF\xFE"] + $form);
+            self::assertSame([400, 'bad_reason'], [$r->status, $r->errorCode()], $what . ': ' . $r->describe());
+            self::assertStringContainsString(Words::BULK_ERROR['reason_text'], $r->text());
+        }
+        // Ignore from New Variants: the second step again, with why.
+        $step = $web->post('/ui/review/bulk', ['action' => 'ignore'] + $forms['new']);
+        self::assertSame(200, $step->status, $step->describe());
+        $r = $web->post('/ui/review/bulk', ['reason' => "caf\xE9"] + $step->form('/ui/review/bulk'));
+        self::assertSame(400, $r->status, $r->describe());
+        self::assertStringContainsString(Words::BULK_ERROR['reason_text'], $r->text());
+        self::assertTrue($r->hasForm('/ui/review/bulk'));
+        // One at a time.
+        $form = $this->decideForm($web, $found);
+        $r = $web->post("/ui/review/listing/{$found}/decide", ['action' => 'ignore', 'reason' => "\xFF"] + $form);
+        self::assertSame(400, $r->status, $r->describe());
+        self::assertStringContainsString(Words::MATCH_ERROR['reason_text'], $r->text());
+        self::assertSame([$base, 'suggested', 'suggested', 0], [$this->decisions(), $this->link($strong)['status'], $this->link($found)['status'],
+            (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch')], 'nothing was decided or recorded');
+    }
+
     /** A hostile value for one field: markup, quotes and an ampersand, named so a page can be searched for it. */
     private static function hostile(string $field): string
     {
@@ -472,6 +526,9 @@ final class UiSecurityTest extends UiTestCase
         $dup = $this->propose($l5, 'Manual', $legacy, ['lane' => 'vpg_duplicate', 'evidence' => ['group' => 1, 'kind' => $h('kind'),
             'keeper' => ['vpg_variant_id' => 'V3', 'sku_id' => $legacy], 'members' => [['vpg_variant_id' => 'V3'], ['vpg_variant_id' => 'V5']]]], false, 'dups');
 
+        // New Variants (U131): a variant nobody checked, whose stored features carry what the website said of it.
+        $this->profiled($site, 'V6', ['product_title' => $h('title6'), 'features' => ['variant_status' => $h('vstatus6')]]);
+
         $me = $this->uiUser('mapping_lead');
         self::$db->exec('UPDATE staff_user SET display_name = ? WHERE id = ?', [$h('me'), $me['id']]);
         $web = $this->signIn($me);
@@ -514,6 +571,12 @@ final class UiSecurityTest extends UiTestCase
             'by product, picker, hostile search' => ['/ui/review/products/' . $strict . '/map', ['channel' => 'vpg', 'q' => $attr, 'page' => $evil], ['sname2', 'chname']],
             'listing, from by product' => ['/ui/review/listing/' . $l2, ['pick' => (string) $strict, 'via' => 'product', 'product' => (string) $strict, 'channel' => 'alt',
                 'cov' => $evil, 'lq' => $attr], ['title2', 'sname2', 'chname2']],
+            // New Variants (U131-U138): a store's variants with their names, option numbers, barcodes and the item matched or suggested.
+            'new variants' => ['/ui/review/new-variants', ['channel' => 'vpg', 'state' => 'all', 'period' => 'all'], ['title', 'vtitle', 'brand', 'variant', 'lbc1', 'lbc2',
+                'chname', 'chname2', 'sname1', 'title3', 'vtitle3', 'title5', 'vtitle5', 'brand5', 'lbc5', 'sname5', 'title6', 'vstatus6']],
+            'new variants, not checked yet' => ['/ui/review/new-variants', ['channel' => 'vpg', 'state' => 'not_checked'], ['title6', 'vstatus6', 'chname']],
+            'new variants, another store' => ['/ui/review/new-variants', ['channel' => 'alt', 'state' => 'all'], ['title2', 'vtitle2', 'variant2', 'title4', 'chname2']],
+            'new variants, hostile filters' => ['/ui/review/new-variants', ['channel' => 'vpg', 'period' => $evil, 'state' => $attr, 'q' => $attr, 'page' => $evil, 'all' => $attr], []],
         ];
         foreach ($pages as $what => [$path, $query, $fields]) {
             $r = $web->get($path, $query);
@@ -529,6 +592,7 @@ final class UiSecurityTest extends UiTestCase
         self::assertStringContainsString('value="' . $escaped . '"', $web->get('/ui/search', ['q' => $evil])->body);
         self::assertStringContainsString('value="' . $escapedAttr . '"', $web->get('/ui/search', ['q' => $attr])->body);
         self::assertStringContainsString('value="' . $escapedAttr . '"', $web->get('/ui/review', ['queue' => 'Check', 'q' => $attr])->body);
+        self::assertStringContainsString('value="' . $escapedAttr . '"', $web->get('/ui/review/new-variants', ['channel' => 'vpg', 'q' => $attr])->body);
         self::assertStringContainsString('value="' . $escaped . '"', $web->get('/ui/review/listing/' . $l1, ['queue' => 'Check', 'fq' => $evil, 's' => $evil])->body);
 
         // A javascript: link is never a link; a good one is kept, escaped.

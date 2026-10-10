@@ -752,6 +752,56 @@ final class UiReviewFlowTest extends UiTestCase
         }
     }
 
+    /**
+     * New Variants (docs/decisions.md M60-M62, U131-U138) over real HTTP: the list of a store's new variants, the tick, "Create as new
+     * items" through the bulk form (each row one DecisionService decision), the result page and the way back. Only a variant the
+     * computer found new becomes an item: one it suggests is an item the warehouse has, and one it has not checked, are skipped with
+     * why; the form without its token changes nothing.
+     */
+    public function testNewVariantsAreMadeIntoItemsFromTheListThroughTheBulkForm(): void
+    {
+        $site = $this->site('vpg');
+        $sku = $this->item('legacy', 0, 'Elux Legend Blue Razz');
+        $new = $this->queued($site, 'V1', 'New item', null, ['product_title' => 'Brand new kit', 'units_30d' => 2], ['proposed_new_item' => true]);
+        $known = $this->queued($site, 'V2', 'Key', $sku, ['product_title' => 'Elux Legend Blue Razz']);
+        $unchecked = $this->profiled($site, 'V4', ['product_title' => 'Nobody looked at this one']);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+
+        $list = $web->get('/ui/review/new-variants', ['state' => 'all']);
+        self::assertSame(200, $list->status, $list->describe());
+        self::assertHardened($list, 'new variants');
+        self::assertStringContainsString(Words::NEW_VARIANTS['where_from'], $list->text());
+        $form = $list->form('/ui/review/bulk');
+        self::assertSame(['new', 'vpg', 'all'], [$form['source'] ?? null, $form['channel'] ?? null, $form['state'] ?? null]);
+        self::assertArrayHasKey('ver_' . $new, $form);
+        self::assertArrayHasKey('prop_' . $known, $form);
+        self::assertStringContainsString(Words::NEW_VARIANTS['seed_note'], $list->text());
+        $r = $web->post('/ui/review/bulk', $form + ['pick_' . $new => '1', 'pick_' . $known => '1', 'pick_' . $unchecked => '1', 'action' => 'new_item']);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertMatchesRegularExpression('#^/ui/review/batches/[0-9]+$#', (string) $r->location());
+        self::assertSame(['mapped', 'suggested', 'unmapped', $skus + 1], [$this->link($new)['status'], $this->link($known)['status'], $this->link($unchecked)['status'],
+            (int) self::$db->value('SELECT COUNT(*) FROM sku')]);
+        self::assertSame('Brand new kit', (string) self::$db->value('SELECT name FROM sku WHERE id = ?', [$this->link($new)['sku_id']]));
+        $result = $web->follow($r);
+        self::assertSame(200, $result->status, $result->describe());
+        self::assertHardened($result, 'new variants, result');
+        self::assertStringContainsString(Words::say('BULK', 'summary', Words::say('NEW_VARIANT_DONE', 'new_item', 1), 0, 2), $result->text());
+        self::assertStringContainsString(Words::say('BULK_SKIP', 'suggested_match', $this->skuCode($sku)), $result->text());
+        self::assertStringContainsString(Words::BULK_SKIP['not_checked'], $result->text());
+        self::assertContains('/ui/review/new-variants?channel=vpg', $result->hrefs(), 'back to New Variants');
+
+        $again = $this->queued($site, 'V3', 'New item', null, ['product_title' => 'Another new kit'], ['proposed_new_item' => true]);
+        $form = $web->get('/ui/review/new-variants')->form('/ui/review/bulk');
+        self::assertArrayHasKey('ver_' . $again, $form);
+        unset($form['csrf']);
+        $r = $web->post('/ui/review/bulk', $form + ['pick_' . $again => '1', 'action' => 'new_item']);
+        self::assertSame([403, 'suggested'], [$r->status, $this->link($again)['status']]);
+        $csv = $web->get('/ui/review/new-variants.csv', ['state' => 'all']);
+        self::assertSame([200, 'text/csv; charset=utf-8'], [$csv->status, $csv->header('content-type')]);
+        self::assertStringContainsString('Brand new kit', $csv->body);
+    }
+
     public function testAPickThatDoesNotExistFallsBackToTheProposal(): void
     {
         $site = $this->site('vpg');

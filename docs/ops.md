@@ -2127,6 +2127,76 @@ Mapping change: the slot suite, then `scripts/remote.sh ui vendor/bin/phpunit --
 After it: `php bin/migrate.php --status --db=cw_staging` lists 0025, `php bin/invariants.php --db=cw_staging` says ok (K4: the setting has its
 baseline), Settings → System → Settings lists "Items on a page of By Item" under Matching products, and By Item shows "Rows 50 100 200".
 
+## Products › New Variants (`docs/decisions.md` M60–M62, U131–U138)
+
+**What the owner sees and does.** Products › New Variants shows, for one store at a time, the variants that store added lately:
+newest first, each with its option number, barcode, price, units sold, and the day and time the warehouse system first saw it.
+Choose the store at the top (the number beside it is its variants first seen in the period). Choose the period: the last 7, 30 or
+90 days, or Any time; the page opens with the number of days set in Settings › System › Settings › Matching products › "Days New
+Variants looks back" (30; change it there with a reason, like every setting). Each row says what it is:
+- **New**: when the computer checked it, it found nothing like it. The check compares a store's variants with the main store's
+  list as it was that day: it does not know the items made since, so "New" is a strong hint, not a promise (the rules below cover
+  that);
+- **Suggested match**: the computer thinks it is an item you already have (it names the item and how sure it is), or could not tell;
+- **Not checked yet**: the computer has not looked at it (a variant that only just arrived, or one whose earlier answer was sent
+  back);
+- Matched to CW-…, Waiting for a second OK, or Ignored.
+A row still to match also says what you should know before ticking it: "An item was already made from this variant (CW-…)" (it
+was made and the match was undone; the item is still there), "It changed on the website after the computer checked it" (renamed, or
+its barcode changed: nobody checked what it is now), and what the website said of it: "A page heading on the website, not something
+that is sold" or "Not published on the website (Bin)". Choose what to show: All not matched (the page opens with these), New,
+Suggested match, Not checked yet, or All. Search by name, brand, option number or barcode; Export gives the list as a spreadsheet
+file (if it ever holds more than 50,000 variants, its last line says only the first 50,000 are in it).
+**To make warehouse items from new variants ("seed") on any store:** tick variants and press "Create as new items" in the bar at the
+bottom. It takes ONLY the rows marked New: each becomes a new item with its own CW number, named and described as the variant is,
+and is matched to it. Everything else you ticked is skipped and listed on the next page with the reason, and nothing is changed on
+it: not checked yet; a suggested match ("the computer suggests it is CW-…"); one the computer could not decide; a page heading; not
+published on the website; changed on the website after the check; an item was already made from it ("…(CW-…)"); an item with the
+same name is already in the warehouse ("…(CW-…)": for example the same thing listed on another store, seeded yesterday); two rows
+you ticked have the same name; a barcode that is already on an item or on another variant; already matched, ignored or waiting for
+a second OK. This is on purpose: a second item for something the warehouse already has splits its stock over two records, and an
+item is never deleted. The same rules now apply to "Create as new product" on the New products list of Products › Mapping (before,
+that list made every ticked row). For a skipped variant press "Open": on its own page you see its details and decide (match it by
+hand, or create its one item there: one at a time a person may create any of them). If many rows of a store are skipped because
+"an item with the same name is already in the warehouse", look at how that store names its variants: the new item takes the
+variant's own name, and a store that names its variants by the option only ("Blue Razz / 20mg") shares names with many items.
+"Confirm match" in
+the same bar confirms the ticked suggestions whose strength the Settings page allows; "Ignore…" takes pages that are not real stock
+(a page heading, a binned page) out of the lists (it asks why). People who can only look see the list without tick boxes. There is
+no undo of a whole action: a match is undone one at a time on the variant's page.
+
+**Where new variants come from.** From the stores: a store's connector sends the variants the store adds or changes, and the page
+lists each one from the moment it first arrived. A store's first load counts too, so for 30 days after a store's whole list is loaded
+the page shows all of it (set fewer days, or use the filter). The box on the page says one of three things about the store you
+chose: it is "Off" (Settings › Stores), so its connector sends nothing yet; it is in contact and sends its new and changed variants;
+or it is switched on but its website is not sending now (Settings › Stores shows why). In the first and the last case its new
+variants arrive only when Fazil loads its list on the server. The box also says when the store's newest variant was first seen.
+Nothing on the page is made up, and the page itself changes nothing on the stores' websites.
+**A new variant is "Not checked yet" until the computer check has run** (today Fazil runs it on the server for a store's list; it is
+not automatic). Until then "Create as new items" skips it: open the variant and decide it by hand, or, for a store the check
+covers, ask for a check. **The check does not cover the main store's own variants**: it compares another store's list WITH the main
+store's, so it can never mark a main-store variant New, however often it runs. For that store (and for any store no check has
+marked a variant New on) the page says so in the box at the top, "Create as new items" skips every row, and each new variant's
+item is created on its own page. Asking for a check does not help there; a way to seed new main-store variants in bulk is not
+built (it needs the owner's decision, `docs/decisions.md` U138).
+
+**Deploy.** It goes out with its code and migration `0026_new_variants.sql` (`install_cron.sh --migrate`), after
+`0025_by_item_bulk.sql`: the setting `mapping.new_variants_days` (30) with its baseline in the history, the value `new` at the end of
+`mapping_batch.source` (the migration writes the column's whole list: review, store, item, new), and two indexes, built online
+(INPLACE, LOCK=NONE): `channel_listing (channel_id, created_at, id)` for the list and `sku (name)` for the "an item with the same
+name" rule; no data change, no new table, no new grant. Order does not matter for a moment in between for looking: the page names
+its index in a hint (slower without it, not wrong) and reads the setting with 30 as its default. But a bulk action pressed on New
+Variants before the migration ends on the error page, with nothing saved (the database does not know the new kind of batch yet),
+and a "Create as new product" on the New products list is slow until `sku (name)` is there (about two seconds for every 50 ticked
+rows, not wrong): run the migration with the code, as always. Before it, as for every Mapping
+change: the slot suite, then `scripts/remote.sh ui vendor/bin/phpunit --filter 'UiAuthTest|UiSecurityTest|UiReviewFlowTest'`. After
+it: `php bin/migrate.php --status --db=cw_staging` lists 0026, `php bin/invariants.php --db=cw_staging` says ok (K4: the setting's
+baseline), Settings › System › Settings › Matching products lists "Days New Variants looks back", and Products › New Variants opens
+on the first store by name. With this change every list's bulk action also refuses, in words, a hand-made form with a number out of
+range or a note that is not readable text (they ended on the error page), the "barcode is already elsewhere" rule also finds a
+barcode that the other record holds with other leading zeros, and "Create as new product" on the New products list skips what New
+Variants' seed skips (a page heading, not published, changed after the check, an item already made from it, a name that is taken).
+
 ## Changing settings and rules yourself (`docs/decisions.md` Y1–Y38; the owner's rule of 8 Oct 2026)
 
 Who: the owner (Reviewer) and Fazil (Admin) — permission `settings.manage`; **switching an approval rule off or making it looser needs a
@@ -2141,6 +2211,7 @@ save again. Nothing on these pages is ever deleted.
 | Which work waits for a second person | Settings → Approval rules | Each kind of record (reviewer check after it is final: every one / over a limit / none, the days, what Not OK does — a purchase order's Not OK only records it —, the OK first and its limit); suppliers (new supplier OK, changed details check, days to decide); matching (1 sale ≠ 1 product, joining counted products, matches confirmed from a ticked list — off by default —, spot check size: a change works for new spot checks only); your own change of the company details; giving someone Admin or Reviewer, and resetting an Admin's or a Reviewer's sign-in (both off by default). Switching an OK first off keeps its limit and never lets through work already waiting. Each rule has the tick "The owner has agreed this rule". Looser: a Reviewer only; stricter: an Admin too. |
 | Bulk action on the matching lists | Settings → System → Settings → Matching products | "Match strengths that may be confirmed together" (tick boxes; Strong and Likely by default: the other lists are decided one at a time) and "Most products in one bulk action" (100; on By Item it counts variants). The second OK for ticked confirms is on Approval Rules (above). |
 | Rows on By Item | Settings → System → Settings → Matching products | "Items on a page of By Item": 50, 100 or 200 (50). The page's own "Rows" choice shows another number for a while. |
+| How far back New Variants looks | Settings → System → Settings → Matching products | "Days New Variants looks back" (30; from 1 to 365): the period Products › New Variants opens with. The page still offers 7, 30 and 90 days and Any time. |
 | Reasons for stock changes and for cancelling or correcting orders | Settings → Settings and lists → Reasons for stock changes | Add (short code never changes), rename, say where it is offered (stock records, cancellations, and the order screens' three lists: cancelling a confirmed order, cancelling one not confirmed yet, correcting one), switch off / on. A switched-off reason stops new records only: one already waiting for an OK still gets it. CW's own reasons are locked. |
 | Warehouses and places inside them | Settings → Warehouses | Add (e.g. the VPG 2 room as "Another account's stock": never sold from), rename, whose stock (only while it is empty, with a tick: another account's stock becomes ours only with a release invoice), websites may sell from it (tick to confirm; Fazil then points a website at it on the server), switch off (only when empty) / on. Places (e.g. OVERFLOW in the main warehouse) are optional. |
 | Staff: add a person, a new sign-up sheet, a new sign-in code, a new password, sign out a device | Staff → Staff and access (Admin) | The sheet (QR code and a one-time set-up code; a new password: the set-up code only) is shown once and works once: the person finishes at /ui/enrol (a new sign-in code: at the sign-in, with their own password) and their OWN page then gives them a fresh code nobody else sees, so the admin never holds both keys of anybody. Within `staff.setup_hours` (48 h, at most 168); `staff.setup_max_fails` wrong tries (5) close it (Home card). A new password and a new sign-in code refuse each other while the other is open. Lost both phone and password: `bin/reset_staff.php --new-password --new-totp` on the server. The sheets print `staff.sign_in_address` (set it once). With the staff rules on, Admin/Reviewer jobs and resets of their sign-in wait for a reviewer: Staff access to OK (Home card). Reviewers' Home lists every person added, sign-in reset and rule made looser in the last 7 days. |

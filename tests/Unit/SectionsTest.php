@@ -116,6 +116,8 @@ final class SectionsTest extends TestCase
             ['/ui/review/products/bulk/apply', [], 'products', 'by_product', 'by_product'],
             ['/ui/review/batches/12', ['from' => 'item', 'cov' => 'every'], 'products', 'by_product', 'by_product'],
             ['/ui/review/batches/12', ['from' => 'store'], 'products', 'mapping', 'review'],
+            ['/ui/review/new-variants', ['channel' => 'x', 'period' => 'all'], 'products', 'new_variants', 'new_variants'],
+            ['/ui/review/new-variants.csv', [], 'products', 'new_variants', 'new_variants'],
             ['/ui/items/cards', [], 'products', 'cards', 'cards'],
             ['/ui/items/cards/import', [], 'products', 'cards', 'cards'],
             ['/ui/items/12', [], 'products', 'cards', 'cards'],
@@ -198,8 +200,8 @@ final class SectionsTest extends TestCase
         self::assertNotSame(Sections::menu(['purchasing_desk']), Sections::menu(['reviewer']));
         self::assertSame(['All Products'], $tabs(['buyer'], 'products'), 'no matching and no barcodes to decide for a buyer');
         self::assertSame(['All Products', 'Barcodes'], $tabs(['stock_controller'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'Duplicates'], $tabs(['mapper'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'Duplicates', 'Barcodes'], $tabs(['mapping_lead'], 'products'));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates'], $tabs(['mapper'], 'products'));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Barcodes'], $tabs(['mapping_lead'], 'products'));
         self::assertSame(['Overview', 'Movements', 'Reservations'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock');
 
         // Admin: people and settings, no buying and no approvals (I12); Reports for the audit log.
@@ -229,8 +231,8 @@ final class SectionsTest extends TestCase
         self::assertSame('Products', $f['pagebar']['label']);
         self::assertSame(Words::SECTION_DESC['products'], $f['pagebar']['desc']);
         self::assertFalse($f['pagebar']['flow']);
-        self::assertSame([['All Products', false, 0], ['Mapping', true, 3], ['Store Products', false, 0], ['By Item', false, 0], ['Duplicates', false, 2],
-            ['Barcodes', false, 0]],
+        self::assertSame([['All Products', false, 0], ['Mapping', true, 3], ['Store Products', false, 0], ['By Item', false, 0], ['New Variants', false, 0],
+            ['Duplicates', false, 2], ['Barcodes', false, 0]],
             array_map(static fn (array $t): array => [$t['label'], $t['current'], $t['count']], $f['pagebar']['tabs']));
         self::assertSame([['To review', false, 0, '/ui/review'], ['Spot check', false, 0, '/ui/review/samples'], ['Second approval', true, 3, '/ui/review']],
             array_map(static fn (array $s): array => [$s['label'], $s['current'], $s['count'], $s['href']], $f['segments']));
@@ -248,6 +250,12 @@ final class SectionsTest extends TestCase
         self::assertSame(['By Item'], array_column(array_filter($byProduct['pagebar']['tabs'], static fn (array $t): bool => $t['current']), 'label'));
         self::assertSame('/ui/review/products', array_column($byProduct['pagebar']['tabs'], 'href', 'label')['By Item']);
         self::assertSame([], $byProduct['segments'], 'By Item has no segments');
+        // New Variants (U131): the tab after By Item; its CSV belongs to it, the bulk action and its result page to Mapping.
+        $newVariants = Sections::frame(['mapper'], [], '/ui/review/new-variants', ['channel' => 'electrofag']);
+        self::assertSame(['New Variants'], array_column(array_filter($newVariants['pagebar']['tabs'], static fn (array $t): bool => $t['current']), 'label'));
+        self::assertSame('/ui/review/new-variants', array_column($newVariants['pagebar']['tabs'], 'href', 'label')['New Variants']);
+        self::assertSame([], $newVariants['segments'], 'New Variants has no segments');
+        self::assertSame(['section' => 'products', 'tab' => 'mapping', 'page' => 'review'], Sections::locate('/ui/review/bulk'));
         self::assertSame(['section' => 'products', 'tab' => 'mapping', 'page' => 'review'],
             Sections::locate('/ui/review/listing/7', ['pick' => '3', 'via' => 'product', 'product' => '3', 'channel' => 'electrofag']));
         self::assertSame(['section' => 'products', 'tab' => 'mapping', 'page' => 'review'], Sections::locate('/ui/review/batches/7'));

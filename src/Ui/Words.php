@@ -48,6 +48,7 @@ final class Words
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
         'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE',
         'BY_ITEM_BULK', 'BY_ITEM_SKIP',
+        'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN'];
 
@@ -183,6 +184,7 @@ final class Words
         'review' => 'Mapping',
         'store_products' => 'Store Products',
         'by_product' => 'By Item',
+        'new_variants' => 'New Variants',
         'pending' => 'Second approval',
         'samples' => 'Spot check',
         'duplicates' => 'Duplicates',
@@ -285,6 +287,7 @@ final class Words
         'mapping' => 'Match each website product to its warehouse product, the spot checks and the second approvals.',
         'store_products' => 'Every product of one store, and whether it is matched, suggested, not matched or ignored.',
         'by_product' => 'Every warehouse item, and the variant it is matched to on each store.',
+        'new_variants' => 'The variants each store added lately, and creating them as new items.',
         'duplicates' => 'Vape and Go pages that may be the same product.',
         'barcodes' => 'Barcodes the computer could not place.',
         'stock' => 'What is in each warehouse now.',
@@ -386,6 +389,8 @@ final class Words
         'by_item_result' => ['What happened to each variant of this action.', 'Open a skipped one to decide it by hand.'],
         'by_product_map' => ['Which variant of this store is this warehouse item?',
             'Press Choose on it. The next page shows the two side by side, and you say yes there.'],
+        'new_variants' => ['The variants one store added lately, newest first, and what each one is.',
+            'Tick the ones marked New and press "Create as new items", or open one to decide it by hand.'],
         'bulk_confirm' => ['This changes many website products at once.', 'Check the list below. Nothing is saved until you press the red button.'],
         'bulk_result' => ['What happened to each website product you ticked.', 'Open a skipped one to decide it by hand.'],
         'queue_Check' => ['The AI found a likely product, but no barcode proves it, or a small detail differs.', 'Compare them before you say yes.'],
@@ -1487,6 +1492,7 @@ final class Words
         'mapping.bulk_confirm_bands' => 'Match strengths that may be confirmed together',
         'mapping.bulk_max_rows' => 'Most products in one bulk action',
         'mapping.by_item_page_size' => 'Items on a page of By Item',
+        'mapping.new_variants_days' => 'Days New Variants looks back',
         'staff.setup_hours' => 'Hours to set up a sign-in',
         'staff.min_reviewers' => 'Reviewers needed',
     ];
@@ -1538,6 +1544,7 @@ final class Words
         'unknown_group' => 'We cannot find this group of possible duplicates. The link may be old.',
         'unknown_sample' => 'We cannot find this spot check. The link may be old.',
         'unknown_store' => 'We cannot find this store. The link may be old: open By Item and choose again.',
+        'unknown_variants_store' => 'We cannot find a store with variants by that name. The link may be old: open New Variants and choose a store.',
         'item_joined' => 'This warehouse item was joined into another one, so nothing is matched to it any more. Open the item it was joined into.',
         'unknown_document' => 'We cannot find this record. The link may be old or wrong.',
         'unknown_task' => 'We cannot find this check. It may be closed already, or the link is wrong.',
@@ -2559,6 +2566,8 @@ final class Words
             . 'of the ticked items.',
         'mapping.by_item_page_size' => 'How many items Products › By Item shows on a page when it opens: 50, 100 or 200. On the page itself anyone '
             . 'can show another number for a while.',
+        'mapping.new_variants_days' => 'The New Variants page opens with the variants first seen in this many days (30: the last month). '
+            . 'The page also offers 7, 30 and 90 days and any time.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
     ];
@@ -3136,6 +3145,7 @@ final class Words
         // The page's own checks, before anything is sent
         'choose' => 'Choose an answer first. Nothing was saved.',
         'reason_long' => 'The note is at most %s characters. Nothing was saved.',
+        'reason_text' => 'The note has characters this system cannot read. Type it again. Nothing was saved.',
         'pick_first' => 'Pick the warehouse product first: search for it, or use one the AI looked at. Nothing was saved.',
         'nothing_to_reject' => 'Nothing is suggested, so there is nothing to say no to. Nothing was saved.',
         'ignore_why' => 'Write a few words to say why you ignore it. Nothing was saved.',
@@ -3184,6 +3194,7 @@ final class Words
         'back_to' => 'Back to %s',
         'from_batch' => 'From bulk action %s',
         'state_unknown' => 'unknown',
+        'an_item' => 'an item you already have',
     ];
 
     /** The bulk actions, as their buttons say them (a "…" means a second step follows). */
@@ -3245,6 +3256,17 @@ final class Words
         'rejected_before' => 'It was marked "not this product" for this warehouse product before: open it and decide.',
         'item_on_store' => '%s already has a website product on %s: open it and decide.',
         'several_suggested' => '%s has more than one suggested website product on %s: open them and decide which is right.',
+        // A bulk "create as new" (M61) takes only what the computer checked and found new, and of that not what is doubtful. The
+        // others, each with why (the first three on New Variants only; the rest on every list that offers it):
+        'suggested_match' => 'The computer suggests it is %s: open it and decide.',
+        'not_checked' => 'The computer has not checked this variant yet. Open it and decide.',
+        'not_new' => 'The computer could not say what it is (%s): open it and decide.',
+        'page_heading' => 'It is a page heading on the website, not something that is sold. Open it and decide.',
+        'not_published' => 'It is not published on the website (%s). Open it and decide.',
+        'made_before' => 'An item was already made from this variant (%s): open it and decide.',
+        'changed_since_check' => 'It changed on the website after the computer checked it: open it and decide.',
+        'name_elsewhere' => 'An item with the same name is already in the warehouse (%s): open it and decide.',
+        'name_twice' => 'Another row you ticked has the same name, so the two may be one item: open each and decide.',
     ];
 
     /** A bulk request refused as a whole (nothing was saved). */
@@ -3254,6 +3276,7 @@ final class Words
         'band_not_allowed' => '%s cannot be confirmed together: open each one to decide it. The Settings page lists the strengths that can. Nothing was saved.',
         'action_not_here' => 'This list does not offer that action. Nothing was saved.',
         'reason_required' => 'Write a few words to say why you ignore them. Nothing was saved.',
+        'reason_text' => 'The note has characters this system cannot read. Type it again. Nothing was saved.',
         'lead_required' => 'Only a matching lead decides products where the clues disagree. Nothing was saved.',
         'role_not_allowed' => 'You can look at these, but only Matchers and Matching leads can change them. Nothing was saved.',
         'staff_required' => 'Only a person can do this. Nothing was saved.',
@@ -3535,6 +3558,123 @@ final class Words
         'rejected_before' => 'It was marked not a match for this item before: open it and decide.',
         'item_on_store' => '%s already has a variant on %s: open it and decide.',
         'several_suggested' => '%s has more than one suggested variant on %s: open them and decide which is right.',
+        // A bulk "create as new" is not offered on By Item (ITEM_ACTIONS): the reasons it skips for are here so that every reason has its
+        // words in both sets (the same sentences; "its store" where the lists' words say "the website").
+        'suggested_match' => 'The computer suggests it is %s: open it and decide.',
+        'not_checked' => 'The computer has not checked this variant yet. Open it and decide.',
+        'not_new' => 'The computer could not say what it is (%s): open it and decide.',
+        'page_heading' => 'It is a page heading on its store, not something that is sold. Open it and decide.',
+        'not_published' => 'It is not published on its store (%s). Open it and decide.',
+        'made_before' => 'An item was already made from this variant (%s): open it and decide.',
+        'changed_since_check' => 'It changed on its store after the computer checked it: open it and decide.',
+        'name_elsewhere' => 'An item with the same name is already in the warehouse (%s): open it and decide.',
+        'name_twice' => 'Another row you ticked has the same name, so the two may be one item: open each and decide.',
+    ];
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // Products › New Variants (docs/decisions.md M60-M62, U131-U138): one store's variants first seen in a period, and the "seed"
+    // (create them as new items) on every store. The owner's words (U122, U137): a VARIANT is what a store sells, an ITEM the
+    // warehouse record it is matched to. The %s of `store_off`, `store_on` and `board` is a store's name, read from the channel
+    // table: no store is named here.
+
+    /** The page. `where_from`, `store_off` and `store_on` say where new variants come from (U135): nothing is made up. */
+    public const NEW_VARIANTS = [
+        'no_stores' => 'No store has variants in this system yet.',
+        'no_stores_text' => 'A store\'s variants show here once the store has sent them to the warehouse system.',
+        'store_count' => 'variants first seen in this period',
+        'where_from' => 'New variants come from the stores: each store\'s connector sends the variants the store adds or changes to the warehouse '
+            . 'system, and a variant shows here from the moment it first arrives (the first load of a store\'s list counts too). Nothing here is '
+            . 'made up: a variant the store has not sent is not here.',
+        'store_off' => '%s is Off in the warehouse system (Settings › Stores), so its connector sends nothing yet: its new variants arrive only '
+            . 'when its list of variants is loaded on the server (ask ' . self::ASK . ').',
+        'store_on' => '%s is in contact with the warehouse system: its connector sends its new and changed variants.',
+        'store_quiet' => '%s is switched on in the warehouse system, but its website is not sending now (Settings › Stores shows why): its new '
+            . 'variants arrive only when its list of variants is loaded on the server (ask ' . self::ASK . ').',
+        'newest' => 'Its newest variant was first seen on %s.',
+        // A store where no computer check has ever marked a variant New (Queries::everFoundNew): the seed can only skip there.
+        'never_new' => 'The computer check has not marked any variant of %s as New so far (it may not cover this store yet), so "Create as '
+            . 'new items" will skip every row here. To make an item from one of its variants, open the variant and create the item on its '
+            . 'own page.',
+        'search' => 'Variant name, brand, option number or barcode',
+        'download' => 'Download this list as a spreadsheet',
+        'periods' => 'First seen',
+        'period_days' => 'Last %s days',
+        'period_day' => 'Last day',
+        'period_all' => 'Any time',
+        'states' => 'Show',
+        'board' => '%s: new variants',
+        'shown' => '%s in all · %s shown · newest first',
+        'variant' => 'Variant',
+        'option' => 'Option number',
+        'barcode' => 'Barcode',
+        'more_barcodes' => '+%s more',
+        'price' => 'Price',
+        'first_seen' => 'First seen',
+        'state' => 'Match',
+        'item' => 'What the computer found',
+        'is_new' => 'When the computer checked it, it found nothing like it.',
+        'made_before' => 'An item was already made from this variant (%s): open it to decide.',
+        'changed' => 'It changed on the website after the computer checked it: open it to decide.',
+        'not_checked' => 'The computer has not checked it yet: open it to decide.',
+        'suggested_item' => '%s: %s',
+        'site_heading' => 'A page heading on the website, not something that is sold.',
+        'site_status' => 'Not published on the website (%s).',
+        'matched_to' => 'Matched to %s',
+        'on_hold' => 'On hold: shows as out of stock',
+        'empty' => 'Nothing new to show here.',
+        'empty_text' => 'The variants this store adds show here, newest first, as soon as the store sends them to the warehouse system. '
+            . 'Try a longer period, or All.',
+        'empty_search' => 'No variant fits your search.',
+        'empty_search_text' => 'Other variants of this period are hidden by it.',
+        'seed_note' => '"Create as new items" takes only the rows marked New: when the computer checked them, it found nothing like them. '
+            . 'It makes a warehouse item from each, with the variant\'s own name and details, and matches the two. Every other ticked row is '
+            . 'skipped and listed afterwards with the reason: not checked yet, a suggested match, one the computer could not decide, a page '
+            . 'heading, not published on the website, changed on the website after the check, an item already made from it, a name that an '
+            . 'item already has or that two ticked rows share, or a barcode that is already on an item or on another variant. Open a '
+            . 'skipped one to decide it.',
+        'csv_more' => 'Only the first %s variants are in this file.',
+    ];
+
+    /** What a variant of New Variants is (Queries::NEW_KINDS): the chip on its row and the word in the CSV. */
+    public const NEW_VARIANT_STATE = [
+        'new' => 'New',
+        'suggested' => 'Suggested match',
+        'not_checked' => 'Not checked yet',
+        'linked' => 'Matched',
+        'quarantined' => 'On hold',
+        'waiting' => 'Waiting for a second OK',
+        'ignored' => 'Ignored',
+    ];
+
+    /** New Variants' filter (Queries::NEW_FILTERS and `all`). "New" is what "Create as new items" takes. */
+    public const NEW_VARIANT_FILTER = [
+        'unmatched' => 'All not matched',
+        'new' => 'New: the computer found nothing like it',
+        'suggested' => 'Suggested match',
+        'not_checked' => 'Not checked yet',
+        'all' => 'All',
+    ];
+
+    /** New Variants' action bar, in the owner's words (a "…" means a second step follows). */
+    public const NEW_VARIANT_ACTION = [
+        'new_item' => 'Create as new items',
+        'link' => 'Confirm match',
+        'ignore' => 'Ignore…',
+    ];
+
+    /** The "done" part of a New Variants batch's summary, by action (%s = how many). */
+    public const NEW_VARIANT_DONE = [
+        'new_item' => '%s new items created and matched',
+        'link' => '%s matched',
+        'ignore' => '%s ignored',
+    ];
+
+    /** What waits for a second OK on a variant of New Variants, by the decision's action (`other` for any other). */
+    public const NEW_VARIANT_PENDING = [
+        'link' => 'A match waits for a matching lead\'s yes.',
+        'new_item' => 'A new item waits for a matching lead\'s yes.',
+        'ignore' => 'Ignoring it waits for a matching lead\'s yes.',
+        'other' => 'A decision waits for a matching lead\'s yes.',
     ];
 
     /** The spot-check pages (/ui/review/samples and /{id}, plan §6.9, 6.10). The answers on a member's page are SPOT. */
@@ -6878,6 +7018,8 @@ final class Words
         // The lists of matches as v4 colours them: strong green, likely orange, new product blue, not sure purple, clues disagree red.
         'BAND' => ['Key' => 'done', 'Check' => 'needs', 'New item' => 'info', 'Can\'t tell' => 'review', 'Conflict' => 'blocked', 'Manual' => 'off'],
         'STORE_STATE' => ['waiting' => 'review', 'quarantined' => 'blocked', 'ignored' => 'off', 'linked' => 'done', 'suggested' => 'needs', 'not_matched' => 'waiting'],
+        'NEW_VARIANT_STATE' => ['new' => 'info', 'suggested' => 'needs', 'not_checked' => 'waiting', 'linked' => 'done', 'quarantined' => 'blocked',
+            'waiting' => 'review', 'ignored' => 'off'],
         'BULK_RESULT' => ['done' => 'done', 'pending_second' => 'review', 'skipped' => 'needs'],
         // Stock › Reservations: in a checkout blue, to ship orange, dealt with green, freed and run out grey.
         'RESV_GROUP' => ['held' => 'info', 'to_ship' => 'needs', 'closed' => 'done', 'released' => 'off', 'expired' => 'waiting'],

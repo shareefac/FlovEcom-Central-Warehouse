@@ -1757,6 +1757,10 @@ final class DecisionService
         if ($reason === null) {
             return null;
         }
+        if (!mb_check_encoding($reason, 'UTF-8')) {
+            // Checked here (what was typed, not a rule of matching): the database would refuse the decision's row (1366).
+            throw new CwException('bad_reason', 'reason is not valid UTF-8 text', 400, ['why' => 'encoding']);
+        }
         $reason = trim($reason);
         if (mb_strlen($reason) > self::MAX_REASON) {
             throw new CwException('bad_reason', 'reason is at most ' . self::MAX_REASON . ' characters', 400);

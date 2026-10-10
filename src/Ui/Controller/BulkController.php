@@ -18,8 +18,9 @@ use CW\Ui\Words;
 
 /**
  * Bulk action on the website products ticked on a list (docs/decisions.md M46-M53, U106-U112): POST /ui/review/bulk from a
- * match-strength list of Products > Mapping (source `review`) or from Store Products (source `store`), and the batch page
- * /ui/review/batches/{id}, which is also the result screen.
+ * match-strength list of Products > Mapping (source `review`), from Store Products (source `store`) or from New Variants (source
+ * `new`, M60-M62: "Create as new items", Confirm match, Ignore… in the owner's words), and the batch page /ui/review/batches/{id},
+ * which is also the result screen.
  *
  * The form carries, for every row of the page, the map_version and the suggestion it showed (ver_<listing>, prop_<listing>), and
  * the ticked ones (pick_<listing>); a plain form, so it works without app.js. "Not a match", Ignore and Send back for matching
@@ -33,10 +34,17 @@ use CW\Ui\Words;
  */
 final class BulkController
 {
+    /** The largest listing id and map_version there is (INT UNSIGNED). */
+    private const MAX_UINT = 4_294_967_295;
+    /** The lists that post their ticked rows to this route (BulkDecisions::SOURCES less By Item's `item`). */
+    private const FORM_SOURCES = ['review', 'store', 'new'];
+
     public function run(Context $ctx): HtmlResponse
     {
         $req = $ctx->req;
-        $source = $req->field('source') === 'store' ? 'store' : 'review';
+        // The lists whose form posts here. By Item's bulk action is not one of them: it has its own route, with a preview first
+        // (ByItemBulkController), so a form that names `item` here is read as a match-strength list's, and refused as one.
+        $source = in_array($req->field('source'), self::FORM_SOURCES, true) ? (string) $req->field('source') : 'review';
         $action = (string) ($req->field('action') ?? '');
         $back = self::back($ctx, $source);
         if (!in_array($action, BulkDecisions::ACTIONS, true)) {
@@ -51,6 +59,10 @@ final class BulkController
             $ver = $req->field('ver_' . $id);
             $prop = $req->field('prop_' . $id) ?? '';
             if ($ver === null || preg_match('/^[0-9]{1,10}$/D', $ver) !== 1 || ($prop !== '' && UiRequest::id($prop) === null)) {
+                return $ctx->error(400, 'bad_form', Words::ERROR['bad_form'], $back);
+            }
+            if ($id > self::MAX_UINT || (int) $ver > self::MAX_UINT) {
+                // No listing and no version has such a number: refused whole, before a row is decided or recorded.
                 return $ctx->error(400, 'bad_form', Words::ERROR['bad_form'], $back);
             }
             $rows[] = ['listing_id' => $id, 'proposal_id' => UiRequest::id($prop), 'map_version' => (int) $ver];
@@ -79,10 +91,12 @@ final class BulkController
                 'too_many_rows' => Words::say('BULK_ERROR', 'too_many_rows', (int) ($e->detail['asked'] ?? count($rows)), (int) ($e->detail['max'] ?? $max)),
                 'band_not_allowed' => $band !== null && in_array($band, Proposals::BANDS, true)
                     ? Words::say('BULK_ERROR', 'band_not_allowed', Words::of('BAND', $band)) : Words::BULK_ERROR['action_not_here'],
-                'bad_reason' => Words::say('MATCH_ERROR', 'reason_long', DecisionService::MAX_REASON),
+                'bad_reason' => ($e->detail['why'] ?? null) === 'encoding' ? Words::BULK_ERROR['reason_text']
+                    : Words::say('MATCH_ERROR', 'reason_long', DecisionService::MAX_REASON),
                 default => Words::BULK_ERROR[$e->errorCode] ?? Words::say('MATCH_ERROR', 'other', ucfirst(rtrim($e->getMessage(), '.')) . '.'),
             };
-            if ($e->errorCode === 'reason_required' || $e->errorCode === 'bad_reason') {
+            // The second step is shown again only for an action that has one (it has no words for the others).
+            if ($negative && ($e->errorCode === 'reason_required' || $e->errorCode === 'bad_reason')) {
                 return $this->confirmPage($ctx, $source, $action, $rows, $band, $channel, $text, $e->httpStatus);
             }
             return $ctx->error($e->httpStatus, $e->errorCode, $text, $back);
@@ -139,21 +153,28 @@ final class BulkController
         $list = match ($from) {
             'store' => [Html::url('/ui/review/store', ['channel' => $b['channel_code']]), Words::MENU['store_products']],
             'item' => [self::itemList($ctx), Words::MENU['by_product']],
+            'new' => [Html::url(NewVariantsController::PATH, ['channel' => $b['channel_code']]), Words::MENU['new_variants']],
             default => [Html::url('/ui/review', ['queue' => $b['band'], 'channel' => $b['channel_code']]), Words::of('BAND_TITLE', (string) $b['band'])],
         };
-        // The words of the page: a batch of By Item speaks of variants (U122), the lists' batches of products, as before.
+        // The words of the page: a batch of By Item speaks of variants (U122); one of New Variants says its action and its list in the
+        // owner's words (items and variants, U137); the lists' batches speak of products, as before.
         $words = $from === 'item'
             ? ['intro' => 'by_item_result', 'what' => Words::of('BY_ITEM_BULK', $action), 'skipped_text' => Words::BY_ITEM_BULK['result_skipped_text'],
                 'ticked' => Words::BY_ITEM_BULK['result_ticked'], 'all_rows' => Words::BY_ITEM_BULK['result_all_rows'], 'col' => Words::BY_ITEM_BULK['result_col'],
                 'where' => Words::BY_ITEM_BULK['result_where']]
-            : ['intro' => 'bulk_result', 'what' => Words::of('BULK_ACTION', $action), 'skipped_text' => Words::BULK['skipped_text'], 'ticked' => Words::BULK['ticked'],
+            : ['intro' => 'bulk_result', 'what' => Words::of($from === 'new' ? 'NEW_VARIANT_ACTION' : 'BULK_ACTION', $action), 'skipped_text' => Words::BULK['skipped_text'], 'ticked' => Words::BULK['ticked'],
                 'all_rows' => Words::BULK['all_rows'], 'col' => Words::QUEUE['product'],
-                'where' => $from === 'store' ? Words::MENU['store_products'] : Words::of('BAND_TITLE', (string) $b['band'])];
+                'where' => match ($from) {
+                    'store' => Words::MENU['store_products'],
+                    'new' => Words::MENU['new_variants'],
+                    default => Words::of('BAND_TITLE', (string) $b['band']),
+                }];
         return $ctx->page('bulk_result', [
             'batch' => ['id' => $id, 'ref' => $batch, 'action' => $action, 'by' => self::s($b['display_name']), 'at' => (string) $b['created_at'],
                 'store' => self::s($b['channel_name']), 'band' => $b['band'] === null ? null : (string) $b['band'], 'reason' => self::s($b['reason']),
                 'source' => $from],
-            'summary' => Words::say('BULK', 'summary', Words::say('BULK_DONE', $action, $count['done']), $count['pending_second'], $count['skipped']),
+            'summary' => Words::say('BULK', 'summary', Words::say($from === 'new' ? 'NEW_VARIANT_DONE' : 'BULK_DONE', $action, $count['done']), $count['pending_second'],
+                $count['skipped']),
             'count' => $count,
             'missing' => max(0, $asked - count($rows)),
             'asked' => $asked,
@@ -185,7 +206,7 @@ final class BulkController
         }
         $n = count($rows);
         $keep = [];
-        foreach (['queue', 'lane', 'min', 'q', 'page', 'state', 'sort'] as $k) {
+        foreach (['queue', 'lane', 'min', 'q', 'page', 'state', 'sort', 'period'] as $k) {
             $v = $ctx->req->field($k);
             if ($v !== null && $v !== '') {
                 $keep[$k] = mb_substr($v, 0, 100);
@@ -209,7 +230,11 @@ final class BulkController
             'error' => $error,
             'back' => self::back($ctx, $source),
             'band' => $band,
-        ], $status, ['title' => Words::say('BULK_CONFIRM', $action . '_title', $n), 'active' => $source === 'store' ? 'store_products' : 'review']);
+        ], $status, ['title' => Words::say('BULK_CONFIRM', $action . '_title', $n), 'active' => match ($source) {
+            'store' => 'store_products',
+            'new' => 'new_variants',
+            default => 'review',
+        }]);
     }
 
     /**
@@ -230,8 +255,10 @@ final class BulkController
             'vetoed' => sprintf($base, Words::andList(array_map(static fn (string $v): string => Words::of('VETO', $v), Html::strings($detail['vetoes'] ?? null)))),
             'flagged' => sprintf($base, Words::andList(array_map(static fn (string $f): string => Words::of('FLAG', $f), Html::strings($detail['flags'] ?? null)))),
             'changed', 'not_waiting', 'not_ignored' => sprintf($base, is_string($detail['status'] ?? null) ? Words::of('LISTING_STATUS', $detail['status']) : Words::BULK['state_unknown']),
-            'band_not_allowed' => sprintf($base, is_string($detail['band'] ?? null) ? Words::of('BAND', $detail['band']) : Words::BULK['state_unknown']),
+            'band_not_allowed', 'not_new' => sprintf($base, is_string($detail['band'] ?? null) ? Words::of('BAND', $detail['band']) : Words::BULK['state_unknown']),
             'item_on_store', 'several_suggested' => sprintf($base, (string) ($detail['item'] ?? ''), (string) ($detail['store'] ?? '')),
+            'suggested_match', 'made_before', 'name_elsewhere' => sprintf($base, is_string($detail['sku'] ?? null) && $detail['sku'] !== '' ? $detail['sku'] : Words::BULK['an_item']),
+            'not_published' => sprintf($base, is_string($detail['site_status'] ?? null) && $detail['site_status'] !== '' ? $detail['site_status'] : Words::BULK['state_unknown']),
             'refused' => sprintf($base, match (true) {
                 ($detail['code'] ?? null) === 'bad_units' => Words::say('MATCH_ERROR', 'bad_units', DecisionService::MAX_UNITS),
                 is_string($detail['code'] ?? null) && isset(Words::MATCH_ERROR[$detail['code']]) && $detail['code'] !== 'other'
@@ -264,6 +291,14 @@ final class BulkController
             return [Html::url('/ui/review/store', ['channel' => $channel['code'] ?? null, 'state' => self::opt($req->field('state'), Queries::STORE_STATES),
                 'sort' => self::opt($req->field('sort'), array_keys(Queries::STORE_SORTS)), 'q' => self::text($req->field('q')),
                 'page' => UiRequest::id($req->field('page'))]), Words::MENU['store_products']];
+        }
+        if ($source === 'new') {
+            // The period as the list wrote it (`all` or a number of days; the list itself checks it is one of its own).
+            $period = $req->field('period');
+            return [Html::url(NewVariantsController::PATH, ['channel' => $channel['code'] ?? null,
+                'period' => $period !== null && preg_match('/^(all|[1-9][0-9]{0,2})$/D', $period) === 1 ? $period : null,
+                'state' => self::opt($req->field('state'), array_values(array_diff(NewVariantsController::STATES, [NewVariantsController::DEFAULT_STATE]))),
+                'q' => self::text($req->field('q')), 'page' => UiRequest::id($req->field('page'))]), Words::MENU['new_variants']];
         }
         $band = self::opt($req->field('queue'), Proposals::BANDS);
         if ($band === null) {

@@ -372,6 +372,12 @@ final class UiUnitTest extends TestCase
         self::assertSame(['POST /ui/review/products/bulk', 'POST /ui/review/products/bulk/apply'],
             array_values(array_filter(array_keys($byPath), static fn (string $k): bool => str_starts_with($k, 'POST /ui/review/products'))));
         self::assertSame([Route::DECIDE, Route::DECIDE], [$byPath['POST /ui/review/products/bulk'], $byPath['POST /ui/review/products/bulk/apply']]);
+        // New Variants (M60-M62, U131-U138): the list and its CSV for everyone with the linking screens; no POST of its own: the
+        // seed ("Create as new items") is the bulk route, row by row through BulkDecisions and DecisionService.
+        self::assertSame('linking.view', $byPath['GET /ui/review/new-variants']);
+        self::assertSame('linking.view', $byPath['GET /ui/review/new-variants.csv']);
+        self::assertSame(Route::DECIDE, $byPath['POST /ui/review/bulk']);
+        self::assertSame([], array_values(array_filter(array_keys($byPath), static fn (string $k): bool => str_starts_with($k, 'POST /ui/review/new-variants'))));
         $people = 0;
         foreach ($byPath as $key => $access) {
             self::assertTrue(in_array($access, [Route::PUBLIC, Route::ANY], true) || isset(Permissions::MAP[$access]), "{$key}: {$access}");

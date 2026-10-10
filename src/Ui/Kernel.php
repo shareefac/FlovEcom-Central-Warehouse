@@ -27,6 +27,7 @@ use CW\Ui\Controller\FilesController;
 use CW\Ui\Controller\IncidentsController;
 use CW\Ui\Controller\ItemCardsController;
 use CW\Ui\Controller\ItemController;
+use CW\Ui\Controller\NewVariantsController;
 use CW\Ui\Controller\OtherAccountsController;
 use CW\Ui\Controller\PeopleController;
 use CW\Ui\Controller\PurchaseOrdersController;
@@ -398,6 +399,12 @@ final class Kernel
         $byItemBulk = new ByItemBulkController();
         $r->add('POST', '/ui/review/products/bulk', Route::DECIDE, $byItemBulk->preview(...));
         $r->add('POST', '/ui/review/products/bulk/apply', Route::DECIDE, $byItemBulk->apply(...));
+        // New Variants (M60-M62, U131-U138): one store's variants first seen in a period, and its CSV, for everyone with linking.view.
+        // Both only read: the seed ("Create as new items") is the bulk route above (source `new`), each row checked again by
+        // BulkDecisions and DecisionService; "Open" is the website product's page above.
+        $newVariants = new NewVariantsController();
+        $r->add('GET', NewVariantsController::PATH, 'linking.view', $newVariants->index(...));
+        $r->add('GET', NewVariantsController::PATH . '.csv', 'linking.view', $newVariants->csv(...));
         // Duplicates (M34): Vape and Go's own duplicate listings; everyone with linking.view looks, a mapping lead decides (merge,
         // keep separate, split), checked again by DecisionService.
         $duplicates = new DuplicatesController();

@@ -16,7 +16,8 @@ use CW\Ui\Words;
  * the store selector on every Mapping list and segment, the "By store" overview, Store Products and its states, the tick boxes and
  * the action bar (only the actions this person may take on this list), the second step of "Not a match" and Ignore, the refusals
  * of a strength the setting leaves out and of more rows than the setting allows, the result page, CSRF and each route's permission,
- * the one-at-a-time undo of a match on its page, and the band setting's tick boxes.
+ * the one-at-a-time undo of a match on its page, and the band setting's tick boxes. Since New Variants' round 2b (M61): "Create as
+ * new product" on the New products list skips what New Variants' seed skips, each with its reason on the result page.
  */
 final class BulkScreensTest extends KernelUiTestCase
 {
@@ -157,6 +158,62 @@ final class BulkScreensTest extends KernelUiTestCase
         self::assertSame(404, $web->get('/ui/review/batches/' . ($batch + 99))->status);
     }
 
+    /**
+     * One rule for every bulk "create as new" (M61): on the New products list a draft, a page heading, a website product an item
+     * was already made from, one that changed on the website after the check and one whose name an item already has are skipped,
+     * each with its reason on the result page; a row nothing is wrong with becomes a product. (Before round 2b this list made
+     * every ticked row whose barcode was free.)
+     */
+    public function testCreateAsNewProductOnTheNewProductsListSkipsWhatTheSeedSkipsEachWithItsReason(): void
+    {
+        ['alt' => $alt] = $this->stores();
+        $lead = $this->staffUser('mapping_lead');
+        $new = ['proposed_new_item' => 1];
+        $proposal = static fn (int $l): int => (int) self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$l]);
+        $good = $this->queued($alt, 'G1', 'New item', null, ['product_title' => 'A new kit nothing is wrong with'], $new);
+        $draft = $this->queued($alt, 'G2', 'New item', null, ['product_title' => 'A draft', 'features' => ['variant_status' => 'Draft']], $new);
+        $heading = $this->queued($alt, 'G3', 'New item', null, ['product_title' => 'A heading', 'features' => ['is_placeholder' => true]], $new);
+        // Made into a product, the match undone, and a later check says "new" again.
+        $again = $this->queued($alt, 'G4', 'New item', null, ['product_title' => 'Made before'], $new);
+        $this->decide($lead, 'new_item', $again, ['proposal_id' => $proposal($again), 'units_per_item' => 1]);
+        $firstCode = (string) self::$db->value('SELECT code FROM sku WHERE origin_listing_id = ?', [$again]);
+        $this->decide($lead, 'unlink', $again, ['reason' => 'made by mistake']);
+        $this->propose($again, 'New item', null, $new, true, 'later-run');
+        // A name a product already has (capitals apart); and one renamed on the website after the check.
+        $named = self::makeSku('A name that is taken');
+        $sameName = $this->queued($alt, 'G5', 'New item', null, ['product_title' => 'a NAME that is taken'], $new);
+        $renamed = $this->queued($alt, 'G6', 'New item', null, ['product_title' => 'Before the rename'], $new);
+        (new \CW\Mapping\ListingIngestService(self::$db))->ingest(Caller::system('test'), (int) $alt->channelId, [['variant_id' => 'G6', 'product_title' => 'After the rename']]);
+        $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+        $web = $this->signIn($this->uiUser('mapper'));
+
+        $page = $web->get('/ui/review', ['queue' => 'New item', 'channel' => 'alt']);
+        self::assertSame(['new_item', 'ignore'], self::barActions($page));
+        $r = $web->post('/ui/review/bulk', self::ticked($page, [$good, $draft, $heading, $again, $sameName, $renamed], 'new_item'));
+        self::assertSame(303, $r->status, $r->describe());
+        $batch = (int) substr((string) $r->location(), strlen('/ui/review/batches/'));
+        $codes = [];
+        foreach (self::$db->all('SELECT listing_id, skip_code FROM mapping_batch_row WHERE batch_id = ? ORDER BY seq', [$batch]) as $row) {
+            $codes[(int) $row['listing_id']] = $row['skip_code'];
+        }
+        self::assertSame([$good => null, $draft => 'not_published', $heading => 'page_heading', $again => 'made_before', $sameName => 'name_elsewhere', $renamed => 'changed_since_check'], $codes);
+        self::assertSame(['review', 'New item'], array_values(self::$db->one('SELECT source, band FROM mapping_batch WHERE id = ?', [$batch]) ?? []));
+        self::assertSame([$skus + 1, 'mapped', 1], [(int) self::$db->value('SELECT COUNT(*) FROM sku'), $this->link($good)['status'],
+            (int) self::$db->value('SELECT COUNT(*) FROM sku WHERE origin_listing_id = ?', [$again])], 'one new product; no second one from the same website product');
+        $text = $web->follow($r)->text();
+        self::assertStringContainsString(Words::say('BULK', 'summary', Words::say('BULK_DONE', 'new_item', 1), 0, 5), $text);
+        foreach (['It is not published on the website (Draft). Open it and decide.', 'It is a page heading on the website, not something that is sold. Open it and decide.',
+            'An item was already made from this variant (' . $firstCode . '): open it and decide.',
+            'An item with the same name is already in the warehouse (' . self::$db->value('SELECT code FROM sku WHERE id = ?', [$named]) . '): open it and decide.',
+            'It changed on the website after the computer checked it: open it and decide.'] as $why) {
+            self::assertStringContainsString($why, $text);
+        }
+        // One at a time, on its own page, a person may still make any of them.
+        $own = $web->get('/ui/review/listing/' . $sameName);
+        $ok = $web->post('/ui/review/listing/' . $sameName . '/decide', ['action' => 'new_item', 'units_per_item' => '1'] + $own->form('/ui/review/listing/' . $sameName . '/decide'));
+        self::assertSame([303, 'mapped'], [$ok->status, $this->link($sameName)['status']], $ok->describe());
+    }
+
     public function testNotAMatchAndIgnoreActOnlyOnTheSecondStepThatStatesTheCount(): void
     {
         ['alt' => $alt] = $this->stores();
@@ -227,11 +284,41 @@ final class BulkScreensTest extends KernelUiTestCase
             'the same on a second step' => ['confirm' => '1', 'ver_' . $k1 => '9999999999'] + self::ticked($page, [$k1], 'reject'),
         ] as $what => $form) {
             $r = $web->post('/ui/review/bulk', $form);
-            self::assertSame([400, 'bad_request'], [$r->status, $r->errorCode()], $what . ': ' . $r->describe());
-            self::assertStringContainsString(Words::BULK_ERROR['bad_request'], $r->text(), $what);
+            // The form's own check answers first on this route (400 `bad_form`, New Variants' build, M60); the bound in
+            // BulkDecisions::checked() (400 `bad_request`) is what a caller past the form gets: By Item's route, and BulkDecisionsTest.
+            self::assertSame([400, 'bad_form'], [$r->status, $r->errorCode()], $what . ': ' . $r->describe());
+            self::assertStringContainsString(Words::ERROR['bad_form'], $r->text(), $what);
         }
         self::assertSame($before, [(int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'), (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch_row'), $this->decisions()]);
         self::assertSame(['suggested', 'suggested'], [$this->link($k1)['status'], $this->link($k2)['status']]);
+    }
+
+    /** A hand-made form on the lists that were there before: a number out of range or a note that is not text is refused in words, never an error page. */
+    public function testANumberOutOfRangeOrANoteThatIsNotTextIsRefusedWholeOnTheStrengthListsAndStoreProducts(): void
+    {
+        ['alt' => $alt] = $this->stores();
+        $sku = $this->item('legacy');
+        $k1 = $this->queued($alt, 'K1', 'Key', $sku, ['product_title' => 'Strong one']);
+        $k2 = $this->queued($alt, 'K2', 'Key', $sku, ['product_title' => 'Strong two']);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $page = $web->get('/ui/review', ['queue' => 'Key']);
+        // It was an error page, after the rows before the bad one had already been matched.
+        foreach ([['pick_4294967296' => '1', 'ver_4294967296' => '0', 'prop_4294967296' => ''], ['ver_' . $k2 => '9999999999']] as $crafted) {
+            $r = $web->post('/ui/review/bulk', $crafted + self::ticked($page, [$k1, $k2], 'link'));
+            self::assertSame([400, 'bad_form'], [$r->status, $r->errorCode()], json_encode($crafted) . ': ' . $r->describe());
+        }
+        $r = $web->post('/ui/review/bulk', ['reason' => "\xFF"] + self::ticked($page, [$k1], 'link'));
+        self::assertSame([400, 'bad_reason'], [$r->status, $r->errorCode()], $r->describe());
+        self::assertStringContainsString(Words::BULK_ERROR['reason_text'], $r->text());
+        // Store Products' Ignore: its second step is shown again with why.
+        $step = $web->post('/ui/review/bulk', self::ticked($web->get('/ui/review/store', ['channel' => 'alt']), [$k1], 'ignore'));
+        self::assertSame(200, $step->status, $step->describe());
+        $bad = $web->post('/ui/review/bulk', ['reason' => "caf\xE9"] + $step->form('/ui/review/bulk'));
+        self::assertSame(400, $bad->status, $bad->describe());
+        self::assertStringContainsString(Words::BULK_ERROR['reason_text'], $bad->text());
+        self::assertSame(['ignore', '1'], [$bad->form('/ui/review/bulk')['action'] ?? null, $bad->form('/ui/review/bulk')['confirm'] ?? null]);
+        self::assertSame(['suggested', 'suggested', 0, 0], [$this->link($k1)['status'], $this->link($k2)['status'], (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'),
+            (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch_row')], 'nothing was written');
     }
 
     public function testEveryNewRouteChecksItsPermissionAndTheBulkFormItsToken(): void

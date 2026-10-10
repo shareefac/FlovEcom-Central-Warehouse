@@ -76,6 +76,8 @@ final class Settings
         'mapping.bulk_max_rows' => ['min' => 1, 'max' => 500],
         // Products › By Item (0025, U123): how many items a page shows unless the person picks another number there.
         'mapping.by_item_page_size' => ['in' => [50, 100, 200]],
+        // Products › New Variants (0026, U132): the days back the page looks when it opens (up to a year; "Any time" is on the page).
+        'mapping.new_variants_days' => ['min' => 1, 'max' => 365],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];

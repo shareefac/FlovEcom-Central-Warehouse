@@ -298,7 +298,7 @@ final class WordsTest extends TestCase
         }
         $keys = [];
         foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql', '0019_set_it_yourself.sql',
-            '0021_mapping_bulk.sql', '0025_by_item_bulk.sql'] as $file) {
+            '0021_mapping_bulk.sql', '0025_by_item_bulk.sql', '0026_new_variants.sql'] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
         }
@@ -448,6 +448,67 @@ final class WordsTest extends TestCase
         foreach (Words::BY_ITEM_SKIP as $code => $text) {
             self::assertSame(substr_count(Words::BULK_SKIP[$code], '%s'), substr_count($text, '%s'), "{$code}: filled in from the same record");
         }
+    }
+
+    /**
+     * Products › New Variants (docs/decisions.md U137): the owner's words, "variant" and "item", and the seed's button "Create as new
+     * items"; what a row is and the filter in words; every skip of a bulk action has its words (the seed's own say what the computer
+     * or the website found); no store is named.
+     */
+    public function testNewVariantsSpeaksOfVariantsAndItemsAsTheOwnerDoes(): void
+    {
+        self::assertSame('New Variants', Words::MENU['new_variants']);
+        self::assertSame('Create as new items', Words::NEW_VARIANT_ACTION['new_item']);
+        self::assertSame(\CW\Mapping\BulkDecisions::NEW_ACTIONS, array_keys(Words::NEW_VARIANT_ACTION));
+        self::assertSame(\CW\Mapping\BulkDecisions::NEW_ACTIONS, array_keys(Words::NEW_VARIANT_DONE));
+        self::assertSame('Done: 2 new items created and matched, 0 sent to Second approval, 1 skipped.',
+            Words::say('BULK', 'summary', Words::say('NEW_VARIANT_DONE', 'new_item', 2), 0, 1));
+        self::assertSame('The computer suggests it is CW-000041: open it and decide.', Words::say('BULK_SKIP', 'suggested_match', 'CW-000041'));
+        self::assertSame(['The computer has not checked this variant yet. Open it and decide.', 'It is a page heading on the website, not something that is sold. Open it and decide.',
+            'It is not published on the website (Bin). Open it and decide.'],
+            [Words::BULK_SKIP['not_checked'], Words::BULK_SKIP['page_heading'], Words::say('BULK_SKIP', 'not_published', 'Bin')]);
+        // Round 2b's reasons, each in plain words: an item was made from it before, it changed after the check, its name is taken
+        // (by an item, or by another ticked row), and a suggestion that is neither "new" nor a match.
+        self::assertSame(['An item was already made from this variant (CW-000101): open it and decide.', 'It changed on the website after the computer checked it: open it and decide.',
+            'An item with the same name is already in the warehouse (CW-000201): open it and decide.',
+            'Another row you ticked has the same name, so the two may be one item: open each and decide.',
+            'The computer could not say what it is (Not sure – you choose): open it and decide.'],
+            [Words::say('BULK_SKIP', 'made_before', 'CW-000101'), Words::BULK_SKIP['changed_since_check'], Words::say('BULK_SKIP', 'name_elsewhere', 'CW-000201'),
+                Words::BULK_SKIP['name_twice'], Words::say('BULK_SKIP', 'not_new', Words::BAND["Can't tell"])]);
+        self::assertSame(['made_before', 'not_new', 'changed_since_check', 'name_elsewhere', 'name_twice'], array_slice(\CW\Mapping\BulkDecisions::SKIPS, -5));
+        // The row says the same before it is ticked, and a store no check has marked a variant New on is told so.
+        self::assertSame(['When the computer checked it, it found nothing like it.', 'An item was already made from this variant (CW-000101): open it to decide.',
+            'It changed on the website after the computer checked it: open it to decide.'],
+            [Words::NEW_VARIANTS['is_new'], Words::say('NEW_VARIANTS', 'made_before', 'CW-000101'), Words::NEW_VARIANTS['changed']]);
+        self::assertStringContainsString('has not marked any variant of Some Store as New so far', Words::say('NEW_VARIANTS', 'never_new', 'Some Store'));
+        self::assertStringContainsString('create the item on its own page', Words::NEW_VARIANTS['never_new']);
+        foreach (['not checked yet', 'a suggested match', 'one the computer could not decide', 'a page heading', 'not published on the website', 'changed on the website after the check',
+            'an item already made from it', 'a name that an item already has or that two ticked rows share', 'a barcode that is already on an item or on another variant'] as $reason) {
+            self::assertStringContainsString($reason, Words::NEW_VARIANTS['seed_note'], 'the line beside the bar names every reason a ticked row is skipped for');
+        }
+        // What a row is (the chip) and the filter: "New" is the one kind the seed takes.
+        self::assertSame(Queries::NEW_KINDS, array_keys(Words::NEW_VARIANT_STATE));
+        self::assertSame([...Queries::NEW_FILTERS, 'all'], array_keys(Words::NEW_VARIANT_FILTER));
+        self::assertSame(['All not matched', 'New: the computer found nothing like it', 'Suggested match', 'Not checked yet', 'All'], array_values(Words::NEW_VARIANT_FILTER));
+        self::assertSame(['New', 'Suggested match', 'Not checked yet'], array_slice(array_values(Words::NEW_VARIANT_STATE), 0, 3));
+        self::assertStringContainsString('takes only the rows marked New', Words::NEW_VARIANTS['seed_note']);
+        foreach (\CW\Mapping\BulkDecisions::SKIPS as $code) {
+            self::assertTrue(Words::has('BULK_SKIP', $code), "BULK_SKIP: no word for `{$code}`");
+        }
+        self::assertSame(['Last 7 days', 'Last day', 'Any time'], [Words::say('NEW_VARIANTS', 'period_days', 7), Words::NEW_VARIANTS['period_day'],
+            Words::NEW_VARIANTS['period_all']]);
+        $texts = array_merge(array_values(Words::NEW_VARIANTS), array_values(Words::NEW_VARIANT_ACTION), array_values(Words::NEW_VARIANT_DONE),
+            array_values(Words::NEW_VARIANT_PENDING), array_values(Words::NEW_VARIANT_STATE), array_values(Words::NEW_VARIANT_FILTER), Words::PAGE_INTRO['new_variants'],
+            [Words::MENU['new_variants'], Words::MENU_HELP['new_variants'], Words::ERROR['unknown_variants_store'], Words::BULK_SKIP['suggested_match'], Words::BULK_SKIP['not_checked'],
+                Words::BULK_SKIP['page_heading'], Words::BULK_SKIP['not_published'], Words::BULK_SKIP['made_before'], Words::BULK_SKIP['not_new'], Words::BULK_SKIP['changed_since_check'],
+                Words::BULK_SKIP['name_elsewhere'], Words::BULK_SKIP['name_twice'], Words::SETTING['mapping.new_variants_days'], Words::SETTING_HELP['mapping.new_variants_days']]);
+        foreach ($texts as $text) {
+            self::assertDoesNotMatchRegularExpression('/website products?|warehouse products?|\bproducts?\b/i', $text, $text);
+            foreach (Words::SITE as $name) {
+                self::assertStringNotContainsStringIgnoringCase($name, $text, 'no store is named: the stores are the channel table\'s rows');
+            }
+        }
+        self::assertStringContainsString('Nothing here is made up', Words::NEW_VARIANTS['where_from']);
     }
 
     public function testEveryStateOfAReservationHasItsWords(): void

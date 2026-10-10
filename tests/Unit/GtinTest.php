@@ -32,6 +32,28 @@ final class GtinTest extends TestCase
         self::assertSame(Gtin::key('0036000291452'), Gtin::key('36000291452'), 'a scanner adding zeros finds the same key');
     }
 
+    /**
+     * The forms a barcode is looked up in on another record (the bulk "barcode elsewhere" rule and the variant page's list): as it
+     * is, its key, and the key padded with zeros to every length up to 14 digits, so a code is found whichever way it was typed.
+     */
+    public function testTheFormsABarcodeIsLookedUpIn(): void
+    {
+        self::assertSame(['5056168800073', '05056168800073'], Gtin::forms(['5056168800073']), 'a 13-digit code is also its 14-digit form');
+        self::assertSame(['05056168800073', '5056168800073'], Gtin::forms(['05056168800073']), 'and the other way round');
+        self::assertSame(['012345678905', '12345678905', '0012345678905', '00012345678905'], Gtin::forms(['012345678905']), 'every padding of the key up to 14 digits');
+        self::assertContains('0012345678905', Gtin::forms(['012345678905']));
+        self::assertContains('012345678905', Gtin::forms(['0012345678905']), 'two paddings of one code find each other');
+        self::assertSame(['96385074', '096385074', '0096385074', '00096385074', '000096385074', '0000096385074', '00000096385074'], Gtin::forms(['96385074']));
+        self::assertSame(['ABC-1', '1', '01', '001', '0001', '00001', '000001', '0000001', '00000001', '000000001', '0000000001', '00000000001', '000000000001', '0000000000001',
+            '00000000000001'], Gtin::forms(['ABC-1']), 'a code that is not a number keeps its own text, and its digits as a key');
+        self::assertSame(['no digits'], Gtin::forms(['no digits']));
+        self::assertSame([], Gtin::forms([]));
+        self::assertSame([], Gtin::forms([null, ['x'], 1.5, true]), 'only texts and whole numbers are barcodes');
+        self::assertSame(['5012345678900', '05012345678900'], Gtin::forms([5012345678900, '5012345678900']), 'each form once');
+        self::assertSame(['123456789012345678'], Gtin::forms(['123456789012345678']), 'a code longer than 14 digits is not padded');
+        self::assertCount(100, Gtin::forms(array_map(static fn (int $i): string => (string) (10000000000000 + $i), range(1, 100))), 'every barcode of a variant, not the first twenty');
+    }
+
     public function testEveryWrongCheckDigitIsCaught(): void
     {
         foreach (self::VALID as $code) {

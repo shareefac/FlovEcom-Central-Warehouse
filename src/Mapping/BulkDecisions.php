@@ -17,7 +17,8 @@ use CW\Staff\StaffRoles;
 /**
  * Bulk action on the website products a person ticked on the screens (the owner's "bulk action and review option each store wise",
  * 8 Oct 2026; docs/decisions.md M46-M53): the match-strength lists of Products > Mapping (confirm the suggested match, not a match,
- * create as new product, ignore) and Store Products (ignore, take off the ignored list, send back for matching).
+ * create as new product, ignore), Store Products (ignore, take off the ignored list, send back for matching) and, since 10 Oct 2026,
+ * New Variants (M60-M62: create as new items, confirm the suggested match, ignore), the owner's "seed" on every store.
  *
  * Every row is ONE DecisionService decision, in its own transaction, in listing id order (the order every other decision locks
  * listings in), with the map_version and the suggestion the page showed: a row someone changed meanwhile is skipped, never
@@ -26,9 +27,16 @@ use CW\Staff\StaffRoles;
  * waiting for one (Second approval), never linked. Before a row is sent, what DecisionService does not know is checked (M51):
  * a listing held back from the bulk confirm (M30) or in a spot check that is not complete (M28) is never bulk-actioned, and a
  * confirm also skips a vetoed or flagged suggestion, a listing of a failed spot check's population, and one whose bulk link was
- * undone before; a new product skips a listing whose barcode is elsewhere (the single page does not preselect it either). The
- * hold and the spot check are read again under the decision's listing lock (a hold written meanwhile rolls the row back, as in
- * KeyBulk). "Skip anything doubtful, finish the rest": each skipped row is recorded with why.
+ * undone before. A bulk "create as new" (any list: seedCheck(), M61) makes an item only from a listing whose open suggestion says
+ * "new product", and skips everything that could make a second item for one thing or an item for nothing: a listing an item was
+ * already made from (`made_before`), a page heading of the website (`page_heading`), one the website does not publish
+ * (`not_published`), one that changed on the website after the computer checked it (`changed_since_check`), one whose barcode is
+ * elsewhere (`barcode_elsewhere`; the single page does not preselect it either), one whose name an item already has
+ * (`name_elsewhere`) or another ticked row shares (`name_twice`). On New Variants, where the rows are of every kind, also one with
+ * no open suggestion (`not_checked`), one whose suggestion is a match to an item (`suggested_match`) and one the computer could not
+ * decide (`not_new`): a person opens each and decides. The hold and the spot check are read again under the decision's listing
+ * lock (a hold written meanwhile rolls the row back, as in KeyBulk). "Skip anything doubtful, finish the rest": each skipped row
+ * is recorded with why.
  *
  * The existing Key bulk confirm of unseen strong matches (KeyBulk, the spot check) is a separate thing and is unchanged.
  *
@@ -52,9 +60,12 @@ final class BulkDecisions
     public const STORE_ACTIONS = ['ignore', 'unignore', 'send_back'];
     /** By Item (M55): what the suggested variants of ticked items may have done to them; a match is undone one at a time (M53). */
     public const ITEM_ACTIONS = ['link', 'reject', 'send_back'];
+    /** New Variants (M60): the seed first ("Create as new items"), then the existing confirm and ignore, row by row as everywhere. */
+    public const NEW_ACTIONS = ['new_item', 'link', 'ignore'];
     /** The actions that say no (or take products out of the lists): the screens ask a second time, stating the count. */
     public const NEGATIVE = ['reject', 'ignore', 'send_back'];
-    public const SOURCES = ['review', 'store', 'item'];
+    /** The lists a bulk action comes from, as mapping_batch.source holds them (0021, 0025, 0026). */
+    public const SOURCES = ['review', 'store', 'item', 'new'];
     /** The defaults of the settings (a schema before 0021 reads these). */
     public const DEFAULT_BANDS = ['Key', 'Check'];
     public const DEFAULT_MAX_ROWS = 100;
@@ -65,7 +76,11 @@ final class BulkDecisions
         'spot_check_failed', 'bulk_undone', 'band_not_allowed', 'vetoed', 'flagged', 'no_product', 'barcode_elsewhere', 'already_rejected', 'not_ignored',
         'already_ignored', 'linked', 'not_waiting', 'no_suggestion', 'lead_only', 'not_allowed', 'product_joined', 'no_name', 'refused',
         // By Item's confirm only (M59, confirmScope()):
-        'rejected_before', 'item_on_store', 'several_suggested'];
+        'rejected_before', 'item_on_store', 'several_suggested',
+        // A bulk "create as new" only (M61, seedCheck() and nameChecks(); `suggested_match`, `not_checked` and `not_new` on New Variants only):
+        'suggested_match', 'not_checked', 'page_heading', 'not_published', 'made_before', 'not_new', 'changed_since_check', 'name_elsewhere', 'name_twice'];
+    /** The website's own state of a listing that is on sale (listing_profile.features `variant_status`, as the load tools read it). */
+    public const PUBLISHED = 'Published';
     /** DecisionService refusals => the skip they are reported as (others: `refused`, with the code). */
     private const REFUSAL_SKIP = [
         'map_version_conflict' => 'changed',
@@ -91,6 +106,8 @@ final class BulkDecisions
     private const MAX_UINT = 0xFFFFFFFF;
     /** How far rejectedBefore() follows an item's joins (a chain of joins is one or two long). */
     private const MAX_JOINS = 32;
+    /** How many names one read of the name guard asks about (one index look-up each, in one statement). */
+    private const NAMES_A_READ = 50;
 
     public function __construct(private readonly Db $db, private readonly DecisionService $ds)
     {
@@ -114,10 +131,23 @@ final class BulkDecisions
         return ApprovalRules::on($db, 'approvals.mapping_bulk_second_ok');
     }
 
+    /** The actions of a list (an unknown source has none). @return list<string> */
+    public static function actionsOf(string $source): array
+    {
+        return match ($source) {
+            'review' => self::REVIEW_ACTIONS,
+            'store' => self::STORE_ACTIONS,
+            'item' => self::ITEM_ACTIONS,
+            'new' => self::NEW_ACTIONS,
+            default => [],
+        };
+    }
+
     /**
      * Whether a list offers $action to a person with $roles (the screens draw only these; run() refuses the rest anyway): a person
      * who may decide one website product may do it for many (M49), a confirm only on the strengths of the setting, a new product
-     * only on New product, Clues disagree only for a matching lead (as one at a time).
+     * only on New product, Clues disagree only for a matching lead (as one at a time). New Variants mixes strengths in one list:
+     * it offers its three actions, a confirm while the setting allows any strength, and each row is checked on its own (M61, M62).
      *
      * @param list<string> $roles
      * @param list<string> $confirmBands
@@ -128,11 +158,14 @@ final class BulkDecisions
             // By Item (M55): rows of every strength; each row's own strength and its Conflict rule are checked as it is done.
             return Permissions::can($roles, 'mapping.decide') && in_array($action, self::ITEM_ACTIONS, true);
         }
-        if (!Permissions::can($roles, 'mapping.decide') || !in_array($action, $source === 'store' ? self::STORE_ACTIONS : self::REVIEW_ACTIONS, true)) {
+        if (!Permissions::can($roles, 'mapping.decide') || !in_array($action, self::actionsOf($source), true)) {
             return false;
         }
         if ($source === 'store') {
             return true;
+        }
+        if ($source === 'new') {
+            return $action !== 'link' || $confirmBands !== [];
         }
         if ($band === null || !in_array($band, Proposals::BANDS, true)) {
             return false;
@@ -165,12 +198,15 @@ final class BulkDecisions
         $band = $context['band'] ?? null;
         $reason = isset($context['reason']) ? trim((string) $context['reason']) : '';
         $reason = $reason === '' ? null : $reason;
-        if (!in_array($source, self::SOURCES, true)
-            || !in_array($action, match ($source) { 'store' => self::STORE_ACTIONS, 'item' => self::ITEM_ACTIONS, default => self::REVIEW_ACTIONS }, true)) {
+        if (!in_array($source, self::SOURCES, true) || !in_array($action, self::actionsOf($source), true)) {
             throw new CwException('bad_action', 'this list has no such bulk action', 400);
         }
         if ($source === 'review' && ($band === null || !in_array($band, Proposals::BANDS, true))) {
             throw new CwException('bad_request', 'a match-strength list names its strength', 400);
+        }
+        if ($source === 'new' && $channelId === null) {
+            // New Variants is one store's list: a request that names none did not come from it.
+            throw new CwException('bad_request', 'New Variants names its store', 400);
         }
         if ($caller->staffUserId === null) {
             throw new CwException('staff_required', 'a person makes bulk decisions', 403);
@@ -186,6 +222,10 @@ final class BulkDecisions
         if (!self::offered($action, $source, $band, $roles, $confirmBands)) {
             // A confirm on a strength the setting leaves out (or a new product off its list): refused even when posted (M46).
             throw new CwException('band_not_allowed', 'this bulk action is not allowed on this list', 403, ['band' => $band, 'allowed' => $confirmBands]);
+        }
+        if ($reason !== null && !mb_check_encoding($reason, 'UTF-8')) {
+            // Refused here: the database would refuse the batch's row (1366) and the person would get an error page.
+            throw new CwException('bad_reason', 'reason is not valid UTF-8 text', 400, ['why' => 'encoding']);
         }
         if ($reason !== null && mb_strlen($reason) > DecisionService::MAX_REASON) {
             throw new CwException('bad_reason', 'reason is at most ' . DecisionService::MAX_REASON . ' characters', 400);
@@ -236,7 +276,7 @@ final class BulkDecisions
             [$action, $source, $channelId, $source === 'review' ? $band : null, count($byListing), $reason, $caller->staffUserId, $caller->actor],
         ));
         $batch = DecisionService::SCREEN_BATCH_PREFIX . $batchId;
-        $skips = $this->prechecks($action, array_values($byListing), $channelId, $confirmBands);
+        $skips = $this->prechecks($action, $source, array_values($byListing), $channelId, $confirmBands);
         if ($source === 'item') {
             $skips = $this->itemChecks($action, $rows, $skips, $roles, true);
         }
@@ -276,7 +316,7 @@ final class BulkDecisions
     {
         ['source' => $source, 'channel_id' => $channelId, 'rows' => $byListing, 'confirm_bands' => $confirmBands, 'roles' => $roles]
             = $this->checked($caller, $action, $rows, $context);
-        $skips = $this->prechecks($action, array_values($byListing), $channelId, $confirmBands);
+        $skips = $this->prechecks($action, $source, array_values($byListing), $channelId, $confirmBands);
         if ($source === 'item') {
             $skips = $this->itemChecks($action, $rows, $skips, $roles, false);
         }
@@ -349,20 +389,30 @@ final class BulkDecisions
      * @param list<string> $confirmBands
      * @return array<int, array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}> listing id => pre-check
      */
-    private function prechecks(string $action, array $rows, ?int $channelId, array $confirmBands): array
+    private function prechecks(string $action, string $source, array $rows, ?int $channelId, array $confirmBands): array
     {
         $ids = array_map(static fn (array $r): int => $r['listing_id'], $rows);
         $in = implode(',', array_fill(0, count($ids), '?'));
+        $seed = $action === 'new_item';
         $listings = [];
         foreach ($this->db->all(
             'SELECT cl.id, cl.channel_id, cl.status, cl.map_version, p.id AS proposal_id, p.band, p.proposed_sku_id, p.proposed_new_item, p.ai_units_per_item, '
-            . 'p.flags, p.evidence, pd.id AS pending_id, lp.barcodes '
-            . 'FROM channel_listing cl LEFT JOIN match_proposal p ON p.open_listing_id = cl.id LEFT JOIN match_decision pd ON pd.pending_listing_id = cl.id '
-            . "LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE cl.id IN ({$in})",
+            . 'p.flags, p.evidence, ps.code AS proposed_code, pd.id AS pending_id, lp.barcodes, '
+            // What the website said of the listing when its features were stored (a load of the store's list); NULL when not known.
+            . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS site_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder, "
+            // What the open suggestion was made on (its basis row, by its primary key) and what the listing is now.
+            . 'lp.identity_hash, pb.proposal_id AS basis_id, pb.identity_hash AS basis_identity'
+            // What a new item would be named from (DecisionService::card reads the same four).
+            . ($seed ? ', lp.product_title, lp.variant_title, lp.brand, lp.features' : '') . ' '
+            . 'FROM channel_listing cl LEFT JOIN match_proposal p ON p.open_listing_id = cl.id LEFT JOIN sku ps ON ps.id = p.proposed_sku_id '
+            . 'LEFT JOIN match_decision pd ON pd.pending_listing_id = cl.id '
+            . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN match_proposal_basis pb ON pb.proposal_id = p.id '
+            . "WHERE cl.id IN ({$in})",
             $ids,
         ) as $l) {
             $listings[(int) $l['id']] = $l;
         }
+        $made = $seed ? self::madeFrom($this->db, $ids) : [];
         $held = KeyHold::activeForListings($this->db, $ids);
         $spot = $this->inSpotCheck($ids);
         $failed = $action === 'link' ? $this->failedPopulation($ids) : [];
@@ -423,6 +473,10 @@ final class BulkDecisions
                         $out[$lid] = $skip('not_waiting', ['status' => $status]);
                         break;
                     }
+                    if ($seed) {
+                        $out[$lid] = $this->seedCheck($l, $source, $made[$lid] ?? null);
+                        break;
+                    }
                     if ($open === null) {
                         $out[$lid] = $skip('no_suggestion');
                         break;
@@ -450,11 +504,11 @@ final class BulkDecisions
                     break;
             }
         }
-        return $out;
+        return $seed ? $this->nameChecks($out, $listings) : $out;
     }
 
     /**
-     * The checks of a row's open suggestion for a confirm, a new product or a "not a match", and what DecisionService needs.
+     * The checks of a row's open suggestion for a confirm or a "not a match", and what DecisionService needs (a new product: seedCheck()).
      *
      * @param array<string, mixed> $l the listing with its open proposal (prechecks())
      * @param list<string> $confirmBands
@@ -475,15 +529,6 @@ final class BulkDecisions
                 return $skip('already_rejected');
             }
             return ['code' => '', 'detail' => [], 'request' => ['sku_id' => $sku]];
-        }
-        if ($action === 'new_item') {
-            if ($band !== 'New item' || (int) $l['proposed_new_item'] !== 1) {
-                return $skip('band_not_allowed', ['band' => $band]);
-            }
-            if ($this->barcodeElsewhere((int) $l['id'], self::strings(json_decode((string) ($l['barcodes'] ?? 'null'), true)))) {
-                return $skip('barcode_elsewhere');
-            }
-            return ['code' => '', 'detail' => [], 'request' => ['units_per_item' => $units]];
         }
         if (!in_array($band, $confirmBands, true)) {
             return $skip('band_not_allowed', ['band' => $band]);
@@ -508,6 +553,205 @@ final class BulkDecisions
             return $skip('bulk_undone');
         }
         return ['code' => '', 'detail' => [], 'request' => ['sku_id' => $sku, 'units_per_item' => $units]];
+    }
+
+    /**
+     * A bulk "create as new" of one row, on every list that offers it (M61). A duplicate item splits one thing's stock over two
+     * records and is never deleted, and an item nobody sells is never deleted either, so a bulk seed makes an item only from an
+     * open suggestion that says "new product" and skips everything doubtful, in this order (the first that applies is the reason
+     * recorded):
+     *  1. an item was already made from this listing (sku.origin_listing_id, whatever became of the match since: undone, joined,
+     *     and whatever suggestion is open now): `made_before`, with that item's CW number. A later computer check compares the
+     *     listing with the main store's list only, so it says "new" again of a listing whose own item it cannot see;
+     *  2. New Variants only: the open suggestion is a match to an item: `suggested_match`, with that item's CW number;
+     *  3. a page heading of the website (features `is_placeholder`): `page_heading`;
+     *  4. its state on the website is known and is not Published: `not_published`, with that state. The state is the stored
+     *     features' `variant_status`; when they give none (a listing that changed since has no features), what the open
+     *     suggestion recorded when the computer checked it (its evidence's `variant_status`). Known from neither: skips nothing;
+     *  5. NO open suggestion, whatever came before: `not_checked` on New Variants, `no_suggestion` on the other lists (as before);
+     *  6. an open suggestion that does not say "new product": `not_new` on New Variants (with its strength: the computer could
+     *     not say what it is), `band_not_allowed` on the other lists (as before);
+     *  7. the listing's identity (titles, brand, attributes, barcodes: its profile's identity_hash) is not the one the suggestion
+     *     was made on (its match_proposal_basis row): `changed_since_check`. A suggestion with no basis row (made before 0012 and
+     *     never proved unchanged) skips nothing here;
+     *  8. its barcode is on an item or on another listing: `barcode_elsewhere`.
+     * What is left is sent with the suggestion's units, unless its name is taken (nameChecks()). The single page is not touched by
+     * any of this: there a person sees the listing's details and may still make its item.
+     *
+     * @param array<string, mixed> $l the listing with its open proposal (prechecks())
+     * @param ?string $madeCode the CW number of the item already made from it (madeFrom())
+     * @return array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}
+     */
+    private function seedCheck(array $l, string $source, ?string $madeCode): array
+    {
+        $skip = static fn (string $code, array $detail = []): array => ['code' => $code, 'detail' => $detail];
+        $mixed = $source === 'new'; // New Variants lists rows of every kind; a match-strength list holds one strength
+        if ($madeCode !== null) {
+            return $skip('made_before', ['sku' => $madeCode]);
+        }
+        if ($mixed && $l['proposal_id'] !== null && $l['proposed_sku_id'] !== null) {
+            return $skip('suggested_match', ['sku' => (string) $l['proposed_code']]);
+        }
+        if (self::isPlaceholder($l['is_placeholder'] ?? null)) {
+            return $skip('page_heading');
+        }
+        $ev = json_decode((string) ($l['evidence'] ?? 'null'), true);
+        $site = self::siteState($l['site_status'] ?? null, is_array($ev) ? ($ev['variant_status'] ?? null) : null);
+        if ($site !== null && $site !== self::PUBLISHED) {
+            return $skip('not_published', ['site_status' => $site]);
+        }
+        if ($l['proposal_id'] === null) {
+            return $skip($mixed ? 'not_checked' : 'no_suggestion');
+        }
+        $band = (string) $l['band'];
+        if ($band !== 'New item' || (int) $l['proposed_new_item'] !== 1) {
+            return $skip($mixed ? 'not_new' : 'band_not_allowed', ['band' => $band]);
+        }
+        if (self::changedSinceCheck($l['basis_id'] ?? null, $l['basis_identity'] ?? null, $l['identity_hash'] ?? null)) {
+            return $skip('changed_since_check');
+        }
+        if ($this->barcodeElsewhere((int) $l['id'], self::strings(json_decode((string) ($l['barcodes'] ?? 'null'), true)))) {
+            return $skip('barcode_elsewhere');
+        }
+        return ['code' => '', 'detail' => [], 'request' => ['units_per_item' => $l['ai_units_per_item'] === null ? 1 : max(1, (int) $l['ai_units_per_item'])]];
+    }
+
+    /**
+     * The name guard of a bulk "create as new" (M61), over the rows seedCheck() would send. The name is the one the item would
+     * get (itemName()):
+     *  - an item that is not joined into another already has it (the item table's own comparison of names: letter case and
+     *    accents do not tell two names apart): `name_elsewhere`, with that item's CW number. This is what stops the second of two
+     *    stores' listings of one thing, and a listing renamed to an item's name;
+     *  - else two or more of the request's rows have it (compared without letter case): `name_twice`, every row of the group.
+     * A row with no name is left to DecisionService, which refuses it (`no_name`).
+     *
+     * @param array<int, array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}> $out the rows' pre-checks
+     * @param array<int, array<string, mixed>> $listings prechecks()' rows
+     * @return array<int, array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}>
+     */
+    private function nameChecks(array $out, array $listings): array
+    {
+        $names = [];
+        foreach ($out as $lid => $pre) {
+            $name = $pre['code'] === '' && isset($listings[$lid]) ? self::itemName($listings[$lid]) : null;
+            if ($name !== null) {
+                $names[$lid] = $name;
+            }
+        }
+        if ($names === []) {
+            return $out;
+        }
+        $taken = $this->namesTaken(array_values(array_unique(array_values($names))));
+        $groups = [];
+        foreach ($names as $lid => $name) {
+            if (isset($taken[$name])) {
+                $out[$lid] = ['code' => 'name_elsewhere', 'detail' => ['sku' => $taken[$name], 'name' => $name]];
+                continue;
+            }
+            $groups[mb_strtolower($name, 'UTF-8')][] = $lid;
+        }
+        foreach ($groups as $lids) {
+            foreach (count($lids) > 1 ? $lids : [] as $lid) {
+                $out[$lid] = ['code' => 'name_twice', 'detail' => ['name' => $names[$lid], 'rows' => count($lids)]];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The name the item made from a listing would get: DecisionService::cardFrom over the same four columns card() reads (the
+     * option's title, else the title, else the features' title; white space collapsed and trimmed, at most 255 characters: what
+     * mint() stores). Null when it has none.
+     *
+     * @param array<string, mixed> $l prechecks()' row of a "create as new"
+     */
+    private static function itemName(array $l): ?string
+    {
+        try {
+            return (string) DecisionService::cardFrom($l, isset($l['features']) ? (array) json_decode((string) $l['features'], true) : [])['name'];
+        } catch (CwException) {
+            return null;
+        }
+    }
+
+    /**
+     * Of these names, the ones an item that is not joined into another already has, each with the CW number of one such item.
+     * One look-up per name on the index of 0026 (sku.name), NAMES_A_READ of them in one statement; the hint names that index (a
+     * hint naming an index that is not there yet is ignored: the code may run a moment before the migration).
+     *
+     * @param list<string> $names
+     * @return array<string, string> name => CW number
+     */
+    private function namesTaken(array $names): array
+    {
+        $out = [];
+        foreach (array_chunk($names, self::NAMES_A_READ) as $chunk) {
+            $parts = [];
+            foreach (array_keys($chunk) as $i) {
+                $parts[] = '(SELECT /*+ INDEX(s ix_sku_name) */ ' . $i . ' AS i, MIN(s.code) AS code FROM sku s WHERE s.name = ? AND s.merged_into_sku_id IS NULL)';
+            }
+            foreach ($this->db->all(implode(' UNION ALL ', $parts), $chunk) as $r) {
+                if ($r['code'] !== null) {
+                    $out[$chunk[(int) $r['i']]] = (string) $r['code'];
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The items already made from these listings (sku.origin_listing_id, by its index of 0004, named in a hint so that a small
+     * table is read the same way): for each, the CW number of the first one. An item stays the listing's own whatever became of
+     * the match (undone, the item joined into another).
+     *
+     * @param list<int> $listingIds
+     * @return array<int, string> listing id => CW number
+     */
+    public static function madeFrom(Db $db, array $listingIds): array
+    {
+        $first = [];
+        foreach (array_chunk($listingIds, 500) as $chunk) {
+            foreach ($db->all('SELECT /*+ INDEX(s ix_sku_origin_listing) */ s.origin_listing_id, s.id, s.code FROM sku s WHERE s.origin_listing_id IN ('
+                . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $s) {
+                $lid = (int) $s['origin_listing_id'];
+                if (!isset($first[$lid]) || (int) $s['id'] < $first[$lid][0]) {
+                    $first[$lid] = [(int) $s['id'], (string) $s['code']];
+                }
+            }
+        }
+        return array_map(static fn (array $f): string => $f[1], $first);
+    }
+
+    /** Whether the stored features call a listing a page heading (`is_placeholder`, as JSON_EXTRACT gives it: true, or 1). */
+    public static function isPlaceholder(mixed $v): bool
+    {
+        return $v === true || $v === 1 || $v === 'true' || $v === '1';
+    }
+
+    /** The website's state of a listing as one source gives it (a text), or null when it gives none. */
+    public static function siteStatus(mixed $v): ?string
+    {
+        return is_string($v) && trim($v) !== '' && $v !== 'null' ? mb_substr(trim($v), 0, 64) : null;
+    }
+
+    /**
+     * The website's state of a listing: what its stored features say (`variant_status`), else what its open suggestion recorded
+     * when the computer checked it (its evidence's `variant_status`), else null. The list and the seed both ask here, so a row
+     * and its skip cannot disagree.
+     */
+    public static function siteState(mixed $fromFeatures, mixed $fromCheck): ?string
+    {
+        return self::siteStatus($fromFeatures) ?? self::siteStatus($fromCheck);
+    }
+
+    /**
+     * Whether a listing is no longer what its open suggestion was made on: the suggestion has a basis row (match_proposal_basis,
+     * $basisId) and the identity recorded there is not the listing profile's identity now (titles, brand, attributes, barcodes;
+     * no profile then or now reads as null). No basis row: not known, so false. The list and the seed both ask here.
+     */
+    public static function changedSinceCheck(mixed $basisId, mixed $basisIdentity, mixed $identity): bool
+    {
+        return $basisId !== null && (is_string($basisIdentity) ? $basisIdentity : null) !== (is_string($identity) ? $identity : null);
     }
 
     /**
@@ -576,28 +820,23 @@ final class BulkDecisions
     /**
      * Whether one of the listing's barcodes is on an item or on another listing (any site, linked or not): what a new product could
      * duplicate. The review page shows these and then preselects nothing (ReviewController); a bulk new product skips them. The same
-     * reads as Ui\Queries::barcodeElsewhere (the GTIN key too; the multi-valued index of 0005).
+     * forms as Ui\Queries::barcodeElsewhere (Gtin::forms: the code as stored, its key, and the key padded with zeros up to 14
+     * digits, so "5056168800073" also finds a record that holds "05056168800073"), every barcode of the listing, each look-up an
+     * exact match on an index (sku_barcode's primary key; the multi-valued index of 0005).
      *
      * @param list<string> $barcodes
      */
     private function barcodeElsewhere(int $listingId, array $barcodes): bool
     {
-        $codes = [];
-        foreach (array_slice($barcodes, 0, 20) as $b) {
-            $codes[$b] = true;
-            $key = \CW\Matching\Gtin::key($b);
-            if ($key !== null) {
-                $codes[$key] = true;
+        foreach (array_chunk(\CW\Matching\Gtin::forms($barcodes), 200) as $codes) {
+            $in = implode(',', array_fill(0, count($codes), '?'));
+            if ($this->db->value("SELECT 1 FROM sku_barcode WHERE barcode IN ({$in}) LIMIT 1", $codes) !== null
+                || $this->db->value('SELECT 1 FROM listing_profile lp WHERE JSON_OVERLAPS(lp.barcodes, CAST(? AS JSON)) AND lp.listing_id <> ? LIMIT 1',
+                    [json_encode($codes, JSON_THROW_ON_ERROR), $listingId]) !== null) {
+                return true;
             }
         }
-        $codes = array_map('strval', array_keys($codes));
-        if ($codes === []) {
-            return false;
-        }
-        $in = implode(',', array_fill(0, count($codes), '?'));
-        return $this->db->value("SELECT 1 FROM sku_barcode WHERE barcode IN ({$in}) LIMIT 1", $codes) !== null
-            || $this->db->value('SELECT 1 FROM listing_profile lp WHERE JSON_OVERLAPS(lp.barcodes, CAST(? AS JSON)) AND lp.listing_id <> ? LIMIT 1',
-                [json_encode($codes, JSON_THROW_ON_ERROR), $listingId]) !== null;
+        return false;
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Ui;
 
 use CW\Db;
+use CW\Mapping\BulkDecisions;
 use CW\Matching\Gtin;
 
 /**
@@ -419,6 +420,254 @@ final class Queries
             $ids,
         );
         return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages];
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Products › New Variants (docs/decisions.md U131-U138): one store's website products (variants, in the owner's words) first
+    // seen in CW in a period, newest first. "First seen" is channel_listing.created_at: when the row was made (a store's push, or
+    // the load of its list), never changed afterwards.
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * What a variant of New Variants is (NEW_KIND_SQL), in this order of precedence: waiting for a second OK, on hold, ignored,
+     * matched; and of the ones still to match: `not_checked` (no open suggestion: the computer has not looked at it, or what it
+     * said was settled since), `new` (its open suggestion says "new product": when the computer checked it against the main
+     * store's list it found nothing like it; the only kind a bulk seed takes, and not every one of them: BulkDecisions::seedCheck)
+     * and `suggested` (any other open suggestion: a match to an item, or one the computer could not decide).
+     */
+    public const NEW_KINDS = ['new', 'suggested', 'not_checked', 'linked', 'quarantined', 'waiting', 'ignored'];
+    /** New Variants' filter (null = every variant): all still to match, then each kind of them. */
+    public const NEW_FILTERS = ['unmatched', 'new', 'suggested', 'not_checked'];
+    /** The periods New Variants offers besides its setting's and "any time", in days. */
+    public const NEW_PERIODS = [7, 30, 90];
+    /** "One store, newest first, since a date": the index of 0026. A hint naming an index that is not there yet is ignored. */
+    private const SEEN_HINT = '/*+ INDEX(cl ix_channel_listing_seen) */ ';
+    /**
+     * The same, with the open suggestion `p` joined after the listing by its unique index (the list keeps the index's order: never
+     * a sort, and never a pass over every suggestion, however few rows the tables hold).
+     */
+    private const SEEN_JOIN_HINT = '/*+ INDEX(cl ix_channel_listing_seen) JOIN_ORDER(cl, p) INDEX(p uq_match_proposal_open) */ ';
+    /** An open suggestion `p` that says "new product": what BulkDecisions' new-product check asks for, both marks. */
+    private const IS_NEW_ITEM = "(p.proposed_new_item = 1 AND p.band = 'New item')";
+    private const NEW_KIND_SQL = "CASE WHEN pd.id IS NOT NULL THEN 'waiting' WHEN cl.status = 'quarantined' THEN 'quarantined' WHEN cl.status = 'ignored' THEN 'ignored' "
+        . "WHEN cl.status = 'mapped' THEN 'linked' WHEN p.id IS NULL THEN 'not_checked' WHEN " . self::IS_NEW_ITEM . " THEN 'new' ELSE 'suggested' END";
+    /** Still to match: not matched, not ignored, no decision waiting for a second OK. */
+    private const NEW_UNMATCHED = "cl.status IN ('unmapped', 'suggested') AND " . self::NOT_WAITING;
+    private const NEW_ORDER = ' ORDER BY cl.created_at DESC, cl.id DESC';
+    /**
+     * "Every suggestion of the strength New product, of every state, then its listing": the suggestions are read from the index of
+     * 0020 alone (status, band, listing_id: never a suggestion's row, which holds its evidence), and each one's listing by its
+     * primary key, until one is the store's.
+     */
+    private const EVER_NEW_HINT = '/*+ JOIN_ORDER(p, cl) INDEX(p ix_match_proposal_open_band) */ ';
+    /** Store Products' search (title, option title, brand, option number, barcode), on `lp` and `cl`. */
+    private const LISTING_TEXT = '(lp.product_title LIKE ? OR lp.variant_title LIKE ? OR lp.brand LIKE ? OR cl.external_variant_id = ? '
+        . 'OR JSON_SEARCH(lp.barcodes, \'one\', ?) IS NOT NULL)';
+
+    /**
+     * When a store's website products were first seen: the oldest and the newest (the two ends of the index of 0026), null when the
+     * store has none.
+     *
+     * @return array{first: ?string, last: ?string}
+     */
+    public function seenRange(int $channelId): array
+    {
+        $r = $this->db->one('SELECT MIN(created_at) AS first, MAX(created_at) AS last FROM channel_listing WHERE channel_id = ?', [$channelId]) ?? [];
+        return ['first' => isset($r['first']) ? (string) $r['first'] : null, 'last' => isset($r['last']) ? (string) $r['last'] : null];
+    }
+
+    /**
+     * What CW records of a store's link: its mode in CW (channel.mode), and from its connector's latest heartbeat (channel_health,
+     * by the index (channel_id, id)) the mode the website itself reported and how many seconds ago that was. `age` is null when the
+     * store's connector has never been heard from; a store that is not there reads as `off`.
+     *
+     * @return array{mode: string, site_mode: ?string, age: ?int}
+     */
+    public function storeLink(int $channelId): array
+    {
+        $r = $this->db->one('SELECT CAST(c.mode AS CHAR) AS mode, CAST(h.site_mode AS CHAR) AS site_mode, TIMESTAMPDIFF(SECOND, h.received_at, NOW(6)) AS age '
+            . 'FROM channel c LEFT JOIN channel_health h ON h.id = (SELECT MAX(h2.id) FROM channel_health h2 WHERE h2.channel_id = c.id) WHERE c.id = ?', [$channelId]);
+        return ['mode' => (string) ($r['mode'] ?? 'off'), 'site_mode' => isset($r['site_mode']) ? (string) $r['site_mode'] : null,
+            'age' => isset($r['age']) ? max(0, (int) $r['age']) : null];
+    }
+
+    /**
+     * Whether a computer check has ever said "new product" of a website product of this store (a suggestion of that strength, open,
+     * decided or replaced by a later one). A store where none has is one whose rows "Create as new items" can only skip: the check
+     * compares another store's list with the main store's, so it never says "new" of the main store's own variants, and it says
+     * nothing of a store no check was run for. New Variants says so on the page (U135). The cost is one index entry and one
+     * primary-key read per "new product" suggestion there is, of every store, until the first of this store: all of them when
+     * the answer is no. The caller asks only when the page's own counts do not already show one.
+     */
+    public function everFoundNew(int $channelId): bool
+    {
+        return $this->db->value('SELECT ' . self::EVER_NEW_HINT . "1 FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id "
+            . "WHERE p.status IN ('open', 'decided', 'superseded') AND p.band = 'New item' AND cl.channel_id = ? LIMIT 1", [$channelId]) !== null;
+    }
+
+    /**
+     * For each of these stores: its website products first seen since $since (null: ever, productsByStore()), the store selector's
+     * counts. One range of the index of 0026 per store (the store's entries since the date; about 15 bytes a product, never the
+     * rows), in one statement: a grouped read over every store cannot use the date, the index's second part, and reads every entry.
+     *
+     * @param list<int> $storeIds
+     * @return array<int, int> channel id => count
+     */
+    public function seenSinceByStore(?string $since, array $storeIds): array
+    {
+        if ($since === null) {
+            return $this->productsByStore();
+        }
+        $parts = [];
+        $params = [];
+        foreach ($storeIds as $id) {
+            $parts[] = '(SELECT ' . self::SEEN_HINT . (int) $id . ' AS id, COUNT(*) AS n FROM channel_listing cl WHERE cl.channel_id = ? AND cl.created_at >= ?)';
+            array_push($params, (int) $id, $since);
+        }
+        $out = [];
+        foreach ($parts === [] ? [] : $this->db->all(implode(' UNION ALL ', $parts), $params) as $r) {
+            $out[(int) $r['id']] = (int) $r['n'];
+        }
+        return $out;
+    }
+
+    /**
+     * How many of a store's website products first seen since $since (UTC, CW's own format; null: ever) are of each kind (NEW_KINDS).
+     * When the period holds every product of the store (its oldest is not older than $since), the store's own counts answer
+     * (storeStateCounts: three narrow reads, as Store Products) with one more read that tells its "new product" suggestions from
+     * the others (the open suggestions of that strength, by their index); else one grouped read of the period's entries of the
+     * index (the open suggestion's row is read only for a product that has one).
+     *
+     * @param array{first: ?string, last: ?string}|null $range seenRange() when the caller has it
+     * @return array<string, int>
+     */
+    public function newVariantCounts(int $channelId, ?string $since, ?array $range = null): array
+    {
+        $range ??= $this->seenRange($channelId);
+        $out = array_fill_keys(self::NEW_KINDS, 0);
+        if ($since === null || $range['first'] === null || strcmp($range['first'], $since) >= 0) {
+            $store = $this->storeStateCounts($channelId);
+            $new = (int) $this->db->value("SELECT COUNT(*) FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id WHERE p.status = 'open' "
+                . "AND p.band = 'New item' AND p.proposed_new_item = 1 AND cl.channel_id = ? AND " . self::NEW_UNMATCHED, [$channelId]);
+            return ['new' => $new, 'suggested' => max(0, $store['suggested'] - $new), 'not_checked' => $store['not_matched'], 'linked' => $store['linked'],
+                'quarantined' => $store['quarantined'], 'waiting' => $store['waiting'], 'ignored' => $store['ignored']];
+        }
+        // The alias is not `state`: GROUP BY would take match_decision's column of that name before it.
+        foreach ($this->db->all('SELECT ' . self::SEEN_JOIN_HINT . self::NEW_KIND_SQL . ' AS kind, COUNT(*) AS n FROM channel_listing cl ' . self::STATE_JOINS
+            . 'WHERE cl.channel_id = ? AND cl.created_at >= ? GROUP BY kind', [$channelId, $since]) as $r) {
+            $out[(string) $r['kind']] = (int) $r['n'];
+        }
+        return $out;
+    }
+
+    /** How many variants a filter of New Variants holds, from newVariantCounts' figures (null: all of them). @param array<string, int> $counts */
+    public static function newVariantTotal(array $counts, ?string $filter): int
+    {
+        return match ($filter) {
+            null => array_sum($counts),
+            'unmatched' => ($counts['new'] ?? 0) + ($counts['suggested'] ?? 0) + ($counts['not_checked'] ?? 0),
+            default => $counts[$filter] ?? 0,
+        };
+    }
+
+    /**
+     * The ids of a store's website products first seen since $since (null: ever), of $filter (NEW_FILTERS; null: every product),
+     * found by $q (Store Products' search; '' for none), newest first (first seen, then id): a page of PER_PAGE ($page from 1), or
+     * every one up to $limit when $page is null (the CSV). The total of a list without a text is $counts' (newVariantCounts), so
+     * only a search is counted here (it reads the profiles of the period's products, as Store Products' search reads the store's).
+     * "Still to match" reads the narrow listing row; "not checked yet" also probes the open suggestion's unique index; "new" and
+     * "suggested" join the open suggestion after the listing (JOIN_ORDER), so the list is still read in the index's order.
+     *
+     * @param array<string, int> $counts
+     * @return array{ids: list<int>, total: int, page: int, pages: int}
+     */
+    public function newVariants(int $channelId, ?string $since, ?string $filter, string $q, ?int $page, array $counts, int $limit = self::PER_PAGE): array
+    {
+        $where = ['cl.channel_id = ?'];
+        $params = [$channelId];
+        if ($since !== null) {
+            $where[] = 'cl.created_at >= ?';
+            $params[] = $since;
+        }
+        $filter = $filter !== null && in_array($filter, self::NEW_FILTERS, true) ? $filter : null;
+        $join = '';
+        $hint = self::SEEN_HINT;
+        if ($filter !== null) {
+            $where[] = self::NEW_UNMATCHED;
+        }
+        if ($filter === 'not_checked') {
+            $where[] = 'NOT EXISTS (SELECT 1 FROM match_proposal po WHERE po.open_listing_id = cl.id)';
+        } elseif ($filter === 'new' || $filter === 'suggested') {
+            $join = 'JOIN match_proposal p ON p.open_listing_id = cl.id ';
+            $where[] = ($filter === 'new' ? '' : 'NOT ') . self::IS_NEW_ITEM;
+            $hint = self::SEEN_JOIN_HINT;
+        }
+        $q = trim($q);
+        if ($q !== '') {
+            $like = '%' . self::escapeLike($q) . '%';
+            $where[] = self::LISTING_TEXT;
+            array_push($params, $like, $like, $like, $q, self::escapeLike($q));
+            $join .= 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id ';
+        }
+        $from = 'FROM channel_listing cl ' . $join . 'WHERE ' . implode(' AND ', $where);
+        $total = $q === '' ? self::newVariantTotal($counts, $filter) : (int) $this->db->value('SELECT ' . $hint . 'COUNT(*) ' . $from, $params);
+        if ($page === null) {
+            $ids = $total === 0 ? [] : array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . self::NEW_ORDER . ' LIMIT ?', [...$params, $limit]));
+            return ['ids' => $ids, 'total' => $total, 'page' => 1, 'pages' => 1];
+        }
+        $pages = max(1, (int) ceil($total / self::PER_PAGE));
+        $page = min(max(1, $page), $pages);
+        $ids = $total === 0 ? [] : array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . self::NEW_ORDER . ' LIMIT ? OFFSET ?',
+            [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE]));
+        return ['ids' => $ids, 'total' => $total, 'page' => $page, 'pages' => $pages];
+    }
+
+    /**
+     * The rows of New Variants for these website products, in the order given: the product's facts (titles, brand, option number,
+     * barcodes, price, units sold, first seen), what it is (`kind`, NEW_KIND_SQL), the item it is matched to, its open suggestion,
+     * the decision waiting for a second OK, what the website said of it when its features were stored (`site_status`,
+     * `is_placeholder`: NULL when not known) and when the computer checked it (`check_status`: the open suggestion's evidence, a
+     * text or NULL), what the open suggestion was made on and what the product is now (`basis_id`, `basis_identity`,
+     * `identity_hash`: BulkDecisions::changedSinceCheck), and the CW number of the item already made from it (`made_code`,
+     * BulkDecisions::madeFrom: one more read, by the index on sku.origin_listing_id). Primary-key and unique-index reads besides.
+     *
+     * @param list<int> $ids
+     * @return list<array<string, mixed>>
+     */
+    public function newVariantRows(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $by = [];
+        foreach ($this->db->all(
+            'SELECT cl.id AS listing_id, cl.status, cl.sku_id, cl.units_per_item, cl.map_version, cl.external_variant_id, cl.created_at, ' . self::NEW_KIND_SQL . ' AS kind, '
+            . 'lp.product_title, lp.variant_title, lp.brand, lp.barcodes, lp.price, lp.units_30d, lp.units_365d, s.code AS sku_code, s.name AS sku_name, '
+            . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS site_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder, "
+            // Only a text counts, as where the seed decodes the same evidence (BulkDecisions::seedCheck).
+            . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.variant_status')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.variant_status')) END AS check_status, "
+            . 'lp.identity_hash, pb.proposal_id AS basis_id, pb.identity_hash AS basis_identity, '
+            . 'p.id AS proposal_id, p.band, p.proposed_sku_id, p.proposed_new_item, ps.code AS proposed_code, ps.name AS proposed_name, '
+            . 'pd.id AS pending_id, pd.action AS pending_action '
+            . 'FROM channel_listing cl ' . self::STATE_JOINS . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN sku s ON s.id = cl.sku_id '
+            . 'LEFT JOIN sku ps ON ps.id = p.proposed_sku_id LEFT JOIN match_proposal_basis pb ON pb.proposal_id = p.id '
+            . 'WHERE cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
+            $ids,
+        ) as $r) {
+            $by[(int) $r['listing_id']] = $r;
+        }
+        foreach (BulkDecisions::madeFrom($this->db, $ids) as $id => $code) {
+            if (isset($by[$id])) {
+                $by[$id]['made_code'] = $code;
+            }
+        }
+        $out = [];
+        foreach ($ids as $id) {
+            if (isset($by[$id])) {
+                $out[] = $by[$id];
+            }
+        }
+        return $out;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -898,15 +1147,9 @@ final class Queries
      */
     public function barcodeElsewhere(int $listingId, array $barcodes, int $limit = 10): array
     {
-        $codes = [];
-        foreach (array_slice($barcodes, 0, 20) as $b) {
-            $codes[$b] = true;
-            $key = Gtin::key($b);
-            if ($key !== null) {
-                $codes[$key] = true;
-            }
-        }
-        $codes = array_map('strval', array_keys($codes));
+        // Every barcode of the listing, in every form it may be stored in elsewhere (Gtin::forms: as it is, its key, and the key
+        // padded with zeros up to 14 digits): the same forms as the bulk rule's look-up (BulkDecisions::barcodeElsewhere).
+        $codes = Gtin::forms($barcodes);
         if ($codes === []) {
             return ['items' => [], 'listings' => []];
         }

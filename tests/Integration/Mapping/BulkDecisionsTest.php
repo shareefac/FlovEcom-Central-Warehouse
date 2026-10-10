@@ -17,7 +17,12 @@ use CW\Tests\Support\MappingTestCase;
  * Bulk action on ticked rows (docs/decisions.md M46-M53): row by row through DecisionService, in listing id order, each with the
  * map_version and the suggestion the page showed; the rows a person must look at one at a time are skipped with why (held back,
  * in a spot check, vetoed, flagged, changed since the page was drawn, ...); a row that needs a second person waits for one; the
- * strengths and the most rows come from the settings; every decision carries the batch.
+ * strengths and the most rows come from the settings; every decision carries the batch. New Variants (M60-M62): "Create as new
+ * items" takes only a variant with an open "new product" suggestion and skips the rest with why; the barcode rule finds a code
+ * stored with other leading zeros; a number out of range and a note that is not text are refused before anything is written.
+ * One rule for every bulk "create as new" (M61), on New Variants and on the New products list alike: never a second item from a
+ * variant an item was already made from, none under a name an item already has or two ticked rows share, none from a variant that
+ * changed on the website after the computer checked it, a page heading or one that is not published.
  */
 final class BulkDecisionsTest extends MappingTestCase
 {
@@ -265,6 +270,363 @@ final class BulkDecisionsTest extends MappingTestCase
         self::assertSame('Brand new kit', self::$db->value('SELECT name FROM sku WHERE id = ?', [$l['sku_id']]));
         self::assertSame('barcode_elsewhere', self::batchRows($r['batch_id'])[$b]['skip_code']);
         self::assertSame('suggested', $this->link($b)['status']);
+    }
+
+    /** A listing of $site with a profile. @param list<string> $barcodes @param array<string, mixed>|null $features */
+    private function withProfile(Caller $site, string $variant, string $title, array $barcodes = [], ?array $features = null): int
+    {
+        $id = $this->listing($site, $variant, null);
+        self::$db->exec('INSERT INTO listing_profile (listing_id, product_title, barcodes, units_30d, units_365d, features) VALUES (?, ?, ?, 0, 0, ?)',
+            [$id, $title, json_encode($barcodes, JSON_THROW_ON_ERROR), $features === null ? null : json_encode($features, JSON_THROW_ON_ERROR)]);
+        return $id;
+    }
+
+    /**
+     * New Variants (M60, M61): a duplicate item splits one product's stock over two records and is never deleted, so the bulk seed
+     * takes ONLY a variant whose open suggestion says "new product" and skips everything else, each with its reason.
+     */
+    public function testOnNewVariantsTheSeedTakesOnlyAVariantTheComputerFoundNewAndSkipsTheRestWithWhy(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $lead = $this->staffUser('mapping_lead');
+        $site = $this->site('alt', 'shadow');
+        $other = $this->site('vbig', 'off');
+        $sku = $this->item('legacy');
+        $new = fn (int $l): int => $this->propose($l, 'New item', null, ['proposed_new_item' => 1]);
+        // Found new by the computer: with no stored features (a variant that arrived by itself), and with features that say Published.
+        $plain = $this->withProfile($site, 'S1', 'Found new, no features');
+        $new($plain);
+        $published = $this->withProfile($site, 'S2', 'Found new, published', ['5056168800097'], ['variant_status' => 'Published', 'is_placeholder' => false]);
+        $new($published);
+        // Never checked; a seed that was undone (an item was made from it: said first); sent back for matching; a suggestion marked
+        // wrong and then sent back: no OPEN suggestion.
+        $never = $this->withProfile($site, 'S3', 'Never checked');
+        $undone = $this->withProfile($site, 'S4', 'Seeded and undone');
+        $this->decide($lead, 'new_item', $undone, ['proposal_id' => $new($undone)]);
+        $this->decide($lead, 'unlink', $undone, ['reason' => 'a mistake']);
+        $sentBack = $this->withProfile($site, 'S5', 'Sent back');
+        $this->decide($lead, 'send_back', $sentBack, ['proposal_id' => $this->propose($sentBack, 'Key', $sku)]);
+        $rejected = $this->withProfile($site, 'S6', 'Marked wrong, then sent back');
+        $p = $this->propose($rejected, 'Check', $sku);
+        $this->decide($lead, 'reject', $rejected, ['proposal_id' => $p, 'sku_id' => $sku]);
+        $this->decide($lead, 'send_back', $rejected, ['proposal_id' => $p]);
+        // What the website said when the features were stored: a page heading (found new or never checked), not published.
+        $heading = $this->withProfile($site, 'S7', 'A heading', [], ['is_placeholder' => true, 'placeholder_reason' => 'parent_rule', 'variant_status' => 'Published']);
+        $new($heading);
+        $headingToo = $this->withProfile($site, 'S8', 'A heading nobody checked', [], ['is_placeholder' => true]);
+        $draft = $this->withProfile($site, 'S9', 'A draft', [], ['variant_status' => 'Draft', 'is_placeholder' => false]);
+        $new($draft);
+        // The computer suggests an item; could not tell; and a barcode that another variant holds with a leading zero.
+        $match = $this->withProfile($site, 'S10', 'Suggested match');
+        $this->propose($match, 'Check', $sku);
+        $unsure = $this->withProfile($site, 'S11', 'Not sure');
+        $this->propose($unsure, "Can't tell");
+        $twin = $this->withProfile($site, 'S12', 'Barcode twin', ['5056168800103']);
+        $new($twin);
+        $this->withProfile($other, 'T1', 'The twin elsewhere', ['05056168800103']);
+        $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+
+        $ids = [$plain, $published, $never, $undone, $sentBack, $rejected, $heading, $headingToo, $draft, $match, $unsure, $twin];
+        $r = $this->bulk()->run($mapper, 'new_item', array_map($this->seen(...), $ids), ['source' => 'new', 'channel_id' => $site->channelId]);
+        self::assertSame(['done' => 2, 'pending' => 0, 'skipped' => 10], ['done' => $r['done'], 'pending' => $r['pending'], 'skipped' => $r['skipped']]);
+        $rows = self::batchRows($r['batch_id']);
+        self::assertSame([$plain => null, $published => null, $never => 'not_checked', $undone => 'made_before', $sentBack => 'not_checked', $rejected => 'not_checked',
+            $heading => 'page_heading', $headingToo => 'page_heading', $draft => 'not_published', $match => 'suggested_match', $unsure => 'not_new',
+            $twin => 'barcode_elsewhere'], array_map(static fn (array $row): ?string => $row['skip_code'], $rows));
+        self::assertEquals(['band' => "Can't tell"], json_decode((string) $rows[$unsure]['detail'], true), 'a suggestion that names no item and is not "new": its own reason, with its strength');
+        self::assertEquals(['sku' => (string) self::$db->value('SELECT code FROM sku WHERE origin_listing_id = ?', [$undone])], json_decode((string) $rows[$undone]['detail'], true));
+        self::assertSame($skus + 2, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'an item for each of the two found new, none for a skipped row');
+        self::assertSame(['mapped', 'mapped'], [$this->link($plain)['status'], $this->link($published)['status']]);
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM sku WHERE origin_listing_id = ?', [$undone]), 'the undone seed is not made a second time');
+        self::assertEquals(['site_status' => 'Draft'], json_decode((string) $rows[$draft]['detail'], true), 'the record keeps what the website said');
+        self::assertEquals(['sku' => (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$sku])], json_decode((string) $rows[$match]['detail'], true));
+        self::assertSame('new', self::$db->value('SELECT source FROM mapping_batch WHERE id = ?', [$r['batch_id']]));
+        // DecisionService itself is unchanged: one at a time, a person may still make the item of a variant the computer never checked.
+        self::assertSame('mapped', $this->decide($mapper, 'new_item', $never)['status']);
+
+        // The New products list (a match-strength list) has the same guards since round 2b (M61: one rule for every bulk "create
+        // as new"; before, it made its ticked rows whatever the stored features said): a draft and a page heading are skipped
+        // there too. What counts as a suggestion to make stays as it was: a row without one is "nothing suggested", one of
+        // another strength "not one that may be confirmed together"; `not_checked`, `suggested_match` and `not_new` are New
+        // Variants' own.
+        $old = $this->withProfile($site, 'S13', 'On the New products list', [], ['variant_status' => 'Draft']);
+        $new($old);
+        $oldHeading = $this->withProfile($site, 'S15', 'A heading on the New products list', [], ['is_placeholder' => true]);
+        $new($oldHeading);
+        $bare = $this->withProfile($site, 'S14', 'No suggestion on a match-strength list');
+        $other = $this->withProfile($site, 'S16', 'Another strength on the New products list');
+        $this->propose($other, "Can't tell");
+        $withItem = $this->withProfile($site, 'S17', 'A suggested item on the New products list');
+        $this->propose($withItem, 'Check', $sku);
+        $good = $this->withProfile($site, 'S18', 'Found new on the New products list', [], ['variant_status' => 'Published']);
+        $new($good);
+        $r = $this->bulk()->run($mapper, 'new_item', array_map($this->seen(...), [$old, $oldHeading, $bare, $other, $withItem, $good]), ['source' => 'review', 'band' => 'New item']);
+        self::assertSame([$old => 'not_published', $oldHeading => 'page_heading', $bare => 'no_suggestion', $other => 'band_not_allowed', $withItem => 'band_not_allowed', $good => null],
+            array_map(static fn (array $row): ?string => $row['skip_code'], self::batchRows($r['batch_id'])));
+        self::assertSame(['suggested', 'mapped'], [$this->link($old)['status'], $this->link($good)['status']]);
+        // Store Products offers no "create as new" at all.
+        self::refused(400, 'bad_action', fn () => $this->bulk()->run($mapper, 'new_item', [$this->seen($bare)], ['source' => 'store', 'channel_id' => $site->channelId]));
+        // New Variants offers its three actions and nothing else; a request of it names its store.
+        self::assertSame(['new_item', 'link', 'ignore'], BulkDecisions::actionsOf('new'));
+        self::assertTrue(BulkDecisions::offered('new_item', 'new', null, ['mapper'], []));
+        self::assertFalse(BulkDecisions::offered('link', 'new', null, ['mapper'], []), 'a confirm only while the setting allows a strength');
+        self::assertFalse(BulkDecisions::offered('new_item', 'new', null, ['viewer'], ['Key']));
+        self::refused(400, 'bad_action', fn () => $this->bulk()->run($mapper, 'send_back', [$this->seen($match)], ['source' => 'new', 'channel_id' => $site->channelId]));
+        self::refused(400, 'bad_request', fn () => $this->bulk()->run($mapper, 'new_item', [$this->seen($draft)], ['source' => 'new']));
+    }
+
+    /** The two lists that offer a bulk "create as new": New Variants (one store's) and the New products list. @return list<array<string, mixed>> */
+    private static function seedLists(Caller $site): array
+    {
+        return [['source' => 'new', 'channel_id' => $site->channelId], ['source' => 'review', 'band' => 'New item']];
+    }
+
+    /** @param list<int> $ids @param array<string, mixed> $context @return array<int, array<string, mixed>> the batch's rows */
+    private function seed(Caller $who, array $ids, array $context): array
+    {
+        return self::batchRows($this->bulk()->run($who, 'new_item', array_map($this->seen(...), $ids), $context)['batch_id']);
+    }
+
+    /**
+     * R1 (M61): a variant an item was already made from is never seeded again in bulk, whatever suggestion is open. A later computer
+     * check compares the variant with the main store's list only, so it says "new" again of a variant whose own item it cannot see.
+     */
+    public function testAVariantAnItemWasAlreadyMadeFromIsNotSeededAgainWhateverSuggestionIsOpen(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $lead = $this->staffUser('mapping_lead');
+        $site = $this->site('alt', 'shadow');
+        $new = fn (int $l, string $run = 'test-run'): int => $this->propose($l, 'New item', null, ['proposed_new_item' => 1], true, $run);
+        foreach (self::seedLists($site) as $n => $context) {
+            // Seeded, the match undone, then a fresh "new" suggestion from another run.
+            $a = $this->withProfile($site, "A{$n}", "Seeded, undone, checked again {$n}");
+            $new($a);
+            self::assertSame([$a => null], array_map(static fn (array $row): ?string => $row['skip_code'], $this->seed($mapper, [$a], $context)));
+            $first = self::$db->one('SELECT id, code FROM sku WHERE origin_listing_id = ?', [$a]);
+            $this->decide($lead, 'unlink', $a, ['reason' => 'made by mistake']);
+            $new($a, "later-run-{$n}");
+            // The other order: the new run is imported while the variant is still matched, and the match is undone afterwards.
+            $b = $this->withProfile($site, "B{$n}", "Seeded, checked again, undone {$n}");
+            $new($b);
+            $this->seed($mapper, [$b], $context);
+            $new($b, "later-run-{$n}");
+            self::assertSame('mapped', $this->link($b)['status']);
+            // The undo names the suggestion the page shows (as the variant's page does) and leaves it open.
+            $this->decide($lead, 'unlink', $b, ['reason' => 'made by mistake', 'proposal_id' => $this->seen($b)['proposal_id']]);
+            foreach ([$a, $b] as $l) {
+                self::assertSame(['suggested', 'New item', 1], [$this->link($l)['status'], self::$db->value('SELECT band FROM match_proposal WHERE open_listing_id = ?', [$l]),
+                    (int) self::$db->value('SELECT proposed_new_item FROM match_proposal WHERE open_listing_id = ?', [$l])], 'it reads "new" again');
+            }
+            $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+            $rows = $this->seed($mapper, [$a, $b], $context);
+            self::assertSame([$a => 'made_before', $b => 'made_before'], array_map(static fn (array $row): ?string => $row['skip_code'], $rows), $context['source']);
+            self::assertEquals(['sku' => (string) $first['code']], json_decode((string) $rows[$a]['detail'], true), 'with the earlier item\'s CW number');
+            self::assertSame($skus, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'no second item');
+            self::assertSame([1, 1], [(int) self::$db->value('SELECT COUNT(*) FROM sku WHERE origin_listing_id = ?', [$a]), (int) self::$db->value('SELECT COUNT(*) FROM sku WHERE origin_listing_id = ?', [$b])]);
+            self::assertSame(['suggested', 'suggested'], [$this->link($a)['status'], $this->link($b)['status']]);
+        }
+        // It is the first reason given, also where another would apply (here: not published), and the read is by the index.
+        $c = $this->withProfile($site, 'C1', 'Seeded, undone, now a draft');
+        $new($c);
+        $this->seed($mapper, [$c], ['source' => 'new', 'channel_id' => $site->channelId]);
+        $this->decide($lead, 'unlink', $c, ['reason' => 'made by mistake']);
+        self::$db->exec("UPDATE listing_profile SET features = JSON_OBJECT('variant_status', 'Draft') WHERE listing_id = ?", [$c]);
+        self::assertSame([$c => 'made_before'], array_map(static fn (array $row): ?string => $row['skip_code'], $this->seed($mapper, [$c], ['source' => 'new', 'channel_id' => $site->channelId])));
+        self::assertSame([$c => (string) self::$db->value('SELECT code FROM sku WHERE origin_listing_id = ?', [$c])], BulkDecisions::madeFrom(self::$db, [$c, 999999]));
+        $plan = self::$db->all('EXPLAIN SELECT /*+ INDEX(s ix_sku_origin_listing) */ s.origin_listing_id, s.id, s.code FROM sku s WHERE s.origin_listing_id IN (?, ?)', [$c, 999999]);
+        self::assertSame(['range', 'ix_sku_origin_listing'], [$plan[0]['type'], $plan[0]['key']], 'one read over the ticked ids, by the index');
+        // One at a time a person may still make another item of it (DecisionService is unchanged): they see what they do there.
+        self::assertSame('mapped', $this->decide($mapper, 'new_item', $c)['status']);
+        self::assertSame(2, (int) self::$db->value('SELECT COUNT(*) FROM sku WHERE origin_listing_id = ?', [$c]));
+    }
+
+    /**
+     * R2 (M61): the name guard. A "new" suggestion means "not on the main store's list when the check ran": it never saw the items
+     * made since, nor the other ticked rows. So a row whose item would get the name of an item there is (one not joined into
+     * another) is skipped, and so is every row of two or more ticked rows that share a name.
+     */
+    public function testANameAnItemAlreadyHasOrTwoTickedRowsShareIsNotSeeded(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $site = $this->site('alt', 'shadow');
+        $other = $this->site('vbig', 'off');
+        $new = fn (int $l): int => $this->propose($l, 'New item', null, ['proposed_new_item' => 1]);
+        foreach (self::seedLists($other) as $n => $context) {
+            // One store's variant becomes an item; the other store lists the same thing under the same name, with no barcode in common.
+            $first = $this->withProfile($site, "F{$n}", "Elux Legend 3500 Blue Razz {$n}", ['5056168800' . (200 + $n)]);
+            $new($first);
+            self::assertSame([$first => null], array_map(static fn (array $row): ?string => $row['skip_code'], $this->seed($mapper, [$first], self::seedLists($site)[$n])));
+            $code = (string) self::$db->value('SELECT code FROM sku WHERE origin_listing_id = ?', [$first]);
+            self::assertSame("Elux Legend 3500 Blue Razz {$n}", self::$db->value('SELECT name FROM sku WHERE code = ?', [$code]));
+            // The same name, typed with other capitals and spaces (the name an item gets is trimmed and its spaces collapsed).
+            $twin = $this->withProfile($other, "T{$n}", "  ELUX legend  3500 Blue Razz {$n} ");
+            $new($twin);
+            // The option's title is the name when there is one, as on the item's card.
+            $byOption = $this->withProfile($other, "O{$n}", 'A range page');
+            self::$db->exec('UPDATE listing_profile SET variant_title = ? WHERE listing_id = ?', ["Elux Legend 3500 Blue Razz {$n}", $byOption]);
+            $new($byOption);
+            // Two ticked rows that share a name no item has (capitals apart), and a third of its own.
+            $pairA = $this->withProfile($other, "P{$n}a", "Lost Mary BM600 Cherry Ice {$n}");
+            $pairB = $this->withProfile($other, "P{$n}b", "lost mary bm600 cherry ice {$n}");
+            $single = $this->withProfile($other, "P{$n}c", "Lost Mary BM600 Grape {$n}");
+            // A name only an item JOINED INTO another has does not stop a seed: that item is gone from the lists.
+            $joined = self::makeSku("Joined away {$n}");
+            self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [(int) self::$db->value('SELECT id FROM sku WHERE code = ?', [$code]), $joined]);
+            $free = $this->withProfile($other, "J{$n}", "Joined away {$n}");
+            foreach ([$pairA, $pairB, $single, $free] as $l) {
+                $new($l);
+            }
+            $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+            $rows = $this->seed($mapper, [$twin, $byOption, $pairA, $pairB, $single, $free], $context);
+            self::assertSame([$twin => 'name_elsewhere', $byOption => 'name_elsewhere', $pairA => 'name_twice', $pairB => 'name_twice', $single => null, $free => null],
+                array_map(static fn (array $row): ?string => $row['skip_code'], $rows), $context['source']);
+            self::assertEquals(['sku' => $code, 'name' => "ELUX legend 3500 Blue Razz {$n}"], json_decode((string) $rows[$twin]['detail'], true), 'with the CW number of the item that has the name');
+            self::assertEquals(['name' => "Lost Mary BM600 Cherry Ice {$n}", 'rows' => 2], json_decode((string) $rows[$pairA]['detail'], true));
+            self::assertSame($skus + 2, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'an item for the two rows of their own name only');
+            self::assertSame(['suggested', 'suggested', 'suggested', 'suggested', 'mapped', 'mapped'],
+                array_map(fn (int $l): string => $this->link($l)['status'], [$twin, $byOption, $pairA, $pairB, $single, $free]));
+            // Ticked on its own, one of the pair is made (nothing shares its name now); the other then finds that item's name.
+            self::assertSame([$pairA => null], array_map(static fn (array $row): ?string => $row['skip_code'], $this->seed($mapper, [$pairA], $context)));
+            self::assertSame([$pairB => 'name_elsewhere'], array_map(static fn (array $row): ?string => $row['skip_code'], $this->seed($mapper, [$pairB], $context)));
+            // One at a time a person may still make it (DecisionService is unchanged): they see the name there.
+            self::assertSame('mapped', $this->decide($mapper, 'new_item', $twin, ['proposal_id' => $this->seen($twin)['proposal_id']])['status']);
+        }
+        // The look-up is served by the index of 0026.
+        $plan = self::$db->all('EXPLAIN SELECT /*+ INDEX(s ix_sku_name) */ MIN(s.code) FROM sku s WHERE s.name = ? AND s.merged_into_sku_id IS NULL', ['Lost Mary BM600 Grape 0']);
+        self::assertSame(['ref', 'ix_sku_name'], [$plan[0]['type'], $plan[0]['key']]);
+        self::assertSame(['name'], self::$db->column("SELECT COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sku' AND INDEX_NAME = 'ix_sku_name'"));
+    }
+
+    /**
+     * R3 (M61): a "new" suggestion is the computer's word on the variant as it was. (a) When the stored features give no state of
+     * the website (a change of the variant's titles or barcodes wipes them), the state the suggestion recorded is used. (b) A
+     * variant whose identity is no longer the one the suggestion was made on is skipped: nobody checked what it is now.
+     */
+    public function testAVariantThatChangedAfterTheCheckOrWasNotPublishedThenIsNotSeeded(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $site = $this->site('alt', 'shadow');
+        $sku = $this->item('legacy');
+        $new = fn (int $l, array $evidence = []): int => $this->propose($l, 'New item', null, ['proposed_new_item' => 1] + ($evidence === [] ? [] : ['evidence' => $evidence]));
+        foreach (self::seedLists($site) as $n => $context) {
+            // In the bin when the computer checked it (stored features and the suggestion's record both say so), then renamed.
+            $binned = $this->withProfile($site, "N{$n}1", "Binned, then renamed {$n}", [], ['variant_status' => 'Bin', 'is_placeholder' => false]);
+            $new($binned, ['variant_status' => 'Bin', 'title' => 'as it was']);
+            // The same, where the suggestion recorded no state: all that is known is that it changed.
+            $binnedOnly = $this->withProfile($site, "N{$n}2", "Binned in its features only, then renamed {$n}", [], ['variant_status' => 'Bin']);
+            $new($binnedOnly);
+            // Published and renamed after the check (to anything: here to the name of an item there is).
+            $renamed = $this->withProfile($site, "N{$n}3", "Published, then renamed {$n}", [], ['variant_status' => 'Published']);
+            $new($renamed, ['variant_status' => 'Published']);
+            // The suggestion recorded "Draft"; the features were never stored (the load had no features file).
+            $draft = $this->withProfile($site, "N{$n}4", "A draft by the check's record {$n}");
+            $new($draft, ['variant_status' => 'Draft']);
+            // Not changed: published by the features; published by the check's record only; a state that is no text says nothing.
+            $same = $this->withProfile($site, "N{$n}5", "Published and unchanged {$n}", [], ['variant_status' => 'Published']);
+            $new($same, ['variant_status' => 'Bin']);
+            $sameByCheck = $this->withProfile($site, "N{$n}6", "Published by the check's record {$n}");
+            $new($sameByCheck, ['variant_status' => 'Published']);
+            $odd = $this->withProfile($site, "N{$n}7", "A state that is no text {$n}");
+            $new($odd, ['variant_status' => 7]);
+            // Changed, but its suggestion has no record of what it was made on (one made before such records were kept).
+            $noBasis = $this->withProfile($site, "N{$n}8", "No record of the check {$n}");
+            self::$db->exec('DELETE FROM match_proposal_basis WHERE proposal_id = ?', [$new($noBasis)]);
+            // Before the rename the stored features say "Bin", and the seed skips both for that.
+            self::assertSame([$binned => 'not_published', $binnedOnly => 'not_published'], array_map(static fn (array $row): ?string => $row['skip_code'], $this->seed($mapper, [$binned, $binnedOnly], $context)));
+            $this->rename($binned, "Binned, new title {$n}");
+            $this->rename($binnedOnly, "Binned in its features only, new title {$n}");
+            $this->rename($renamed, (string) self::$db->value('SELECT name FROM sku WHERE id = ?', [$sku]));
+            $this->rename($noBasis, "No record of the check, new title {$n}");
+            foreach ([$binned, $binnedOnly, $renamed, $noBasis] as $l) {
+                self::assertNull(self::$db->value('SELECT features FROM listing_profile WHERE listing_id = ?', [$l]), 'a change of the titles wipes the stored features');
+                self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM match_proposal WHERE open_listing_id = ?', [$l]), 'and leaves the suggestion open');
+            }
+            $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+            $rows = $this->seed($mapper, [$binned, $binnedOnly, $renamed, $draft, $same, $sameByCheck, $odd, $noBasis], $context);
+            self::assertSame([$binned => 'not_published', $binnedOnly => 'changed_since_check', $renamed => 'changed_since_check', $draft => 'not_published', $same => null,
+                $sameByCheck => null, $odd => null, $noBasis => null], array_map(static fn (array $row): ?string => $row['skip_code'], $rows), $context['source']);
+            self::assertEquals(['site_status' => 'Bin'], json_decode((string) $rows[$binned]['detail'], true), 'what the check recorded');
+            self::assertEquals(['site_status' => 'Draft'], json_decode((string) $rows[$draft]['detail'], true));
+            self::assertSame($skus + 4, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'no item from a skipped row');
+            self::assertSame(['suggested', 'suggested', 'suggested', 'suggested'], array_map(fn (int $l): string => $this->link($l)['status'], [$binned, $binnedOnly, $renamed, $draft]));
+        }
+        // The two questions the list asks too (so a row and its skip cannot disagree).
+        self::assertSame(['Bin', 'Draft', 'Published', null, null], [BulkDecisions::siteState(null, 'Bin'), BulkDecisions::siteState('Draft', 'Bin'), BulkDecisions::siteState('null', ' Published '),
+            BulkDecisions::siteState(null, 7), BulkDecisions::siteState('', null)]);
+        self::assertSame([true, true, true, false, false, false], [BulkDecisions::changedSinceCheck(5, 'aa', 'bb'), BulkDecisions::changedSinceCheck(5, null, 'bb'), BulkDecisions::changedSinceCheck(5, 'aa', null),
+            BulkDecisions::changedSinceCheck(5, 'aa', 'aa'), BulkDecisions::changedSinceCheck(5, null, null), BulkDecisions::changedSinceCheck(null, 'aa', 'bb')]);
+    }
+
+    /** The barcode rule of a bulk "new product" (any list): a code is found on another record whichever way its leading zeros were typed. */
+    public function testTheBarcodeRuleFindsACodeStoredWithOtherLeadingZerosAndLooksAtEveryBarcode(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $site = $this->site('alt', 'shadow');
+        $other = $this->site('vbig', 'off');
+        $sku = $this->item('legacy');
+        $new = fn (int $l): int => $this->propose($l, 'New item', null, ['proposed_new_item' => 1]);
+        // The other record holds the padded form; the ticked one the short form (it was missed), and the other way round.
+        $short = $this->withProfile($site, 'Z1', 'Short form here', ['5056168800110']);
+        $this->withProfile($other, 'Y1', 'Padded form there', ['05056168800110']);
+        $long = $this->withProfile($site, 'Z2', 'Padded form here', ['05056168800127']);
+        $this->withProfile($other, 'Y2', 'Short form there', ['5056168800127']);
+        // Two different paddings of one 11-digit code: neither is the other's key.
+        $twelve = $this->withProfile($site, 'Z3', 'Twelve digits here', ['012345678912']);
+        $this->withProfile($other, 'Y3', 'Thirteen digits there', ['0012345678912']);
+        // An item's barcode, kept as its key; the ticked variant has it padded to 14.
+        self::$db->exec("INSERT INTO sku_barcode (sku_id, barcode, is_usable, units_per_scan, source) VALUES (?, '5056168800134', 1, 1, 'manual')", [$sku]);
+        $onItem = $this->withProfile($site, 'Z4', 'Padded, on an item', ['05056168800134']);
+        // The clash is the variant's 25th barcode (in the order they are stored).
+        $many = array_map(static fn (int $i): string => (string) (4000000000000 + $i), range(1, 24));
+        $late = $this->withProfile($site, 'Z5', 'Twenty-five barcodes', [...$many, '5056168800141']);
+        $this->withProfile($other, 'Y5', 'Holds the last one', ['5056168800141']);
+        // No clash: the same digits inside a longer code are another code.
+        $free = $this->withProfile($site, 'Z6', 'Its own code', ['5056168800158']);
+        $this->withProfile($other, 'Y6', 'A longer code', ['15056168800158']);
+        foreach ([$short, $long, $twelve, $onItem, $late, $free] as $l) {
+            $new($l);
+        }
+        foreach ([['source' => 'new', 'channel_id' => $site->channelId], ['source' => 'review', 'band' => 'New item']] as $context) {
+            $ids = $context['source'] === 'new' ? [$short, $long, $twelve, $onItem, $late] : [$short, $long, $twelve, $onItem, $late, $free];
+            $r = $this->bulk()->run($mapper, 'new_item', array_map($this->seen(...), $ids), $context);
+            $codes = array_map(static fn (array $row): ?string => $row['skip_code'], self::batchRows($r['batch_id']));
+            self::assertSame(array_fill_keys([$short, $long, $twelve, $onItem, $late], 'barcode_elsewhere') + ($context['source'] === 'new' ? [] : [$free => null]), $codes, $context['source']);
+        }
+        self::assertSame('mapped', $this->link($free)['status']);
+    }
+
+    /** A number no listing or version can have, and a note that is not text, are refused whole before the batch is written. */
+    public function testANumberOutOfRangeOrANoteThatIsNotTextIsRefusedBeforeAnythingIsWritten(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $site = $this->site('alt', 'shadow');
+        $sku = $this->item('legacy');
+        $a = $this->withProfile($site, 'R1', 'A real one');
+        $this->propose($a, 'Key', $sku);
+        $real = $this->seen($a);
+        $contexts = [['source' => 'review', 'band' => 'Key'], ['source' => 'store', 'channel_id' => $site->channelId], ['source' => 'new', 'channel_id' => $site->channelId]];
+        foreach ($contexts as $context) {
+            $action = $context['source'] === 'review' ? 'link' : 'ignore';
+            $with = $context + ['reason' => 'a note'];
+            foreach ([['listing_id' => 4294967296, 'proposal_id' => null, 'map_version' => 0], ['listing_id' => 0, 'proposal_id' => null, 'map_version' => 0],
+                ['listing_id' => $a, 'proposal_id' => $real['proposal_id'], 'map_version' => 9999999999], ['listing_id' => $a, 'proposal_id' => 0, 'map_version' => 0]] as $bad) {
+                self::refused(400, 'bad_request', fn () => $this->bulk()->run($mapper, $action, [$real, $bad], $with));
+            }
+            $e = self::refused(400, 'bad_reason', fn () => $this->bulk()->run($mapper, $action, [$real], ['reason' => "not text \xFF"] + $context));
+            self::assertSame('encoding', $e->detail['why'] ?? null, $context['source']);
+            self::refused(400, 'bad_reason', fn () => $this->bulk()->run($mapper, $action, [$real], ['reason' => str_repeat('é', DecisionService::MAX_REASON + 1)] + $context));
+        }
+        self::assertSame([0, 0, 'suggested'], [(int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'), (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch_row'),
+            $this->link($a)['status']], 'nothing was written');
+        // The largest number there is names no listing: recorded as a skipped row, as any unknown one.
+        $r = $this->bulk()->run($mapper, 'ignore', [['listing_id' => 4294967295, 'proposal_id' => null, 'map_version' => 4294967295]], ['source' => 'store', 'reason' => 'x']);
+        self::assertSame('unknown_listing', self::batchRows($r['batch_id'])[4294967295]['skip_code']);
+        // One at a time the same note is refused before the decision is written (what was typed, not a rule of matching).
+        $before = $this->decisions();
+        $e = self::refused(400, 'bad_reason', fn () => $this->decide($mapper, 'ignore', $a, ['proposal_id' => $real['proposal_id'], 'reason' => "caf\xE9"]));
+        self::assertSame('encoding', $e->detail['why'] ?? null);
+        self::assertSame([$before, 'suggested'], [$this->decisions(), $this->link($a)['status']]);
+        self::assertSame('ignored', $this->decide($mapper, 'ignore', $a, ['proposal_id' => $real['proposal_id'], 'reason' => 'café'])['status']);
     }
 
     public function testIgnoreTakeOffTheIgnoredListAndSendBackForMatching(): void

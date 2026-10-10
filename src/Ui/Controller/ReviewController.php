@@ -271,18 +271,19 @@ final class ReviewController
 
     /**
      * The bulk actions a list offers this person (BulkDecisions::offered), with their button words and look: the safe ones primary,
-     * the ones that say no secondary with "…" (a second step follows).
+     * the ones that say no secondary with "…" (a second step follows). $words is the Words group of the buttons (New Variants says
+     * them in the owner's words: "Create as new items").
      *
      * @param list<string> $roles
      * @param list<string> $confirmBands
      * @return list<array{action: string, label: string, class: string}>
      */
-    public static function bulkActions(string $source, ?string $band, array $roles, array $confirmBands): array
+    public static function bulkActions(string $source, ?string $band, array $roles, array $confirmBands, string $words = 'BULK_ACTION'): array
     {
         $out = [];
-        foreach ($source === 'store' ? BulkDecisions::STORE_ACTIONS : BulkDecisions::REVIEW_ACTIONS as $a) {
+        foreach (BulkDecisions::actionsOf($source) as $a) {
             if (BulkDecisions::offered($a, $source, $band, $roles, $confirmBands)) {
-                $out[] = ['action' => $a, 'label' => Words::BULK_ACTION[$a], 'class' => in_array($a, BulkDecisions::NEGATIVE, true) ? 'secondary' : 'primary'];
+                $out[] = ['action' => $a, 'label' => Words::of($words, $a), 'class' => in_array($a, BulkDecisions::NEGATIVE, true) ? 'secondary' : 'primary'];
             }
         }
         return $out;
@@ -1005,6 +1006,8 @@ final class ReviewController
             $code === 'map_version_conflict', $code === 'proposal_changed' => Words::MATCH_ERROR[$code . ($settle ? '_settle' : '')],
             $code === 'bad_card' => self::badCard(is_string($e->detail['field'] ?? null) ? substr($e->detail['field'], 5) : ''),
             $code === 'bad_units' => Words::say('MATCH_ERROR', 'bad_units', DecisionService::MAX_UNITS),
+            // A note that is not readable text (bytes that are not UTF-8): refused by the service before anything is written.
+            $code === 'bad_reason' && ($e->detail['why'] ?? null) === 'encoding' => Words::MATCH_ERROR['reason_text'],
             in_array($code, ['role_not_allowed', 'staff_required'], true) => Words::MATCH_ERROR['not_allowed'],
             isset(Words::MATCH_ERROR[$code]) && $code !== 'other' => Words::MATCH_ERROR[$code],
             default => Words::say('MATCH_ERROR', 'other', ucfirst(rtrim($e->getMessage(), '.')) . '.'),
