@@ -132,4 +132,37 @@ final class ByProductContextTest extends TestCase
         self::assertNull(ByProductContext::store(self::STORES, null));
         self::assertNull(ByProductContext::store([], 'alt'));
     }
+
+    /**
+     * U123: how many items the person's list showed travels too (`ln`), only when it is one of the page's sizes; the way back to the
+     * list and to the picker carries it, and a context without it has the addresses it always had.
+     */
+    public function testTheNumberOfRowsTravelsOnlyWhenItIsOneOfThePagesSizes(): void
+    {
+        $from = static fn (array $more): ByProductContext => ByProductContext::from($more + self::FROM, self::STORES) ?? throw new \LogicException('not a context');
+        self::assertSame([50, 100, 200], ByProductContext::PAGE_SIZES);
+        self::assertSame([100, 200, 50, null, null, null, null, null, null, null], array_map(static fn (mixed $v): ?int => $from(['ln' => $v])->rows,
+            ['100', '200', '50', '75', '0', '-100', '100.0', ' 100', ['100'], 'https://evil.example']));
+        self::assertSame([200, null, null, null], [ByProductContext::pageSize('200'), ByProductContext::pageSize(null), ByProductContext::pageSize('1000'), ByProductContext::pageSize("200\n")]);
+        $c = $from(['ln' => '200', 'cov' => 'suggested', 'pq' => 'pod', 'pp' => '2']);
+        self::assertSame(['via' => 'product', 'product' => 41, 'channel' => 'alt', 'cov' => 'suggested', 'lq' => null, 'pq' => 'pod', 'pp' => 2, 'ln' => 200], $c->query());
+        self::assertSame('/ui/review/products?cov=suggested&n=200&at=41#p-41', $c->listUrl());
+        self::assertSame('/ui/review/products/41/map?channel=alt&cov=suggested&ln=200&q=pod&page=2', $c->pickerUrl());
+        self::assertSame(200, $c->withPicker('x', 3)->rows, 'the picker keeps it');
+        self::assertEquals($c, ByProductContext::from(array_map('strval', array_filter($c->query(), static fn (mixed $v): bool => $v !== null)), self::STORES));
+        self::assertArrayNotHasKey('ln', $from([])->query());
+    }
+
+    /** U126: the ticked items a link carries back to the list are item numbers joined by dots, a page's worth at most, or none at all. */
+    public function testTheTicksALinkCarriesAreItemNumbersOrNothing(): void
+    {
+        self::assertSame([3, 41, 7], ByProductContext::ticked('3.41.7'));
+        self::assertSame([5], ByProductContext::ticked('5'));
+        self::assertSame([5, 6], ByProductContext::ticked('5.6.5'), 'each once');
+        foreach ([null, '', '0', '-3', '3,4', '3..4', '.3', '3.', '3.x', ' 3', "3\n", '3.04', str_repeat('9', 11), '//evil.example', '1e3'] as $v) {
+            self::assertSame([], ByProductContext::ticked($v), json_encode($v));
+        }
+        self::assertCount(ByProductContext::MAX_TICKED, ByProductContext::ticked(implode('.', range(1, ByProductContext::MAX_TICKED))));
+        self::assertSame([], ByProductContext::ticked(implode('.', range(1, ByProductContext::MAX_TICKED + 1))), 'more than a page holds is no page of ours');
+    }
 }

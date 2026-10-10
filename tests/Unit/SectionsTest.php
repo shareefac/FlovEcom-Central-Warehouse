@@ -112,6 +112,10 @@ final class SectionsTest extends TestCase
             ['/ui/review/products', ['cov' => 'every'], 'products', 'by_product', 'by_product'],
             ['/ui/review/products.csv', [], 'products', 'by_product', 'by_product'],
             ['/ui/review/products/12/map', ['channel' => 'x'], 'products', 'by_product', 'by_product'],
+            ['/ui/review/products/bulk', [], 'products', 'by_product', 'by_product'],
+            ['/ui/review/products/bulk/apply', [], 'products', 'by_product', 'by_product'],
+            ['/ui/review/batches/12', ['from' => 'item', 'cov' => 'every'], 'products', 'by_product', 'by_product'],
+            ['/ui/review/batches/12', ['from' => 'store'], 'products', 'mapping', 'review'],
             ['/ui/items/cards', [], 'products', 'cards', 'cards'],
             ['/ui/items/cards/import', [], 'products', 'cards', 'cards'],
             ['/ui/items/12', [], 'products', 'cards', 'cards'],
@@ -247,6 +251,9 @@ final class SectionsTest extends TestCase
         self::assertSame(['section' => 'products', 'tab' => 'mapping', 'page' => 'review'],
             Sections::locate('/ui/review/listing/7', ['pick' => '3', 'via' => 'product', 'product' => '3', 'channel' => 'electrofag']));
         self::assertSame(['section' => 'products', 'tab' => 'mapping', 'page' => 'review'], Sections::locate('/ui/review/batches/7'));
+        // The batch page of a bulk action started on By Item (U127) keeps the By Item tab; a value that is no plain value names nothing.
+        self::assertSame(['section' => 'products', 'tab' => 'by_product', 'page' => 'by_product'], Sections::locate('/ui/review/batches/7', ['from' => 'item']));
+        self::assertSame(['section' => 'products', 'tab' => 'mapping', 'page' => 'review'], Sections::locate('/ui/review/batches/7', ['from' => ['item']]));
         self::assertSame(Words::BADGE['linking_pending'], $f['segments'][2]['countWords']);
         self::assertSame([], $f['actions'], 'nothing to create on Mapping');
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings', 'More'], array_column($f['phone'], 'label'));

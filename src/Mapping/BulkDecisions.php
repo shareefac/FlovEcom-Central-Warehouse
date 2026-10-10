@@ -34,6 +34,15 @@ use CW\Staff\StaffRoles;
  *
  * A batch (mapping_batch, `screen:<id>` on every decision and its audit row) and one mapping_batch_row per ticked row (written in
  * the decision's transaction, so the result screen reports exactly what was saved). Audited `mapping.bulk` with the counts.
+ *
+ * Products › By Item (the list context `item`, docs/decisions.md M55-M59): the rows are the suggested variants of the items a
+ * person ticked, of every strength at once, so each row's own strength is checked as it is done (prechecks(): a confirm skips a
+ * strength the setting leaves out; DecisionService refuses Clues disagree to a matcher). The screen shows preview() of the same
+ * rows before anything is saved: the same request checks (checked()), the same pre-checks, and what DecisionService would answer,
+ * read only. Its apply carries the item each row was shown under (`sku_id`: a suggestion that proposes another item now is
+ * skipped) and the rows the preview skipped (`preview_skipped`: never acted on, recorded as skipped with why). A confirm there
+ * leaves to a person, one at a time (M59): a pair marked "not a match" before, an item that already has a variant (or a decision
+ * waiting) on that store, and an item with more than one suggested variant on a store.
  */
 final class BulkDecisions
 {
@@ -41,9 +50,11 @@ final class BulkDecisions
     public const ACTIONS = ['link', 'new_item', 'reject', 'ignore', 'unignore', 'send_back'];
     public const REVIEW_ACTIONS = ['link', 'new_item', 'reject', 'ignore'];
     public const STORE_ACTIONS = ['ignore', 'unignore', 'send_back'];
+    /** By Item (M55): what the suggested variants of ticked items may have done to them; a match is undone one at a time (M53). */
+    public const ITEM_ACTIONS = ['link', 'reject', 'send_back'];
     /** The actions that say no (or take products out of the lists): the screens ask a second time, stating the count. */
     public const NEGATIVE = ['reject', 'ignore', 'send_back'];
-    public const SOURCES = ['review', 'store'];
+    public const SOURCES = ['review', 'store', 'item'];
     /** The defaults of the settings (a schema before 0021 reads these). */
     public const DEFAULT_BANDS = ['Key', 'Check'];
     public const DEFAULT_MAX_ROWS = 100;
@@ -52,7 +63,9 @@ final class BulkDecisions
     /** Why a row is skipped (Ui\Words::BULK_SKIP has the words of each). */
     public const SKIPS = ['unknown_listing', 'other_store', 'changed', 'suggestion_changed', 'pending_second', 'held', 'held_meanwhile', 'in_spot_check',
         'spot_check_failed', 'bulk_undone', 'band_not_allowed', 'vetoed', 'flagged', 'no_product', 'barcode_elsewhere', 'already_rejected', 'not_ignored',
-        'already_ignored', 'linked', 'not_waiting', 'no_suggestion', 'lead_only', 'not_allowed', 'product_joined', 'no_name', 'refused'];
+        'already_ignored', 'linked', 'not_waiting', 'no_suggestion', 'lead_only', 'not_allowed', 'product_joined', 'no_name', 'refused',
+        // By Item's confirm only (M59, confirmScope()):
+        'rejected_before', 'item_on_store', 'several_suggested'];
     /** DecisionService refusals => the skip they are reported as (others: `refused`, with the code). */
     private const REFUSAL_SKIP = [
         'map_version_conflict' => 'changed',
@@ -74,6 +87,10 @@ final class BulkDecisions
         'unknown_listing' => 'unknown_listing',
     ];
     private const OPEN = ['unmapped', 'suggested'];
+    /** The largest number a variant's id or version can be (INT UNSIGNED): a row that names a larger one names nothing (checked()). */
+    private const MAX_UINT = 0xFFFFFFFF;
+    /** How far rejectedBefore() follows an item's joins (a chain of joins is one or two long). */
+    private const MAX_JOINS = 32;
 
     public function __construct(private readonly Db $db, private readonly DecisionService $ds)
     {
@@ -107,6 +124,10 @@ final class BulkDecisions
      */
     public static function offered(string $action, string $source, ?string $band, array $roles, array $confirmBands): bool
     {
+        if ($source === 'item') {
+            // By Item (M55): rows of every strength; each row's own strength and its Conflict rule are checked as it is done.
+            return Permissions::can($roles, 'mapping.decide') && in_array($action, self::ITEM_ACTIONS, true);
+        }
         if (!Permissions::can($roles, 'mapping.decide') || !in_array($action, $source === 'store' ? self::STORE_ACTIONS : self::REVIEW_ACTIONS, true)) {
             return false;
         }
@@ -128,22 +149,24 @@ final class BulkDecisions
     }
 
     /**
-     * Does $action for the ticked rows, row by row (the class comment). Refuses the whole request, writing nothing, when the
-     * action is not one of the list's, the person may not make it, a confirm is asked on a strength the setting leaves out, the
-     * rows are none or more than the setting allows, or an ignore has no note.
+     * The checks of the whole request, for run() and preview() alike (they were the first lines of run(), M56): the list and its
+     * action, a person who may decide, a confirm only on the strengths of the setting, the note, at least one and at most the
+     * setting's rows. A refusal is a CwException and nothing is written.
      *
-     * @param list<array{listing_id: int, proposal_id: ?int, map_version: int}> $rows what the page showed for each ticked row
+     * @param list<array{listing_id: int, proposal_id: ?int, map_version: int}> $rows
      * @param array{source: string, channel_id?: ?int, band?: ?string, reason?: ?string} $context
-     * @return array{batch_id: int, batch: string, done: int, pending: int, skipped: int}
+     * @return array{source: string, channel_id: ?int, band: ?string, reason: ?string, rows: array<int, array{listing_id: int, proposal_id: ?int, map_version: int}>,
+     *               confirm_bands: list<string>, roles: list<string>} rows: by listing id, in listing id order
      */
-    public function run(Caller $caller, string $action, array $rows, array $context): array
+    private function checked(Caller $caller, string $action, array $rows, array $context): array
     {
         $source = $context['source'];
         $channelId = $context['channel_id'] ?? null;
         $band = $context['band'] ?? null;
         $reason = isset($context['reason']) ? trim((string) $context['reason']) : '';
         $reason = $reason === '' ? null : $reason;
-        if (!in_array($source, self::SOURCES, true) || !in_array($action, $source === 'store' ? self::STORE_ACTIONS : self::REVIEW_ACTIONS, true)) {
+        if (!in_array($source, self::SOURCES, true)
+            || !in_array($action, match ($source) { 'store' => self::STORE_ACTIONS, 'item' => self::ITEM_ACTIONS, default => self::REVIEW_ACTIONS }, true)) {
             throw new CwException('bad_action', 'this list has no such bulk action', 400);
         }
         if ($source === 'review' && ($band === null || !in_array($band, Proposals::BANDS, true))) {
@@ -172,6 +195,12 @@ final class BulkDecisions
         }
         $byListing = [];
         foreach ($rows as $r) {
+            // A number no variant or version can be (beyond its column) would only fail when its row is recorded, in the middle of
+            // the batch: the whole request is refused here, before anything is written (every list; review finding of 10 Oct 2026).
+            if ((int) $r['listing_id'] < 1 || (int) $r['listing_id'] > self::MAX_UINT || (int) $r['map_version'] < 0 || (int) $r['map_version'] > self::MAX_UINT
+                || ($r['proposal_id'] !== null && (int) $r['proposal_id'] < 1)) {
+                throw new CwException('bad_request', 'a row names a number that is no variant, suggestion or version', 400);
+            }
             $byListing[(int) $r['listing_id']] = ['listing_id' => (int) $r['listing_id'], 'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'],
                 'map_version' => (int) $r['map_version']];
         }
@@ -183,6 +212,24 @@ final class BulkDecisions
         if (count($byListing) > $max) {
             throw new CwException('too_many_rows', 'at most ' . $max . ' rows at a time', 422, ['max' => $max, 'asked' => count($byListing)]);
         }
+        return ['source' => $source, 'channel_id' => $channelId, 'band' => $band, 'reason' => $reason, 'rows' => $byListing, 'confirm_bands' => $confirmBands,
+            'roles' => $roles];
+    }
+
+    /**
+     * Does $action for the ticked rows, row by row (the class comment). Refuses the whole request, writing nothing, when the
+     * action is not one of the list's, the person may not make it, a confirm is asked on a strength the setting leaves out, the
+     * rows are none or more than the setting allows, or an ignore has no note.
+     *
+     * @param list<array{listing_id: int, proposal_id: ?int, map_version: int, sku_id?: int, preview_skipped?: bool}> $rows what the page showed for
+     *        each ticked row (By Item: also the item it was shown under, and whether its preview skipped it)
+     * @param array{source: string, channel_id?: ?int, band?: ?string, reason?: ?string} $context
+     * @return array{batch_id: int, batch: string, done: int, pending: int, skipped: int}
+     */
+    public function run(Caller $caller, string $action, array $rows, array $context): array
+    {
+        ['source' => $source, 'channel_id' => $channelId, 'band' => $band, 'reason' => $reason, 'rows' => $byListing, 'confirm_bands' => $confirmBands,
+            'roles' => $roles] = $this->checked($caller, $action, $rows, $context);
 
         $batchId = $this->db->transaction(fn (Db $db): int => $db->insert(
             'INSERT INTO mapping_batch (action, source, channel_id, band, rows_asked, reason, staff_user_id, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -190,6 +237,9 @@ final class BulkDecisions
         ));
         $batch = DecisionService::SCREEN_BATCH_PREFIX . $batchId;
         $skips = $this->prechecks($action, array_values($byListing), $channelId, $confirmBands);
+        if ($source === 'item') {
+            $skips = $this->itemChecks($action, $rows, $skips, $roles, true);
+        }
         $count = ['done' => 0, 'pending_second' => 0, 'skipped' => 0];
         $why = [];
         $seq = 0;
@@ -207,6 +257,36 @@ final class BulkDecisions
                 'skipped' => $count['skipped'], 'skipped_why' => $why === [] ? new \stdClass() : $why]);
         });
         return ['batch_id' => $batchId, 'batch' => $batch, 'done' => $count['done'], 'pending' => $count['pending_second'], 'skipped' => $count['skipped']];
+    }
+
+    /**
+     * What run() would do with these rows, read only (By Item's preview, M56): the same checks of the whole request (checked():
+     * refused whole the same way, with the same codes), the same pre-checks of each row (prechecks(), and itemChecks() for By
+     * Item), then for each row they let through what DecisionService would answer (predict(): Clues disagree for a matcher, an
+     * item joined into another, and the reasons it would wait for a second OK). Nothing is written (no batch, no batch row, no
+     * audit row) and nothing is locked. run() checks everything again: a row that changed in between is skipped, never applied
+     * to something else.
+     *
+     * @param list<array{listing_id: int, proposal_id: ?int, map_version: int, sku_id?: int}> $rows
+     * @param array{source: string, channel_id?: ?int, band?: ?string, reason?: ?string} $context
+     * @return array{rows: array<int, array{outcome: string, code: ?string, detail: array<string, mixed>, needs: list<string>}>, done: int, pending: int, skipped: int}
+     *         rows: listing id => what will happen to it, in listing id order (the order run() does them in)
+     */
+    public function preview(Caller $caller, string $action, array $rows, array $context): array
+    {
+        ['source' => $source, 'channel_id' => $channelId, 'rows' => $byListing, 'confirm_bands' => $confirmBands, 'roles' => $roles]
+            = $this->checked($caller, $action, $rows, $context);
+        $skips = $this->prechecks($action, array_values($byListing), $channelId, $confirmBands);
+        if ($source === 'item') {
+            $skips = $this->itemChecks($action, $rows, $skips, $roles, false);
+        }
+        $out = [];
+        $count = ['done' => 0, 'pending_second' => 0, 'skipped' => 0];
+        foreach ($this->predict($action, array_keys($byListing), $skips, $roles) as $lid => $p) {
+            $out[$lid] = ['outcome' => $p['outcome'], 'code' => $p['code'], 'detail' => $p['detail'], 'needs' => $p['needs']];
+            $count[$p['outcome']]++;
+        }
+        return ['rows' => $out, 'done' => $count['done'], 'pending' => $count['pending_second'], 'skipped' => $count['skipped']];
     }
 
     /**
@@ -518,6 +598,300 @@ final class BulkDecisions
         return $this->db->value("SELECT 1 FROM sku_barcode WHERE barcode IN ({$in}) LIMIT 1", $codes) !== null
             || $this->db->value('SELECT 1 FROM listing_profile lp WHERE JSON_OVERLAPS(lp.barcodes, CAST(? AS JSON)) AND lp.listing_id <> ? LIMIT 1',
                 [json_encode($codes, JSON_THROW_ON_ERROR), $listingId]) !== null;
+    }
+
+    /**
+     * By Item's own checks of its rows (M56), after prechecks(): the suggestion a row names must still propose the item the row was
+     * shown under (`sku_id`; another item now: `suggestion_changed`, so a row is never applied to something else); a confirm then
+     * leaves the doubtful ones to a person (confirmScope(), M59). On the apply ($applying), a row its preview skipped
+     * (`preview_skipped`) is never acted on, whatever it looks like now: it keeps the reason it has now (predict()), or is skipped as
+     * changed when it has none any more (the person did not say yes to it).
+     *
+     * @param list<array<string, mixed>> $rows as given to run() / preview()
+     * @param array<int, array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}> $skips prechecks()
+     * @param list<string> $roles
+     * @return array<int, array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}>
+     */
+    private function itemChecks(string $action, array $rows, array $skips, array $roles, bool $applying): array
+    {
+        $expect = [];
+        $held = [];
+        foreach ($rows as $r) {
+            $lid = (int) $r['listing_id'];
+            if (isset($r['sku_id'])) {
+                $expect[$lid] = (int) $r['sku_id'];
+            }
+            if ($applying && ($r['preview_skipped'] ?? false) === true) {
+                $held[$lid] = true;
+            }
+        }
+        $check = array_values(array_filter(array_keys($expect), static fn (int $lid): bool => ($skips[$lid]['code'] ?? 'unknown_listing') === ''));
+        if ($check !== []) {
+            $now = [];
+            $store = [];
+            foreach ($this->db->all('SELECT p.open_listing_id, p.proposed_sku_id, cl.channel_id FROM match_proposal p JOIN channel_listing cl ON cl.id = p.open_listing_id '
+                . 'WHERE p.open_listing_id IN (' . implode(',', array_fill(0, count($check), '?')) . ')', $check) as $p) {
+                $now[(int) $p['open_listing_id']] = $p['proposed_sku_id'] === null ? null : (int) $p['proposed_sku_id'];
+                $store[(int) $p['open_listing_id']] = (int) $p['channel_id'];
+            }
+            $confirm = [];
+            foreach ($check as $lid) {
+                if (($now[$lid] ?? null) !== $expect[$lid]) {
+                    $skips[$lid] = ['code' => 'suggestion_changed', 'detail' => []];
+                } elseif ($action === 'link') {
+                    $confirm[$lid] = ['sku' => $expect[$lid], 'store' => $store[$lid]];
+                }
+            }
+            foreach ($this->confirmScope($confirm) as $lid => $skip) {
+                $skips[$lid] = $skip;
+            }
+        }
+        if ($held !== []) {
+            $ids = array_keys($held);
+            sort($ids);
+            foreach ($this->predict($action, $ids, $skips, $roles) as $lid => $p) {
+                $skips[$lid] = $p['outcome'] === 'skipped' ? ['code' => (string) $p['code'], 'detail' => $p['detail']]
+                    : ['code' => 'changed', 'detail' => $p['status'] === null ? [] : ['status' => $p['status']]];
+            }
+        }
+        return $skips;
+    }
+
+    /**
+     * What a bulk confirm of By Item leaves to a person, one at a time (M59; the owner's "skip anything doubtful, finish the rest, show
+     * the skipped at the end"), read for all rows in a few reads, the same for preview() and run():
+     *  - `rejected_before`: the pair was marked "not a match" before (rejectedBefore()). One at a time such a match waits for a
+     *    second person; in bulk it is not sent there unread.
+     *  - `item_on_store`: the item already has a variant matched on that store, or a match waiting there for a second OK. A second
+     *    variant of one store for one item is decided on its page.
+     *  - `several_suggested`: more than one variant of that store is suggested for the item. Confirming them together would make the
+     *    second variant the rule above keeps for a person, and which one is right is exactly the doubt: all of them are left.
+     * "Not a match" and "Send back for matching" take every open suggestion, as before.
+     *
+     * @param array<int, array{sku: int, store: int}> $rows listing id => the item it would be matched to and the store it is on
+     * @return array<int, array{code: string, detail: array<string, mixed>}> the rows that are skipped, by listing id
+     */
+    private function confirmScope(array $rows): array
+    {
+        if ($rows === []) {
+            return [];
+        }
+        $rejected = self::rejectedBefore($this->db, array_map(static fn (array $r): int => $r['sku'], $rows));
+        $skus = array_values(array_unique(array_map(static fn (array $r): int => $r['sku'], $rows)));
+        $in = implode(',', array_fill(0, count($skus), '?'));
+        $has = [];
+        // (the two indexes By Item's cells read: channel_listing (sku_id, channel_id) alone, and the open suggestions by item)
+        foreach ($this->db->all("SELECT DISTINCT cl.sku_id, cl.channel_id FROM channel_listing cl WHERE cl.sku_id IN ({$in})", $skus) as $r) {
+            $has[(int) $r['sku_id'] . ':' . (int) $r['channel_id']] = true;
+        }
+        // (the decisions that wait, by their own unique index: a few rows, whatever the size of match_decision)
+        foreach ($this->db->all('SELECT /*+ INDEX(d uq_match_decision_pending) */ d.sku_id, cl.channel_id FROM match_decision d '
+            . "JOIN channel_listing cl ON cl.id = d.pending_listing_id WHERE d.pending_listing_id IS NOT NULL AND d.action = 'link' AND d.sku_id IN ({$in})", $skus) as $r) {
+            $has[(int) $r['sku_id'] . ':' . (int) $r['channel_id']] = true;
+        }
+        $suggested = [];
+        foreach ($this->db->all('SELECT /*+ INDEX(p ix_match_proposal_open_sku) */ p.proposed_sku_id AS sku_id, cl.channel_id, COUNT(*) AS n FROM match_proposal p '
+            . "JOIN channel_listing cl ON cl.id = p.listing_id WHERE p.status = 'open' AND p.proposed_sku_id IN ({$in}) AND cl.status IN ('unmapped', 'suggested') "
+            . 'AND NOT EXISTS (SELECT 1 FROM match_decision pw WHERE pw.pending_listing_id = cl.id) GROUP BY p.proposed_sku_id, cl.channel_id', $skus) as $r) {
+            $suggested[(int) $r['sku_id'] . ':' . (int) $r['channel_id']] = (int) $r['n'];
+        }
+        $out = [];
+        foreach ($rows as $lid => $r) {
+            $key = $r['sku'] . ':' . $r['store'];
+            if (isset($rejected[$lid])) {
+                $out[$lid] = ['code' => 'rejected_before', 'detail' => []];
+            } elseif (isset($has[$key])) {
+                $out[$lid] = ['code' => 'item_on_store', 'detail' => ['sku_id' => $r['sku'], 'channel_id' => $r['store']]];
+            } elseif (($suggested[$key] ?? 0) > 1) {
+                $out[$lid] = ['code' => 'several_suggested', 'detail' => ['sku_id' => $r['sku'], 'channel_id' => $r['store'], 'variants' => $suggested[$key]]];
+            }
+        }
+        // The words of a skip name the item and the store: read once, for the rows that are skipped for them.
+        $itemIds = [];
+        $storeIds = [];
+        foreach ($out as $skip) {
+            if (isset($skip['detail']['sku_id'])) {
+                $itemIds[(int) $skip['detail']['sku_id']] = true;
+                $storeIds[(int) $skip['detail']['channel_id']] = true;
+            }
+        }
+        if ($itemIds !== []) {
+            $items = [];
+            foreach ($this->db->all('SELECT id, code, name FROM sku WHERE id IN (' . implode(',', array_fill(0, count($itemIds), '?')) . ')', array_keys($itemIds)) as $s) {
+                $items[(int) $s['id']] = trim((string) $s['name']) !== '' ? mb_substr(trim((string) $s['name']), 0, 200) : (string) $s['code'];
+            }
+            $stores = [];
+            foreach ($this->db->all('SELECT id, name FROM channel WHERE id IN (' . implode(',', array_fill(0, count($storeIds), '?')) . ')', array_keys($storeIds)) as $c) {
+                $stores[(int) $c['id']] = (string) $c['name'];
+            }
+            foreach ($out as $lid => $skip) {
+                if (isset($skip['detail']['sku_id'])) {
+                    $out[$lid]['detail'] += ['item' => $items[(int) $skip['detail']['sku_id']] ?? '', 'store' => $stores[(int) $skip['detail']['channel_id']] ?? ''];
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Which of these variant / item pairs were marked "not a match" before (M59): the variant has a match_reject for the item itself
+     * or for an item that was joined into it since. The same answer as DecisionService::rejectedAs() (which reads the item's family
+     * downwards for one pair); here the rejected items are followed up their joins, so a whole page of suggestions is answered in
+     * two or three reads: match_reject by its unique index (listing_id, sku_id), then the few rejected items by their primary key.
+     * By Item's cells ("Marked not a match"), its confirm (confirmScope()) and predict() all ask here.
+     *
+     * @param array<int, int> $pairs listing id => item id
+     * @return array<int, true> the listing ids of the pairs that were marked wrong before
+     */
+    public static function rejectedBefore(Db $db, array $pairs): array
+    {
+        $marked = [];
+        foreach (array_chunk(array_keys($pairs), 500) as $chunk) {
+            foreach ($db->all('SELECT listing_id, sku_id FROM match_reject WHERE listing_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $marked[(int) $r['listing_id']][] = (int) $r['sku_id'];
+            }
+        }
+        if ($marked === []) {
+            return [];
+        }
+        // What each rejected item was joined into, step by step (only those that are not the pair's own item need asking).
+        $into = [];
+        $ask = [];
+        foreach ($marked as $lid => $skus) {
+            foreach ($skus as $sku) {
+                if ($sku !== $pairs[$lid]) {
+                    $ask[$sku] = true;
+                }
+            }
+        }
+        for ($step = 0; $ask !== [] && $step < self::MAX_JOINS; $step++) {
+            $next = [];
+            foreach (array_chunk(array_keys($ask), 500) as $chunk) {
+                foreach ($db->all('SELECT id, merged_into_sku_id FROM sku WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $s) {
+                    $to = $s['merged_into_sku_id'] === null ? null : (int) $s['merged_into_sku_id'];
+                    $into[(int) $s['id']] = $to;
+                    if ($to !== null && !array_key_exists($to, $into)) {
+                        $next[$to] = true;
+                    }
+                }
+            }
+            $ask = $next;
+        }
+        $out = [];
+        foreach ($marked as $lid => $skus) {
+            foreach ($skus as $sku) {
+                for ($at = $sku, $step = 0; $at !== null && $step <= self::MAX_JOINS; $at = $into[$at] ?? null, $step++) {
+                    if ($at === $pairs[$lid]) {
+                        $out[$lid] = true;
+                        break 2;
+                    }
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * What DecisionService would answer for each row the pre-checks let through (M57), read only, from a few reads of all rows: the
+     * rules its decide() applies to a website product that waits for a match, in its order. Clues disagree is a matching lead's
+     * (`lead_only`); a confirm or a "not a match" of an item that is not there is refused (`no_product`), a confirm of an item joined
+     * into another too (`product_joined`), and units per sale above DecisionService::MAX_UNITS (`refused`, bad_units); a confirm
+     * waits for a second matching lead when the item is protected (`protected_sku`), when 1 sale is not 1 item while that approval
+     * rule is on (`units_per_item`), when the pair was marked wrong before (`previously_rejected`: rejectedBefore(); By Item's
+     * confirm has skipped such a row by then, M59) and while the bulk switch is on (`bulk`). Every other row is done. A row with a
+     * skip keeps it. The tests hold this to DecisionService's own answers (BulkDecisionsTest).
+     *
+     * @param list<int> $ids listing ids, in the order to answer them
+     * @param array<int, array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}> $skips prechecks()
+     * @param list<string> $roles
+     * @return array<int, array{outcome: string, code: ?string, detail: array<string, mixed>, needs: list<string>, status: ?string}>
+     */
+    private function predict(string $action, array $ids, array $skips, array $roles): array
+    {
+        $open = array_values(array_filter($ids, static fn (int $lid): bool => ($skips[$lid]['code'] ?? 'unknown_listing') === ''));
+        $facts = [];
+        $skus = [];
+        $rejected = [];
+        if ($open !== []) {
+            $in = implode(',', array_fill(0, count($open), '?'));
+            foreach ($this->db->all("SELECT cl.id, cl.status, p.band FROM channel_listing cl LEFT JOIN match_proposal p ON p.open_listing_id = cl.id WHERE cl.id IN ({$in})",
+                $open) as $f) {
+                $facts[(int) $f['id']] = ['status' => (string) $f['status'], 'band' => $f['band'] === null ? null : (string) $f['band']];
+            }
+            $skuIds = [];
+            foreach ($open as $lid) {
+                if (isset($skips[$lid]['request']['sku_id'])) {
+                    $skuIds[(int) $skips[$lid]['request']['sku_id']] = true;
+                }
+            }
+            if ($skuIds !== []) {
+                foreach ($this->db->all('SELECT id, sell_policy, merged_into_sku_id FROM sku WHERE id IN (' . implode(',', array_fill(0, count($skuIds), '?')) . ')',
+                    array_keys($skuIds)) as $s) {
+                    $skus[(int) $s['id']] = ['policy' => (string) $s['sell_policy'], 'merged' => $s['merged_into_sku_id'] !== null];
+                }
+            }
+            if ($action === 'link') {
+                $pairs = [];
+                foreach ($open as $lid) {
+                    if (isset($skips[$lid]['request']['sku_id'])) {
+                        $pairs[$lid] = (int) $skips[$lid]['request']['sku_id'];
+                    }
+                }
+                $rejected = self::rejectedBefore($this->db, $pairs);
+            }
+        }
+        $lead = Permissions::can($roles, 'mapping.approve');
+        $multiple = ApprovalRules::on($this->db, 'approvals.match_multiple');
+        $bulk = self::secondOk($this->db);
+        $out = [];
+        foreach ($ids as $lid) {
+            $pre = $skips[$lid] ?? ['code' => 'unknown_listing', 'detail' => []];
+            $f = $facts[$lid] ?? null;
+            $status = $f['status'] ?? null;
+            $skip = static fn (string $code, array $detail = []): array => ['outcome' => 'skipped', 'code' => $code, 'detail' => $detail, 'needs' => [], 'status' => $status];
+            if ($pre['code'] !== '' || $f === null) {
+                $out[$lid] = $pre['code'] !== '' ? $skip($pre['code'], $pre['detail']) : $skip('unknown_listing');
+                continue;
+            }
+            if ($f['band'] === 'Conflict' && !$lead) {
+                $out[$lid] = $skip('lead_only');
+                continue;
+            }
+            $needs = [];
+            if ($action === 'link' || $action === 'reject') {
+                $s = $skus[(int) ($pre['request']['sku_id'] ?? 0)] ?? null;
+                $units = (int) ($pre['request']['units_per_item'] ?? 1);
+                if ($s === null) {
+                    $out[$lid] = $skip('no_product');
+                    continue;
+                }
+                if ($action === 'link' && $s['merged']) {
+                    $out[$lid] = $skip('product_joined');
+                    continue;
+                }
+                if ($action === 'link') {
+                    if ($s['policy'] !== 'legacy') {
+                        $needs[] = 'protected_sku';
+                    }
+                    if ($units !== 1 && $multiple) {
+                        $needs[] = 'units_per_item';
+                    }
+                    if (isset($rejected[$lid])) {
+                        $needs[] = 'previously_rejected';
+                    }
+                    if ($bulk) {
+                        $needs[] = 'bulk';
+                    }
+                    if ($units > DecisionService::MAX_UNITS) {
+                        $out[$lid] = $skip('refused', ['code' => 'bad_units', 'message' => 'units_per_item must be 1..' . DecisionService::MAX_UNITS]);
+                        continue;
+                    }
+                }
+            }
+            $out[$lid] = ['outcome' => $needs === [] ? 'done' : 'pending_second', 'code' => null, 'detail' => $needs === [] ? [] : ['needs_second' => $needs],
+                'needs' => $needs, 'status' => $status];
+        }
+        return $out;
     }
 
     /** @param array<string, mixed>|null $detail */

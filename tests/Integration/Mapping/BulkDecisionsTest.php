@@ -333,4 +333,290 @@ final class BulkDecisionsTest extends MappingTestCase
             self::assertSame('bad_request', $e->errorCode);
         }
     }
+
+    // ---- Products > By Item: the list context `item` and the preview (docs/decisions.md M55-M59) ----------------------------
+
+    /** The row By Item shows for a suggested variant: seen() and the item it is shown under. @return array<string, mixed> */
+    private function shown(int $listingId, ?int $sku = null): array
+    {
+        return $this->seen($listingId) + ['sku_id' => $sku ?? (int) self::$db->value('SELECT proposed_sku_id FROM match_proposal WHERE open_listing_id = ?', [$listingId])];
+    }
+
+    /** Every table's rows, content and next id (a rolled-back insert would still use one up): a preview must not move any of them. @return array<string, list<mixed>> */
+    private static function everything(): array
+    {
+        self::$db->pdo()->exec('SET SESSION information_schema_stats_expiry = 0');
+        $out = [];
+        foreach (self::$db->all("SELECT TABLE_NAME AS name, AUTO_INCREMENT AS next_id FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' "
+            . 'ORDER BY TABLE_NAME') as $t) {
+            $name = (string) $t['name'];
+            $out[$name] = [(int) self::$db->value('SELECT COUNT(*) FROM ' . \CW\Db::ident($name)), self::$db->all('CHECKSUM TABLE ' . \CW\Db::ident($name))[0]['Checksum'] ?? null,
+                $t['next_id']];
+        }
+        return $out;
+    }
+
+    /**
+     * The preview is the same checks made read-only: for the rows of the first test above (a held one, one of a spot check, a
+     * vetoed, a flagged, a stale one, one whose suggestion changed, one that needs two people for its units and one for its
+     * protected item) and for what a confirm from By Item leaves to a person (M59: a pair marked wrong before, an item that already
+     * has a variant or a waiting match on the store, several suggestions on one store) it says exactly what run() then does, row
+     * by row, and it writes nothing at all.
+     */
+    public function testThePreviewSaysWhatRunWillDoFromTheSameChecksAndWritesNothing(): void
+    {
+        $this->keySetup();
+        $this->setting('approvals.spot_check_size', '5');
+        $lead = $this->staffUser('mapping_lead');
+        $pop = [];
+        for ($i = 0; $i < 7; $i++) {
+            $pop[] = $this->firstMatch($this->vpgItem(), 90 + $i, [], [], null, [], 100 + $i);
+        }
+        $sample = (new KeySample(self::$db))->create($lead, 'bp1', 5, true);
+        $members = array_column($sample['members'], 'listing_id');
+        $others = array_values(array_filter($pop, static fn (array $m): bool => !in_array($m['listing'], $members, true)));
+        [$held, $free] = $others;
+        (new KeyHold(self::$db))->run($lead, 'bp1', KeyHold::parse("proposal_id,listing_id,reason\n{$held['proposal']},{$held['listing']},Pack size differs\n"), false, true);
+        $vetoed = $this->firstMatch($this->vpgItem(), 95, ['target_vetoes' => ['strength']]);
+        $flagged = $this->firstMatch($this->vpgItem(), 95, [], [], null, ['flags' => ['two_person_confirm']]);
+        $stale = $this->firstMatch($this->vpgItem(), 95);
+        $moved = $this->firstMatch($this->vpgItem(), 95);
+        $pack = $this->firstMatch($this->vpgItem(), 95, [], ['units_per_item' => 2]);
+        $protected = $this->firstMatch($this->item('strict'), 95);
+        $unsure = $this->firstMatch($this->vpgItem(), 95, [], [], "Can't tell");
+        $clash = $this->firstMatch($this->vpgItem(), 95, [], [], 'Conflict');
+        // A pair marked wrong before, through an item that was joined into the suggested one since (the item's family).
+        $family = $this->firstMatch($this->vpgItem(), 95);
+        $old = $this->item('legacy');
+        $this->decide($lead, 'reject', $family['listing'], ['sku_id' => $old, 'proposal_id' => $family['proposal']]);
+        self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$family['sku'], $old]);
+        // A suggestion of an item that was joined into another one.
+        $joined = $this->firstMatch($this->item('legacy'), 95);
+        self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$free['sku'], $joined['sku']]);
+        // M59. An item that already has a variant on this store; one with a match waiting there; one with two suggestions there;
+        // and a pair marked wrong for the item itself.
+        $taken = $this->firstMatch($this->vpgItem('Taken kit 10mg'), 95);
+        $this->decide($lead, 'link', $this->altListing(), ['sku_id' => $taken['sku'], 'units_per_item' => 1]);
+        $queued = $this->firstMatch($this->vpgItem('Queued kit 10mg'), 95);
+        self::assertSame('pending_second', $this->decide($lead, 'link', $this->altListing(), ['sku_id' => $queued['sku'], 'units_per_item' => 3])['state']);
+        $twinA = $this->firstMatch($this->vpgItem('Twin kit 10mg'), 95);
+        $twinB = $this->firstMatch($twinA['sku'], 95);
+        $wrong = $this->firstMatch($this->vpgItem(), 95);
+        $this->decide($lead, 'reject', $wrong['listing'], ['sku_id' => $wrong['sku'], 'proposal_id' => $wrong['proposal']]);
+
+        $all = ['free' => $free, 'held' => $held, 'vetoed' => $vetoed, 'flagged' => $flagged, 'stale' => $stale, 'moved' => $moved, 'pack' => $pack, 'protected' => $protected,
+            'unsure' => $unsure, 'clash' => $clash, 'family' => $family, 'joined' => $joined, 'taken' => $taken, 'queued' => $queued, 'twinA' => $twinA, 'twinB' => $twinB,
+            'wrong' => $wrong];
+        $rows = [];
+        foreach ($all as $m) {
+            $rows[] = $this->shown($m['listing']);
+        }
+        $rows[] = $this->shown($members[0]);
+        $this->rename($stale['listing'], 'Renamed on the website 10mg');
+        $this->propose($moved['listing'], 'Key', $moved['sku'], [], false, 'later-run');
+        $this->setting('mapping.bulk_confirm_bands', '"Key,Check,Conflict"');
+
+        $mapper = $this->staffUser('mapper');
+        $context = ['source' => 'item'];
+        $before = self::everything();
+        $p = $this->bulk()->preview($mapper, 'link', array_reverse($rows), $context);
+        self::assertSame($before, self::everything(), 'no row written, changed or even begun in any table: no batch, no batch row, no audit row');
+        self::assertSame(['done' => 1, 'pending' => 2, 'skipped' => 15], array_intersect_key($p, ['done' => 0, 'pending' => 0, 'skipped' => 0]));
+        $ids = array_keys($p['rows']);
+        $sorted = $ids;
+        sort($sorted);
+        self::assertSame($sorted, $ids, 'in listing id order, the order run() does them in');
+        $said = static fn (array $m): array => [$p['rows'][$m['listing']]['outcome'], $p['rows'][$m['listing']]['code'], $p['rows'][$m['listing']]['needs']];
+        self::assertSame(['done', null, []], $said($free));
+        self::assertSame(['pending_second', null, ['units_per_item']], $said($pack));
+        self::assertSame(['pending_second', null, ['protected_sku']], $said($protected));
+        // What a confirm from By Item leaves to a person (M59), each with its own reason.
+        self::assertSame(['skipped', 'rejected_before', []], $said($wrong));
+        self::assertSame(['skipped', 'rejected_before', []], $said($family), 'a reject of an item joined into the suggested one counts, as in DecisionService');
+        self::assertSame(['skipped', 'item_on_store', []], $said($taken));
+        self::assertSame(['item' => 'Taken kit 10mg', 'store' => 'ALT test site'], array_intersect_key($p['rows'][$taken['listing']]['detail'], ['item' => 1, 'store' => 1]),
+            'the record names the item and the store, for the words');
+        self::assertSame(['skipped', 'item_on_store', []], $said($queued), 'a match waiting for a second OK on that store counts as well');
+        self::assertSame([['skipped', 'several_suggested', []], ['skipped', 'several_suggested', []]], [$said($twinA), $said($twinB)]);
+        self::assertSame(2, $p['rows'][$twinA['listing']]['detail']['variants']);
+        self::assertSame(['skipped', 'held', []], $said($held));
+        self::assertSame('Pack size differs', $p['rows'][$held['listing']]['detail']['reason']);
+        self::assertSame(['skipped', 'in_spot_check', []], [$p['rows'][$members[0]]['outcome'], $p['rows'][$members[0]]['code'], $p['rows'][$members[0]]['needs']]);
+        self::assertSame(['skipped', 'vetoed', []], $said($vetoed));
+        self::assertSame(['vetoes' => ['strength']], $p['rows'][$vetoed['listing']]['detail']);
+        self::assertSame(['skipped', 'flagged', []], $said($flagged));
+        self::assertSame(['skipped', 'changed', []], $said($stale));
+        self::assertSame(['skipped', 'suggestion_changed', []], $said($moved));
+        self::assertSame(['skipped', 'band_not_allowed', []], $said($unsure), 'each row\'s own strength is checked: By Item has no list strength');
+        self::assertSame(['skipped', 'lead_only', []], $said($clash), 'Clues disagree is a matching lead\'s, row by row');
+        self::assertSame(['skipped', 'product_joined', []], $said($joined));
+
+        // run() with the same rows: every row ends as the preview said, with the same reason.
+        $r = $this->bulk()->run($mapper, 'link', $rows, $context);
+        self::assertSame(['done' => $p['done'], 'pending' => $p['pending'], 'skipped' => $p['skipped']], ['done' => $r['done'], 'pending' => $r['pending'], 'skipped' => $r['skipped']]);
+        $b = self::batchRows($r['batch_id']);
+        foreach ($p['rows'] as $lid => $row) {
+            self::assertSame([$row['outcome'], $row['code']], [$b[$lid]['outcome'], $b[$lid]['skip_code']], "listing {$lid}");
+            if ($row['outcome'] === 'pending_second') {
+                self::assertSame($row['needs'], json_decode((string) self::$db->value('SELECT needs_second FROM match_decision WHERE id = ?', [$b[$lid]['decision_id']]), true), "listing {$lid}");
+            }
+        }
+        self::assertSame(['item', null, null], array_values(self::$db->one('SELECT source, band, channel_id FROM mapping_batch WHERE id = ?', [$r['batch_id']]) ?? []));
+        self::assertSame('mapped', $this->link($free['listing'])['status']);
+        foreach ([$wrong, $family, $taken, $queued, $twinA, $twinB] as $m) {
+            self::assertSame(['suggested', null], [$this->link($m['listing'])['status'], $this->link($m['listing'])['sku_id']], 'left for a person, not matched and not sent to Second approval');
+            self::assertNull(self::$db->value('SELECT id FROM match_decision WHERE pending_listing_id = ?', [$m['listing']]));
+        }
+        // "Not a match" and "Send back for matching" take every one of them (M59 is the confirm's rule only).
+        $back = $this->bulk()->preview($mapper, 'send_back', [$this->shown($taken['listing']), $this->shown($queued['listing']), $this->shown($twinA['listing']), $this->shown($twinB['listing']),
+            $this->shown($wrong['listing'])], $context);
+        self::assertSame(['done' => 5, 'pending' => 0, 'skipped' => 0], array_intersect_key($back, ['done' => 0, 'pending' => 0, 'skipped' => 0]));
+        $no = $this->bulk()->preview($mapper, 'reject', [$this->shown($taken['listing']), $this->shown($twinA['listing']), $this->shown($wrong['listing'])], $context);
+        self::assertSame(['done', 'done', 'skipped'], array_column($no['rows'], 'outcome'));
+        self::assertSame('already_rejected', $no['rows'][$wrong['listing']]['code']);
+        // On a list of Mapping the pair marked wrong still goes to Second approval, as before: the rule is By Item's.
+        $list = $this->bulk()->preview($mapper, 'link', [$this->seen($wrong['listing']), $this->seen($family['listing']), $this->seen($taken['listing'])], ['source' => 'review', 'band' => 'Key']);
+        self::assertSame([['pending_second', ['previously_rejected']], ['pending_second', ['previously_rejected']], ['done', []]], array_map(
+            static fn (array $m): array => [$list['rows'][$m['listing']]['outcome'], $list['rows'][$m['listing']]['needs']], [$wrong, $family, $taken]));
+        // A matching lead confirms Clues disagree here too (the strength is one the setting allows).
+        $again = $this->bulk()->preview($lead, 'link', [$this->shown($clash['listing'])], $context);
+        self::assertSame(['done', null], [$again['rows'][$clash['listing']]['outcome'], $again['rows'][$clash['listing']]['code']]);
+        self::assertSame(1, $this->bulk()->run($lead, 'link', [$this->shown($clash['listing'])], $context)['done']);
+    }
+
+    public function testThePreviewKnowsTheApprovalSwitchesAndIsRefusedWholeAsRunIs(): void
+    {
+        $lead = $this->staffUser('mapping_lead');
+        $site = $this->site('alt', 'shadow');
+        $sku = $this->item('legacy');
+        $a = $this->listing($site, 'W1', null);
+        $this->propose($a, 'Key', $sku, ['ai_units_per_item' => 4]);
+        $b = $this->listing($site, 'W2', null);
+        $this->propose($b, 'Check', $this->item('legacy'));
+        $rows = [$this->shown($a), $this->shown($b)];
+        $context = ['source' => 'item', 'channel_id' => $site->channelId];
+        $needs = fn (): array => array_column($this->bulk()->preview($lead, 'link', $rows, $context)['rows'], 'needs');
+        self::assertSame([['units_per_item'], []], $needs());
+        // The owner's switches, read as DecisionService reads them: 1 sale is not 1 product off, the bulk second OK on.
+        $this->setting('approvals.match_multiple', 'false');
+        self::assertSame([[], []], $needs());
+        $this->setting('approvals.mapping_bulk_second_ok', 'true');
+        self::assertSame([['bulk'], ['bulk']], $needs());
+        $this->setting('approvals.match_multiple', 'true');
+        self::assertSame([['units_per_item', 'bulk'], ['bulk']], $needs());
+        $r = $this->bulk()->run($lead, 'link', $rows, $context);
+        self::assertSame(['done' => 0, 'pending' => 2], ['done' => $r['done'], 'pending' => $r['pending']]);
+        self::assertSame([['units_per_item', 'bulk'], ['bulk']], array_map(static fn (string $j): array => json_decode($j, true),
+            self::$db->column('SELECT needs_second FROM match_decision WHERE pending_listing_id IN (?, ?) ORDER BY listing_id', [$a, $b])));
+
+        // The whole request is refused by the same checks, with the same codes, and nothing is written.
+        $c = $this->listing($site, 'W3', null);
+        $this->propose($c, 'Key', $this->item('legacy'));
+        $one = [$this->shown($c)];
+        $before = (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch');
+        self::refused(400, 'bad_action', fn () => $this->bulk()->preview($lead, 'ignore', $one, ['source' => 'item', 'reason' => 'x']));
+        self::refused(400, 'bad_action', fn () => $this->bulk()->run($lead, 'new_item', $one, ['source' => 'item']));
+        self::refused(400, 'bad_action', fn () => $this->bulk()->preview($lead, 'link', $one, ['source' => 'nowhere']));
+        self::refused(403, 'role_not_allowed', fn () => $this->bulk()->preview($this->staffUser('viewer'), 'link', $one, ['source' => 'item']));
+        self::refused(403, 'staff_required', fn () => $this->bulk()->preview(Caller::system('job'), 'link', $one, ['source' => 'item']));
+        self::refused(422, 'nothing_ticked', fn () => $this->bulk()->preview($lead, 'link', [], ['source' => 'item']));
+        $this->setting('mapping.bulk_max_rows', '1');
+        $e = self::refused(422, 'too_many_rows', fn () => $this->bulk()->preview($lead, 'reject', [$this->shown($c), $this->seen($a)], ['source' => 'item']));
+        self::assertSame(['max' => 1, 'asked' => 2], $e->detail, 'the limit counts rows, that is variants');
+        self::assertSame($before, (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'));
+        // By Item offers its three actions to whoever may decide, whatever the strengths setting says (each row is checked).
+        self::assertSame(['link', 'reject', 'send_back'], BulkDecisions::ITEM_ACTIONS);
+        foreach (BulkDecisions::ITEM_ACTIONS as $action) {
+            self::assertTrue(BulkDecisions::offered($action, 'item', null, ['mapper'], []), $action);
+            self::assertFalse(BulkDecisions::offered($action, 'item', null, ['viewer'], ['Key']), $action);
+        }
+        self::assertFalse(BulkDecisions::offered('ignore', 'item', null, ['mapping_lead'], ['Key']));
+        self::assertFalse(BulkDecisions::offered('new_item', 'item', 'New item', ['mapping_lead'], ['Key']));
+        // The lists' own previews work the same way (the method is not By Item's alone).
+        $p = $this->bulk()->preview($lead, 'link', [$this->seen($c)], ['source' => 'review', 'band' => 'Key']);
+        self::assertSame(['done' => 0, 'pending' => 1, 'skipped' => 0], array_intersect_key($p, ['done' => 0, 'pending' => 0, 'skipped' => 0]));
+        self::refused(403, 'band_not_allowed', fn () => $this->bulk()->preview($lead, 'link', [$this->seen($c)], ['source' => 'review', 'band' => "Can't tell"]));
+    }
+
+    /**
+     * Review finding of 10 Oct 2026: a row that names a number no variant or version can be (beyond INT UNSIGNED) was pre-checked as
+     * an ordinary skip, and recording that skip failed in the middle of the batch (a 500, the rows before it decided, the rest never
+     * run, no audit row). The whole request is refused instead, before anything is written, on every list and in the preview.
+     */
+    public function testARowThatNamesANumberBeyondItsColumnIsRefusedWholeBeforeAnythingIsWritten(): void
+    {
+        $lead = $this->staffUser('mapping_lead');
+        $site = $this->site('alt', 'shadow');
+        $sku = $this->item('legacy');
+        $a = $this->listing($site, 'X1', null);
+        $this->propose($a, 'Key', $sku);
+        $good = $this->seen($a);
+        $before = self::everything();
+        foreach ([
+            'a variant number beyond its column' => ['listing_id' => 4294967296, 'proposal_id' => 1, 'map_version' => 0],
+            'a far larger one' => ['listing_id' => 9999999999, 'proposal_id' => null, 'map_version' => 0],
+            'a version beyond its column' => ['map_version' => 4294967296] + $good,
+            'a version below nought' => ['map_version' => -1] + $good,
+            'a variant number below one' => ['listing_id' => 0, 'proposal_id' => null, 'map_version' => 0],
+            'a suggestion number below one' => ['proposal_id' => -5] + $good,
+        ] as $what => $bad) {
+            foreach ([['link', ['source' => 'review', 'band' => 'Key']], ['send_back', ['source' => 'store', 'channel_id' => $site->channelId]], ['link', ['source' => 'item']]] as [$action, $context]) {
+                $e = self::refused(400, 'bad_request', fn () => $this->bulk()->run($lead, $action, [$good, $bad], $context));
+                self::assertStringNotContainsString('%', $e->getMessage());
+                self::refused(400, 'bad_request', fn () => $this->bulk()->preview($lead, $action, [$bad, $good], $context));
+            }
+            self::assertSame($before, self::everything(), "{$what}: no batch, no row, no decision: the good row before it was not done either");
+        }
+        // The largest numbers that fit are ordinary rows: a variant that is not there is a recorded skip, not a failure.
+        $r = $this->bulk()->run($lead, 'link', [$good, ['listing_id' => 4294967295, 'proposal_id' => null, 'map_version' => 4294967295]], ['source' => 'review', 'band' => 'Key']);
+        self::assertSame(['done' => 1, 'skipped' => 1], ['done' => $r['done'], 'skipped' => $r['skipped']]);
+        self::assertSame('unknown_listing', self::batchRows($r['batch_id'])[4294967295]['skip_code']);
+    }
+
+    /**
+     * What By Item's apply adds to a row: the item it was shown under (a suggestion that names another item is skipped, never
+     * applied to something else) and whether the preview skipped it (then it is never acted on, whatever it looks like now).
+     */
+    public function testARowOfByItemIsOnlyEverAppliedToTheItemItWasShownUnderAndNeverWhenItsPreviewSkippedIt(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $site = $this->site('alt', 'shadow');
+        $sku = $this->item('legacy');
+        $other = $this->item('legacy');
+        // (one item for each variant: two suggestions of one item on one store are left to a person, M59)
+        $a = $this->listing($site, 'E1', null);
+        $this->propose($a, 'Key', $sku);
+        $b = $this->listing($site, 'E2', null);
+        $this->propose($b, 'Key', $this->item('legacy'));
+        $c = $this->listing($site, 'E3', null);
+        $this->propose($c, "Can't tell", $this->item('legacy'));
+        $d = $this->listing($site, 'E4', null);
+        $this->propose($d, 'Key', $this->item('legacy'));
+        $context = ['source' => 'item'];
+        // Shown under another item than the suggestion names: skipped, in the preview and by run().
+        $wrong = $this->shown($a, $other);
+        self::assertSame('suggestion_changed', $this->bulk()->preview($mapper, 'link', [$wrong], $context)['rows'][$a]['code']);
+        foreach (['link', 'reject', 'send_back'] as $action) {
+            $r = $this->bulk()->run($mapper, $action, [$wrong], $context);
+            self::assertSame('suggestion_changed', self::batchRows($r['batch_id'])[$a]['skip_code'], $action);
+        }
+        self::assertSame(['suggested', null], [$this->link($a)['status'], $this->link($a)['sku_id']]);
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM match_reject'));
+        // Rows the preview skipped travel with the apply and are recorded, never done: one whose reason still holds keeps it; one
+        // that would pass now is skipped as changed (the person did not say yes to it); one that changed is skipped as changed.
+        $this->setting('mapping.bulk_confirm_bands', '"Key"');
+        $p = $this->bulk()->preview($mapper, 'link', [$this->shown($b), $this->shown($c), $this->shown($d)], $context);
+        self::assertSame(['done', 'skipped', 'done'], array_column($p['rows'], 'outcome'));
+        $rows = [$this->shown($b) + ['preview_skipped' => true], $this->shown($c) + ['preview_skipped' => true], $this->shown($d) + ['preview_skipped' => false]];
+        $r = $this->bulk()->run($mapper, 'link', $rows, $context);
+        self::assertSame(['done' => 1, 'skipped' => 2], ['done' => $r['done'], 'skipped' => $r['skipped']]);
+        $batch = self::batchRows($r['batch_id']);
+        self::assertSame(['changed', 'band_not_allowed', null], [$batch[$b]['skip_code'], $batch[$c]['skip_code'], $batch[$d]['skip_code']]);
+        self::assertSame(['status' => 'suggested'], json_decode((string) $batch[$b]['detail'], true));
+        self::assertSame(['suggested', 'suggested', 'mapped'], [$this->link($b)['status'], $this->link($c)['status'], $this->link($d)['status']]);
+        // The mark is By Item's alone: a list's row that carries it is done as before.
+        $e = $this->listing($site, 'E5', null);
+        $this->propose($e, 'Key', $this->item('legacy'));
+        self::assertSame(1, $this->bulk()->run($mapper, 'link', [$this->seen($e) + ['preview_skipped' => true, 'sku_id' => $other]], ['source' => 'review', 'band' => 'Key'])['done']);
+    }
 }

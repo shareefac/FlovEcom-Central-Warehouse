@@ -633,7 +633,8 @@ final class Queries
      * the best seller of a store first), the open suggestions that propose them on variants still waiting for a match
      * (`suggested`), and the decisions that would match a variant to them and wait for a second OK (`waiting`). Each row names
      * the item (sku_id), the store (channel_id) and the variant. A matched row carries its parent product's name and its units of
-     * a year from the profile (the item's "Product: …" line is the best seller's, U122). $names adds every variant's own names
+     * a year from the profile (the item's "Product: …" line is the best seller's, U122). A suggested row carries the suggestion's
+     * number and the variant's map_version: what By Item's bulk form sends back (U124). $names adds every variant's own names
      * (the page's 50 items need them; the CSV of every item does not, so its suggested and waiting reads leave the profiles alone
      * and its matched rows come in listing order).
      *
@@ -657,7 +658,7 @@ final class Queries
                 $skuIds,
             ),
             'suggested' => $this->db->all(
-                'SELECT p.proposed_sku_id AS sku_id, cl.channel_id, p.listing_id, cl.external_variant_id, p.id AS proposal_id, p.band' . $cols
+                'SELECT p.proposed_sku_id AS sku_id, cl.channel_id, p.listing_id, cl.external_variant_id, p.id AS proposal_id, p.band, cl.map_version' . $cols
                 . ' FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id ' . ($names ? $profile : '')
                 . "WHERE p.status = 'open' AND p.proposed_sku_id IN ({$in}) AND " . self::WAITING_LISTING . ' ORDER BY p.proposed_sku_id, cl.channel_id, p.listing_id',
                 $skuIds,
@@ -669,6 +670,44 @@ final class Queries
                 $skuIds,
             ),
         ];
+    }
+
+    /**
+     * The store of each of these variants, for the store choice of By Item's bulk action (U124): the ticked rows send every suggested
+     * variant of their items, of every store, and only the chosen store's go on. A read of two numbers a variant by primary key.
+     *
+     * @param list<int> $listingIds
+     * @return array<int, int> listing id => channel id (a number that names no variant is left out)
+     */
+    public function variantStores(array $listingIds): array
+    {
+        $out = [];
+        foreach (array_chunk(array_values(array_unique($listingIds)), 500) as $chunk) {
+            foreach ($this->db->all('SELECT id, channel_id FROM channel_listing WHERE id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $out[(int) $r['id']] = (int) $r['channel_id'];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Variants by id, for the preview of By Item's bulk action (U125): each with its store, its option number and its names. One
+     * read by primary key (the profile joined by its own), for at most as many rows as one bulk action takes.
+     *
+     * @param list<int> $listingIds
+     * @return array<int, array<string, mixed>> listing id => id, channel_id, external_variant_id, product_title, variant_title
+     */
+    public function variantsOf(array $listingIds): array
+    {
+        $listingIds = array_values(array_unique($listingIds));
+        $out = [];
+        foreach (array_chunk($listingIds, 500) as $chunk) {
+            foreach ($this->db->all('SELECT cl.id, cl.channel_id, cl.external_variant_id, lp.product_title, lp.variant_title FROM channel_listing cl '
+                . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE cl.id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $out[(int) $r['id']] = $r;
+            }
+        }
+        return $out;
     }
 
     /**

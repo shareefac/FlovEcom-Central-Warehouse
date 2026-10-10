@@ -74,6 +74,8 @@ final class Settings
         // others stay one at a time; empty: none), and the most rows one bulk action takes (a page holds 50).
         'mapping.bulk_confirm_bands' => ['list_in' => \CW\Mapping\Proposals::BANDS, 'words' => 'BAND'],
         'mapping.bulk_max_rows' => ['min' => 1, 'max' => 500],
+        // Products › By Item (0025, U123): how many items a page shows unless the person picks another number there.
+        'mapping.by_item_page_size' => ['in' => [50, 100, 200]],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];

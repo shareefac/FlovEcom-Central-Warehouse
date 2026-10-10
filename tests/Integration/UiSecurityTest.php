@@ -28,7 +28,7 @@ final class UiSecurityTest extends UiTestCase
         '/ui/receiving', '/ui/receiving/1/lines', '/ui/receiving/1/copy', '/ui/receiving/1/import', '/ui/receiving/1/files', '/ui/receiving/1/bench', '/ui/receiving/1/post',
         '/ui/receiving/1/cancel', '/ui/receiving/1/reverse', '/ui/receiving/1/invoice', '/ui/receiving/incidents/1', '/ui/items/1/selling-mode',
         '/ui/stock/in', '/ui/stock/in/1/add', '/ui/stock/out/1/post', '/ui/stock/adjustments/1/lines', '/ui/stock/transfers/1/reverse', '/ui/stock/releases/1/details',
-        '/ui/stock/accounts/1/payments', '/ui/stock/accounts/payments/1/reverse'];
+        '/ui/stock/accounts/1/payments', '/ui/stock/accounts/payments/1/reverse', '/ui/review/products/bulk', '/ui/review/products/bulk/apply'];
 
     public function testEveryScreenNeedsASignIn(): void
     {
@@ -83,6 +83,11 @@ final class UiSecurityTest extends UiTestCase
         self::assertSame(405, $r->status);
         self::assertSame('POST', $r->header('allow'));
         self::assertSame(405, $web->send('PUT', '/ui/', 'x=1', ['Content-Type' => 'application/x-www-form-urlencoded'])->status);
+        // By Item's bulk forms (U123-U130) are forms: a GET of either is not a page.
+        foreach (['/ui/review/products/bulk', '/ui/review/products/bulk/apply'] as $path) {
+            $r = $web->get($path);
+            self::assertSame([405, 'POST'], [$r->status, $r->header('allow')], $path);
+        }
         self::assertSame(405, $web->send('DELETE', '/ui/items/1', null)->status);
 
         // Odd shapes of parameters are answered, never a 500.
@@ -104,6 +109,35 @@ final class UiSecurityTest extends UiTestCase
             $r = $web->get($path, $query);
             self::assertLessThan(500, $r->status, $path . ' ' . json_encode($query) . ' ' . $r->describe());
         }
+        // By Item's bulk forms (U123-U130), with the person's own token: lists where one value is expected, bytes that are not
+        // UTF-8, huge values and numbers that name nothing are refused in words (4xx), and nothing is written.
+        $token = 'csrf=' . rawurlencode($this->token($web));
+        foreach ([
+            ['/ui/review/products/bulk', 'action[]=link&on[]=x&pick_1[]=1&cells_1[]=1.1.1'],
+            ['/ui/review/products/bulk', 'action=link&on=%FF%FE&pick_1=1&cells_1=1.1.1'],
+            ['/ui/review/products/bulk', 'action=link&pick_1=1&cells_1=%FF'],
+            ['/ui/review/products/bulk', 'action=link&pick_1=1&cells_1=' . str_repeat('9', 5000) . '&q=%C2%A0&cov[]=x&page=-1&n[]=5'],
+            ['/ui/review/products/bulk', 'action=link&pick_99999=1&cells_99999=99999.1.0&on=nosuchstore'],
+            ['/ui/review/products/bulk', 'action=unlink&pick_1=1&cells_1=1.1.1'],
+            ['/ui/review/products/bulk/apply', 'action=link&row_1[]=x&on[]=y&ticked[]=1'],
+            ['/ui/review/products/bulk/apply', 'action=reject&row_1=%FF&ticked=%FF&q=%FF'],
+            ['/ui/review/products/bulk/apply', 'action=link&row_1=' . str_repeat('1', 5000)],
+            ['/ui/review/products/bulk/apply', 'action=link&row_99999=1.1.1.1&on=nosuchstore'],
+            ['/ui/review/products/bulk/apply', 'action=ignore&row_1=1.1.1.1&reason=x'],
+            // Numbers beyond their column (INT UNSIGNED): refused before anything is written, on By Item's forms and on the lists'.
+            ['/ui/review/products/bulk', 'action=link&pick_1=1&cells_1=4294967296.1.0'],
+            ['/ui/review/products/bulk', 'action=link&pick_1=1&cells_1=1.1.4294967296'],
+            ['/ui/review/products/bulk/apply', 'action=link&row_4294967296=1.1.0.1'],
+            ['/ui/review/products/bulk/apply', 'action=link&row_1=1.1.9999999999.1'],
+            ['/ui/review/bulk', 'source=review&queue=Key&action=link&pick_4294967296=1&ver_4294967296=0&prop_4294967296='],
+            ['/ui/review/bulk', 'source=store&action=unignore&pick_1=1&ver_1=4294967296&prop_1='],
+        ] as [$path, $body]) {
+            $r = $web->send('POST', $path, $token . '&' . $body, ['Content-Type' => 'application/x-www-form-urlencoded']);
+            self::assertGreaterThanOrEqual(400, $r->status, $path . ' ' . substr($body, 0, 80) . ' ' . $r->describe());
+            self::assertLessThan(500, $r->status, $path . ' ' . substr($body, 0, 80) . ' ' . $r->describe());
+            self::assertHardened($r, $path);
+        }
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'));
     }
 
     public function testEachRouteChecksTheRoleOfThePerson(): void

@@ -13,7 +13,8 @@ namespace CW\Ui;
  * It is never a return address. It is a fixed token (`via=product`), an item's number (`product`), a store's code that must name a
  * store (`channel`), a coverage filter that must be one of the page's (`cov`), the list's search text (`lq`), the picker's search
  * text (`pq`) and the picker's page (`pp`, a number); the links are built here from those values only, so a crafted link can lead
- * nowhere but to By Item.
+ * nowhere but to By Item. Since U123 it also carries how many items the person's list showed (`ln`: one of PAGE_SIZES, only when
+ * they chose another number than the setting's), so the way back opens the list as they had it.
  */
 final class ByProductContext
 {
@@ -21,6 +22,10 @@ final class ByProductContext
     public const LIST_PATH = '/ui/review/products';
     /** The longest search text carried (the screens cut a search to this). */
     public const MAX_TEXT = 100;
+    /** How many items a page of By Item may show (U123): the setting mapping.by_item_page_size is one of these, and so is `n`. */
+    public const PAGE_SIZES = [50, 100, 200];
+    /** The most ticked items a link back to the list carries (`ticked`, U126): a page holds no more. */
+    public const MAX_TICKED = 200;
     /**
      * How an emptied picker search travels: Html::url() and the forms leave out an empty value, and "no search" means "the
      * picker's own first search". One space is read back as the empty search.
@@ -32,6 +37,7 @@ final class ByProductContext
      * @param string|null $pickerText what the person searched for in the picker: null for the picker's own first search, '' when
      *        they emptied the box (every waiting variant of the store)
      * @param int|null $pickerPage the picker's page when it is not the first
+     * @param int|null $rows how many items the list showed, when the person chose another number than the setting's (PAGE_SIZES)
      */
     public function __construct(
         public readonly int $skuId,
@@ -42,6 +48,7 @@ final class ByProductContext
         public readonly string $text,
         public readonly ?string $pickerText = null,
         public readonly ?int $pickerPage = null,
+        public readonly ?int $rows = null,
     ) {
     }
 
@@ -65,7 +72,28 @@ final class ByProductContext
         return new self($sku, (string) $store['code'], (int) $store['id'], (string) $store['name'], $coverage['value'],
             is_string($src['lq'] ?? null) ? self::text($src['lq']) : '',
             is_string($src['pq'] ?? null) ? self::text($src['pq']) : null,
-            $page !== null && $page > 1 ? $page : null);
+            $page !== null && $page > 1 ? $page : null,
+            self::pageSize(is_string($src['ln'] ?? null) ? $src['ln'] : null));
+    }
+
+    /** A number of items on a page from its query value: one of PAGE_SIZES, else null (the setting's number). */
+    public static function pageSize(?string $value): ?int
+    {
+        return $value !== null && in_array($value, array_map('strval', self::PAGE_SIZES), true) ? (int) $value : null;
+    }
+
+    /**
+     * The ticked items a link carries back to the list (`ticked`, U126): item numbers joined by dots, at most MAX_TICKED of them,
+     * each once. Anything else is no tick at all.
+     *
+     * @return list<int>
+     */
+    public static function ticked(?string $value): array
+    {
+        if ($value === null || preg_match('/^[1-9][0-9]{0,9}(\.[1-9][0-9]{0,9}){0,' . (self::MAX_TICKED - 1) . '}$/D', $value) !== 1) {
+            return [];
+        }
+        return array_values(array_unique(array_map('intval', explode('.', $value))));
     }
 
     /** Whether a request names this context at all (before the stores are read). @param array<string, mixed> $src */
@@ -118,7 +146,7 @@ final class ByProductContext
     public function withPicker(?string $text, int $page): self
     {
         return new self($this->skuId, $this->channel, $this->channelId, $this->channelName, $this->coverage, $this->text,
-            $text === null ? null : self::text($text), $page > 1 ? $page : null);
+            $text === null ? null : self::text($text), $page > 1 ? $page : null, $this->rows);
     }
 
     /**
@@ -131,7 +159,8 @@ final class ByProductContext
         return ['via' => self::TOKEN, 'product' => $this->skuId, 'channel' => $this->channel, 'cov' => $this->coverage,
             'lq' => $this->text === '' ? null : $this->text]
             + ($this->pickerText === null ? [] : ['pq' => $this->pickerText === '' ? self::EMPTIED : $this->pickerText])
-            + ($this->pickerPage === null ? [] : ['pp' => $this->pickerPage]);
+            + ($this->pickerPage === null ? [] : ['pp' => $this->pickerPage])
+            + ($this->rows === null ? [] : ['ln' => $this->rows]);
     }
 
     /**
@@ -142,8 +171,8 @@ final class ByProductContext
      */
     public function listUrl(array $extra = []): string
     {
-        return Html::url(self::LIST_PATH, ['cov' => $this->coverage, 'q' => $this->text === '' ? null : $this->text, 'at' => $this->skuId] + $extra)
-            . '#p-' . $this->skuId;
+        return Html::url(self::LIST_PATH, ['cov' => $this->coverage, 'q' => $this->text === '' ? null : $this->text, 'n' => $this->rows,
+            'at' => $this->skuId] + $extra) . '#p-' . $this->skuId;
     }
 
     /**
@@ -153,7 +182,7 @@ final class ByProductContext
     public function pickerUrl(?int $page = null): string
     {
         $url = Html::url(self::LIST_PATH . '/' . $this->skuId . '/map', ['channel' => $this->channel, 'cov' => $this->coverage,
-            'lq' => $this->text === '' ? null : $this->text]);
+            'lq' => $this->text === '' ? null : $this->text, 'ln' => $this->rows]);
         $page ??= $this->pickerPage;
         return $url . ($this->pickerText === null ? '' : '&q=' . rawurlencode($this->pickerText)) . ($page !== null && $page > 1 ? '&page=' . $page : '');
     }

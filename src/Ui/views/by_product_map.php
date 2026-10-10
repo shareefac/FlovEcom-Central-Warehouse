@@ -29,7 +29,7 @@ $lists = [['id' => 'suggested', 'rows' => $suggested], ['id' => 'found', 'rows' 
 <?php endif; ?>
     <dt><?= $word('FIELD', 'barcodes') ?></dt><dd><?php if ($barcodes === []): ?><span class="muted"><?= $word('BY_PRODUCT', 'pick_none') ?></span><?php else: ?><?= $e(implode(', ', $barcodes)) ?><?php endif; ?></dd>
     <dt><?= $say('BY_PRODUCT', 'pick_now', $store['name']) ?></dt>
-    <dd><?php if ($now['state'] === 'none'): ?><?= $word('BY_PRODUCT', 'pick_now_none') ?><?php else: ?><?= $stateChip('PRODUCT_STORE', $now['state']) ?> <a href="<?= $e($now['link']) ?>"><?= $e($now['title']) ?></a><?php if ($now['more'] === 1): ?> <span class="muted"><?= $word('BY_PRODUCT', 'more_one') ?></span><?php elseif ($now['more'] > 1): ?> <span class="muted"><?= $say('BY_PRODUCT', 'more_many', $now['more']) ?></span><?php endif; ?><?php if ($now['state'] === 'matched'): ?> <span class="hint"><?= $word('BY_PRODUCT', 'pick_now_more') ?></span><?php endif; ?><?php endif; ?></dd>
+    <dd><?php if ($now['state'] === 'none'): ?><?= $word('BY_PRODUCT', 'pick_now_none') ?><?php else: ?><?= $stateChip('PRODUCT_STORE', $now['chip']) ?> <a href="<?= $e($now['link']) ?>"><?= $e($now['title']) ?></a><?php if ($now['more'] === 1): ?> <span class="muted"><?= $word('BY_PRODUCT', 'more_one') ?></span><?php elseif ($now['more'] > 1): ?> <span class="muted"><?= $say('BY_PRODUCT', 'more_many', $now['more']) ?></span><?php endif; ?><?php if ($now['state'] === 'matched'): ?> <span class="hint"><?= $word('BY_PRODUCT', 'pick_now_more') ?></span><?php endif; ?><?php endif; ?></dd>
   </dl>
 </section>
 

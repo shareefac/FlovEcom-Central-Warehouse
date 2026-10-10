@@ -43,8 +43,10 @@ final class Sections
             ]],
             // Every website product of one store with its link state (U109).
             'store_products' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/store', 'match' => ['/ui/review/store*']]]],
-            // Every warehouse product with its match on each store, its CSV and the picker of a website product for it (U113).
-            'by_product' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/products', 'match' => ['/ui/review/products*']]]],
+            // Every warehouse product with its match on each store, its CSV and the picker of a website product for it (U113); the
+            // preview and the batch page of a bulk action started there (U127: the apply's redirect says `from=item`).
+            'by_product' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/products',
+                'match' => ['/ui/review/products*', '/ui/review/batches/*?from=item']]]],
             'duplicates' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/duplicates', 'match' => ['/ui/review/duplicates*'],
                 'badge' => 'linking_duplicates']]],
             'barcodes' => ['pages' => [['perm' => 'catalogue.edit', 'path' => '/ui/items/barcodes', 'match' => ['/ui/items/barcodes*'], 'badge' => 'barcodes_open']]],

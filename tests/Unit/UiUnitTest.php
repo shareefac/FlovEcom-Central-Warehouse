@@ -363,12 +363,15 @@ final class UiUnitTest extends TestCase
         self::assertSame('linking.view', $byPath['GET /ui/review/duplicates/{id}']);
         self::assertSame(Route::LEAD, $byPath['POST /ui/review/duplicates/{id}/decide']);
         self::assertSame(Route::LEAD, $byPath['POST /ui/review/duplicates/{id}/split']);
-        // By Item (U113-U122, M54): the list and its CSV for everyone with the linking screens, the picker for whoever may decide;
-        // it has no POST: a match is made on the website product's page (the decide route above), nowhere else.
+        // By Item (U113-U122, M54): the list and its CSV for everyone with the linking screens, the picker for whoever may decide.
+        // One match at a time is made on the website product's page (the decide route above). Since M55 it has two POSTs, both
+        // for whoever may decide: the preview of a bulk action (which saves nothing) and its apply (BulkDecisions, DecisionService).
         self::assertSame('linking.view', $byPath['GET /ui/review/products']);
         self::assertSame('linking.view', $byPath['GET /ui/review/products.csv']);
         self::assertSame(Route::DECIDE, $byPath['GET /ui/review/products/{id}/map']);
-        self::assertSame([], array_values(array_filter(array_keys($byPath), static fn (string $k): bool => str_starts_with($k, 'POST /ui/review/products'))));
+        self::assertSame(['POST /ui/review/products/bulk', 'POST /ui/review/products/bulk/apply'],
+            array_values(array_filter(array_keys($byPath), static fn (string $k): bool => str_starts_with($k, 'POST /ui/review/products'))));
+        self::assertSame([Route::DECIDE, Route::DECIDE], [$byPath['POST /ui/review/products/bulk'], $byPath['POST /ui/review/products/bulk/apply']]);
         $people = 0;
         foreach ($byPath as $key => $access) {
             self::assertTrue(in_array($access, [Route::PUBLIC, Route::ANY], true) || isset(Permissions::MAP[$access]), "{$key}: {$access}");

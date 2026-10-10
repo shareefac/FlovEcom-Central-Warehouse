@@ -7088,7 +7088,8 @@ with `/ui/review/products`). "Match…" opens the picker, "Choose" opens the EXI
 the Mapping tab) with the item picked (`?pick=`), and the person presses that page's "Yes, same product: match to CW-…". So the version
 the page showed (M5) and the suggestion it showed (M19), the vetoes and flags, a spot check's owner (M28), the hold (M30), the matching
 lead's lists and every two-person rule (1 sale is not 1 product, a protected product, a pair marked wrong before) stay where they were: on
-that page and in `DecisionService::decide`.
+that page and in `DecisionService::decide`. (Amended the same day by M55: By Item now has two POST routes, the preview and the apply
+of its bulk action; they go through `BulkDecisions` and `DecisionService::decide`, so there is still no new way to decide.)
 
 **U113. The tab and the list.** Products › By Item (`/ui/review/products`, `linking.view`), next to Store Products in `Sections::MAP`: one
 row per warehouse item (a `sku` row; one joined into another is left out), in CW-number order. The first column, "Item": its name (a link
@@ -7232,3 +7233,221 @@ crumb "By Item: <store>" bridges. The paths, route names, keys and the context's
 `by_product`, `BY_PRODUCT`, `PRODUCT_STORE`, `via=product`, `product=`): bookmarks and the pinned route lists stay, and only words
 changed. `WordsTest::testByItemSpeaksOfItemsAndVariantsAsTheOwnerDoes` pins the naming (no "website product", "warehouse product" or
 "By Product" in this screen's words; "product" only in "Product: …").
+
+## Products › By Item: more rows, and a bulk action with a preview (slot `bybulk`, 10 Oct 2026)
+
+The owner's request of 10 Oct 2026, on seeing By Item: "by item here bulk preview and update option easy table need more item want to
+handle based on selection also all here possible options need". That is: on By Item, tick many items, choose what to do, SEE exactly what
+will happen, then apply it; show more rows at once; offer every action that makes sense there. Code: `migrations/0025_by_item_bulk.sql`,
+`src/Mapping/BulkDecisions.php` (the list context `item`, `preview()`, `checked()`, `itemChecks()`, `confirmScope()`, `rejectedBefore()`,
+`predict()`), `src/Settings.php` (one rule), `src/Ui/Controller/ByItemBulkController.php` (new), `src/Ui/Controller/{ByProduct,Bulk}
+Controller.php`, `src/Ui/{ByProductContext,Queries,Kernel,Sections,Words}.php`, views `by_item_preview` (new), `by_product`,
+`by_product_map`, `bulk_bar`, `bulk_result`, `public/ui/assets/app.css` (section 22) and `app.js` (one rule: a box marked
+`data-bulk-manual` is left out of "select all", U124). Tests: `tests/Integration/UiKernel/ByItemBulkTest.php` (new),
+`tests/Integration/Mapping/BulkDecisionsTest.php` (four new tests), `BulkScreensTest`, `ByProductScreenTest`, `ByProductContextTest`,
+the pinned routes, sections, templates and words (`UiUnitTest`, `SectionsTest`, `UiTemplatesTest`, `WordsTest`), and the HTTP tests
+`UiSecurityTest` and `UiReviewFlowTest` (slot `ui`). `DecisionService` is not touched: it is still the only thing that changes a
+match. This amends M54 ("three GET routes, no POST": By Item now has two POST routes, see M55) and U121's left-out point (2)
+("several items at once"). A second round the same day (a review of the first commit, and the reviewer's ruling on what a confirm may
+take) changed M55's scope into M59, fixed three defects (the notes below say where) and renumbered the migration to 0025.
+
+**M55. The bulk action of By Item acts on the suggested variants of the ticked items, through the existing bulk decisions.** A person
+who may decide (`mapping.decide`: a matcher or a matching lead, as on the lists, M49) ticks items, chooses "On: All stores · <each
+store>" and presses one of three actions, which are `BulkDecisions`' existing ones for each variant: **Confirm suggested matches**
+(`link`: each suggested variant to THIS item, with the units per sale its suggestion says), **Not a match…** (`reject`) and **Send back for
+matching…** (`send_back`). The rows of a request are every open suggestion that proposes a ticked item on the chosen store(s): the
+"Suggested" cells, and the variants a matched or waiting cell counts as "Also suggested"; "Not a match…" and "Send back for matching…"
+act on all of them, and a confirm leaves the doubtful ones to a person (M59; the first version confirmed every one of them). A variant
+has one open suggestion, so it is suggested for one item only and no variant is counted twice (the form refuses one named under two
+items). `BulkDecisions` gains the list context `item` (`SOURCES`, `ITEM_ACTIONS`; `mapping_batch.source` gains `item`, 0025). A list of
+Mapping has one strength; By Item has
+all of them at once, so nothing is refused for the list's strength and each row's own strength is checked as it is done: a confirm skips
+a strength that `mapping.bulk_confirm_bands` leaves out (`band_not_allowed`, the existing check of every confirmed row), and Clues disagree
+is skipped for a matcher (`lead_only`: DecisionService refuses it, as one at a time). Every other rule and skip of M50-M52 applies
+unchanged: holds, spot checks, vetoes, flags, a failed spot check's population, a bulk link undone before, the two-person rules, the
+bulk switch, listing id order, one transaction a row. **`mapping.bulk_max_rows` counts decisions, that is variants, not items**: one item
+with three suggested variants is three rows, and more rows than the setting allows are refused whole, in words, by the preview and again
+by the apply (422, nothing written). **Nothing is done to a Matched cell in bulk:** undoing a match stays one at a time, on the variant's
+page, with a note (M53); the page says so in one line under the bar. Not offered either: Ignore (it says a variant is no real product: a
+store's matter, on Store Products), Create as new item (the variant would become another item, not this one), and approving the
+decisions that wait for a second OK (each is another person's look at one match).
+
+**M56. The preview is the same checks, made read-only.** `BulkDecisions::preview()` takes what `run()` takes and returns, for every row,
+what `run()` would do: done, waits for a second OK (with the reasons), or skipped (with the code and its detail). It is built from the
+same code, not from a copy of it: (1) `checked()`, the checks of the whole request, MOVED out of `run()` unchanged (the list and its
+action, a person who may decide, the strength rule of a list, the note, at least one row and at most the setting's): both paths call
+it, so a preview is refused whole exactly when the apply would be, with the same codes; (2) `prechecks()`, as it was (it only ever
+read); (3) for By Item, `itemChecks()` (M58, M59); (4) `predict()` (M57). `checked()` also refuses, for every list, a row that names a
+number no variant, suggestion or version can be (a variant number or a version above 4,294,967,295, the largest an INT UNSIGNED column
+holds, or below its smallest): 400 `bad_request`, nothing written. Such a row used to pass as an ordinary skip ("no such variant",
+"changed") and failed only when that skip was recorded: a 500 in the middle of the batch, with the rows before it decided, the rest
+never run and no audit row (found in review; the lists' own route `/ui/review/bulk` had the same gap and is closed by the same check).
+`ByItemBulkController` refuses the same numbers itself (400 in the form's words), so a preview can never show such a row. `run()` then differs only by what it always did after the checks:
+the batch row, the decisions, the batch rows, the audit row. **The preview writes nothing**: no batch, no batch row, no audit row, no
+lock, no transaction. `ByItemBulkTest` and `BulkDecisionsTest` prove it on every table of the schema: the row count, the checksum of the
+content and the next auto-increment id of each are the same before and after (a write that was rolled back would still have used an
+id); only `staff_session` is left out of the screen's check (a signed-in request stamps its own session).
+
+**M57. What the preview says of DecisionService (`predict()`), and how it is kept true.** The pre-checks do not know what
+DecisionService will answer for a row they let through, and a dry run of `decide()` would write (and lock, and use up ids). So
+`predict()` reads what `decide()` reads for a variant that waits for a match and applies its rules in its order: Clues disagree for a
+person who is no matching lead is refused (`lead_only`); a confirm or a "not a match" of an item that is not there (`no_product`), a
+confirm of an item joined into another (`product_joined`), units per sale above `DecisionService::MAX_UNITS` (`refused`); a confirm waits
+for a second matching lead when the item is protected (`protected_sku`), when 1 sale is not 1 item while `approvals.match_multiple` is on
+(`units_per_item`), when the pair was marked wrong before (`previously_rejected`: the item or one joined into it, `rejectedBefore()`,
+the same answer as `DecisionService::rejectedAs`; a confirm from By Item has skipped such a row by then, M59, so this reason is seen
+in a preview of the lists only), and while `approvals.mapping_bulk_second_ok` is on (`bulk`). These are a second statement of rules that
+live in DecisionService, which this build may not change; they are held to it by tests that run the same rows through `preview()` and
+then `run()` and compare every row's outcome, skip code and reasons for a second OK (`BulkDecisionsTest::testThePreviewSaysWhatRunWillDo…`,
+`…KnowsTheApprovalSwitches…`, and the screen tests). A refusal that carries a number is shown with it: "must be a whole number from 1
+to 1,000" (`BulkController::why()` printed the text's raw `%s` for `bad_units`, in the preview and on the result page: found in
+review; a refusal whose words want a value the page does not have is said in the service's own words instead). A rule added to `decide()` later without its line in `predict()` shows as a row
+the preview called "will be matched" and the result page calls skipped or waiting: never as a wrong match, because the apply is
+DecisionService's. The preview therefore says "will", and the page says that everything is checked again.
+
+**M58. The apply does what the preview showed, or less: never something else.** The preview's form carries every row again
+(`row_<variant>` = item . suggestion . version . 1 or 0): the item the row was shown under, the suggestion and the `map_version` the
+list showed (they travel from the list through the preview, as `ver_` / `prop_` do on the lists, M5 / M19), and whether the preview
+skipped it. `run()` checks all of it again. A variant decided or renamed since is skipped (`changed`), one whose suggestion was replaced
+is skipped (`suggestion_changed`), and so is one whose suggestion now names ANOTHER item than the one it was shown under
+(`itemChecks()`: `suggestion_changed`; a variant is only ever matched to the item the person saw it under, also when a crafted form
+says otherwise). A row the preview skipped is never acted on, whatever it looks like at the apply (a hold released, a strength the owner
+allowed in between): it is recorded as skipped with the reason it has now, or as `changed` when it has none any more, because the
+person said yes to "these N" and it was not one of them. So the batch holds every line of the preview, and the result page lists the
+skipped ones at the end (the owner's rule). What may differ from the preview without being wrong: the approval switches are read at the
+apply, so a row called "will be matched" waits for a second OK when the owner switched one on in between (and the other way round);
+the result page says what was done. A second press of the button (or the Back button) sends the same versions again: every variant
+has changed by then and is skipped.
+
+**M59. What "Confirm suggested matches" leaves to a person, one at a time (second round; this replaces the first version's "every
+open suggestion is confirmed").** The owner's rule is "skip anything doubtful, finish the rest, show the skipped at the end", and the
+reviewer ruled what is doubtful in a confirm from By Item (`BulkDecisions::confirmScope()`, called from `itemChecks()`, so the
+preview and the apply answer alike; each is a skip with its own code and words, listed on the preview and on the result page):
+- **`item_on_store`**: the item already has a variant matched on that store, or a match waiting there for a second OK. "<Item> already
+  has a variant on <store>: open it and decide." A second variant of one store for one item is decided on its page (some stores do
+  list one item on two pages, but that is a person's call).
+- **`rejected_before`**: the pair was marked "not a match" before: a `match_reject` of this variant for this item or for an item
+  joined into it since. "It was marked not a match for this item before: open it and decide." One at a time such a match waits for
+  a second person (`previously_rejected`); in bulk it is not sent to Second approval unread.
+- **`several_suggested`** (added by the builder, for the reviewer to confirm or strike): more than one variant of that store is
+  suggested for the item. Confirming them together would make exactly the second variant the first rule keeps for a person, and
+  taking one of them would be an arbitrary pick, so ALL of them are left: "<Item> has more than one suggested variant on <store>:
+  open them and decide which is right." It counts every open suggestion of the item on that store, also one marked wrong before
+  (send that one back first, and the other becomes the only one).
+"Not a match…" and "Send back for matching…" are not narrowed: they take every open suggestion of the ticked items, as before. The
+lists of Mapping are not changed either: there a pair marked wrong before still goes to Second approval. These three are checked
+with the other pre-checks, before the rows run (as vetoes and flags are), not again under each row's lock.
+**On the list** a store's cell whose every suggestion was marked not a match before reads **"Marked not a match"** instead of
+"Suggested" (red; the variant, its strength and its Review link are as before; `Words::PRODUCT_STORE` `rejected`); a cell that has
+another suggestion too stays "Suggested" and names that one first; the picker's "On <store> now" line and the CSV say the same
+(the CSV also notes each such variant). A row whose only suggestions are such ones keeps its tick box (to send the suggestion
+back, say) but is **not ticked by "tick all"**: the header box and "Select all on this page" leave it (`data-bulk-manual`, the one
+rule added to `app.js`; `all=1` without the script does the same), and a line under the bar says so. **Where it is read:**
+`BulkDecisions::rejectedBefore()` answers for the page's suggestions, for a confirm and for `predict()` alike: `match_reject` by its
+unique index `(listing_id, sku_id)` (the table DecisionService's own rule reads; EXPLAIN on the filled test schema: `range`,
+`uq_match_reject`, "Using index", 206 rows for a page of 200 items), then the few rejected items that are not the suggested item
+itself by primary key, following what each was joined into. No index was added and nothing is scanned. The confirm's other two reads
+are the `(sku_id, channel_id)` index of `channel_listing` alone, the waiting decisions by their unique index
+(`uq_match_decision_pending`, named in a hint: a few rows whatever the table's size) and the open suggestions by item
+(`ix_match_proposal_open_sku`).
+
+**U123. More rows: 50, 100 or 200 a page.** Above the list, at the end of the board's head: "Rows 50 100 200" (plain links, the
+current one marked; another number keeps the place: the page of that size that holds this page's first item). The number a page opens
+with is the setting `mapping.by_item_page_size` (0025: 50 as before; one of 50, 100, 200, a `Settings::RULES` `in` rule; changed on
+Settings › System › Settings with a reason, like the other matching settings; a stored value that is none of the three reads as 50).
+The person's choice is the query value `n`; the links (pager, filters, search, the way back from a variant's page: `ByProductContext`
+`ln`) carry it only when it is not the setting's number, so a list nobody resized keeps the addresses it had. The CSV is every item
+and has no pages. **No sticky header:** the brief allowed one "if the existing CSS has the pattern", and it has none: a list table
+sits in a `.table-wrap` that scrolls sideways, and a header cannot stick to the page from inside a scroll box without script or a
+second, vertical scroll box. The first (item) column is sticky as on every board, rows keep their strip and their hover tint, and the
+bar and the preview's button stay at the bottom of the screen.
+
+**U124. Ticks and the bar.** For people who may decide: a tick box on every item that has a suggested variant on some store (none on an
+item with nothing to act on, as Store Products ticks only the rows an action applies to), "tick all on this page" in the header, the
+existing action bar (U108, `bulk_bar`, which now takes its words and one choice from the page; `app.js` gained one rule, M59: a box
+marked `data-bulk-manual` is left out of "select all", and the header box speaks for the others). The bar
+says "N items ticked", then "On [All stores | each store of the `channel` table]", then the three buttons; a line under it says what
+they act on, the limit (from the setting, in variants) and that matched variants are not changed here. Without the script it is a plain
+form: the bar is a row under the list and "Select all on this page" a link (`all=1`). Each row that can be ticked sends ONE hidden
+field with EVERY suggested variant it showed (`cells_<item>` = "variant.suggestion.version …"), not three fields a variant: a full
+page of 200 ticked items is about 410 fields, well below PHP's `max_input_vars` (1,000; Kernel refuses a form that reaches it), and
+the apply's form is one field a row (at most 500 by the setting's rule). **A row is never cut:** the first version sent the first 50
+suggestions of an item without a word, and the store choice then said "none of the ticked items has a suggestion on <store>" where
+the page showed some (found in review). What bounds a request is the whole-request limit, counted after the store is chosen. The one
+bound of a row is the most `mapping.bulk_max_rows` can ever be set to (`Settings::RULES`, 500: `ByItemBulkController::MAX_PER_ITEM`
+is that number, not a second one): an item with more suggested variants could never be acted on in one go, so its row has no tick
+box and says "N suggested variants: more than one bulk action can take. Decide them one at a time." The preview reads only the store
+of the variants sent (`Queries::variantStores`), keeps the chosen store's, checks the limit, and reads names for those. The bar's own "too many" warning is off here
+(`data-max` 0): it counts ticked rows, which are items, and the limit counts variants; the server counts and refuses in words. The row
+a person came back to after a decision keeps its tint under a new class, `here` (U119 used `picked`, which the bar's script sets and
+clears with the tick). People who can only look, and an admin alone, see no tick, no bar and no form.
+
+**U125. The preview page.** Pressing an action never saves. `POST /ui/review/products/bulk` (a POST because it carries the ticked rows;
+`mapping.decide`, the session's CSRF token) answers with "Preview: confirm suggested matches" (or "not a match", "send back for
+matching"): the summary "12 will be matched · 3 will wait for a second OK · 5 will be skipped", the store, how many items were ticked and
+how many suggested variants that is, how many ticked items have nothing suggested on the chosen store ("nothing happens to them"), what
+the action does in a sentence, and one line per item × store × variant, in the list's order: the item (name, CW number), the store, the
+variant (its names and option number, a link), and what will happen in words: "Will be matched", "Will wait for a second OK" with each
+reason as a label, "Will be skipped" with the reason in a sentence (`Words::BY_ITEM_SKIP`: the lists' reasons in items and variants).
+When every line would be skipped there is no button and the page says so. When nothing is suggested on the chosen store, or more
+variants are asked than the setting allows, there is no preview: the refusal in words, with the way back.
+
+**U126. One button, and the way back.** "Yes, do these N" (N = the lines that will be done or will wait; blue), or in red "Yes, these
+N are not a match" / "Yes, send these N back for matching", and "No, go back to By Item". The button stays at the bottom of the screen
+(`.actions.sticky`). **The owner's rule that "Not a match" needs a second step is met by this page:** on the lists the first press
+opens a second step that states the count and has one red button (U110); here the first press opens the preview, which states the
+count, lists every variant, says "This is the second step of 'Not a match': nothing is marked before you press the red button", and
+has that one red button. A third step would add nothing. Back is the list as the person left it: the filter, the search, the page, the
+number of rows, the chosen store and the ticks (`ticked=<item numbers joined by dots>`, at most a page's 200, read back as numbers or
+not at all; `on=<store code>`); every address is built from checked values (a filter that is one, a text cut to the search box's
+length, numbers), never taken from the request.
+
+**U127. The result page.** The apply (`POST /ui/review/products/bulk/apply`) ends on the existing batch page (M47). For a batch of By
+Item it says "By Item · <store or All stores>" for where, speaks of variants (its headings, the skipped reasons), stays under the By
+Item tab (the redirect says `from=item`; `Sections` matches it), and its way back is By Item with the filter, search, page and number
+of rows the person had (carried by the redirect, each read as the list reads it). The batch's own record decides what it is: the same
+page opened without `from=item` has the same words and way back, only the tab differs.
+
+**U128. What the forms take.** Only numbers and checked values: an item's number, a variant's, a suggestion's, a version, an action of
+this list (`ITEM_ACTIONS`: "ignore", "unlink" or a list where one value is expected are refused), a store's code that names a row of
+`channel` (another value: 400 "We cannot find this store"; no value: all stores), the list's own values read as the list reads them.
+A variant's store, names and item are read from the database, never from the form. `cells_` and `row_` must match their pattern to the
+last character (bytes that are not UTF-8, a sign, a fourth number, more variants for one item than one bulk action can ever take, more
+ticks than a page has rows, a value of 100,000 characters: 400 in words); a variant number or a version beyond what its column
+holds is refused the same way (M56), and one within it that names nothing is a skipped line ("This variant no longer exists"). Both routes: `mapping.decide`
+(403 in words for the others), the CSRF token of the session (403), GET is 405. Tested through the kernel and over HTTP (slot `ui`,
+where a page of 200 ticked items is previewed and applied).
+
+**U129. Cost at 200 rows (measured 10 Oct 2026, `/root/cw_work/runs/bybulk_explain_1010.txt`; the slot's test schema filled like
+staging: 14,846 items, 38,040 variants with profiles, 2,638 open suggestions; MySQL 8.4, a 32 MB buffer pool).** No index was added:
+a page of 200 reads the same indexes as a page of 50. The page's ids: 4-5 ms (4 at 50). Its rows: a range of the primary key, 4-5 ms
+(2). Its cells, three reads: 16-22 ms (8-19 at 50): the matched variants by `ix_channel_listing_sku_channel` (a range of 200 values),
+the suggestions by `ix_match_proposal_open_sku` (a range, "Using index": the proposals' rows are not read), each variant then by its
+primary key; the suggestions' "no decision waiting" test is read per variant at 50 and, at 200, as one pass over the unique index of
+the waiting decisions (the optimizer's choice on the test's 20 decisions); the decisions waiting for a second OK are read as before
+(a scan of that table at 50 and at 200 alike on the test's 20 rows: unchanged by this build). `cl.map_version`, which the form needs,
+comes from the row the suggestions' read already fetched. "Missing on a store" at 200 a page: 2 ms on page 1 when most items are
+missing, 43-57 ms on the last page or when few are (as at 50). A preview of 100 variants: about 45 ms for all its reads (16
+statements, each a primary-key or unique-index range of at most 100 values), plus 3 ms for the variants' names and 2.5 ms for the
+items'. The apply costs what a bulk action of the lists costs: one DecisionService decision a row. Second round
+(`/root/cw_work/runs/bybulk_explain2_1010.txt`): the list reads one thing more for its page, which suggestions were marked not a match
+before (M59: `match_reject` by its unique index, 2-3 ms for the 206 suggestions of a page of 200 items, and 2 ms for the items of
+the rejects that are not the suggested item's own); a confirm's preview of 100 variants is 22 statements, 61-82 ms (the three reads
+of M59 are 1-3 ms each, all index ranges); a preview of "Not a match" 34-42 ms.
+
+**U130. Words, and what was left out.** Words: `BY_ITEM_BULK` (the bar, the preview, its buttons, the refusals, the result page's
+words) and `BY_ITEM_SKIP` (every code of `BulkDecisions::SKIPS`, in the same order as `BULK_SKIP`, with the same `%s`), `PAGE_INTRO`
+`by_item_preview` and `by_item_result`, the setting's name and help, `BY_PRODUCT` `rows`, `note`, `note_look`, `PRODUCT_STORE` `rejected`
+("Marked not a match"); all in the owner's words
+(U122): items and variants, never "website product" (`WordsTest`). The reasons for a second OK are the shared `NEEDS_SECOND` labels
+("1 sale is not 1 product"), as on the result page and on Second approval. Left out: (1) a sticky table header (U123); (2) anything
+for Matched cells (M53) and for the decisions waiting for a second OK; (3) Ignore and Create as new item (M55); (4) ticking across
+pages, or "every item of the filter": a request is what one page shows, at most 200 items, and the setting's limit in variants;
+(5) the bar's live count of variants (it counts items; the preview counts variants): that needs more script than the one rule of M59;
+(6) a preview for the lists' own bulk actions: `preview()` works for them too (tested), but their screens keep the second step they
+have. **For whoever puts this together with the New Variants build (`mapping-new-variants`):** this build merges first and its
+migration is **0025**; New Variants' is 0026. The rule for `mapping_batch.source` from here on: 0025 adds `item`; a later migration
+that adds a value must restate every value the column has by then (`'review','store','item'` and its own: `MODIFY COLUMN` replaces
+the whole list); an applied migration is never edited. Both builds add a list context to `BulkDecisions` (`SOURCES`, the action list
+of a context, `offered()`) and skip codes to `SKIPS`; this build moved the request checks of `run()` into `checked()`, where the
+bound on a row's numbers (M56) now is; the decision numbers of the two sections may collide (both start after M54 / U122).

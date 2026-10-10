@@ -218,6 +218,20 @@ final class BulkScreensTest extends KernelUiTestCase
         $none = $web->post('/ui/review/bulk', $page->form('/ui/review/bulk') + ['action' => 'link']);
         self::assertSame(422, $none->status);
         self::assertStringContainsString(Words::BULK_ERROR['nothing_ticked'], $none->text());
+        // A row that names a number no website product or version can be (beyond its column) is refused whole as well, before
+        // anything is written: it used to fail when its skip was recorded, in the middle of the batch (review finding, 10 Oct 2026).
+        $before = [(int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'), (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch_row'), $this->decisions()];
+        foreach ([
+            'a product number beyond its column' => ['pick_4294967296' => '1', 'ver_4294967296' => '0', 'prop_4294967296' => ''] + $page->form('/ui/review/bulk') + ['action' => 'link'],
+            'a version beyond its column' => ['ver_' . $k1 => '4294967296'] + self::ticked($page, [$k1], 'link'),
+            'the same on a second step' => ['confirm' => '1', 'ver_' . $k1 => '9999999999'] + self::ticked($page, [$k1], 'reject'),
+        ] as $what => $form) {
+            $r = $web->post('/ui/review/bulk', $form);
+            self::assertSame([400, 'bad_request'], [$r->status, $r->errorCode()], $what . ': ' . $r->describe());
+            self::assertStringContainsString(Words::BULK_ERROR['bad_request'], $r->text(), $what);
+        }
+        self::assertSame($before, [(int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'), (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch_row'), $this->decisions()]);
+        self::assertSame(['suggested', 'suggested'], [$this->link($k1)['status'], $this->link($k2)['status']]);
     }
 
     public function testEveryNewRouteChecksItsPermissionAndTheBulkFormItsToken(): void

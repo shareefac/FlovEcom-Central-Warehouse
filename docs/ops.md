@@ -2072,8 +2072,8 @@ there are suggestions it waits until you press Search, when there are none it ha
 or empty the box and press Search to see every waiting variant of the store. Press "Choose" on the right variant: its own page opens
 with the two side by side, and "Yes, same product: match to CW-…" there makes the match (Back on that page returns to the search you
 were in). You then land back on By Item at that item, with a line that says what happened (matched, or saved and waiting for a second
-matching lead). People who can only look see the list without "Match…". Nothing is ever matched on the By Item page itself, and nothing
-is matched in bulk from it.
+matching lead). People who can only look see the list without "Match…". One match at a time is never made on the By Item page itself;
+many suggestions at once are answered with the bar under the list, after a preview (the next section).
 
 **Deploy.** The page goes out with its code and migration `0024_by_product.sql` (`install_cron.sh --migrate`): two indexes, built online
 (`channel_listing (sku_id, channel_id)` in place of `(sku_id)`; `match_proposal (status, proposed_sku_id, listing_id, band)`), no data
@@ -2082,6 +2082,47 @@ counts), and the old code runs on the new one. Before it, as for every Mapping c
 `scripts/remote.sh ui vendor/bin/phpunit --filter 'UiAuthTest|UiSecurityTest|UiReviewFlowTest'`. After it: `php bin/invariants.php
 --db=cw_staging` says ok, and Products › By Item opens with one column per store. A new store is a column as soon as its row is in the
 `channel` table (`bin/create_channel.php`); nothing else is needed.
+
+### By Item: more rows, and many suggestions at once with a preview (`docs/decisions.md` M55–M59, U123–U130)
+
+**What the owner sees and does.** Above the list, on the right: "Rows 50 100 200" — press a number to see that many items on a page.
+The number the page opens with is a setting (Settings → System → Settings → Matching products → "Items on a page of By Item": 50, 100
+or 200). Every item that has a suggested variant on some store has a tick box (the box in the table's head ticks the whole page). Tick
+the items you want; a bar appears at the bottom: "On" (All stores, or one store) and three buttons.
+- **Confirm suggested matches**: every variant suggested for a ticked item, on the chosen store, is matched to that item — except the
+  doubtful ones, which are left for you to decide one at a time and listed with the reason: a variant that was marked not a match for
+  that item before; an item that already has a variant on that store (or a match waiting there for a second OK); and an item with more
+  than one suggested variant on a store.
+- **Not a match…**: every such suggestion is marked wrong. Nothing is matched; the variants stay suggested for another choice.
+- **Send back for matching…**: every such suggestion is closed, and the variants wait for the next computer check.
+
+No button saves anything at once. Each opens a **preview**: one line for every variant, with its item and its store, and what will
+happen to it — "Will be matched", "Will wait for a second OK" (with the reason: 1 sale is not 1 product, the store already sells
+warehouse stock, it was marked wrong before, or the rule "matches confirmed from a ticked list" is on), or "Will be skipped" with the
+reason in words (held back, in a spot check, a rule or a flag says no, a match strength that may not be confirmed together — the same
+setting as on the lists —, changed since you opened the page, only a matching lead decides it). On top is the count: "12 will be matched
+· 3 will wait for a second OK · 5 will be skipped". Read it, then press the one button at the bottom ("Yes, do these 15"; for Not a
+match it is red: "Yes, these 15 are not a match" — this preview is the second step that Not a match always has), or "No, go back to By
+Item": the list comes back as you left it, with the same filter, page and ticks. A cell that reads **"Marked not a match"** (red)
+instead of "Suggested" is a suggestion somebody already said no to for that item: "Select all on this page" does not tick such an
+item (tick it yourself if you want to send that suggestion back for matching), and a confirm skips it. After the button, the result page says what was done,
+lists the skipped variants with the reason and a link to each, and leads back to the list. Everything is checked again at the button:
+a variant that someone decided, or whose suggestion changed, between the preview and the button is skipped ("It is not as it was when
+you looked"), never matched to something else; a variant the preview said it would skip is never done.
+
+**What it never does.** It never changes a variant that is already matched: to undo a match, open the variant; a matching lead uses
+"Change this match" and says why, one at a time. It never does more than the setting "Most products in one bulk action" allows (100):
+on By Item that number counts variants, not items, and the page says so in words when the ticked items have more ("tick fewer items, or
+choose one store"). Matchers and matching leads use it; people who can only look see no tick boxes and no bar.
+
+**Deploy.** It goes out with its code and migration `0025_by_item_bulk.sql` (`install_cron.sh --migrate`): one new setting
+(`mapping.by_item_page_size`, 50, with its baseline) and one more value (`item`) for `mapping_batch.source`; no index, no data change,
+no new grant. Deploy the migration with the code of the same commit, never the code first: an apply would fail on the new value (the
+list and the preview work without it). The rule for that column from here on: 0025 adds `item`; a later migration that adds a value
+(New Variants' 0026) must restate every value the column has by then; an applied migration is never edited. Before it, as for every
+Mapping change: the slot suite, then `scripts/remote.sh ui vendor/bin/phpunit --filter 'UiAuthTest|UiSecurityTest|UiReviewFlowTest'`.
+After it: `php bin/migrate.php --status --db=cw_staging` lists 0025, `php bin/invariants.php --db=cw_staging` says ok (K4: the setting has its
+baseline), Settings → System → Settings lists "Items on a page of By Item" under Matching products, and By Item shows "Rows 50 100 200".
 
 ## Changing settings and rules yourself (`docs/decisions.md` Y1–Y38; the owner's rule of 8 Oct 2026)
 
@@ -2095,7 +2136,8 @@ save again. Nothing on these pages is ever deleted.
 |---|---|---|
 | A setting's value, and "the owner has agreed it" | Settings → Settings and lists → click the setting | Allowed values are shown under the field. The approval rules and the company details have their own pages. |
 | Which work waits for a second person | Settings → Approval rules | Each kind of record (reviewer check after it is final: every one / over a limit / none, the days, what Not OK does — a purchase order's Not OK only records it —, the OK first and its limit); suppliers (new supplier OK, changed details check, days to decide); matching (1 sale ≠ 1 product, joining counted products, matches confirmed from a ticked list — off by default —, spot check size: a change works for new spot checks only); your own change of the company details; giving someone Admin or Reviewer, and resetting an Admin's or a Reviewer's sign-in (both off by default). Switching an OK first off keeps its limit and never lets through work already waiting. Each rule has the tick "The owner has agreed this rule". Looser: a Reviewer only; stricter: an Admin too. |
-| Bulk action on the matching lists | Settings → System → Settings → Matching products | "Match strengths that may be confirmed together" (tick boxes; Strong and Likely by default: the other lists are decided one at a time) and "Most products in one bulk action" (100). The second OK for ticked confirms is on Approval Rules (above). |
+| Bulk action on the matching lists | Settings → System → Settings → Matching products | "Match strengths that may be confirmed together" (tick boxes; Strong and Likely by default: the other lists are decided one at a time) and "Most products in one bulk action" (100; on By Item it counts variants). The second OK for ticked confirms is on Approval Rules (above). |
+| Rows on By Item | Settings → System → Settings → Matching products | "Items on a page of By Item": 50, 100 or 200 (50). The page's own "Rows" choice shows another number for a while. |
 | Reasons for stock changes and for cancelling or correcting orders | Settings → Settings and lists → Reasons for stock changes | Add (short code never changes), rename, say where it is offered (stock records, cancellations, and the order screens' three lists: cancelling a confirmed order, cancelling one not confirmed yet, correcting one), switch off / on. A switched-off reason stops new records only: one already waiting for an OK still gets it. CW's own reasons are locked. |
 | Warehouses and places inside them | Settings → Warehouses | Add (e.g. the VPG 2 room as "Another account's stock": never sold from), rename, whose stock (only while it is empty, with a tick: another account's stock becomes ours only with a release invoice), websites may sell from it (tick to confirm; Fazil then points a website at it on the server), switch off (only when empty) / on. Places (e.g. OVERFLOW in the main warehouse) are optional. |
 | Staff: add a person, a new sign-up sheet, a new sign-in code, a new password, sign out a device | Staff → Staff and access (Admin) | The sheet (QR code and a one-time set-up code; a new password: the set-up code only) is shown once and works once: the person finishes at /ui/enrol (a new sign-in code: at the sign-in, with their own password) and their OWN page then gives them a fresh code nobody else sees, so the admin never holds both keys of anybody. Within `staff.setup_hours` (48 h, at most 168); `staff.setup_max_fails` wrong tries (5) close it (Home card). A new password and a new sign-in code refuse each other while the other is open. Lost both phone and password: `bin/reset_staff.php --new-password --new-totp` on the server. The sheets print `staff.sign_in_address` (set it once). With the staff rules on, Admin/Reviewer jobs and resets of their sign-in wait for a reviewer: Staff access to OK (Home card). Reviewers' Home lists every person added, sign-in reset and rule made looser in the last 7 days. |

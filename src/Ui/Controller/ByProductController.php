@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Db;
+use CW\Mapping\BulkDecisions;
 use CW\Mapping\Proposals;
 use CW\Matching\Gtin;
 use CW\Output\CsvWriter;
+use CW\Settings;
 use CW\Ui\ByProductContext;
 use CW\Ui\Context;
 use CW\Ui\Html;
@@ -31,10 +34,16 @@ use CW\Ui\Words;
  * other matching screens) with the item picked (`?pick=`), and the person says yes there: every rule, veto, spot check and second OK
  * stays in that page and in DecisionService. This class only reads; it has no POST. ByProductContext carries "came from By Item" to
  * that page and back.
+ *
+ * Since M55 / U123-U130 (the owner's "bulk preview and update option ... need more item ... based on selection"): a page shows 50,
+ * 100 or 200 items (the setting mapping.by_item_page_size, or the person's choice `n`), and a person who may decide ticks items
+ * and presses an action of the bar under the list, for one store or all of them. The list only draws that form (each ticked row
+ * sends the suggested variants it showed, every one of them: `cells_<item>`); ByItemBulkController shows the preview and applies
+ * it. A cell whose every suggestion was marked "not a match" for the item before says so (M59).
  */
 final class ByProductController
 {
-    /** The most items a CSV holds (every item of the filter: the page shows 50 of them). */
+    /** The most items a CSV holds (every item of the filter: the page shows 50 to 200 of them). */
     public const CSV_MAX = 100_000;
     /** The picker never pages further than this (its list is best sellers first: nobody reads that far). */
     private const PICK_MAX_PAGE = 200;
@@ -51,7 +60,8 @@ final class ByProductController
         $lookOnly = $me->canDecide() ? null : Words::whoCan('mapping.decide');
         if ($stores === []) {
             return $ctx->page('by_product', ['stores' => [], 'rows' => [], 'pills' => [], 'text' => '', 'coverage' => null, 'total' => 0, 'shown' => 0, 'page_no' => 1, 'pages' => 1,
-                'prev_link' => null, 'next_link' => null, 'clear_link' => ByProductContext::LIST_PATH, 'csv_link' => '', 'filtered' => false, 'lookOnly' => $lookOnly],
+                'prev_link' => null, 'next_link' => null, 'clear_link' => ByProductContext::LIST_PATH, 'csv_link' => '', 'filtered' => false, 'lookOnly' => $lookOnly,
+                'per_page' => null, 'sizes' => [], 'manualNote' => false, 'bulkActions' => [], 'bulkKeep' => [], 'bulkWords' => [], 'bulkChoice' => null, 'bulkMax' => 0, 'allLink' => ''],
                 200, $layout);
         }
         $cov = ByProductContext::coverage($req->param('cov'), $stores);
@@ -59,6 +69,11 @@ final class ByProductController
             return $ctx->error(404, 'unknown_store', 'no such store', [ByProductContext::LIST_PATH, Words::MENU['by_product']]);
         }
         $text = ByProductContext::text($req->param('q') ?? '');
+        // How many items a page shows (U123): the number the person chose on the page (`n`), else the setting's. The links carry
+        // `n` only when it is not the setting's, so a list nobody resized keeps its plain addresses.
+        $default = self::pageSize($ctx->db);
+        $per = ByProductContext::pageSize($req->param('n')) ?? $default;
+        $n = $per === $default ? null : $per;
         $storeIds = array_map(static fn (array $s): int => (int) $s['id'], $stores);
         $storeId = $cov['store'] === null ? null : (int) $cov['store']['id'];
         $counts = $q->productCoverage($storeIds);
@@ -70,7 +85,7 @@ final class ByProductController
         $onePass = $text !== '' || $cov['kind'] === 'suggested';
         $all = $onePass ? $q->productIds($cov['kind'], $storeId, $ordered, $text) : [];
         $total = $onePass ? count($all) : self::totalOf($counts, $cov['kind'], $storeId);
-        $pages = max(1, (int) ceil($total / Queries::PER_PAGE));
+        $pages = max(1, (int) ceil($total / $per));
         // Back from a variant's page (`at`): the page of this list that holds that item. A page asked for is that page,
         // as the list is (the pager's links carry no `at`).
         $page = UiRequest::id($req->param('page'));
@@ -81,22 +96,65 @@ final class ByProductController
         }
         if ($page === null && $at !== null) {
             $before = $onePass ? count(array_filter($all, static fn (int $id): bool => $id < $at)) : $q->productsBefore($cov['kind'], $storeId, $ordered, $text, $at);
-            $page = intdiv($before, Queries::PER_PAGE) + 1;
+            $page = intdiv($before, $per) + 1;
         }
         $page = min(max(1, $page ?? 1), $pages);
-        $offset = ($page - 1) * Queries::PER_PAGE;
-        $ids = $onePass ? array_slice($all, $offset, Queries::PER_PAGE) : $q->productIds($cov['kind'], $storeId, $ordered, $text, Queries::PER_PAGE, $offset);
+        $offset = ($page - 1) * $per;
+        $ids = $onePass ? array_slice($all, $offset, $per) : $q->productIds($cov['kind'], $storeId, $ordered, $text, $per, $offset);
         // That item's row is marked; when the filter no longer holds it (it is matched now), it is still shown, first.
         $pinned = $at !== null && !in_array($at, $ids, true);
         $products = $q->productRows($pinned ? [$at, ...$ids] : $ids);
         if ($pinned) {
             usort($products, static fn (array $a, array $b): int => [(int) $a['id'] !== $at, (int) $a['id']] <=> [(int) $b['id'] !== $at, (int) $b['id']]);
         }
-        $base = ['cov' => $cov['value'], 'q' => $text === '' ? null : $text];
-        $rows = self::rows($products, $stores, $q->productCells($pinned ? [$at, ...$ids] : $ids), $me->canDecide(), $cov['value'], $text);
+        $base = ['cov' => $cov['value'], 'q' => $text === '' ? null : $text, 'n' => $n];
+        $cells = self::marked($ctx->db, $q->productCells($pinned ? [$at, ...$ids] : $ids));
+        $rows = self::rows($products, $stores, $cells, $me->canDecide(), $cov['value'], $text, $n);
+        // The bulk action (M55, U124): the actions this person may take on the suggested variants of ticked items. A row can be
+        // ticked when a store suggests a variant for its item; it sends back what the page showed of each (the variant, its
+        // suggestion and its version: `cells_<item>`), so the preview and the apply know what the person saw. EVERY suggestion
+        // the row shows is sent, never a part of them: an item with more than one bulk action can ever take has no tick box.
+        $actions = [];
+        if ($me->canDecide()) {
+            $bands = BulkDecisions::confirmBands($ctx->db);
+            foreach (BulkDecisions::ITEM_ACTIONS as $a) {
+                if (BulkDecisions::offered($a, 'item', null, $me->roles, $bands)) {
+                    $actions[] = ['action' => $a, 'label' => Words::BY_ITEM_BULK[$a], 'class' => in_array($a, BulkDecisions::NEGATIVE, true) ? 'secondary' : 'primary'];
+                }
+            }
+        }
+        $shown = [];
+        $live = [];
+        foreach ($cells['suggested'] as $r) {
+            $shown[(int) $r['sku_id']][] = (int) $r['listing_id'] . '.' . (int) $r['proposal_id'] . '.' . (int) $r['map_version'];
+            $live[(int) $r['sku_id']] = ($live[(int) $r['sku_id']] ?? 0) + ($r['rejected'] ? 0 : 1);
+        }
+        // Ticks drawn by the page itself: "tick all on this page" without the script (`all=1`), and the way back from a preview
+        // (`ticked`, with the store that was chosen: `on`).
+        $tickAll = $req->param('all') === '1';
+        $ticked = array_fill_keys(ByProductContext::ticked($req->param('ticked')), true);
+        $on = ByProductContext::store($stores, $req->param('on'));
         foreach ($rows as $i => $r) {
             $rows[$i]['here'] = $r['id'] === $at;
             $rows[$i]['pinned'] = $pinned && $r['id'] === $at;
+            $own = $actions === [] ? [] : ($shown[$r['id']] ?? []);
+            $rows[$i]['too_many'] = count($own) > ByItemBulkController::MAX_PER_ITEM ? count($own) : null;
+            $rows[$i]['cells_field'] = $own === [] || $rows[$i]['too_many'] !== null ? null : implode(' ', $own);
+            // "Tick all" leaves an item whose every suggestion was marked "not a match" before to the person (M59): it can still
+            // be ticked by hand (to send that suggestion back for matching, say).
+            $rows[$i]['manual'] = $rows[$i]['cells_field'] !== null && ($live[$r['id']] ?? 0) === 0;
+            $rows[$i]['ticked'] = $rows[$i]['cells_field'] !== null && (($tickAll && !$rows[$i]['manual']) || isset($ticked[$r['id']]));
+        }
+        $sizes = [];
+        foreach (ByProductContext::PAGE_SIZES as $size) {
+            // Another number of rows keeps the place: the page of that size that holds this page's first item.
+            $to = intdiv($offset, $size) + 1;
+            $sizes[] = ['size' => $size, 'current' => $size === $per,
+                'href' => Html::url(ByProductContext::LIST_PATH, ['n' => $size === $default ? null : $size, 'page' => $to > 1 ? $to : null] + $base)];
+        }
+        $choice = [['value' => '', 'label' => Words::BY_ITEM_BULK['all_stores']]];
+        foreach ($stores as $s) {
+            $choice[] = ['value' => (string) $s['code'], 'label' => (string) $s['name']];
         }
         $pills = [['label' => Words::BY_PRODUCT['all'], 'tone' => null, 'count' => $counts['total'], 'current' => $cov['kind'] === null,
             'href' => Html::url(ByProductContext::LIST_PATH, ['cov' => null] + $base)],
@@ -122,11 +180,29 @@ final class ByProductController
             'pages' => $pages,
             'prev_link' => $page > 1 ? Html::url(ByProductContext::LIST_PATH, $base + ['page' => $page - 1]) : null,
             'next_link' => $page < $pages ? Html::url(ByProductContext::LIST_PATH, $base + ['page' => $page + 1]) : null,
-            'clear_link' => ByProductContext::LIST_PATH,
-            'csv_link' => Html::url(ByProductContext::LIST_PATH . '.csv', $base),
+            'clear_link' => Html::url(ByProductContext::LIST_PATH, ['n' => $n]),
+            'csv_link' => Html::url(ByProductContext::LIST_PATH . '.csv', ['n' => null] + $base),
             'filtered' => $cov['kind'] !== null || $text !== '',
             'lookOnly' => $lookOnly,
+            // The person's own number of rows, when it is not the setting's: the search form keeps it.
+            'per_page' => $n,
+            'sizes' => $sizes,
+            'bulkActions' => $actions,
+            'bulkKeep' => array_filter($base + ['page' => $page > 1 ? $page : null], static fn (mixed $v): bool => $v !== null && $v !== ''),
+            'bulkWords' => ['bar' => Words::BY_ITEM_BULK['bar'], 'none' => Words::BY_ITEM_BULK['selected_none'], 'one' => Words::BY_ITEM_BULK['selected_one'],
+                'many' => Words::BY_ITEM_BULK['selected_many'], 'too_many' => Words::BY_ITEM_BULK['too_many']],
+            'bulkChoice' => ['name' => 'on', 'label' => Words::BY_ITEM_BULK['on'], 'options' => $choice, 'selected' => $on === null ? '' : (string) $on['code']],
+            'bulkMax' => BulkDecisions::maxRows($ctx->db),
+            'manualNote' => array_filter($rows, static fn (array $r): bool => $r['manual']) !== [],
+            'allLink' => Html::url(ByProductContext::LIST_PATH, $base + ['page' => $page > 1 ? $page : null, 'all' => 1]),
         ], 200, $layout);
+    }
+
+    /** How many items a page shows unless the person chose (setting mapping.by_item_page_size, read now; 50 on a schema before 0025). */
+    public static function pageSize(Db $db): int
+    {
+        $n = Settings::number($db, 'mapping.by_item_page_size', Queries::PER_PAGE);
+        return in_array($n, ByProductContext::PAGE_SIZES, true) ? $n : Queries::PER_PAGE;
     }
 
     /**
@@ -153,7 +229,7 @@ final class ByProductController
         // The rows and their cells in slices of 500 items. Of the profiles (the widest rows there are) only the matched variants'
         // are read, for the parent product's name; the variants are named by their option numbers.
         foreach (array_chunk($ids, 500) as $chunk) {
-            foreach (self::rows($q->productRows($chunk), $stores, $q->productCells($chunk, false), false, null, '') as $r) {
+            foreach (self::rows($q->productRows($chunk), $stores, self::marked($ctx->db, $q->productCells($chunk, false)), false, null, '') as $r) {
                 $line = [$r['code'], $r['name'], $r['parent'], $r['brand']];
                 foreach ($r['cells'] as $c) {
                     $line[] = self::csvCell($c);
@@ -194,7 +270,8 @@ final class ByProductController
             return $ctx->error(404, 'unknown_store', 'no such store', $list);
         }
         $bp = new ByProductContext($id, (string) $store['code'], (int) $store['id'], (string) $store['name'],
-            ByProductContext::coverage($req->param('cov'), $stores)['value'], ByProductContext::text($req->param('lq') ?? ''));
+            ByProductContext::coverage($req->param('cov'), $stores)['value'], ByProductContext::text($req->param('lq') ?? ''), null, null,
+            ByProductContext::pageSize($req->param('ln')));
         $barcodes = $q->barcodesOfMany([$id])[$id] ?? [];
         // The first search comes from the item's own words; once the person has searched, it is theirs (also an empty one).
         $typed = $req->param('q');
@@ -237,7 +314,8 @@ final class ByProductController
         usort($suggested, static fn (array $a, array $b): int => [array_search($a['band'], Proposals::BANDS, true), $a['listing_id']]
             <=> [array_search($b['band'], Proposals::BANDS, true), $b['listing_id']]);
         // What the store holds for the item now: a second variant can still be matched (one item on two pages).
-        $now = self::rows([['id' => $id, 'code' => $sku['code'], 'name' => $sku['name'], 'brand' => $sku['brand']]], [$store], $q->productCells([$id]), false, null, '')[0]['cells'][0];
+        $now = self::rows([['id' => $id, 'code' => $sku['code'], 'name' => $sku['name'], 'brand' => $sku['brand']]], [$store], self::marked($ctx->db, $q->productCells([$id])),
+            false, null, '')[0]['cells'][0];
         // Previous and Next always name the search they page through: an emptied search too, which a link built from its values
         // alone would lose (the next page would fall back to the first search).
         $pager = $bp->withPicker($text, 1);
@@ -252,7 +330,7 @@ final class ByProductController
             'found' => array_values(array_filter(array_map($row, $foundIds))),
             'ran' => $ran,
             'text' => $text,
-            'keep' => ['channel' => $bp->channel, 'cov' => $bp->coverage, 'lq' => $bp->text === '' ? null : $bp->text],
+            'keep' => ['channel' => $bp->channel, 'cov' => $bp->coverage, 'lq' => $bp->text === '' ? null : $bp->text, 'ln' => $bp->rows],
             'action' => ByProductContext::LIST_PATH . '/' . $id . '/map',
             'page_no' => $page,
             'prev_link' => $ran && $page > 1 ? $pager->pickerUrl($page - 1) : null,
@@ -266,7 +344,9 @@ final class ByProductController
      * first of matched, waiting for a second OK, suggested, none that the store has for the item; its title is the variant it names
      * (the best seller of the matched ones on the page, the strongest suggestion), `more` how many others of that state there are,
      * `also_…` the other states the store has for it as well, and `items` every variant of the state with its OWN notes (units per
-     * sale, on hold, the suggestion's strength): the CSV writes those, so it never borrows one variant's note for another.
+     * sale, on hold, the suggestion's strength): the CSV writes those, so it never borrows one variant's note for another. `chip` is
+     * the word the cell reads: its state, or "Marked not a match" for a suggested cell whose every suggestion was said no to for
+     * the item before (marked(), M59; such a suggestion comes after the others and carries that note in the CSV).
      *
      * The parent product (U122) is the product name of the item's best-selling matched variant on any store (units of a year; a
      * tie: the lowest listing id), left out when that name is empty or is the item's own name.
@@ -274,9 +354,10 @@ final class ByProductController
      * @param list<array<string, mixed>> $products
      * @param list<array{id: int, code: string, name: string}> $stores
      * @param array{matched: list<array<string, mixed>>, suggested: list<array<string, mixed>>, waiting: list<array<string, mixed>>} $cells
+     * @param int|null $n how many items the person's list shows, when it is not the setting's (the links to a variant's page carry it)
      * @return list<array<string, mixed>>
      */
-    private static function rows(array $products, array $stores, array $cells, bool $canDecide, ?string $coverage, string $text): array
+    private static function rows(array $products, array $stores, array $cells, bool $canDecide, ?string $coverage, string $text, ?int $n = null): array
     {
         $by = [];
         foreach (['matched', 'waiting', 'suggested'] as $state) {
@@ -299,8 +380,9 @@ final class ByProductController
             foreach ($stores as $s) {
                 $has = $by[$id][(int) $s['id']] ?? [];
                 $suggested = $has['suggested'] ?? [];
-                usort($suggested, static fn (array $a, array $b): int => [array_search($a['band'], Proposals::BANDS, true), (int) $a['listing_id']]
-                    <=> [array_search($b['band'], Proposals::BANDS, true), (int) $b['listing_id']]);
+                // The strongest suggestion first; one whose pair was marked "not a match" before comes after the others (M59).
+                usort($suggested, static fn (array $a, array $b): int => [(bool) ($a['rejected'] ?? false), array_search($a['band'], Proposals::BANDS, true), (int) $a['listing_id']]
+                    <=> [(bool) ($b['rejected'] ?? false), array_search($b['band'], Proposals::BANDS, true), (int) $b['listing_id']]);
                 $groups = ['matched' => $has['matched'] ?? [], 'waiting' => $has['waiting'] ?? [], 'suggested' => $suggested];
                 $state = 'none';
                 foreach ($groups as $name => $list) {
@@ -310,7 +392,7 @@ final class ByProductController
                     }
                 }
                 $first = $state === 'none' ? null : $groups[$state][0];
-                $bp = new ByProductContext($id, (string) $s['code'], (int) $s['id'], (string) $s['name'], $coverage, $text);
+                $bp = new ByProductContext($id, (string) $s['code'], (int) $s['id'], (string) $s['name'], $coverage, $text, null, null, $n);
                 $own = $first === null ? null : '/ui/review/listing/' . (int) $first['listing_id'];
                 // A suggestion is answered on the variant's own page; from here that page leads back here.
                 $review = $state === 'suggested' && $canDecide ? Html::url((string) $own, $bp->query()) : null;
@@ -319,6 +401,8 @@ final class ByProductController
                 $out[] = [
                     'store' => (string) $s['name'],
                     'state' => $state,
+                    // The word of the cell: a suggested cell whose every suggestion was marked "not a match" before says so.
+                    'chip' => $state === 'suggested' && array_filter($suggested, static fn (array $r): bool => !($r['rejected'] ?? false)) === [] ? 'rejected' : $state,
                     'title' => $first === null ? null : self::title($first),
                     'items' => array_map(static fn (array $r): array => ['variant' => (string) ($r['external_variant_id'] ?? ''), 'notes' => self::notes($state, $r)],
                         $state === 'none' ? [] : $groups[$state]),
@@ -344,6 +428,26 @@ final class ByProductController
     }
 
     /**
+     * The cells' suggested rows, each marked `rejected` when its variant was marked "not a match" for that item before (M59,
+     * BulkDecisions::rejectedBefore: one read of match_reject by its unique index, for the suggestions of the page).
+     *
+     * @param array{matched: list<array<string, mixed>>, suggested: list<array<string, mixed>>, waiting: list<array<string, mixed>>} $cells
+     * @return array{matched: list<array<string, mixed>>, suggested: list<array<string, mixed>>, waiting: list<array<string, mixed>>}
+     */
+    private static function marked(Db $db, array $cells): array
+    {
+        $pairs = [];
+        foreach ($cells['suggested'] as $r) {
+            $pairs[(int) $r['listing_id']] = (int) $r['sku_id'];
+        }
+        $rejected = $pairs === [] ? [] : BulkDecisions::rejectedBefore($db, $pairs);
+        foreach ($cells['suggested'] as $i => $r) {
+            $cells['suggested'][$i]['rejected'] = isset($rejected[(int) $r['listing_id']]);
+        }
+        return $cells;
+    }
+
+    /**
      * One variant's own notes in a cell of the given state: "1 sale = N products" when N is not 1 (a match, or a decision waiting),
      * "On hold" for a matched one on hold, the strength of a suggestion.
      *
@@ -361,6 +465,9 @@ final class ByProductController
         }
         if ($state === 'suggested') {
             $notes[] = Words::of('BAND', (string) $r['band']);
+            if (($r['rejected'] ?? false) === true) {
+                $notes[] = Words::PRODUCT_STORE['rejected'];
+            }
         }
         return $notes;
     }
@@ -377,7 +484,7 @@ final class ByProductController
         foreach ($c['items'] as $item) {
             $parts[] = $item['variant'] . ($item['notes'] === [] ? '' : ' (' . implode('; ', $item['notes']) . ')');
         }
-        return Words::of('PRODUCT_STORE', $c['state']) . ($parts === [] ? '' : ': ' . implode(', ', $parts));
+        return Words::of('PRODUCT_STORE', $c['chip']) . ($parts === [] ? '' : ': ' . implode(', ', $parts));
     }
 
     /**

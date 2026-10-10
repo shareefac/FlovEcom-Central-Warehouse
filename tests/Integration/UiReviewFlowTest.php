@@ -693,6 +693,65 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertSame('mapped', $this->link($other)['status']);
     }
 
+    /**
+     * By Item's bulk action over real HTTP (docs/decisions.md U123-U130): a page of 200 items, every one ticked, arrives whole (PHP
+     * drops the fields past max_input_vars, so the forms are sized well below it); the preview shows hostile names as text and
+     * saves nothing; its one button applies it; the result page leads back to the list the person came from.
+     */
+    public function testByItemsBulkActionIsPreviewedThenAppliedForAPageOfTwoHundredItems(): void
+    {
+        $site = $this->site('vpg');
+        $max = (string) self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'mapping.bulk_max_rows'");
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('500' AS JSON) WHERE setting_key = 'mapping.bulk_max_rows'");
+        try {
+            $evil = '<script>alert(1)</script><img src=x onerror=alert(2)>"\'';
+            $listings = [];
+            for ($i = 1; $i <= 200; $i++) {
+                $sku = $this->item('legacy', 0, $i === 1 ? 'Kit ' . $evil : sprintf('Bulk kit %03d', $i));
+                $listings[] = $this->queued($site, 'BK' . $i, 'Key', $sku, ['product_title' => $i === 2 ? 'Variant ' . $evil : 'Bulk variant ' . $i]);
+            }
+            $web = $this->signIn($this->uiUser('mapping_lead'));
+            $page = $web->get('/ui/review/products', ['n' => '200', 'all' => '1']);
+            self::assertSame(200, $page->status, $page->describe());
+            self::assertHardened($page, 'by item, 200 rows');
+            self::assertInert($page, 'by item, 200 rows');
+            $form = $page->form('/ui/review/products/bulk');
+            self::assertCount(200, array_filter(array_keys($form), static fn (string $k): bool => str_starts_with($k, 'pick_')), 'every row of the page is ticked');
+            self::assertCount(200, array_filter(array_keys($form), static fn (string $k): bool => str_starts_with($k, 'cells_')));
+            self::assertLessThan(500, count($form) + 1, 'the form of a full page stays well below max_input_vars');
+
+            $preview = $web->post('/ui/review/products/bulk', ['action' => 'link'] + $form);
+            self::assertSame(200, $preview->status, $preview->describe());
+            self::assertHardened($preview, 'by item, preview');
+            self::assertInert($preview, 'by item, preview');
+            self::assertStringContainsString('200 will be matched · 0 will wait for a second OK · 0 will be skipped', $preview->text());
+            self::assertStringContainsString('Kit ' . $evil, $preview->text(), 'a hostile name is shown as the text it is');
+            self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'), 'the preview saves nothing');
+            self::assertSame(200, (int) self::$db->value("SELECT COUNT(*) FROM channel_listing WHERE status = 'suggested'"));
+            $apply = $preview->form('/ui/review/products/bulk/apply');
+            self::assertCount(200, array_filter(array_keys($apply), static fn (string $k): bool => str_starts_with($k, 'row_')));
+            self::assertSame(['link', '200'], [$apply['action'], $apply['n']]);
+
+            $done = $web->post('/ui/review/products/bulk/apply', $apply);
+            self::assertSame(303, $done->status, $done->describe());
+            self::assertMatchesRegularExpression('#^/ui/review/batches/[0-9]+\?from=item&n=200$#', (string) $done->location());
+            self::assertSame(200, (int) self::$db->value("SELECT COUNT(*) FROM channel_listing WHERE status = 'mapped' AND id IN (" . implode(',', $listings) . ')'));
+            self::assertSame([1, 200], [(int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'), (int) self::$db->value("SELECT COUNT(*) FROM mapping_batch_row WHERE outcome = 'done'")]);
+            $result = $web->follow($done);
+            self::assertHardened($result, 'by item, result');
+            self::assertInert($result, 'by item, result');
+            self::assertStringContainsString(Words::say('BULK', 'summary', Words::say('BULK_DONE', 'link', 200), 0, 0), $result->text());
+            self::assertContains('/ui/review/products?n=200', $result->hrefs(), 'back to the list as the person left it');
+            // Sent again (the Back button, a second press): every variant has changed since, so nothing is done twice.
+            $again = $web->post('/ui/review/products/bulk/apply', $apply);
+            self::assertSame(303, $again->status, $again->describe());
+            self::assertSame(200, (int) self::$db->value("SELECT COUNT(*) FROM mapping_batch_row WHERE outcome = 'skipped' AND skip_code = 'changed'"));
+            self::assertSame(200, (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE action = 'link'"));
+        } finally {
+            self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [$max, 'mapping.bulk_max_rows']);
+        }
+    }
+
     public function testAPickThatDoesNotExistFallsBackToTheProposal(): void
     {
         $site = $this->site('vpg');

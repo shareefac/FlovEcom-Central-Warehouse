@@ -1605,5 +1605,28 @@ table.by-product tr[id] { scroll-margin-top: 96px; }
   /* As a card: the store's name on the left, what it has on the right; the label keeps its own width */
   table.stack.by-product td.c-store { max-width: none; padding: 4px 0; row-gap: 2px; }
   table.stack.by-product td.c-store > .chip { justify-self: start; }
-  table.stack.by-product tr.picked { background: var(--primary-sel); border-color: var(--primary); }
+  table.stack.by-product tr.picked, table.stack.by-product tr.here { background: var(--primary-sel); border-color: var(--primary); }
 }
+/* By Item's rows, ticks and bulk action (docs/decisions.md U123-U130) */
+/* The row a person came back to after a decision keeps its tint (`here`); `picked` is a ticked row, as on the lists (section 21) */
+table.by-product tbody tr.here > * { background: var(--primary-sel); }
+/* How many items a page shows: "Rows 50 100 200" at the end of the board's head */
+.rows-choice { display: flex; align-items: center; gap: 4px; margin-left: auto; color: var(--ink-2); font: 400 14px/20px var(--font); }
+.rows-choice a {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 32px; padding: 0 8px;
+  border: 1px solid var(--field); border-radius: var(--radius-sm); color: var(--ink); text-decoration: none;
+}
+.rows-choice a:hover { background: var(--sunk); }
+.rows-choice a[aria-current="true"] { background: var(--primary-sel); border-color: var(--primary); font-weight: 600; }
+@media (max-width: 959.98px) { .rows-choice a { min-width: 44px; min-height: 44px; } }
+/* The tick of a tall row sits at its top, beside the item's name */
+table.by-product td.c-pick { vertical-align: top; }
+/* The store the bar's actions are for, before its buttons; the line under the bar that says what they do */
+.bulkbar-choice { display: inline-flex; align-items: center; gap: 8px; margin: 0; font: 400 14px/20px var(--font); color: var(--ink); }
+.bulkbar-choice select { width: auto; max-width: 16rem; min-height: 32px; }
+.bulk-note { max-width: 100ch; }
+/* The preview: one line per variant, what will happen (and why) in its last cell; the one button stays in sight (.actions.sticky) */
+table.by-item-preview td.c-wide { text-align: left; }
+table.by-item-preview td.c-wide .why { display: block; margin-top: 4px; color: var(--ink-2); }
+form.by-item-apply .preview-facts { margin: 0 0 16px; }
+@media (max-width: 959.98px) { .bulkbar-choice select { min-height: 44px; } }

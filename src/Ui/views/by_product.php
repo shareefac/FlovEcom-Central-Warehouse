@@ -2,6 +2,8 @@
 // Products › By Item (docs/decisions.md U113-U122): one row per warehouse item, one cell per store (the stores come from the
 // channel table: the columns are whatever it holds). A cell is the store's name on a phone (data-label), where each row is a card.
 // In the owner's words (U122) the row is an ITEM, what a store sells is a VARIANT, and "Product:" names the variant's parent page.
+// Since U123-U124: the number of rows is chosen above the list, and a person who may decide gets a tick box on every item a store
+// suggests a variant for, and the bar under the list (a plain form without app.js: its buttons open the preview, which saves nothing).
 ?>
 <h1><?= $word('MENU', 'by_product') ?></h1>
 <?= $intro('by_product', $lookOnly) ?>
@@ -11,6 +13,9 @@
 <form class="toolbar" method="get" action="/ui/review/products" aria-label="<?= $word('UI', 'filter') ?>">
 <?php if ($coverage !== null): ?>
   <input type="hidden" name="cov" value="<?= $e($coverage) ?>">
+<?php endif; ?>
+<?php if ($per_page !== null): ?>
+  <input type="hidden" name="n" value="<?= $e($per_page) ?>">
 <?php endif; ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="bp-q"><?= $word('BY_PRODUCT', 'search') ?></label><input id="bp-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>" title="<?= $word('BY_PRODUCT', 'search') ?>"></div>
   <div class="tb-end">
@@ -31,11 +36,23 @@
 <?= $empty(\CW\Ui\Words::BY_PRODUCT['empty'], \CW\Ui\Words::BY_PRODUCT['empty_text']) ?>
 <?php endif; ?>
 <?php else: ?>
-<div class="board-head"><h2 class="board-title"><?= $word('BY_PRODUCT', 'board') ?></h2><p class="board-note"><?= $say('BY_PRODUCT', 'shown', $total, $shown) ?><?php if ($filtered): ?> · <a href="<?= $e($clear_link) ?>"><?= $word('QUEUE', 'clear') ?></a><?php endif; ?></p></div>
+<?php $bulk = $bulkActions !== []; ?>
+<?php if ($bulk): ?>
+<form class="bulk-form" method="post" action="/ui/review/products/bulk" data-bulk>
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+<?php foreach ($bulkKeep as $key => $value): ?>
+  <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
+<?php endforeach; ?>
+<?php endif; ?>
+<div class="board-head"><h2 class="board-title"><?= $word('BY_PRODUCT', 'board') ?></h2><p class="board-note"><?= $say('BY_PRODUCT', 'shown', $total, $shown) ?><?php if ($filtered): ?> · <a href="<?= $e($clear_link) ?>"><?= $word('QUEUE', 'clear') ?></a><?php endif; ?><?php if ($bulk): ?> · <a class="pick-all" href="<?= $e($allLink) ?>" data-bulk-all-link title="<?= $word('BY_ITEM_BULK', 'select_all') ?>"><?= $word('BULK', 'select_all') ?></a><?php endif; ?></p>
+  <nav class="rows-choice" aria-label="<?= $word('BY_ITEM_BULK', 'rows') ?>"><span class="rows-label"><?= $word('BY_PRODUCT', 'rows') ?></span><?php foreach ($sizes as $size): ?> <a href="<?= $e($size['href']) ?>"<?php if ($size['current']): ?> aria-current="true"<?php endif; ?>><?= $n($size['size']) ?></a><?php endforeach; ?></nav></div>
 <div class="table-wrap">
-<table class="stack list board row-strips by-product">
+<table class="stack list board row-strips by-product<?php if ($bulk): ?> picks<?php endif; ?>">
   <thead>
     <tr>
+<?php if ($bulk): ?>
+      <th scope="col" class="c-pick"><label class="pick"><input type="checkbox" data-bulk-all hidden><span class="visually-hidden"><?= $word('BY_ITEM_BULK', 'select_all') ?></span></label></th>
+<?php endif; ?>
       <th scope="col" class="c-item"><?= $word('BY_PRODUCT', 'item') ?></th>
 <?php foreach ($stores as $name): ?>
       <th scope="col" class="c-store"><?= $e($name) ?></th>
@@ -45,12 +62,19 @@
   </thead>
   <tbody>
 <?php foreach ($rows as $r): ?>
-    <tr id="p-<?= $e($r['id']) ?>" class="<?= $e($r['tone']) ?><?php if ($r['here']): ?> picked<?php endif; ?>">
+    <tr id="p-<?= $e($r['id']) ?>" class="<?= $e($r['tone']) ?><?php if ($r['here']): ?> here<?php endif; ?><?php if ($r['ticked']): ?> picked<?php endif; ?>">
+<?php if ($bulk): ?>
+      <td class="c-pick" data-label=""><?php if ($r['cells_field'] !== null): ?><label class="pick"><input type="checkbox" name="pick_<?= $e($r['id']) ?>" value="1" data-bulk-row<?php if ($r['manual']): ?> data-bulk-manual<?php endif; ?><?php if ($r['ticked']): ?> checked<?php endif; ?>><span class="visually-hidden"><?= $say('BULK', 'pick_row', (string) ($r['name'] ?? $r['code'])) ?></span></label>
+        <input type="hidden" name="cells_<?= $e($r['id']) ?>" value="<?= $e($r['cells_field']) ?>"><?php endif; ?></td>
+<?php endif; ?>
       <th scope="row" class="c-head">
         <a class="o-name" href="<?= $u('/ui/items/' . $r['id']) ?>"><?= $e($r['name'] ?? $r['code']) ?></a>
         <span class="o-sub"><?= $e($r['code']) ?><?php if ($r['brand'] !== null): ?> · <?= $e($r['brand']) ?><?php endif; ?></span>
 <?php if ($r['parent'] !== null): ?>
         <span class="o-sub parent"><?= $say('BY_PRODUCT', 'parent', $r['parent']) ?></span>
+<?php endif; ?>
+<?php if ($bulk && $r['too_many'] !== null): ?>
+        <span class="o-sub"><?= $say('BY_ITEM_BULK', 'row_too_many', $r['too_many']) ?></span>
 <?php endif; ?>
 <?php if ($r['here']): ?>
         <span class="o-sub here-note"><?= $word('BY_PRODUCT', 'back_here') ?><?php if ($r['pinned']): ?> <?= $word('BY_PRODUCT', 'pinned') ?><?php endif; ?></span>
@@ -58,7 +82,7 @@
       </th>
 <?php foreach ($r['cells'] as $c): ?>
       <td class="c-store" data-label="<?= $e($c['store']) ?>">
-        <?= $stateChip('PRODUCT_STORE', $c['state']) ?>
+        <?= $stateChip('PRODUCT_STORE', $c['chip']) ?>
 <?php if ($c['title'] !== null): ?>
         <a class="o-line" href="<?= $e($c['link']) ?>"><?= $e($c['title']) ?></a>
 <?php endif; ?>
@@ -102,6 +126,11 @@
   </tbody>
 </table>
 </div>
+<?php if ($bulk): ?>
+<?= $partial('bulk_bar', ['actions' => $bulkActions, 'max' => 0, 'words' => $bulkWords, 'choice' => $bulkChoice]) ?>
+</form>
+<p class="muted bulk-note"><?= $say('BY_ITEM_BULK', 'limit', $bulkMax) ?> <?= $word('BY_ITEM_BULK', 'undo_note') ?><?php if ($manualNote): ?> <?= $word('BY_ITEM_BULK', 'manual_note') ?><?php endif; ?></p>
+<?php endif; ?>
 <?php endif; ?>
 
 <?php if ($pages > 1): ?>
@@ -111,5 +140,5 @@
 <?php if ($next_link !== null): ?><a href="<?= $e($next_link) ?>" rel="next"><?= $word('QUEUE', 'next') ?></a><?php endif; ?>
 </nav>
 <?php endif; ?>
-<p class="muted"><?= $word('BY_PRODUCT', 'note') ?></p>
+<p class="muted"><?php if ($lookOnly === null): ?><?= $word('BY_PRODUCT', 'note') ?><?php else: ?><?= $word('BY_PRODUCT', 'note_look') ?><?php endif; ?></p>
 <?php endif; ?>

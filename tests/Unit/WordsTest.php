@@ -7,6 +7,7 @@ namespace CW\Tests\Unit;
 use CW\Auth\Permissions;
 use CW\CwException;
 use CW\Documents\Document;
+use CW\Mapping\BulkDecisions;
 use CW\Mapping\DecisionService;
 use CW\Mapping\Proposals;
 use CW\Matching\Band;
@@ -297,7 +298,7 @@ final class WordsTest extends TestCase
         }
         $keys = [];
         foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql', '0019_set_it_yourself.sql',
-            '0021_mapping_bulk.sql'] as $file) {
+            '0021_mapping_bulk.sql', '0025_by_item_bulk.sql'] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
         }
@@ -347,9 +348,16 @@ final class WordsTest extends TestCase
             'ERROR' => ['unknown_listing', 'unknown_item', 'unknown_group', 'unknown_sample', 'unknown_store', 'item_joined'],
             // By Item (U113-U122): a cell's states, the coverage filters, the picker's barcode marks, and the words its two pages
             // take by name.
-            'PRODUCT_STORE' => ['matched', 'waiting', 'suggested', 'none'],
+            'PRODUCT_STORE' => ['matched', 'waiting', 'suggested', 'rejected', 'none'],
             'BY_PRODUCT' => [...Queries::COVERAGE, 'all', 'pick_barcode_same', 'pick_barcode_differs', 'pick_barcode_unknown', 'item', 'parent', 'more_one', 'more_many',
-                'stores_matched', 'summary', 'map', 'pick_title', 'pick_suggested', 'pick_search', 'pick_search_first', 'pick_variant', 'pick_choose'],
+                'stores_matched', 'summary', 'map', 'pick_title', 'pick_suggested', 'pick_search', 'pick_search_first', 'pick_variant', 'pick_choose', 'rows', 'note', 'note_look'],
+            // Bulk action (M46-M58): every reason a row is skipped for has its words, in the lists' words and in By Item's; By Item's
+            // bar, preview and button have a word for each of its actions.
+            'BULK_SKIP' => BulkDecisions::SKIPS,
+            'BY_ITEM_SKIP' => BulkDecisions::SKIPS,
+            'BY_ITEM_BULK' => [...BulkDecisions::ITEM_ACTIONS, ...array_merge(...array_map(static fn (string $a): array => ["title_{$a}", "summary_{$a}", "text_{$a}", "button_{$a}", "will_{$a}"],
+                BulkDecisions::ITEM_ACTIONS)), 'summary_pending', 'summary_skipped', 'will_wait', 'will_skip', 'nothing_ticked', 'nothing_on', 'too_many_rows', 'undo_note', 'limit',
+                'row_too_many', 'manual_note'],
         ] as $group => $codes) {
             foreach ($codes as $code) {
                 self::assertTrue(Words::has($group, $code), "{$group}: no word for `{$code}`");
@@ -393,7 +401,8 @@ final class WordsTest extends TestCase
         self::assertSame('Every warehouse item and the variant it is matched to on each store.', Words::PAGE_INTRO['by_product'][0]);
         self::assertSame(['Item', 'Stores matched', 'Match…', 'Choose', 'Variant'],
             [Words::BY_PRODUCT['item'], Words::BY_PRODUCT['stores_matched'], Words::BY_PRODUCT['map'], Words::BY_PRODUCT['pick_choose'], Words::BY_PRODUCT['pick_variant']]);
-        self::assertSame(['Matched', 'Waiting for a second OK', 'Suggested', 'Not on this store'], array_values(Words::PRODUCT_STORE));
+        // (`Marked not a match`, M59: a suggested cell whose every suggestion was marked wrong for the item before)
+        self::assertSame(['Matched', 'Waiting for a second OK', 'Suggested', 'Marked not a match', 'Not on this store'], array_values(Words::PRODUCT_STORE));
         self::assertSame(['Product: Elux Legend 3500', '2 of 3', '+1 more variant', '+4 more variants'], [Words::say('BY_PRODUCT', 'parent', 'Elux Legend 3500'),
             Words::say('BY_PRODUCT', 'summary', 2, 3), Words::BY_PRODUCT['more_one'], Words::say('BY_PRODUCT', 'more_many', 4)]);
         self::assertSame(['Match CW-000041 on Alt Store', 'Suggested for this item', 'Other variants of Alt Store still waiting for a match'],
@@ -408,6 +417,32 @@ final class WordsTest extends TestCase
             if ($code !== 'parent') {
                 self::assertDoesNotMatchRegularExpression('/\bproducts?\b/i', $text, "{$code}: \"product\" is only the parent page of a variant");
             }
+        }
+        // The bulk action of this screen (U123-U130; the owner, 10 Oct 2026: "bulk preview and update option"): the same words. Its
+        // bar, its preview, its button, its refusals and every reason a variant is skipped speak of items and variants only.
+        self::assertSame(['Confirm suggested matches', 'Not a match…', 'Send back for matching…'], [Words::BY_ITEM_BULK['link'], Words::BY_ITEM_BULK['reject'], Words::BY_ITEM_BULK['send_back']]);
+        self::assertSame(['Preview: confirm suggested matches', 'Yes, do these 12', 'Yes, these 3 are not a match'],
+            [Words::say('BY_ITEM_BULK', 'title', Words::BY_ITEM_BULK['title_link']), Words::say('BY_ITEM_BULK', 'button_link', 12), Words::say('BY_ITEM_BULK', 'button_reject', 3)]);
+        self::assertSame('12 will be matched · 3 will wait for a second OK · 5 will be skipped', implode(' · ', [Words::say('BY_ITEM_BULK', 'summary_link', 12),
+            Words::say('BY_ITEM_BULK', 'summary_pending', 3), Words::say('BY_ITEM_BULK', 'summary_skipped', 5)]));
+        self::assertSame(array_keys(Words::BULK_SKIP), array_keys(Words::BY_ITEM_SKIP), 'the same reasons, in the same order');
+        // What a confirm from By Item leaves to a person (M59), in the reviewer's words; and a refusal's number is filled in.
+        self::assertSame(['Elux Legend Blue Razz already has a variant on Alt Store: open it and decide.', 'It was marked not a match for this item before: open it and decide.'],
+            [\CW\Ui\Controller\BulkController::why('item_on_store', ['item' => 'Elux Legend Blue Razz', 'store' => 'Alt Store'], 'BY_ITEM_SKIP'),
+                \CW\Ui\Controller\BulkController::why('rejected_before', [], 'BY_ITEM_SKIP')]);
+        foreach (['BULK_SKIP', 'BY_ITEM_SKIP'] as $group) {
+            $said = \CW\Ui\Controller\BulkController::why('refused', ['code' => 'bad_units', 'message' => 'units_per_item must be 1..1000'], $group);
+            self::assertStringContainsString('from 1 to 1,000', $said, $group);
+            self::assertStringNotContainsString('%', $said, "{$group}: no text that still wants a value");
+            // A refusal whose words want a value this page does not have is said in the service's own words.
+            self::assertSame('Not changed: The name is too long.', \CW\Ui\Controller\BulkController::why('refused', ['code' => 'bad_card', 'message' => 'the name is too long'], $group));
+        }
+        foreach ([...array_values(Words::BY_ITEM_BULK), ...array_values(Words::BY_ITEM_SKIP), ...Words::PAGE_INTRO['by_item_preview'], ...Words::PAGE_INTRO['by_item_result'],
+            Words::SETTING['mapping.by_item_page_size']] as $text) {
+            self::assertDoesNotMatchRegularExpression('/\bproducts?\b|website|By Product/i', $text, 'items and variants, as the owner says');
+        }
+        foreach (Words::BY_ITEM_SKIP as $code => $text) {
+            self::assertSame(substr_count(Words::BULK_SKIP[$code], '%s'), substr_count($text, '%s'), "{$code}: filled in from the same record");
         }
     }
 

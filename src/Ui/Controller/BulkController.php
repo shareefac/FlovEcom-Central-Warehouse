@@ -8,6 +8,7 @@ use CW\CwException;
 use CW\Mapping\BulkDecisions;
 use CW\Mapping\DecisionService;
 use CW\Mapping\Proposals;
+use CW\Ui\ByProductContext;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -26,6 +27,9 @@ use CW\Ui\Words;
  * the note there), and only its button acts. Everything else is CW\Mapping\BulkDecisions' (row by row through DecisionService).
  * A refusal of the whole request (a strength the setting leaves out, more rows than the setting allows, a job that may not)
  * changes nothing and says so in words.
+ *
+ * A batch started on Products › By Item (source `item`, ByItemBulkController; U127) ends on the same batch page: it speaks of
+ * variants there, and its way back is By Item as the person left it.
  */
 final class BulkController
 {
@@ -121,7 +125,7 @@ final class BulkController
                 'store' => self::s($r['channel_name']),
                 'variant' => self::s($r['external_variant_id']),
                 'outcome' => $outcome,
-                'why' => $code === null ? null : self::why($code, $detail),
+                'why' => $code === null ? null : self::why($code, $detail, (string) $b['source'] === 'item' ? 'BY_ITEM_SKIP' : 'BULK_SKIP'),
                 'needs' => array_map(static fn (string $n): string => Words::of('NEEDS_SECOND', $n), Html::strings($detail['needs_second'] ?? null)),
                 'sku_code' => self::s($r['sku_code']),
                 // What the decision is now: it may have been approved or cancelled since (the result is a record, not a promise).
@@ -132,9 +136,19 @@ final class BulkController
         $action = (string) $b['action'];
         $asked = (int) $b['rows_asked'];
         $from = (string) $b['source'];
-        $list = $from === 'store'
-            ? [Html::url('/ui/review/store', ['channel' => $b['channel_code']]), Words::MENU['store_products']]
-            : [Html::url('/ui/review', ['queue' => $b['band'], 'channel' => $b['channel_code']]), Words::of('BAND_TITLE', (string) $b['band'])];
+        $list = match ($from) {
+            'store' => [Html::url('/ui/review/store', ['channel' => $b['channel_code']]), Words::MENU['store_products']],
+            'item' => [self::itemList($ctx), Words::MENU['by_product']],
+            default => [Html::url('/ui/review', ['queue' => $b['band'], 'channel' => $b['channel_code']]), Words::of('BAND_TITLE', (string) $b['band'])],
+        };
+        // The words of the page: a batch of By Item speaks of variants (U122), the lists' batches of products, as before.
+        $words = $from === 'item'
+            ? ['intro' => 'by_item_result', 'what' => Words::of('BY_ITEM_BULK', $action), 'skipped_text' => Words::BY_ITEM_BULK['result_skipped_text'],
+                'ticked' => Words::BY_ITEM_BULK['result_ticked'], 'all_rows' => Words::BY_ITEM_BULK['result_all_rows'], 'col' => Words::BY_ITEM_BULK['result_col'],
+                'where' => Words::BY_ITEM_BULK['result_where']]
+            : ['intro' => 'bulk_result', 'what' => Words::of('BULK_ACTION', $action), 'skipped_text' => Words::BULK['skipped_text'], 'ticked' => Words::BULK['ticked'],
+                'all_rows' => Words::BULK['all_rows'], 'col' => Words::QUEUE['product'],
+                'where' => $from === 'store' ? Words::MENU['store_products'] : Words::of('BAND_TITLE', (string) $b['band'])];
         return $ctx->page('bulk_result', [
             'batch' => ['id' => $id, 'ref' => $batch, 'action' => $action, 'by' => self::s($b['display_name']), 'at' => (string) $b['created_at'],
                 'store' => self::s($b['channel_name']), 'band' => $b['band'] === null ? null : (string) $b['band'], 'reason' => self::s($b['reason']),
@@ -147,6 +161,7 @@ final class BulkController
             'skipped' => array_values(array_filter($rows, static fn (array $r): bool => $r['outcome'] === 'skipped')),
             'rows' => $rows,
             'list' => $list,
+            'words' => $words,
             'pending_link' => $count['pending_second'] > 0 ? Html::url('/ui/review', ['queue' => 'pending', 'channel' => $b['channel_code']]) : null,
         ], 200, ['title' => Words::say('BULK', 'title', $id), 'active' => 'review']);
     }
@@ -199,13 +214,16 @@ final class BulkController
 
     /**
      * Why a row was skipped, in words (Words::BULK_SKIP), with what the record says: the hold's reason, the spot check, the vetoes and
-     * flags in words, the state found, a refusal's own words.
+     * flags in words, the state found, the item and the store of By Item's confirm rules (M59), a refusal's own words (with its
+     * number filled in: a text that still wants a value is never shown, the service's message is).
      *
      * @param array<string, mixed> $detail
+     * @param string $group the words: BULK_SKIP (the lists), or BY_ITEM_SKIP (By Item: the same reasons in items and variants)
      */
-    public static function why(string $code, array $detail): string
+    public static function why(string $code, array $detail, string $group = 'BULK_SKIP'): string
     {
-        $base = Words::BULK_SKIP[$code] ?? Words::BULK_SKIP['refused'];
+        $texts = $group === 'BY_ITEM_SKIP' ? Words::BY_ITEM_SKIP : Words::BULK_SKIP;
+        $base = $texts[$code] ?? $texts['refused'];
         return match ($code) {
             'held' => sprintf($base, (string) ($detail['reason'] ?? '')),
             'in_spot_check', 'spot_check_failed' => sprintf($base, (string) ($detail['sample'] ?? '')),
@@ -213,10 +231,28 @@ final class BulkController
             'flagged' => sprintf($base, Words::andList(array_map(static fn (string $f): string => Words::of('FLAG', $f), Html::strings($detail['flags'] ?? null)))),
             'changed', 'not_waiting', 'not_ignored' => sprintf($base, is_string($detail['status'] ?? null) ? Words::of('LISTING_STATUS', $detail['status']) : Words::BULK['state_unknown']),
             'band_not_allowed' => sprintf($base, is_string($detail['band'] ?? null) ? Words::of('BAND', $detail['band']) : Words::BULK['state_unknown']),
-            'refused' => sprintf($base, is_string($detail['code'] ?? null) && isset(Words::MATCH_ERROR[$detail['code']]) && $detail['code'] !== 'other'
-                ? Words::MATCH_ERROR[$detail['code']] : ucfirst(rtrim((string) ($detail['message'] ?? ''), '.')) . '.'),
+            'item_on_store', 'several_suggested' => sprintf($base, (string) ($detail['item'] ?? ''), (string) ($detail['store'] ?? '')),
+            'refused' => sprintf($base, match (true) {
+                ($detail['code'] ?? null) === 'bad_units' => Words::say('MATCH_ERROR', 'bad_units', DecisionService::MAX_UNITS),
+                is_string($detail['code'] ?? null) && isset(Words::MATCH_ERROR[$detail['code']]) && $detail['code'] !== 'other'
+                    && !str_contains(Words::MATCH_ERROR[$detail['code']], '%') => Words::MATCH_ERROR[$detail['code']],
+                default => ucfirst(rtrim((string) ($detail['message'] ?? ''), '.')) . '.',
+            }),
             default => $base,
         };
+    }
+
+    /**
+     * By Item as the person left it, for the batch page of a bulk action started there: the apply's redirect carries the list's
+     * filter, search, page and number of rows, and each is read as the list itself reads it (never an address).
+     */
+    private static function itemList(Context $ctx): string
+    {
+        $req = $ctx->req;
+        $text = ByProductContext::text($req->param('q') ?? '');
+        $page = UiRequest::id($req->param('page'));
+        return Html::url(ByProductContext::LIST_PATH, ['cov' => ByProductContext::coverage($req->param('cov'), $ctx->queries()->everyStore())['value'],
+            'q' => $text === '' ? null : $text, 'n' => ByProductContext::pageSize($req->param('n')), 'page' => $page !== null && $page > 1 ? $page : null]);
     }
 
     /** The list a refused or confirmed request goes back to ([path, its name]). @return array{0: string, 1: string} */

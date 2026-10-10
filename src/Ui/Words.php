@@ -47,6 +47,7 @@ final class Words
         'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
         'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE',
+        'BY_ITEM_BULK', 'BY_ITEM_SKIP',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN'];
 
@@ -379,7 +380,10 @@ final class Words
         'mapping_overview' => ['How far each store is with matching, by how sure the computer is.', 'Choose a store, then press Review on a list.'],
         'store_products' => ['Every website product of one store, and its match.', 'Choose a store. Tick products to ignore them or send them back; open one to change it.'],
         'by_product' => ['Every warehouse item and the variant it is matched to on each store.',
-            'Where a store is missing, press "Match…" and choose its variant.'],
+            'Where a store is missing, press "Match…" and choose its variant. To answer many suggestions at once, tick the items and use the bar.'],
+        'by_item_preview' => ['Nothing is saved yet: this is what will happen to each variant.',
+            'Read the lines, then press the button at the bottom, or go back.'],
+        'by_item_result' => ['What happened to each variant of this action.', 'Open a skipped one to decide it by hand.'],
         'by_product_map' => ['Which variant of this store is this warehouse item?',
             'Press Choose on it. The next page shows the two side by side, and you say yes there.'],
         'bulk_confirm' => ['This changes many website products at once.', 'Check the list below. Nothing is saved until you press the red button.'],
@@ -1482,6 +1486,7 @@ final class Words
         'approvals.mapping_bulk_second_ok' => 'Matches confirmed from a ticked list need a second OK',
         'mapping.bulk_confirm_bands' => 'Match strengths that may be confirmed together',
         'mapping.bulk_max_rows' => 'Most products in one bulk action',
+        'mapping.by_item_page_size' => 'Items on a page of By Item',
         'staff.setup_hours' => 'Hours to set up a sign-in',
         'staff.min_reviewers' => 'Reviewers needed',
     ];
@@ -2550,7 +2555,10 @@ final class Words
         'approvals.mapping_bulk_second_ok' => 'Matches confirmed, and new products created, from a ticked list wait for a second matching lead.',
         'mapping.bulk_confirm_bands' => 'On these lists people may tick website products and confirm the suggested matches together. '
             . 'The other lists are decided one at a time. Untick all to allow none.',
-        'mapping.bulk_max_rows' => 'The most website products one bulk action takes. A page shows 50.',
+        'mapping.bulk_max_rows' => 'The most website products one bulk action takes. A page shows 50. On By Item it is the most suggested variants '
+            . 'of the ticked items.',
+        'mapping.by_item_page_size' => 'How many items Products › By Item shows on a page when it opens: 50, 100 or 200. On the page itself anyone '
+            . 'can show another number for a while.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
     ];
@@ -3233,6 +3241,10 @@ final class Words
         'product_joined' => 'The suggested product was joined into another one. Open it to pick the right one.',
         'no_name' => 'It has no name, so a new product cannot be made from it. Open it and type one.',
         'refused' => 'Not changed: %s',
+        // By Item's confirm only (M59; BY_ITEM_SKIP says them in items and variants)
+        'rejected_before' => 'It was marked "not this product" for this warehouse product before: open it and decide.',
+        'item_on_store' => '%s already has a website product on %s: open it and decide.',
+        'several_suggested' => '%s has more than one suggested website product on %s: open them and decide which is right.',
     ];
 
     /** A bulk request refused as a whole (nothing was saved). */
@@ -3364,7 +3376,10 @@ final class Words
         'empty_text' => 'They are made when a store\'s list is loaded, or when a variant is created as a new item.',
         'empty_filter' => 'No warehouse item fits your search or filter.',
         'empty_filter_text' => 'Other items are hidden by it.',
-        'note' => 'Nothing is matched on this page itself. "Match…" and "Review" open the variant\'s own page: you compare the two there and say yes.',
+        'note' => 'One at a time: "Match…" and "Review" open the variant\'s own page, where you compare the two and say yes. '
+            . 'Many at once: tick the items and use the bar under the list. It shows a preview before anything is saved.',
+        'note_look' => '"Matched", "Suggested" and the other words say what each store has for the item. Open a variant to see it.',
+        'rows' => 'Rows',
         // The picker: one warehouse item on one store
         'pick_title' => 'Match %s on %s',
         'pick_crumb' => 'By Item: %s',
@@ -3394,12 +3409,130 @@ final class Words
         'pick_next_step' => '"Choose" opens that variant next to this warehouse item. Nothing is matched until you say yes there.',
     ];
 
-    /** What a store has for a warehouse item: a cell of By Item and of its CSV. */
+    /**
+     * What a store has for a warehouse item: a cell of By Item and of its CSV. `rejected` is a suggested cell whose every suggestion
+     * was marked "not a match" for the item before (M59): the suggestion is still open, and a person decides it on its page.
+     */
     public const PRODUCT_STORE = [
         'matched' => 'Matched',
         'waiting' => 'Waiting for a second OK',
         'suggested' => 'Suggested',
+        'rejected' => 'Marked not a match',
         'none' => 'Not on this store',
+    ];
+
+    /**
+     * By Item's bulk action (docs/decisions.md M55-M59, U123-U130; the owner's "bulk preview and update option", 10 Oct 2026): the
+     * bar under the ticked items, the preview of every variant it would change and its one button, the refusals in words, and the
+     * result page's words for a batch started here. The owner's words (U122): items and variants. %s of `on_store`, `nothing_here_*`
+     * and `too_many` is a store's name or "all stores", read from the channel table.
+     */
+    public const BY_ITEM_BULK = [
+        // The bar (U124)
+        'bar' => 'Ticked items',
+        'selected_none' => 'Tick items, choose the store, then what to do. You see a preview first.',
+        'selected_one' => '1 item ticked',
+        'selected_many' => '%s items ticked',
+        'too_many' => '%s items ticked: at most %s variants at a time.',
+        'on' => 'On',
+        'all_stores' => 'All stores',
+        'all_stores_lower' => 'all stores',
+        'link' => 'Confirm suggested matches',
+        'reject' => 'Not a match…',
+        'send_back' => 'Send back for matching…',
+        'limit' => 'Each of these acts on the suggested variants of the ticked items, on the store you choose. You see a preview first: nothing is '
+            . 'saved before you say yes there. At most %s variants at a time.',
+        'undo_note' => 'Matched variants are not changed here. To undo a match, open the variant: a matching lead uses "Change this match" and says '
+            . 'why, one at a time, because it changes a stock link.',
+        'rows' => 'Items on a page',
+        'select_all' => 'Tick every item with a suggestion on this page',
+        'manual_note' => 'An item whose only suggestion was marked not a match before is not ticked by "Select all on this page": tick it yourself, '
+            . 'for example to send that suggestion back for matching.',
+        'row_too_many' => '%s suggested variants: more than one bulk action can take. Decide them one at a time.',
+        // The preview (U125, U126)
+        'title' => 'Preview: %s',
+        'title_link' => 'confirm suggested matches',
+        'title_reject' => 'not a match',
+        'title_send_back' => 'send back for matching',
+        'summary_link' => '%s will be matched',
+        'summary_reject' => '%s will be marked not a match',
+        'summary_send_back' => '%s will be sent back for matching',
+        'summary_pending' => '%s will wait for a second OK',
+        'summary_skipped' => '%s will be skipped',
+        'scope' => 'On %s · %s items ticked · %s suggested variants',
+        'nothing_here_one' => '1 ticked item has no suggestion on %s: nothing happens to it.',
+        'nothing_here_many' => '%s ticked items have no suggestion on %s: nothing happens to them.',
+        'text_link' => 'Each variant is matched to the item it is suggested for, with the units per sale the computer suggests. The usual rules apply: '
+            . 'a match that needs a second person waits for a matching lead. Left for you to decide one at a time: a variant marked not a match before, '
+            . 'an item that already has a variant on that store, and an item with more than one suggested variant on a store.',
+        'text_reject' => 'This is the second step of "Not a match": nothing is marked before you press the red button. Each suggestion is marked '
+            . 'wrong; nothing is matched, and each variant stays in its list for another choice. Matching it to that item later needs a second OK.',
+        'text_send_back' => 'Each suggestion is closed. The variants wait for the next computer check, which suggests again. Nothing is matched.',
+        'again' => 'Everything is checked again when you press the button. A variant that changed since you looked is skipped, never changed, and '
+            . 'the skipped ones stay as they are. The next page says what was done.',
+        'button_link' => 'Yes, do these %s',
+        'button_reject' => 'Yes, these %s are not a match',
+        'button_send_back' => 'Yes, send these %s back for matching',
+        'back' => 'No, go back to By Item',
+        'none_to_do' => 'Every variant would be skipped, so there is nothing to do. Each line says why: open a variant to decide it by hand.',
+        'col_item' => 'Item',
+        'col_store' => 'Store',
+        'col_variant' => 'Variant',
+        'col_outcome' => 'What will happen',
+        'will_link' => 'Will be matched',
+        'will_reject' => 'Will be marked not a match',
+        'will_send_back' => 'Will be sent back for matching',
+        'will_wait' => 'Will wait for a second OK',
+        'will_skip' => 'Will be skipped',
+        'to_item' => 'To %s',
+        'wait_why' => 'A second OK, because: %s.',
+        'option' => 'option %s',
+        'lines' => 'Every suggested variant of the ticked items',
+        // Refused as a whole: nothing was saved
+        'nothing_ticked' => 'Tick at least one item first. Nothing was saved.',
+        'nothing_on' => 'None of the ticked items has a suggestion on %s, so there is nothing to do. Nothing was saved.',
+        'too_many_rows' => 'The ticked items have %s suggested variants on %s. At most %s can be changed at a time (the Settings page says how many): '
+            . 'tick fewer items, or choose one store. Nothing was saved.',
+        // The result page of a batch started here
+        'result_where' => 'By Item',
+        'result_ticked' => 'Variants in this action',
+        'result_col' => 'Variant',
+        'result_all_rows' => 'Every variant of this action',
+        'result_skipped_text' => 'Skipped variants were not changed. Each one says why: open it to decide it by hand.',
+    ];
+
+    /** Why a variant of By Item's bulk action is (or will be) skipped: CW\Mapping\BulkDecisions::SKIPS in the owner's words (U122). */
+    public const BY_ITEM_SKIP = [
+        'unknown_listing' => 'This variant no longer exists.',
+        'other_store' => 'It is on another store than the one you chose.',
+        'changed' => 'It is not as it was when you looked: someone decided it, the store renamed it, or a rule changed. It is now: %s.',
+        'suggestion_changed' => 'Its suggestion changed since you looked: it may suggest another item now. Open it to see.',
+        'pending_second' => 'A decision on it already waits for a second OK.',
+        'held' => 'Held back to be checked one at a time: %s',
+        'held_meanwhile' => 'It was held back to be checked one at a time while this ran.',
+        'in_spot_check' => 'It is one of the matches of spot check %s: only that spot check\'s owner answers it, one at a time.',
+        'spot_check_failed' => 'Spot check %s found a wrong match, so these strong matches are checked one at a time.',
+        'bulk_undone' => 'A bulk match of it was undone before, so it is checked one at a time.',
+        'band_not_allowed' => 'Its match strength (%s) is not one that may be confirmed together. Open it to decide it.',
+        'vetoed' => 'A rule says it cannot be the suggested item: %s.',
+        'flagged' => 'It needs a person\'s look: %s.',
+        'no_product' => 'No item is suggested for it, so there is nothing to confirm or say no to.',
+        'barcode_elsewhere' => 'Its barcode is already on another item. Open it to check.',
+        'already_rejected' => 'It was already marked "not this item".',
+        'not_ignored' => 'It is not on the ignored list (it is: %s).',
+        'already_ignored' => 'It is already ignored.',
+        'linked' => 'It is matched. Change it on its own page: that changes a stock link.',
+        'not_waiting' => 'It is not waiting for a match (it is: %s).',
+        'no_suggestion' => 'Nothing is suggested for it now.',
+        'lead_only' => 'Only a matching lead decides it (the clues disagree).',
+        'not_allowed' => 'Your jobs do not let you change it.',
+        'product_joined' => 'The suggested item was joined into another one. Open it to pick the right one.',
+        'no_name' => 'It has no name, so a new item cannot be made from it. Open it and type one.',
+        'refused' => 'Not changed: %s',
+        // What a confirm from By Item leaves to a person, one at a time (M59)
+        'rejected_before' => 'It was marked not a match for this item before: open it and decide.',
+        'item_on_store' => '%s already has a variant on %s: open it and decide.',
+        'several_suggested' => '%s has more than one suggested variant on %s: open them and decide which is right.',
     ];
 
     /** The spot-check pages (/ui/review/samples and /{id}, plan §6.9, 6.10). The answers on a member's page are SPOT. */
@@ -6748,7 +6881,7 @@ final class Words
         'RESV_GROUP' => ['held' => 'info', 'to_ship' => 'needs', 'closed' => 'done', 'released' => 'off', 'expired' => 'waiting'],
         'RESV_UNIT' => ['held' => 'info', 'allocated' => 'needs', 'shipped' => 'done', 'cancelled' => 'off', 'released' => 'off', 'returned' => 'waiting'],
         // By Item's cells, as Store Products colours the same states.
-        'PRODUCT_STORE' => ['matched' => 'done', 'waiting' => 'review', 'suggested' => 'needs', 'none' => 'waiting'],
+        'PRODUCT_STORE' => ['matched' => 'done', 'waiting' => 'review', 'suggested' => 'needs', 'rejected' => 'blocked', 'none' => 'waiting'],
     ];
 
     // ==================================================================================================================

@@ -67,7 +67,9 @@ final class ByProductScreenTest extends KernelUiTestCase
     private static function heads(UiResponse $r): array
     {
         $xp = new \DOMXPath($r->dom());
-        return array_map(static fn (\DOMNode $n): string => self::squash($n->textContent), iterator_to_array($xp->query('//table[contains(@class, "by-product")]/thead/tr/th')));
+        // (the tick column of a person who may decide is not one of the list's own columns: ByItemBulkTest has it)
+        return array_map(static fn (\DOMNode $n): string => self::squash($n->textContent),
+            iterator_to_array($xp->query('//table[contains(@class, "by-product")]/thead/tr/th[not(contains(@class, "c-pick"))]')));
     }
 
     /** @return list<int> the products of the list's rows, in order */
@@ -82,7 +84,7 @@ final class ByProductScreenTest extends KernelUiTestCase
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//tr[@id="p-' . $sku . '"]/td') as $td) {
+        foreach ($xp->query('//tr[@id="p-' . $sku . '"]/td[not(contains(@class, "c-pick"))]') as $td) {
             /** @var \DOMElement $td */
             $out[$td->getAttribute('data-label')] = self::squash($td->textContent);
         }
@@ -397,15 +399,16 @@ final class ByProductScreenTest extends KernelUiTestCase
         $at = $web->get('/ui/review/products', ['at' => (string) $last]);
         self::assertSame(array_slice($fillers, 47), self::ids($at));
         $xp = new \DOMXPath($at->dom());
-        self::assertSame('waiting picked', $xp->evaluate('string(//tr[@id="p-' . $last . '"]/@class)'));
-        self::assertSame(1, $xp->query('//tr[contains(@class, "picked")]')->length);
+        // (`here`, not the lists' `picked`: since U124 that one is a ticked row, and app.js sets and clears it with the tick)
+        self::assertSame('waiting here', $xp->evaluate('string(//tr[@id="p-' . $last . '"]/@class)'));
+        self::assertSame(1, $xp->query('//tr[contains(@class, "here")]')->length);
         self::assertStringContainsString(Words::BY_PRODUCT['back_here'], $at->text());
         self::assertStringNotContainsString(Words::BY_PRODUCT['pinned'], $at->text());
         $pinned = $web->get('/ui/review/products', ['cov' => 'suggested', 'at' => (string) $alpha]);
         self::assertSame([$alpha, $bravo], self::ids($pinned));
         self::assertStringContainsString(Words::BY_PRODUCT['pinned'], $pinned->text());
         $paged = $web->get('/ui/review/products', ['at' => (string) $last, 'page' => '1']);
-        self::assertSame([$alpha, 50, 0], [self::ids($paged)[0], count(self::ids($paged)), (new \DOMXPath($paged->dom()))->query('//tr[contains(@class, "picked")]')->length],
+        self::assertSame([$alpha, 50, 0], [self::ids($paged)[0], count(self::ids($paged)), (new \DOMXPath($paged->dom()))->query('//tr[contains(@class, "here")]')->length],
             'a page asked for is that page, as the list is');
     }
 
@@ -784,7 +787,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame('By Item', self::currentTab($back));
         self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', '"Elux Legend Blue Razz"', $code), $back->text());
         self::assertStringStartsWith(Words::PRODUCT_STORE['matched'] . ' Elux Legend Blue Razz', self::cells($back, $sku)['Alt Store']);
-        self::assertStringContainsString('picked', (new \DOMXPath($back->dom()))->evaluate('string(//tr[@id="p-' . $sku . '"]/@class)'));
+        self::assertStringContainsString('here', (new \DOMXPath($back->dom()))->evaluate('string(//tr[@id="p-' . $sku . '"]/@class)'));
 
         // One sale of the box uses 10: it is sent to Second approval, and By Item says so.
         $more = self::open($web, self::links($back, $sku, 'Alt Store')[Words::BY_PRODUCT['map_more']]);
@@ -855,7 +858,7 @@ final class ByProductScreenTest extends KernelUiTestCase
         $page = $web->follow(new UiResponse(303, ['location' => [$to]], ''));
         self::assertSame(200, $page->status, $page->describe());
         self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', '"Listing ' . $n . '"', self::cw($sku)), $page->text());
-        self::assertSame(0, (new \DOMXPath($page->dom()))->query('//tr[contains(@class, "picked")]')->length);
+        self::assertSame(0, (new \DOMXPath($page->dom()))->query('//tr[contains(@class, "here")]')->length);
 
         // A list comes first: a variant opened from a strength list goes on to the next one of that list, as before.
         $first = $this->queued($a, 'Q1', 'Key', $sku, ['product_title' => 'Queue one', 'units_365d' => 9]);

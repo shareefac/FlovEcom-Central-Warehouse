@@ -28,7 +28,8 @@
   // Bulk action on a list (docs/decisions.md U108): the rows' tick boxes, "Select all on this page" (a link that also works
   // without the script: ?all=1 draws the page ticked), and the action bar, shown only while rows are ticked and kept at the bottom
   // of the screen. Its words come from the page (data-none, data-one, data-many, data-too-many: Words::BULK). Without the script
-  // the bar is a plain row of buttons under the list.
+  // the bar is a plain row of buttons under the list. A row's box marked data-bulk-manual is ticked by hand only: "select all"
+  // (the header box and the link) leaves it alone (By Item, docs/decisions.md M59).
   each(document.querySelectorAll('form[data-bulk]'), function (form) {
     var bar = form.querySelector('[data-bulkbar]');
     if (!bar) {
@@ -56,12 +57,24 @@
           : (n === 1 ? word('one') : word('many').replace('%s', String(n))));
       }
       if (all) {
-        all.checked = n > 0 && n === boxes.length;
-        all.indeterminate = n > 0 && n < boxes.length;
+        // The header box speaks for the rows "tick all" ticks: a row marked data-bulk-manual is ticked by hand only.
+        var auto = 0;
+        var autoOn = 0;
+        each(boxes, function (b) {
+          if (!b.hasAttribute('data-bulk-manual')) {
+            auto++;
+            if (b.checked) { autoOn++; }
+          }
+        });
+        all.checked = autoOn > 0 && autoOn === auto;
+        all.indeterminate = n > 0 && !all.checked;
       }
     };
     var setAll = function (on) {
-      each(boxes, function (b) { b.checked = on; });
+      each(boxes, function (b) {
+        if (on && b.hasAttribute('data-bulk-manual')) { return; }
+        b.checked = on;
+      });
       update();
     };
     bar.classList.add('floating');

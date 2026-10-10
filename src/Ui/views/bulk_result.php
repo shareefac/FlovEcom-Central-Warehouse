@@ -1,13 +1,13 @@
 <p class="crumbs"><a href="<?= $e($list[0]) ?>"><?= $e($list[1]) ?></a></p>
 <h1><?= $say('BULK', 'title', $batch['id']) ?></h1>
-<?= $intro('bulk_result') ?>
+<?= $intro($words['intro']) ?>
 <div class="alert <?php if ($count['skipped'] === 0 && $missing === 0): ?>done<?php else: ?>needs<?php endif; ?>" role="status">
   <p class="alert-title"><?= $e($summary) ?></p>
 <?php if ($count['pending_second'] > 0): ?>
   <p><?= $word('BULK', 'pending_text') ?><?php if ($pending_link !== null): ?> <a href="<?= $e($pending_link) ?>"><?= $word('PAGE_TITLE', 'pending') ?></a><?php endif; ?></p>
 <?php endif; ?>
 <?php if ($count['skipped'] > 0): ?>
-  <p><?= $word('BULK', 'skipped_text') ?></p>
+  <p><?= $e($words['skipped_text']) ?></p>
 <?php endif; ?>
 <?php if ($missing > 0): ?>
   <p><?= $say('BULK', 'missing', $missing, $asked) ?></p>
@@ -15,20 +15,20 @@
 </div>
 
 <dl class="wide">
-  <dt><?= $word('BULK', 'what') ?></dt><dd><?= $word('BULK_ACTION', $batch['action']) ?></dd>
+  <dt><?= $word('BULK', 'what') ?></dt><dd><?= $e($words['what']) ?></dd>
   <dt><?= $word('BULK', 'who') ?></dt><dd><?= $e($batch['by'] ?? '') ?> <span class="muted"><?= $when($batch['at']) ?></span></dd>
-  <dt><?= $word('BULK', 'where') ?></dt><dd><?php if ($batch['source'] === 'store'): ?><?= $word('MENU', 'store_products') ?><?php else: ?><?= $word('BAND_TITLE', $batch['band']) ?><?php endif; ?> · <?php if ($batch['store'] !== null): ?><?= $e($batch['store']) ?><?php else: ?><?= $word('BULK', 'all_stores') ?><?php endif; ?></dd>
+  <dt><?= $word('BULK', 'where') ?></dt><dd><?= $e($words['where']) ?> · <?php if ($batch['store'] !== null): ?><?= $e($batch['store']) ?><?php else: ?><?= $word('BULK', 'all_stores') ?><?php endif; ?></dd>
 <?php if ($batch['reason'] !== null): ?>
   <dt><?= $word('BULK', 'note') ?></dt><dd><?= $e($batch['reason']) ?></dd>
 <?php endif; ?>
-  <dt><?= $word('BULK', 'ticked') ?></dt><dd><?= $n($asked) ?></dd>
+  <dt><?= $e($words['ticked']) ?></dt><dd><?= $n($asked) ?></dd>
 </dl>
 
 <?php if ($skipped !== []): ?>
 <h3 class="grp-title needs"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-skipped"><?= $word('BULK', 'skipped_title') ?></button><span class="grp-count"><?= $say('BULK', 'count', count($skipped)) ?></span></h3>
 <div class="table-wrap" id="g-skipped">
 <table class="stack list board needs bulk-skipped">
-  <thead><tr><th scope="col" class="c-item"><?= $word('QUEUE', 'product') ?></th><th scope="col"><?= $word('BULK', 'why') ?></th><th scope="col"><span class="visually-hidden"><?= $word('QUEUE', 'open') ?></span></th></tr></thead>
+  <thead><tr><th scope="col" class="c-item"><?= $e($words['col']) ?></th><th scope="col"><?= $word('BULK', 'why') ?></th><th scope="col"><span class="visually-hidden"><?= $word('QUEUE', 'open') ?></span></th></tr></thead>
   <tbody>
 <?php foreach ($skipped as $r): ?>
     <tr>
@@ -42,10 +42,10 @@
 </div>
 <?php endif; ?>
 
-<h3 class="grp-title t-primary"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-all"><?= $word('BULK', 'all_rows') ?></button><span class="grp-count"><?= $say('BULK', 'count', count($rows)) ?></span></h3>
+<h3 class="grp-title t-primary"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-all"><?= $e($words['all_rows']) ?></button><span class="grp-count"><?= $say('BULK', 'count', count($rows)) ?></span></h3>
 <div class="table-wrap" id="g-all">
 <table class="stack list board row-strips bulk-rows">
-  <thead><tr><th scope="col" class="c-item"><?= $word('QUEUE', 'product') ?></th><th scope="col" class="c-status"><?= $word('BULK', 'result') ?></th><th scope="col"><?= $word('BULK', 'now') ?></th></tr></thead>
+  <thead><tr><th scope="col" class="c-item"><?= $e($words['col']) ?></th><th scope="col" class="c-status"><?= $word('BULK', 'result') ?></th><th scope="col"><?= $word('BULK', 'now') ?></th></tr></thead>
   <tbody>
 <?php foreach ($rows as $r): ?>
     <tr class="<?= $e(\CW\Ui\Words::tone('BULK_RESULT', $r['outcome'])) ?>">
