@@ -8,6 +8,7 @@ use CW\Admin\ApprovalRules;
 use CW\Company\CompanyDetails;
 use CW\Documents\NumberSeries;
 use CW\Output\CsvWriter;
+use CW\Ui\ConfigWords;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -124,6 +125,7 @@ final class ReferenceController
                 'help' => Words::settingHelp($key, (string) $s['description']),
                 'value' => match (true) {
                     is_bool($value) => Words::SETTINGS_PAGE[$value ? 'yes' : 'no'],
+                    is_string($value) && ConfigWords::listWords($key, $value) !== null => ConfigWords::listWords($key, $value),
                     $value === null, $value === '' => null,
                     default => (string) $s['display'],
                 },

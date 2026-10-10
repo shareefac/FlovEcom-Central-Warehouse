@@ -253,7 +253,8 @@ final class ReviewEvidenceTest extends KernelUiTestCase
         foreach ($xp->query('(//table[contains(concat(" ", @class, " "), " ' . $class . ' ")])[1]/tbody/tr') ?: [] as $tr) {
             $cells = [];
             foreach ($tr->childNodes as $c) {
-                if ($c instanceof \DOMElement) {
+                // The tick column of the bulk action (U108) is not a value of the row.
+                if ($c instanceof \DOMElement && !str_contains(' ' . $c->getAttribute('class') . ' ', ' c-pick ')) {
                     $cells[] = trim(preg_replace('/\s+/u', ' ', $c->textContent) ?? '');
                 }
             }

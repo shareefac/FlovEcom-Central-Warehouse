@@ -12,7 +12,8 @@ use CW\Auth\Permissions;
  * segmented filter, the phone bar, Home's "What you can use" and the tests all read this map; no view names a page itself.
  *
  *   section => ['tabs' => [tab => tab]]                       the sidebar item; its words are Words::SECTION and SECTION_DESC
- *   tab     => ['pages' => list<page>, 'segments'?: true]      a tab; its name is Words::MENU[tab]
+ *   tab     => ['pages' => list<page>, 'segments'?: true, 'keep'?: list<string>]   a tab; its name is Words::MENU[tab]; `keep`: the
+ *                                                          query values (a store, `channel`) its segments carry from the current request
  *           |  ['soon' => true]                                a tab not built yet: drawn disabled with a "Soon" chip, never a link
  *   page    => ['perm', 'path', 'query'?, 'match', 'badge'?, 'key'?, 'new'?]
  *
@@ -32,13 +33,16 @@ final class Sections
         ]],
         'products' => ['tabs' => [
             'cards' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/items/cards', 'match' => ['/ui/items/cards*', '/ui/items/{id}*', '/ui/search']]]],
-            'mapping' => ['segments' => true, 'pages' => [
-                ['key' => 'review', 'perm' => 'linking.view', 'path' => '/ui/review', 'query' => ['queue' => 'Key'],
-                    'match' => ['/ui/review', '/ui/review/listing/*', '/ui/review/decision/*']],
+            // To review opens the "By store" overview (U107); the store chosen there travels through the segments (`keep`, U106).
+            'mapping' => ['segments' => true, 'keep' => ['channel'], 'pages' => [
+                ['key' => 'review', 'perm' => 'linking.view', 'path' => '/ui/review',
+                    'match' => ['/ui/review', '/ui/review/listing/*', '/ui/review/decision/*', '/ui/review/bulk', '/ui/review/batches/*']],
                 ['key' => 'samples', 'perm' => 'linking.view', 'path' => '/ui/review/samples', 'match' => ['/ui/review/samples*']],
                 ['key' => 'pending', 'perm' => 'linking.view', 'path' => '/ui/review', 'query' => ['queue' => 'pending'], 'match' => ['/ui/review?queue=pending'],
                     'badge' => 'linking_pending'],
             ]],
+            // Every website product of one store with its link state (U109).
+            'store_products' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/store', 'match' => ['/ui/review/store*']]]],
             'duplicates' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/duplicates', 'match' => ['/ui/review/duplicates*'],
                 'badge' => 'linking_duplicates']]],
             'barcodes' => ['pages' => [['perm' => 'catalogue.edit', 'path' => '/ui/items/barcodes', 'match' => ['/ui/items/barcodes*'], 'badge' => 'barcodes_open']]],
@@ -270,10 +274,18 @@ final class Sections
                 'tab' => Words::MENU[$here['tab']]];
             $tab = $visible[$s][$here['tab']] ?? null;
             if ($tab !== null && $tab['segments'] && count($tab['pages']) > 1) {
+                // The query values the tab keeps (a store's code: a plain code only, the pages check it names a store).
+                $kept = [];
+                foreach (self::MAP[$s]['tabs'][$here['tab']]['keep'] ?? [] as $k) {
+                    $v = $query[$k] ?? null;
+                    if (is_string($v) && preg_match('/^[a-z][a-z0-9_]{0,31}$/D', $v) === 1) {
+                        $kept[$k] = $v;
+                    }
+                }
                 foreach ($tab['pages'] as $page) {
                     [$count, $words] = self::count([$page], $badges);
                     $segments[] = ['key' => (string) $page['key'], 'label' => Words::SEGMENT[$page['key']], 'href' => (string) $page['path'],
-                        'query' => $page['query'] ?? [], 'count' => $count, 'countWords' => $words, 'current' => $here['page'] === $page['key']];
+                        'query' => ($page['query'] ?? []) + $kept, 'count' => $count, 'countWords' => $words, 'current' => $here['page'] === $page['key']];
                 }
             }
             foreach ($tab['pages'] ?? [] as $page) {

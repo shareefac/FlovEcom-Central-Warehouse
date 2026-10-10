@@ -3,6 +3,7 @@
   <?= $explain('spot_check', \CW\Ui\Words::MENU['samples']) ?>
 </div>
 <?= $intro('samples') ?>
+<?= $partial('store_seg', ['items' => $stores, 'countWords' => \CW\Ui\Words::BULK['store_count_samples']]) ?>
 
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::SAMPLE['none'], \CW\Ui\Words::SAMPLE['none_text']) ?>

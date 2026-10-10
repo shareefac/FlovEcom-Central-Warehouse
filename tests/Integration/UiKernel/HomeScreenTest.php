@@ -261,7 +261,7 @@ final class HomeScreenTest extends KernelUiTestCase
         foreach ($cards as $c) {
             self::assertSame(200, self::open($web, (string) $c['href'])->status, "{$c['key']}: {$c['href']}");
         }
-        self::assertSame(['/ui/items/cards', '/ui/review?queue=Key', '/ui/review/duplicates', '/ui/stock', '/ui/stock/movements', '/ui/system/audit',
+        self::assertSame(['/ui/items/cards', '/ui/review', '/ui/review/store', '/ui/review/duplicates', '/ui/stock', '/ui/stock/movements', '/ui/system/audit',
             '/ui/reference/company', '/ui/reference/warehouses', '/ui/system/sites', '/ui/people', '/ui/reference/approvals', '/ui/reference/reasons',
             '/ui/reference/settings'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array((new \DOMXPath($home->dom()))->query('//main//ul[@class="uses"]//a'))), 'What you can use: the admin\'s menu, in menu order');

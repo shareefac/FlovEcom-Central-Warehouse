@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Ui\Controller;
 
 use CW\CwException;
+use CW\Mapping\BulkDecisions;
 use CW\Mapping\DecisionService;
 use CW\Mapping\KeyEligibility;
 use CW\Mapping\KeyHold;
@@ -44,8 +45,9 @@ final class ReviewController
         'approved' => Words::MATCH_NOTICE['approved'],
         'withdrawn' => Words::MATCH_NOTICE['withdrawn'],
         'queue_done' => Words::MATCH_NOTICE['queue_done'],
+        'decided_unlink' => Words::MATCH_NOTICE['decided_unlink'],
     ];
-    public const ACTIONS = ['link', 'new_item', 'ignore', 'reject'];
+    public const ACTIONS = ['link', 'new_item', 'ignore', 'reject', 'unlink'];
     /** The nicotine types the new-product form offers (Matching\Normalizer's values). */
     private const NIC_TYPES = ['salt', 'freebase', 'zero', 'shortfill', 'nic_shot'];
     /** Example numbers for a refused number field of the new-product details. */
@@ -63,7 +65,7 @@ final class ReviewController
             return $this->pendingPage($ctx, null, null, 200);
         }
         if ($band === null) {
-            return HtmlResponse::redirect('/ui/');
+            return $this->overview($ctx);
         }
         $q = $ctx->queries();
         $channels = $q->channels();
@@ -76,6 +78,9 @@ final class ReviewController
         $page = UiRequest::id($req->param('page')) ?? 1;
         $result = $q->queue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $page);
         $leadOnly = $qc->band === 'Conflict' && !$me->isLead();
+        // Bulk action (M46-M53, U108): the actions this list offers this person; "Select all on this page" without app.js (`all=1`).
+        $bulkActions = self::bulkActions('review', $qc->band, $me->roles, BulkDecisions::confirmBands($ctx->db));
+        $all = $req->param('all') === '1';
         $rows = [];
         foreach ($result['rows'] as $r) {
             $hasTarget = $r['proposed_sku_id'] !== null || (bool) $r['proposed_new_item'];
@@ -99,11 +104,16 @@ final class ReviewController
                 'new_item' => (bool) $r['proposed_new_item'],
                 'watch' => self::flagWords(Html::strings(Html::json($r['flags']))),
                 'link' => Html::url('/ui/review/listing/' . (int) $r['listing_id'], $qc->query()),
+                'map_version' => (int) $r['map_version'],
+                'proposal_id' => (int) $r['proposal_id'],
+                'picked' => $all,
             ];
         }
         $counts = [];
-        foreach ($q->bandCounts() as $b => $byChannel) {
-            $counts[$b] = array_sum(array_map('intval', $byChannel));
+        $bandCounts = $q->bandCounts();
+        foreach ($bandCounts as $b => $byChannel) {
+            // The strength legend counts the store chosen (U106): the selector's choice applies to every list.
+            $counts[$b] = $qc->channelId !== null ? (int) ($byChannel[$qc->channelId] ?? 0) : array_sum(array_map('intval', $byChannel));
         }
         $bands = array_map(static fn (string $b): array => ['band' => $b, 'label' => Words::of('BAND', $b), 'count' => $counts[$b] ?? 0], Proposals::BANDS);
         // The next list with work, for an empty list (F161): after this one in the tab order, else from the first.
@@ -112,10 +122,11 @@ final class ReviewController
         $order = array_merge(array_slice(Proposals::BANDS, (int) $at + 1), array_slice(Proposals::BANDS, 0, (int) $at));
         foreach ($order as $b) {
             if (($counts[$b] ?? 0) > 0) {
-                $next = ['href' => Html::url('/ui/review', ['queue' => $b]), 'label' => Words::of('BAND_TITLE', $b), 'count' => $counts[$b]];
+                $next = ['href' => Html::url('/ui/review', ['queue' => $b, 'channel' => $qc->channel]), 'label' => Words::of('BAND_TITLE', $b), 'count' => $counts[$b]];
                 break;
             }
         }
+        $perStore = $bandCounts[$qc->band] ?? [];
         return $ctx->page('queue', [
             'qc' => $qc,
             'channels' => $channels,
@@ -126,8 +137,13 @@ final class ReviewController
             'leadOnly' => $leadOnly && $me->canDecide(),
             'button' => $me->canDecide() && !$leadOnly ? Words::QUEUE['open'] : Words::QUEUE['look'],
             // A filter that hides what the list still has (F161); an empty list is "empty" even when it was filtered.
-            'filtered' => ($qc->channel !== null || $qc->lane !== null || $qc->min > 0 || $qc->text !== '') && ($counts[$qc->band] ?? 0) > 0,
-            'clear_link' => Html::url('/ui/review', ['queue' => $qc->band]),
+            'filtered' => ($qc->lane !== null || $qc->min > 0 || $qc->text !== '') && ($counts[$qc->band] ?? 0) > 0,
+            'clear_link' => Html::url('/ui/review', ['queue' => $qc->band, 'channel' => $qc->channel]),
+            'stores' => self::storeItems($q->stores(), '/ui/review', ['queue' => $qc->band], $qc->channel, $perStore, true),
+            'bulkActions' => $bulkActions,
+            'bulkMax' => BulkDecisions::maxRows($ctx->db),
+            'bulkKeep' => array_filter($qc->pageQuery() + ['page' => $result['page'] > 1 ? $result['page'] : null], static fn (mixed $v): bool => $v !== null && $v !== ''),
+            'allLink' => Html::url('/ui/review', $qc->pageQuery() + ['page' => $result['page'] > 1 ? $result['page'] : null, 'all' => 1]),
             'next_list' => $next,
             'rows' => $rows,
             'total' => $result['total'],
@@ -146,23 +162,140 @@ final class ReviewController
     private function pendingPage(Context $ctx, ?string $error, ?int $errorDecision, int $status): HtmlResponse
     {
         $me = $ctx->me();
-        $names = self::channelNames($ctx->queries()->channels());
+        $q = $ctx->queries();
+        $channels = $q->channels();
+        $names = self::channelNames($channels);
+        $store = self::store($channels, $ctx->req->param('channel'));
         $rows = [];
-        foreach ($ctx->queries()->pendingDecisions() as $d) {
+        foreach ($q->pendingDecisions(200, $store['id'] ?? null) as $d) {
             $rows[] = [
                 'listing_id' => (int) $d['listing_id'],
                 'channel' => $names[(string) $d['channel_code']] ?? self::s($d['channel_code']),
                 'variant' => self::s($d['external_variant_id']),
                 'title' => self::s($d['product_title']),
                 'variant_title' => self::s($d['variant_title']),
-            ] + $this->pendingView($d, $me->id, $me->isLead());
+            ] + $this->pendingView($d, $me->id, $me->isLead()) + ['bulk' => DecisionService::isScreenBatch(self::s($d['bulk_batch_id']))
+                ? (int) substr((string) $d['bulk_batch_id'], strlen(DecisionService::SCREEN_BATCH_PREFIX)) : null];
         }
         return $ctx->page('pending', [
+            'stores' => self::storeItems($q->stores(), '/ui/review', ['queue' => 'pending'], $store['code'] ?? null, $q->pendingByStore(), true),
             'rows' => $rows,
             'error' => $error,
             'error_decision' => $errorDecision,
             'lookOnly' => $me->isLead() || $me->canDecide() ? null : Words::whoCan('mapping.approve'),
         ], $status, ['title' => Words::title('pending'), 'active' => 'pending', 'notice' => $this->notice($ctx, null)]);
+    }
+
+    /**
+     * Mapping › To review (U107): the store selector and, per store, one board group with a row per match strength (and the products
+     * no computer check has suggested anything for yet): what waits for a person, the share of the group's products matched, the
+     * share of their 30-day units on matched products, and a button to the store's list of that strength. A total row per store.
+     * From Home's matching-progress counts (Queries::bandCounts, unproposed, coverage) and Queries::storeBands.
+     */
+    private function overview(Context $ctx): HtmlResponse
+    {
+        $q = $ctx->queries();
+        $me = $ctx->me();
+        $stores = $q->stores();
+        $store = self::store($stores, $ctx->req->param('channel'));
+        $bandCounts = $q->bandCounts();
+        $unproposed = $q->unproposed();
+        $coverage = $q->coverage();
+        $byBand = $q->storeBands();
+        $zero = ['listings' => 0, 'linked' => 0, 'u30' => 0, 'l30' => 0];
+        $waitingByStore = [];
+        $groups = [];
+        foreach ($stores as $s) {
+            $sid = (int) $s['id'];
+            $waitingByStore[$sid] = 0;
+            foreach (Proposals::BANDS as $b) {
+                $waitingByStore[$sid] += (int) ($bandCounts[$b][$sid] ?? 0);
+            }
+            if ($store !== null && $store['id'] !== $sid) {
+                continue;
+            }
+            $rows = [];
+            $sum = $zero;
+            foreach (Proposals::BANDS as $b) {
+                $f = ($byBand[$sid][$b] ?? []) + $zero;
+                $waiting = (int) ($bandCounts[$b][$sid] ?? 0);
+                foreach ($zero as $k => $_) {
+                    $sum[$k] += $f[$k];
+                }
+                $rows[] = ['band' => $b, 'tone' => Words::tone('BAND', $b), 'waiting' => $waiting] + $f
+                    + ['href' => $waiting > 0 ? Html::url('/ui/review', ['queue' => $b, 'channel' => $s['code']]) : null];
+            }
+            $cov = $coverage[$sid] ?? [];
+            $all = ['listings' => (int) ($cov['listings'] ?? 0), 'linked' => (int) ($cov['linked_listings'] ?? 0), 'u30' => (int) ($cov['u30'] ?? 0),
+                'l30' => (int) ($cov['l30'] ?? 0)];
+            $rest = [];
+            foreach ($zero as $k => $_) {
+                $rest[$k] = max(0, $all[$k] - $sum[$k]);
+            }
+            $groups[] = ['id' => $sid, 'code' => (string) $s['code'], 'name' => (string) $s['name'], 'rows' => $rows,
+                'unchecked' => ['waiting' => (int) ($unproposed[$sid] ?? 0)] + $rest,
+                'total' => ['waiting' => $waitingByStore[$sid]] + $all,
+                'products' => Html::url('/ui/review/store', ['channel' => $s['code']])];
+        }
+        return $ctx->page('mapping_overview', [
+            'stores' => self::storeItems($stores, '/ui/review', [], $store['code'] ?? null, $waitingByStore, true),
+            'groups' => $groups,
+            'button' => $me->canDecide() ? Words::QUEUE['open'] : Words::QUEUE['look'],
+            'lookOnly' => $me->canDecide() ? null : Words::whoCan('mapping.decide'),
+        ], 200, ['title' => Words::SEGMENT['review'], 'active' => 'review', 'notice' => $this->notice($ctx, null)]);
+    }
+
+    /**
+     * The store selector's items (U106): "All stores" first when $all, then each store; each keeps $query and adds `channel`.
+     *
+     * @param list<array{id: int, code: string, name: string}> $stores
+     * @param array<string, scalar|null> $query
+     * @param array<int, int> $counts channel id => count
+     * @return list<array{label: string, href: string, query: array<string, scalar|null>, count: int, current: bool}>
+     */
+    public static function storeItems(array $stores, string $path, array $query, ?string $current, array $counts, bool $all): array
+    {
+        $known = in_array($current, array_column($stores, 'code'), true) ? $current : null;
+        $out = [];
+        if ($all) {
+            $out[] = ['label' => Words::BULK['all_stores'], 'href' => $path, 'query' => $query, 'count' => array_sum(array_map('intval', $counts)),
+                'current' => $known === null];
+        }
+        foreach ($stores as $s) {
+            $out[] = ['label' => (string) $s['name'], 'href' => $path, 'query' => $query + ['channel' => $s['code']], 'count' => (int) ($counts[(int) $s['id']] ?? 0),
+                'current' => $known === $s['code']];
+        }
+        return $out;
+    }
+
+    /**
+     * The bulk actions a list offers this person (BulkDecisions::offered), with their button words and look: the safe ones primary,
+     * the ones that say no secondary with "…" (a second step follows).
+     *
+     * @param list<string> $roles
+     * @param list<string> $confirmBands
+     * @return list<array{action: string, label: string, class: string}>
+     */
+    public static function bulkActions(string $source, ?string $band, array $roles, array $confirmBands): array
+    {
+        $out = [];
+        foreach ($source === 'store' ? BulkDecisions::STORE_ACTIONS : BulkDecisions::REVIEW_ACTIONS as $a) {
+            if (BulkDecisions::offered($a, $source, $band, $roles, $confirmBands)) {
+                $out[] = ['action' => $a, 'label' => Words::BULK_ACTION[$a], 'class' => in_array($a, BulkDecisions::NEGATIVE, true) ? 'secondary' : 'primary'];
+            }
+        }
+        return $out;
+    }
+
+    /** @param list<array{id: int, code: string, name: string}> $channels @return array{id: int, code: string, name: string}|null the store a code names */
+    public static function store(array $channels, ?string $code): ?array
+    {
+        foreach ($channels as $c) {
+            if ($code !== null && $c['code'] === $code) {
+                return $c;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -755,6 +888,10 @@ final class ReviewController
         }
         if ($action === 'ignore' && !isset($request['reason'])) {
             return $refuse(Words::MATCH_ERROR['ignore_why'], 'reason');
+        }
+        if ($action === 'unlink' && !isset($request['reason'])) {
+            // Undoing a match changes a stock link: one at a time, from this page, with a note (M53).
+            return $refuse(Words::MATCH_ERROR['unlink_why'], 'reason');
         }
         if (in_array($action, ['link', 'new_item'], true)) {
             if (preg_match('/^[0-9]{1,5}$/D', $form['units']) !== 1 || (int) $form['units'] < 1 || (int) $form['units'] > DecisionService::MAX_UNITS) {

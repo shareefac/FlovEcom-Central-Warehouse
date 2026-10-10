@@ -51,11 +51,13 @@ final class Grants
      * config_change: the history of every configuration row the screens change (0019, Y2): the app login may UPDATE some columns of
      * app_setting, document_type, reason_code and warehouse, so the nightly check compares each with its latest version (K1-K3).
      * integrity_run: one row per nightly check (0019, Y33): what the Safety checks page shows is never rewritten.
+     * mapping_batch / mapping_batch_row: a bulk action of the matching screens and what became of each ticked row (0021, M47): the
+     * result page and the batch page read them, so who asked for what, and why a row was skipped, is never rewritten.
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
         'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
         'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change', 'grn_posting', 'item_selling_mode_log', 'item_channel_mode_log',
-        'config_change', 'integrity_run'];
+        'config_change', 'integrity_run', 'mapping_batch', 'mapping_batch_row'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value

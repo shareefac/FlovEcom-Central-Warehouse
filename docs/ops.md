@@ -2027,6 +2027,33 @@ cw_app holds SELECT, INSERT, UPDATE on `item_channel_mode` and SELECT, INSERT on
 - A sale that is not off the site's figure after the writer was switched off: the worker applies it a minute later (`writer_unwound`);
   `cw_status` `writer.decrement_skips_open` counts the ones still waiting.
 
+## Store-wise review and bulk action on the matching screens (`docs/decisions.md` M46–M53, U106–U112)
+
+Products › Mapping › To review shows each store's matching by strength ("By store"); the store selector (All stores · each store) follows
+the person through To review, every strength list, Spot check and Second approval. Products › Store Products lists every website product of
+one store with its state. On a list, tick rows and use the bar at the bottom: Confirm match, Not a match…, Create as new product, Ignore… (and
+on Store Products: Ignore…, Take off the ignored list, Send back for matching…). Each ticked row is decided on its own, with every rule of a
+single decision; held-back matches, a spot check's own matches and anything changed since the page was drawn are skipped and listed on the
+result page (`/ui/review/batches/<n>`), which also says what went to Second approval. There is no undo of a whole bulk action: undo one match
+on its page ("Change this match", a matching lead, with a note).
+
+### Deploying 0021 to staging (the owner's go first)
+
+`0021_mapping_bulk.sql`: `match_decision.action` + `unignore`, `send_back`; `mapping_batch` and `mapping_batch_row` (append-only for cw_app:
+the migration run converges the grants); the three settings with their baselines; the index `match_proposal (listing_id, lane, band)`
+(INPLACE, LOCK=NONE). Deploy it with the code of the same commit, never the code first (the Mapping pages read the settings and the new
+tables). Pre-flight: none of the three setting keys exists yet.
+
+```bash
+scripts/remote.sh <slot> vendor/bin/phpunit && scripts/remote.sh ui vendor/bin/phpunit --filter 'UiAuthTest|UiSecurityTest|UiReviewFlowTest'
+scripts/remote.sh <slot> bash deploy/staging/install_cron.sh --migrate
+ssh -i /root/.ssh/cw_staging root@46.101.55.135 'cd /opt/cw-staging && php bin/invariants.php --db=cw_staging'         # ok (K4: the baselines)
+```
+
+Check afterwards: Settings › System › Settings lists "Matching products" with the two settings (Strong match, Likely match – check it; 100);
+Approval Rules › Matching products shows "Matches confirmed from a ticked list" off; cw_app holds SELECT, INSERT on `mapping_batch` and
+`mapping_batch_row`.
+
 ## Changing settings and rules yourself (`docs/decisions.md` Y1–Y38; the owner's rule of 8 Oct 2026)
 
 Who: the owner (Reviewer) and Fazil (Admin) — permission `settings.manage`; **switching an approval rule off or making it looser needs a
@@ -2038,7 +2065,8 @@ save again. Nothing on these pages is ever deleted.
 | What | Where (menu) | Notes |
 |---|---|---|
 | A setting's value, and "the owner has agreed it" | Settings → Settings and lists → click the setting | Allowed values are shown under the field. The approval rules and the company details have their own pages. |
-| Which work waits for a second person | Settings → Approval rules | Each kind of record (reviewer check after it is final: every one / over a limit / none, the days, what Not OK does — a purchase order's Not OK only records it —, the OK first and its limit); suppliers (new supplier OK, changed details check, days to decide); matching (1 sale ≠ 1 product, joining counted products, spot check size: a change works for new spot checks only); your own change of the company details; giving someone Admin or Reviewer, and resetting an Admin's or a Reviewer's sign-in (both off by default). Switching an OK first off keeps its limit and never lets through work already waiting. Each rule has the tick "The owner has agreed this rule". Looser: a Reviewer only; stricter: an Admin too. |
+| Which work waits for a second person | Settings → Approval rules | Each kind of record (reviewer check after it is final: every one / over a limit / none, the days, what Not OK does — a purchase order's Not OK only records it —, the OK first and its limit); suppliers (new supplier OK, changed details check, days to decide); matching (1 sale ≠ 1 product, joining counted products, matches confirmed from a ticked list — off by default —, spot check size: a change works for new spot checks only); your own change of the company details; giving someone Admin or Reviewer, and resetting an Admin's or a Reviewer's sign-in (both off by default). Switching an OK first off keeps its limit and never lets through work already waiting. Each rule has the tick "The owner has agreed this rule". Looser: a Reviewer only; stricter: an Admin too. |
+| Bulk action on the matching lists | Settings → System → Settings → Matching products | "Match strengths that may be confirmed together" (tick boxes; Strong and Likely by default: the other lists are decided one at a time) and "Most products in one bulk action" (100). The second OK for ticked confirms is on Approval Rules (above). |
 | Reasons for stock changes and for cancelling or correcting orders | Settings → Settings and lists → Reasons for stock changes | Add (short code never changes), rename, say where it is offered (stock records, cancellations, and the order screens' three lists: cancelling a confirmed order, cancelling one not confirmed yet, correcting one), switch off / on. A switched-off reason stops new records only: one already waiting for an OK still gets it. CW's own reasons are locked. |
 | Warehouses and places inside them | Settings → Warehouses | Add (e.g. the VPG 2 room as "Another account's stock": never sold from), rename, whose stock (only while it is empty, with a tick: another account's stock becomes ours only with a release invoice), websites may sell from it (tick to confirm; Fazil then points a website at it on the server), switch off (only when empty) / on. Places (e.g. OVERFLOW in the main warehouse) are optional. |
 | Staff: add a person, a new sign-up sheet, a new sign-in code, a new password, sign out a device | Staff → Staff and access (Admin) | The sheet (QR code and a one-time set-up code; a new password: the set-up code only) is shown once and works once: the person finishes at /ui/enrol (a new sign-in code: at the sign-in, with their own password) and their OWN page then gives them a fresh code nobody else sees, so the admin never holds both keys of anybody. Within `staff.setup_hours` (48 h, at most 168); `staff.setup_max_fails` wrong tries (5) close it (Home card). A new password and a new sign-in code refuse each other while the other is open. Lost both phone and password: `bin/reset_staff.php --new-password --new-totp` on the server. The sheets print `staff.sign_in_address` (set it once). With the staff rules on, Admin/Reviewer jobs and resets of their sign-in wait for a reviewer: Staff access to OK (Home card). Reviewers' Home lists every person added, sign-in reset and rule made looser in the last 7 days. |

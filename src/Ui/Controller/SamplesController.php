@@ -28,13 +28,22 @@ final class SamplesController
 
     public function index(Context $ctx): HtmlResponse
     {
+        // The store selector (U106): the spot checks with a match on the chosen store's website products.
+        $q = $ctx->queries();
+        $stores = $q->stores();
+        $store = ReviewController::store($stores, $ctx->req->param('channel'));
+        $only = $store === null ? null : array_fill_keys($q->samplesOfStore($store['id']), true);
         $rows = [];
         foreach ((new KeySample($ctx->db))->all() as $s) {
+            if ($only !== null && !isset($only[(int) $s['id']])) {
+                continue;
+            }
             $rows[] = ['id' => $s['id'], 'name' => $s['name'], 'size' => $s['size'], 'decided' => $s['decided'], 'result' => self::result($s['verdict'], $s['fit']),
                 'created_by' => $s['created_by'], 'created_at' => $s['created_at'], 'population' => $s['population'], 'bulk_linked' => $s['bulk_linked'],
                 'bulk_undone' => $s['bulk_undone']];
         }
-        return $ctx->page('samples', ['rows' => $rows], 200, ['title' => Words::title('samples'), 'active' => 'samples']);
+        return $ctx->page('samples', ['rows' => $rows, 'stores' => ReviewController::storeItems($stores, '/ui/review/samples', [], $store['code'] ?? null,
+            $q->spotOpenByStore(), true)], 200, ['title' => Words::title('samples'), 'active' => 'samples']);
     }
 
     public function show(Context $ctx): HtmlResponse

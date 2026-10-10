@@ -37,7 +37,7 @@ final class ScreenQueriesTest extends KernelUiTestCase
         $total = (int) self::$db->value('SELECT COUNT(*) ' . $from, $params);
         $rows = self::$db->all(
             'SELECT p.id AS proposal_id, p.listing_id, p.band, p.lane, p.ai_outcome, p.ai_confidence, p.ai_units_per_item, p.proposed_sku_id, '
-            . 'p.proposed_new_item, p.flags, cl.channel_id, ch.code AS channel_code, cl.external_variant_id, cl.status, '
+            . 'p.proposed_new_item, p.flags, cl.channel_id, ch.code AS channel_code, cl.external_variant_id, cl.status, cl.map_version, '
             . 'lp.product_title, lp.variant_title, lp.brand, lp.units_30d, lp.units_365d, s.code AS sku_code, s.name AS sku_name '
             . $from . ' ORDER BY COALESCE(lp.units_365d, 0) DESC, COALESCE(lp.units_30d, 0) DESC, cl.id ASC LIMIT ? OFFSET ?',
             [...$params, Queries::PER_PAGE, ($page - 1) * Queries::PER_PAGE],

@@ -42,6 +42,17 @@ final class SettingsController
             return $this->page($ctx, $key, 400, new CwException('bad_version', Words::ERROR['bad_version'], 400), null);
         }
         $typed = ['value' => (string) ($req->field('value') ?? ''), 'agreed' => $req->field('agreed') === '1', 'reason' => (string) ($req->field('reason') ?? '')];
+        $list = Settings::RULES[$key]['list_in'] ?? null;
+        if ($list !== null) {
+            // A list setting is ticked, one box per allowed value (item_<n>): its value is the ticked ones, in the rule's order.
+            $ticked = [];
+            foreach ($list as $i => $item) {
+                if ($req->field('item_' . $i) === '1') {
+                    $ticked[] = $item;
+                }
+            }
+            $typed['value'] = implode(',', $ticked);
+        }
         if (str_starts_with($key, 'company.') || isset(ApprovalRules::SWITCHES[$key]) || isset(ApprovalRules::NUMBERS[$key])) {
             return $this->page($ctx, $key, 409, new CwException('elsewhere', Words::SETTING_EDIT[str_starts_with($key, 'company.') ? 'company' : 'approvals'], 409), $typed);
         }
@@ -76,6 +87,9 @@ final class SettingsController
         }
         if (isset($rule['pattern'])) {
             $parts[] = Words::SETTING_EDIT[$key === 'staff.sign_in_address' ? 'address' : 'sites'];
+        }
+        if (isset($rule['list_in'])) {
+            return Words::SETTING_EDIT['list'];
         }
         if (in_array($type, ['int', 'decimal', 'date', 'string'], true) && !isset($rule['min'])) {
             $parts[] = Words::SETTING_EDIT['empty'];
@@ -125,9 +139,13 @@ final class SettingsController
             'type' => $type,
             'shown' => match (true) {
                 is_bool($value) => Words::CONFIG[$value ? 'yes' : 'no'],
+                is_string($value) && ConfigWords::listWords($key, $value) !== null => ConfigWords::listWords($key, $value),
                 $value === null, $value === '' => null,
                 default => (string) $row['display'],
             },
+            // A list setting's boxes (Settings::RULES `list_in`): each allowed value in words, ticked when the value (or what a refused
+            // form sent) holds it.
+            'items' => self::items($key, $typed['value'] ?? (is_string($value) ? $value : '')),
             // What the form's field holds: what was typed on a refused form, else the value now (as the CLI takes it).
             'raw' => $typed['value'] ?? (is_bool($value) ? ($value ? 'true' : 'false') : ($value === null ? '' : (string) $value)),
             'agreed' => !$row['provisional'],
@@ -145,6 +163,25 @@ final class SettingsController
             'errorCode' => $error?->errorCode,
             'lookOnly' => $ctx->me()->can('settings.manage') ? null : Words::SETTING_EDIT['look_only'],
         ], $status, ['title' => Words::settingName($key), 'active' => 'setting', 'notice' => $notice]);
+    }
+
+    /**
+     * The boxes of a list setting, or null for any other setting.
+     *
+     * @return list<array{name: string, label: string, checked: bool}>|null
+     */
+    private static function items(string $key, string $value): ?array
+    {
+        $rule = Settings::RULES[$key] ?? [];
+        if (!isset($rule['list_in'], $rule['words'])) {
+            return null;
+        }
+        $have = $value === '' ? [] : explode(',', $value);
+        $out = [];
+        foreach ($rule['list_in'] as $i => $item) {
+            $out[] = ['name' => 'item_' . $i, 'label' => Words::of((string) $rule['words'], $item), 'checked' => in_array($item, $have, true)];
+        }
+        return $out;
     }
 
     /** The display name of a staff actor ('staff:12'), or null. */

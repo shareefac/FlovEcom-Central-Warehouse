@@ -25,6 +25,64 @@
     });
   });
 
+  // Bulk action on a list (docs/decisions.md U108): the rows' tick boxes, "Select all on this page" (a link that also works
+  // without the script: ?all=1 draws the page ticked), and the action bar, shown only while rows are ticked and kept at the bottom
+  // of the screen. Its words come from the page (data-none, data-one, data-many, data-too-many: Words::BULK). Without the script
+  // the bar is a plain row of buttons under the list.
+  each(document.querySelectorAll('form[data-bulk]'), function (form) {
+    var bar = form.querySelector('[data-bulkbar]');
+    if (!bar) {
+      return;
+    }
+    var boxes = form.querySelectorAll('input[type="checkbox"][data-bulk-row]');
+    var all = form.querySelector('input[data-bulk-all]');
+    var count = bar.querySelector('[data-bulk-count]');
+    var big = bar.querySelector('[data-bulk-n]');
+    var clear = bar.querySelector('[data-bulk-clear]');
+    var max = parseInt(bar.getAttribute('data-max'), 10) || 0;
+    var word = function (name) { return bar.getAttribute('data-' + name) || ''; };
+    var update = function () {
+      var n = 0;
+      each(boxes, function (b) {
+        var row = b.closest ? b.closest('tr') : null;
+        if (row) { row.classList.toggle('picked', b.checked); }
+        if (b.checked) { n++; }
+      });
+      bar.hidden = n === 0;
+      bar.classList.toggle('over', max > 0 && n > max);
+      if (big) { big.textContent = n > 0 ? String(n) : ''; }
+      if (count) {
+        count.textContent = n === 0 ? word('none') : (max > 0 && n > max ? word('too-many').replace('%s', String(n)).replace('%s', String(max))
+          : (n === 1 ? word('one') : word('many').replace('%s', String(n))));
+      }
+      if (all) {
+        all.checked = n > 0 && n === boxes.length;
+        all.indeterminate = n > 0 && n < boxes.length;
+      }
+    };
+    var setAll = function (on) {
+      each(boxes, function (b) { b.checked = on; });
+      update();
+    };
+    bar.classList.add('floating');
+    if (all) {
+      all.hidden = false;
+      all.addEventListener('change', function () { setAll(all.checked); });
+    }
+    each(document.querySelectorAll('[data-bulk-all-link]'), function (a) {
+      a.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        setAll(true);
+      });
+    });
+    if (clear) {
+      clear.hidden = false;
+      clear.addEventListener('click', function () { setAll(false); });
+    }
+    each(boxes, function (b) { b.addEventListener('change', update); });
+    update();
+  });
+
   // The answer form of a website product: choosing "create a new product" opens "Details of the new product" (plan F199).
   var details = document.getElementById('new-product');
   if (details) {

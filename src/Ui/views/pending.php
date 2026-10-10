@@ -3,6 +3,7 @@
   <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
 </div>
 <?= $intro('pending', $lookOnly) ?>
+<?= $partial('store_seg', ['items' => $stores, 'countWords' => \CW\Ui\Words::BULK['store_count_pending']]) ?>
 
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
@@ -45,6 +46,9 @@
 <?php foreach ($r['needs'] as $need): ?>
         <span class="tag"><?= $word('NEEDS_SECOND', $need) ?></span>
 <?php endforeach; ?>
+<?php if ($r['bulk'] !== null): ?>
+        <div class="muted"><a href="/ui/review/batches/<?= $e($r['bulk']) ?>"><?= $say('BULK', 'from_batch', $r['bulk']) ?></a></div>
+<?php endif; ?>
       </td>
       <td data-label="<?= $word('PENDING', 'by') ?>"><?= $e($r['decider'] ?? '') ?><div class="muted"><?= $when($r['created_at']) ?></div></td>
       <td class="c-next"><?= $partial('pending_actions', ['id' => $r['id'], 'from' => 'pending', 'can_approve' => $r['can_approve'], 'can_withdraw' => $r['can_withdraw'], 'own' => $r['own'], 'decider' => $r['decider']]) ?></td>

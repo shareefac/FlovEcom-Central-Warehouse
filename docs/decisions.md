@@ -6700,3 +6700,123 @@ sorts yet). Reorder stays one group in the list's own order (urgent first): v4's
 their cards (each holds its own change form) instead of v4's table with Edit buttons. The Mapping page shows the open list's group only:
 each list is still its own page (paged, best sellers first), the bar and legend lead to the others. Stock by Store, Sales by Store, Low
 Stock, Adjustments, Counts and Transfers are "Soon"; so is v4's "Low stock" group (it needs a setting for "low").
+
+## Store-wise review and bulk action on the matching screens (slot `mapbulk`, 8 Oct 2026)
+
+The owner's request of 8 Oct 2026: "product mapping improve, we need bulk action and review option each store wise". Code:
+`migrations/0021_mapping_bulk.sql`, `src/Mapping/BulkDecisions.php` (new), `src/Mapping/DecisionService.php` (two decisions, the screens'
+batches, the bulk switch), `src/Settings.php` (`list_in`, `listOf`), `src/Admin/ApprovalRules.php`, `src/Schema/Grants.php`, `src/Ui/Queries.php`
+(the store reads), `src/Ui/Sections.php`, `src/Ui/Controller/{Bulk,StoreProducts}Controller.php` (new), `src/Ui/Controller/{Review,Samples,
+Settings,Reference}Controller.php`, `src/Ui/ConfigWords.php`, views `mapping_overview`, `store_products`, `store_seg`, `bulk_bar`, `bulk_confirm`,
+`bulk_result` (new) and `queue`, `pending`, `samples`, `setting`, `listing_form`, `listing_decide`, `public/ui/assets/app.{js,css}` (section 21),
+`src/Ui/Words.php` (BULK*, BY_STORE, STORE_PRODUCTS, STORE_STATE). Tests: `tests/Integration/Mapping/BulkDecisionsTest.php`,
+`tests/Integration/UiKernel/BulkScreensTest.php` (new); the pinned navigation and words in `SectionsTest`, `UiTemplatesTest`, `WordsTest`,
+`MenusTest`. The Key bulk confirm of unseen strong matches (KeyBulk, M28, M30) is unchanged.
+
+**M46. Bulk action on the rows a person ticked, with the owner's rules as settings.** On a match-strength list of Products › Mapping a person
+ticks website products (a box per row, "Select all on this page", never across pages) and presses an action: Confirm match (each to its
+suggested product with its suggested units per sale), Not a match… (each suggestion marked wrong), Create as new product (New product list
+only) or Ignore…; on Store Products: Ignore…, Take off the ignored list, Send back for matching…. The settings (Settings › System ›
+Settings, with a reason; history and audit as Y4):
+- `mapping.bulk_confirm_bands` (a list of strengths, drawn as tick boxes in words; default Strong, Likely): the lists on which Confirm match
+  is offered. Clues disagree, Not sure, Renamed range stay one at a time unless the owner ticks them. A confirm posted on another list is
+  refused whole (403, nothing written), and a row whose suggestion is of another strength (a re-band since) is skipped;
+- `mapping.bulk_max_rows` (1 to 500, default 100; a page holds 50): more ticked rows are refused whole (422, nothing written; the bar says so
+  as the boxes are ticked);
+- `approvals.mapping_bulk_second_ok` (Approval Rules › Matching products; default OFF, the owner's "extra approvals off"): a match confirmed,
+  or a new product created, from a ticked list waits for a second matching lead (`needs_second` `bulk`). Switching it off needs a Reviewer
+  (Y45, I1), as every rule.
+`Settings::RULES` gains the kind `list_in` (values separated by commas, each once, each allowed; `words` names their Words group) and
+`Settings::listOf()` reads such a list (a stored value the rule no longer allows is left out: fail closed).
+
+**M47. One batch per bulk action, one record per ticked row.** `mapping_batch` (the action, the list or Store Products, the store, the strength,
+how many were ticked, the note, who) and `mapping_batch_row` (per row: the order it was done in, the suggestion and map_version the page
+showed, done / sent to Second approval / skipped with a code and its detail, the decision). Both append-only for the app login. Every
+decision of a batch carries `bulk_batch_id = screen:<batch id>` and so does its audit row (a waiting decision's audit row now names its batch
+too); the batch ends with one `mapping.bulk` audit row with the counts and the skips by code. The result screen is the batch page
+(`/ui/review/batches/{id}`): "Done: N …, M sent to Second approval, K skipped", the skipped rows each with why and a link, every row with what
+its decision is now (approved or cancelled since), and a warning when fewer rows were recorded than ticked (the request stopped). There is no
+"undo the batch": stock may have moved; a match is undone one at a time on its page (M53).
+
+**M48. Two new decisions of one listing, still only in DecisionService.** `unignore` (an ignored listing goes back: `suggested` when an open
+suggestion exists, which a later computer check may have added, else `unmapped`; 409 `not_ignored` otherwise) and `send_back` (the open
+suggestion it names is settled and the listing becomes `unmapped`, so the next computer check suggests again; 409 `already_linked` for a linked
+listing, `not_waiting` for an ignored one, `no_open_proposal` without one). Neither touches a link, so neither needs a second person; both move
+`map_version` and write the feed's status row. `match_decision.action` gains both (0021). "Skip for now" is not built: there is no per-person
+skip on the screens (the single "Not sure: skip it" only opens the next one), and no new state was invented.
+
+**M49. Who may act in bulk.** Whoever may make the decision alone may make it for ticked rows (the owner's rule): the route is
+`mapping.decide`, and each row is one `DecisionService::decide` with all its rules (the Conflict band is a matching lead's, here too: the list
+offers no action to a matcher and the service refuses each row). This amends M7 for the screens' batches only: a `bulk_batch_id` starting
+`screen:` may come from a matcher; every other batch (the Key bulk confirm `key_bulk:`, its undo, the seed `vpg_mint:`) stays a mapping
+lead's.
+
+**M50. Two people.** A row that needs a second person (units per sale other than 1, a protected item, a pair marked wrong before, a counted
+item, or the bulk switch of M46) is stored waiting for one, in the batch as "sent to Second approval", never linked: unlike KeyBulk, which
+rolls such a row back (its rows are unseen). The Second approval list says "From bulk action N" with a link.
+
+**M51. What a bulk action never does (skip anything doubtful, finish the rest).** Checked before a row is sent, from a few reads of all rows:
+- every action: a listing held back from the bulk confirm (`key_bulk_hold`, M30) or one of the matches of a spot check that is not complete
+  (M28: only its owner answers them; a bulk decision would fail the spot check) is skipped (`held`, `in_spot_check`); so is a row of another
+  store than the page's (`other_store`), one whose map_version or suggestion changed since the page was drawn (`changed`,
+  `suggestion_changed`, M5/M19: skipped, never overwritten), one with a decision waiting for a second OK;
+- Confirm match also skips a suggestion with a veto on its product (`vetoed`, with the vetoes in words: DecisionService does not know the
+  run's vetoes), a flag that asks for a person (`flagged`: KeyEligibility::FLAG_BLOCKS), a listing in the population of a FAILED spot check
+  (`spot_check_failed`: "if even one is wrong, the rest are checked one by one", HELP `spot_check`), one whose Key bulk link was undone before
+  (`bulk_undone`), and one with no suggested product;
+- Create as new product skips a listing whose barcode is on an item or on another listing (`barcode_elsewhere`: the single page does not
+  preselect a new product then either);
+- Not a match skips a row with no suggested product or one marked wrong already.
+Under the decision's lock on the listing the hold and the spot check are read again (a hold written meanwhile rolls that row back:
+`held_meanwhile`), as KeyBulk does. A refusal of DecisionService is recorded as a skip by its code (words in `Words::BULK_SKIP`, the
+service's own message for one without words); a database refusal of one row (a lock wait that ran out) is recorded and the next row goes on.
+
+**M52. Order and transactions.** Rows are done in listing id order (the order every other decision locks listings in), whatever the order
+the page sent. Each row is its own transaction: the decision and its batch row commit together, so the batch page reports exactly what was
+saved, and a failing row never undoes another. The batch row of a skipped row is written on its own.
+
+**M53. Undoing a match stays one at a time, with a note.** A matching lead's "Change this match" on the listing page (behaviour item 13)
+now offers "Undo the match" (DecisionService `unlink`, with its two-person rules); the page refuses it without a note (it changes a stock
+link). Store Products never ticks a matched, waiting or on-hold product.
+
+**U106. The store selector.** A segmented control "All stores · <each store>" with counts on Mapping › To review, on every strength list
+(the strength legend counts the chosen store, and its links keep it), on Second approval and on Spot check (the spot checks with a match on
+that store). The stores are the `channel` rows that have website products (`Queries::stores`, by name): no store is named in the code. The
+choice is the existing `channel` query value; `Sections::MAP` marks it `keep` on the Mapping tab, so its segments carry it (a plain code
+only). The website select left the list's Filter pop-over (one control for one thing).
+
+**U107. Mapping › To review is the "By store" overview.** The To review segment opens `/ui/review` (it opened the Strong list): per store one
+board group, a row per match strength, then "Not checked by the computer yet", then the store's total: waiting for a person, the share of
+that row's products matched (by the strength of each product's latest suggestion, merge suggestions left out), the share of their 30-day
+units on matched products, and Review (the store's list of that strength). From Home's counts (`bandCounts`, `unproposed`, `coverage`) and
+`Queries::storeBands`, which reads a new narrow index (`match_proposal (listing_id, lane, band)`, 0021): on cw_staging (8 Oct 2026, read
+only) the same query over the proposals' rows took 150-1,100 ms on the small cluster.
+
+**U108. Tick boxes and the action bar.** A tick column on the lists (and on Store Products, for the rows an action applies to), the name
+column sticky after it, a ticked row tinted. The bar (monday.com's batch-action bar): the count in a blue block, the actions this list offers
+this person (only those), × to clear. CSP-safe `app.js` (no inline code): it shows the bar only while rows are ticked and keeps it at the
+bottom of the screen (above the phone's tab bar), ticks a whole page from the header box or "Select all on this page", and says when more are
+ticked than the setting allows; its words come from the page. Without the script it is a plain form: the bar is a row of submit buttons under
+the list and "Select all on this page" is a link (`all=1`) that draws the page ticked. The form carries every row's map_version and
+suggestion (`ver_<id>`, `prop_<id>`), the ticked ones as `pick_<id>`.
+
+**U109. Products › Store Products.** A new tab (`/ui/review/store`, linking.view): pick a store (the first by name by default), then every
+website product of it with its state: Matched (CW-… and "1 sale = N products"), Suggested (its strength and product), Not matched, Ignored,
+On hold, Waiting for a second OK (and what waits). Search (title, brand, option number, barcode), the state filter with each state's
+count, best sellers first by 30-day or 1-year units, 50 a page with the existing pager. The state counts come from three narrow reads (the
+listings by status on the `(channel_id, status)` index, the pending decisions, the open suggestions), and a state filter is a condition the
+status index narrows, not a CASE over every product: on cw_staging Vape and Go's 29,105 products page in about 0.3-0.4 s on the small cluster
+(the sort by units reads one narrow index entry per product).
+
+**U110. Second steps.** "Not a match…", "Ignore…" and "Send back for matching…" never act on the first press: the page answers with a
+second step that states the count, lists the products and has one red button ("Yes, these N are not a match"); Ignore asks there for the
+note, once for all of them. The same rows go back in hidden fields; nothing is saved before that button.
+
+**U111. Words.** Every word is in `Ui\Words` (`BULK`, `BULK_ACTION`, `BULK_DONE`, `BULK_RESULT`, `BULK_SKIP`, `BULK_ERROR`, `BULK_CONFIRM`,
+`BY_STORE`, `STORE_PRODUCTS`, `STORE_STATE`; MENU `store_products`; the settings' names and help; RULE for the switch; NEEDS_SECOND `bulk`;
+ACTION `unignore`, `send_back`; audit `mapping.bulk`). A list setting is shown in words on the Settings pages and in its history
+(`ConfigWords::listWords`), never as codes.
+
+**U112. Not done, and open.** No "select every row of every page" (the owner asked for none beyond the setting). No undo of a whole batch
+(M47). No per-person "skip". A batch runs inside one request, row by row (the setting allows up to 500 rows; the default is 100). The
+"By store" figures of a store with tens of thousands of products cost what Home's matching progress costs (its `coverage()`).

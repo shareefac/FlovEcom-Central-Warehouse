@@ -16,6 +16,7 @@ use CW\Ui\Controller\AccessController;
 use CW\Ui\Controller\ApprovalsController;
 use CW\Ui\Controller\AuthController;
 use CW\Ui\Controller\BarcodesController;
+use CW\Ui\Controller\BulkController;
 use CW\Ui\Controller\CompanyController;
 use CW\Ui\Controller\DashboardController;
 use CW\Ui\Controller\DocumentsController;
@@ -39,6 +40,7 @@ use CW\Ui\Controller\SellingModeController;
 use CW\Ui\Controller\SettingsController;
 use CW\Ui\Controller\StaffRequestsController;
 use CW\Ui\Controller\StockController;
+use CW\Ui\Controller\StoreProductsController;
 use CW\Ui\Controller\SupplierItemsController;
 use CW\Ui\Controller\SuppliersController;
 use CW\Ui\Controller\SystemController;
@@ -372,6 +374,12 @@ final class Kernel
         $r->add('POST', '/ui/review/listing/{id}/decide', Route::DECIDE, $review->decide(...));
         $r->add('POST', '/ui/review/decision/{id}/approve', Route::LEAD, $review->approve(...));
         $r->add('POST', '/ui/review/decision/{id}/withdraw', Route::DECIDE, $review->withdraw(...));
+        // Store-wise review and bulk action (M46-M53, U106-U112): Store Products for everyone with linking.view; the ticked rows of a
+        // list for whoever may decide one (each row checked again by BulkDecisions and DecisionService); the batch page is the result.
+        $bulk = new BulkController();
+        $r->add('GET', '/ui/review/store', 'linking.view', (new StoreProductsController())->index(...));
+        $r->add('POST', '/ui/review/bulk', Route::DECIDE, $bulk->run(...));
+        $r->add('GET', '/ui/review/batches/{id}', 'linking.view', $bulk->show(...));
         // Duplicates (M34): Vape and Go's own duplicate listings; everyone with linking.view looks, a mapping lead decides (merge,
         // keep separate, split), checked again by DecisionService.
         $duplicates = new DuplicatesController();

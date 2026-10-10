@@ -3,21 +3,17 @@
   <?= $explain('how_sure', \CW\Ui\Words::THING['band']) ?>
 </div>
 <?= $intro('queue_' . $qc->band, $lookOnly) ?>
+<?= $partial('store_seg', ['items' => $stores, 'countWords' => \CW\Ui\Words::BULK['store_count_review']]) ?>
 
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <input type="hidden" name="queue" value="<?= $e($qc->band) ?>">
+<?php if ($qc->channel !== null): ?>
+  <input type="hidden" name="channel" value="<?= $e($qc->channel) ?>">
+<?php endif; ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('QUEUE', 'text') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($qc->text) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <details class="tb-pop">
-    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($qc->channel !== null || $qc->lane !== null || $qc->min > 0): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
+    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($qc->lane !== null || $qc->min > 0): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
     <div class="pop pop-form">
-      <label><?= $word('QUEUE', 'website') ?>
-        <select name="channel">
-          <option value=""><?= $word('QUEUE', 'any_website') ?></option>
-<?php foreach ($channels as $c): ?>
-          <option value="<?= $e($c['code']) ?>"<?php if ($qc->channel === $c['code']): ?> selected<?php endif; ?>><?= $e($c['name']) ?></option>
-<?php endforeach; ?>
-        </select>
-      </label>
       <label><?= $word('QUEUE', 'found_by') ?>
         <select name="lane">
           <option value=""><?= $word('QUEUE', 'any') ?></option>
@@ -64,11 +60,23 @@
 
 <?php if ($rows !== []): ?>
 <?php $tone = \CW\Ui\Words::tone('BAND', $qc->band); ?>
-<h3 class="grp-title <?= $e($tone) ?>"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-band"><?= $word('BAND', $qc->band) ?></button><span class="grp-count"><?= $say('QUEUE', 'in_all', $total, count($rows)) ?></span></h3>
+<?php $bulk = $bulkActions !== []; ?>
+<?php if ($bulk): ?>
+<form class="bulk-form" method="post" action="/ui/review/bulk" data-bulk>
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="source" value="review">
+<?php foreach ($bulkKeep as $key => $value): ?>
+  <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
+<?php endforeach; ?>
+<?php endif; ?>
+<h3 class="grp-title <?= $e($tone) ?>"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-band"><?= $word('BAND', $qc->band) ?></button><span class="grp-count"><?= $say('QUEUE', 'in_all', $total, count($rows)) ?></span><?php if ($bulk): ?> <a class="pick-all" href="<?= $e($allLink) ?>" data-bulk-all-link><?= $word('BULK', 'select_all') ?></a><?php endif; ?></h3>
 <div class="table-wrap" id="g-band">
-<table class="stack list queue board <?= $e($tone) ?>">
+<table class="stack list queue board <?= $e($tone) ?><?php if ($bulk): ?> picks<?php endif; ?>">
   <thead>
     <tr>
+<?php if ($bulk): ?>
+      <th scope="col" class="c-pick"><label class="pick"><input type="checkbox" data-bulk-all hidden><span class="visually-hidden"><?= $word('BULK', 'select_all') ?></span></label></th>
+<?php endif; ?>
       <th scope="col"><?= $word('QUEUE', 'product') ?></th>
       <th scope="col"><?= $word('QUEUE', 'website') ?></th>
       <th scope="col" class="num"><?= $word('QUEUE', 'sold_365') ?></th>
@@ -81,7 +89,11 @@
   </thead>
   <tbody>
 <?php foreach ($rows as $r): ?>
-    <tr>
+    <tr<?php if ($bulk && $r['picked']): ?> class="picked"<?php endif; ?>>
+<?php if ($bulk): ?>
+      <td class="c-pick" data-label=""><label class="pick"><input type="checkbox" name="pick_<?= $e($r['listing_id']) ?>" value="1" data-bulk-row<?php if ($r['picked']): ?> checked<?php endif; ?>><span class="visually-hidden"><?= $say('BULK', 'pick_row', $r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></span></label>
+        <input type="hidden" name="ver_<?= $e($r['listing_id']) ?>" value="<?= $e($r['map_version']) ?>"><input type="hidden" name="prop_<?= $e($r['listing_id']) ?>" value="<?= $e($r['proposal_id']) ?>"></td>
+<?php endif; ?>
       <th scope="row" class="c-head">
         <a class="o-name" href="<?= $e($r['link']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></a>
 <?php if ($r['variant_title'] !== null): ?>
@@ -114,6 +126,10 @@
   </tbody>
 </table>
 </div>
+<?php if ($bulk): ?>
+<?= $partial('bulk_bar', ['actions' => $bulkActions, 'max' => $bulkMax]) ?>
+</form>
+<?php endif; ?>
 <?php endif; ?>
 
 <?php if ($pages > 1): ?>

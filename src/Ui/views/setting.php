@@ -21,7 +21,15 @@
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="key" value="<?= $e($key) ?>">
   <input type="hidden" name="seen" value="<?= $e($seen) ?>">
-<?php if ($type === 'bool'): ?>
+<?php if ($items !== null): ?>
+  <fieldset>
+    <legend><?= $word('SETTING_EDIT', 'value') ?></legend>
+    <p class="hint"><?= $e($hint) ?></p>
+<?php foreach ($items as $it): ?>
+    <label class="choice"><input type="checkbox" name="<?= $e($it['name']) ?>" value="1"<?php if ($it['checked']): ?> checked<?php endif; ?>> <?= $e($it['label']) ?></label>
+<?php endforeach; ?>
+  </fieldset>
+<?php elseif ($type === 'bool'): ?>
   <fieldset>
     <legend><?= $word('SETTING_EDIT', 'value') ?></legend>
     <label class="choice"><input type="radio" name="value" value="true"<?php if ($raw === 'true'): ?> checked<?php endif; ?>> <?= $word('CONFIG', 'yes') ?></label>

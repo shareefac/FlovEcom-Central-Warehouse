@@ -1519,3 +1519,74 @@ section.rules article.card.rule + article.card.rule { border-top: 0; }
 section.rules article.card.rule:first-of-type { border-top-left-radius: var(--r-sm); border-top-right-radius: var(--r-sm); }
 section.rules article.card.rule:last-of-type { border-bottom-left-radius: var(--r-sm); border-bottom-right-radius: var(--r-sm); margin-bottom: 16px; }
 section.rules article.card.rule h3 { font: 400 16px/24px var(--font); }
+
+/* ---------- 21. Store-wise review and bulk action on the matching screens (docs/decisions.md U106-U112) ---------- */
+/* The store selector: the segmented control, under the Mapping segments */
+.store-seg .seg-item > .count { min-width: 20px; }
+/* The tick column: 44 px, the box in the middle; the name column stays sticky right after it */
+table.picks th.c-pick, table.picks td.c-pick { width: 44px; min-width: 44px; padding: 0; text-align: center; }
+/* (:where keeps it below the hover and ticked-row tints, which colour every cell of a row) */
+:where(table.picks) tr > :where(.c-pick) + * { position: sticky; left: 44px; z-index: 1; text-align: left; background: var(--surface); }
+label.pick { display: inline-grid; place-items: center; width: 44px; min-height: var(--row-h); margin: 0; cursor: pointer; }
+label.pick input[type="checkbox"] { margin: 0; }
+.pick-all { font: 400 14px/20px var(--font); }
+tbody tr.picked > * { background: var(--primary-sel); }
+tbody tr.picked:hover > * { background: linear-gradient(var(--hover), var(--hover)), var(--primary-sel); }
+@container (max-width: 640px) {
+  table.stack.picks td.c-pick { display: block; grid-column: 2; grid-row: 1; justify-self: end; width: auto; min-width: 0; padding: 0; }
+  /* A card that also has a status label: the box gets a third column after it */
+  table.stack.picks tr:has(> .c-status) { grid-template-columns: minmax(0, 1fr) auto auto; }
+  table.stack.picks tr:has(> .c-status) > td.c-pick { grid-column: 3; }
+  table.stack.picks tr.picked { background: var(--primary-sel); border-color: var(--primary); }
+  :where(table.picks) tr > :where(.c-pick) + * { position: static; }
+}
+/* The action bar (monday.com's batch-action bar): the count in a blue block, the actions, x. Without app.js a plain row under the list;
+   with it, shown only while rows are ticked and kept at the bottom of the screen (above the phone's tab bar). */
+.bulkbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 16px 0 24px; padding: 8px 12px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.bulkbar[hidden] { display: none; }
+.bulkbar.floating {
+  position: sticky; bottom: 16px; z-index: 25; width: fit-content; max-width: 100%; margin: 16px auto 24px; padding: 0 8px 0 0;
+  border-color: transparent; box-shadow: var(--shadow-md); overflow: hidden;
+}
+.bulkbar-count { display: flex; align-items: center; gap: 12px; margin: 0; font: 400 16px/22px var(--font); color: var(--ink); }
+.bulkbar:not(.floating) .bulkbar-count { color: var(--ink-2); font-size: 14px; }
+.bulkbar-n {
+  display: inline-grid; place-items: center; min-width: 56px; min-height: 56px; padding: 0 12px;
+  background: var(--primary); color: var(--on-primary); font: 500 24px/1 var(--title-font); font-variant-numeric: tabular-nums;
+}
+.bulkbar-n:empty { display: none; }
+.bulkbar.over .bulkbar-count { color: var(--negative); font-weight: 600; }
+.bulkbar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.bulkbar-close {
+  display: inline-grid; place-items: center; min-width: 40px; min-height: 40px; padding: 0; border: 0; border-left: 1px solid var(--line);
+  border-radius: 0; background: none; color: var(--icon); font: 400 24px/1 var(--font);
+}
+.bulkbar-close[hidden] { display: none; }
+.bulkbar-close:hover { color: var(--ink); background: var(--hover); }
+@media (max-width: 959.98px) {
+  .bulkbar.floating { bottom: calc(var(--tabbar-h) + 8px + env(safe-area-inset-bottom)); }
+  .bulkbar-close { min-width: 44px; min-height: 44px; }
+}
+@media (max-width: 639.98px) {
+  /* The count and x on one line, the actions under them, full width */
+  .bulkbar.floating { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 0; width: 100%; padding: 0; }
+  .bulkbar.floating .bulkbar-count { grid-column: 1; grid-row: 1; }
+  .bulkbar.floating .bulkbar-close { grid-column: 2; grid-row: 1; border-left: 0; }
+  .bulkbar.floating .bulkbar-actions { grid-column: 1 / -1; grid-row: 2; padding: 0 8px 8px; }
+  .bulkbar-n { min-height: 48px; min-width: 48px; font-size: 20px; }
+  .bulkbar-actions .btn { flex: 1 1 auto; }
+}
+/* Store Products: the state filter's dots and a match strength as a small label */
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--t-fill, var(--grey-group)); }
+.state-pills a { gap: 6px; }
+.tag.band { background: var(--t-fill); color: var(--on-primary); font-weight: 600; }
+/* The "By store" overview: the strength's help under its name; the share columns centred with their meter */
+table.by-store-table th .hint { display: block; margin-top: 2px; max-width: 46ch; font-weight: 400; }
+table.by-store-table td.share { white-space: nowrap; }
+table.by-store-table td.share .muted.small { display: block; }
+.grp-block.by-store .grp-count a { font-weight: 400; }
+/* The bulk result and its second step */
+.bulk-confirm { max-width: 760px; }

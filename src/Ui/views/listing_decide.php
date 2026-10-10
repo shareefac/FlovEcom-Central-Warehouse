@@ -21,7 +21,7 @@
         'target' => $change_target, 'can_link' => $change_target !== null, 'offer_link' => true, 'link_label' => null,
         // On a spot check's confirmed member every answer left here changes the match, so the button's words are true; "No, wrong
         // product" about another product would change nothing, so it is not offered there.
-        'offer_reject' => !$change_spot, 'protected' => $protected,
+        'offer_reject' => !$change_spot, 'offer_unlink' => true, 'protected' => $protected,
         'max_units' => $max_units, 'max_reason' => $max_reason, 'card_fields' => $card_fields, 'error' => $error, 'error_field' => $error_field,
         'button' => $change_spot ? \CW\Ui\Words::SPOT['change_button'] : \CW\Ui\Words::LISTING['save'], 'danger' => $change_spot]) ?>
   </details>

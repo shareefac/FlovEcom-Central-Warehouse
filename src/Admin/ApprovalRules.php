@@ -20,6 +20,8 @@ use CW\Settings;
  *      suppliers.approval_due_days    days a reviewer has to decide a supplier approval
  *      approvals.match_multiple       a match where 1 sale is not 1 product waits for a second matching lead (DecisionService)
  *      approvals.match_counted        a merge or split touching a counted item waits for a second matching lead (DecisionService)
+ *      approvals.mapping_bulk_second_ok  a match confirmed, or a new product created, from a ticked list on the matching screens waits for
+ *                                     a second matching lead (DecisionService, Mapping\BulkDecisions; OFF by default, M50)
  *      approvals.spot_check_size      how many matches a spot check holds; smaller ones never unlock a bulk confirm (KeySample)
  *      approvals.company_own_change   a reviewer confirming their own change of the company details gets another's check
  *      approvals.staff_grant          giving Admin or Reviewer waits for a reviewer's OK (StaffAdmin; OFF by default)
@@ -42,6 +44,7 @@ final class ApprovalRules
         'suppliers.change_review' => true,
         'approvals.match_multiple' => true,
         'approvals.match_counted' => true,
+        'approvals.mapping_bulk_second_ok' => false,
         'approvals.company_own_change' => true,
         'approvals.staff_grant' => false,
         'approvals.staff_reset' => false,
@@ -56,7 +59,8 @@ final class ApprovalRules
         'records' => [['document', 'PO'], ['document', 'GRN'], ['document', 'ADJ'], ['document', 'CNT'], ['document', 'WO'], ['document', 'SINV'],
             ['document', 'DN'], ['document', 'TRD']],
         'suppliers' => [['switch', 'approvals.supplier_activation'], ['switch', 'suppliers.change_review'], ['number', 'suppliers.approval_due_days']],
-        'matching' => [['switch', 'approvals.match_multiple'], ['switch', 'approvals.match_counted'], ['number', 'approvals.spot_check_size']],
+        'matching' => [['switch', 'approvals.match_multiple'], ['switch', 'approvals.match_counted'], ['switch', 'approvals.mapping_bulk_second_ok'],
+            ['number', 'approvals.spot_check_size']],
         'company' => [['switch', 'approvals.company_own_change']],
         'staff' => [['switch', 'approvals.staff_grant'], ['switch', 'approvals.staff_reset']],
     ];

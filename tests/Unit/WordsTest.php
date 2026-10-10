@@ -66,7 +66,7 @@ final class WordsTest extends TestCase
             'ACTION' => DecisionService::ACTIONS,
             'DECISION_STATE' => $migration('0004_matching.sql', 'state'),
             'LISTING_STATUS' => $migration('0004_matching.sql', 'prev_status'),
-            'NEEDS_SECOND' => ['protected_sku', 'units_per_item', 'previously_rejected', 'merge', 'counted_item'],
+            'NEEDS_SECOND' => ['protected_sku', 'units_per_item', 'previously_rejected', 'merge', 'counted_item', 'bulk'],
             'POLICY' => Stock::POLICIES,
             'STOCK' => Stock::BUCKETS,
             'LANE' => Queries::LANES,
@@ -286,7 +286,8 @@ final class WordsTest extends TestCase
             self::assertTrue(Words::has('REASON_USE', trim($use, " '")), $use);
         }
         $keys = [];
-        foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql', '0019_set_it_yourself.sql'] as $file) {
+        foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql', '0019_set_it_yourself.sql',
+            '0021_mapping_bulk.sql'] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
         }

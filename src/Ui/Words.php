@@ -45,7 +45,8 @@ final class Words
         'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN', 'CONFIG', 'CONFIG_ACTION', 'CONFIG_ERROR', 'SETTING_EDIT', 'SETTING_NOTICE',
         'APPROVALS', 'REASONS_EDIT', 'REASON_NOTICE', 'WAREHOUSES', 'WHY_NOT_EMPTY', 'WAREHOUSE_NOTICE', 'MODE', 'SITES', 'SITE_COMMAND', 'INTEGRITY', 'AUDIT',
         'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
-        'WATCH', 'STOCK_VIEW', 'TILE'];
+        'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
+        'STORE_PRODUCTS', 'STORE_STATE'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -177,6 +178,7 @@ final class Words
         'cards' => 'All Products',
         'mapping' => 'Mapping',
         'review' => 'Mapping',
+        'store_products' => 'Store Products',
         'pending' => 'Second approval',
         'samples' => 'Spot check',
         'duplicates' => 'Duplicates',
@@ -263,6 +265,7 @@ final class Words
         'home' => 'What is waiting for you today.',
         'cards' => 'Every product with its legal details and barcodes.',
         'mapping' => 'Match each website product to its warehouse product, the spot checks and the second approvals.',
+        'store_products' => 'Every product of one store, and whether it is matched, suggested, not matched or ignored.',
         'duplicates' => 'Vape and Go pages that may be the same product.',
         'barcodes' => 'Barcodes the computer could not place.',
         'stock' => 'What is in each warehouse now.',
@@ -346,6 +349,10 @@ final class Words
         'password' => ['Choose a new password of at least 12 characters.', 'You stay signed in here.'],
         'home' => ['What is waiting for you today.', 'Start with the top card.'],
         'queue_Key' => ['Same barcode, or copied from the other website, and the AI agrees.', 'Check the names, then press Yes. A few seconds each.'],
+        'mapping_overview' => ['How far each store is with matching, by how sure the computer is.', 'Choose a store, then press Review on a list.'],
+        'store_products' => ['Every website product of one store, and its match.', 'Choose a store. Tick products to ignore them or send them back; open one to change it.'],
+        'bulk_confirm' => ['This changes many website products at once.', 'Check the list below. Nothing is saved until you press the red button.'],
+        'bulk_result' => ['What happened to each website product you ticked.', 'Open a skipped one to decide it by hand.'],
         'queue_Check' => ['The AI found a likely product, but no barcode proves it, or a small detail differs.', 'Compare them before you say yes.'],
         'queue_New item' => ['Nothing in the warehouse list is this product.', 'Make sure it is not there under another name, then create a new product.'],
         'queue_Can\'t tell' => ['The AI could not choose, for example the name does not say 10mg or 20mg.', 'Pick the product yourself.'],
@@ -556,6 +563,7 @@ final class Words
         'previously_rejected' => 'Was marked wrong before',
         'counted_item' => 'Stock was counted in the warehouse',
         'merge' => 'Joins two products',
+        'bulk' => 'Confirmed from a ticked list',
     ];
 
     /** match_decision.action (DecisionService::ACTIONS). */
@@ -568,6 +576,8 @@ final class Words
         'suggest' => 'Suggested by the computer',
         'merge_skus' => 'Join products',
         'split' => 'Undo the join',
+        'unignore' => 'Take off the ignored list',
+        'send_back' => 'Send back for matching',
     ];
 
     public const DECISION_STATE = [
@@ -912,6 +922,9 @@ final class Words
         'staff.setup_max_fails' => 'Wrong tries before a sign-in set-up closes',
         'staff.sign_in_address' => 'Sign-in address',
         'approvals.spot_check_size' => 'Matches in a spot check',
+        'approvals.mapping_bulk_second_ok' => 'Matches confirmed from a ticked list need a second OK',
+        'mapping.bulk_confirm_bands' => 'Match strengths that may be confirmed together',
+        'mapping.bulk_max_rows' => 'Most products in one bulk action',
         'staff.setup_hours' => 'Hours to set up a sign-in',
         'staff.min_reviewers' => 'Reviewers needed',
     ];
@@ -1897,6 +1910,7 @@ final class Words
         'site_writer' => 'Websites',
         'approvals' => 'Approval rules',
         'staff' => 'Staff',
+        'mapping' => 'Matching products',
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -1942,6 +1956,10 @@ final class Words
         'staff.setup_max_fails' => 'After this many wrong tries, a sign-in set-up closes: the person cannot try again until the admin makes a new sheet, and the Dashboard says so.',
         'staff.sign_in_address' => 'The address staff open to sign in, for example https://warehouse.example.com. The sign-up sheets print it. Leave it empty until you know it.',
         'approvals.spot_check_size' => 'How many strong matches a spot check holds. A smaller spot check never confirms the rest together.',
+        'approvals.mapping_bulk_second_ok' => 'Matches confirmed, and new products created, from a ticked list wait for a second matching lead.',
+        'mapping.bulk_confirm_bands' => 'On these lists people may tick website products and confirm the suggested matches together. '
+            . 'The other lists are decided one at a time. Untick all to allow none.',
+        'mapping.bulk_max_rows' => 'The most website products one bulk action takes. A page shows 50.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
     ];
@@ -2189,6 +2207,8 @@ final class Words
         'suggest' => 'suggested',
         'merge_skus' => 'joined from a duplicate',
         'split' => 'join undone',
+        'unignore' => 'taken off the ignored list',
+        'send_back' => 'sent back for matching',
         'seed' => 'made from this website product',
     ];
 
@@ -2380,6 +2400,7 @@ final class Words
         'matched_lead' => 'Wrong match? You are a matching lead: open "Change this match" below.',
         'matched_heading' => 'Warehouse product it is matched to',
         'change_match' => 'Change this match',
+        'unlink' => 'Undo the match: it goes back to its list (stock stops following this match). Say why below.',
         'change_match_text' => 'Only if the match is wrong. Pick the right product above ("Pick a different product"), create a new product, or ignore it. '
             . 'Changing a match that already sells warehouse stock, or where 1 sale is not 1 product, needs a second OK.',
         // Held back (set aside) from the bulk step
@@ -2475,6 +2496,7 @@ final class Words
         'approved' => 'Approved: the decision on %s now takes effect.',
         'withdrawn' => 'Cancelled: the decision on %s. It is back in its list.',
         'queue_done' => 'This list is done.',
+        'decided_unlink' => 'Done: the match of %s is undone. It is back in its list.',
         'next' => 'Here is the next one.',
         'the_product' => 'the website product',
     ];
@@ -2516,7 +2538,195 @@ final class Words
         'pick_first' => 'Pick the warehouse product first: search for it, or use one the AI looked at. Nothing was saved.',
         'nothing_to_reject' => 'Nothing is suggested, so there is nothing to say no to. Nothing was saved.',
         'ignore_why' => 'Write a few words to say why you ignore it. Nothing was saved.',
+        'unlink_why' => 'Write a few words to say why you undo this match. Nothing was saved.',
+        'not_ignored' => 'Not saved: this website product is not on the ignored list.',
+        'not_waiting' => 'Not saved: this website product is ignored. Take it off the ignored list first.',
         'units' => '"How many does 1 sale use?" must be a whole number from 1 to %s. Nothing was saved.',
+    ];
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // Store-wise review and bulk action on the matching screens (docs/decisions.md M46-M53, U106-U112)
+
+    /** The store selector, the action bar and the batch page. */
+    public const BULK = [
+        'stores' => 'Store',
+        'all_stores' => 'All stores',
+        'store_count_review' => 'to review',
+        'store_count_pending' => 'waiting for a second OK',
+        'store_count_samples' => 'spot check matches to answer',
+        'store_count_products' => 'website products',
+        'bar' => 'Ticked products',
+        'select_all' => 'Select all on this page',
+        'pick_row' => 'Tick %s',
+        'selected_none' => 'Tick products, then choose what to do with them.',
+        'selected_one' => '1 selected',
+        'selected_many' => '%s selected',
+        'too_many' => '%s selected: at most %s at a time.',
+        'clear' => 'Clear the ticks',
+        'title' => 'Bulk action %s',
+        'summary' => 'Done: %s, %s sent to Second approval, %s skipped.',
+        'pending_text' => 'They wait for a second matching lead. Nothing changes until one says yes.',
+        'skipped_text' => 'Skipped products were not changed. Each one says why: open it to decide it by hand.',
+        'missing' => '%s of the %s ticked have no result: the action stopped early. Check them in the list.',
+        'what' => 'What',
+        'who' => 'Who',
+        'where' => 'Where',
+        'note' => 'Note',
+        'ticked' => 'Products ticked',
+        'skipped_title' => 'Skipped',
+        'count' => '%s',
+        'why' => 'Why',
+        'all_rows' => 'Every product of this action',
+        'result' => 'Result',
+        'now' => 'Now',
+        'no_undo' => 'There is no undo for the whole action: stock may have moved since. To undo one match, open it: a matching lead uses "Change this match".',
+        'back_to' => 'Back to %s',
+        'from_batch' => 'From bulk action %s',
+        'state_unknown' => 'unknown',
+    ];
+
+    /** The bulk actions, as their buttons say them (a "…" means a second step follows). */
+    public const BULK_ACTION = [
+        'link' => 'Confirm match',
+        'reject' => 'Not a match…',
+        'new_item' => 'Create as new product',
+        'ignore' => 'Ignore…',
+        'unignore' => 'Take off the ignored list',
+        'send_back' => 'Send back for matching…',
+    ];
+
+    /** The "done" part of a batch's summary, by action (%s = how many). */
+    public const BULK_DONE = [
+        'link' => '%s matched',
+        'reject' => '%s marked not a match',
+        'new_item' => '%s new products created and matched',
+        'ignore' => '%s ignored',
+        'unignore' => '%s back in their lists',
+        'send_back' => '%s sent back for matching',
+    ];
+
+    /** A ticked product's result on the batch page. */
+    public const BULK_RESULT = [
+        'done' => 'Done',
+        'pending_second' => 'Sent to Second approval',
+        'skipped' => 'Skipped',
+    ];
+
+    /** Why a ticked product was skipped (CW\Mapping\BulkDecisions::SKIPS; %s filled from the record). Nothing was changed on it. */
+    public const BULK_SKIP = [
+        'unknown_listing' => 'This website product no longer exists.',
+        'other_store' => 'It belongs to another store than the list you were on.',
+        'changed' => 'It changed after you opened the page (someone decided it, or the website renamed it). It is now: %s.',
+        'suggestion_changed' => 'Its suggestion changed after you opened the page. Open it to see the new one.',
+        'pending_second' => 'A decision on it already waits for a second OK.',
+        'held' => 'Held back to be checked one at a time: %s',
+        'held_meanwhile' => 'It was held back to be checked one at a time while this ran.',
+        'in_spot_check' => 'It is one of the matches of spot check %s: only that spot check\'s owner answers it, one at a time.',
+        'spot_check_failed' => 'Spot check %s found a wrong match, so these strong matches are checked one at a time.',
+        'bulk_undone' => 'A bulk match of it was undone before, so it is checked one at a time.',
+        'band_not_allowed' => 'Its match strength (%s) is not one that may be confirmed together. Open it to decide it.',
+        'vetoed' => 'A rule says it cannot be the suggested product: %s.',
+        'flagged' => 'It needs a person\'s look: %s.',
+        'no_product' => 'Nothing is suggested for it, so there is nothing to confirm or say no to.',
+        'barcode_elsewhere' => 'Its barcode is already on another product. Open it to check before you create one.',
+        'already_rejected' => 'It was already marked "not this product".',
+        'not_ignored' => 'It is not on the ignored list (it is: %s).',
+        'already_ignored' => 'It is already ignored.',
+        'linked' => 'It is matched. Change it on its own page: that changes a stock link.',
+        'not_waiting' => 'It is not waiting for a match (it is: %s).',
+        'no_suggestion' => 'Nothing is suggested for it now.',
+        'lead_only' => 'Only a matching lead decides it (the clues disagree).',
+        'not_allowed' => 'Your jobs do not let you change it.',
+        'product_joined' => 'The suggested product was joined into another one. Open it to pick the right one.',
+        'no_name' => 'It has no name, so a new product cannot be made from it. Open it and type one.',
+        'refused' => 'Not changed: %s',
+    ];
+
+    /** A bulk request refused as a whole (nothing was saved). */
+    public const BULK_ERROR = [
+        'nothing_ticked' => 'Tick at least one product first. Nothing was saved.',
+        'too_many_rows' => 'You ticked %s products. At most %s can be changed at a time (the Settings page says how many). Nothing was saved.',
+        'band_not_allowed' => '%s cannot be confirmed together: open each one to decide it. The Settings page lists the strengths that can. Nothing was saved.',
+        'action_not_here' => 'This list does not offer that action. Nothing was saved.',
+        'reason_required' => 'Write a few words to say why you ignore them. Nothing was saved.',
+        'lead_required' => 'Only a matching lead decides products where the clues disagree. Nothing was saved.',
+        'role_not_allowed' => 'You can look at these, but only Matchers and Matching leads can change them. Nothing was saved.',
+        'staff_required' => 'Only a person can do this. Nothing was saved.',
+        'bad_action' => 'This list does not offer that action. Nothing was saved.',
+        'bad_request' => 'This form is incomplete. Nothing was saved. Reload the page and try again.',
+        'unknown_batch' => 'We cannot find this bulk action. The link may be old.',
+    ];
+
+    /** The second step of a bulk action that says no (stating the count). */
+    public const BULK_CONFIRM = [
+        'reject_title' => 'Mark %s products as "not a match"?',
+        'reject_text' => 'Each suggestion is marked wrong. Nothing is matched, and each product stays in its list for another choice. '
+            . 'Matching one to that product later needs a second OK.',
+        'reject_button' => 'Yes, these %s are not a match',
+        'ignore_title' => 'Ignore %s products?',
+        'ignore_text' => 'Each one is marked as not a real product (a gift card, a bundle, a placeholder) and leaves the lists. Nothing is matched.',
+        'ignore_button' => 'Yes, ignore these %s',
+        'send_back_title' => 'Send %s products back for matching?',
+        'send_back_text' => 'Each suggestion is closed. The products wait for the next computer check, which suggests again.',
+        'send_back_button' => 'Yes, send these %s back',
+        'skips' => 'Products held back, in a spot check, or changed since you opened the page are skipped and listed afterwards.',
+        'reason' => 'Why (for all of them)',
+        'reason_hint' => 'A few words, for example "placeholder pages of the bundles".',
+        'cancel' => 'No, go back',
+        'rows' => 'The %s products',
+    ];
+
+    /** Mapping › To review: the "By store" overview. */
+    public const BY_STORE = [
+        'title' => 'By store',
+        'note' => 'Each store\'s products by how sure the match is · the share already matched',
+        'none' => 'No store has website products in this system yet.',
+        'none_text' => 'They arrive with each store\'s first product list.',
+        'waiting' => '%s to review',
+        'all_products' => 'All its products',
+        'strength' => 'How sure',
+        'col_waiting' => 'Waiting for you',
+        'col_linked' => 'Products matched',
+        'col_units' => 'Units matched (30 days)',
+        'of_products' => '%s of %s',
+        'no_products' => 'no products',
+        'review' => 'Review',
+        'nothing' => 'Nothing waiting',
+        'unchecked_help' => 'No suggestion yet; matched ones were matched by hand or when the store was loaded.',
+        'computer_next' => 'Next computer check',
+        'total' => 'All products of the store',
+    ];
+
+    /** Products › Store Products. */
+    public const STORE_PRODUCTS = [
+        'no_stores' => 'No store has website products in this system yet.',
+        'no_stores_text' => 'They arrive with each store\'s first product list.',
+        'states' => 'Show',
+        'sort_by' => 'Best sellers first, by',
+        'sort_sold_30' => 'Sold in the last 30 days',
+        'sort_sold_365' => 'Sold in the last year',
+        'board' => '%s: website products',
+        'shown' => '%s in all · %s shown',
+        'state' => 'Match',
+        'warehouse' => 'Warehouse product or suggestion',
+        'no_suggestion' => 'Nothing suggested yet',
+        'pending' => 'Waiting for a second OK: %s',
+        'empty' => 'This store has no website products.',
+        'empty_text' => 'They arrive with the store\'s product list.',
+        'empty_filter' => 'No website product fits your search or filter.',
+        'empty_filter_text' => 'Other products of this store are hidden by it.',
+        'unlink_note' => 'To undo a match, open the product: a matching lead uses "Change this match" and says why. It is one at a time because it changes a stock link.',
+    ];
+
+    /** A website product's state on Store Products (Queries::STORE_STATES). */
+    public const STORE_STATE = [
+        'all' => 'All',
+        'waiting' => 'Waiting for a second OK',
+        'quarantined' => 'On hold',
+        'ignored' => 'Ignored',
+        'linked' => 'Matched',
+        'suggested' => 'Suggested',
+        'not_matched' => 'Not matched',
     ];
 
     /** The spot-check pages (/ui/review/samples and /{id}, plan §6.9, 6.10). The answers on a member's page are SPOT. */
@@ -5167,6 +5377,8 @@ final class Words
         'approvals' => 'This is an approval rule: change it on the Approval Rules page.',
         'company' => 'The company details have their own page.',
         'address' => 'An address starting with https://, without anything after the name, for example https://warehouse.example.com.',
+        'list' => 'Tick the ones that apply. None ticked is allowed.',
+        'list_none' => 'None',
     ];
 
     /** Notices after saving a setting (ReferenceController). */
@@ -5263,6 +5475,11 @@ final class Words
             'title' => 'Your own change of the company details',
             'on' => 'A reviewer who changes and confirms our name, numbers, purchasing e-mail or delivery address themselves gets another reviewer\'s check afterwards.',
             'off' => 'Off: such a change is not checked by a second reviewer.',
+        ],
+        'approvals.mapping_bulk_second_ok' => [
+            'title' => 'Matches confirmed from a ticked list',
+            'on' => 'Matches confirmed, and new products created, from a ticked list wait for a second matching lead (Second approval).',
+            'off' => 'Off: they work at once. Each ticked product is still checked on its own, and the other rules still apply.',
         ],
         'approvals.staff_grant' => [
             'title' => 'Giving someone Admin or Reviewer',
@@ -5523,6 +5740,7 @@ final class Words
         'item_card' => 'Product card',
         'key_sample' => 'Spot check',
         'listing' => 'Website product',
+        'mapping_batch' => 'Bulk action on matches',
         'match_decision' => 'Match',
         'match_run' => 'Computer check',
         'reason_code' => 'Reason for a stock change',
@@ -5587,6 +5805,7 @@ final class Words
         'location.rename' => 'Place renamed',
         'location.switch_off' => 'Place switched off',
         'location.switch_on' => 'Place switched on again',
+        'mapping.bulk' => 'Bulk action on matches',
         'staff.create' => 'Staff member added',
         'staff.roles' => 'Jobs changed',
         'staff.activate' => 'Can sign in again',
@@ -5812,6 +6031,8 @@ final class Words
         'MODE' => ['off' => 'off', 'shadow' => 'waiting', 'live' => 'done'],
         // The lists of matches as v4 colours them: strong green, likely orange, new product blue, not sure purple, clues disagree red.
         'BAND' => ['Key' => 'done', 'Check' => 'needs', 'New item' => 'info', 'Can\'t tell' => 'review', 'Conflict' => 'blocked', 'Manual' => 'off'],
+        'STORE_STATE' => ['waiting' => 'review', 'quarantined' => 'blocked', 'ignored' => 'off', 'linked' => 'done', 'suggested' => 'needs', 'not_matched' => 'waiting'],
+        'BULK_RESULT' => ['done' => 'done', 'pending_second' => 'review', 'skipped' => 'needs'],
     ];
 
     // ==================================================================================================================

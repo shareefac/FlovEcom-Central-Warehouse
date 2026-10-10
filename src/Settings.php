@@ -33,7 +33,8 @@ final class Settings
     /**
      * Key-specific checks on top of the type (parse()): `min`/`max` (an int or a decimal string), `vat_code` (the code
      * must exist in vat_code and be active), `email` (a valid address or empty), `in` (one of the listed values, exactly),
-     * `pattern` (a regular expression the text must match; `pattern_says` words it for the refusal).
+     * `pattern` (a regular expression the text must match; `pattern_says` words it for the refusal), `list_in` (a list of the listed
+     * values separated by commas, each once, in any order, or empty; `words` names the Ui\Words group the screens show them in).
      * Every key ending in `_days` is a day count from 0 to 120 unless listed here.
      */
     public const RULES = [
@@ -69,6 +70,10 @@ final class Settings
         // The address printed on the sign-up sheets (review nit: never the Host header a request happened to carry).
         'staff.sign_in_address' => ['pattern' => '#^https?://[A-Za-z0-9.-]{1,200}(:[0-9]{1,5})?$#D',
             'pattern_says' => 'the address of the sign-in page without a path, like https://warehouse.example.com'],
+        // Bulk action on the matching screens (0021, M46): the match strengths whose ticked rows may be confirmed together (the
+        // others stay one at a time; empty: none), and the most rows one bulk action takes (a page holds 50).
+        'mapping.bulk_confirm_bands' => ['list_in' => \CW\Mapping\Proposals::BANDS, 'words' => 'BAND'],
+        'mapping.bulk_max_rows' => ['min' => 1, 'max' => 500],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];
@@ -259,6 +264,12 @@ final class Settings
         if (isset($rule['pattern']) && preg_match($rule['pattern'], (string) $value) !== 1) {
             throw $bad('must be ' . ($rule['pattern_says'] ?? 'in the expected form'));
         }
+        if (isset($rule['list_in'])) {
+            $items = explode(',', (string) $value);
+            if (array_diff($items, $rule['list_in']) !== [] || count(array_unique($items)) !== count($items)) {
+                throw $bad('must be some of ' . implode(', ', $rule['list_in']) . ', separated by commas, each once');
+            }
+        }
         // Against other settings (whole numbers): at least / at most their current values.
         foreach (['at_least' => 1, 'at_most' => -1] as $kind => $sign) {
             foreach ($rule[$kind] ?? [] as $other) {
@@ -344,6 +355,26 @@ final class Settings
     {
         $v = $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ? AND value_type = 'bool'", [$key]);
         return $v === null ? $default : trim((string) $v) === 'true';
+    }
+
+    /**
+     * A list setting (a `list_in` rule) read straight from the database: its values, in the rule's order; $default when the row
+     * does not exist (a schema before its migration). An empty value is an empty list. A stored value the rule no longer allows is
+     * left out (fail closed: a list of what is allowed).
+     *
+     * @param list<string> $default
+     * @return list<string>
+     */
+    public static function listOf(Db $db, string $key, array $default): array
+    {
+        $allowed = self::RULES[$key]['list_in'] ?? throw new \LogicException("{$key} is not a list setting");
+        $v = $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ? AND value_type = 'string'", [$key]);
+        if ($v === null) {
+            return $default;
+        }
+        $text = json_decode((string) $v, false, 4);
+        $items = is_string($text) && $text !== '' ? explode(',', $text) : [];
+        return array_values(array_filter($allowed, static fn (string $a): bool => in_array($a, $items, true)));
     }
 
     /** An int setting read straight from the database: $default when the row does not exist, is not an int or is not set. */

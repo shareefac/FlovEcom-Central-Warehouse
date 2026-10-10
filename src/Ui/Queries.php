@@ -144,7 +144,7 @@ final class Queries
         ));
         $rows = $ids === [] ? [] : $this->db->all(
             'SELECT p.id AS proposal_id, p.listing_id, p.band, p.lane, p.ai_outcome, p.ai_confidence, p.ai_units_per_item, p.proposed_sku_id, '
-            . 'p.proposed_new_item, p.flags, cl.channel_id, ch.code AS channel_code, cl.external_variant_id, cl.status, '
+            . 'p.proposed_new_item, p.flags, cl.channel_id, ch.code AS channel_code, cl.external_variant_id, cl.status, cl.map_version, '
             . 'lp.product_title, lp.variant_title, lp.brand, lp.units_30d, lp.units_365d, s.code AS sku_code, s.name AS sku_name '
             . 'FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id JOIN channel ch ON ch.id = cl.channel_id '
             . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN sku s ON s.id = p.proposed_sku_id WHERE ' . $where
@@ -222,15 +222,203 @@ final class Queries
     private const PENDING_JOINS = 'JOIN channel_listing cl ON cl.id = d.listing_id LEFT JOIN staff_user u ON u.id = d.decided_by '
         . 'LEFT JOIN sku s ON s.id = d.sku_id LEFT JOIN sku mf ON mf.id = d.merge_from_sku_id LEFT JOIN sku ps ON ps.id = d.prev_sku_id ';
 
-    /** Pending second-approval decisions, oldest first. @return list<array<string, mixed>> */
-    public function pendingDecisions(int $limit = 200): array
+    /** Pending second-approval decisions, oldest first; of one store's website products when $channelId is given. @return list<array<string, mixed>> */
+    public function pendingDecisions(int $limit = 200, ?int $channelId = null): array
     {
         return $this->db->all(
-            'SELECT ' . self::PENDING_COLUMNS . ', cl.external_variant_id, ch.code AS channel_code, lp.product_title, lp.variant_title, lp.units_30d '
+            'SELECT ' . self::PENDING_COLUMNS . ', d.bulk_batch_id, cl.external_variant_id, ch.code AS channel_code, lp.product_title, lp.variant_title, lp.units_30d '
             . 'FROM match_decision d ' . self::PENDING_JOINS . 'JOIN channel ch ON ch.id = cl.channel_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
-            . "WHERE d.state = 'pending_second' ORDER BY d.id ASC LIMIT ?",
-            [$limit],
+            . "WHERE d.state = 'pending_second'" . ($channelId !== null ? ' AND cl.channel_id = ?' : '') . ' ORDER BY d.id ASC LIMIT ?',
+            $channelId !== null ? [$channelId, $limit] : [$limit],
         );
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Store-wise review (docs/decisions.md U106-U110): the store selector, the "By store" overview, Store Products
+    // ------------------------------------------------------------------------------------------
+
+    /** Store Products' state filter (a website product's link state, in this order of precedence). */
+    public const STORE_STATES = ['waiting', 'quarantined', 'ignored', 'linked', 'suggested', 'not_matched'];
+    /** Store Products' sorts: units in 30 days or in 1 year, best sellers first. */
+    public const STORE_SORTS = ['sold_30' => 'units_30d', 'sold_365' => 'units_365d'];
+
+    /**
+     * The stores: the websites (channel rows) that have website products in CW, by name. A website with none has nothing to match
+     * (no store is named in the code: the channel table says which there are).
+     *
+     * @return list<array{id: int, code: string, name: string}>
+     */
+    public function stores(): array
+    {
+        /** @var list<array{id: int, code: string, name: string}> */
+        return $this->db->all('SELECT c.id, c.code, c.name FROM channel c WHERE EXISTS (SELECT 1 FROM channel_listing cl WHERE cl.channel_id = c.id) ORDER BY c.name, c.id');
+    }
+
+    /**
+     * Per store and match strength: the website products whose latest suggestion (a merge suggestion between two warehouse products
+     * left out) is of that strength, how many of them are matched now, and the units they sold in 30 days (all, and on the matched
+     * ones). The rest of a store's products (no suggestion ever) is the store's coverage() minus these.
+     *
+     * @return array<int, array<string, array{listings: int, linked: int, u30: int, l30: int}>> channel id => band => figures
+     */
+    public function storeBands(): array
+    {
+        $linked = "cl.status IN ('mapped', 'quarantined')";
+        $dup = \CW\Mapping\DecisionService::duplicateLaneSql('p.lane');
+        $dup2 = \CW\Mapping\DecisionService::duplicateLaneSql('pn.lane');
+        $out = [];
+        foreach ($this->db->all(
+            'SELECT ' . self::UNITS_HINT . 'cl.channel_id, p.band, COUNT(*) AS listings, SUM(' . $linked . ') AS linked, '
+            . 'COALESCE(SUM(lp.units_30d), 0) AS u30, COALESCE(SUM(IF(' . $linked . ', lp.units_30d, 0)), 0) AS l30 '
+            . 'FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
+            // A proposal without a lane is no merge suggestion (COALESCE: NOT NULL would drop it).
+            . "WHERE NOT COALESCE({$dup}, FALSE) AND NOT EXISTS (SELECT 1 FROM match_proposal pn WHERE pn.listing_id = p.listing_id AND pn.id > p.id "
+            . "AND NOT COALESCE({$dup2}, FALSE)) "
+            . 'GROUP BY cl.channel_id, p.band',
+        ) as $r) {
+            $out[(int) $r['channel_id']][(string) $r['band']] = ['listings' => (int) $r['listings'], 'linked' => (int) $r['linked'],
+                'u30' => (int) $r['u30'], 'l30' => (int) $r['l30']];
+        }
+        return $out;
+    }
+
+    /** @return array<int, int> channel id => its website products (the (channel_id, status) index alone) */
+    public function productsByStore(): array
+    {
+        $out = [];
+        foreach ($this->db->all('SELECT channel_id, COUNT(*) AS n FROM channel_listing GROUP BY channel_id') as $r) {
+            $out[(int) $r['channel_id']] = (int) $r['n'];
+        }
+        return $out;
+    }
+
+    /** @return array<int, int> channel id => decisions waiting for a second OK on its website products */
+    public function pendingByStore(): array
+    {
+        $out = [];
+        foreach ($this->db->all("SELECT cl.channel_id, COUNT(*) AS n FROM match_decision d JOIN channel_listing cl ON cl.id = d.listing_id "
+            . "WHERE d.state = 'pending_second' GROUP BY cl.channel_id") as $r) {
+            $out[(int) $r['channel_id']] = (int) $r['n'];
+        }
+        return $out;
+    }
+
+    /** @return array<int, int> channel id => matches of spot checks still to answer (their website product not matched yet) */
+    public function spotOpenByStore(): array
+    {
+        $out = [];
+        foreach ($this->db->all("SELECT cl.channel_id, COUNT(DISTINCT m.listing_id) AS n FROM key_sample_member m JOIN channel_listing cl ON cl.id = m.listing_id "
+            . "WHERE m.position IS NOT NULL AND cl.status IN ('unmapped', 'suggested') GROUP BY cl.channel_id") as $r) {
+            $out[(int) $r['channel_id']] = (int) $r['n'];
+        }
+        return $out;
+    }
+
+    /** The spot checks that have a match on a store's website products. @return list<int> sample ids */
+    public function samplesOfStore(int $channelId): array
+    {
+        return array_map('intval', $this->db->column('SELECT DISTINCT m.sample_id FROM key_sample_member m JOIN channel_listing cl ON cl.id = m.listing_id '
+            . 'WHERE m.position IS NOT NULL AND cl.channel_id = ?', [$channelId]));
+    }
+
+    /** The SQL of a website product's link state (STORE_STATES; `pd` the pending decision, `p` the open suggestion, joined): the page's rows. */
+    private const STATE_SQL = "CASE WHEN pd.id IS NOT NULL THEN 'waiting' WHEN cl.status = 'quarantined' THEN 'quarantined' WHEN cl.status = 'ignored' THEN 'ignored' "
+        . "WHEN cl.status = 'mapped' THEN 'linked' WHEN p.id IS NOT NULL THEN 'suggested' ELSE 'not_matched' END";
+    private const STATE_JOINS = 'LEFT JOIN match_decision pd ON pd.pending_listing_id = cl.id LEFT JOIN match_proposal p ON p.open_listing_id = cl.id ';
+    private const NOT_WAITING = 'NOT EXISTS (SELECT 1 FROM match_decision pw WHERE pw.pending_listing_id = cl.id)';
+    /**
+     * One state as a filter that the (channel_id, status) index narrows: no CASE over every product of the store (the store's
+     * products are tens of thousands; a pending decision or an open suggestion is looked up only for the ones the status leaves).
+     */
+    private const STATE_WHERE = [
+        'waiting' => 'EXISTS (SELECT 1 FROM match_decision pw WHERE pw.pending_listing_id = cl.id)',
+        'quarantined' => "cl.status = 'quarantined' AND " . self::NOT_WAITING,
+        'ignored' => "cl.status = 'ignored' AND " . self::NOT_WAITING,
+        'linked' => "cl.status = 'mapped' AND " . self::NOT_WAITING,
+        'suggested' => "cl.status IN ('unmapped', 'suggested') AND EXISTS (SELECT 1 FROM match_proposal po WHERE po.open_listing_id = cl.id) AND " . self::NOT_WAITING,
+        'not_matched' => "cl.status IN ('unmapped', 'suggested') AND NOT EXISTS (SELECT 1 FROM match_proposal po WHERE po.open_listing_id = cl.id) AND "
+            . self::NOT_WAITING,
+    ];
+
+    /**
+     * How many of a store's website products are in each state (STORE_STATES), from three narrow reads: the listings by status (the
+     * (channel_id, status) index alone), the pending decisions by the status of their listing, and the open suggestions of the
+     * products waiting for a decision without one pending.
+     *
+     * @return array<string, int>
+     */
+    public function storeStateCounts(int $channelId): array
+    {
+        $by = array_fill_keys(['unmapped', 'suggested', 'mapped', 'ignored', 'quarantined'], 0);
+        foreach ($this->db->all('SELECT status, COUNT(*) AS n FROM channel_listing WHERE channel_id = ? GROUP BY status', [$channelId]) as $r) {
+            $by[(string) $r['status']] = (int) $r['n'];
+        }
+        $waiting = array_fill_keys(array_keys($by), 0);
+        foreach ($this->db->all("SELECT cl.status, COUNT(*) AS n FROM match_decision pd JOIN channel_listing cl ON cl.id = pd.listing_id "
+            . "WHERE pd.state = 'pending_second' AND cl.channel_id = ? GROUP BY cl.status", [$channelId]) as $r) {
+            $waiting[(string) $r['status']] = (int) $r['n'];
+        }
+        $suggested = (int) $this->db->value("SELECT COUNT(*) FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id WHERE p.status = 'open' "
+            . "AND cl.channel_id = ? AND cl.status IN ('unmapped', 'suggested') AND " . self::NOT_WAITING, [$channelId]);
+        return [
+            'waiting' => array_sum($waiting),
+            'quarantined' => $by['quarantined'] - $waiting['quarantined'],
+            'ignored' => $by['ignored'] - $waiting['ignored'],
+            'linked' => $by['mapped'] - $waiting['mapped'],
+            'suggested' => $suggested,
+            'not_matched' => $by['unmapped'] + $by['suggested'] - $waiting['unmapped'] - $waiting['suggested'] - $suggested,
+        ];
+    }
+
+    /**
+     * One page of a store's website products with their link state (Store Products): the matched product and its units per sale,
+     * the open suggestion and its strength, the decision waiting for a second OK. Best sellers first by $sort (STORE_SORTS), then
+     * id; filtered by state and by a text (title, brand, option number, barcode). $counts (storeStateCounts) gives the total of an
+     * unfiltered or state-filtered page without a count of its own.
+     *
+     * @param array<string, int>|null $counts
+     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int}
+     */
+    public function storeProducts(int $channelId, ?string $state, string $q, string $sort, int $page, ?array $counts = null): array
+    {
+        $where = ['cl.channel_id = ?'];
+        $params = [$channelId];
+        $state = $state !== null && isset(self::STATE_WHERE[$state]) ? $state : null;
+        if ($state !== null) {
+            $where[] = self::STATE_WHERE[$state];
+        }
+        $q = trim($q);
+        if ($q !== '') {
+            $like = '%' . self::escapeLike($q) . '%';
+            $where[] = '(lp.product_title LIKE ? OR lp.variant_title LIKE ? OR lp.brand LIKE ? OR cl.external_variant_id = ? '
+                . 'OR JSON_SEARCH(lp.barcodes, \'one\', ?) IS NOT NULL)';
+            array_push($params, $like, $like, $like, $q, self::escapeLike($q));
+        }
+        $col = self::STORE_SORTS[$sort] ?? 'units_30d';
+        $other = $col === 'units_30d' ? 'units_365d' : 'units_30d';
+        $order = " ORDER BY COALESCE(lp.{$col}, 0) DESC, COALESCE(lp.{$other}, 0) DESC, cl.id ASC";
+        $hint = $q === '' ? self::UNITS_HINT : '';
+        $from = 'FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ' . implode(' AND ', $where);
+        if ($q === '' && $counts !== null) {
+            $total = $state === null ? array_sum($counts) : ($counts[$state] ?? 0);
+        } else {
+            // Without a text the profile is not read: the store's listings by the (channel_id, status) index.
+            $total = (int) $this->db->value('SELECT COUNT(*) ' . ($q === '' ? 'FROM channel_listing cl WHERE ' . implode(' AND ', $where) : $from), $params);
+        }
+        $pages = max(1, (int) ceil($total / self::PER_PAGE));
+        $page = min(max(1, $page), $pages);
+        $ids = array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . $order . ' LIMIT ? OFFSET ?',
+            [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE]));
+        $rows = $ids === [] ? [] : $this->db->all(
+            'SELECT cl.id AS listing_id, cl.status, cl.sku_id, cl.units_per_item, cl.map_version, cl.external_variant_id, ' . self::STATE_SQL . ' AS state, '
+            . 'lp.product_title, lp.variant_title, lp.brand, lp.units_30d, lp.units_365d, s.code AS sku_code, s.name AS sku_name, '
+            . 'p.id AS proposal_id, p.band, p.proposed_sku_id, p.proposed_new_item, ps.code AS proposed_code, ps.name AS proposed_name, '
+            . 'pd.id AS pending_id, pd.action AS pending_action '
+            . 'FROM channel_listing cl ' . self::STATE_JOINS . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN sku s ON s.id = cl.sku_id '
+            . 'LEFT JOIN sku ps ON ps.id = p.proposed_sku_id WHERE cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')' . $order,
+            $ids,
+        );
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages];
     }
 
     /** The decision waiting for a second person on a listing, if any. @return array<string, mixed>|null */

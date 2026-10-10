@@ -42,7 +42,7 @@ final class UiTemplatesTest extends TestCase
             'reorder_brands', 'reorder_anomalies', 'sales_history', 'company', 'company_form', 'duplicates', 'duplicate_group', 'item_cards', 'item_card_form',
             'item_cards_import', 'barcode_reviews', 'cards', 'receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents',
             'setting', 'config_history', 'approvals', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet', 'enrol',
-            'staff_requests', 'new_code', 'stock', 'stock_movements'] as $t) {
+            'staff_requests', 'new_code', 'stock', 'stock_movements', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result'] as $t) {
             self::assertContains($t . '.php', $names);
         }
         self::assertSame([], array_filter($names, static fn (string $n): bool => preg_match('/^[a-z][a-z_]*\.php$/', $n) !== 1), 'names View::render accepts');
@@ -133,7 +133,7 @@ final class UiTemplatesTest extends TestCase
     {
         $templates = self::templates();
         foreach (['queue', 'listing', 'listing_form', 'listing_decide', 'pending', 'pending_actions', 'pending_decision', 'samples', 'sample', 'duplicates', 'duplicate_group',
-            'search', 'item'] as $name) {
+            'search', 'item', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result'] as $name) {
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {
@@ -318,7 +318,7 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<p class="pagebar-name">Products</p>', $bar);
         self::assertStringContainsString('<p class="page-desc">' . Html::e(Words::SECTION_DESC['products']) . '</p>', $bar);
         self::assertStringContainsString('<nav class="tabs" aria-label="Products">', $bar);
-        self::assertStringContainsString('<a class="tab" href="/ui/review?queue=Key" aria-current="page"><span>Mapping</span><span class="count" title="3 waiting for your second OK">3'
+        self::assertStringContainsString('<a class="tab" href="/ui/review" aria-current="page"><span>Mapping</span><span class="count" title="3 waiting for your second OK">3'
             . '<span class="visually-hidden"> waiting for your second OK</span></span></a>', $bar, 'the current tab, with its count');
         self::assertStringContainsString('<a class="tab" href="/ui/items/barcodes"><span>Barcodes</span></a>', $bar);
         // The segmented filter of the tab.

@@ -164,9 +164,9 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::HOME['look_match'], $dash->text(), 'a matcher decides');
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings'], array_keys(self::nav($dash)));
         $queue = $mapper->get('/ui/review', ['queue' => 'Key']);
-        self::assertSame([['All Products', '/ui/items/cards'], ['Mapping', '/ui/review?queue=Key'], ['Duplicates', '/ui/review/duplicates']],
+        self::assertSame([['All Products', '/ui/items/cards'], ['Mapping', '/ui/review'], ['Store Products', '/ui/review/store'], ['Duplicates', '/ui/review/duplicates']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($queue)));
-        self::assertSame([['To review', '/ui/review?queue=Key', true], ['Spot check', '/ui/review/samples', false], ['Second approval', '/ui/review?queue=pending', false]],
+        self::assertSame([['To review', '/ui/review', true], ['Spot check', '/ui/review/samples', false], ['Second approval', '/ui/review?queue=pending', false]],
             array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($queue)));
         self::assertSame('Dashboard', self::currentSection($dash), 'the Dashboard is the same page for a matcher');
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings', 'More'], array_column(self::tabs($dash), 'label'));
@@ -228,7 +228,7 @@ final class MenusTest extends KernelUiTestCase
         $auditor = $this->signIn($this->uiUser('auditor'));
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($auditor->get('/ui/'))),
             'the auditor reads everything');
-        self::assertSame(['All Products', 'Mapping', 'Duplicates'], self::tabLabels($auditor->get('/ui/review/duplicates')));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'Duplicates'], self::tabLabels($auditor->get('/ui/review/duplicates')));
     }
 
     public function testTheOwnersAccountWithAdminSaysWhichJobsAreSwitchedOff(): void

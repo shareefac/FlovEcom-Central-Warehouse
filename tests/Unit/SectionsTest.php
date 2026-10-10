@@ -49,7 +49,7 @@ final class SectionsTest extends TestCase
                     self::assertSame(['soon' => true], $tab, "{$what}: a tab not built yet has no page");
                     continue;
                 }
-                self::assertSame([], array_diff(array_keys($tab), ['pages', 'segments']), $what);
+                self::assertSame([], array_diff(array_keys($tab), ['pages', 'segments', 'keep']), $what);
                 self::assertArrayHasKey($t, Words::MENU_HELP, "{$what}: its line on the Dashboard");
                 $keys = [];
                 foreach ($tab['pages'] as $page) {
@@ -178,8 +178,8 @@ final class SectionsTest extends TestCase
         self::assertNotSame(Sections::menu(['purchasing_desk']), Sections::menu(['reviewer']));
         self::assertSame(['All Products'], $tabs(['buyer'], 'products'), 'no matching and no barcodes to decide for a buyer');
         self::assertSame(['All Products', 'Barcodes'], $tabs(['stock_controller'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Duplicates'], $tabs(['mapper'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Duplicates', 'Barcodes'], $tabs(['mapping_lead'], 'products'));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'Duplicates'], $tabs(['mapper'], 'products'));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'Duplicates', 'Barcodes'], $tabs(['mapping_lead'], 'products'));
         self::assertSame(['Overview', 'Movements'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock');
 
         // Admin: people and settings, no buying and no approvals (I12); Reports for the audit log.
@@ -209,11 +209,20 @@ final class SectionsTest extends TestCase
         self::assertSame('Products', $f['pagebar']['label']);
         self::assertSame(Words::SECTION_DESC['products'], $f['pagebar']['desc']);
         self::assertFalse($f['pagebar']['flow']);
-        self::assertSame([['All Products', false, 0], ['Mapping', true, 3], ['Duplicates', false, 2], ['Barcodes', false, 0]],
+        self::assertSame([['All Products', false, 0], ['Mapping', true, 3], ['Store Products', false, 0], ['Duplicates', false, 2], ['Barcodes', false, 0]],
             array_map(static fn (array $t): array => [$t['label'], $t['current'], $t['count']], $f['pagebar']['tabs']));
         self::assertSame([['To review', false, 0, '/ui/review'], ['Spot check', false, 0, '/ui/review/samples'], ['Second approval', true, 3, '/ui/review']],
             array_map(static fn (array $s): array => [$s['label'], $s['current'], $s['count'], $s['href']], $f['segments']));
-        self::assertSame([['queue' => 'Key'], [], ['queue' => 'pending']], array_column($f['segments'], 'query'));
+        self::assertSame([[], [], ['queue' => 'pending']], array_column($f['segments'], 'query'), 'To review opens the "By store" overview (U107)');
+        // The store chosen travels through the segments (U106): a plain code only.
+        $kept = Sections::frame(['mapping_lead'], [], '/ui/review', ['queue' => 'Check', 'channel' => 'electrofag']);
+        self::assertSame([['channel' => 'electrofag'], ['channel' => 'electrofag'], ['queue' => 'pending', 'channel' => 'electrofag']],
+            array_column($kept['segments'], 'query'));
+        self::assertSame([[], [], ['queue' => 'pending']], array_column(Sections::frame(['mapping_lead'], [], '/ui/review', ['channel' => 'x"><b'])['segments'], 'query'),
+            'a value that is not a code is not carried');
+        self::assertSame([], Sections::frame(['mapping_lead'], [], '/ui/review/store', ['channel' => 'electrofag'])['segments'], 'Store Products has no segments');
+        self::assertSame(['section' => 'products', 'tab' => 'store_products', 'page' => 'store_products'], Sections::locate('/ui/review/store', ['channel' => 'x']));
+        self::assertSame(['section' => 'products', 'tab' => 'mapping', 'page' => 'review'], Sections::locate('/ui/review/batches/7'));
         self::assertSame(Words::BADGE['linking_pending'], $f['segments'][2]['countWords']);
         self::assertSame([], $f['actions'], 'nothing to create on Mapping');
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings', 'More'], array_column($f['phone'], 'label'));

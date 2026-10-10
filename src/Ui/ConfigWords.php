@@ -30,7 +30,7 @@ final class ConfigWords
                 'when' => $v['created_at'],
                 'who' => self::who($v['actor'], $v['who']),
                 'action' => Words::of('CONFIG_ACTION', $v['action']),
-                'what' => $v['before'] === null ? self::state($type, $v['state'], $valueType) : self::changes($type, $v['before'], $v['state'], $valueType),
+                'what' => $v['before'] === null ? self::state($type, $v['state'], $valueType, $key) : self::changes($type, $v['before'], $v['state'], $valueType, $key),
                 'why' => (string) ($v['reason'] ?? ''),
             ];
         }
@@ -52,12 +52,12 @@ final class ConfigWords
      * @param array<string, mixed> $before
      * @param array<string, mixed> $after
      */
-    public static function changes(string $type, array $before, array $after, ?string $valueType = null): string
+    public static function changes(string $type, array $before, array $after, ?string $valueType = null, ?string $key = null): string
     {
         $parts = [];
         foreach (self::labels($type) as $field => $label) {
-            $b = self::field($type, $field, $before[$field] ?? null, $valueType);
-            $a = self::field($type, $field, $after[$field] ?? null, $valueType);
+            $b = self::field($type, $field, $before[$field] ?? null, $valueType, $key);
+            $a = self::field($type, $field, $after[$field] ?? null, $valueType, $key);
             if ($b !== $a) {
                 $parts[] = $label . ': ' . $b . ' → ' . $a;
             }
@@ -66,17 +66,17 @@ final class ConfigWords
     }
 
     /** A whole state in words (a baseline or an add): "Name: Main warehouse · In use: Yes …". @param array<string, mixed> $state */
-    public static function state(string $type, array $state, ?string $valueType = null): string
+    public static function state(string $type, array $state, ?string $valueType = null, ?string $key = null): string
     {
         $parts = [];
         foreach (self::labels($type) as $field => $label) {
-            $parts[] = $label . ': ' . self::field($type, $field, $state[$field] ?? null, $valueType);
+            $parts[] = $label . ': ' . self::field($type, $field, $state[$field] ?? null, $valueType, $key);
         }
         return implode(' · ', $parts);
     }
 
-    /** A setting's stored JSON text in words: Yes / No, "not set", the value. */
-    public static function settingValue(string $valueType, mixed $json): string
+    /** A setting's stored JSON text in words: Yes / No, "not set", the value; a list setting's items in words (listWords). */
+    public static function settingValue(string $valueType, mixed $json, ?string $key = null): string
     {
         if ($json === null || $json === '') {
             return Words::CONFIG['not_set'];
@@ -86,11 +86,28 @@ final class ConfigWords
         } catch (\JsonException) {
             return (string) $json;
         }
+        if ($key !== null && is_string($v) && ($list = self::listWords($key, $v)) !== null) {
+            return $list;
+        }
         return match (true) {
             is_bool($v) => Words::CONFIG[$v ? 'yes' : 'no'],
             $v === null, $v === '' => Words::CONFIG['not_set'],
             default => (string) $v,
         };
+    }
+
+    /**
+     * A list setting's value in words (a Settings::RULES `list_in` rule naming its Words group): "Strong match, Likely match – check it",
+     * or "None" for an empty list; null for any other setting (its value is shown as it is).
+     */
+    public static function listWords(string $key, string $value): ?string
+    {
+        $rule = Settings::RULES[$key] ?? [];
+        if (!isset($rule['list_in'], $rule['words'])) {
+            return null;
+        }
+        $items = $value === '' ? [] : explode(',', $value);
+        return $items === [] ? Words::SETTING_EDIT['list_none'] : implode(', ', array_map(static fn (string $i): string => Words::of((string) $rule['words'], $i), $items));
     }
 
     /** @return array<string, string> tracked field => its label in the history */
@@ -109,10 +126,10 @@ final class ConfigWords
         };
     }
 
-    private static function field(string $type, string $field, mixed $v, ?string $valueType): string
+    private static function field(string $type, string $field, mixed $v, ?string $valueType, ?string $key = null): string
     {
         if ($type === 'setting' && $field === 'value') {
-            return self::settingValue($valueType ?? 'string', $v);
+            return self::settingValue($valueType ?? 'string', $v, $key);
         }
         if ($type === 'setting' && $field === 'provisional') {
             return Words::CONFIG[(int) $v === 1 ? 'no' : 'yes'];

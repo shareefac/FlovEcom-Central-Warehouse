@@ -23,6 +23,10 @@
       <?= $word('LISTING', 'new_item') ?></label>
     <label class="choice"><input type="radio" name="action" value="ignore"<?php if ($form['action'] === 'ignore'): ?> checked<?php endif; ?>>
       <?= $word('LISTING', 'ignore') ?></label>
+<?php if ($offer_unlink ?? false): ?>
+    <label class="choice"><input type="radio" name="action" value="unlink"<?php if ($form['action'] === 'unlink'): ?> checked<?php endif; ?>>
+      <?= $word('LISTING', 'unlink') ?></label>
+<?php endif; ?>
 <?php if ($offer_reject ?? true): ?>
     <label class="choice"><input type="radio" name="action" value="reject"<?php if ($form['action'] === 'reject'): ?> checked<?php endif; ?><?php if ($target === null): ?> disabled<?php endif; ?>>
       <?php if ($target !== null): ?><?= $word('LISTING', 'reject') ?><?php else: ?><?= $word('LISTING', 'reject_none') ?><?php endif; ?></label>

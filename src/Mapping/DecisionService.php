@@ -32,8 +32,9 @@ use CW\Stock;
  * suggestion it answers, M34), suggest (unmapped -> suggested, the only system action), merge_skus
  * (moves every listing of one item to another, marks it merged and moves its stock there, M31-M32)
  * and split (the undo of a merge: back to the former item with every listing the merge moved and the
- * stock that came with it, or the listing alone to a new item, M33, M40). mintAndLink() is the Vape
- * and Go seed: mint + an applied link.
+ * stock that came with it, or the listing alone to a new item, M33, M40), unignore (an ignored listing
+ * back to its list) and send_back (the open suggestion of an unlinked listing closed: it waits for the
+ * next computer check; M48). mintAndLink() is the Vape and Go seed: mint + an applied link.
  * decideGroup() takes the decisions of one duplicate group (the Duplicates screen) in one transaction.
  *
  * Two-person rule (plan §7.1; M31 for merges): a decision that links/unlinks/ignores a listing on a
@@ -47,8 +48,10 @@ use CW\Stock;
  * never merged or split (409). A merge that would contradict a match_reject is refused (409
  * rejected_pair). Proposals in the Conflict band (or a listing whose open proposal is Conflict) may only
  * be decided by a mapping_lead. Roles: mapper and mapping_lead decide; bulk decisions (bulk_batch_id)
- * and splits are mapping_lead only; a system caller may only suggest. At most one pending decision per
- * listing.
+ * and splits are mapping_lead only, except the screens' batches (`screen:`, M49), which anyone who may
+ * make the decision alone may make, row by row; a confirmed match or a new product of such a batch waits
+ * for a second matching lead while approvals.mapping_bulk_second_ok is on (M50). A system caller may only
+ * suggest. At most one pending decision per listing.
  *
  * What the person saw (design I7): the listing's map_version (which also moves when the site changes
  * the listing's identity, identityChanged()) and the proposal (a decision on a listing with an open
@@ -63,7 +66,13 @@ use CW\Stock;
  */
 final class DecisionService
 {
-    public const ACTIONS = ['link', 'unlink', 'new_item', 'ignore', 'reject', 'suggest', 'merge_skus', 'split'];
+    public const ACTIONS = ['link', 'unlink', 'new_item', 'ignore', 'reject', 'suggest', 'merge_skus', 'split', 'unignore', 'send_back'];
+    /**
+     * The bulk batches of the screens (Products > Mapping lists, Store Products: CW\Mapping\BulkDecisions, M46-M50): `screen:<batch
+     * id>`. A person who may make a decision alone may make it in such a batch, row by row, under every rule of a single decision
+     * (M49). Every other batch (the Key bulk confirm and its undo, the seed mint) stays a mapping lead's (M7).
+     */
+    public const SCREEN_BATCH_PREFIX = 'screen:';
     /** Where a split sends the listing (M33): back to the item it had before the merge, or to an item minted from it. */
     public const SPLIT_TO = ['former', 'new'];
     /**
@@ -568,7 +577,7 @@ final class DecisionService
             throw new CwException('role_not_allowed', (count($staff['roles']) === 1 ? 'role ' : 'roles ')
                 . (implode(', ', $staff['roles']) ?: 'none') . ' cannot make mapping decisions', 403);
         }
-        if (($r['bulk_batch_id'] !== null || $mint !== null) && ($staff === null || !self::isLead($staff))) {
+        if ((($r['bulk_batch_id'] !== null && !self::isScreenBatch($r['bulk_batch_id'])) || $mint !== null) && ($staff === null || !self::isLead($staff))) {
             throw new CwException('lead_required', 'bulk decisions are made by a mapping_lead', 403);
         }
         if ($action === 'split' && ($staff === null || !self::isLead($staff))) {
@@ -658,7 +667,8 @@ final class DecisionService
                 'decision_id' => $decisionId, 'state' => $state, 'needs_second' => $needs, 'map_version' => $l['map_version'],
                 'from' => self::linkOf($l), 'sku_id' => $r['sku_id'], 'units_per_item' => $units, 'merge_from_sku_id' => $r['merge_from_sku_id'],
                 'proposal_id' => $r['proposal_id'], 'reason' => $r['reason'],
-            ] + ($action === 'split' ? ['split_to' => $r['split_to'], 'undoes_decision_id' => $target['merge']['id'], 'to_sku_id' => $skuId] : []));
+            ] + ($action === 'split' ? ['split_to' => $r['split_to'], 'undoes_decision_id' => $target['merge']['id'], 'to_sku_id' => $skuId] : [])
+              + ($r['bulk_batch_id'] !== null ? ['bulk_batch_id' => $r['bulk_batch_id']] : []));
             return ['decision_id' => $decisionId, 'action' => $action, 'state' => $state, 'listing_id' => $l['id'],
                 'map_version' => $l['map_version'], 'status' => $l['status'], 'sku_id' => $l['linked'] ? $l['sku_id'] : null,
                 'units_per_item' => $l['units_per_item'], 'needs_second' => $needs, 'adopted' => 0];
@@ -769,6 +779,25 @@ final class DecisionService
                 }
                 if ($multiple) {
                     $needs[] = 'units_per_item';
+                }
+                break;
+            case 'unignore':
+                // M48: an ignored website product goes back to its list. It has no link, so nothing needs a second person.
+                if ($l['status'] !== 'ignored') {
+                    throw new CwException('not_ignored', "only an ignored listing can be taken off the ignored list (it is {$l['status']})", 409);
+                }
+                break;
+            case 'send_back':
+                // M48: the open suggestion of a website product that is not linked is closed; the product waits for the next
+                // computer check. A linked one is unlinked one at a time on its page (it changes a stock link).
+                if ($l['linked']) {
+                    throw new CwException('already_linked', 'the listing is linked: unlink it on its page instead', 409);
+                }
+                if ($l['status'] === 'ignored') {
+                    throw new CwException('not_waiting', 'the listing is ignored: take it off the ignored list instead', 409);
+                }
+                if ($open === null) {
+                    throw new CwException('no_open_proposal', 'the listing has no open proposal', 409);
                 }
                 break;
             case 'reject':
@@ -886,6 +915,12 @@ final class DecisionService
         if ($needs !== [] && !ApprovalRules::on($this->db, 'approvals.match_counted')) {
             $needs = array_values(array_diff($needs, ['counted_item']));
         }
+        // A match confirmed, or a new product created, from a ticked list on the screens waits for a second matching lead while the
+        // owner's switch is on (Approval rules page; off by default, M50). Every other two-person rule above applies as well.
+        if ($fresh && in_array($action, self::LINK_OUTCOMES, true) && $r['bulk_batch_id'] !== null && self::isScreenBatch($r['bulk_batch_id'])
+            && ApprovalRules::on($this->db, 'approvals.mapping_bulk_second_ok')) {
+            $needs[] = 'bulk';
+        }
         if (in_array($action, self::LINK_OUTCOMES, true) && ($units < 1 || $units > self::MAX_UNITS)) {
             throw new CwException('bad_units', 'units_per_item must be 1..' . self::MAX_UNITS, 400);
         }
@@ -946,6 +981,20 @@ final class DecisionService
                 Audit::write($this->db, $caller, 'mapping.' . $action, 'listing', (string) $id, null,
                     $detail + ['to' => $after, 'map_version' => $version] + $correction);
                 $this->stock->listingChanged($id, $l['linked'] ? 'link' : 'status');
+                break;
+            case 'unignore':
+            case 'send_back':
+                // M48. Neither has a link to close. unignore: back to the lists (suggested when a suggestion is open, which a later
+                // computer check may have added); send_back: the suggestion it named is settled and the product is not matched yet.
+                if ($action === 'send_back') {
+                    $this->settleProposal($r['proposal_id']);
+                }
+                $status = $action === 'unignore' && $this->openProposal($id) !== null ? 'suggested' : 'unmapped';
+                $this->setListing($id, null, 1, $status);
+                $after = ['status' => $status, 'sku_id' => null, 'units_per_item' => 1];
+                $version++;
+                Audit::write($this->db, $caller, 'mapping.' . $action, 'listing', (string) $id, null, $detail + ['to' => $after, 'map_version' => $version]);
+                $this->stock->listingChanged($id, 'status');
                 break;
             case 'suggest':
                 $this->setListing($id, null, $l['units_per_item'], 'suggested');
@@ -1426,6 +1475,12 @@ final class DecisionService
             return null;
         }
         return ['id' => $caller->staffUserId, 'roles' => StaffRoles::active($this->db, $caller->staffUserId)];
+    }
+
+    /** Whether a bulk batch id is one of the screens' batches (SCREEN_BATCH_PREFIX, M49). */
+    public static function isScreenBatch(?string $batch): bool
+    {
+        return $batch !== null && str_starts_with($batch, self::SCREEN_BATCH_PREFIX);
     }
 
     /** Holds mapping_lead (Permissions: mapping.approve). @param array{id: int, roles: list<string>} $staff */
