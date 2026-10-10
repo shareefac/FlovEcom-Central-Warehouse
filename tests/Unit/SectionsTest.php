@@ -124,6 +124,9 @@ final class SectionsTest extends TestCase
             ['/ui/stock/transfers/12/pdf', [], 'stock', 'transfers', 'transfers'],
             ['/ui/stock/releases/12', [], 'stock', 'transfers', 'releases'],
             ['/ui/stock/accounts', [], 'stock', 'transfers', 'accounts'],
+            ['/ui/stock/reservations', ['channel' => 'vapeandgo', 'state' => 'held'], 'stock', 'reservations', 'reservations'],
+            ['/ui/stock/reservations.csv', [], 'stock', 'reservations', 'reservations'],
+            ['/ui/stock/reservations/12', [], 'stock', 'reservations', 'reservations'],
             ['/ui/purchasing/reorder', [], 'purchasing', 'reorder', 'reorder'],
             ['/ui/purchasing/reorder/items/12', [], 'purchasing', 'reorder', 'reorder'],
             ['/ui/purchasing/reorder/brands', [], 'purchasing', 'reorder', 'brands'],
@@ -190,7 +193,7 @@ final class SectionsTest extends TestCase
         self::assertSame(['All Products', 'Barcodes'], $tabs(['stock_controller'], 'products'));
         self::assertSame(['All Products', 'Mapping', 'Store Products', 'Duplicates'], $tabs(['mapper'], 'products'));
         self::assertSame(['All Products', 'Mapping', 'Store Products', 'Duplicates', 'Barcodes'], $tabs(['mapping_lead'], 'products'));
-        self::assertSame(['Overview', 'Movements'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock');
+        self::assertSame(['Overview', 'Movements', 'Reservations'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock');
 
         // Admin: people and settings, no buying and no approvals (I12); Reports for the audit log.
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Reports', 'Settings'], $sections(['admin']));
@@ -238,14 +241,17 @@ final class SectionsTest extends TestCase
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings', 'More'], array_column($f['phone'], 'label'));
         self::assertSame('#menu', $f['phone'][4]['href']);
 
-        // Stock: the tabs not built yet are drawn without a link.
+        // Stock: the tabs not built yet are drawn without a link; Reservations (read only) is for everyone who sees the stock.
         $f = Sections::frame(['buyer'], [], '/ui/stock');
         self::assertSame([['Overview', '/ui/stock', true, false], ['Movements', '/ui/stock/movements', false, false], ['Stock In', '/ui/stock/in', false, false],
             ['Stock Out', '/ui/stock/out', false, false], ['Transfers', '/ui/stock/transfers', false, false], ['Adjustments', '/ui/stock/adjustments', false, false],
-            ['Counts', null, false, true], ['Reservations', null, false, true], ['Quality', null, false, true]],
+            ['Counts', null, false, true], ['Reservations', '/ui/stock/reservations', false, false], ['Quality', null, false, true]],
             array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current'], $t['soon']], $f['pagebar']['tabs']));
         self::assertSame([], $f['segments']);
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column($f['phone'], 'label'), 'the phone bar the owner approved');
+        $f = Sections::frame(['viewer'], [], '/ui/stock/reservations/12', ['channel' => ['x']]);
+        self::assertSame(['Reservations'], array_column(array_filter($f['pagebar']['tabs'], static fn (array $t): bool => $t['current']), 'label'), 'one reservation keeps its tab');
+        self::assertSame([[], []], [$f['segments'], $f['actions']], 'no segments, and nothing to create: the screen only shows');
 
         // The create button: on the list itself, for the people who may create, never on a detail page.
         self::assertSame([['label' => 'New purchase order', 'href' => '/ui/purchasing/orders#new'], ['label' => 'New supplier', 'href' => '/ui/purchasing/suppliers/new']],

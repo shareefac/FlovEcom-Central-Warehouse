@@ -32,6 +32,7 @@ use CW\Ui\Controller\ReasonsController;
 use CW\Ui\Controller\ReceivingController;
 use CW\Ui\Controller\ReferenceController;
 use CW\Ui\Controller\ReorderController;
+use CW\Ui\Controller\ReservationsController;
 use CW\Ui\Controller\ReviewController;
 use CW\Ui\Controller\ReviewsController;
 use CW\Ui\Controller\SalesHistoryController;
@@ -561,10 +562,16 @@ final class Kernel
         $r->add('GET', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->benchForm(...));
         $r->add('POST', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->bench(...));
         // Stock (the owner's request of 8 Oct 2026): what each warehouse holds and every change, read only, for everyone who sees an
-        // item's stock on its page (catalogue.view). Counts, reservations and quality come with pack A2 (Ui\Sections: "Soon").
+        // item's stock on its page (catalogue.view). Counts and quality come with pack A2 (Ui\Sections: "Soon").
         $stock = new StockController();
         $r->add('GET', '/ui/stock', 'catalogue.view', $stock->overview(...));
         $r->add('GET', '/ui/stock/movements', 'catalogue.view', $stock->movements(...));
+        // Reservations (docs/decisions.md RS1-RS12): the stock the engine keeps for the stores' orders, for the same people. Read
+        // only: GET routes and nothing else (CW\Reservations stays the only writer).
+        $reservations = new ReservationsController();
+        $r->add('GET', ReservationsController::PATH, 'catalogue.view', $reservations->index(...));
+        $r->add('GET', ReservationsController::PATH . '.csv', 'catalogue.view', $reservations->csv(...));
+        $r->add('GET', ReservationsController::PATH . '/{id}', 'catalogue.view', $reservations->show(...));
         // The stock records of pack A1 (docs/decisions.md SO10): documents.view looks; doc.<TYPE>.post keeps them (checked again by
         // CW\StockOps\StockOps and the document base, never admin). The balance owed to another account: documents.view looks,
         // accounts.pay records and reverses payments (checked again by CW\StockOps\OtherAccounts).

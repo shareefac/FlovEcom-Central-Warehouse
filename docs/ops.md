@@ -2107,3 +2107,29 @@ The overflow room is a place of Main (Settings › Warehouses › Main › add a
 **Approval rules** (Settings › Approval Rules, per kind): "A reviewer's OK first for a big record" (units and/or pounds) is off for every
 kind; Adjustments keep "stock put back without a supplier document" (10 units a person a day) on; Stock In has the same rule, off.
 Switching a rule off or making it looser needs a Reviewer.
+
+
+## Stock › Reservations (`docs/decisions.md` RS1–RS12)
+
+**Deploy.** It goes out with its code and ONE migration, `0023_reservations_screen.sql`: an index on `reservation` (channel_id, status, id),
+built online (INPLACE, LOCK=NONE: the stores' calls go on while it builds), no data and no column changes,
+no new grant. The screen names the index in a hint, so it works a moment before the migration too, only slower for one store. After it:
+`php bin/migrate.php --status --db=cw_staging` lists 0023 and `php bin/invariants.php --db=cw_staging` says ok (the index changes no figure).
+Nothing to set up and no setting: the stores come from the `channel` table.
+
+**What the owner sees and does (Stock › Reservations; everyone who can see a product's stock).** A reservation is the stock the warehouse
+system keeps for one order of a store, so that no other customer can buy it. The page lists them newest first, 50 at a time, in groups:
+"Reserved now" (a customer is in the checkout; the stock is kept until the time shown, then freed if nobody pays), "Sold, waiting to
+ship" (paid; the stock stays off sale until the store sends it), "Sold: sent, cancelled or returned", "Freed by the store" and "Ran out of
+time". Each row shows the store, the store's order reference, how many products and warehouse units, when it started and what became of
+it. At the top: choose All stores or one store (the number beside a store is its checkouts open now); Filter by state; Search for a
+store's whole order reference, or for a product (its name or CW number) to see which orders hold that product now; Export downloads the
+list you see as a spreadsheet. The three figures are the units reserved now, how many reservations run out within the hour, and (for All
+stores) the units sold and waiting to ship. Click an order to see its products (each links to the product's page), their warehouse and
+state, and every stock change that was booked for it. On a product's page the figures "Sold, waiting to ship" and "Reserved (not paid)"
+now lead to the orders that hold them.
+
+**Nothing on this page changes anything.** The stores make, pay, free and send reservations, and the warehouse system frees one that runs
+out of time (its job runs every minute). If a reservation looks stuck — "time is up" for more than a few minutes, or an order "waiting to ship"
+that the store sent long ago — tell Fazil: the store's link is behind (Settings › Stores shows each store's last contact), it is not fixed
+from this page.

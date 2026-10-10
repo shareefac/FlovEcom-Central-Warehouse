@@ -44,7 +44,7 @@ final class StockScreensTest extends KernelUiTestCase
         $page = $web->get('/ui/stock');
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame(['Stock', 'Overview'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Counts', null], ['Reservations', null], ['Quality', null]],
+        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Counts', null], ['Reservations', '/ui/stock/reservations'], ['Quality', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)),
             'the tabs not built yet are "Soon", never links; a viewer reads no stock records (documents.view)');
         $xp = new \DOMXPath($page->dom());

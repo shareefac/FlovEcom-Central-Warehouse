@@ -180,10 +180,11 @@ final class StockViews
 
     /**
      * The condition that finds products by $q: a CW number (CW-000123, 123) by its id, else every word in the name, brand or code.
+     * Stock › Reservations finds products the same way (Ui\ReservationViews).
      *
      * @return array{0: list<string>, 1: list<string|int>}
      */
-    private static function skuMatch(string $q, string $alias): array
+    public static function skuMatch(string $q, string $alias): array
     {
         if ($q === '') {
             return [[], []];

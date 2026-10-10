@@ -411,8 +411,8 @@
       <tr class="sub">
         <th scope="row" class="c-head"><?= $word('STOCK', 'total') ?></th>
         <td class="num" data-label="<?= $word('STOCK', 'on_hand') ?>"><?= $n($totals['on_hand']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'allocated') ?>"><?= $n($totals['allocated']) ?></td>
-        <td class="num" data-label="<?= $word('STOCK', 'held') ?>"><?= $n($totals['held']) ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'allocated') ?>"><?php if ($totals['allocated'] > 0): ?><a href="<?= $u('/ui/stock/reservations', ['q' => $sku['code'], 'state' => 'committed']) ?>" title="<?= $word('ITEM', 'reserved_link') ?>"><?= $n($totals['allocated']) ?></a><?php else: ?><?= $n($totals['allocated']) ?><?php endif; ?></td>
+        <td class="num" data-label="<?= $word('STOCK', 'held') ?>"><?php if ($totals['held'] > 0): ?><a href="<?= $u('/ui/stock/reservations', ['q' => $sku['code'], 'state' => 'held']) ?>" title="<?= $word('ITEM', 'reserved_link') ?>"><?= $n($totals['held']) ?></a><?php else: ?><?= $n($totals['held']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('STOCK', 'available') ?>"><?= $n($totals['available']) ?></td>
         <td data-label=""></td>
       </tr>

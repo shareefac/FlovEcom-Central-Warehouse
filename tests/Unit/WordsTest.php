@@ -23,6 +23,7 @@ use CW\Ui\Controller\SamplesController;
 use CW\Ui\Duplicates;
 use CW\Ui\Html;
 use CW\Ui\Queries;
+use CW\Ui\ReservationViews;
 use CW\Ui\Sections;
 use CW\Ui\Words;
 use PHPUnit\Framework\TestCase;
@@ -86,6 +87,11 @@ final class WordsTest extends TestCase
             'DOC_TYPE' => array_values(\CW\StockOps\StockOpHandler::KINDS),
             'DOC_TYPES' => array_values(\CW\StockOps\StockOpHandler::KINDS),
             'STOCK_FILE' => array_keys(\CW\StockOps\StockOps::FILE_ROLES),
+            'RESV_STATE' => ReservationViews::STATES,
+            'RESV_UNIT' => ReservationViews::UNIT_STATES,
+            'RESV_GROUP' => ReservationViews::GROUPS,
+            'RESV_CHIP' => ReservationViews::GROUPS,
+            'RESV_ORIGIN' => \CW\Reservations::ORIGINS,
             'COMING_LATER' => array_column(Permissions::COMING_LATER, 'key'),
             'BADGE' => [...Sections::badgeNames(), 'section'],
             'TAB' => ['more'],
@@ -366,6 +372,44 @@ final class WordsTest extends TestCase
         self::assertStringContainsString('for good', Words::SPOT['no_sub']);
         self::assertStringContainsString('Nothing is saved', Words::SPOT['unsure_sub']);
         self::assertStringContainsString('for good', Words::SPOT['does_no']);
+    }
+
+    /**
+     * Stock › Reservations (docs/decisions.md RS4): the screen's states are the engine's own (0001_core.sql), each with its plain
+     * words and its colour; the board's groups cover them; every part of "what became of it" has its words.
+     */
+    public function testEveryStateOfAReservationHasItsWords(): void
+    {
+        $sql = (string) file_get_contents(dirname(__DIR__, 2) . '/migrations/0001_core.sql');
+        $enum = static function (string $table, string $column) use ($sql): array {
+            self::assertSame(1, preg_match('/CREATE TABLE ' . $table . ' \((.*?)\n\) ENGINE/s', $sql, $t), $table);
+            self::assertSame(1, preg_match('/^\s+' . $column . '\s+ENUM\(([^)]*)\)/m', $t[1], $m), "{$table}.{$column}");
+            return array_map(static fn (string $v): string => trim($v, " '"), explode(',', $m[1]));
+        };
+        self::assertSame($enum('reservation', 'status'), ReservationViews::STATES, 'the state filter is the engine\'s four states');
+        self::assertSame($enum('reservation_unit', 'state'), ReservationViews::UNIT_STATES);
+        self::assertSame($enum('reservation', 'origin'), \CW\Reservations::ORIGINS);
+        self::assertSame(ReservationViews::STATES, array_keys(Words::RESV_STATE));
+        self::assertSame(ReservationViews::UNIT_STATES, array_keys(Words::RESV_UNIT));
+        self::assertSame(ReservationViews::GROUPS, array_keys(Words::RESV_GROUP));
+        self::assertSame(ReservationViews::GROUPS, array_keys(Words::RESV_CHIP));
+        self::assertSame(['held', 'to_ship', 'closed', 'released', 'expired'], ReservationViews::GROUPS,
+            'the engine\'s states, a paid order split by whether an item still waits to ship');
+        self::assertSame([], array_diff(ReservationViews::OPEN_UNITS, ReservationViews::UNIT_STATES));
+        foreach (ReservationViews::UNIT_STATES as $state) {
+            self::assertTrue(Words::has('RESV', 'out_part_' . $state), "what became of it: some items {$state}");
+            self::assertArrayHasKey($state, Words::TONE['RESV_UNIT'], "{$state}: its colour on a reservation's page");
+        }
+        foreach (ReservationViews::GROUPS as $group) {
+            self::assertArrayHasKey($group, Words::TONE['RESV_GROUP'], "{$group}: its colour on the board");
+        }
+        foreach (['reserve', 'commit', 'commit_release', 'release', 'expire', 'cancel', 'uncancel', 'ship', 'unship', 'return', 'adopt', 'transfer_out', 'transfer_in'] as $type) {
+            self::assertTrue(Words::has('MOVEMENT', $type), "a reservation's history: {$type}");
+        }
+        foreach ([Words::RESV['none'], Words::RESV['none_text'], Words::RESV['none_filtered'], Words::RESV['product_search'], Words::RESV['to_ship_all'], Words::RESV['foot']] as $text) {
+            self::assertMatchesRegularExpression('/^[A-Z].*\.$/s', $text, 'a full sentence (writing rule 7)');
+        }
+        self::assertSame('No reservations yet.', Words::RESV['none']);
     }
 
     /** The matching pages' small helpers: "1 sale = N products", a quoted name, a rule's detail in words, a refusal by its code. */

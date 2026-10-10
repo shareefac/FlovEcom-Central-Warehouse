@@ -68,7 +68,8 @@ final class MenusTest extends KernelUiTestCase
         // are "Soon" tabs, never links.
         $stock = self::sectionTabs($desk->get('/ui/stock'));
         self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Stock In', '/ui/stock/in'], ['Stock Out', '/ui/stock/out'],
-            ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', null], ['Reservations', null], ['Quality', null]],
+            ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', null], ['Reservations', '/ui/stock/reservations'],
+            ['Quality', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], $stock));
 
         // The desk's screens of Phase I-4 to I-6 are named on the Dashboard, without phase codes.
@@ -146,7 +147,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString('coming in Phase', $home->text());
         $xp = new \DOMXPath($home->dom());
         self::assertSame(['/ui/items/cards', '/ui/stock', '/ui/stock/movements', '/ui/stock/in', '/ui/stock/out', '/ui/stock/transfers', '/ui/stock/adjustments',
-            '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
+            '/ui/stock/reservations', '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
             '/ui/documents', '/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals', '/ui/reference/reasons',
             '/ui/reference/settings'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
@@ -285,7 +286,7 @@ final class MenusTest extends KernelUiTestCase
             ['/ui/receiving/incidents', []], ['/ui/items/cards', []], ['/ui/items/barcodes', []], ['/ui/documents', []], ['/ui/documents/reviews', []],
             ['/ui/reference/company', []], ['/ui/reference/settings', []], ['/ui/reference/approvals', []], ['/ui/reference/warehouses', []],
             ['/ui/reference/reasons', []], ['/ui/reference/series', []], ['/ui/reference/access', []], ['/ui/system/sites', []], ['/ui/system/checks', []],
-            ['/ui/system/audit', []], ['/ui/staff-requests', []], ['/ui/stock', []], ['/ui/stock/movements', []]] as [$path, $query]) {
+            ['/ui/system/audit', []], ['/ui/staff-requests', []], ['/ui/stock', []], ['/ui/stock/movements', []], ['/ui/stock/reservations', []]] as [$path, $query]) {
             $page = $owner->get($path, $query);
             self::assertSame(200, $page->status, $path . ' ' . $page->describe());
             self::assertNotNull(self::currentSection($page), "{$path}: its section is marked");

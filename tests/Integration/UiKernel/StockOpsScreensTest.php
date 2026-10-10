@@ -59,7 +59,8 @@ final class StockOpsScreensTest extends KernelUiTestCase
         $page = $web->get('/ui/stock/in');
         self::assertSame(200, $page->status, $page->describe());
         self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Stock In', '/ui/stock/in'], ['Stock Out', '/ui/stock/out'],
-            ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', null], ['Reservations', null], ['Quality', null]],
+            ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', null], ['Reservations', '/ui/stock/reservations'],
+            ['Quality', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)));
         self::assertSame(['Stock', 'Stock In'], [self::currentSection($page), self::currentTab($page)]);
         self::assertStringContainsString(Words::STOCK_KIND['in']['none'], $page->text());

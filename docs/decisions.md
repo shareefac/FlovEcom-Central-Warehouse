@@ -6961,3 +6961,109 @@ OFF although ADJ's is on, so "found" stock booked as a stock in does not wait (t
 the number series' digits stay fixed (SO12); (3) money paid in advance to the other account cannot be recorded before its release; (4) the
 release invoice is our record of their invoice, not a VAT invoice; (5) valuation (IM8), counts, reservations and quality (pack A2) are not
 built; (6) per-line places (document_line.location_id) are not written: a record has one place (and a transfer one place each side).
+
+## Stock › Reservations, a read-only screen (slot `resv`, 10 Oct 2026)
+
+The owner's module list of 8 Oct 2026: "Stock Reservation: engine built; screen to add (by store / order)". The engine (`src/Reservations.php`)
+is unchanged: this pack only shows what it keeps. Code: `migrations/0023_reservations_screen.sql` (one index), `src/Ui/ReservationViews.php`
+and `src/Ui/Controller/ReservationsController.php` (new), views `stock_reservations`, `stock_reservation` (new), `item` (two links),
+`src/Ui/{Sections,Kernel,Words,StockViews}.php`. Tests: `tests/Integration/UiKernel/ReservationsScreenTest.php` (new); the pinned navigation,
+templates and words in `SectionsTest`, `UiTemplatesTest`, `WordsTest`, `MenusTest`, `HomeScreenTest`, `StockScreensTest`, `StockOpsScreensTest`.
+
+**RS1. The tab, the routes and who may open them.** Stock › Reservations is a real tab at the place SO10 gave it (after Counts, before
+Quality, which stay "Soon"). Three GET routes and nothing else: `/ui/stock/reservations` (the list), `/ui/stock/reservations.csv` (the same
+list as a file) and `/ui/stock/reservations/{id}` (one reservation). Permission `catalogue.view`, the one of Stock › Overview and Movements:
+the same people already see a product's reserved units on its page and the stores' order references on Movements, and no permission in
+`Permissions::MAP` is kept for reservations. The screen is read only: no POST route, no form, no button that changes anything; a POST to its
+addresses is 405. `CW\Reservations` stays the only writer and not one line of it changed.
+
+**RS2. What a row is.** One row per reservation, which is one order of one store (`reservation`: channel, the store's order reference).
+Columns: the order reference (with "try N" when the customer started the checkout again: the engine re-uses the row); the store
+(`channel.name`); a status label; Products (the different store products on the order); Units (WAREHOUSE units: each sold item counts its
+"1 sale = N products" as it was at the sale; an item whose store product was not linked to a warehouse product at the sale keeps no stock,
+counts 0, and the row says so); Started (`created_at`: when CW first heard of the order; the engine keeps no time per try); Kept until
+(`expires_at`, for a reservation held now only; "time is up" when it is past and the expiry job has not freed it yet); and what became of it.
+
+**RS3. Newest first, by id, 50 a page.** The list is ordered by the reservation's id, newest first, and an older page is asked for by id
+(`before`, "Older reservations" / "Back to the newest"), as Movements does: never an OFFSET and never a COUNT over the table, which gets a
+row per order of every store for ever. So the page says "N on this page" per group and gives no total of rows.
+
+**RS4. The engine's states, in plain words, and the board's groups.** The state filter is exactly `reservation.status`: held = "Reserved
+(not paid)", committed = "Sold (paid)", released = "Freed by the store", expired = "Ran out of time" (`WordsTest` reads the ENUMs of 0001 and
+fails if the engine gains a state without words). The board groups a page's rows by state, and splits the paid ones in two, because the
+engine's `committed` stays for ever (also after the parcel left): "Sold, waiting to ship" while one of the order's items is still
+`allocated`, and "Sold: sent, cancelled or returned" once none is. That split is worked out per row from the items the page reads anyway
+(`reservation_unit.state`); it is not a filter, because no index finds "orders with an item waiting to ship" for a store. What became of a
+paid order is said from its items: "Waiting to ship", "Sent to the customer", "Cancelled", "Returned by the customer", or the parts ("2
+waiting to ship · 1 sent"). A release the store sent for an order CW never saw (the engine's tombstone) is shown as "Freed by the store
+before CW had reserved anything".
+
+**RS5. The store selector.** "All stores" and each row of the `channel` table by name (no store is named in the code), drawn with the
+matching pages' partial (`store_seg`, `ReviewController::storeItems`) and the same `channel` value in the address; each shows how many
+reservations it holds now. The store chosen is kept by the state filter, the search, the pager and the export.
+
+**RS6. Search.** One box. The text is first looked up as a store's order reference, WHOLE (in the store chosen, else in every store): when
+an order has it, that order is the answer. A part of a reference is not searched: it would have to sort every match. Otherwise the text is
+read as a product, the way Movements finds products (a CW number, or every word in the name, brand or code; at most 200 products), and the
+list shows the orders that hold that product NOW: reserved in a checkout, or sold and waiting to ship (at most 1,000 orders; the page says
+when there are more). A product's past orders are not searched here: `reservation_unit` has no index that finds a product's orders by time,
+and reading every unit a best seller ever sold is what the staging database cannot afford; they are in Stock › Movements, which is indexed
+for it. The page says this under the figures whenever a text was read as a product.
+
+**RS7. The figures, and the one left out.** Over the list, for the store chosen: "Units reserved now" (the warehouse units of the
+reservations held now, and in how many checkouts), "Run out within the hour" (reservations held now whose time ends within 60 minutes; one
+already past its time counts) and, for All stores only, "Units sold, waiting to ship". The first two are read from the reservations held
+now, a small set by nature. The third is `stock_balance.allocated` added up, the same figure Overview and the product page call "Sold,
+waiting to ship". Per store it is LEFT OUT: the stock figures are not kept per store, and adding up a store's waiting units would read
+every unit the store ever sold (the unit index starts with the product, not the store). The page says so when a store is chosen.
+
+**RS8. One reservation's page.** Its facts (store, the store's order reference, state and what became of it, started, kept until / paid /
+freed / ran out, how a paid order came in — `origin`: reserved first, paid without a reservation, or already open when the store joined —,
+tries, products, warehouse units), then one line per store product, warehouse and state: the warehouse product with its CW number and a
+link to its page, the warehouse, the status label, the sold items and the warehouse units; "1 sold item = N warehouse units" where N is
+not 1; when it was sent. A line that was not linked at the sale is named as the store names it and says that no stock is kept for it. A
+link leads back to the list at the reservation's store.
+
+**RS9. History: the stock ledger, nothing invented.** The engine keeps no log of a reservation's own changes; what it does keep is every
+stock change it booked for the order (`stock_ledger`, indexed by store and order reference). The page shows those, oldest first, one step
+per call of the engine (its Idempotency-Key; the expiry job has none, so its rows are grouped by the minute): what happened (the Movements
+words: reserved in a checkout, order paid, sent to the customer, reservation ran out ...), when, how many sold items, the change of each
+stock figure in its own words ("Reserved (not paid) −12 · Sold, waiting to ship +12") and who (the store, or "CW, by itself"). An order
+whose products were not linked moved no stock and has no steps: the page says "No stock was moved for this order". The audit log is not
+mixed in (its expiry rows carry no store). The movement kind `adopt` (a product linked later: its open orders start using warehouse stock)
+gains its word, for this page and for Movements.
+
+**RS10. The CSV.** Export gives the list with the same store, state and search, newest first, through `CsvWriter` and the download helper
+(UTF-8 with a BOM, text cells safe against formulas: an order reference like `=SUM(A1)` is written as text; an attachment with the
+`sandbox` policy). Columns: store, order_reference, state, what_became_of_it, products, units, items_not_linked, started_utc,
+kept_until_utc, paid_utc, ended_utc, tries (times in UTC, as every export). At most 5,000 rows, read 500 at a time by id; a last row says
+so when the list goes on.
+
+**RS11. Every read keeps to an index; one index was added (0023).** `reservation` had the primary key, (channel_id, order_ref) and
+(status, expires_at). None serves "this store, newest first": the second orders a store by its reference (a text), the third by expiry and
+not by store. 0023 adds `ix_reservation_channel_status (channel_id, status, id)`, online. The list then reads: with no store and no state
+the primary key backwards; with a store and/or a state one range of the new index per (store, state) pair asked for, each newest first
+and cut at 51 ids, merged (at most 51 x pairs ids: 4 ranges for one store, one per store for one state); for a search the ids found
+(the reference in (channel_id, order_ref); a product's open units in `reservation_unit (sku_id, warehouse_id, state)` with every warehouse
+named, so only the units reserved now are read), then those reservations by the primary key. The index is named in an optimizer hint, as
+0020's, so the code may run before the migration. EXPLAIN and EXPLAIN ANALYZE of every statement the screen sends were run on the test
+schema (MySQL 8.4.8, 32 MB buffer pool) filled with 60,000 orders of three stores (one with 1% of them) and 120,000 items, 10 Oct 2026:
+every list statement is a (backward) range or ref of the index named above and reads 51 index entries per range; the merge sorts at most
+204 ids; a product search over 200 products read 216 unit rows (without the hint MySQL 8.4 chose to read all 120,000: the hint is needed);
+without the new index the store filter was "ref uq_reservation_order; Using filesort" over every row of the store. The reads that are not
+an index range: `channel` and `warehouse` (a handful of rows), `stock_balance` added up for the third figure (one row per product and
+warehouse, as Overview's figures), and finding products by WORDS, which reads the product list (`sku`) as Movements does. Cost for the
+engine: one more index entry per order, moved when its status changes (the same UPDATE already moves the (status, expires_at) entry); not
+unique, so no new duplicate-key or gap locks under READ COMMITTED.
+
+**RS12. The product page, the words, and what was left out.** On a product's page the two reserved figures of the total row ("Sold,
+waiting to ship", "Reserved (not paid)") link, when above zero, to this list searched for the product's CW number in that state. Words:
+new groups RESV, RESV_STATE, RESV_GROUP, RESV_CHIP, RESV_UNIT, RESV_ORIGIN and their tones; MENU_HELP, PAGE_INTRO and HELP entries;
+`MOVEMENT.adopt`; `ITEM.reserved_link`. No new CSS and no script: the v4 toolbar, tiles, board groups and stacked cards of the neighbouring
+Stock pages. Left out, on purpose: (1) units waiting to ship per store (RS7); (2) a filter "waiting to ship only" and totals per state over
+the whole list (RS3, RS4: no index, no COUNT); (3) a product's past orders in the search (RS6) and searching by a part of an order reference;
+(4) anything that changes a reservation (releasing a stuck hold, cancelling): the stores and the expiry job do that, and a button here
+would be a second writer; (5) a link from Overview's "Reserved" column and from a line that is not linked to its matching page; (6) sorting.
+Fixed numbers, not settings (display limits, like Movements' 50 rows and 200 products): 50 rows a page, "within the hour" (60 minutes), 200
+products and 1,000 orders in a product search, 5,000 rows in a file. The hour is the one the owner might want to set: say so and it becomes
+a setting.

@@ -47,7 +47,8 @@ final class Words
         'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
         'STORE_PRODUCTS', 'STORE_STATE',
-        'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF'];
+        'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
+        'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -289,6 +290,7 @@ final class Words
         'stock_out' => 'Stock that goes out without a website sale: samples, staff use, trade sales, repairs.',
         'transfers' => 'Stock moved between warehouses or places, stock released from another account, and what we owe it.',
         'adjustments' => 'Corrections and write-offs of the stock figure, each line with its reason.',
+        'reservations' => 'The stock kept for each store\'s orders: in a checkout, paid and waiting to ship, freed, or run out of time.',
         'reorder' => 'What to buy now, worked out from sales.',
         'orders' => 'The orders we send to suppliers.',
         'goods_in' => 'Book in each delivery against its supplier invoice, check it, and deal with what was wrong.',
@@ -458,6 +460,9 @@ final class Words
         'accounts' => ['What another account\'s room holds, what was released this month, and what we owe that account.',
             'Record each payment to the account here.'],
         'stock_op' => ['One stock record: its products, what it booked and its history.', ''],
+        'reservations' => ['The stock CW keeps for each order of a store until it is sent, freed or runs out of time, newest first.',
+            'Choose a store or a state, or search for a store\'s order reference, a product name or a CW number. You can only look: the stores and CW change these.'],
+        'reservation' => ['One order of a store: the stock CW keeps for it, and what happened to that stock.', ''],
         'incidents' => ['Problems the goods-in bench found in deliveries that are booked in: short, extra, damaged, the wrong product, or no duty stamp.',
             'Close each one with what was done, for example a credit asked for or the goods sent back.'],
     ];
@@ -709,6 +714,162 @@ final class Words
         'moves_none' => 'No stock changes to show.',
         'moves_none_text' => 'Stock changes appear here once stock is booked.',
         'moves_shown' => 'Newest first, %s at a time.',
+    ];
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // Stock › Reservations (docs/decisions.md RS1-RS12): the stock kept for each store's orders. Read only.
+
+    /** A reservation's state as the engine keeps it (reservation.status). */
+    public const RESV_STATE = [
+        'held' => 'Reserved (not paid)',
+        'committed' => 'Sold (paid)',
+        'released' => 'Freed by the store',
+        'expired' => 'Ran out of time',
+    ];
+
+    /**
+     * The board's groups (ReservationViews::GROUPS): the engine's states, with a paid order "waiting to ship" while one of its items
+     * is, and "sent, cancelled or returned" once none is.
+     */
+    public const RESV_GROUP = [
+        'held' => 'Reserved now (in a checkout, not paid)',
+        'to_ship' => 'Sold, waiting to ship',
+        'closed' => 'Sold: sent, cancelled or returned',
+        'released' => 'Freed by the store (not paid)',
+        'expired' => 'Ran out of time (not paid)',
+    ];
+
+    /** A row's status label, by its group. */
+    public const RESV_CHIP = [
+        'held' => 'Reserved',
+        'to_ship' => 'To ship',
+        'closed' => 'Dealt with',
+        'released' => 'Freed',
+        'expired' => 'Ran out',
+    ];
+
+    /** What became of one sold item (reservation_unit.state). */
+    public const RESV_UNIT = [
+        'held' => 'Reserved (not paid)',
+        'allocated' => 'Sold, waiting to ship',
+        'shipped' => 'Sent to the customer',
+        'cancelled' => 'Cancelled',
+        'released' => 'Freed (not paid)',
+        'returned' => 'Returned by the customer',
+    ];
+
+    /** How a paid order reached CW (reservation.origin). */
+    public const RESV_ORIGIN = [
+        'reserved' => 'Reserved in the checkout first, then paid',
+        'unreserved' => 'Paid without a reservation first (for example, CW could not be reached at the checkout)',
+        'opening' => 'Already open when the store joined CW',
+    ];
+
+    /** Stock › Reservations and one reservation's page (/ui/stock/reservations; ReservationsController). */
+    public const RESV = [
+        'find' => 'Order reference, product name or CW number',
+        'state' => 'State',
+        'any_state' => 'Every state',
+        'clear' => 'Clear the filters',
+        'download' => 'Download this list as a spreadsheet (CSV)',
+        'store_count' => 'reserved now',
+        // The figures
+        'figures' => 'Main figures',
+        'tile_held' => 'Units reserved now',
+        'tile_held_sub_one' => 'in 1 checkout, not paid yet',
+        'tile_held_sub' => 'in %s checkouts, not paid yet',
+        'tile_soon' => 'Run out within the hour',
+        'tile_soon_sub' => 'reservations CW frees if nobody pays',
+        'tile_to_ship' => 'Units sold, waiting to ship',
+        'tile_to_ship_sub' => 'paid orders of every store',
+        'to_ship_all' => 'Units sold and waiting to ship are added up for every store together: choose All stores to see them.',
+        // The board
+        'board' => 'Reservations',
+        'board_note' => 'Newest first, %s at a time, grouped by state.',
+        'group_one' => '1 on this page',
+        'group_many' => '%s on this page',
+        'order' => 'Order',
+        'store' => 'Store',
+        'status' => 'Status',
+        'products' => 'Products',
+        'units' => 'Units',
+        'started' => 'Started',
+        'expires' => 'Kept until',
+        'outcome' => 'What became of it',
+        'try' => 'try %s',
+        'overdue' => 'time is up: CW frees it within minutes',
+        'unlinked_one' => '1 sold item is not linked to a warehouse product: no stock is kept for it',
+        'unlinked_many' => '%s sold items are not linked to a warehouse product: no stock is kept for them',
+        // What became of it
+        'out_held' => 'Waiting for payment',
+        'out_all_allocated' => 'Waiting to ship',
+        'out_all_shipped' => 'Sent to the customer',
+        'out_all_cancelled' => 'Cancelled',
+        'out_all_returned' => 'Returned by the customer',
+        'out_part_held' => '%s reserved',
+        'out_part_allocated' => '%s waiting to ship',
+        'out_part_shipped' => '%s sent',
+        'out_part_cancelled' => '%s cancelled',
+        'out_part_released' => '%s freed',
+        'out_part_returned' => '%s returned',
+        'out_none' => 'No items',
+        'out_released' => 'Freed by the store',
+        'out_tombstone' => 'Freed by the store before CW had reserved anything',
+        'out_expired' => 'Nobody paid in time: CW freed it',
+        'paid_at' => 'Paid %s',
+        'freed_at' => 'Freed %s',
+        'ran_out_at' => 'Ran out %s',
+        // Empty lists, notes, paging
+        'none' => 'No reservations yet.',
+        'none_store' => 'No reservations for this store yet.',
+        'none_text' => 'When a customer starts a checkout on a store, the stock CW keeps for that order appears here. It stays here once it is paid, sent, freed or run out of time.',
+        'none_filtered' => 'Nothing matches your filter.',
+        'none_filtered_text' => 'No reservation fits the state and the search you chose. Clear them to see every reservation.',
+        'product_search' => 'A product search shows the orders that hold the product now: reserved in a checkout, or sold and waiting to ship. A product\'s older orders are in Stock › Movements.',
+        'capped' => 'More than %s orders hold these products now, so some are not shown. Search for one product or one order.',
+        'older' => 'Older reservations',
+        'newest' => 'Back to the newest',
+        'foot' => 'Units are warehouse units. Nothing on this page changes a reservation: the stores make, pay, free and send them, and CW frees one that runs out of time.',
+        // One reservation
+        'title' => 'Order %s',
+        'facts' => 'About this reservation',
+        'f_store' => 'Store',
+        'f_ref' => 'The store\'s order reference',
+        'f_state' => 'State',
+        'f_started' => 'Started',
+        'f_expires' => 'Kept until',
+        'f_was_due' => 'Was kept until',
+        'f_paid' => 'Paid',
+        'f_origin' => 'How it came in',
+        'f_freed' => 'Freed',
+        'f_ran_out' => 'Ran out',
+        'f_tries' => 'Tries',
+        'f_tries_text' => '%s (the checkout was started again)',
+        'f_products' => 'Products',
+        'f_units' => 'Warehouse units',
+        'lines' => 'Products on this order',
+        'no_lines' => 'No product is recorded for this order.',
+        'l_product' => 'Product',
+        'l_warehouse' => 'Warehouse',
+        'l_status' => 'Status',
+        'l_items' => 'Sold items',
+        'l_units' => 'Units',
+        'l_unlinked' => 'Not linked to a warehouse product: no stock is kept for it',
+        'l_store_product' => 'The store\'s product %s',
+        'l_per_item' => '1 sold item = %s warehouse units',
+        'l_sent' => 'sent %s',
+        'history' => 'What happened to the stock',
+        'history_text' => 'Every stock change CW booked for this order, oldest first.',
+        'no_history' => 'No stock was moved for this order.',
+        'h_what' => 'What happened',
+        'h_when' => 'When',
+        'h_items' => 'Sold items',
+        'h_figures' => 'Stock figures',
+        'h_who' => 'By',
+        'h_cw' => 'CW, by itself',
+        'h_figure' => '%s %s',
+        // The CSV
+        'csv_more' => 'only the newest %s reservations: narrow the filter for the rest',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -1397,6 +1558,11 @@ final class Words
             . 'and they are never confirmed together with the rest.',
         'stock' => '**In the building:** what is on the shelves. **Sold, waiting to ship:** paid, not sent yet. '
             . '**Reserved (not paid):** in a customer\'s checkout; it is freed if they do not pay. **Free to sell:** in the building, minus the two above.',
+        'reservations' => 'A **reservation** is the stock CW keeps for one order of a store, so that no other customer can buy it. '
+            . '**Reserved (not paid):** the customer is in the checkout; the stock is kept until the time shown, then freed if nobody pays. '
+            . '**Sold, waiting to ship:** the order is paid; the stock stays off sale until the store sends it. '
+            . '**Freed by the store:** the store let the stock go, for example because the customer left the checkout. '
+            . '**Ran out of time:** nobody paid in time, so CW freed the stock.',
         'join_undo' => 'Vape and Go sometimes sells one product on two pages. **Join** them when they are the same product: both pages then use one warehouse product, '
             . 'so stock and sales are kept together on one product. Nothing changes on the website. If you joined two that are different, **Undo the join**: the page gets its own product '
             . 'back (with its stock, less what sold since), or becomes a new product. Once the website sells warehouse stock, joining or undoing needs a second matching lead.',
@@ -2636,6 +2802,7 @@ final class Words
         'expire' => 'Reservation ran out',
         'commit' => 'Order paid',
         'commit_release' => 'Order paid (reservation freed)',
+        'adopt' => 'Product linked later: the order now uses warehouse stock',
         'uncancel' => 'Order brought back',
         'cancel' => 'Order cancelled',
         'ship' => 'Sent to the customer',
@@ -3451,6 +3618,7 @@ final class Words
         'warehouse' => 'Warehouse',
         'not_sellable' => 'not for sale',
         'no_stock' => 'No stock has ever been recorded for this product.',
+        'reserved_link' => 'See the orders that hold these units (Stock › Reservations)',
         'movements' => 'Recent stock changes',
         'no_movements' => 'No stock changes yet.',
         'when' => 'When',
@@ -6487,6 +6655,9 @@ final class Words
         'BAND' => ['Key' => 'done', 'Check' => 'needs', 'New item' => 'info', 'Can\'t tell' => 'review', 'Conflict' => 'blocked', 'Manual' => 'off'],
         'STORE_STATE' => ['waiting' => 'review', 'quarantined' => 'blocked', 'ignored' => 'off', 'linked' => 'done', 'suggested' => 'needs', 'not_matched' => 'waiting'],
         'BULK_RESULT' => ['done' => 'done', 'pending_second' => 'review', 'skipped' => 'needs'],
+        // Stock › Reservations: in a checkout blue, to ship orange, dealt with green, freed and run out grey.
+        'RESV_GROUP' => ['held' => 'info', 'to_ship' => 'needs', 'closed' => 'done', 'released' => 'off', 'expired' => 'waiting'],
+        'RESV_UNIT' => ['held' => 'info', 'allocated' => 'needs', 'shipped' => 'done', 'cancelled' => 'off', 'released' => 'off', 'returned' => 'waiting'],
     ];
 
     // ==================================================================================================================

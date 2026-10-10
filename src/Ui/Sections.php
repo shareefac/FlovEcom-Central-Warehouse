@@ -49,7 +49,8 @@ final class Sections
         ]],
         // Overview and Movements: stock_balance and the stock ledger (the item page's own figures: catalogue.view). The stock records of
         // pack A1 (docs/decisions.md SO10): the people who read records (documents.view) see their lists; the create buttons are for the
-        // people who keep them (doc.<TYPE>.post). The other account's room (VPG 2) is the Transfers tab's "Balance owed".
+        // people who keep them (doc.<TYPE>.post). The other account's room (VPG 2) is the Transfers tab's "Balance owed". Reservations
+        // (docs/decisions.md RS1): the stock kept for the stores' orders, read only, for the same people as Overview and Movements.
         'stock' => ['tabs' => [
             'stock' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock', 'match' => ['/ui/stock']]]],
             'movements' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock/movements', 'match' => ['/ui/stock/movements*']]]],
@@ -67,7 +68,7 @@ final class Sections
             'adjustments' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/adjustments', 'match' => ['/ui/stock/adjustments*'],
                 'badge' => 'adjustments_open', 'new' => ['perm' => 'doc.ADJ.post', 'href' => '/ui/stock/adjustments#new', 'label' => 'adjustments']]]],
             'counts' => ['soon' => true],
-            'reservations' => ['soon' => true],
+            'reservations' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock/reservations', 'match' => ['/ui/stock/reservations*']]]],
             'quality' => ['soon' => true],
         ]],
         'purchasing' => ['tabs' => [
