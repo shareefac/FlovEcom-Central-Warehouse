@@ -6,12 +6,20 @@ declare(strict_types=1);
  * First-time match, deterministic part (plan §7.3 steps 1, 2, 4, 5, 7 — no AI).
  *
  *   nice -n 19 php -d memory_limit=2G tools/first_match/run.php \
- *       [--vpg=<vapeandgo_listings_*.jsonl.gz>] [--alt=<electrofag_listings_*.jsonl.gz>] [--out=<dir>] \
- *       [--private=<dir>] [--prompt=<judge prompt .md>] [--pilot1=<run1 dir>] [--no-judge] [--judge=pilot2|sold] \
- *       [--scratch=<dir>]
+ *       [--vpg=<vapeandgo_listings_*.jsonl.gz>] [--alt=<electrofag_listings_*.jsonl.gz>] [--alt-site=<code>] [--out=<dir>] \
+ *       [--private=<dir>] [--prompt=<judge prompt .md>] [--pilot1=<run1 dir>] [--no-judge] [--judge=pilot2|sold|sample] \
+ *       [--sample=<file>] [--scratch=<dir>]
  *
  * --judge=sold builds the full judge run for the sold scope instead of the pilot-2 chunks (section 11,
  * tools/first_match/judge_full.php), e.g. --out=/root/cw_work/first_match/run3 --judge=sold.
+ * --judge=sample --sample=<file> builds the same open-style chunks for exactly the ALT variant ids listed in the file (one
+ * per line; blank lines and "#" comments are skipped): a trial on a few listings of a store. The whole --alt export is
+ * still read, because scope, lexicons, crosswalk and canaries need the full catalogue; only the judging is limited to the
+ * sample. A listed id that the scope rules leave out is reported with the rule, never judged.
+ * --alt-site=<code> names the other store (default electrofag; e.g. vapebig): the `site` code of its export lines. It
+ * labels the listings in every output (features, lexicon and summary keys, ref maps, and through them the proposals staff
+ * see) and picks the default --alt file. The run refuses an --alt export whose lines carry another site code, so one
+ * store's listings are never filed under another store's name.
  *
  * Reads the two catalogue exports (read-only files; no database, no network) and writes under --out:
  *   listings_features.jsonl   normalised features of every listing of both sites
@@ -51,9 +59,46 @@ use CW\Matching\Veto;
 
 ini_set('memory_limit', '2G');
 $t0 = microtime(true);
-$opt = getopt('', ['vpg:', 'alt:', 'out:', 'prompt:', 'private:', 'pilot1:', 'no-judge', 'judge:', 'scratch:']);
-if (!in_array($opt['judge'] ?? 'pilot2', ['pilot2', 'sold'], true)) {
-    fwrite(STDERR, "--judge must be pilot2 (default) or sold\n");
+$opt = getopt('', ['vpg:', 'alt:', 'alt-site:', 'out:', 'prompt:', 'private:', 'pilot1:', 'no-judge', 'judge:', 'sample:', 'scratch:']);
+if (!in_array($opt['judge'] ?? 'pilot2', ['pilot2', 'sold', 'sample'], true)) {
+    fwrite(STDERR, "--judge must be pilot2 (default), sold or sample\n");
+    exit(2);
+}
+// The other store (the ALT side). It was the literal 'electrofag' while Electrofag was the only store matched; the
+// default keeps an Electrofag run byte for byte what it was. 'vapeandgo' is the seed side and can never be the other store.
+$altSite = (string) ($opt['alt-site'] ?? 'electrofag');
+if (preg_match('/^[a-z0-9_]{1,32}$/', $altSite) !== 1 || $altSite === 'vapeandgo') {
+    fwrite(STDERR, "--alt-site must be the other store's site code ([a-z0-9_], not vapeandgo), e.g. electrofag or vapebig\n");
+    exit(2);
+}
+// --judge=sample: the ALT variant ids to judge. Read here, before the heavy work, so a bad file stops the run at once.
+// A repeated id counts once. Empty for every other scope (judge_full.php tests membership with isset).
+$sampleFile = null;
+$sampleIds = [];
+if (($opt['judge'] ?? 'pilot2') === 'sample') {
+    $sampleFile = (string) ($opt['sample'] ?? '');
+    $sampleLines = $sampleFile !== '' && is_file($sampleFile) ? file($sampleFile, FILE_IGNORE_NEW_LINES) : false;
+    if ($sampleLines === false) {
+        fwrite(STDERR, "--judge=sample needs --sample=<file with one $altSite variant id per line>\n");
+        exit(2);
+    }
+    foreach ($sampleLines as $i => $l) {
+        $l = trim((string) preg_replace('/#.*$/', '', $l));
+        if ($l === '') {
+            continue;
+        }
+        if (preg_match('/^[0-9]{1,18}$/', $l) !== 1) {
+            fwrite(STDERR, sprintf("--sample line %d is not a variant id: %s\n", $i + 1, json_encode($l)));
+            exit(2);
+        }
+        $sampleIds[(int) $l] = true;
+    }
+    if ($sampleIds === []) {
+        fwrite(STDERR, "--sample holds no variant id\n");
+        exit(2);
+    }
+} elseif (isset($opt['sample'])) {
+    fwrite(STDERR, "--sample is only read with --judge=sample\n");
     exit(2);
 }
 $base = '/root/cw_work/first_match';
@@ -67,7 +112,7 @@ $latest = function (string $pattern): string {
     return (string) end($f);
 };
 $vpgFile = $opt['vpg'] ?? $latest("$base/vapeandgo_listings_*.jsonl.gz");
-$altFile = $opt['alt'] ?? $latest("$base/electrofag_listings_*.jsonl.gz");
+$altFile = $opt['alt'] ?? $latest("$base/{$altSite}_listings_*.jsonl.gz");
 $out = rtrim($opt['out'] ?? "$base/run2", '/');
 $private = rtrim($opt['private'] ?? "$base/private/" . basename($out), '/');
 $promptFile = $opt['prompt'] ?? __DIR__ . '/prompts/judge_v2.md';
@@ -125,6 +170,14 @@ function jsonl($fh, array $rec): void
 $V = loadGz($vpgFile);
 $A = loadGz($altFile);
 logmsg(sprintf('loaded VPG %d, ALT %d', count($V), count($A)));
+// Every ALT line must carry the site this run files it under: the outputs label the listings with --alt-site, and
+// bin/import_proposals.php reads their features back from listings_features.jsonl by that code. Without this, another
+// store's export passed as --alt would come out labelled with the default (Electrofag) in the evidence staff see.
+$altSitesSeen = array_count_values(array_map(fn ($r) => (string) ($r['site'] ?? ''), $A));
+if (array_keys($altSitesSeen) !== [$altSite]) {
+    fwrite(STDERR, sprintf("--alt holds lines of site %s but --alt-site is %s: pass the store's own code as --alt-site\n", json_encode($altSitesSeen), $altSite));
+    exit(2);
+}
 
 $pubSiblings = function (array $rows): array {
     $c = [];
@@ -142,7 +195,7 @@ $lexScope = fn (array $rows) => array_filter($rows, fn ($r) => ($r['variant_stat
 $lexV = TitlePattern::lexicon($lexScope($V));
 $lexA = TitlePattern::lexicon($lexScope($A));
 file_put_contents("$out/line_lexicon.json", json_encode(['version' => TitlePattern::VERSION, 'min_products' => TitlePattern::LEXICON_MIN_PRODUCTS,
-    'vapeandgo' => $lexV, 'electrofag' => $lexA], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    'vapeandgo' => $lexV, $altSite => $lexA], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 $FV = [];
 foreach ($V as $id => $r) {
     $FV[$id] = Normalizer::normalize($r, ['published_siblings' => $vSib[(int) $r['product_id']] ?? 0,
@@ -654,14 +707,14 @@ logmsg('pass 2 done: ' . count($records));
 
 // ───────────────────────────── 9 outputs ─────────────────────────────
 $fh = fopen("$out/listings_features.jsonl", 'w');
-foreach ([['vapeandgo', $FV, $V], ['electrofag', $FA, $A]] as [$site, $F, $R]) {
+foreach ([['vapeandgo', $FV, $V], [$altSite, $FA, $A]] as [$site, $F, $R]) {
     foreach ($F as $id => $f) {
         $rec = $f;
         unset($rec['full_tokens']);
         $rec['variant_status'] = $R[$id]['variant_status'];
         $rec['in_seed'] = $site === 'vapeandgo' ? isset($seed[$id]) : null;
         $rec['cw_id'] = $site === 'vapeandgo' && isset($seed[$id]) ? cwId($id) : null;
-        $rec['in_scope'] = $site === 'electrofag' ? isset($scope[$id]) : null;
+        $rec['in_scope'] = $site === $altSite ? isset($scope[$id]) : null;
         jsonl($fh, $rec);
     }
 }
@@ -794,7 +847,9 @@ $summary = [
         'variants' => count($A),
         'in_scope' => count($scope),
         'in_scope_rule' => 'variant Published OR units_365d > 0',
-        'reconciliation_with_plan_7_2' => $stat + ['plan_figures' => '2,072 barcoded with a VPG hit -> 2,063 non-placeholder -> ~1,977 clean 1:1 published pairs'],
+        // the plan §7.2 figures come from the Electrofag profiling: another store's counts stand without them
+        'reconciliation_with_plan_7_2' => $stat + ($altSite === 'electrofag'
+            ? ['plan_figures' => '2,072 barcoded with a VPG hit -> 2,063 non-placeholder -> ~1,977 clean 1:1 published pairs'] : []),
         'gtin' => ['usable_keys' => count($aIdx['by_key']), 'dup_in_channel_keys' => count($aIdx['multi'])],
         'transfer' => [
             'permalink_equal_to_exactly_one_vpg_variant' => count(array_filter($lanes, fn ($L) => $L['transfer']['via'] !== null && count($L['transfer']['vpg_variant_ids']) === 1)),
@@ -850,15 +905,15 @@ $summary = [
         'line_alias_proposals_ge3_pairs' => array_values(array_filter($aliasProposals, fn ($p) => $p['gtin_pairs'] >= 3))],
     'unknown_field_rates' => [
         'vapeandgo_seed' => $unknownRates($FV, array_keys($seed)),
-        'electrofag_in_scope_non_placeholder' => $unknownRates($FA, $altScoped),
+        $altSite . '_in_scope_non_placeholder' => $unknownRates($FA, $altScoped),
     ],
     'flavour_separation' => [
         'vapeandgo_seed' => $flavourSeparation($FV, array_keys($seed)),
-        'electrofag_in_scope_non_placeholder' => $flavourSeparation($FA, $altScoped),
+        $altSite . '_in_scope_non_placeholder' => $flavourSeparation($FA, $altScoped),
     ],
     'flavour_vocabulary' => ['version' => FlavourVocab::VERSION, 'words' => count(FlavourVocab::WORDS), 'source' => FlavourVocab::SOURCE,
         'matches_this_vpg_export' => $vocabSha === hash_file('sha256', $vpgFile)],
-    'line_lexicon' => ['version' => TitlePattern::VERSION, 'vapeandgo_brands' => count($lexV), 'electrofag_brands' => count($lexA), 'file' => "$out/line_lexicon.json"],
+    'line_lexicon' => ['version' => TitlePattern::VERSION, 'vapeandgo_brands' => count($lexV), $altSite . '_brands' => count($lexA), 'file' => "$out/line_lexicon.json"],
 ];
 logmsg('summary built');
 
@@ -866,8 +921,12 @@ logmsg('summary built');
 // Every listing x candidate pair the pilot-1 judges saw, re-vetoed with this engine, next to the v1 vetoes (the
 // evaluator's pilot_eval/veto_recheck.json) and the judges' pilot-1 answers: which traps only the judge stopped
 // before and are now vetoed or flagged, and whether any pair the judge and the barcode agreed on is now vetoed.
+// Pilot 1 judged Electrofag listings only: its ref maps hold Electrofag variant ids, which name other listings (or none) in
+// another store's export. So the recheck is skipped, and said so, when this run reads another store.
 $p1Dir = rtrim($opt['pilot1'] ?? "$base/run1", '/');
-if (is_file("$p1Dir/judge_private/pilot_answers.json")) {
+if ($altSite !== 'electrofag') {
+    logmsg("pilot-1 recheck skipped: pilot 1 judged electrofag listings, this run reads $altSite");
+} elseif (is_file("$p1Dir/judge_private/pilot_answers.json")) {
     $p1Ans = json_decode((string) file_get_contents("$p1Dir/judge_private/pilot_answers.json"), true, 512, JSON_THROW_ON_ERROR);
     $p1V1 = is_file("$p1Dir/pilot_eval/veto_recheck.json")
         ? json_decode((string) file_get_contents("$p1Dir/pilot_eval/veto_recheck.json"), true, 512, JSON_THROW_ON_ERROR)['pairs'] : [];
@@ -970,9 +1029,16 @@ $promptVersion = hash_file('sha256', $promptFile);
 mt_srand(20260927);
 $promptRel = 'tools/first_match/prompts/' . basename($promptFile);
 
+// The listing-side hint describes a store's title style. Electrofag's was read off its catalogue for pilot 2 and is true
+// of that store only. A store with no entry here gets a line that claims no style at all: a hint that is wrong for the
+// store would steer the judge, so nothing is borrowed from Electrofag. Add a store's own line here once it is known.
+$listingHints = [
+    'electrofag' => 'electrofag: liquids are "<Line> <Flavour> 10ml Nic Salt E Liquid - 20mg" or "<Flavour> <Line> Nic Salt 10ml - 20mg"; pods/devices "<Line> Prefilled Pods - <Flavour>"',
+];
 $context = [
     'naming_hints' => [
-        'listing_channel' => 'electrofag: liquids are "<Line> <Flavour> 10ml Nic Salt E Liquid - 20mg" or "<Flavour> <Line> Nic Salt 10ml - 20mg"; pods/devices "<Line> Prefilled Pods - <Flavour>"',
+        'listing_channel' => $listingHints[$altSite]
+            ?? "$altSite: no title style is recorded for this store; take the line, flavour, strength and pack from each listing's own titles and attributes",
         'central_items' => 'central items are Vape and Go listings: usually "<Flavour> Nic Salt E-Liquid by <Line> 10ml | 20mg" or "<Flavour> <Line> Pods" (flavour first); Vape and Go "brands" are often product lines',
     ],
     'confirmed_aliases' => [],
@@ -1157,7 +1223,7 @@ $buildItem = function (int $id, bool $loo, ?callable $hard) use ($records, $seed
         'indistinguishable_excluded' => $dropped];
 };
 
-// ───────────────────────────── 11 full judge run (--judge=sold) ─────────────────────────────
+// ───────────────────────────── 11 full judge run (--judge=sold) or a sample of it (--judge=sample) ─────────────────────────────
 // Reuses the pilot-2 helpers above unchanged ($context, $forbiddenFor, $strengthSet, $negatives, $buildItem for the
 // canaries); the pilot-2 selection below is skipped.
 if (($opt['judge'] ?? 'pilot2') !== 'pilot2') {
@@ -1285,7 +1351,7 @@ foreach ($chunks as $ci => $items) {
             }
         }
         $cards[] = ['ref' => $L, 'listing' => JudgeCard::card($L, $A[$id], $FA[$id]), 'candidates' => $cs];
-        $refmap[$L] = ['listing' => ['site' => 'electrofag', 'variant_id' => $id], 'candidates' => $map]
+        $refmap[$L] = ['listing' => ['site' => $altSite, 'variant_id' => $id], 'candidates' => $map]
             + ($it['loo'] ? ['removed_true_target' => ['cw_id' => cwId($tgt), 'vpg_variant_id' => $tgt]] : []);
         $rec = $records[$id];
         // the prompt's strength-missing rule, both directions (2: the listing states none; 3: the candidate states

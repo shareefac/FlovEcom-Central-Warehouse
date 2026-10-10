@@ -11,6 +11,11 @@ declare(strict_types=1);
  * Scope "sold" (pilot-2 evaluation): every in-scope ALT listing with units_365d > 0 that is not Ignore. Barcode and
  * transfer lanes first, then the candidates lane; inside each part by units_365d, units_30d (highest first).
  *
+ * Scope "sample" (--judge=sample --sample=<file>; a trial on a few listings of a store, first used for Vape Big): the same
+ * chunks for exactly the listed ALT variant ids, sold or not, in the same two parts and the same order. A listed id that
+ * is not in the export, not in scope (variant not Published and no sale in 365 days) or Ignore is not judged: each one is
+ * logged and named with its rule in judge_manifest.json, summary.json and the answer file (`sample`).
+ *
  * Open style exactly as pilot 2: each listing with its own top 15 search candidates (the engine's candidate list in
  * [prescore desc, id asc] order); for a barcode/transfer listing the lane target is shuffled in when it is not
  * already in the top 15, replacing the lowest-ranked candidate. A barcode/transfer Conflict with no single target
@@ -23,6 +28,11 @@ declare(strict_types=1);
  * answer, each used once, built with pilot 2's $buildItem (truth shuffled in / removed, VPG duplicates and
  * indistinguishable siblings of the truth left out). Barcode pairs are used first; the pool is topped up with
  * unsold clean transfer-lane pairs only when the barcode pairs run out (reported in the canary pool file).
+ * In a sample run a listed listing is never a canary (it is in the main set even when unsold), and a small store may not
+ * hold 3 clean unsold pairs per chunk. A full run still refuses to build then ("canary pool too small", exit 3). A sample
+ * run places the canaries there are, dealt round the chunks (never more than 1 pair + 2 leave-one-out in one), says so in
+ * the log and records wanted against placed in judge_manifest.json (`canaries`), summary.json and the canary pool file.
+ * Fewer canaries is weaker protection: assemble.php can only reject a chunk on a canary the chunk holds.
  *
  * The four pending line relabels (Veto::PENDING_LINE_ALIASES) are never Key: a listing whose lane target differs
  * from it only by a pending relabel is marked relabel_pending / key_possible=false in the answer file (the business
@@ -51,6 +61,7 @@ if (!isset($records, $lanes, $seed, $FA, $FV, $A, $V, $buildItem, $forbiddenFor,
     exit(2);
 }
 $scopeName = (string) $opt['judge'];
+$isSample = $scopeName === 'sample';
 $run = basename($out);
 $PER_CHUNK = 27;
 $CANARY_PER_PRODUCT = 3;
@@ -105,8 +116,9 @@ $relabel = function (array $x, array $y) use ($relabels, $words): ?string {
 $byUnits = fn (int $a, int $b) => [$records[$b]['units_365d'], $records[$b]['units_30d'], $a] <=> [$records[$a]['units_365d'], $records[$a]['units_30d'], $b];
 $mainBT = [];
 $mainC = [];
+// (sample scope: the listed ids take the place of "sold"; the Ignore rule is the same)
 foreach ($records as $id => $r) {
-    if ($r['units_365d'] <= 0 || $r['lane'] === 'ignore' || $r['band'] === Band::IGNORE) {
+    if (($isSample ? !isset($sampleIds[$id]) : $r['units_365d'] <= 0) || $r['lane'] === 'ignore' || $r['band'] === Band::IGNORE) {
         continue;
     }
     if (in_array($r['lane'], $KEY_LANES, true)) {
@@ -125,6 +137,36 @@ foreach ([['barcode_transfer', $mainBT], ['candidates', $mainC]] as [$part, $ids
 }
 $nChunks = count($plan);
 logmsg(sprintf('judge %s: %d barcode+transfer + %d candidates listings -> %d chunks', $scopeName, count($mainBT), count($mainC), $nChunks));
+// ── sample scope: every listed id is either in the main set or named here with the rule that left it out (the scope rule of
+// run.php section 6, the placeholder rule of the Normalizer). Checked before anything is written.
+$sampleInfo = null;
+if ($isSample) {
+    $notJudged = [];
+    foreach (array_keys($sampleIds) as $id) {
+        if (!isset($A[$id])) {
+            $notJudged[$id] = 'not_in_export';
+        } elseif (!isset($records[$id])) {
+            $notJudged[$id] = 'out_of_scope: variant ' . ($A[$id]['variant_status'] ?? '?') . ' and no sale in 365 days (scope is: variant Published OR units_365d > 0)';
+        } elseif ($records[$id]['lane'] === 'ignore' || $records[$id]['band'] === Band::IGNORE) {
+            $notJudged[$id] = 'ignored: placeholder (' . ($FA[$id]['placeholder_reason'] ?? 'placeholder') . '); an Ignore listing is never judged';
+        }
+    }
+    ksort($notJudged);
+    $sampleInfo = ['file' => basename((string) $sampleFile), 'sha256' => hash_file('sha256', (string) $sampleFile), 'listed' => count($sampleIds),
+        'judged' => count($mainBT) + count($mainC), 'not_judged' => count($notJudged), 'not_judged_ids' => (object) $notJudged];
+    logmsg(sprintf('sample %s: %d ids listed, %d judged, %d not judged', $sampleInfo['file'], $sampleInfo['listed'], $sampleInfo['judged'], $sampleInfo['not_judged']));
+    foreach ($notJudged as $id => $why) {
+        logmsg("sample: $altSite variant $id is NOT judged: $why");
+    }
+    if ($sampleInfo['listed'] !== $sampleInfo['judged'] + $sampleInfo['not_judged']) {
+        fwrite(STDERR, "sample: listed ids do not add up to judged + not judged\n");
+        exit(3);
+    }
+    if ($nChunks === 0) {
+        fwrite(STDERR, "--sample: none of the listed ids can be judged (see the lines above)\n");
+        exit(2);
+    }
+}
 $chunkName = fn (int $k): string => sprintf('%s_c%03d', $run, $k + 1);
 // one scratch directory per judge, made before any chunk is written (refuses one that already holds files)
 $scratchRoot = rtrim((string) ($opt['scratch'] ?? JudgeScratch::defaultRoot($out)), '/');
@@ -244,8 +286,9 @@ $answerFor = function (int $id, int $tgt, bool $loo) use ($records, $FA, $seed, 
 $poolRows = [];
 $poolBy = ['barcode' => [], 'transfer' => []];
 $poolExcluded = [];
+// (a listed sample id is in the main set even when unsold, so it is never a canary; $sampleIds is empty for a sold run)
 foreach ($records as $id => $r) {
-    if ($r['units_365d'] > 0 || !in_array($r['lane'], $KEY_LANES, true) || $r['target_vpg_variant_id'] === null) {
+    if ($r['units_365d'] > 0 || isset($sampleIds[$id]) || !in_array($r['lane'], $KEY_LANES, true) || $r['target_vpg_variant_id'] === null) {
         continue;
     }
     $tgt = (int) $r['target_vpg_variant_id'];
@@ -327,17 +370,47 @@ $canLoo = $take($poolBy['barcode'], 2 * $nChunks, true, false);
 if (count($canLoo) < 2 * $nChunks) {
     $canLoo = array_merge($canLoo, $take($poolBy['transfer'], 2 * $nChunks - count($canLoo), true, true));
 }
-if (count($canPairs) < $nChunks || count($canLoo) < 2 * $nChunks) {
+$canaryShort = count($canPairs) < $nChunks || count($canLoo) < 2 * $nChunks;
+if ($canaryShort && !$isSample) {
     fwrite(STDERR, sprintf("canary pool too small: %d/%d pairs, %d/%d loo; skipped %s\n", count($canPairs), $nChunks, count($canLoo), 2 * $nChunks, json_encode(array_count_values($skipped))));
     exit(3);
 }
+// A sample of a small store (Vape Big: 42 barcodes in the whole export) may not hold 3 clean unsold pairs per chunk. The
+// sample is a trial a person reads in full, so it is built with the canaries there are instead of not at all. That is a
+// stated choice, never a silent one: a WARNING here, wanted against placed in the manifest, summary and pool file.
+if ($canaryShort) {
+    logmsg(sprintf('WARNING canary pool too small for this sample: %d of %d pair and %d of %d leave-one-out canaries placed (eligible unsold clean pairs outside the sample: %d barcode, %d transfer; skipped %s). Chunks are built with FEWER canaries.',
+        count($canPairs), $nChunks, count($canLoo), 2 * $nChunks, count($poolBy['barcode']), count($poolBy['transfer']), json_encode(array_count_values($skipped))));
+}
+// canaries of each chunk: 1 pair + 2 leave-one-out; a short sample pool is dealt round the chunks, so no chunk takes a
+// second canary of a kind before every chunk has its first
+$canaryOf = [];
+foreach (array_keys($plan) as $k) {
+    $canaryOf[$k] = $canaryShort ? [] : [$canPairs[$k] + ['kind' => 'canary_pair'], $canLoo[2 * $k] + ['kind' => 'canary_loo'], $canLoo[2 * $k + 1] + ['kind' => 'canary_loo']];
+}
+if ($canaryShort) {
+    foreach ($canPairs as $j => $it) {
+        $canaryOf[$j % $nChunks][] = $it + ['kind' => 'canary_pair'];
+    }
+    foreach ($canLoo as $j => $it) {
+        $canaryOf[$j % $nChunks][] = $it + ['kind' => 'canary_loo'];
+    }
+}
 $canarySources = ['pair' => array_count_values(array_column($canPairs, 'source')), 'loo' => array_count_values(array_column($canLoo, 'source'))];
 logmsg('canaries: ' . json_encode($canarySources));
+$canaryNote = ['wanted' => ['pair' => $nChunks, 'loo' => 2 * $nChunks], 'placed' => ['pair' => count($canPairs), 'loo' => count($canLoo)],
+    'complete' => !$canaryShort,
+    'eligible_pool' => ['unsold_clean_barcode_pairs' => count($poolBy['barcode']), 'unsold_clean_transfer_pairs' => count($poolBy['transfer'])],
+    'note' => $canaryShort
+        ? 'canary pool too small for this sample: built with fewer canaries than 1 pair + 2 leave-one-out per chunk (a logged choice of --judge=sample; a full run refuses to build)'
+        : 'every chunk carries 1 pair + 2 leave-one-out canaries'];
 
 // ── chunks
 $answers = ['run' => $run, 'scope' => $scopeName, 'prompt_version' => $promptVersion, 'prompt' => $promptRel, 'engine' => $engine,
     'rng_seed' => $RNG_SEED, 'generated_at_utc' => $genAt,
-    'design' => 'full run, sold scope: open style (top 15 search candidates, lane evidence shuffled in), 27 listings + 1 pair and 2 leave-one-out canaries per chunk at random refs',
+    'design' => ($isSample ? 'sample run, sample scope (the listed variant ids only)' : 'full run, sold scope')
+        . ': open style (top 15 search candidates, lane evidence shuffled in), 27 listings + 1 pair and 2 leave-one-out canaries per chunk at random refs'
+        . ($canaryShort ? ' (fewer canaries in this run: see canaries)' : ''),
     'key_rule' => [
         'Key only when the lane is barcode/transfer, key_possible is true, and the judge matches lane_target_ref with confidence >= ' . Band::KEY_MIN_CONFIDENCE
             . ' and units_per_item 1 (Band::final ' . Band::VERSION . '); every other match is at most Check; a person confirms every link',
@@ -348,6 +421,10 @@ $answers = ['run' => $run, 'scope' => $scopeName, 'prompt_version' => $promptVer
         'canary_loo' => 'any match = would-be false merge: stop the wave; no_match_in_list or cannot_tell = safe',
         'main' => 'no answer key: lane_target_ref is deterministic evidence (barcode or transfer), not ground truth'],
     'chunks' => []];
+if ($isSample) {
+    $answers['sample'] = $sampleInfo;
+    $answers['canaries'] = $canaryNote;
+}
 $chunkList = [];
 $manifest = [];
 $blindChecked = 0;
@@ -358,9 +435,9 @@ foreach ($plan as $k => $p) {
     foreach ($p['ids'] as $id) {
         $items[] = $mainItem($id);
     }
-    $items[] = $canPairs[$k] + ['kind' => 'canary_pair'];
-    $items[] = $canLoo[2 * $k] + ['kind' => 'canary_loo'];
-    $items[] = $canLoo[2 * $k + 1] + ['kind' => 'canary_loo'];
+    foreach ($canaryOf[$k] as $it) {
+        $items[] = $it;
+    }
     shuffle($items);
 
     $cards = [];
@@ -455,7 +532,7 @@ foreach ($plan as $k => $p) {
                     'target_vetoes' => array_values(array_unique(array_column($rec['target_vetoes'], 'code'))), 'target_soft_flags' => $rec['target_soft_flags'],
                     'product_strengths_mg' => $strengthSet($tgt)],
             ];
-            $refmap[$L] = ['listing' => ['site' => 'electrofag', 'variant_id' => $id], 'kind' => 'main', 'candidates' => $map];
+            $refmap[$L] = ['listing' => ['site' => $altSite, 'variant_id' => $id], 'kind' => 'main', 'candidates' => $map];
             $forbid = array_merge($forbid, $forbiddenFor([$id], $A), $forbiddenFor($shownIds, $V));
             continue;
         }
@@ -480,7 +557,7 @@ foreach ($plan as $k => $p) {
                 'text_difference_flags' => $a['text_diff'], 'product_strengths_mg' => $strengthSet($tgt)],
             'note' => 'unsold canary; truth from a clean ' . ($it['source'] === 'barcode_pair' ? 'barcode' : 'transfer (db-transfer permalink)') . ' pair (strong evidence, not ground truth)',
         ];
-        $refmap[$L] = ['listing' => ['site' => 'electrofag', 'variant_id' => $id], 'kind' => $loo ? 'canary_loo' : 'canary_pair', 'candidates' => $map]
+        $refmap[$L] = ['listing' => ['site' => $altSite, 'variant_id' => $id], 'kind' => $loo ? 'canary_loo' : 'canary_pair', 'candidates' => $map]
             + ($loo ? ['removed_true_target' => ['cw_id' => cwId($tgt), 'vpg_variant_id' => $tgt]] : []);
         $canaryOut[] = ['ref' => $L, 'kind' => $loo ? 'loo' : 'pair', 'expected_ref' => $expRef];
         $poolRows[$id]['assigned'] = ['chunk' => $name, 'ref' => $L, 'kind' => $loo ? 'loo' : 'pair', 'expected_ref' => $expRef];
@@ -533,14 +610,15 @@ $poolFile = [
         . 'no veto and no soft flag on the pair, a consumable with strength and flavour stated on both sides, no one-sided "N in 1", no pending relabel on the pair; '
         . 'answer key must be match-only. Chosen in seeded random order, each listing and each truth item once, every usable barcode pair first (pair canaries, then leave-one-out), then transfer pairs '
         . 'with at most ' . $CANARY_PER_PRODUCT . ' canaries per Vape and Go product (barcode canaries count towards it), '
-        . 'none whose shown negatives include a pending-relabel partner; transfer pairs are used only because the unsold barcode pairs run out.',
+        . 'none whose shown negatives include a pending-relabel partner; transfer pairs are used only because the unsold barcode pairs run out.'
+        . ($isSample ? ' Sample scope: a listed sample id is never a canary; a pool too small for every chunk is used as far as it goes (see canaries).' : ''),
     'needed' => ['pair' => $nChunks, 'loo' => 2 * $nChunks],
     'eligible' => ['barcode_pair' => count($poolBy['barcode']), 'transfer_pair' => count($poolBy['transfer'])],
     'excluded_unsold_key_lane' => $poolExcluded,
     'skipped_at_build' => array_count_values($skipped),
     'used' => $canarySources,
     'members' => array_values($poolRows),
-];
+] + ($isSample ? ['canaries' => $canaryNote] : []);
 file_put_contents("$private/{$run}_canary_pool.json", json_encode($poolFile, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
 $totals = [
@@ -556,13 +634,19 @@ $totals = [
     'assert_blind' => "passed on $blindChecked/$nChunks chunks (before and after writing; $forbidTotal forbidden barcode/permalink values)",
     'prompt_sha256' => $promptVersion, 'engine' => $engine, 'rng_seed' => $RNG_SEED,
 ];
+if ($isSample) {
+    // sample scope only (a sold run's totals stay as they were): what was listed, and the canaries wanted against placed
+    $totals['sample'] = $sampleInfo;
+    $totals['canaries_wanted_against_placed'] = $canaryNote;
+}
 $orchestrator = ['chunks' => $chunkList, 'totals' => $totals, 'private_dir' => $private, 'scratch_root' => $scratchRoot,
     'judge_task' => 'give each judge its chunk path, the prompt, and its own scratch_dir (judges run in parallel; never a shared directory)'];
 file_put_contents("$private/{$run}_chunks.json", json_encode($orchestrator, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 
 // ── run folder: manifest and summary (no refs, ids or canary positions)
 file_put_contents("$out/judge_manifest.json", json_encode(['run' => $run, 'scope' => $scopeName, 'prompt' => $promptRel, 'prompt_sha256' => $promptVersion,
-    'engine' => $engine, 'inputs' => $summary['run']['inputs'] ?? null, 'generated_at_utc' => $genAt, 'chunks' => $manifest],
+    'engine' => $engine, 'inputs' => $summary['run']['inputs'] ?? null, 'generated_at_utc' => $genAt, 'chunks' => $manifest]
+    + ($isSample ? ['sample' => $sampleInfo, 'canaries' => $canaryNote] : []),
     JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
 $summary['judge_' . $run] = ['scope' => $scopeName, 'prompt' => $promptRel, 'prompt_sha256' => $promptVersion, 'manifest' => "$out/judge_manifest.json",
     'totals' => array_diff_key($totals, ['assert_blind' => 1]) + ['assert_blind' => 'passed'],

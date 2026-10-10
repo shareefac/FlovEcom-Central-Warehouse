@@ -18,6 +18,11 @@ declare(strict_types=1);
  * --add      replaces one chunk's result with a re-judged one (a file holding {"items":[...]} or the bare array), e.g.
  *            after re-running a chunk that failed validation or a canary; kept in judge_raw.jsonl with its model.
  * Without either, the existing <run>/judge_raw.jsonl is used, so the assembly is re-runnable offline.
+ * --run-id   defaults to <run>-<scope in judge_manifest.json> ("run3-sold"; a --judge=sample run gives "<run>-sample",
+ *            e.g. "run4_vapebig-sample"). It becomes match_run.run_id on import, so the assembly refuses an id the importer
+ *            would refuse (CW\Mapping\Proposals::run takes letters, digits and . _ : - only, at most 64).
+ * The store of the listings (alt_site in judgements.jsonl and proposals.jsonl, the <site>_variant_id / <site>_title columns
+ * of proposals.csv) is the one the chunk build wrote into the ref maps (run.php --alt-site, default electrofag).
  *
  * Reads: <run>/judge/<run>_cNNN.json (+ judge_manifest.json sha256), <private>/<run>_answers.json, <private>/<chunk>.refmap.json,
  *        <run>/alt_deterministic.jsonl, <run>/listings_features.jsonl (Vape and Go titles).
@@ -54,7 +59,7 @@ if ($runDir === '' || !is_dir("$runDir/judge")) {
 }
 $run = basename($runDir);
 $private = rtrim((string) ($opt['private'] ?? dirname($runDir) . "/private/$run"), '/');
-$runId = (string) ($opt['run-id'] ?? "$run-sold");
+$runId = (string) ($opt['run-id'] ?? '');
 $sessionModel = (string) ($opt['session-model'] ?? 'claude-opus-5-5');
 $labelPrefix = (string) ($opt['label-prefix'] ?? "$run-judge:");
 const MANUAL = 'Manual (relabel)';
@@ -69,6 +74,17 @@ function logmsg(string $m): void
 function readJson(string $f): array
 {
     return json_decode((string) file_get_contents($f), true, 512, JSON_THROW_ON_ERROR);
+}
+
+// The run id names the scope the chunks were built for (judge_manifest.json) unless --run-id says otherwise.
+// bin/import_proposals.php stores it as match_run.run_id, and Proposals::run refuses anything outside [A-Za-z0-9._:-]{1,64}:
+// better to stop here, before anything is written, than after the judging is assembled and copied to staging.
+if ($runId === '') {
+    $runId = "$run-" . (string) (readJson("$runDir/judge_manifest.json")['scope'] ?? 'sold');
+}
+if (preg_match('/^[A-Za-z0-9._:-]{1,64}$/', $runId) !== 1) {
+    fwrite(STDERR, "run id $runId cannot be imported (letters, digits and . _ : - only, at most 64): pass --run-id=<id>\n");
+    exit(2);
 }
 
 // ───────────── 1 raw judge results (journal → judge_raw.jsonl, or --add, or the existing file)
@@ -112,7 +128,8 @@ if (isset($opt['journal'])) {
     logmsg("journal: $n results for $labelPrefix* -> " . count($fromJournal) . ' chunks');
 }
 if (isset($opt['add'])) {
-    if (!isset($opt['add-model']) || !preg_match('/^([a-z0-9]+_c\d{3})=(.+)$/', (string) $opt['add'], $m)) {
+    // (the run name may hold an underscore: "run4_vapebig_c001")
+    if (!isset($opt['add-model']) || !preg_match('/^([a-z0-9_]+_c\d{3})=(.+)$/', (string) $opt['add'], $m)) {
         fwrite(STDERR, "--add=<chunk>=<result.json> needs --add-model=<model id>\n");
         exit(2);
     }
@@ -375,6 +392,8 @@ logmsg(sprintf('%d main listings, %d Vape and Go titles', count($records), count
 $item = fn (?int $vid) => $vid === null ? null : ['cw_id' => 'CWP-' . $vid, 'vpg_variant_id' => $vid, 'title' => $vpgTitle[$vid] ?? null];
 $judgements = [];
 $proposals = [];
+// the store of the listings, as the chunk build recorded it in the ref maps (run.php --alt-site); one store per run
+$altSite = null;
 $checks = ['key_without_key_possible' => 0, 'key_on_candidates_lane' => 0, 'candidates_above_check' => 0, 'key_not_on_target' => 0, 'relabel_key' => 0];
 foreach ($need as $id => [$ch, $L]) {
     $a = $answers['chunks'][$ch]['items'][$L];
@@ -383,6 +402,10 @@ foreach ($need as $id => [$ch, $L]) {
     $refmap = $info['refmap'][$L] ?? readJson("$private/$ch.refmap.json")['refs'][$L];
     if ((int) $refmap['listing']['variant_id'] !== $id) {
         throw new RuntimeException("$ch $L: refmap listing mismatch");
+    }
+    $altSite ??= (string) $refmap['listing']['site'];
+    if ((string) $refmap['listing']['site'] !== $altSite) {
+        throw new RuntimeException("$ch $L: listing of site {$refmap['listing']['site']} in a run of $altSite listings");
     }
     $map = $refmap['candidates'];
     $vidOf = fn (?string $ref) => $ref === null ? null : (int) $map[$ref]['vpg_variant_id'];
@@ -478,7 +501,7 @@ foreach ($need as $id => [$ch, $L]) {
         $shown[$ref] = (int) $m['vpg_variant_id'];
     }
     $judgements[] = $prov + [
-        'alt_site' => 'electrofag', 'alt_variant_id' => $id, 'alt_title' => $rec['title'], 'lane' => $rec['lane'], 'chunk_lane' => $info['lane'],
+        'alt_site' => $altSite, 'alt_variant_id' => $id, 'alt_title' => $rec['title'], 'lane' => $rec['lane'], 'chunk_lane' => $info['lane'],
         'units_365d' => $rec['units_365d'], 'units_30d' => $rec['units_30d'],
         'answer' => $j, 'answer_status' => $j === null ? $info['status'] : 'valid', 'answer_warnings' => $warnings,
         'effective_outcome' => $outcome,
@@ -492,7 +515,7 @@ foreach ($need as $id => [$ch, $L]) {
     $vetoOnChosen = $j !== null && $j['chosen_ref'] !== null ? (((array) $a['vetoed_refs'])[$j['chosen_ref']] ?? []) : [];
     $softOnChosen = $j !== null && $j['chosen_ref'] !== null ? (((array) $a['soft_flagged_refs'])[$j['chosen_ref']] ?? []) : [];
     $proposals[] = [
-        'run_id' => $runId, 'alt_site' => 'electrofag', 'alt_variant_id' => $id, 'alt_product_id' => $rec['alt_product_id'], 'alt_title' => $rec['title'],
+        'run_id' => $runId, 'alt_site' => $altSite, 'alt_variant_id' => $id, 'alt_product_id' => $rec['alt_product_id'], 'alt_title' => $rec['title'],
         'variant_status' => $rec['variant_status'], 'units_365d' => $rec['units_365d'], 'units_30d' => $rec['units_30d'],
         'band' => $band, 'band_reasons' => $reasons, 'band_v2' => $bandV2['band'] ?? null,
         'proposed_cw_id' => $proposed, 'proposed_title' => $proposedVid !== null ? ($vpgTitle[$proposedVid] ?? null) : null,
@@ -538,7 +561,8 @@ rename("$runDir/proposals.jsonl.tmp", "$runDir/proposals.jsonl");
 
 $fh = fopen("$runDir/proposals.csv.tmp", 'w');
 fwrite($fh, "\xEF\xBB\xBF");
-fputcsv($fh, ['rank', 'units_365d', 'units_30d', 'band', 'proposed_central_id', 'electrofag_variant_id', 'electrofag_title', 'proposed_vape_and_go_title',
+$altSite ??= 'electrofag';   // a run with no main listing at all: the header as it always was
+fputcsv($fh, ['rank', 'units_365d', 'units_30d', 'band', 'proposed_central_id', $altSite . '_variant_id', $altSite . '_title', 'proposed_vape_and_go_title',
     'lane', 'lane_target_id', 'lane_target_title', 'ai_outcome', 'ai_confidence', 'ai_units_per_item', 'ai_closest_id', 'ai_closest_title',
     'relabel_pending', 'flags', 'ai_reason', 'band_reasons', 'two_person_confirm', 'chunk_ref'], ',', '"', '');
 foreach ($proposals as $i => $p) {
