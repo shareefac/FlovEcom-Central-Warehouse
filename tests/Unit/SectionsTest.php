@@ -158,6 +158,7 @@ final class SectionsTest extends TestCase
         self::assertNull(Sections::locate('/ui/password'));
         self::assertNull(Sections::fit('/ui/receiving/{id}/bench', '/ui/receiving/x/bench'), '{id} is a number');
         self::assertNull(Sections::fit('/ui/review?queue=pending', '/ui/review', ['queue' => 'Key']));
+        self::assertNull(Sections::fit('/ui/review?queue=pending', '/ui/review', ['queue' => ['pending']]), 'a list is not a value: no match, no error');
     }
 
     /**

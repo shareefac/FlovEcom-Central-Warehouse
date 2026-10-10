@@ -88,7 +88,8 @@ final class UiReviewFlowTest extends UiTestCase
                 $done = $web->follow($r);
                 self::assertStringContainsString(Words::MATCH_NOTICE['queue_done'], $done->text());
                 self::assertStringContainsString(Words::QUEUE['empty'], $done->text());
-                self::assertContains('/ui/review?queue=Check', $done->hrefs(), 'an empty list leads to the next list with work (F161)');
+                self::assertContains('/ui/review?queue=Check&channel=vpg', $done->hrefs(),
+                    'an empty list leads to the next list with work (F161), of the store chosen (U106)');
             }
             $link = $this->link($listing);
             self::assertSame(['mapped', $sku, 1], [$link['status'], $link['sku_id'], $link['units_per_item']], "listing {$listing}");

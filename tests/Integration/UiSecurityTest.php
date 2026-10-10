@@ -70,7 +70,9 @@ final class UiSecurityTest extends UiTestCase
             self::assertHardened($r, $path);
         }
         self::assertSame(404, $web->get('/ui/review', ['queue' => 'Nonsense'])->status);
-        self::assertSame('/ui/', $web->get('/ui/review')->location(), 'no queue named: back to the dashboard');
+        $overview = $web->get('/ui/review');
+        self::assertSame([200, null], [$overview->status, $overview->location()], 'no queue named: the "By store" overview (U107)');
+        self::assertHardened($overview, '/ui/review');
 
         $r = $web->post('/ui/search', ['csrf' => $this->token($web)]);
         self::assertSame(405, $r->status);

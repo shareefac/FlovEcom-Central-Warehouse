@@ -173,8 +173,12 @@ final class Sections
         if (preg_match($regex, $path) !== 1) {
             return null;
         }
-        if ($cond !== null && (string) ($query[$cond[0]] ?? '') !== $cond[1]) {
-            return null;
+        if ($cond !== null) {
+            // A value that is not one plain value (queue[]=x) names no page: never cast it (it was a 500 on the "By store" overview).
+            $value = $query[$cond[0]] ?? '';
+            if (!is_scalar($value) || (string) $value !== $cond[1]) {
+                return null;
+            }
         }
         return strlen(str_replace('{id}', '', $body)) + ($cond !== null ? 1000 : 0) + ($prefix ? 0 : 0.5);
     }
