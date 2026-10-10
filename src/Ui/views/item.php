@@ -258,6 +258,9 @@
 
 <section aria-labelledby="listings-h">
   <h2 id="listings-h"><?= $word('ITEM', 'listings') ?></h2>
+<?php if ($coverage_link !== null): ?>
+  <p class="see-also"><a href="<?= $e($coverage_link) ?>"><?= $word('ITEM', 'coverage_link') ?></a></p>
+<?php endif; ?>
 <?php if ($listings === []): ?>
   <p class="muted"><?= $word('ITEM', 'listings_none') ?></p>
 <?php else: ?>

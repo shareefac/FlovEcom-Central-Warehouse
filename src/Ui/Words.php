@@ -46,7 +46,7 @@ final class Words
         'APPROVALS', 'REASONS_EDIT', 'REASON_NOTICE', 'WAREHOUSES', 'WHY_NOT_EMPTY', 'WAREHOUSE_NOTICE', 'MODE', 'SITES', 'SITE_COMMAND', 'INTEGRITY', 'AUDIT',
         'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
-        'STORE_PRODUCTS', 'STORE_STATE',
+        'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN'];
 
@@ -181,6 +181,7 @@ final class Words
         'mapping' => 'Mapping',
         'review' => 'Mapping',
         'store_products' => 'Store Products',
+        'by_product' => 'By Item',
         'pending' => 'Second approval',
         'samples' => 'Spot check',
         'duplicates' => 'Duplicates',
@@ -282,6 +283,7 @@ final class Words
         'cards' => 'Every product with its legal details and barcodes.',
         'mapping' => 'Match each website product to its warehouse product, the spot checks and the second approvals.',
         'store_products' => 'Every product of one store, and whether it is matched, suggested, not matched or ignored.',
+        'by_product' => 'Every warehouse item, and the variant it is matched to on each store.',
         'duplicates' => 'Vape and Go pages that may be the same product.',
         'barcodes' => 'Barcodes the computer could not place.',
         'stock' => 'What is in each warehouse now.',
@@ -376,6 +378,10 @@ final class Words
         'queue_Key' => ['Same barcode, or copied from the other website, and the AI agrees.', 'Check the names, then press Yes. A few seconds each.'],
         'mapping_overview' => ['How far each store is with matching, by how sure the computer is.', 'Choose a store, then press Review on a list.'],
         'store_products' => ['Every website product of one store, and its match.', 'Choose a store. Tick products to ignore them or send them back; open one to change it.'],
+        'by_product' => ['Every warehouse item and the variant it is matched to on each store.',
+            'Where a store is missing, press "Match…" and choose its variant.'],
+        'by_product_map' => ['Which variant of this store is this warehouse item?',
+            'Press Choose on it. The next page shows the two side by side, and you say yes there.'],
         'bulk_confirm' => ['This changes many website products at once.', 'Check the list below. Nothing is saved until you press the red button.'],
         'bulk_result' => ['What happened to each website product you ticked.', 'Open a skipped one to decide it by hand.'],
         'queue_Check' => ['The AI found a likely product, but no barcode proves it, or a small detail differs.', 'Compare them before you say yes.'],
@@ -1526,6 +1532,8 @@ final class Words
         'unknown_item' => 'This warehouse product does not exist (the link may be old). Search for it instead.',
         'unknown_group' => 'We cannot find this group of possible duplicates. The link may be old.',
         'unknown_sample' => 'We cannot find this spot check. The link may be old.',
+        'unknown_store' => 'We cannot find this store. The link may be old: open By Item and choose again.',
+        'item_joined' => 'This warehouse item was joined into another one, so nothing is matched to it any more. Open the item it was joined into.',
         'unknown_document' => 'We cannot find this record. The link may be old or wrong.',
         'unknown_task' => 'We cannot find this check. It may be closed already, or the link is wrong.',
         'task_closed' => 'This check is closed already: someone decided it meanwhile. Nothing was changed.',
@@ -3314,6 +3322,86 @@ final class Words
         'not_matched' => 'Not matched',
     ];
 
+    // ------------------------------------------------------------------------------------------------------------------
+    // Products › By Item (docs/decisions.md U113-U122): every warehouse item with the variant it is matched to on each store.
+    // The owner's words (10 Oct 2026, U122): a store's sellable option is a VARIANT, the warehouse record it is matched to is an
+    // ITEM, and a PRODUCT is the parent page that has many variants. Only this screen and its picker say so yet; the other
+    // screens keep "website product" and "warehouse product" until they are renamed together. The keys keep `by_product`.
+
+    /**
+     * The list and its picker ("Match…"). The %s of `missing`, `map_named`, `pick_title`, `pick_crumb`, `pick_now` and `pick_search`
+     * is a store's name, read from the channel table: no store is named here.
+     */
+    public const BY_PRODUCT = [
+        'no_stores' => 'No store is set up in this system yet.',
+        'no_stores_text' => 'Each store becomes a column here as soon as it is set up.',
+        'search' => 'Item name, CW number or barcode',
+        'download' => 'Download this list, one column for each store',
+        'filters' => 'Show',
+        'all' => 'All',
+        'every' => 'On every store',
+        'missing' => 'Missing on %s',
+        'suggested' => 'With a suggestion waiting',
+        'board' => 'Warehouse items and their match on each store',
+        'shown' => '%s in all · %s shown · by CW number',
+        'item' => 'Item',
+        'parent' => 'Product: %s',
+        'stores_matched' => 'Stores matched',
+        'summary' => '%s of %s',
+        'more_one' => '+1 more variant',
+        'more_many' => '+%s more variants',
+        'on_hold' => 'On hold: shows as out of stock',
+        'also_waiting' => 'Also waiting for a second OK: %s',
+        'also_suggested' => 'Also suggested: %s',
+        'review' => 'Review',
+        'map' => 'Match…',
+        'map_more' => 'Match another…',
+        'map_other' => 'Choose another…',
+        'map_named' => 'Choose the variant of %s for %s',
+        'back_here' => 'You came back from this item.',
+        'pinned' => 'It no longer fits the filter, so it is shown here once.',
+        'empty' => 'There are no warehouse items yet.',
+        'empty_text' => 'They are made when a store\'s list is loaded, or when a variant is created as a new item.',
+        'empty_filter' => 'No warehouse item fits your search or filter.',
+        'empty_filter_text' => 'Other items are hidden by it.',
+        'note' => 'Nothing is matched on this page itself. "Match…" and "Review" open the variant\'s own page: you compare the two there and say yes.',
+        // The picker: one warehouse item on one store
+        'pick_title' => 'Match %s on %s',
+        'pick_crumb' => 'By Item: %s',
+        'pick_facts' => 'The warehouse item',
+        'pick_none' => 'none',
+        'pick_now' => 'On %s now',
+        'pick_now_none' => 'Not on this store.',
+        'pick_now_more' => 'You can still match one more variant to it: some stores list one item on two pages.',
+        'pick_suggested' => 'Suggested for this item',
+        'pick_suggested_none' => 'The computer suggests no variant of this store for it. Search below.',
+        'pick_search' => 'Other variants of %s still waiting for a match',
+        'pick_search_label' => 'Name, brand, option number or barcode',
+        'pick_search_hint' => 'Filled in from the item\'s name: change the words if nothing fits. Best sellers first.',
+        'pick_search_first' => 'The suggestions are above. Press Search to look for other variants with these words.',
+        'pick_found_none' => 'No variant of this store that still waits for a match has all these words. Try fewer words.',
+        'pick_found_no_more' => 'No other variant of this store that still waits for a match has all these words. Try fewer words.',
+        'pick_variant' => 'Variant',
+        'pick_price' => 'Price',
+        'pick_state' => 'Match',
+        'pick_barcode' => 'Barcode',
+        'pick_barcode_same' => 'Same barcode',
+        'pick_barcode_differs' => 'Different barcode',
+        'pick_barcode_unknown' => 'No barcode to compare',
+        'pick_choose' => 'Choose',
+        'pick_choose_named' => 'Choose %s',
+        'pick_page' => 'Page %s',
+        'pick_next_step' => '"Choose" opens that variant next to this warehouse item. Nothing is matched until you say yes there.',
+    ];
+
+    /** What a store has for a warehouse item: a cell of By Item and of its CSV. */
+    public const PRODUCT_STORE = [
+        'matched' => 'Matched',
+        'waiting' => 'Waiting for a second OK',
+        'suggested' => 'Suggested',
+        'none' => 'Not on this store',
+    ];
+
     /** The spot-check pages (/ui/review/samples and /{id}, plan §6.9, 6.10). The answers on a member's page are SPOT. */
     public const SAMPLE = [
         'none' => 'No spot check yet.',
@@ -3600,6 +3688,7 @@ final class Words
         'never' => 'never',
         'listings' => 'Website products matched to it',
         'listings_none' => 'No website product is matched to it, and none ever was.',
+        'coverage_link' => 'See where it is matched',
         'product' => 'Website product',
         'website' => 'Website',
         'status' => 'Status',
@@ -6658,6 +6747,8 @@ final class Words
         // Stock › Reservations: in a checkout blue, to ship orange, dealt with green, freed and run out grey.
         'RESV_GROUP' => ['held' => 'info', 'to_ship' => 'needs', 'closed' => 'done', 'released' => 'off', 'expired' => 'waiting'],
         'RESV_UNIT' => ['held' => 'info', 'allocated' => 'needs', 'shipped' => 'done', 'cancelled' => 'off', 'released' => 'off', 'returned' => 'waiting'],
+        // By Item's cells, as Store Products colours the same states.
+        'PRODUCT_STORE' => ['matched' => 'done', 'waiting' => 'review', 'suggested' => 'needs', 'none' => 'waiting'],
     ];
 
     // ==================================================================================================================

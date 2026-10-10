@@ -9,6 +9,7 @@ use CW\Catalogue\CardProposals;
 use CW\Catalogue\ItemCards;
 use CW\Catalogue\ItemRules;
 use CW\CwException;
+use CW\Ui\ByProductContext;
 use CW\Ui\Context;
 use CW\Ui\Duplicates;
 use CW\Ui\FormOnce;
@@ -214,6 +215,9 @@ final class ItemController
                 $ctx->db->all('SELECT id, code FROM sku WHERE merged_into_sku_id = ? ORDER BY id LIMIT 50', [$id])),
             'barcodes' => $barcodes,
             'listings' => $rows,
+            // Products › By Item, narrowed to this product: each store's column for it (U120).
+            'coverage_link' => $ctx->me()->can('linking.view') && $sku['merged_into_sku_id'] === null
+                ? Html::url(ByProductContext::LIST_PATH, ['q' => (string) $sku['code']]) : null,
             'stock' => $stock,
             'totals' => $totals,
             'ledger' => $ledger,

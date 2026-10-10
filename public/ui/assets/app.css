@@ -1590,3 +1590,20 @@ table.by-store-table td.share .muted.small { display: block; }
 .grp-block.by-store .grp-count a { font-weight: 400; }
 /* The bulk result and its second step */
 .bulk-confirm { max-width: 760px; }
+
+/* ---------- 22. By Item: one column per store, and its picker (docs/decisions.md U113-U122) ---------- */
+/* A store's cell: the state label, then the website product and its lines, left-aligned from the top (a board centres its cells) */
+table.by-product th.c-store { min-width: 12rem; }
+table.by-product td.c-store { text-align: left; vertical-align: top; min-width: 12rem; max-width: 22rem; padding: 8px; }
+table.by-product td.c-store .o-line { max-width: none; overflow-wrap: anywhere; }
+table.by-product td.c-store .o-sub { margin-top: 2px; }
+table.by-product .cell-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+table.by-product .here-note { color: var(--ink); }
+/* The row a person came back to after a decision keeps its tint while they read it (the list scrolls to it: #p-<number>) */
+table.by-product tr[id] { scroll-margin-top: 96px; }
+@container (max-width: 640px) {
+  /* As a card: the store's name on the left, what it has on the right; the label keeps its own width */
+  table.stack.by-product td.c-store { max-width: none; padding: 4px 0; row-gap: 2px; }
+  table.stack.by-product td.c-store > .chip { justify-self: start; }
+  table.stack.by-product tr.picked { background: var(--primary-sel); border-color: var(--primary); }
+}

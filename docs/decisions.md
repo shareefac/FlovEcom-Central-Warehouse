@@ -7067,3 +7067,168 @@ would be a second writer; (5) a link from Overview's "Reserved" column and from 
 Fixed numbers, not settings (display limits, like Movements' 50 rows and 200 products): 50 rows a page, "within the hour" (60 minutes), 200
 products and 1,000 orders in a product search, 5,000 rows in a file. The hour is the one the owner might want to set: say so and it becomes
 a setting.
+
+## Products › By Item: every warehouse item with the variant it is matched to on each store (slot `prodmap`, 10 Oct 2026)
+
+The owner's request of 10 Oct 2026: "i have 3 different store ... some product have added in all site, some [not] ... we need to list all
+product and show each product with which store mapped and this same place easy map option". The matching screens were store-first (the
+website products of one store); this is the warehouse-first view. The same day the owner named what it lists: "actually we need variant
+mapping not product ... each variant we have treating item" (U122), so the screen is "By Item" and speaks of items and variants. Code:
+`migrations/0024_by_product.sql`, `src/Ui/Controller/ByProductController.php` and `src/Ui/ByProductContext.php` (new), `src/Ui/Queries.php`
+(the By Item reads), `src/Ui/Controller/{Review,Item}Controller.php`, `src/Ui/{Kernel,Sections,Words}.php`, views `by_product`,
+`by_product_map` (new) and `item`, `public/ui/assets/app.css` (section 22). Tests: `tests/Integration/UiKernel/ByProductScreenTest.php` and
+`tests/Unit/ByProductContextTest.php` (new); the pinned navigation, templates, words and routes in `SectionsTest`, `UiTemplatesTest`,
+`WordsTest`, `UiUnitTest`, `MenusTest`, `HomeScreenTest`, `DuplicatesScreenTest`; the HTTP tests `UiReviewFlowTest` and `UiSecurityTest`
+(slot `ui`). `DecisionService` is not touched. The page goes out with its code and the migration (two indexes, built online; it comes
+after 0023 of Stock › Reservations and does not depend on it). The paths and the internal keys keep their first names
+(`/ui/review/products`, `by_product`, `BY_PRODUCT`, `via=product`): only what a person reads changed.
+
+**M54. No new way to decide.** By Item and its picker only read: three GET routes, no POST (`UiUnitTest` pins that no POST route starts
+with `/ui/review/products`). "Match…" opens the picker, "Choose" opens the EXISTING page of that variant (the website product's page of
+the Mapping tab) with the item picked (`?pick=`), and the person presses that page's "Yes, same product: match to CW-…". So the version
+the page showed (M5) and the suggestion it showed (M19), the vetoes and flags, a spot check's owner (M28), the hold (M30), the matching
+lead's lists and every two-person rule (1 sale is not 1 product, a protected product, a pair marked wrong before) stay where they were: on
+that page and in `DecisionService::decide`.
+
+**U113. The tab and the list.** Products › By Item (`/ui/review/products`, `linking.view`), next to Store Products in `Sections::MAP`: one
+row per warehouse item (a `sku` row; one joined into another is left out), in CW-number order. The first column, "Item": its name (a link
+to its page), its CW number and brand and, under them in the small muted style, "Product: <name>" (its parent product, U122). Then one
+column per store, then "Stores matched" ("2 of 3"). The columns are the rows of the `channel` table, by name (`Queries::everyStore`): no
+store is named or counted in the code, and a fourth row is a fourth column, also before its list is loaded (every item is "Not on this
+store" there). That differs on purpose from the store selector (U106), which lists only stores that have website products: there is
+nothing to review on an empty store, but an item is missing on it.
+
+**U114. A cell** says the first of these that the store has for the item, in Store Products' colours (`Words::PRODUCT_STORE`):
+- **Matched**: the variant's name (its product's name and its own option name), linked to its page; when several variants of the store are
+  matched to the item, the best seller and "+1 more variant" / "+N more variants"; "1 sale = N products" when N is not 1; "On hold" for
+  one on hold (both notes are the named variant's: the CSV says them of each variant, U116);
+- **Waiting for a second OK**: a decision that would match a variant to it waits (its name, its units per sale);
+- **Suggested**: an open suggestion on a variant that still waits for a match proposes this item: its name and the strength in words, the
+  strongest first, and "Review" for people who may decide. A merge suggestion between two warehouse items (M34) is not one: it sits on a
+  matched variant;
+- **Not on this store**, with "Match…".
+A matched cell also says "Also waiting for a second OK: n" and "Also suggested: n". The row's strip is green when the item is matched on
+every store, orange on some, grey on none.
+
+**U115. Who sees "Match…".** People who may decide (`mapping.decide`, the check of the other matching pages): "Match…" on an empty cell,
+"Match another…" on a matched one (some stores list one item on two pages; the cell then says "+1 more variant"), "Choose another…" beside
+a suggestion. Everyone else sees the states and names; the picker's route is `mapping.decide` too (403 in words). The brief's word was
+"Map"; the screens' one word for it is "match" (the tab is "Mapping", every button says match), so the button says "Match…", with the
+bulk bar's "…" for "a second step follows".
+
+**U116. Search, filters, pager, export.** Search is the Find page's product search: a CW number as it is written ("CW-000123": that item,
+by its id); a number of six digits or more as a barcode or a CW number (index reads); else every word in the name, brand, range or
+flavour, or a short number as a CW number (the words read the item rows, as the Find page does: 15,000 narrow rows). A text with no
+usable word finds nothing: `trim()` leaves white space that is not ASCII (a pasted no-break or full-width space, a form feed), which the
+word split takes as a separator, and bytes that are not UTF-8 cannot be split at all. `Queries::productText` adds its word group only
+when there are words and answers `FALSE` when nothing is left (it built `AND (())`, a 500, on the list, the CSV and the way back from a
+decision; found in review). The coverage filter, with counts: All · On every store · Missing on <store> (one entry per store) · With a
+suggestion waiting. The counts are of the whole catalogue, not narrowed by the search (as Store Products' are). 50 a page with the
+existing pager. Export is a CSV of every item of the filter (not only the page), read in slices of 500 items: `cw_number`, `name`,
+`product` (the parent product, U122), `brand`, one column per store, `stores_matched`, `stores`. A store's cell is its state in the
+page's words and then the option number of EVERY variant of that state, each with its own notes: "Matched: 4711 (On hold: shows as out
+of stock), 4712 (1 sale = 10 products)". The first version wrote one note after the whole list, taken from whichever variant came first,
+so a pack's note could read as the single's (found in review); the variants are in listing order and their order decides nothing. The
+variants' names are not in the file. For the `product` column the CSV's matched read takes the product name and the year's units of the
+MATCHED variants from their profiles (the same read, one join; the suggested and the waiting reads of the CSV still leave the profiles
+alone).
+
+**U117. Kept cheap; what 0024 adds.** A page is at most eight reads. (1) The filter entries' counts
+(`Queries::productCoverage`): the items (`ix_sku_merged_into`); the matched variants grouped by item and then by their set of stores (one
+pass over the index `channel_listing (sku_id, channel_id)`; the set is a number with one bit per store, or a list of ids beyond 62
+stores); the items with a suggestion waiting (the index `match_proposal (status, proposed_sku_id, listing_id, band)`). They also give a
+list's total, so a list without a text is never counted. (2) The page's 50 ids, in id order from `ix_sku_merged_into` (its entries end
+with the id), then their rows by id. "On every store" is one EXISTS per store (the optimizer starts from the store with the fewest
+variants); "Missing on <store>" is an anti-join on `(sku_id, channel_id)`, item by item, with the index named in a hint (without it MySQL
+first read every listing row of the store: 107-137 ms against 2-53 ms); a search and "With a suggestion waiting" read all their ids in
+one pass (they are few), which also counts them. (3) Three reads for the cells of those 50 (`productCells`): the variants matched to them
+(`channel_listing.sku_id IN (…)`, with their names and the year's units from the profiles: the item's "Product: …" line comes from this
+read, no query and no index was added for it), the open suggestions that propose them, the decisions waiting for them.
+`0024_by_product.sql` adds the two indexes these reads need to stay off wide rows: `channel_listing (sku_id, channel_id)` in place of
+`(sku_id)` (it serves the foreign key too), and `match_proposal (status, proposed_sku_id, listing_id, band)`. Both are named in optimizer
+hints, which are ignored while an index is not there, so the code may run a moment before the migration (slower, not wrong). Measured on
+the slot's test schema filled like staging (10 Oct 2026: the small cluster, MySQL 8.4, a 32 MB buffer pool; 15,000 items, 38,040
+variants with profiles, 2,638 open suggestions; the `EXPLAIN` of every statement is in `/root/cw_work/runs/prodmap_explain_1010.txt`, and
+of the second round in `/root/cw_work/runs/prodmap_explain2_1010.txt`): the counts 60-80 ms together (8 + 30 + 25); a page of All 5 ms
+and 3 ms for its rows; the cells 9-17 ms; On every store 3 ms; Missing on a store 2 ms on page 1 when most items are missing, 45-53 ms
+on the last page or when few are;
+With a suggestion waiting 22 ms; a search by words 80 ms (it reads every item row), by CW number 1-2 ms, by barcode 3 ms; coming back
+from a decision adds one read of 15-38 ms. The CSV of the whole catalogue: its ids in 18 ms, then 26-44 ms for each 500 items,
+the `product` column's join of the matched variants' profiles included (that read: 9 ms for the 566 matched variants of a slice; a
+slice took about 30 ms before it, so it costs little here, and more on the real, wider profiles). The picker: its suggestions
+2 ms, its rows 3 ms, its search 60 ms without words and about 105 ms with words on a store of 9,000 variants. That search reads the
+profiles of the store's waiting variants, as Store Products' search does; the real profiles are about four times as wide as the test's,
+so expect several times that on staging. That is why a plain opening of the picker does not run it when there is something suggested to
+show (U118; found in review: it ran on every opening). If it still proves too slow, a full-text index on the variants' names is the next
+step (not built: U121).
+
+**U118. The picker** (`/ui/review/products/{id}/map?channel=<store code>`: a plain page, links and one GET form, no script needed), titled
+"Match <CW number> on <store>". On top the item's facts: name, CW number, brand, range, flavour, strength, size, barcodes, and what the
+store has for it now. Then "Suggested for this item": the store's variants whose open suggestion proposes it, the strongest first. Then
+"Other variants of <store> still waiting for a match" (not matched, not ignored, no decision waiting): a search of the fields Store
+Products searches (name, option name, brand; the option number; a barcode), word by word as the Find page does, best sellers first, 20 a
+page with Previous / Next and no count (the store's waiting variants are read once, not twice). The box is filled in from the item's own
+words (its brand and flavour when its details have them, else the first words of its name; a strength or a size is left out, since each
+website writes "20mg" its own way). **When that search runs:** on a plain opening (no `q` in the request) only when there is NO suggested
+row to show; when there are suggestions they are shown, the box is filled in with its Search button, and one line says "The suggestions
+are above. Press Search to look for other variants with these words." A search the person sent always runs: also an emptied one (every
+waiting variant of the store), and one with no usable word finds nothing (as U116). Previous and Next always name the search they page
+through, an emptied one too (`…&q=&page=2`): the first version built them from the values alone, an empty value is left out of a link, and
+page 2 of "every waiting variant" fell back to the first search and showed another list (found in review). Each row: the variant's
+product name and, under it, its own option name; its brand and option number; its state (or the strength of its suggestion for this
+item); "Same barcode / Different barcode / No barcode to compare" (GTIN keys, as the comparison table); the price; the units sold in 30
+days and a year; and ONE action, Choose. An item that does not exist (404), one that was joined into another (404, with the way to that
+one) and a store code that names no store (404) are answered in words.
+
+**U119. "Came from By Item", and back.** `Ui\ByProductContext` (QueueContext's sibling): the fixed token `via=product`, the item's number
+(`product`), the store's code (`channel`; it must name a store), the list's own filter and search (`cov`, `lq`; each must be one of the
+page's values) and, when the person had them, the picker's own search and page: `pq` (trimmed and cut to the search box's 100
+characters; an emptied search travels as one space, because a link and a form leave an empty value out and "no `pq`" means "the picker's
+first search") and `pp` (a number above 1). It travels as the variant page's `$qq`: its links, its "pick a different product" search and
+its answer forms; only people who may decide get it. On that page "Back" and "leave it and go back" are the picker AS THE PERSON LEFT IT
+(`pickerUrl()`: their search, also an emptied one, and their page; the first version always opened the picker's first search on page 1:
+found in review). After the decision (`ReviewController::decide`) the person is sent to By Item (`listUrl()`), to the list as they left
+it and `at=<item>`: the page of the list that holds the item, its row tinted with "You came back from this item." (when the filter no
+longer holds it, because it is matched now, it is shown once, first, and says so), under the EXISTING notice in words: matched to CW-…,
+saved but waiting for a matching lead's second OK, or marked "not this product". `pq` and `pp` are NOT part of that address: after a
+decision the person is on the list, not in the picker. A refused answer stays on the variant's page with its words and the form, as
+before, and keeps the whole context. Every address is built from those values and nothing else (never a return address from the
+request: no open redirect; a crafted `pq` is only ever a query value of the picker, a crafted `pp` no page); an incomplete context is no
+context (the page's own redirect, as before). A list (`queue=`) and a spot check (`sample=`) come first, so "next in the list" is
+unchanged.
+
+**U120. A small link.** The item page's "Website products matched to it" has "See where it is matched": By Item narrowed to that item,
+for people with `linking.view`. Store Products is unchanged.
+
+**U121. Words, look, and what was left out.** Words: `MENU`, `MENU_HELP` and `PAGE_INTRO` `by_product` (and `by_product_map`), the groups
+`BY_PRODUCT` and `PRODUCT_STORE` with its tones, `ERROR` `unknown_store` and `item_joined`, `ITEM` `coverage_link`. Look: a board with one
+cell per store, cards on a phone with each cell labelled by its store; section 22 of app.css; no new JavaScript. Left out: (1) a
+best-seller order and sort options: an item's sales are its variants' units, a sort over every profile, so the list is by CW number;
+(2) matching from the list itself, or several items at once: a match is one decision on its page, and the bulk confirm of suggestions
+stays on Mapping (M46); (3) undoing a match from here: it stays on the variant's page (M53); (4) variants with the item's barcode offered
+in the picker before any search (the barcode can be searched, and each row says whether it is the same); (5) counts narrowed by the
+search; (6) a row for an item that was joined into another one (its own page says where it went); (7) a full-text index for the picker's
+word search (U117): it reads the profiles of the store's waiting variants, as Store Products' search does; (8) grouping the list by
+parent product (one heading per product with its items under it): the parent is known only for matched items and differs from store to
+store, so it is a line under the item, not a level of the list.
+
+**U122. The owner's words: items and variants (binding for this screen).** The owner, 10 Oct 2026, on seeing "By Product": "actually we
+need variant mapping not product ... each variant we have treating item". So, on this screen and its picker:
+- a **variant** is a store's sellable option (one flavour, one strength, one pack size): a `channel_listing` row, what the other matching
+  screens call a website product;
+- an **item** is the warehouse record a variant is matched to: a `sku` row, what the other screens call a warehouse product;
+- a **product** is only the parent page that holds many variants (`listing_profile.product_title`).
+What a person reads: the tab "By Item"; the intro "Every warehouse item and the variant it is matched to on each store."; the first
+column "Item"; the cells "Matched <variant name>", "+1 more variant" / "+N more variants", "Suggested <variant name>", "Not on this
+store"; "Stores matched: 2 of 3"; the button "Match…"; the picker "Match <CW number> on <store>" with "Suggested for this item", "Other
+variants of <store> still waiting for a match", the column "Variant" (the product's name with the option's name under it) and "Choose";
+the item page's link "See where it is matched". **The parent product** under an item ("Product: <name>") is the product name of the
+item's matched variant that sold most in a year, on any store (the same number twice: the lowest listing id); it is left out when no
+variant is matched, when that name is empty, and when it only repeats the item's own name. It is read in the cells' matched read (U117)
+and is the CSV's column `product`. **Scope:** this screen and its picker only. The other screens keep their words (Mapping, Store
+Products, the variant's own page with "Yes, same product: match to CW-…", the shared note "1 sale = N products"): they are pinned by
+their own tests and were not what the owner spoke about; a person goes from "variant" here to "website product" on that page, which the
+crumb "By Item: <store>" bridges. The paths, route names, keys and the context's fields are not renamed (`/ui/review/products`,
+`by_product`, `BY_PRODUCT`, `PRODUCT_STORE`, `via=product`, `product=`): bookmarks and the pinned route lists stay, and only words
+changed. `WordsTest::testByItemSpeaksOfItemsAndVariantsAsTheOwnerDoes` pins the naming (no "website product", "warehouse product" or
+"By Product" in this screen's words; "product" only in "Product: …").

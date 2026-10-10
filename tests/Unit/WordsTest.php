@@ -344,7 +344,12 @@ final class WordsTest extends TestCase
             'DUP_ERROR' => ['map_version_conflict', 'proposal_changed', 'pending_second_exists', 'rejected_pair', 'protected', 'counted_meanwhile', 'not_merged',
                 'former_merged_elsewhere', 'lead_required', 'idempotency_key_reused', 'split_chain', 'keeper_changed', 'form_incomplete', 'nothing_chosen',
                 'elsewhere', 'confirm_needed'],
-            'ERROR' => ['unknown_listing', 'unknown_item', 'unknown_group', 'unknown_sample'],
+            'ERROR' => ['unknown_listing', 'unknown_item', 'unknown_group', 'unknown_sample', 'unknown_store', 'item_joined'],
+            // By Item (U113-U122): a cell's states, the coverage filters, the picker's barcode marks, and the words its two pages
+            // take by name.
+            'PRODUCT_STORE' => ['matched', 'waiting', 'suggested', 'none'],
+            'BY_PRODUCT' => [...Queries::COVERAGE, 'all', 'pick_barcode_same', 'pick_barcode_differs', 'pick_barcode_unknown', 'item', 'parent', 'more_one', 'more_many',
+                'stores_matched', 'summary', 'map', 'pick_title', 'pick_suggested', 'pick_search', 'pick_search_first', 'pick_variant', 'pick_choose'],
         ] as $group => $codes) {
             foreach ($codes as $code) {
                 self::assertTrue(Words::has($group, $code), "{$group}: no word for `{$code}`");
@@ -378,6 +383,34 @@ final class WordsTest extends TestCase
      * Stock › Reservations (docs/decisions.md RS4): the screen's states are the engine's own (0001_core.sql), each with its plain
      * words and its colour; the board's groups cover them; every part of "what became of it" has its words.
      */
+    public function testByItemSpeaksOfItemsAndVariantsAsTheOwnerDoes(): void
+    {
+        // docs/decisions.md U122, the owner on 10 Oct 2026: "actually we need variant mapping not product ... each variant we have
+        // treating item". On this screen and its picker a store's sellable option is a VARIANT, the warehouse record it is matched
+        // to is an ITEM, and "product" names only the parent page of a variant ("Product: …"). The other screens keep their words.
+        self::assertSame('By Item', Words::MENU['by_product']);
+        self::assertSame('Every warehouse item, and the variant it is matched to on each store.', Words::MENU_HELP['by_product']);
+        self::assertSame('Every warehouse item and the variant it is matched to on each store.', Words::PAGE_INTRO['by_product'][0]);
+        self::assertSame(['Item', 'Stores matched', 'Match…', 'Choose', 'Variant'],
+            [Words::BY_PRODUCT['item'], Words::BY_PRODUCT['stores_matched'], Words::BY_PRODUCT['map'], Words::BY_PRODUCT['pick_choose'], Words::BY_PRODUCT['pick_variant']]);
+        self::assertSame(['Matched', 'Waiting for a second OK', 'Suggested', 'Not on this store'], array_values(Words::PRODUCT_STORE));
+        self::assertSame(['Product: Elux Legend 3500', '2 of 3', '+1 more variant', '+4 more variants'], [Words::say('BY_PRODUCT', 'parent', 'Elux Legend 3500'),
+            Words::say('BY_PRODUCT', 'summary', 2, 3), Words::BY_PRODUCT['more_one'], Words::say('BY_PRODUCT', 'more_many', 4)]);
+        self::assertSame(['Match CW-000041 on Alt Store', 'Suggested for this item', 'Other variants of Alt Store still waiting for a match'],
+            [Words::say('BY_PRODUCT', 'pick_title', 'CW-000041', 'Alt Store'), Words::BY_PRODUCT['pick_suggested'], Words::say('BY_PRODUCT', 'pick_search', 'Alt Store')]);
+        self::assertSame('See where it is matched', Words::ITEM['coverage_link']);
+        $texts = array_merge(array_values(Words::BY_PRODUCT), array_values(Words::PRODUCT_STORE), Words::PAGE_INTRO['by_product'], Words::PAGE_INTRO['by_product_map'],
+            [Words::MENU['by_product'], Words::MENU_HELP['by_product'], Words::ERROR['unknown_store'], Words::ERROR['item_joined'], Words::ITEM['coverage_link']]);
+        foreach ($texts as $text) {
+            self::assertDoesNotMatchRegularExpression('/website products?|warehouse products?|By Product/i', $text);
+        }
+        foreach (Words::BY_PRODUCT as $code => $text) {
+            if ($code !== 'parent') {
+                self::assertDoesNotMatchRegularExpression('/\bproducts?\b/i', $text, "{$code}: \"product\" is only the parent page of a variant");
+            }
+        }
+    }
+
     public function testEveryStateOfAReservationHasItsWords(): void
     {
         $sql = (string) file_get_contents(dirname(__DIR__, 2) . '/migrations/0001_core.sql');

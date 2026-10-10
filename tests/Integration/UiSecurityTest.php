@@ -19,7 +19,8 @@ final class UiSecurityTest extends UiTestCase
         '/ui/reference/company', '/ui/reference/company/edit', '/ui/reference/company/sample.pdf', '/ui/review/duplicates', '/ui/review/duplicates/1',
         '/ui/items/cards', '/ui/items/cards.csv', '/ui/items/cards/import', '/ui/items/1/card', '/ui/items/barcodes',
         '/ui/receiving', '/ui/receiving/template.csv', '/ui/receiving/1', '/ui/receiving/1/bench', '/ui/receiving/bench', '/ui/receiving/incidents',
-        '/ui/stock/in', '/ui/stock/out/1', '/ui/stock/adjustments', '/ui/stock/transfers/1', '/ui/stock/releases', '/ui/stock/accounts'];
+        '/ui/stock/in', '/ui/stock/out/1', '/ui/stock/adjustments', '/ui/stock/transfers/1', '/ui/stock/releases', '/ui/stock/accounts',
+        '/ui/review/products', '/ui/review/products.csv', '/ui/review/products/1/map?channel=vpg'];
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw',
         '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',
         '/ui/review/duplicates/1/decide', '/ui/review/duplicates/1/split', '/ui/items/1/card', '/ui/items/1/card/accept', '/ui/items/1/card/confirm',
@@ -33,7 +34,7 @@ final class UiSecurityTest extends UiTestCase
     {
         $web = $this->browser();
         // The sign-in page leads back to the page asked for (behaviour item 1): not Home (the default), the sign-in pages or a download.
-        $noBack = ['/ui', '/ui/', '/ui/password', '/ui/reference/company/sample.pdf', '/ui/items/cards.csv', '/ui/receiving/template.csv'];
+        $noBack = ['/ui', '/ui/', '/ui/password', '/ui/reference/company/sample.pdf', '/ui/items/cards.csv', '/ui/receiving/template.csv', '/ui/review/products.csv'];
         foreach (self::GETS as $path) {
             $r = $web->get($path);
             self::assertSame(303, $r->status, $path);
@@ -64,7 +65,8 @@ final class UiSecurityTest extends UiTestCase
     {
         $web = $this->signIn($this->uiUser('mapper'));
         foreach (['/ui/nope', '/ui/review/listing/abc', '/ui/review/listing/0', '/ui/review/listing/-1', '/ui/review/listing/1.5', '/ui/items/0', '/ui/items/1/x',
-            '/ui/review/listing/99999', '/ui/items/99999', '/ui/review/listing/99999999999999999999999', '/ui/loginx'] as $path) {
+            '/ui/review/listing/99999', '/ui/items/99999', '/ui/review/listing/99999999999999999999999', '/ui/loginx',
+            '/ui/review/products/0/map', '/ui/review/products/abc/map', '/ui/review/products/99999/map', '/ui/review/products/1', '/ui/review/productsx'] as $path) {
             $r = $web->get($path);
             self::assertSame(404, $r->status, $path);
             self::assertHardened($r, $path);
@@ -85,7 +87,20 @@ final class UiSecurityTest extends UiTestCase
 
         // Odd shapes of parameters are answered, never a 500.
         foreach ([['/ui/review', ['queue' => ['Key']]], ['/ui/search', ['q' => ['a', 'b']]], ['/ui/review', ['queue' => 'Key', 'page' => '-3', 'min' => 'x', 'channel' => ['x']]],
-            ['/ui/review', ['queue' => 'Key', 'page' => '999999999999999999999']], ['/ui/search', ['q' => str_repeat('é', 2000)]]] as [$path, $query]) {
+            ['/ui/review', ['queue' => 'Key', 'page' => '999999999999999999999']], ['/ui/search', ['q' => str_repeat('é', 2000)]],
+            // By Item (U113-U122): its filter, search, page and "came back from" marker, and the picker's store.
+            ['/ui/review/products', ['cov' => ['every'], 'q' => ['a', 'b'], 'page' => ['2'], 'at' => ['1']]],
+            ['/ui/review/products', ['cov' => 'missing-nosuchstore', 'page' => '-3']], ['/ui/review/products', ['page' => '999999999999999999', 'at' => '-1']],
+            ['/ui/review/products.csv', ['cov' => ['x'], 'q' => str_repeat('é', 2000)]],
+            ['/ui/review/products/1/map', ['channel' => ['vpg'], 'q' => ['x'], 'page' => '-1']], ['/ui/review/products/1/map', ['channel' => 'nosuchstore']],
+            ['/ui/review/listing/1', ['via' => ['product'], 'product' => ['1'], 'channel' => ['x'], 'cov' => ['y'], 'lq' => ['z']]],
+            // A search with no usable word (white space that is not ASCII, bytes that are not UTF-8): it finds nothing.
+            ['/ui/review/products', ['q' => "\u{00A0}"]], ['/ui/review/products', ['q' => "\u{3000}", 'cov' => 'suggested']], ['/ui/review/products', ['q' => "\x0C", 'at' => '1']],
+            ['/ui/review/products', ['q' => "\xFF", 'cov' => 'every']], ['/ui/review/products', ['q' => "caf\xE9", 'page' => '2']],
+            ['/ui/review/products.csv', ['q' => "\u{00A0}"]], ['/ui/review/products.csv', ['q' => "\xFF"]], ['/ui/review/products.csv', ['q' => "caf\xE9", 'cov' => 'suggested']],
+            ['/ui/review/products/1/map', ['channel' => 'vpg', 'q' => "\u{3000}", 'lq' => "\xFF"]], ['/ui/review/products/1/map', ['channel' => 'vpg', 'q' => "caf\xE9", 'page' => '2']],
+            ['/ui/review/listing/1', ['via' => 'product', 'product' => '1', 'channel' => 'vpg', 'lq' => "\xFF", 'pq' => "\u{00A0}", 'pp' => '-1']],
+            ['/ui/review/listing/1', ['via' => 'product', 'product' => '1', 'channel' => 'vpg', 'pq' => ['a'], 'pp' => ['2']]]] as [$path, $query]) {
             $r = $web->get($path, $query);
             self::assertLessThan(500, $r->status, $path . ' ' . json_encode($query) . ' ' . $r->describe());
         }
@@ -456,6 +471,15 @@ final class UiSecurityTest extends UiTestCase
             'duplicate group' => ['/ui/review/duplicates/' . $dup, ['notice' => $evil, 'keeper' => $attr], ['title3', 'vtitle3', 'title5', 'vtitle5', 'brand5', 'lbc5',
                 'an5', 'av5', 'flav5', 'colour5', 'sname1']],
             'duplicate group, other keeper' => ['/ui/review/duplicates/' . $dup, ['keeper' => (string) $l5], ['title5', 'sname5']],
+            // By Item (U113-U122): product, store and website product names in the cells; its filters; the picker and its search.
+            'by product' => ['/ui/review/products', [], ['sname1', 'sbrand1', 'sname2', 'sname5', 'chname', 'chname2', 'title3', 'vtitle3', 'title4']],
+            'by product, hostile filters' => ['/ui/review/products', ['cov' => $evil, 'q' => $attr, 'page' => $evil, 'at' => $attr, 'notice' => $evil, 'prev' => $evil], []],
+            'by product, came back' => ['/ui/review/products', ['at' => (string) $legacy, 'notice' => 'decided_link', 'prev' => (string) $l3], ['sname1', 'title3', 'vtitle3']],
+            'by product, picker' => ['/ui/review/products/' . $strict . '/map', ['channel' => 'alt', 'q' => 'script', 'cov' => $evil, 'lq' => $attr],
+                ['sname2', 'sbrand2', 'sflav2', 'tbc2', 'chname2', 'title2', 'vtitle2', 'variant2']],
+            'by product, picker, hostile search' => ['/ui/review/products/' . $strict . '/map', ['channel' => 'vpg', 'q' => $attr, 'page' => $evil], ['sname2', 'chname']],
+            'listing, from by product' => ['/ui/review/listing/' . $l2, ['pick' => (string) $strict, 'via' => 'product', 'product' => (string) $strict, 'channel' => 'alt',
+                'cov' => $evil, 'lq' => $attr], ['title2', 'sname2', 'chname2']],
         ];
         foreach ($pages as $what => [$path, $query, $fields]) {
             $r = $web->get($path, $query);

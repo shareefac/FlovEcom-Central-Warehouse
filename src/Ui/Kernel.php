@@ -17,6 +17,7 @@ use CW\Ui\Controller\ApprovalsController;
 use CW\Ui\Controller\AuthController;
 use CW\Ui\Controller\BarcodesController;
 use CW\Ui\Controller\BulkController;
+use CW\Ui\Controller\ByProductController;
 use CW\Ui\Controller\CompanyController;
 use CW\Ui\Controller\DashboardController;
 use CW\Ui\Controller\DocumentsController;
@@ -383,6 +384,13 @@ final class Kernel
         $r->add('GET', '/ui/review/store', 'linking.view', (new StoreProductsController())->index(...));
         $r->add('POST', '/ui/review/bulk', Route::DECIDE, $bulk->run(...));
         $r->add('GET', '/ui/review/batches/{id}', 'linking.view', $bulk->show(...));
+        // By Item (U113-U122, M54): every warehouse product with its match on each store, and its CSV, for everyone with
+        // linking.view; the picker of a website product for one product on one store for whoever may decide. All three only read:
+        // "Choose" leads to the website product's page above, whose decide route is the only one that changes a match.
+        $byProduct = new ByProductController();
+        $r->add('GET', '/ui/review/products', 'linking.view', $byProduct->index(...));
+        $r->add('GET', '/ui/review/products.csv', 'linking.view', $byProduct->csv(...));
+        $r->add('GET', '/ui/review/products/{id}/map', Route::DECIDE, $byProduct->map(...));
         // Duplicates (M34): Vape and Go's own duplicate listings; everyone with linking.view looks, a mapping lead decides (merge,
         // keep separate, split), checked again by DecisionService.
         $duplicates = new DuplicatesController();

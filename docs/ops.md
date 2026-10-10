@@ -2054,6 +2054,35 @@ Check afterwards: Settings › System › Settings lists "Matching products" wit
 Approval Rules › Matching products shows "Matches confirmed from a ticked list" off; cw_app holds SELECT, INSERT on `mapping_batch` and
 `mapping_batch_row`.
 
+## Products › By Item (`docs/decisions.md` M54, U113–U122)
+
+**The words.** A *variant* is one thing a store sells: one flavour, one strength, one pack size (the other matching pages call it a
+website product). An *item* is the warehouse's record of it, with its CW number. A *product* is the store's page that holds several
+variants. This page matches variants to items.
+
+**What the owner sees and does.** Products › By Item lists every warehouse item once, with one column for each store. Under the item's
+name are its CW number and, once a variant is matched to it, "Product: …" (the product of its best-selling variant). A cell says Matched
+(and to which variant; "+1 more variant" when the store has two variants on it; "1 sale = 10 products" for a pack), Waiting for a second
+OK, Suggested (with how sure the computer is, and Review), or Not on this store. "Stores matched: 2 of 3" ends the row. Above the list:
+Search (a name, a CW number, a barcode), the filters All · On every store · Missing on <store> · With a suggestion waiting, each with
+its count, and Export (a spreadsheet file with one column per store, and each item's product). To match an item where it is missing,
+press "Match…" in that store's cell. The next page, "Match CW-… on <store>", shows "Suggested for this item": that store's variants the
+computer suggests. Under it is a search of the store's other variants that still wait for a match, filled in from the item's name: when
+there are suggestions it waits until you press Search, when there are none it has already searched; change the words if nothing fits,
+or empty the box and press Search to see every waiting variant of the store. Press "Choose" on the right variant: its own page opens
+with the two side by side, and "Yes, same product: match to CW-…" there makes the match (Back on that page returns to the search you
+were in). You then land back on By Item at that item, with a line that says what happened (matched, or saved and waiting for a second
+matching lead). People who can only look see the list without "Match…". Nothing is ever matched on the By Item page itself, and nothing
+is matched in bulk from it.
+
+**Deploy.** The page goes out with its code and migration `0024_by_product.sql` (`install_cron.sh --migrate`): two indexes, built online
+(`channel_listing (sku_id, channel_id)` in place of `(sku_id)`; `match_proposal (status, proposed_sku_id, listing_id, band)`), no data
+change, no new table or setting, no new grant. Order does not matter for a moment in between: the code runs on the old index (slower
+counts), and the old code runs on the new one. Before it, as for every Mapping change: the slot suite, then
+`scripts/remote.sh ui vendor/bin/phpunit --filter 'UiAuthTest|UiSecurityTest|UiReviewFlowTest'`. After it: `php bin/invariants.php
+--db=cw_staging` says ok, and Products › By Item opens with one column per store. A new store is a column as soon as its row is in the
+`channel` table (`bin/create_channel.php`); nothing else is needed.
+
 ## Changing settings and rules yourself (`docs/decisions.md` Y1–Y38; the owner's rule of 8 Oct 2026)
 
 Who: the owner (Reviewer) and Fazil (Admin) — permission `settings.manage`; **switching an approval rule off or making it looser needs a

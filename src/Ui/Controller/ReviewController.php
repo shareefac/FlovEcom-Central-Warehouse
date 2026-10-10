@@ -12,6 +12,7 @@ use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
 use CW\Mapping\Proposals;
 use CW\Matching\Form;
+use CW\Ui\ByProductContext;
 use CW\Ui\Compare;
 use CW\Ui\Context;
 use CW\Ui\Duplicates;
@@ -474,7 +475,11 @@ final class ReviewController
                 'newer' => $proposal !== null && (int) $proposal['id'] !== $h['proposal_id'],
                 'waiting' => in_array($l['status'], KeyEligibility::OPEN_LISTING, true)];
         }
-        $qq = $qc !== null ? $qc->query() : ($sample !== null ? ['sample' => $sample['id']] : []);
+        // Opened from By Item (U119), by someone who may decide: the page, its picks and its forms lead back there. A list and a
+        // spot check come first.
+        $from = $req->method === 'POST' ? $req->post : $req->query;
+        $byProduct = $qc === null && $sample === null && $me->canDecide() && ByProductContext::named($from) ? ByProductContext::from($from, $q->everyStore()) : null;
+        $qq = $qc !== null ? $qc->query() : ($sample !== null ? ['sample' => $sample['id']] : ($byProduct !== null ? $byProduct->query() : []));
         $pickUrl = static fn (int $sid): string => Html::url('/ui/review/listing/' . $id, $qq + ['pick' => $sid]) . '#decide';
         $usable = static fn (?int $sid): bool => $sid !== null && isset($skus[$sid]) && $skus[$sid]['merged_into_sku_id'] === null;
 
@@ -699,7 +704,8 @@ final class ReviewController
             'qc' => $qc,
             'qq' => $qq,
             'back' => $qc !== null ? [Html::url('/ui/review', $qc->pageQuery()), Words::of('BAND_TITLE', $qc->band)]
-                : ($sample !== null ? [$sample['url'], Words::say('SAMPLE', 'title', $sample['name'])] : self::back($req)),
+                : ($sample !== null ? [$sample['url'], Words::say('SAMPLE', 'title', $sample['name'])]
+                : ($byProduct !== null ? [$byProduct->pickerUrl(), Words::say('BY_PRODUCT', 'pick_crumb', $byProduct->channelName)] : self::back($req))),
             'sample' => $sample,
             'spot' => $spot,
             'spot_mode' => $spotMode,
@@ -912,6 +918,12 @@ final class ReviewController
         $to = $qc !== null ? $q->nextInQueue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $id) : null;
         if ($qc === null) {
             $sample = UiRequest::id($req->field('sample'));
+            // Decided from By Item (U119): back to its list at that product, with the same notice. Only a product number and a
+            // store's code come from the form; the address is built here (ByProductContext), never taken from the request.
+            $byProduct = $sample === null && ByProductContext::named($req->post) ? ByProductContext::from($req->post, $q->everyStore()) : null;
+            if ($byProduct !== null) {
+                return HtmlResponse::redirect($byProduct->listUrl(['notice' => $notice, 'prev' => $id]));
+            }
             return HtmlResponse::redirect(Html::url('/ui/review/listing/' . $id, ['notice' => $notice] + ($sample !== null ? ['sample' => $sample] : [])));
         }
         if ($to === null && $action === 'reject') {
@@ -1007,8 +1019,8 @@ final class ReviewController
             : Words::say('MATCH_ERROR', 'bad_card', $label);
     }
 
-    /** The whitelisted notice named in the URL, worded for the website product it is about (F201, F202). */
-    private function notice(Context $ctx, ?int $current): ?string
+    /** The whitelisted notice named in the URL, worded for the website product it is about (F201, F202; By Item shows it too, U119). */
+    public function notice(Context $ctx, ?int $current): ?string
     {
         $key = $ctx->req->param('notice') ?? '';
         if (!isset(self::NOTICES[$key])) {

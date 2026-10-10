@@ -102,8 +102,8 @@ final class DuplicatesScreenTest extends KernelUiTestCase
 
         $list = $web->get('/ui/review/duplicates');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['label' => 'Duplicates', 'href' => '/ui/review/duplicates', 'count' => 2, 'current' => true], self::sectionTabs($list)[3],
-            'the tab\'s count is the open groups');
+        self::assertSame(['label' => 'Duplicates', 'href' => '/ui/review/duplicates', 'count' => 2, 'current' => true], self::sectionTabs($list)[4],
+            'the tab\'s count is the open groups (the fifth tab since By Item, U113)');
         $rows = (new \DOMXPath($list->dom()))->query('//table[contains(@class, "dups")]/tbody/tr/th/a');
         self::assertSame(['/ui/review/duplicates/' . $x['pb'], '/ui/review/duplicates/' . $pd], [$rows->item(0)?->getAttribute('href'), $rows->item(1)?->getAttribute('href')],
             'the biggest sellers first (365 days)');

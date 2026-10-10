@@ -636,6 +636,63 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertSame($b, (int) self::$db->value("SELECT sku_id FROM match_decision WHERE listing_id = ? AND action = 'link'", [$l]));
     }
 
+    /**
+     * By Item (docs/decisions.md U113-U122): "Match…" and "Choose" only lead here, to the variant's own page (a website product's
+     * page) with the item picked; the yes is this page's, and afterwards the person is back on By Item at that item. The way back
+     * is built from an item's number and a store's code, never from an address in the request; Back on this page is the picker
+     * as the person left it (their search, also an emptied one, and their page).
+     */
+    public function testAMatchChosenFromByProductIsDecidedHereAndLeadsBackThere(): void
+    {
+        $site = $this->site('vpg');
+        $sku = $this->item('legacy', 0, 'Elux Legend Blue Razz');
+        $l = $this->profiled($site, 'V1', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz', 'units_30d' => 3]);
+        $other = $this->profiled($site, 'V2', ['product_title' => 'Elux Legend Blue Razz again', 'units_30d' => 1]);
+        $web = $this->signIn($this->uiUser('mapper'));
+
+        $list = $web->get('/ui/review/products');
+        self::assertSame(200, $list->status, $list->describe());
+        self::assertHardened($list, 'by product');
+        self::assertContains("/ui/review/products/{$sku}/map?channel=vpg", $list->hrefs(), 'the product is not on the store: "Match…"');
+        $picker = $web->get("/ui/review/products/{$sku}/map", ['channel' => 'vpg']);
+        self::assertSame(200, $picker->status, $picker->describe());
+        $choose = "/ui/review/listing/{$l}?pick={$sku}&via=product&product={$sku}&channel=vpg";
+        self::assertContains($choose, $picker->hrefs(), 'its first search finds the variant by the item\'s words');
+        self::assertFalse($picker->hasForm('/decide'));
+        // The picker's own search travels with "Choose" and is Back on the variant's page: an emptied one as one space, which a
+        // real request must bring back as "emptied" (not as the picker's first search).
+        $all = $web->get("/ui/review/products/{$sku}/map", ['channel' => 'vpg', 'q' => '']);
+        self::assertSame(200, $all->status, $all->describe());
+        self::assertContains($choose . '&pq=%20', $all->hrefs());
+        self::assertContains("/ui/review/products/{$sku}/map?channel=vpg&q=", $web->get($choose . '&pq=%20')->hrefs());
+        self::assertContains("/ui/review/products/{$sku}/map?channel=vpg&q=again&page=2", $web->get($choose . '&pq=again&pp=2')->hrefs());
+        self::assertSame(200, $web->get("/ui/review/products/{$sku}/map?channel=vpg&q=&page=2")->status);
+
+        $page = $web->get($choose);
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertStringContainsString(Words::LISTING['picked'], $page->text());
+        self::assertContains("/ui/review/products/{$sku}/map?channel=vpg", $page->hrefs(), 'Back is the picker');
+        $form = $page->form('/decide');
+        self::assertSame([(string) $sku, 'product', (string) $sku, 'vpg'], [$form['sku_id'], $form['via'], $form['product'], $form['channel']]);
+        self::assertSame('unmapped', $this->link($l)['status'], 'nothing is decided before the yes');
+        $r = $this->submit($web, $l, $form, ['action' => 'link']);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame("/ui/review/products?at={$sku}&notice=decided_link&prev={$l}#p-{$sku}", $r->location());
+        self::assertSame(['mapped', $sku], [$this->link($l)['status'], $this->link($l)['sku_id']]);
+        $back = $web->follow($r);
+        self::assertSame(200, $back->status, $back->describe());
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', '"Elux Legend Blue Razz"', $this->skuCode($sku)), $back->text());
+        self::assertStringContainsString(Words::PRODUCT_STORE['matched'], $back->text());
+        self::assertHardened($back, 'by product, back');
+
+        // A crafted "way back" is no way back: the page answers with its own address.
+        $form = $this->decideForm($web, $other, ['pick' => (string) $sku]);
+        $r = $this->submit($web, $other, $form, ['action' => 'link', 'via' => 'product', 'product' => '//evil.example/x', 'channel' => 'https://evil.example']);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame("/ui/review/listing/{$other}", self::where($r)['path']);
+        self::assertSame('mapped', $this->link($other)['status']);
+    }
+
     public function testAPickThatDoesNotExistFallsBackToTheProposal(): void
     {
         $site = $this->site('vpg');

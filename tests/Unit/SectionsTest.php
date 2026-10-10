@@ -109,6 +109,9 @@ final class SectionsTest extends TestCase
             ['/ui/review/samples', [], 'products', 'mapping', 'samples'],
             ['/ui/review/samples/12', [], 'products', 'mapping', 'samples'],
             ['/ui/review/duplicates/12', [], 'products', 'duplicates', 'duplicates'],
+            ['/ui/review/products', ['cov' => 'every'], 'products', 'by_product', 'by_product'],
+            ['/ui/review/products.csv', [], 'products', 'by_product', 'by_product'],
+            ['/ui/review/products/12/map', ['channel' => 'x'], 'products', 'by_product', 'by_product'],
             ['/ui/items/cards', [], 'products', 'cards', 'cards'],
             ['/ui/items/cards/import', [], 'products', 'cards', 'cards'],
             ['/ui/items/12', [], 'products', 'cards', 'cards'],
@@ -191,8 +194,8 @@ final class SectionsTest extends TestCase
         self::assertNotSame(Sections::menu(['purchasing_desk']), Sections::menu(['reviewer']));
         self::assertSame(['All Products'], $tabs(['buyer'], 'products'), 'no matching and no barcodes to decide for a buyer');
         self::assertSame(['All Products', 'Barcodes'], $tabs(['stock_controller'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'Duplicates'], $tabs(['mapper'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'Duplicates', 'Barcodes'], $tabs(['mapping_lead'], 'products'));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'Duplicates'], $tabs(['mapper'], 'products'));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'Duplicates', 'Barcodes'], $tabs(['mapping_lead'], 'products'));
         self::assertSame(['Overview', 'Movements', 'Reservations'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock');
 
         // Admin: people and settings, no buying and no approvals (I12); Reports for the audit log.
@@ -222,7 +225,8 @@ final class SectionsTest extends TestCase
         self::assertSame('Products', $f['pagebar']['label']);
         self::assertSame(Words::SECTION_DESC['products'], $f['pagebar']['desc']);
         self::assertFalse($f['pagebar']['flow']);
-        self::assertSame([['All Products', false, 0], ['Mapping', true, 3], ['Store Products', false, 0], ['Duplicates', false, 2], ['Barcodes', false, 0]],
+        self::assertSame([['All Products', false, 0], ['Mapping', true, 3], ['Store Products', false, 0], ['By Item', false, 0], ['Duplicates', false, 2],
+            ['Barcodes', false, 0]],
             array_map(static fn (array $t): array => [$t['label'], $t['current'], $t['count']], $f['pagebar']['tabs']));
         self::assertSame([['To review', false, 0, '/ui/review'], ['Spot check', false, 0, '/ui/review/samples'], ['Second approval', true, 3, '/ui/review']],
             array_map(static fn (array $s): array => [$s['label'], $s['current'], $s['count'], $s['href']], $f['segments']));
@@ -235,6 +239,13 @@ final class SectionsTest extends TestCase
             'a value that is not a code is not carried');
         self::assertSame([], Sections::frame(['mapping_lead'], [], '/ui/review/store', ['channel' => 'electrofag'])['segments'], 'Store Products has no segments');
         self::assertSame(['section' => 'products', 'tab' => 'store_products', 'page' => 'store_products'], Sections::locate('/ui/review/store', ['channel' => 'x']));
+        // By Item (U113): the tab next to Store Products; its CSV and its picker belong to it, a website product's page to Mapping.
+        $byProduct = Sections::frame(['mapper'], [], '/ui/review/products/12/map', ['channel' => 'electrofag']);
+        self::assertSame(['By Item'], array_column(array_filter($byProduct['pagebar']['tabs'], static fn (array $t): bool => $t['current']), 'label'));
+        self::assertSame('/ui/review/products', array_column($byProduct['pagebar']['tabs'], 'href', 'label')['By Item']);
+        self::assertSame([], $byProduct['segments'], 'By Item has no segments');
+        self::assertSame(['section' => 'products', 'tab' => 'mapping', 'page' => 'review'],
+            Sections::locate('/ui/review/listing/7', ['pick' => '3', 'via' => 'product', 'product' => '3', 'channel' => 'electrofag']));
         self::assertSame(['section' => 'products', 'tab' => 'mapping', 'page' => 'review'], Sections::locate('/ui/review/batches/7'));
         self::assertSame(Words::BADGE['linking_pending'], $f['segments'][2]['countWords']);
         self::assertSame([], $f['actions'], 'nothing to create on Mapping');
