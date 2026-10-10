@@ -42,7 +42,8 @@ final class UiTemplatesTest extends TestCase
             'reorder_brands', 'reorder_anomalies', 'sales_history', 'company', 'company_form', 'duplicates', 'duplicate_group', 'item_cards', 'item_card_form',
             'item_cards_import', 'barcode_reviews', 'cards', 'receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents',
             'setting', 'config_history', 'approvals', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet', 'enrol',
-            'staff_requests', 'new_code', 'stock', 'stock_movements', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result'] as $t) {
+            'staff_requests', 'new_code', 'stock', 'stock_movements', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result',
+            'stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box'] as $t) {
             self::assertContains($t . '.php', $names);
         }
         self::assertSame([], array_filter($names, static fn (string $n): bool => preg_match('/^[a-z][a-z_]*\.php$/', $n) !== 1), 'names View::render accepts');
@@ -243,6 +244,33 @@ final class UiTemplatesTest extends TestCase
         self::assertStringContainsString('<i class="d"></i>', $templates['new_code.php'], 'the person\'s own page draws its fresh code the same way');
     }
 
+    /**
+     * The stock records' pages (pack A1: Stock In, Stock Out, Adjustments, Transfers, Releases, the balance owed; docs/decisions.md SO10):
+     * every table is a `table.stack` whose cells say what they are on a phone, times are UK time, no "(GBP)", and no word is typed in the
+     * template: every word comes from Words (a kind's words are handed in from Words::STOCK_KIND).
+     */
+    public function testTheStockRecordPagesTurnIntoCardsAndTakeEveryWordFromWords(): void
+    {
+        $templates = self::templates();
+        foreach (['stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box'] as $name) {
+            $src = $templates[$name . '.php'];
+            preg_match_all('/<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
+            foreach ($tables as $t) {
+                self::assertMatchesRegularExpression('/class="[^"]*\bstack\b/', $t[1], "{$name}: {$t[0]} is cards on a phone");
+            }
+            preg_match_all('/<td\b[^>]*>/i', $src, $cells);
+            foreach ($cells[0] as $td) {
+                self::assertMatchesRegularExpression('/data-label=|class="[^"]*\bc-(status|next|head)\b/', $td, "{$name}: {$td} says what it is on a phone");
+            }
+            foreach (['(UTC)', '$dt(', '(GBP)', '<svg', '<img', 'data:'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old}");
+            }
+            $text = (string) preg_replace(['/<\?.*?\?>/s', '/<[^>]*>/', '/&[a-z]+;/'], ' ', $src);
+            self::assertSame([], preg_match_all('/[A-Za-z]{2,}/', $text, $m) > 0 ? $m[0] : [], "{$name}: a word typed in the template instead of taken from Words");
+        }
+        self::assertStringContainsString('enctype="multipart/form-data"', $templates['stock_op.php'], 'a record\'s files are uploaded');
+    }
+
     public function testEveryPostFormCarriesTheCsrfToken(): void
     {
         $posts = 0;
@@ -343,7 +371,7 @@ final class UiTemplatesTest extends TestCase
         $f = Sections::frame(['buyer'], [], '/ui/stock');
         $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
             'segments' => [], 'actions' => [], 'flow' => null, 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringContainsString('<span class="tab soon" aria-disabled="true" title="' . Words::UI['soon_title'] . '"><span>Adjustments</span>'
+        self::assertStringContainsString('<span class="tab soon" aria-disabled="true" title="' . Words::UI['soon_title'] . '"><span>Counts</span>'
             . '<span class="count soon">' . Words::UI['soon'] . '</span></span>', $html);
         $f = Sections::frame(['buyer'], [], '/ui/purchasing/orders');
         $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],

@@ -65,7 +65,8 @@ final class SectionsTest extends TestCase
                         self::assertArrayHasKey($key, Words::SEGMENT, "{$where}: the segment's name");
                     }
                     if (isset($page['badge'])) {
-                        self::assertContains($page['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open'],
+                        self::assertContains($page['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open',
+                            ...array_keys(\CW\Ui\Context::STOCK_BADGES)],
                             "{$where}: a count Ui\\Context::badges() computes");
                         self::assertArrayHasKey($page['badge'], Words::BADGE, "{$where}: the words a screen reader hears");
                     }
@@ -80,7 +81,8 @@ final class SectionsTest extends TestCase
                 self::assertSame(array_values(array_unique($keys)), $keys, "{$what}: a key marks one page");
             }
         }
-        self::assertSame(['linking_pending', 'linking_duplicates', 'barcodes_open', 'incidents_open', 'reviews_open'], Sections::badgeNames());
+        self::assertSame(['linking_pending', 'linking_duplicates', 'barcodes_open', 'stock_in_open', 'stock_out_open', 'transfers_open', 'releases_open',
+            'adjustments_open', 'incidents_open', 'reviews_open'], Sections::badgeNames());
     }
 
     /** Every staff page belongs to one section, tab and page: the current ones stay marked on a detail page (with its back link). */
@@ -115,6 +117,13 @@ final class SectionsTest extends TestCase
             ['/ui/items/barcodes', [], 'products', 'barcodes', 'barcodes'],
             ['/ui/stock', [], 'stock', 'stock', 'stock'],
             ['/ui/stock/movements', ['type' => 'goods_in'], 'stock', 'movements', 'movements'],
+            ['/ui/stock/in/12', [], 'stock', 'stock_in', 'stock_in'],
+            ['/ui/stock/in.csv', [], 'stock', 'stock_in', 'stock_in'],
+            ['/ui/stock/out/12/add', [], 'stock', 'stock_out', 'stock_out'],
+            ['/ui/stock/adjustments/12', [], 'stock', 'adjustments', 'adjustments'],
+            ['/ui/stock/transfers/12/pdf', [], 'stock', 'transfers', 'transfers'],
+            ['/ui/stock/releases/12', [], 'stock', 'transfers', 'releases'],
+            ['/ui/stock/accounts', [], 'stock', 'transfers', 'accounts'],
             ['/ui/purchasing/reorder', [], 'purchasing', 'reorder', 'reorder'],
             ['/ui/purchasing/reorder/items/12', [], 'purchasing', 'reorder', 'reorder'],
             ['/ui/purchasing/reorder/brands', [], 'purchasing', 'reorder', 'brands'],
@@ -230,8 +239,9 @@ final class SectionsTest extends TestCase
 
         // Stock: the tabs not built yet are drawn without a link.
         $f = Sections::frame(['buyer'], [], '/ui/stock');
-        self::assertSame([['Overview', '/ui/stock', true, false], ['Movements', '/ui/stock/movements', false, false], ['Adjustments', null, false, true],
-            ['Counts', null, false, true], ['Transfers', null, false, true]],
+        self::assertSame([['Overview', '/ui/stock', true, false], ['Movements', '/ui/stock/movements', false, false], ['Stock In', '/ui/stock/in', false, false],
+            ['Stock Out', '/ui/stock/out', false, false], ['Transfers', '/ui/stock/transfers', false, false], ['Adjustments', '/ui/stock/adjustments', false, false],
+            ['Counts', null, false, true], ['Reservations', null, false, true], ['Quality', null, false, true]],
             array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current'], $t['soon']], $f['pagebar']['tabs']));
         self::assertSame([], $f['segments']);
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column($f['phone'], 'label'), 'the phone bar the owner approved');

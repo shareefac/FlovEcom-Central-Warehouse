@@ -27,10 +27,12 @@ final class ConfigHistory
     /** subject type => tracked field => its type (int, ?int, string, ?string): what a version's `state` holds. */
     public const TRACKED = [
         'setting' => ['value' => 'string', 'provisional' => 'int'],
+        // needs_given_to / below_zero (0022, pack A1): a version written before them lacks them and reads as 0, their default.
         'reason' => ['label' => 'string', 'applies_to' => 'string', 'direction' => 'string', 'needs_note' => 'int', 'is_gift' => 'int',
-            'system_only' => 'int', 'is_active' => 'int', 'sort_order' => 'int'],
+            'system_only' => 'int', 'is_active' => 'int', 'sort_order' => 'int', 'needs_given_to' => 'int', 'below_zero' => 'int'],
+        // size_approval / size_units / size_value (0022): a version written before them reads as off, no sizes (their defaults).
         'document_rule' => ['review_rule' => 'string', 'review_limit_units' => '?int', 'review_due_days' => 'int', 'approval_rule' => 'string',
-            'approval_limit_units' => '?int', 'reject_action' => 'string'],
+            'approval_limit_units' => '?int', 'reject_action' => 'string', 'size_approval' => 'int', 'size_units' => '?int', 'size_value' => '?int'],
         'warehouse' => ['code' => 'string', 'name' => 'string', 'is_sellable' => 'int', 'is_active' => 'int', 'stock_owner' => 'string',
             'owner_entity' => '?string', 'is_system' => 'int', 'note' => '?string'],
         'location' => ['warehouse' => 'string', 'code' => 'string', 'name' => 'string', 'is_active' => 'int', 'note' => '?string'],
@@ -87,10 +89,10 @@ final class ConfigHistory
         $row = match ($type) {
             'setting' => $db->one('SELECT CAST(value_json AS CHAR) AS value, provisional FROM app_setting WHERE setting_key = ?' . $for, [$key]),
             'reason' => $db->one('SELECT label, CAST(applies_to AS CHAR) AS applies_to, CAST(direction AS CHAR) AS direction, needs_note, is_gift, '
-                . 'system_only, is_active, sort_order FROM reason_code WHERE code = ?' . $for, [$key]),
+                . 'system_only, is_active, sort_order, needs_given_to, below_zero FROM reason_code WHERE code = ?' . $for, [$key]),
             'document_rule' => $db->one('SELECT CAST(review_rule AS CHAR) AS review_rule, review_limit_units, review_due_days, '
-                . 'CAST(approval_rule AS CHAR) AS approval_rule, approval_limit_units, CAST(reject_action AS CHAR) AS reject_action '
-                . 'FROM document_type WHERE code = ?' . $for, [$key]),
+                . 'CAST(approval_rule AS CHAR) AS approval_rule, approval_limit_units, CAST(reject_action AS CHAR) AS reject_action, '
+                . 'size_approval, size_units, size_value FROM document_type WHERE code = ?' . $for, [$key]),
             'warehouse' => $db->one('SELECT code, name, is_sellable, is_active, CAST(stock_owner AS CHAR) AS stock_owner, owner_entity, is_system, note '
                 . 'FROM warehouse WHERE code = ?' . $for, [$key]),
             'location' => self::locationRow($db, $key, $lock),

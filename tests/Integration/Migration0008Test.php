@@ -17,8 +17,9 @@ final class Migration0008Test extends IntegrationTestCase
 
     public function testTheSeeds(): void
     {
-        // 0010 (the pos task, I48) adds the three PO reversal reasons po_amended, supplier_cannot_supply and not_needed: 0008's 22 are the rest.
-        $po = "('po_amended', 'supplier_cannot_supply', 'not_needed')";
+        // 0010 (the pos task, I48) adds the three PO reversal reasons po_amended, supplier_cannot_supply and not_needed, and 0022 (pack A1,
+        // SO4) the six reasons of a stock in, a stock out and a write-off: 0008's 22 are the rest.
+        $po = "('po_amended', 'supplier_cannot_supply', 'not_needed', 'opening_stock', 'trade_return', 'staff_use', 'trade_sale', 'repair_return', 'written_off')";
         self::assertSame(22, (int) self::$db->value("SELECT COUNT(*) FROM reason_code WHERE code NOT IN {$po}"));
         self::assertSame(['damaged', 'faulty', 'expired', 'lost_theft', 'found', 'wrong_item_booked', 'supplier_error', 'supplier_collection', 'destroyed',
             'free_gift', 'sample', 'unstamped_found', 'count_difference', 'recount', 'data_correction', 'customer_return_resaleable',
@@ -32,8 +33,8 @@ final class Migration0008Test extends IntegrationTestCase
         foreach (['destroyed', 'unstamped_found', 'data_correction', 'other'] as $c) {
             self::assertSame(1, $flags($c)['needs_note'], $c);
         }
-        // 0019 (Y51) adds the order screens' uses to the reasons they offered, `other` among them.
-        self::assertSame('adjustment,write_off,count,return,supplier_return,reversal,po_cancel,po_draft_cancel,po_amend',
+        // 0019 (Y51) adds the order screens' uses to the reasons they offered, `other` among them; 0022 (SO4) offers it on a stock in and out.
+        self::assertSame('adjustment,write_off,count,return,supplier_return,reversal,po_cancel,po_draft_cancel,po_amend,stock_in,stock_out',
             self::$db->value("SELECT applies_to FROM reason_code WHERE code = 'other'"));
         self::assertSame(['increase', 'decrease', 'either'], [self::$db->value("SELECT direction FROM reason_code WHERE code = 'found'"),
             self::$db->value("SELECT direction FROM reason_code WHERE code = 'damaged'"), self::$db->value("SELECT direction FROM reason_code WHERE code = 'recount'")]);
@@ -41,9 +42,9 @@ final class Migration0008Test extends IntegrationTestCase
             array_map('strval', self::$db->column("SELECT code FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND code NOT IN {$po} ORDER BY sort_order")));
 
         $types = self::$db->all('SELECT code, prefix, phase, review_rule, review_limit_units, approval_rule, approval_limit_units, review_due_days FROM document_type ORDER BY code');
-        self::assertCount(8, $types);
+        self::assertCount(12, $types, '8 of 0008 and the 4 stock records of 0022 (SIN, SOUT, TRF, REL)');
         $by = array_column($types, null, 'code');
-        self::assertSame(['ADJ', 'CNT', 'DN', 'GRN', 'PO', 'SINV', 'TRD', 'WO'], array_keys($by));
+        self::assertSame(['ADJ', 'CNT', 'DN', 'GRN', 'PO', 'REL', 'SIN', 'SINV', 'SOUT', 'TRD', 'TRF', 'WO'], array_keys($by));
         foreach ($by as $code => $t) {
             self::assertSame($code, $t['prefix']);
         }
@@ -54,7 +55,7 @@ final class Migration0008Test extends IntegrationTestCase
         self::assertSame(['all', 7, 'I-2'], [$by['PO']['review_rule'], $by['PO']['review_due_days'], $by['PO']['phase']]);
         self::assertSame(['I-3', 'I-4', 'I-4', 'I-6'], [$by['GRN']['phase'], $by['SINV']['phase'], $by['DN']['phase'], $by['TRD']['phase']]);
 
-        self::assertSame(array_fill_keys(['ADJ', 'CNT', 'DN', 'GRN', 'PO', 'SINV', 'TRD', 'WO'], [0, 6]),
+        self::assertSame(array_fill_keys(['ADJ', 'CNT', 'DN', 'GRN', 'PO', 'REL', 'SIN', 'SINV', 'SOUT', 'TRD', 'TRF', 'WO'], [0, 6]),
             array_map(static fn (array $r): array => [(int) $r['last_no'], (int) $r['pad']],
                 array_column(self::$db->all('SELECT prefix, last_no, pad FROM number_series ORDER BY prefix'), null, 'prefix')));
         foreach (['document', 'document_line', 'document_posting', 'review_task', 'stored_file', 'document_file'] as $t) {

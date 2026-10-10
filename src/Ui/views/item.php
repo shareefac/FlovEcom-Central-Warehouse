@@ -445,15 +445,15 @@
     <tbody>
 <?php foreach ($ledger as $r): ?>
       <tr>
-        <th scope="row" class="c-head"><?= $word('MOVEMENT', $r['type']) ?></th>
+        <th scope="row" class="c-head"><?php if (($r['record'] ?? null) !== null): ?><?= $e($r['record']['what']) ?><span class="o-sub"><?= $word('MOVEMENT', $r['type']) ?></span><?php else: ?><?= $word('MOVEMENT', $r['type']) ?><?php endif; ?></th>
         <td data-label="<?= $word('ITEM', 'when') ?>"><?= $when($r['at']) ?></td>
         <td data-label="<?= $word('ITEM', 'warehouse') ?>"><?= $e(\CW\Ui\Words::STOCK['warehouse_' . $r['warehouse']] ?? $r['warehouse']) ?></td>
         <td data-label="<?= $word('ITEM', 'which') ?>"><?= $word('STOCK', $r['bucket']) ?></td>
         <td class="num" data-label="<?= $word('ITEM', 'change') ?>"><?= $e($r['delta']) ?></td>
         <td class="num" data-label="<?= $word('ITEM', 'after') ?>"><?= $e($r['after']) ?></td>
-        <td data-label="<?= $word('ITEM', 'ref') ?>"><?= $e($r['ref']) ?></td>
+        <td data-label="<?= $word('ITEM', 'ref') ?>"><?php if (($r['record'] ?? null) !== null): ?><a href="<?= $u($r['record']['href']) ?>"><?= $e($r['ref']) ?></a><?php else: ?><?= $e($r['ref']) ?><?php endif; ?></td>
         <td data-label="<?= $word('ITEM', 'who') ?>"><?= $e($r['actor']) ?></td>
-        <td data-label="<?= $word('ITEM', 'note') ?>"><?= $e($r['note']) ?></td>
+        <td data-label="<?= $word('ITEM', 'note') ?>"><?php if (($r['record'] ?? null) !== null): ?><?= $e(implode(' · ', array_filter([$r['record']['why'], $r['record']['given']]))) ?><?php else: ?><?= $e($r['note']) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\StockOps\StockOps;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -82,7 +83,9 @@ final class StockController
                     'sku_id' => (int) $r['sku_id'], 'code' => (string) ($r['code'] ?? ''), 'name' => (string) $r['name'], 'warehouse' => (string) $r['warehouse'],
                     'bucket' => (string) $r['bucket'], 'delta' => (int) $r['qty_delta'], 'after' => (int) $r['balance_after'], 'type' => (string) $r['movement_type'],
                     'ref' => $r['order_ref'] ?? $r['doc_ref'], 'who' => $who[(string) $r['actor']] ?? (string) $r['actor'],
-                    'note' => $note !== null && preg_match('/^#\d+$/D', $note) === 1 ? null : $note, 'at' => (string) $r['at'],
+                    'note' => $note !== null && (preg_match('/^#\d+$/D', $note) === 1 || $r['doc_type'] !== null) ? null : $note, 'at' => (string) $r['at'],
+                    // A row booked by a stock record (pack A1): the record's kind, its reason, who it was given to, and its page.
+                    'record' => self::record($r),
                     // The board's groups are days in UK time (design v4), each row's time beside its product.
                     'day' => Html::day((string) $r['at']), 'time' => substr(Html::when((string) $r['at']), -5),
                 ];
@@ -91,6 +94,24 @@ final class StockController
             'older_link' => $result['next'] === null ? null : Html::url('/ui/stock/movements', $query + ['before' => $result['next']]),
             'newest_link' => $f['before'] === null ? null : Html::url('/ui/stock/movements', $query),
         ], 200, ['title' => Words::MENU['movements']]);
+    }
+
+    /**
+     * What a stock record says about a ledger row it booked: [kind words, reason, "given to", its page], or null for a row no stock
+     * record booked.
+     *
+     * @param array<string, mixed> $r StockViews::movements() row
+     * @return array{what: string, why: ?string, given: ?string, href: string}|null
+     */
+    private static function record(array $r): ?array
+    {
+        $kind = $r['doc_type'] === null ? null : StockOps::kindOf((string) $r['doc_type']);
+        if ($kind === null) {
+            return null;
+        }
+        return ['what' => Words::STOCK_KIND[$kind]['one'], 'why' => $r['reason_label'] === null ? null : (string) $r['reason_label'],
+            'given' => $r['given_to'] === null ? null : Words::say('STOCK_OPS', 'given', (string) $r['given_to']),
+            'href' => StockOps::PATHS[$kind] . '/' . (int) $r['document_id']];
     }
 
     /** @param list<array{id: int}> $warehouses */

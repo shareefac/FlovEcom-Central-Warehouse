@@ -114,10 +114,12 @@ final class GrantsTest extends IntegrationTestCase
         // rules are updated (no type is added or removed: they come with their code).
         self::assertSame(['Select', 'Insert'], Grants::desired('reason_code'));
         // Since the review fixes (Y51) also where a reason is offered (applies_to: the order screens' lists come from the Reasons page).
-        self::assertSame(['label' => ['Update'], 'applies_to' => ['Update'], 'is_active' => ['Update']], Grants::desiredColumns('reason_code'));
+        // Since pack A1 (SO4) also a reason's two stock rules: it names who the stock was given to, it may go below zero.
+        self::assertSame(['label' => ['Update'], 'applies_to' => ['Update'], 'is_active' => ['Update'], 'needs_given_to' => ['Update'], 'below_zero' => ['Update']],
+            Grants::desiredColumns('reason_code'));
         self::assertSame(['Select'], Grants::desired('document_type'));
-        self::assertSame(['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action'],
-            array_keys(Grants::desiredColumns('document_type')));
+        self::assertSame(['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action', 'size_approval',
+            'size_units', 'size_value'], array_keys(Grants::desiredColumns('document_type')), 'and the OK first for a big record (pack A1, SO5)');
         foreach (['number_series', 'document', 'review_task', 'stored_file', 'document_file', 'document_posting'] as $t) {
             self::assertSame(['Select', 'Insert'], Grants::desired($t), $t);
         }
@@ -476,7 +478,7 @@ final class GrantsTest extends IntegrationTestCase
         Grants::apply(self::$db, TestDb::name(), self::$user);
         $app = $this->appSession();
         self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM reason_code'), (int) $app->value('SELECT COUNT(*) FROM reason_code'), 'the app login reads them all');
-        self::assertSame(8, (int) $app->value('SELECT COUNT(*) FROM document_type'));
+        self::assertSame(12, (int) $app->value('SELECT COUNT(*) FROM document_type'), '8 of 0008 and the 4 stock records of 0022');
         foreach ([
             'DELETE FROM reason_code',
             "INSERT INTO document_type (code, prefix, name, phase) VALUES ('XX', 'XX', 'x', 'I-9')",

@@ -21,6 +21,8 @@ use CW\Receiving\GoodsReceipts;
 use CW\Receiving\Incidents;
 use CW\Settings;
 use CW\Staff\SecretBox;
+use CW\StockOps\OtherAccounts;
+use CW\StockOps\StockOps;
 use CW\Suppliers\SupplierItems;
 use CW\Suppliers\Suppliers;
 
@@ -40,6 +42,9 @@ final class Context
     private ?CompanyDetails $company = null;
     private ?ItemCards $itemCards = null;
     private ?GoodsReceipts $goodsReceipts = null;
+    private ?StockOps $stockOps = null;
+    /** @var array<string, array{review: int, approval: int}>|null the tasks this person may decide, by document type (checks()) */
+    private ?array $checksByType = null;
     /** @var array<string, int>|null the badge counts of this request (computed once) */
     private ?array $badges = null;
     /** @var array{approval: int, review: int, deliveries: int}|null the review queue's tasks this person may decide, by kind (checks()) */
@@ -49,7 +54,9 @@ final class Context
      * The pages that draw their own toolbar (design v4: the split create button, Search, Filter, Sort, Export in one row): they get
      * the page's create actions as `newActions` and the layout draws none.
      */
-    public const OWN_TOOLBAR = ['home', 'purchase_orders', 'suppliers', 'receipts'];
+    public const OWN_TOOLBAR = ['home', 'purchase_orders', 'suppliers', 'receipts', 'stock_ops'];
+    /** Badge (Sections::MAP) of a stock record's tab => its document type: the reviews and OKs of that kind this person may decide (pack A1). */
+    public const STOCK_BADGES = ['stock_in_open' => 'SIN', 'stock_out_open' => 'SOUT', 'transfers_open' => 'TRF', 'releases_open' => 'REL', 'adjustments_open' => 'ADJ'];
 
     /** Pages without a menu item of their own => the menu item that stays marked. */
     private const ACTIVE_ALIAS = ['reasons' => 'settings', 'series' => 'settings', 'setting' => 'settings', 'access' => 'settings'];
@@ -142,6 +149,18 @@ final class Context
     public function goodsReceipts(): GoodsReceipts
     {
         return $this->goodsReceipts ??= new GoodsReceipts($this->db, $this->documents(), $this->settings(), fn (): FileStore => $this->files());
+    }
+
+    /** The stock records of pack A1 (Stock In, Stock Out, Adjustments, Transfers, Releases), with the file store for their attachments. */
+    public function stockOps(): StockOps
+    {
+        return $this->stockOps ??= new StockOps($this->db, $this->documents(), fn (): FileStore => $this->files());
+    }
+
+    /** Another account's stock in our building and the balance owed to it (pack A1). */
+    public function otherAccounts(): OtherAccounts
+    {
+        return new OtherAccounts($this->db);
     }
 
     /** The file store app.env names (file_store_dir / CW_FILE_STORE_DIR); 503 file_store_unconfigured without one. */
@@ -268,6 +287,10 @@ final class Context
         $checks = $this->checks();
         if ($checks !== null) {
             $out['reviews_open'] = $checks['approval'] + $checks['review'];
+            // The stock records' tabs (pack A1): the reviews and OKs of that kind this reviewer may decide.
+            foreach (self::STOCK_BADGES as $badge => $type) {
+                $out[$badge] = ($this->checksByType[$type]['review'] ?? 0) + ($this->checksByType[$type]['approval'] ?? 0);
+            }
         }
         return $this->badges = $out;
     }
@@ -292,7 +315,7 @@ final class Context
         }
         // One query per source (documents and suppliers by kind, the company details): the same three as the badge before Home.
         // `deliveries` is the part of `review` that is deliveries booked in (Home's own card for them, U87), not a fourth count.
-        $byType = $this->documents()->decidableCountsByType($who->id, $who->roles);
+        $byType = $this->checksByType = $this->documents()->decidableCountsByType($who->id, $who->roles);
         $docs = ['review' => array_sum(array_column($byType, 'review')), 'approval' => array_sum(array_column($byType, 'approval'))];
         $sups = $this->suppliers()->decidableCounts($who->id, $who->roles);
         return $this->checks = [

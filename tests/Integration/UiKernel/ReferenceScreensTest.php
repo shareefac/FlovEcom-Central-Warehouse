@@ -24,13 +24,14 @@ final class ReferenceScreensTest extends KernelUiTestCase
         $reasons = $web->get('/ui/reference/reasons');
         self::assertSame(200, $reasons->status, $reasons->describe());
         $xp = new \DOMXPath($reasons->dom());
-        self::assertSame(25, $xp->query('//table[contains(@class, "reasons")]/tbody/tr')->length, '22 of 0008 and the 3 PO reversal reasons of 0010');
+        self::assertSame(31, $xp->query('//table[contains(@class, "reasons")]/tbody/tr')->length,
+            '22 of 0008, the 3 PO reversal reasons of 0010 and the 6 stock reasons of 0022');
         self::assertSame(1, $xp->query('//table[contains(@class, "reasons") and contains(@class, "stack")]')->length, 'one card per reason on a phone');
         self::assertStringContainsString('Free gift (not vaping/nicotine products from 29 Oct 2026)', $reasons->text());
         self::assertStringContainsString('Replaced by an amended order', $reasons->text());
-        self::assertSame(['Rejected at review', 'In use', 'review_rejected', ucfirst(Words::REASON_USE['reversal']), 'Up or down', 'No', 'No', 'Yes'],
+        self::assertSame(['Rejected at review', 'In use', 'review_rejected', ucfirst(Words::REASON_USE['reversal']), 'Up or down', 'No', 'No', 'No', 'No', 'Yes'],
             array_map(static fn (\DOMNode $c): string => trim((string) $c->textContent), iterator_to_array($xp->query('//table[contains(@class, "reasons")]/tbody/tr[24]/*'))),
-            'the reason by its name first, its code kept for the files (plan §1.9)');
+            'the reason by its name first, its code kept for the files (plan §1.9); given to and below zero since pack A1 (SO4)');
         self::assertSame(Words::PAGE_TITLE['reasons'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertStringNotContainsString('Phase', $reasons->text());
         self::assertContains('/ui/reference/reasons.csv', $reasons->hrefs());
@@ -42,16 +43,17 @@ final class ReferenceScreensTest extends KernelUiTestCase
 
         $series = $web->get('/ui/reference/series');
         self::assertSame(200, $series->status);
-        self::assertSame(['PO-000001', 'GRN-000001', 'SINV-000001', 'DN-000001', 'CNT-000001', 'ADJ-000001', 'WO-000001', 'TRD-000001'], self::column($series, 4));
-        self::assertSame(array_fill(0, 8, 'none yet'), self::column($series, 3));
+        self::assertSame(['PO-000001', 'GRN-000001', 'SIN-000001', 'SOUT-000001', 'ADJ-000001', 'TRF-000001', 'REL-000001', 'SINV-000001', 'DN-000001', 'CNT-000001',
+            'WO-000001', 'TRD-000001'], self::column($series, 4), 'in the kinds\' order, the stock records of pack A1 among them (SO12)');
+        self::assertSame(array_fill(0, 12, 'none yet'), self::column($series, 3));
         self::assertSame('In use', self::column($series, 2)[0], 'PO since the I-2 pos task');
         self::assertSame('In use', self::column($series, 2)[1], 'GRN since the I-3 receiving task (IM6)');
-        self::assertSame('Coming later', self::column($series, 2)[2], 'SINV; no phase codes');
-        self::assertSame('In use', self::column($series, 2)[5], 'the fixture ADJ type of the tests');
+        self::assertSame(['In use', 'In use', 'In use', 'In use', 'In use'], array_slice(self::column($series, 2), 2, 5), 'SIN, SOUT, ADJ, TRF, REL (pack A1)');
+        self::assertSame('Coming later', self::column($series, 2)[7], 'SINV; no phase codes');
         self::assertSame(['Purchase orders', 'Deliveries'], array_slice(self::column($series, 1), 0, 2));
         self::assertSame(['Every one', 'Over £10,000 (no VAT)'], [self::column($series, 5)[0], self::column($series, 6)[0]]);
-        self::assertSame('Putting back over 10 items without a supplier document', self::column($series, 6)[5]);
-        self::assertSame('Over 10 items', self::column($series, 5)[4]);
+        self::assertSame('Putting back over 10 items without a supplier document', self::column($series, 6)[4], 'ADJ');
+        self::assertSame('Over 10 items', self::column($series, 5)[9], 'CNT');
         self::assertSame(Words::PAGE_TITLE['series'], trim((string) (new \DOMXPath($series->dom()))->evaluate('string(//main//h1)')));
         self::assertSame(['Settings', 'System'], [self::currentSection($series), self::currentTab($series)]);
         self::assertSame([['Settings', false], ['Numbering', true]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($series)),
@@ -65,8 +67,8 @@ final class ReferenceScreensTest extends KernelUiTestCase
         $d = $docs->setLines(Caller::staff($poster['id']), $d->id, $d->version, [['sku_id' => self::makeSku('Ref item'), 'qty' => 1]]);
         $docs->post(Caller::staff($poster['id']), $d->id, $d->version);
         $series = $web->get('/ui/reference/series');
-        self::assertSame('ADJ-000001', self::column($series, 3)[5]);
-        self::assertSame('ADJ-000002', self::column($series, 4)[5]);
+        self::assertSame('ADJ-000001', self::column($series, 3)[4]);
+        self::assertSame('ADJ-000002', self::column($series, 4)[4]);
     }
 
     public function testCsvDownloadsAreExcelSafe(): void
@@ -83,7 +85,7 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertContains('sandbox', $csv->headerValues('content-security-policy'));
         self::assertStringStartsWith("\xEF\xBB\xBF\"code\",\"label\",", $csv->body);
         self::assertSame(1, substr_count($csv->body, "\xEF\xBB\xBF"));
-        self::assertSame(26, substr_count($csv->body, "\r\n"), 'header + 25 codes (0008, 0010), CRLF');
+        self::assertSame(32, substr_count($csv->body, "\r\n"), 'header + 31 codes (0008, 0010, 0022), CRLF');
         self::assertStringContainsString("\"damaged\",\"Damaged\",\"adjustment, write_off, return, supplier_return\",\"decrease\",\"no\",\"no\",\"no\",\"yes\",10\r\n", $csv->body);
 
         $people = $web->get('/ui/people');

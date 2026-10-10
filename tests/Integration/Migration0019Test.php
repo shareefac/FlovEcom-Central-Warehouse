@@ -67,6 +67,9 @@ final class Migration0019Test extends IntegrationTestCase
         self::assertSame(25000, ConfigHistory::latest($db, 'document_rule', 'PO')['state']['approval_limit_units']);
         self::assertEquals(['code' => 'MAIN2', 'name' => 'Second building', 'is_sellable' => 1, 'is_active' => 1, 'stock_owner' => 'own', 'owner_entity' => null,
             'is_system' => 0, 'note' => null], ConfigHistory::latest($db, 'warehouse', 'MAIN2')['state'], 'MySQL keeps JSON keys in its own order');
+        // The checks read today's columns (0022 added two to a reason and three to a kind of record), so the later migrations run
+        // first: every row still equals its newest version, the versions 0021 and 0022 wrote included.
+        MigrationFixture::migrateRest($db, $this->dir);
         self::assertSame([], ConfigInvariants::check($db), 'every row equals its baseline');
         self::assertSame(['MAIN', 'UNSTAMPED', 'VERIFY'], array_map('strval', $db->column('SELECT code FROM warehouse WHERE is_system = 1 ORDER BY code')));
         self::assertSame(0, (int) $db->value('SELECT COUNT(*) FROM warehouse WHERE is_active = 0'));

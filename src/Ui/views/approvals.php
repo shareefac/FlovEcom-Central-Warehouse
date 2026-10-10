@@ -76,6 +76,19 @@
           </label>
         </fieldset>
 <?php endif; ?>
+<?php if ($c['hasSize']): ?>
+        <fieldset>
+          <legend><?= $word('APPROVALS', 'size') ?></legend>
+          <label class="choice"><input type="radio" name="size" value="1"<?php if ($c['form']['size']): ?> checked<?php endif; ?>> <?= $word('CONFIG', 'on') ?></label>
+          <label class="choice"><input type="radio" name="size" value="0"<?php if (!$c['form']['size']): ?> checked<?php endif; ?>> <?= $word('CONFIG', 'off') ?></label>
+          <label><?= $word('APPROVALS', 'size_units') ?>
+            <input type="text" name="size_units" inputmode="numeric" value="<?= $e($c['form']['size_units']) ?>" maxlength="10">
+          </label>
+          <label><?= $word('APPROVALS', 'size_value') ?>
+            <input type="text" name="size_value" inputmode="numeric" value="<?= $e($c['form']['size_value']) ?>" maxlength="10">
+          </label>
+        </fieldset>
+<?php endif; ?>
 <?php if ($c['recordOnly']): ?>
         <input type="hidden" name="reject_action" value="record">
         <p class="muted"><?= $word('APPROVALS', 'reject_record_only') ?></p>

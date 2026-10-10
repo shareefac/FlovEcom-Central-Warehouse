@@ -60,8 +60,8 @@ final class StartSettingsWordsTest extends KernelUiTestCase
         $pages = [
             [$reviewer, '/ui/documents/reviews', 'Waiting for me', 'reviews'],
             [$reviewer, '/ui/documents', 'History', 'documents'],
-            [$reviewer, '/ui/documents/' . $doc->id, 'Stock correction ADJ-000001', 'document'],
-            [$reviewer, '/ui/documents/' . $held->id, 'Stock correction (no number yet)', 'document'],
+            [$reviewer, '/ui/documents/' . $doc->id, 'Adjustment ADJ-000001', 'document'],
+            [$reviewer, '/ui/documents/' . $held->id, 'Adjustment (no number yet)', 'document'],
             [$reviewer, '/ui/reference/company', 'Company', 'company'],
             [$reviewer, '/ui/reference/company/edit', 'Change the company details', 'company_edit'],
             [$reviewer, '/ui/reference/settings', 'Settings', 'settings'],

@@ -15,8 +15,8 @@ use CW\Ui\Words;
 
 /**
  * Reasons for stock changes (G02, docs/decisions.md I22, Y12): the list (everyone, reference.view; the CSV stays
- * ReferenceController's), and for an admin or a reviewer (settings.manage) adding a reason, and on a reason's own page renaming it
- * and switching it off or on again, each with a reason, through Admin\ReasonCodes (which re-checks the permission, the version and
+ * ReferenceController's), and for an admin or a reviewer (settings.manage) adding a reason, and on a reason's own page renaming it,
+ * saying where it is offered, its stock-out rules ("given to", below zero: pack A1) and switching it off or on again, each with a reason, through Admin\ReasonCodes (which re-checks the permission, the version and
  * the locked reasons CW sets itself). Nothing is ever deleted. Refusals come back in words by their code, with what was typed kept.
  */
 final class ReasonsController
@@ -39,10 +39,10 @@ final class ReasonsController
         }
         $typed = ['code' => (string) ($req->field('code') ?? ''), 'label' => (string) ($req->field('label') ?? ''), 'uses' => $uses,
             'direction' => (string) ($req->field('direction') ?? ''), 'needs_note' => $req->field('needs_note') === '1', 'is_gift' => $req->field('is_gift') === '1',
-            'reason' => (string) ($req->field('reason') ?? '')];
+            'needs_given_to' => $req->field('needs_given_to') === '1', 'below_zero' => $req->field('below_zero') === '1', 'reason' => (string) ($req->field('reason') ?? '')];
         try {
             $r = (new ReasonCodes($ctx->db))->add($ctx->caller(), $typed['code'], $typed['label'], $uses, $typed['direction'], $typed['needs_note'], $typed['is_gift'],
-                $typed['reason']);
+                $typed['reason'], $typed['needs_given_to'], $typed['below_zero']);
         } catch (CwException $e) {
             return $this->list($ctx, $e->httpStatus, $e, $typed);
         }
@@ -66,8 +66,9 @@ final class ReasonsController
                 $uses[] = $use;
             }
         }
-        $typed = ['label' => (string) ($req->field('label') ?? ''), 'reason' => (string) ($req->field('reason') ?? ''), 'do' => $do, 'uses' => $uses];
-        if ($seen === null || preg_match('/^\d{1,9}$/D', $seen) !== 1 || !in_array($do, ['rename', 'uses', 'off', 'on'], true)) {
+        $typed = ['label' => (string) ($req->field('label') ?? ''), 'reason' => (string) ($req->field('reason') ?? ''), 'do' => $do, 'uses' => $uses,
+            'needs_given_to' => $req->field('needs_given_to') === '1', 'below_zero' => $req->field('below_zero') === '1'];
+        if ($seen === null || preg_match('/^\d{1,9}$/D', $seen) !== 1 || !in_array($do, ['rename', 'uses', 'rules', 'off', 'on'], true)) {
             return $this->reasonPage($ctx, $code, 400, new CwException('bad_form', Words::ERROR['bad_form'], 400), $typed);
         }
         $service = new ReasonCodes($ctx->db);
@@ -75,12 +76,13 @@ final class ReasonsController
             $r = match ($do) {
                 'rename' => $service->rename($ctx->caller(), $code, $typed['label'], $typed['reason'], (int) $seen),
                 'uses' => $service->setUses($ctx->caller(), $code, $uses, $typed['reason'], (int) $seen),
+                'rules' => $service->setRules($ctx->caller(), $code, $typed['needs_given_to'], $typed['below_zero'], $typed['reason'], (int) $seen),
                 default => $service->setActive($ctx->caller(), $code, $do === 'on', $typed['reason'], (int) $seen),
             };
         } catch (CwException $e) {
             return $this->reasonPage($ctx, $code, $e->httpStatus, $e, $typed);
         }
-        $notice = !$r['changed'] ? 'unchanged' : match ($do) { 'rename' => 'renamed', 'uses' => 'uses_saved', default => $do };
+        $notice = !$r['changed'] ? 'unchanged' : match ($do) { 'rename' => 'renamed', 'uses' => 'uses_saved', 'rules' => 'rules_saved', default => $do };
         return HtmlResponse::redirect(Html::url('/ui/reference/reasons/reason', ['code' => $code, 'notice' => $notice]));
     }
 
@@ -118,7 +120,8 @@ final class ReasonsController
             'uses' => array_map(static fn (string $u): array => ['code' => $u, 'name' => ucfirst(Words::of('REASON_USE', $u)),
                 'checked' => in_array($u, $typed['uses'] ?? [], true)], ReasonCodes::USES),
             'directions' => array_map(static fn (string $d): array => ['code' => $d, 'name' => Words::of('REASON_USE', $d)], ReasonCodes::DIRECTIONS),
-            'typed' => $typed ?? ['code' => '', 'label' => '', 'direction' => 'decrease', 'needs_note' => false, 'is_gift' => false, 'reason' => ''],
+            'typed' => $typed ?? ['code' => '', 'label' => '', 'direction' => 'decrease', 'needs_note' => false, 'is_gift' => false, 'needs_given_to' => false,
+                'below_zero' => false, 'reason' => ''],
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::title('reasons'), 'active' => 'reasons', 'notice' => $notice]);
@@ -140,7 +143,9 @@ final class ReasonsController
             'canEdit' => $canEdit,
             'lookOnly' => $ctx->me()->can('settings.manage') ? null : Words::REASONS_EDIT['look_only'],
             'seen' => ConfigHistory::version($ctx->db, 'reason', $code),
-            'typed' => ['label' => $typed['label'] ?? $r['label'], 'reason' => $typed['reason'] ?? '', 'do' => $typed['do'] ?? ''],
+            'typed' => ['label' => $typed['label'] ?? $r['label'], 'reason' => $typed['reason'] ?? '', 'do' => $typed['do'] ?? '',
+                'needs_given_to' => ($typed['do'] ?? '') === 'rules' ? (bool) $typed['needs_given_to'] : $r['needs_given_to'],
+                'below_zero' => ($typed['do'] ?? '') === 'rules' ? (bool) $typed['below_zero'] : $r['below_zero']],
             'uses' => array_map(static fn (string $u): array => ['code' => $u, 'name' => ucfirst(Words::of('REASON_USE', $u)),
                 'checked' => in_array($u, ($typed['do'] ?? '') === 'uses' ? (array) ($typed['uses'] ?? []) : $r['uses'], true)], ReasonCodes::USES),
             'history' => ConfigWords::history($ctx->db, 'reason', $code),

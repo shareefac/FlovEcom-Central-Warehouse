@@ -131,27 +131,29 @@ final class ConfigServicesTest extends DocumentTestCase
     {
         [$admin, $reviewer, $sc] = [$this->staffUser('admin'), $this->staffUser('reviewer'), $this->staffUser('stock_controller')];
         $rules = new DocumentRules(self::$db);
+        // The page's version follows the one the migrations left (0022 gave ADJ its sizes as its version 2).
+        $v0 = ConfigHistory::version(self::$db, 'document_rule', 'ADJ');
         self::refused(403, 'role_not_allowed', fn () => $rules->set($sc, 'ADJ', ['approval' => false], 'not mine'));
         self::refused(404, 'unknown_type', fn () => $rules->set($admin, 'XX', ['review_due_days' => 3], 'no such type'));
         $a = $this->item('strict', 10);
         // On (the 0008 default): 40 found units without a supplier document wait for a reviewer's OK.
         self::assertSame('awaiting_approval', $this->posted($sc, [['sku_id' => $a, 'qty' => 40]], [])->status);
         // Switching the OK first off is looser: a Reviewer only (I1); the admin is refused.
-        self::refused(403, 'loosen_needs_reviewer', fn () => $rules->set($admin, 'ADJ', ['approval' => false], 'leave it for now', 1));
-        $r = $rules->set($reviewer, 'ADJ', ['approval' => false], 'leave it for now', 1);
-        self::assertSame(['positive_without_supplier_doc', 'none', 10, 2], [$r['before']['approval_rule'], $r['after']['approval_rule'],
+        self::refused(403, 'loosen_needs_reviewer', fn () => $rules->set($admin, 'ADJ', ['approval' => false], 'leave it for now', $v0));
+        $r = $rules->set($reviewer, 'ADJ', ['approval' => false], 'leave it for now', $v0);
+        self::assertSame(['positive_without_supplier_doc', 'none', 10, $v0 + 1], [$r['before']['approval_rule'], $r['after']['approval_rule'],
             $r['after']['approval_limit_units'], $r['version']]);
         self::assertSame('posted', $this->posted($sc, [['sku_id' => $a, 'qty' => 40]], [])->status, 'off: it posts at once (and is reviewed after)');
-        $r = $rules->set($reviewer, 'ADJ', ['approval' => true, 'approval_limit_units' => '50'], 'back on, a higher limit', 2);
+        $r = $rules->set($reviewer, 'ADJ', ['approval' => true, 'approval_limit_units' => '50'], 'back on, a higher limit', $v0 + 1);
         self::assertSame(['positive_without_supplier_doc', 50], [$r['after']['approval_rule'], $r['after']['approval_limit_units']]);
         self::assertSame('posted', $this->posted($sc, [['sku_id' => $a, 'qty' => 40]], [])->status, '40 is under the new limit');
         self::assertSame('awaiting_approval', $this->posted($sc, [['sku_id' => $a, 'qty' => 51]], [])->status);
-        $r = $rules->set($reviewer, 'ADJ', ['review_rule' => 'over_limit', 'review_limit_units' => '5', 'review_due_days' => '14', 'reject_action' => 'record'], 'fewer checks', 3);
+        $r = $rules->set($reviewer, 'ADJ', ['review_rule' => 'over_limit', 'review_limit_units' => '5', 'review_due_days' => '14', 'reject_action' => 'record'], 'fewer checks', $v0 + 2);
         self::assertSame(['over_limit', 5, 14, 'record'], [$r['after']['review_rule'], $r['after']['review_limit_units'], $r['after']['review_due_days'], $r['after']['reject_action']]);
-        self::refused(409, 'changed_meanwhile', fn () => $rules->set($admin, 'ADJ', ['review_due_days' => '3'], 'from an old page', 3));
-        self::assertSame(['changed' => false], array_intersect_key($rules->set($admin, 'ADJ', ['review_due_days' => '14'], 'same', 4), ['changed' => 1]));
+        self::refused(409, 'changed_meanwhile', fn () => $rules->set($admin, 'ADJ', ['review_due_days' => '3'], 'from an old page', $v0 + 2));
+        self::assertSame(['changed' => false], array_intersect_key($rules->set($admin, 'ADJ', ['review_due_days' => '14'], 'same', $v0 + 3), ['changed' => 1]));
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'document_type.change' AND entity_id = 'ADJ' "
-            . "AND JSON_EXTRACT(detail, '$.version') = 4"));
+            . "AND JSON_EXTRACT(detail, '$.version') = " . ($v0 + 3)));
         self::assertSame([], ConfigInvariants::check(self::$db));
     }
 

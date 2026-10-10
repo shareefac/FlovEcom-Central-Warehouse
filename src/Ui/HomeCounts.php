@@ -66,6 +66,7 @@ final class HomeCounts
                 'suppliers' => $this->suppliers(),
                 'staff' => $this->staff(),
                 'receiving' => $this->receiving(),
+                'stock_ops' => $this->stockOps(),
                 'incidents' => (int) ($this->ctx->badges()['incidents_open'] ?? 0),
                 'integrity' => (new IntegrityRuns($this->ctx->db))->latest(),
                 'staff_requests' => (new RoleRequests($this->ctx->db))->decidableCount($this->ctx->me()->id, $this->ctx->me()->roles),
@@ -206,6 +207,24 @@ final class HomeCounts
             'not_ok' => (int) $db->value("SELECT COUNT(*) FROM document d JOIN purchase_order po ON po.document_id = d.id "
                 . "WHERE d.doc_type = 'PO' AND d.status = 'posted' AND d.review_state = 'rejected' AND po.state IN ({$open})"),
         ];
+    }
+
+    /**
+     * The person's own stock records (pack A1) not final yet: `drafts` (started, not made final) and `waiting` (sent for a reviewer's
+     * OK), with the kind of the first of each (the card's button opens that kind's list). One query.
+     *
+     * @return array{drafts: int, waiting: int, drafts_kind: ?string, waiting_kind: ?string}
+     */
+    private function stockOps(): array
+    {
+        $out = ['drafts' => 0, 'waiting' => 0, 'drafts_kind' => null, 'waiting_kind' => null];
+        foreach ($this->ctx->db->all("SELECT d.status, d.doc_type, COUNT(*) AS n FROM document d WHERE d.doc_type IN ('SIN', 'SOUT', 'ADJ', 'TRF', 'REL') "
+            . "AND d.status IN ('draft', 'awaiting_approval') AND d.created_by = ? GROUP BY d.status, d.doc_type ORDER BY d.doc_type", [$this->ctx->me()->id]) as $r) {
+            $k = $r['status'] === 'draft' ? 'drafts' : 'waiting';
+            $out[$k] += (int) $r['n'];
+            $out[$k . '_kind'] ??= \CW\StockOps\StockOps::kindOf((string) $r['doc_type']);
+        }
+        return $out;
     }
 
     /**

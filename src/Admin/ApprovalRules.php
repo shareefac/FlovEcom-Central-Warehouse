@@ -56,8 +56,8 @@ final class ApprovalRules
     ];
     /** The page: section => its rules, in reading order (`document` a kind of record, `switch` and `number` a setting). */
     public const PAGE = [
-        'records' => [['document', 'PO'], ['document', 'GRN'], ['document', 'ADJ'], ['document', 'CNT'], ['document', 'WO'], ['document', 'SINV'],
-            ['document', 'DN'], ['document', 'TRD']],
+        'records' => [['document', 'PO'], ['document', 'GRN'], ['document', 'SIN'], ['document', 'SOUT'], ['document', 'ADJ'], ['document', 'TRF'],
+            ['document', 'REL'], ['document', 'CNT'], ['document', 'WO'], ['document', 'SINV'], ['document', 'DN'], ['document', 'TRD']],
         'suppliers' => [['switch', 'approvals.supplier_activation'], ['switch', 'suppliers.change_review'], ['number', 'suppliers.approval_due_days']],
         'matching' => [['switch', 'approvals.match_multiple'], ['switch', 'approvals.match_counted'], ['switch', 'approvals.mapping_bulk_second_ok'],
             ['number', 'approvals.spot_check_size']],

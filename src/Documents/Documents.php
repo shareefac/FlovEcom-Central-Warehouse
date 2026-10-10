@@ -65,8 +65,11 @@ final class Documents
     public const HEADER_FIELDS = ['external_ref', 'doc_date', 'warehouse', 'reason_code', 'note'];
     /** Fields of one line (an item by sku_id or sku_code, or none for freight, duty, ...; warehouse is a code). */
     public const LINE_FIELDS = ['sku_id', 'sku_code', 'warehouse', 'qty', 'unit_cost', 'amount', 'reason_code', 'description'];
-    /** reason_code.applies_to of the types whose header and lines carry a reason; other types carry none (I22). */
-    public const REASON_USE = ['ADJ' => 'adjustment', 'WO' => 'write_off', 'CNT' => 'count', 'DN' => 'supplier_return'];
+    /**
+     * reason_code.applies_to of the types whose header and lines carry a reason; other types carry none (I22). A stock in and a
+     * stock out (pack A1) take the reasons offered for them on the Reasons page.
+     */
+    public const REASON_USE = ['ADJ' => 'adjustment', 'WO' => 'write_off', 'CNT' => 'count', 'DN' => 'supplier_return', 'SIN' => 'stock_in', 'SOUT' => 'stock_out'];
     public const MAX_LINES = Movements::MAX_LINES;
     public const MAX_QTY = 10_000_000;
     /** A reviewer's note: optional on an approval, 3-500 characters on a rejection (it is the reason). */
@@ -224,7 +227,18 @@ final class Documents
             if ($t['approval_rule'] !== 'none') {
                 $units = $handler->approvalUnits($db, $doc, $lines);
                 if ($units > (int) $t['approval_limit_units']) {
-                    return $this->submit($caller, $me['id'], $doc, $t, $units);
+                    return $this->submit($caller, $me['id'], $doc, $t, $units, (string) $t['approval_rule'], ['limit' => (int) $t['approval_limit_units']]);
+                }
+            }
+            // The OK first for a big record (pack A1, docs/decisions.md SO5; off by default): more units, or more pounds, than the
+            // type's sizes.
+            if ((int) ($t['size_approval'] ?? 0) === 1 && $handler instanceof SizeApproval) {
+                $size = $handler->size($db, $doc, $lines);
+                $maxUnits = $t['size_units'] === null ? null : (int) $t['size_units'];
+                $maxValue = $t['size_value'] === null ? null : (int) $t['size_value'];
+                if (($maxUnits !== null && $size['units'] > $maxUnits) || ($maxValue !== null && $size['value'] > $maxValue)) {
+                    return $this->submit($caller, $me['id'], $doc, $t, $size['units'], 'over_size',
+                        ['size_units' => $maxUnits, 'size_value' => $maxValue, 'value' => $size['value']]);
                 }
             }
             return $this->postNow($caller, $me['id'], $doc, $t, $handler, $lines, null);
@@ -669,11 +683,13 @@ final class Documents
     }
 
     /**
-     * Step 3: the blocking approval request.
+     * Step 3: the blocking approval request. $rule: the task's reason (the type's approval rule, or `over_size` for the OK first for a
+     * big record); $limits: what it was compared with (audited).
      *
      * @param array<string, mixed> $t
+     * @param array<string, mixed> $limits
      */
-    private function submit(Caller $caller, int $staffId, Document $doc, array $t, int $units): Document
+    private function submit(Caller $caller, int $staffId, Document $doc, array $t, int $units, string $rule, array $limits): Document
     {
         $now = $this->nowDb();
         $this->db->exec("UPDATE document SET status = 'awaiting_approval', submitted_by = ?, submitted_at = ?, version = version + 1, updated_at = ? "
@@ -681,11 +697,11 @@ final class Documents
         $this->db->insert(
             'INSERT INTO review_task (subject_type, subject_id, kind, reason, units, opened_by, opened_actor, opened_at, due_at) '
             . "VALUES ('document', ?, 'approval', ?, ?, ?, ?, ?, ?)",
-            [$doc->id, (string) $t['approval_rule'], $units, $staffId, $caller->actor, $now, self::dueAt($now, (int) $t['review_due_days'])],
+            [$doc->id, $rule, $units, $staffId, $caller->actor, $now, self::dueAt($now, (int) $t['review_due_days'])],
         );
         Audit::write($this->db, $caller, 'document.submit', 'document', (string) $doc->id, null,
-            ['type' => $doc->docType, 'rule' => $t['approval_rule'], 'units' => $units, 'limit' => (int) $t['approval_limit_units'],
-                'rule_version' => isset($t['rule_version']) ? (int) $t['rule_version'] : null]);
+            ['type' => $doc->docType, 'rule' => $rule, 'units' => $units] + $limits
+                + ['rule_version' => isset($t['rule_version']) ? (int) $t['rule_version'] : null]);
         return $this->get($doc->id);
     }
 

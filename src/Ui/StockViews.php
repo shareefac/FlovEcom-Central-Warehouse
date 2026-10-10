@@ -124,10 +124,14 @@ final class StockViews
             $where[] = 'l.sku_id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')';
             array_push($params, ...$ids);
         }
+        // A row a stock record booked (pack A1) says which record, its reason (the line's, else the record's) and who it was given to.
         $rows = $this->db->all(
             'SELECT l.id, l.warehouse_id, w.name AS warehouse, l.sku_id, s.code, s.name, l.bucket, l.qty_delta, l.balance_after, l.movement_type, '
-            . 'l.order_ref, l.doc_ref, l.actor, l.note, COALESCE(l.effective_at, l.created_at) AS at '
-            . 'FROM stock_ledger l JOIN sku s ON s.id = l.sku_id JOIN warehouse w ON w.id = l.warehouse_id'
+            . 'l.order_ref, l.doc_ref, l.actor, l.note, COALESCE(l.effective_at, l.created_at) AS at, l.document_id, d.doc_type, d.reverses_id, '
+            . 'r.label AS reason_label, op.given_to '
+            . 'FROM stock_ledger l JOIN sku s ON s.id = l.sku_id JOIN warehouse w ON w.id = l.warehouse_id '
+            . 'LEFT JOIN document d ON d.id = l.document_id LEFT JOIN document_line dl ON dl.document_id = l.document_id AND dl.line_no = l.document_line '
+            . 'LEFT JOIN stock_op op ON op.document_id = l.document_id LEFT JOIN reason_code r ON r.code = COALESCE(dl.reason_code, d.reason_code)'
             . ($where === [] ? '' : ' WHERE ' . implode(' AND ', $where)) . ' ORDER BY l.id DESC LIMIT ' . (self::MOVES_PAGE + 1),
             $params,
         );

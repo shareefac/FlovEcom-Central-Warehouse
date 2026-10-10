@@ -21,7 +21,9 @@ use CW\Db;
  */
 final class ReasonCodes
 {
-    public const USES = ['adjustment', 'write_off', 'count', 'return', 'supplier_return', 'reversal', 'po_cancel', 'po_draft_cancel', 'po_amend'];
+    /** Where a reason can be offered, in the SET's order (0019; stock_in and stock_out since 0022, pack A1). */
+    public const USES = ['adjustment', 'write_off', 'count', 'return', 'supplier_return', 'reversal', 'po_cancel', 'po_draft_cancel', 'po_amend', 'stock_in',
+        'stock_out'];
     public const DIRECTIONS = ['increase', 'decrease', 'either'];
     public const LABEL_MAX = 100;
     /** New reasons go before `other` (999), which stays last. */
@@ -45,7 +47,7 @@ final class ReasonCodes
         }
         $out = [];
         foreach ($this->db->all('SELECT code, label, CAST(applies_to AS CHAR) AS applies_to, CAST(direction AS CHAR) AS direction, needs_note, is_gift, '
-            . 'system_only, is_active, sort_order FROM reason_code ORDER BY sort_order, code') as $r) {
+            . 'needs_given_to, below_zero, system_only, is_active, sort_order FROM reason_code ORDER BY sort_order, code') as $r) {
             $out[] = self::row($r) + ['version' => $versions[(string) $r['code']] ?? 0];
         }
         return $out;
@@ -55,19 +57,21 @@ final class ReasonCodes
     public function get(string $code): ?array
     {
         $r = $this->db->one('SELECT code, label, CAST(applies_to AS CHAR) AS applies_to, CAST(direction AS CHAR) AS direction, needs_note, is_gift, '
-            . 'system_only, is_active, sort_order FROM reason_code WHERE code = ?', [$code]);
+            . 'needs_given_to, below_zero, system_only, is_active, sort_order FROM reason_code WHERE code = ?', [$code]);
         return $r === null ? null : self::row($r) + ['version' => ConfigHistory::version($this->db, 'reason', $code)];
     }
 
     /**
      * Adds a reason: $code lower case (a-z, 0-9, _; 2-32 characters, starting with a letter: 400 bad_code; 409 reason_exists),
      * $label 2-100 characters (400 bad_label), $uses a non-empty subset of USES (400 bad_uses), $direction one of DIRECTIONS
-     * (400 bad_direction). It is active at once and sorted before `other`.
+     * (400 bad_direction). It is active at once and sorted before `other`. $needsGivenTo / $belowZero: the stock-out rules
+     * (setRules()).
      *
      * @param list<string> $uses
      * @return array<string, mixed> the reason
      */
-    public function add(Caller $caller, string $code, string $label, array $uses, string $direction, bool $needsNote, bool $isGift, string $reason): array
+    public function add(Caller $caller, string $code, string $label, array $uses, string $direction, bool $needsNote, bool $isGift, string $reason,
+        bool $needsGivenTo = false, bool $belowZero = false): array
     {
         $reason = ConfigHistory::reason($reason);
         $code = strtolower(trim($code));
@@ -79,14 +83,15 @@ final class ReasonCodes
         if (!in_array($direction, self::DIRECTIONS, true)) {
             throw new CwException('bad_direction', 'the direction is increase, decrease or either', 400, ['field' => 'direction']);
         }
-        return $this->db->transaction(function (Db $db) use ($caller, $code, $label, $uses, $direction, $needsNote, $isGift, $reason): array {
+        return $this->db->transaction(function (Db $db) use ($caller, $code, $label, $uses, $direction, $needsNote, $isGift, $reason, $needsGivenTo, $belowZero): array {
             ConfigHistory::authorise($db, $caller);
             if ($db->value('SELECT 1 FROM reason_code WHERE code = ? FOR UPDATE', [$code]) !== null) {
                 throw new CwException('reason_exists', "there is a reason {$code} already: rename it or switch it on again instead", 409, ['field' => 'code']);
             }
             $sort = min(self::SORT_LAST, (int) ($db->value('SELECT MAX(sort_order) FROM reason_code WHERE sort_order < 999') ?? 0) + 10);
-            $db->exec('INSERT INTO reason_code (code, label, applies_to, direction, needs_note, is_gift, system_only, is_active, sort_order) '
-                . 'VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?)', [$code, $label, implode(',', $uses), $direction, $needsNote ? 1 : 0, $isGift ? 1 : 0, $sort]);
+            $db->exec('INSERT INTO reason_code (code, label, applies_to, direction, needs_note, is_gift, needs_given_to, below_zero, system_only, is_active, sort_order) '
+                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?)', [$code, $label, implode(',', $uses), $direction, $needsNote ? 1 : 0, $isGift ? 1 : 0,
+                    $needsGivenTo ? 1 : 0, $belowZero ? 1 : 0, $sort]);
             $after = ConfigHistory::state($db, 'reason', $code) ?? throw new \LogicException('the reason just added is missing');
             $v = ConfigHistory::record($db, $caller, 'reason', $code, 'add', null, $after, $reason);
             Audit::write($db, $caller, 'reason.add', 'reason_code', $code, null, ['code' => $code, 'after' => $after, 'reason' => $reason, 'version' => $v['version']]);
@@ -122,6 +127,22 @@ final class ReasonCodes
         $set = implode(',', $uses);
         return $this->change($caller, $code, $reason, $seen, 'uses', static fn (array $before): array => ['applies_to' => $set] + $before,
             static fn (Db $db) => $db->exec('UPDATE reason_code SET applies_to = ? WHERE code = ?', [$set, $code]));
+    }
+
+    /**
+     * The stock-out rules of a reason (pack A1; owner answer Q5): $needsGivenTo, a stock out with it names the person it was given to
+     * (samples, staff use); $belowZero, a stock out or a write-down with it may take a protected product (one whose stock the websites
+     * must not oversell) below zero. Records already final keep what they were made with. 409 reason_locked for a reason CW sets
+     * itself, 404 unknown_reason, 409 changed_meanwhile.
+     *
+     * @return array{changed: bool, reason: array<string, mixed>}
+     */
+    public function setRules(Caller $caller, string $code, bool $needsGivenTo, bool $belowZero, string $reason, ?int $seen = null): array
+    {
+        $reason = ConfigHistory::reason($reason);
+        return $this->change($caller, $code, $reason, $seen, 'rules',
+            static fn (array $before): array => ['needs_given_to' => $needsGivenTo ? 1 : 0, 'below_zero' => $belowZero ? 1 : 0] + $before,
+            static fn (Db $db) => $db->exec('UPDATE reason_code SET needs_given_to = ?, below_zero = ? WHERE code = ?', [$needsGivenTo ? 1 : 0, $belowZero ? 1 : 0, $code]));
     }
 
     /**
@@ -195,6 +216,7 @@ final class ReasonCodes
         return ['code' => (string) $r['code'], 'label' => (string) $r['label'],
             'uses' => array_values(array_filter(explode(',', (string) $r['applies_to']), static fn (string $u): bool => $u !== '')),
             'direction' => (string) $r['direction'], 'needs_note' => (int) $r['needs_note'] === 1, 'is_gift' => (int) $r['is_gift'] === 1,
+            'needs_given_to' => (int) ($r['needs_given_to'] ?? 0) === 1, 'below_zero' => (int) ($r['below_zero'] ?? 0) === 1,
             'system_only' => (int) $r['system_only'] === 1, 'is_active' => (int) $r['is_active'] === 1, 'sort_order' => (int) $r['sort_order']];
     }
 }

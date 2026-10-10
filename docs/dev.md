@@ -425,6 +425,10 @@ another big page comes from disk), so compare runs made back to back, with no PH
 | `tests/Unit/SetItYourselfUnitTest.php`, `tests/Integration/Admin/`, `tests/Integration/Staff/StaffSetUpTest.php`, `Migration0019Test`, `tests/Integration/UiKernel/SetItYourselfScreensTest.php` | the services, the switches' effects (and S2/S3), the audit search, the staff set-up, the baselines, the screens end to end |
 | `migrations/0021_mapping_bulk.sql`, `src/Mapping/BulkDecisions.php`, `src/Ui/Controller/{Bulk,StoreProducts}Controller.php`, views `mapping_overview`, `store_products`, `store_seg`, `bulk_bar`, `bulk_confirm`, `bulk_result` | store-wise review and bulk action on the matching screens (M46-M53, U106-U112): the store selector (`ReviewController::storeItems`, the `channel` value kept by `Sections::MAP` `keep`), the "By store" overview (`Queries::storeBands`), Store Products (`Queries::storeStateCounts`, `storeProducts`), the tick boxes and the action bar (app.js, section 21 of app.css), row-by-row decisions with skips and a batch (`mapping_batch`, `mapping_batch_row`, `screen:<id>` on every decision), the result/batch page, DecisionService's `unignore` and `send_back`, the settings `mapping.bulk_confirm_bands` (a `list_in` setting drawn as tick boxes), `mapping.bulk_max_rows` and the switch `approvals.mapping_bulk_second_ok` |
 | `tests/Integration/Mapping/BulkDecisionsTest.php`, `tests/Integration/UiKernel/BulkScreensTest.php` | the service (skips with why, Second approval, the settings, order and batch, the two new decisions, who may) and the screens (the bar per list and person, the second steps, the refusals, the result page, CSRF and permissions, the store everywhere, Store Products' states, undo one match, the settings page) |
+| `migrations/0022_stock_ops.sql` | pack A1: the kinds SIN, SOUT, TRF, REL (+ their series) and ADJ's sizes; `document_type.size_approval/size_units/size_value` (the OK first for a big record, off); `reason_code.needs_given_to/below_zero` and the uses `stock_in`, `stock_out`; new reasons with baselines, found/sample/other's next versions; `stock_op` (a stock record's header), `other_account_entry` (the balance owed, append-only) (SO1-SO16) |
+| `src/StockOps/` | `StockOps` (the stock records' service: drafts, lines, add by barcode / CW number / words, post, stop, cancel, take back, files, read side), `StockOpHandler` (one handler for the five kinds: validate, approval units, size, post, reverse; never below zero), `OtherAccounts` (another account's room and the balance owed: payments and their reversal), `CostHints` (average cost so far, last supplier price), `StockOpsInvariants` (O1-O6), `StockOpPdf` (transfer note, release invoice); `src/Documents/SizeApproval.php` (the OK first for a big record) |
+| `src/Ui/Controller/{StockOps,OtherAccounts}Controller.php`, views `stock_ops`, `stock_op`, `stock_op_fields`, `stock_accounts`, `decide_box` | Stock › Stock In / Stock Out / Adjustments / Transfers (Releases, Balance owed): the boards, the record page, the create and details form, the balance owed; the decide box shared with the generic record page |
+| `tests/Integration/StockOps/`, `tests/Integration/UiKernel/StockOpsScreensTest.php` | each kind drafted, posted and reversed with its ledger and balances; the rules (given to, below zero, approvals, ownership, places); the release and the balance owed; the screens, roles and CSRF |
 
 Document and file tests notes:
 - `TestDb::clean()` keeps the seeded `reason_code` and `document_type` rows (a test that changes one restores it) and sets
@@ -489,8 +493,9 @@ Document and file tests notes:
 - `markSent` refuses while `sendWarnings()` lists anything (a test schema has no confirmed company details): service tests pass
   `$acknowledged = true`, screen tests post `send_anyway=1` (I86). The PO editor approves through its own form
   (`action=approve` posted to `/lines`), not `/approve` (I87).
-- `KernelUiTestCase::kernel()` registers the production handlers (`DocumentHandlers::all`: PO since the I-2 pos task) plus the
-  test-only ADJ fixture; `DocumentTestCase` still registers ADJ only (so `type_not_built` is tested with GRN there). A test that
+- `KernelUiTestCase::kernel()` registers the production handlers (`DocumentHandlers::all`: PO since the I-2 pos task; GRN; the stock
+  records SIN, SOUT, ADJ, TRF, REL since pack A1) with the test-only ADJ fixture in place of the real ADJ (`handlers()`; a test of the stock
+  records overrides it to return `DocumentHandlers::all($db)`); `DocumentTestCase` still registers ADJ only (so `type_not_built` is tested with GRN there). A test that
   needs another type's row changed (`reject_action = 'record'` on ADJ in `ReviewRulesTest`) changes it with the admin
   connection and restores it (`document_type` is a seed table).
 - **The staging box has a file store now** (`/srv/cw-docs`, named by app.env `file_store_dir`; observed 2 Oct 2026): a screen
@@ -509,6 +514,10 @@ Document and file tests notes:
 - `SalesExportToolTest` creates `cw_test_<slot>_site` (the live tables' columns and index names, filler rows outside the
   window and `ANALYZE TABLE` so that the optimizer reads by index as on live) and runs the tool as a subprocess with
   `CW_EXPORT_DB_*` and `CW_SALES_EXPORT_ROOT` set to a temporary directory; it never connects to a real site.
+- Stock record tests (`tests/Integration/StockOps/StockOpsTestCase`): warehouses and places are inserted for the test (TestDb::clean removes
+  them), a kind's rules (`rule()`) and a reason's rules (`reasonRule()`) are changed with the admin connection and put back in tearDown (call it
+  BEFORE a service changes the row: it keeps the row as it was); the file store is a temporary directory. ADJ keeps its "stock put back without a
+  supplier document" OK first (10 units a person a day), so a test that adds more on one day gets a record waiting for an OK.
 - Composer: `openspout/openspout` ^4.32 (v4.32.0; needs ext-dom, fileinfo, filter, libxml, xmlreader, zip — all on staging —
   and no gd) is in `require` (I58).
 - Composer: `setasign/fpdf` is in `require` (install_cron.sh runs `composer --no-dev`). It is pinned to 1.8.2 because

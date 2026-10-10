@@ -116,7 +116,9 @@ final class Warehouses
             $out[] = 'website';
         }
         if ($db->value("SELECT 1 FROM document WHERE warehouse_id = ? AND status IN ('draft', 'awaiting_approval') LIMIT 1", [$id]) !== null
-            || $db->value("SELECT 1 FROM document_line l JOIN document d ON d.id = l.document_id WHERE l.warehouse_id = ? AND d.status IN ('draft', 'awaiting_approval') LIMIT 1", [$id]) !== null) {
+            || $db->value("SELECT 1 FROM document_line l JOIN document d ON d.id = l.document_id WHERE l.warehouse_id = ? AND d.status IN ('draft', 'awaiting_approval') LIMIT 1", [$id]) !== null
+            // a transfer or a release not final yet that goes to it (pack A1)
+            || $db->value("SELECT 1 FROM stock_op o JOIN document d ON d.id = o.document_id WHERE o.to_warehouse_id = ? AND d.status IN ('draft', 'awaiting_approval') LIMIT 1", [$id]) !== null) {
             $out[] = 'records';
         }
         if ($db->value("SELECT 1 FROM count_review WHERE warehouse_id = ? AND status = 'open' LIMIT 1", [$id]) !== null) {
@@ -318,8 +320,11 @@ final class Warehouses
     {
         return $this->changePlace($caller, $placeId, $reason, $seen, $active ? 'switch_on' : 'switch_off', static fn (array $b): array => ['is_active' => $active ? 1 : 0] + $b,
             static function (Db $db) use ($active, $placeId): void {
-                if (!$active && $db->value("SELECT 1 FROM document_line l JOIN document d ON d.id = l.document_id WHERE l.location_id = ? "
-                    . "AND d.status IN ('draft', 'awaiting_approval') LIMIT 1", [$placeId]) !== null) {
+                if (!$active && ($db->value("SELECT 1 FROM document_line l JOIN document d ON d.id = l.document_id WHERE l.location_id = ? "
+                    . "AND d.status IN ('draft', 'awaiting_approval') LIMIT 1", [$placeId]) !== null
+                    // a stock record not final yet that names it (pack A1: its place, or where a transfer goes)
+                    || $db->value("SELECT 1 FROM stock_op o JOIN document d ON d.id = o.document_id WHERE (o.location_id = ? OR o.to_location_id = ?) "
+                    . "AND d.status IN ('draft', 'awaiting_approval') LIMIT 1", [$placeId, $placeId]) !== null)) {
                     throw new CwException('place_in_use', 'a record that is not final yet names this place', 409);
                 }
                 $db->exec('UPDATE warehouse_location SET is_active = ? WHERE id = ?', [$active ? 1 : 0, $placeId]);

@@ -64,9 +64,9 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::CHECK_KIND['approval'], $queue->text());
         self::assertStringContainsString(Words::CHECK_KIND['review'], $queue->text());
         $xp = new \DOMXPath($queue->dom());
-        self::assertSame(['Stock correction (no number yet)'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+        self::assertSame(['Adjustment (no number yet)'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
             iterator_to_array($xp->query('//section[@aria-labelledby="approvals-h"]//tbody/tr/th'))), 'a record without a number says so (F099)');
-        self::assertSame(['Stock correction ADJ-000001', 'Stock correction ADJ-000002'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+        self::assertSame(['Adjustment ADJ-000001', 'Adjustment ADJ-000002'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
             iterator_to_array($xp->query('//section[@aria-labelledby="reviews-h"]//tbody/tr/th'))), 'oldest first');
         // Phone first (F100): one card per check, each cell says what it is; the reasons in words (F098), the items counted (F095).
         self::assertSame(2, $xp->query('//table[contains(@class, "stack")]')->length);
@@ -75,16 +75,17 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertSame(Words::CHECK_REASON['positive_without_supplier_doc'], trim((string) $xp->evaluate('string(//section[@aria-labelledby="approvals-h"]//tbody/tr[1]/td[1])')));
         self::assertSame('25 items', trim((string) $xp->evaluate('string(//section[@aria-labelledby="approvals-h"]//tbody/tr[1]/td[2])')));
         self::assertStringNotContainsString('UTC', $queue->text());
-        self::assertSame(['Everything', 'Purchase orders', 'Deliveries', 'Stock corrections', 'Suppliers', 'Company details'],
+        self::assertSame(['Everything', 'Purchase orders', 'Deliveries', 'Stock in records', 'Stock out records', 'Adjustments', 'Transfers', 'Releases', 'Suppliers',
+            'Company details'],
             array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent), iterator_to_array($xp->query('//select[@name="type"]/option'))),
-            'the filter offers the kinds in use (F102): PO, GRN (IM6) and the fixture ADJ here, never the kinds still to come');
+            'the filter offers the kinds in use (F102): PO, GRN (IM6) and the stock records (pack A1; ADJ is the fixture here), never the kinds still to come');
         self::assertSame(3, self::nav($queue)['Approvals']['count'], 'the count is what this reviewer may decide');
         self::assertSame(3, self::sectionTabs($queue)[0]['count']);
 
         // Approve through the form.
         $page = $web->get('/ui/documents/' . $a->id);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertStringContainsString('Stock correction ADJ-000001', $page->text());
+        self::assertStringContainsString('Adjustment ADJ-000001', $page->text());
         $pxp = new \DOMXPath($page->dom());
         self::assertSame(Words::RECORD['review_title'], trim((string) $pxp->evaluate('string(//section[@aria-labelledby="decide-h"]//h2)')));
         self::assertStringContainsString(Words::UI['what_each_answer_does'], $page->text(), 'design B: what each answer does');
@@ -95,7 +96,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertArrayHasKey('csrf', $form);
         $r = $web->post('/ui/documents/reviews/' . $this->task($a->id) . '/approve', ['note' => 'counted again: right'] + $form);
         self::assertSame(303, $r->status, $r->describe());
-        self::assertSame('/ui/documents/' . $a->id . '?notice=approved', $r->location());
+        self::assertSame('/ui/stock/adjustments/' . $a->id . '?notice=approved', $r->location(), 'the decision comes back to the record\'s page in Stock (SO10)');
         $after = $web->follow($r);
         self::assertStringContainsString(DocumentsController::NOTICES['approved'], $after->text());
         self::assertSame('approved', self::$db->value('SELECT review_state FROM document WHERE id = ?', [$a->id]));
@@ -121,7 +122,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         $after = $web->follow($r);
         self::assertStringContainsString(DocumentsController::NOTICES['rejected_review'], $after->text());
         $reversal = (int) self::$db->value('SELECT id FROM document WHERE reverses_id = ?', [$b->id]);
-        self::assertContains('/ui/documents/' . $reversal, $after->hrefs(), 'reversed by: linked');
+        self::assertContains('/ui/stock/adjustments/' . $reversal, $after->hrefs(), 'reversed by: linked, on the record\'s page in Stock');
         $revPage = $web->get('/ui/documents/' . $reversal);
         self::assertContains('/ui/documents/' . $b->id, $revPage->hrefs(), 'reverses: linked back');
         self::assertStringContainsString('Rejected at review', $revPage->text(), 'the reason by its name');
@@ -130,7 +131,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         // The blocking approval, approved: posted now.
         $r = $web->post('/ui/documents/reviews/' . $this->task($held->id) . '/approve', $web->get('/ui/documents/' . $held->id)
             ->form('/ui/documents/reviews/' . $this->task($held->id) . '/approve'));
-        self::assertSame('/ui/documents/' . $held->id . '?notice=approved_posted', $r->location());
+        self::assertSame('/ui/stock/adjustments/' . $held->id . '?notice=approved_posted', $r->location());
         self::assertSame(['posted', 'ADJ-000004', $poster['id']], array_values((array) self::$db->one('SELECT status, number, posted_by FROM document WHERE id = ?', [$held->id])));
         self::assertStringContainsString(Words::CHECKS['none'], $web->get('/ui/documents/reviews')->text());
     }
@@ -165,7 +166,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertSame(Words::UI['safer'], trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//span[@class="safe-tag"])')),
             'refusing a request books nothing: the safer answer (design B)');
         $ok = $rv->post("/ui/documents/reviews/{$task}/approve", $page->form("/ui/documents/reviews/{$task}/approve"));
-        self::assertSame('/ui/documents/' . $reqId . '?notice=approved_posted', $ok->location());
+        self::assertSame('/ui/stock/adjustments/' . $reqId . '?notice=approved_posted', $ok->location());
         self::assertSame(['posted', 'reversed'], [self::$db->value('SELECT status FROM document WHERE id = ?', [$reqId]),
             self::$db->value('SELECT status FROM document WHERE id = ?', [$p->id])]);
 
@@ -178,7 +179,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::RECORD['does_not_ok_review'], $page->text());
         $rows = (int) self::$db->value('SELECT COUNT(*) FROM stock_ledger');
         $r = $rv->post("/ui/documents/reviews/{$task}/reject", ['note' => 'the original was right'] + $page->form("/ui/documents/reviews/{$task}/reject"));
-        self::assertSame('/ui/documents/' . $small->id . '?notice=rejected_reversal', $r->location());
+        self::assertSame('/ui/stock/adjustments/' . $small->id . '?notice=rejected_reversal', $r->location());
         self::assertStringContainsString(DocumentsController::NOTICES['rejected_reversal'], $rv->follow($r)->text());
         self::assertSame($rows, (int) self::$db->value('SELECT COUNT(*) FROM stock_ledger'));
         self::assertSame([], \CW\Invariants::check(self::$db));
@@ -251,8 +252,8 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::assertStringContainsString('2 records, newest first.', $list->text());
         self::assertContains('/ui/documents/' . $doc->id, $list->hrefs());
-        self::assertStringContainsString('Today this list holds purchase orders, deliveries and stock corrections, and their cancellations.', $list->text(),
-            'the fixture ADJ is live in tests (and GRN since IM6)');
+        self::assertStringContainsString('Today this list holds purchase orders, deliveries, stock in records, stock out records, adjustments, transfers and releases, '
+            . 'and their cancellations.', $list->text(), 'the fixture ADJ in tests, GRN since IM6, the stock records since pack A1');
         self::assertSame(Words::MENU['documents'], trim((string) (new \DOMXPath($list->dom()))->evaluate('string(//main//h1)')));
         $lxp = new \DOMXPath($list->dom());
         self::assertSame(1, $lxp->query('//table[contains(@class, "stack")]')->length, 'one card per record on a phone');
@@ -285,9 +286,11 @@ final class ReviewScreensTest extends KernelUiTestCase
         }));
         $plain->cookies = $web->cookies;
         $live = $plain->get('/ui/documents');
-        self::assertStringContainsString('Today this list holds purchase orders and deliveries, and their cancellations. Supplier invoices, returns to suppliers, '
-            . 'stock counts, stock corrections, write-offs and trade sales will appear here when those screens are added.', $live->text(), 'F406: no phase codes');
+        self::assertStringContainsString('Today this list holds purchase orders, deliveries, stock in records, stock out records, adjustments, transfers and releases, '
+            . 'and their cancellations. Supplier invoices, returns to suppliers, stock counts, write-offs and trade sales will appear here when those screens are added.',
+            $live->text(), 'F406: no phase codes');
         self::assertStringNotContainsString('Phase', $live->text());
-        self::assertStringContainsString(Words::say('RECORD', 'later', 'stock corrections'), $plain->get('/ui/documents/' . $doc->id)->text());
+        self::assertStringContainsString(Words::RECORD['open_stock'], $plain->get('/ui/documents/' . $doc->id)->text(),
+            'an adjustment has its own page in Stock since pack A1');
     }
 }

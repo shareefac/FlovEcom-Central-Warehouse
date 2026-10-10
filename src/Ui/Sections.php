@@ -47,13 +47,28 @@ final class Sections
                 'badge' => 'linking_duplicates']]],
             'barcodes' => ['pages' => [['perm' => 'catalogue.edit', 'path' => '/ui/items/barcodes', 'match' => ['/ui/items/barcodes*'], 'badge' => 'barcodes_open']]],
         ]],
-        // Built from stock_balance and the stock ledger (the item page's own figures: catalogue.view); per store and per account later.
+        // Overview and Movements: stock_balance and the stock ledger (the item page's own figures: catalogue.view). The stock records of
+        // pack A1 (docs/decisions.md SO10): the people who read records (documents.view) see their lists; the create buttons are for the
+        // people who keep them (doc.<TYPE>.post). The other account's room (VPG 2) is the Transfers tab's "Balance owed".
         'stock' => ['tabs' => [
             'stock' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock', 'match' => ['/ui/stock']]]],
             'movements' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock/movements', 'match' => ['/ui/stock/movements*']]]],
-            'adjustments' => ['soon' => true],
+            'stock_in' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/in', 'match' => ['/ui/stock/in', '/ui/stock/in.csv', '/ui/stock/in/*'],
+                'badge' => 'stock_in_open', 'new' => ['perm' => 'doc.SIN.post', 'href' => '/ui/stock/in#new', 'label' => 'stock_in']]]],
+            'stock_out' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/out', 'match' => ['/ui/stock/out', '/ui/stock/out.csv', '/ui/stock/out/*'],
+                'badge' => 'stock_out_open', 'new' => ['perm' => 'doc.SOUT.post', 'href' => '/ui/stock/out#new', 'label' => 'stock_out']]]],
+            'transfers' => ['segments' => true, 'pages' => [
+                ['key' => 'transfers', 'perm' => 'documents.view', 'path' => '/ui/stock/transfers', 'match' => ['/ui/stock/transfers*'], 'badge' => 'transfers_open',
+                    'new' => ['perm' => 'doc.TRF.post', 'href' => '/ui/stock/transfers#new', 'label' => 'transfers']],
+                ['key' => 'releases', 'perm' => 'documents.view', 'path' => '/ui/stock/releases', 'match' => ['/ui/stock/releases*'], 'badge' => 'releases_open',
+                    'new' => ['perm' => 'doc.REL.post', 'href' => '/ui/stock/releases#new', 'label' => 'releases']],
+                ['key' => 'accounts', 'perm' => 'documents.view', 'path' => '/ui/stock/accounts', 'match' => ['/ui/stock/accounts*']],
+            ]],
+            'adjustments' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/adjustments', 'match' => ['/ui/stock/adjustments*'],
+                'badge' => 'adjustments_open', 'new' => ['perm' => 'doc.ADJ.post', 'href' => '/ui/stock/adjustments#new', 'label' => 'adjustments']]]],
             'counts' => ['soon' => true],
-            'transfers' => ['soon' => true],
+            'reservations' => ['soon' => true],
+            'quality' => ['soon' => true],
         ]],
         'purchasing' => ['tabs' => [
             'reorder' => ['segments' => true, 'pages' => [

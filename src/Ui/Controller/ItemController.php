@@ -120,6 +120,14 @@ final class ItemController
                 'after' => $r['balance_after'], 'type' => self::s($r['movement_type']), 'ref' => self::s($r['order_ref'] ?? $r['doc_ref']),
                 'actor' => $who(self::s($r['actor'])), 'note' => $note !== null && preg_match('/^#\d+$/D', $note) === 1 ? null : $note, 'at' => self::s($r['effective_at']),
             ];
+            // A row a stock record booked (pack A1): the record, its reason and who it was given to, and a link to it.
+            $kind = ($r['doc_type'] ?? null) === null ? null : \CW\StockOps\StockOps::kindOf((string) $r['doc_type']);
+            $ledger[count($ledger) - 1] += $kind === null ? ['record' => null] : ['record' => ['what' => Words::STOCK_KIND[$kind]['one'],
+                'why' => self::s($r['reason_label'] ?? null), 'given' => ($r['given_to'] ?? null) === null ? null : Words::say('STOCK_OPS', 'given', (string) $r['given_to']),
+                'href' => \CW\StockOps\StockOps::PATHS[$kind] . '/' . (int) $r['document_id']]];
+            if ($kind !== null) {
+                $ledger[count($ledger) - 1]['note'] = null;
+            }
         }
         $mergedInto = $sku['merged_into_sku_id'] === null ? null : $q->sku((int) $sku['merged_into_sku_id']);
         $canEdit = $ctx->me()->can('catalogue.edit') && $sku['merged_into_sku_id'] === null;

@@ -57,7 +57,7 @@ final class WordsTest extends TestCase
             'REASON_USE' => array_values(\CW\Admin\ReasonCodes::USES),
             'RESET_KIND' => \CW\Staff\RoleRequests::KINDS,
             'SUPPLIER_STATUS' => Suppliers::STATUSES,
-            'CHECK_REASON' => ['all_documents', 'over_limit', 'positive_without_supplier_doc', ...Suppliers::APPROVAL_REASONS, 'import_route', 'supplier_changed',
+            'CHECK_REASON' => ['all_documents', 'over_limit', 'positive_without_supplier_doc', 'over_size', ...Suppliers::APPROVAL_REASONS, 'import_route', 'supplier_changed',
                 'company_changed'],
             'CHECK_KIND' => $migration('0008_documents.sql', 'kind'),
             'REVIEW_STATE' => $migration('0008_documents.sql', 'review_state'),
@@ -79,9 +79,13 @@ final class WordsTest extends TestCase
             'MENU' => array_merge(...array_map(static fn (array $s): array => array_keys($s['tabs']), array_values(Sections::MAP))),
             'MENU_HELP' => array_keys(array_merge(...array_map(static fn (array $s): array => array_filter($s['tabs'], static fn (array $t): bool => !isset($t['soon'])),
                 array_values(Sections::MAP)))),
-            'SEGMENT' => ['review', 'samples', 'pending', 'reorder', 'brands', 'anomalies', 'sales_history', 'receiving', 'bench', 'incidents', 'settings', 'series',
+            'SEGMENT' => ['review', 'samples', 'pending', 'reorder', 'brands', 'anomalies', 'sales_history', 'receiving', 'bench', 'incidents', 'transfers', 'releases',
+                'accounts', 'settings', 'series',
                 'integrity'],
-            'NEW' => ['orders', 'receiving', 'suppliers', 'people', 'warehouses', 'reasons'],
+            'NEW' => ['orders', 'receiving', 'suppliers', 'people', 'warehouses', 'reasons', 'stock_in', 'stock_out', 'transfers', 'releases', 'adjustments'],
+            'DOC_TYPE' => array_values(\CW\StockOps\StockOpHandler::KINDS),
+            'DOC_TYPES' => array_values(\CW\StockOps\StockOpHandler::KINDS),
+            'STOCK_FILE' => array_keys(\CW\StockOps\StockOps::FILE_ROLES),
             'COMING_LATER' => array_column(Permissions::COMING_LATER, 'key'),
             'BADGE' => [...Sections::badgeNames(), 'section'],
             'TAB' => ['more'],
@@ -320,7 +324,7 @@ final class WordsTest extends TestCase
         foreach ([
             'FORM_VALUE' => Form::ALL,
             'NIC_TYPE' => ['salt', 'freebase', 'zero', 'shortfill', 'nic_shot'],
-            'MOVEMENT' => [...Movements::TYPES, 'reserve', 'release', 'expire', 'commit', 'cancel', 'ship', 'unship', 'return', 'opening', 'trade_sale',
+            'MOVEMENT' => [...Movements::TYPES, ...Movements::DOCUMENT_TYPES, 'reserve', 'release', 'expire', 'commit', 'cancel', 'ship', 'unship', 'return', 'opening', 'trade_sale',
                 'merge_in', 'merge_out', 'split_in', 'split_out'],
             'ACTION_DONE' => DecisionService::ACTIONS,
             'FIELD' => [...DecisionService::CARD_FIELDS, ...array_keys(Compare::LABELS), 'barcodes'],
@@ -412,8 +416,8 @@ final class WordsTest extends TestCase
         self::assertSame('Order for Elux Wholesale (no number yet)', Words::docTitle('PO', null, 'Elux Wholesale'));
         self::assertSame('Cancellation of PO-000003 – Elux Wholesale', Words::docTitle('PO', 'PO-000004', 'Elux Wholesale', 'PO-000003'));
         self::assertSame('Purchase order PO-000001', Words::docTitle('PO', 'PO-000001'));
-        self::assertSame('Stock correction ADJ-000001', Words::docTitle('ADJ', 'ADJ-000001'));
-        self::assertSame('Stock correction (no number yet)', Words::docTitle('ADJ', null));
+        self::assertSame('Adjustment ADJ-000001', Words::docTitle('ADJ', 'ADJ-000001'));
+        self::assertSame('Adjustment (no number yet)', Words::docTitle('ADJ', null));
         self::assertSame('New kind (no number yet)', Words::docTitle('NEW', null, null, null, 'New kind'), 'a kind without a word: its database name');
         self::assertSame('Deliveries', Words::docType('GRN', true));
         self::assertSame('XYZ', Words::docType('XYZ'));

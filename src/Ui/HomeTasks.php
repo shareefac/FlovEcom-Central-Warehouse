@@ -48,6 +48,7 @@ final class HomeTasks
         'checks' => 140,
         'deliveries_check' => 145,
         'drafts' => 200,
+        'stock_drafts' => 205,
         'supplier_drafts' => 210,
         'checks_due' => 215,
         'incidents' => 217,
@@ -61,7 +62,7 @@ final class HomeTasks
      * Cards that inform and wait (no job number, after the jobs): the company details a buyer waits for, old sales data, and for a
      * reviewer the staff and rule changes of the last days to look at (Y45: nothing waits on them, so it is not a job).
      */
-    public const NOTES = ['company_wait', 'old_sales', 'watch'];
+    public const NOTES = ['company_wait', 'old_sales', 'watch', 'stock_waiting'];
 
     /** Fact (HomeCounts) => the permissions whose cards use it (any one of them). */
     public const FACTS = [
@@ -79,6 +80,7 @@ final class HomeTasks
         'suppliers' => ['suppliers.manage'],
         'staff' => ['staff.manage'],
         'receiving' => ['doc.GRN.post'],
+        'stock_ops' => ['doc.SIN.post', 'doc.SOUT.post', 'doc.ADJ.post', 'doc.TRF.post', 'doc.REL.post'],
         'incidents' => ['incidents.resolve'],
         'integrity' => ['system.view'],
         'staff_requests' => ['staff.approve'],
@@ -241,6 +243,15 @@ final class HomeTasks
             $out[] = self::counted('bench', (int) $f['receiving']['bench'], '/ui/receiving/bench');
             $out[] = self::counted('bench_refused', (int) ($f['receiving']['refused'] ?? 0), Html::url('/ui/receiving', ['state' => 'refused']));
             $out[] = self::counted('to_post', (int) $f['receiving']['to_post'], Html::url('/ui/receiving', ['state' => 'checked']));
+        }
+        // Stock records (pack A1): the person's own drafts, and their records waiting for a reviewer's OK (a note: the reviewer acts).
+        if (is_array($f['stock_ops'] ?? null)) {
+            $so = $f['stock_ops'];
+            $out[] = self::counted('stock_drafts', (int) $so['drafts'], Html::url(\CW\StockOps\StockOps::PATHS[$so['drafts_kind'] ?? 'in'], ['state' => 'draft']));
+            if ((int) $so['waiting'] > 0) {
+                $out[] = self::counted('stock_waiting', (int) $so['waiting'], Html::url(\CW\StockOps\StockOps::PATHS[$so['waiting_kind'] ?? 'in'], ['state' => 'awaiting_approval']),
+                    ['tone' => 'review', 'chip' => Words::HOME['waiting']]);
+            }
         }
         if ($can('incidents.resolve')) {
             $out[] = self::counted('incidents', (int) ($f['incidents'] ?? 0), '/ui/receiving/incidents');

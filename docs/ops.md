@@ -2083,3 +2083,27 @@ matches. A setting, reason, warehouse or place added by hand with no history at 
 server's tools are system callers: they may also make a rule looser (root on the server is the break-glass); every such change is in the
 audit log and on the reviewers' Home card.
 
+
+## Stock records and the VPG 2 room (pack A1; `docs/decisions.md` SO1–SO16)
+
+**Deploy.** Migration `0022_stock_ops.sql` goes out with its code (`install_cron.sh --migrate`); the migrator grants `cw_app` the new tables
+(`stock_op` select/insert/update; `other_account_entry` append-only) and the new columns of `reason_code` and `document_type`. Pre-flight,
+read only on `cw_staging` (checked 8 Oct 2026: true): no number series `SIN`, `SOUT`, `TRF` or `REL` yet (`SELECT prefix FROM number_series`),
+no reason code among opening_stock, trade_return, staff_use, trade_sale, repair_return, written_off, and no document at all. After it:
+`php bin/invariants.php --db=cw_staging` must say ok (the nightly run adds K1–K4: every new row has its baseline).
+
+**Setting up the VPG 2 room (the owner, on the screens; nothing for the server).**
+1. Settings › Warehouses › New warehouse: a code (for example `VPG2`), its name, "Another account's stock" with the account's name (as on
+   their invoices). It is never sold from.
+2. Stock › Stock In › New stock in: warehouse = that room, reason "Opening stock", one line per product with its units. Make it final.
+   Stock › Transfers › Balance owed now shows what the room holds.
+3. When the account invoices stock to us: Stock › Transfers › Releases › New release: from the room to Main warehouse, their invoice number,
+   each product's units and agreed price (the last supplier price, else the average cost, is filled in). Make it final: the stock moves and
+   the amount is added to the balance owed. The release invoice prints from the record.
+4. When we pay them: Balance owed › Record a payment to the account (amount, the day paid, the bank reference). A payment typed wrongly is
+   reversed there with a reason.
+The overflow room is a place of Main (Settings › Warehouses › Main › add a place `OVERFLOW`); a transfer from a shelf to it books nothing.
+
+**Approval rules** (Settings › Approval Rules, per kind): "A reviewer's OK first for a big record" (units and/or pounds) is off for every
+kind; Adjustments keep "stock put back without a supplier document" (10 units a person a day) on; Stock In has the same rule, off.
+Switching a rule off or making it looser needs a Reviewer.

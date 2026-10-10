@@ -8,6 +8,7 @@ use CW\CwException;
 use CW\Documents\Document;
 use CW\Documents\Documents;
 use CW\Output\PdfWriter;
+use CW\StockOps\StockOps;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -207,33 +208,7 @@ final class DocumentsController
             }
         }
         $rejectRecords = ($data['type']['reject_action'] ?? 'reverse') === 'record';
-        $kind = mb_strtolower(Words::docType($doc->docType, false, (string) $data['type']['name']));
-        $size = $data['value'] !== null ? Html::money($data['value']) : Words::say('CHECKS', 'items', (int) ($open['units'] ?? 0));
-        $decide = null;
-        if ($open !== null && ($me->can('documents.review') || $me->can('documents.approve'))) {
-            // refusalFor: also the people a type names as having written part of it (a receipt's bench check, I133).
-            $no = $ctx->documents()->refusalFor($me->id, $me->roles, $doc, (string) $open['kind']);
-            $approval = $open['kind'] === 'approval';
-            $decide = [
-                'task' => $open,
-                'refusal' => Words::refusal($no),
-                'text' => Words::say('RECORD', $approval ? 'approval_text' : 'review_text', $kind, $size, Html::day((string) $open['due_at'])),
-                'ok' => Words::RECORD[$approval ? 'ok_approval' : 'ok_review'],
-                // What each answer does (design B), and which is the safer one: refusing a request books nothing.
-                'okDoes' => Words::RECORD[match (true) {
-                    $approval && $doc->isReversal() => 'does_ok_cancel',
-                    $approval => 'does_ok_approval',
-                    default => 'does_ok_review',
-                }],
-                'notOkDoes' => Words::RECORD[match (true) {
-                    $approval => 'does_not_ok_approval',
-                    $doc->isReversal() => 'does_not_ok_cancel',
-                    $rejectRecords => 'does_not_ok_record',
-                    default => 'does_not_ok_review',
-                }],
-                'safer' => $approval,
-            ];
-        }
+        $decide = self::decideBox($ctx, $doc, $data['tasks'], $data['type'], $data['value']);
         $reverse = null;
         // A PO is cancelled or amended on its own page in Purchasing (I53), not with the generic reversal form.
         if ($doc->status === 'posted' && !$doc->isReversal() && $data['reversedBy'] === null && $data['handler'] && $doc->docType !== 'PO'
@@ -269,6 +244,8 @@ final class DocumentsController
             'poHref' => $doc->docType === 'PO' && $data['handler'] && $me->can('purchasing.view') ? '/ui/purchasing/orders/' . ($doc->reversesId ?? $doc->id) : null,
             // A goods receipt's own page is in Receiving (IM6, I141): its lines, bench findings, incidents and files.
             'grnHref' => $doc->docType === 'GRN' && $data['handler'] && $me->can('receiving.view') ? '/ui/receiving/' . ($doc->reversesId ?? $doc->id) : null,
+            // A stock record's own page is in Stock (pack A1): its places, its "given to", its prices, the balance owed.
+            'stockHref' => ($k = StockOps::kindOf($doc->docType)) !== null && $data['handler'] ? StockOps::PATHS[$k] . '/' . $doc->id : null,
             'decide' => $decide,
             'reverse' => $reverse,
             'cols' => $cols,
@@ -277,6 +254,76 @@ final class DocumentsController
             'errorCode' => $error?->errorCode,
             'waiting' => $open !== null,
         ], $status, ['title' => Words::docTitle($doc->docType, $doc->number, null, null, (string) $data['type']['name']), 'active' => 'documents', 'notice' => $notice]);
+    }
+
+    /**
+     * The decide box of a record's open task for this person (the forms of a reviewer, or why they may not decide it), or null when
+     * no task is open or the person decides none: the generic record page and the stock records' pages (pack A1) draw it with the
+     * `decide_box` partial. $value: the record's value in pounds when it has one (an order), else its task's units are its size.
+     *
+     * @param list<array<string, mixed>> $tasks tasks() rows
+     * @param array<string, mixed> $type the document_type row
+     * @return array<string, mixed>|null
+     */
+    public static function decideBox(Context $ctx, Document $doc, array $tasks, array $type, ?string $value): ?array
+    {
+        $me = $ctx->me();
+        $open = null;
+        foreach ($tasks as $t) {
+            if ($t['state'] === 'open') {
+                $open = $t;
+            }
+        }
+        if ($open === null || !($me->can('documents.review') || $me->can('documents.approve'))) {
+            return null;
+        }
+        $rejectRecords = ($type['reject_action'] ?? 'reverse') === 'record';
+        $kind = mb_strtolower(Words::docType($doc->docType, false, (string) $type['name']));
+        $size = $value !== null ? Html::money($value) : Words::say('CHECKS', 'items', (int) ($open['units'] ?? 0));
+        // refusalFor: also the people a type names as having written part of it (a receipt's bench check, I133).
+        $no = $ctx->documents()->refusalFor($me->id, $me->roles, $doc, (string) $open['kind']);
+        $approval = $open['kind'] === 'approval';
+        return [
+            'task' => $open,
+            'refusal' => Words::refusal($no),
+            'text' => Words::say('RECORD', $approval ? 'approval_text' : 'review_text', $kind, $size, Html::day((string) $open['due_at'])),
+            'ok' => Words::RECORD[$approval ? 'ok_approval' : 'ok_review'],
+            // What each answer does (design B), and which is the safer one: refusing a request books nothing.
+            'okDoes' => Words::RECORD[match (true) {
+                $approval && $doc->isReversal() => 'does_ok_cancel',
+                $approval => 'does_ok_approval',
+                default => 'does_ok_review',
+            }],
+            'notOkDoes' => Words::RECORD[match (true) {
+                $approval => 'does_not_ok_approval',
+                $doc->isReversal() => 'does_not_ok_cancel',
+                $rejectRecords => 'does_not_ok_record',
+                default => 'does_not_ok_review',
+            }],
+            'safer' => $approval,
+        ];
+    }
+
+    /**
+     * A record's review tasks, oldest first, with the names of who opened and who decided each, and `overdue`.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function tasks(\CW\Db $db, int $documentId): array
+    {
+        $tasks = $db->all(
+            'SELECT t.id, t.kind, t.reason, t.units, t.state, t.opened_at, t.due_at, t.decided_at, t.decision_note, t.opened_by, t.decided_by, '
+            . 'o.display_name AS opened_by_name, x.display_name AS decided_by_name FROM review_task t '
+            . 'LEFT JOIN staff_user o ON o.id = t.opened_by LEFT JOIN staff_user x ON x.id = t.decided_by '
+            . "WHERE t.subject_type = 'document' AND t.subject_id = ? ORDER BY t.id",
+            [$documentId],
+        );
+        $now = gmdate('Y-m-d H:i:s');
+        foreach ($tasks as &$t) {
+            $t['overdue'] = $t['state'] === 'open' && (string) $t['due_at'] < $now;
+        }
+        unset($t);
+        return $tasks;
     }
 
     /**
@@ -347,18 +394,7 @@ final class DocumentsController
             . 'LEFT JOIN reason_code rc ON rc.code = l.reason_code WHERE l.document_id = ? ORDER BY l.line_no',
             [$id],
         );
-        $tasks = $db->all(
-            'SELECT t.id, t.kind, t.reason, t.units, t.state, t.opened_at, t.due_at, t.decided_at, t.decision_note, t.opened_by, t.decided_by, '
-            . 'o.display_name AS opened_by_name, x.display_name AS decided_by_name FROM review_task t '
-            . 'LEFT JOIN staff_user o ON o.id = t.opened_by LEFT JOIN staff_user x ON x.id = t.decided_by '
-            . "WHERE t.subject_type = 'document' AND t.subject_id = ? ORDER BY t.id",
-            [$id],
-        );
-        $now = gmdate('Y-m-d H:i:s');
-        foreach ($tasks as &$t) {
-            $t['overdue'] = $t['state'] === 'open' && (string) $t['due_at'] < $now;
-        }
-        unset($t);
+        $tasks = self::tasks($db, $id);
         $po = $doc->docType !== 'PO' ? null : $db->one('SELECT po.net_total, s.name AS supplier_name FROM purchase_order po JOIN supplier s ON s.id = po.supplier_id '
             . 'WHERE po.document_id = ?', [$doc->reversesId ?? $doc->id]);
         return [

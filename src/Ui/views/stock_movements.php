@@ -61,11 +61,11 @@
 <?php foreach ($list as $r): ?>
       <tr>
         <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $e($r['time']) ?> · <?= $e($r['code']) ?></span></th>
-        <td data-label="<?= $word('STOCK_VIEW', 'type') ?>"><?= $word('MOVEMENT', $r['type']) ?><?php if ($r['bucket'] !== 'on_hand'): ?><span class="o-sub"><?= $word('STOCK', $r['bucket']) ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('STOCK_VIEW', 'type') ?>"><?php if ($r['record'] !== null): ?><?= $e($r['record']['what']) ?><span class="o-sub"><?= $word('MOVEMENT', $r['type']) ?><?php if ($r['record']['why'] !== null): ?> · <?= $e($r['record']['why']) ?><?php endif; ?><?php if ($r['record']['given'] !== null): ?> · <?= $e($r['record']['given']) ?><?php endif; ?></span><?php else: ?><?= $word('MOVEMENT', $r['type']) ?><?php endif; ?><?php if ($r['bucket'] !== 'on_hand'): ?><span class="o-sub"><?= $word('STOCK', $r['bucket']) ?></span><?php endif; ?></td>
         <td data-label="<?= $word('ITEM', 'warehouse') ?>"><?= $e($r['warehouse']) ?></td>
         <td data-label="<?= $word('ITEM', 'change') ?>" class="num chg <?= $e($r['delta'] < 0 ? 'down' : 'up') ?>"><?= $e($r['delta'] > 0 ? '+' . number_format($r['delta']) : number_format($r['delta'])) ?></td>
         <td class="num" data-label="<?= $word('ITEM', 'after') ?>"><?= $n($r['after']) ?></td>
-        <td data-label="<?= $word('ITEM', 'ref') ?>"><?= $e($r['ref']) ?><?php if ($r['note'] !== null): ?><span class="o-sub"><?= $e($r['note']) ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('ITEM', 'ref') ?>"><?php if ($r['record'] !== null): ?><a href="<?= $u($r['record']['href']) ?>"><?= $e($r['ref']) ?></a><?php else: ?><?= $e($r['ref']) ?><?php endif; ?><?php if ($r['note'] !== null): ?><span class="o-sub"><?= $e($r['note']) ?></span><?php endif; ?></td>
         <td data-label="<?= $word('ITEM', 'who') ?>"><?= $e($r['who']) ?></td>
       </tr>
 <?php endforeach; ?>

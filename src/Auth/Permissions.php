@@ -84,6 +84,17 @@ final class Permissions
         'doc.ADJ.post' => ['stock_controller'],
         'doc.WO.post' => ['stock_controller'],
         'doc.TRD.post' => ['purchasing_desk', 'purchasing_manager'],
+        // Pack A1 (docs/decisions.md SO9; provisional, owner to confirm): a stock in (opening stock, found stock, a trade customer's
+        // return) and a stock out (samples, staff use, trade sales, goods sent for repair) are the stock controller's and the purchasing
+        // desk's (the desk keys trade sales and returns today); an adjustment stays the stock controller's (doc.ADJ.post, I16); a
+        // transfer between warehouses or places is the stock controller's and the warehouse's (who moves the stock); a release from
+        // another account's warehouse is a purchase from that account: the purchasing desk and manager, and the stock controller.
+        // accounts.pay records (and reverses) a payment to that account: the purchasing desk and manager. Never admin (I12).
+        'doc.SIN.post' => ['stock_controller', 'purchasing_desk'],
+        'doc.SOUT.post' => ['stock_controller', 'purchasing_desk'],
+        'doc.TRF.post' => ['stock_controller', 'warehouse'],
+        'doc.REL.post' => ['purchasing_desk', 'purchasing_manager', 'stock_controller'],
+        'accounts.pay' => ['purchasing_desk', 'purchasing_manager'],
         // Phase I-2 (docs/decisions.md I40): suppliers (IM4), purchase orders (IM5), the reorder list and its sales history (IM9).
         // doc.PO.post (buyer, purchasing_manager) covers drafting, approving (posting), sending, cancelling, amending, closing
         // and importing PO lines. A supplier is approved by a reviewer who did not create, ask for or last change it.
@@ -131,7 +142,6 @@ final class Permissions
         ['key' => 'invoices', 'perm' => 'doc.SINV.post'],
         ['key' => 'returns', 'perm' => 'doc.DN.post'],
         ['key' => 'counts', 'perm' => 'doc.CNT.post'],
-        ['key' => 'adjustments', 'perm' => 'doc.ADJ.post'],
         ['key' => 'trade', 'perm' => 'doc.TRD.post'],
         ['key' => 'values', 'perm' => 'accounts.view'],
     ];

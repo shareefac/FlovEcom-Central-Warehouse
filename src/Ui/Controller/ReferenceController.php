@@ -24,7 +24,7 @@ use CW\Ui\Words;
 final class ReferenceController
 {
     /** The order the screens list the document types in (the flow of goods, not the alphabet). */
-    public const TYPE_ORDER = ['PO', 'GRN', 'SINV', 'DN', 'CNT', 'ADJ', 'WO', 'TRD'];
+    public const TYPE_ORDER = ['PO', 'GRN', 'SIN', 'SOUT', 'ADJ', 'TRF', 'REL', 'SINV', 'DN', 'CNT', 'WO', 'TRD'];
 
     public function reasonsCsv(Context $ctx): HtmlResponse
     {

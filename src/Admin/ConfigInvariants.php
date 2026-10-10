@@ -125,9 +125,10 @@ final class ConfigInvariants
         $sql = match ($type) {
             'setting' => 'SELECT setting_key AS k, CAST(value_json AS CHAR) AS value, provisional FROM app_setting',
             'reason' => 'SELECT code AS k, label, CAST(applies_to AS CHAR) AS applies_to, CAST(direction AS CHAR) AS direction, needs_note, is_gift, '
-                . 'system_only, is_active, sort_order FROM reason_code',
+                . 'system_only, is_active, sort_order, needs_given_to, below_zero FROM reason_code',
             'document_rule' => 'SELECT code AS k, CAST(review_rule AS CHAR) AS review_rule, review_limit_units, review_due_days, '
-                . 'CAST(approval_rule AS CHAR) AS approval_rule, approval_limit_units, CAST(reject_action AS CHAR) AS reject_action FROM document_type',
+                . 'CAST(approval_rule AS CHAR) AS approval_rule, approval_limit_units, CAST(reject_action AS CHAR) AS reject_action, '
+                . 'size_approval, size_units, size_value FROM document_type',
             'warehouse' => 'SELECT code AS k, code, name, is_sellable, is_active, CAST(stock_owner AS CHAR) AS stock_owner, owner_entity, is_system, note FROM warehouse',
             'location' => "SELECT CONCAT(w.code, '/', l.code) AS k, w.code AS warehouse, l.code, l.name, l.is_active, l.note FROM warehouse_location l "
                 . 'JOIN warehouse w ON w.id = l.warehouse_id',

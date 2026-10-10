@@ -49,6 +49,9 @@ namespace CW;
  *     posted receipts applied, reviews never decided by a bench checker (CW\Receiving\ReceivingInvariants, I142).
  *   - the per-site selling modes (0018, IM10): each row is its newest log row, the log's versions 1..n, every id names something
  *     (CW\SiteWriter\SiteWriterInvariants W1-W2, I163).
+ *   - the stock records (0022, pack A1): a release's amount on the balance owed and its cancellation's, payment reversals that
+ *     mirror their payment, transfers and releases that net to zero per item, every stock record's header of its kind
+ *     (CW\StockOps\StockOpsInvariants O1-O6, SO14).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  *
@@ -181,6 +184,7 @@ final class Invariants
         array_push($v, ...Catalogue\CatalogueInvariants::check($db));
         array_push($v, ...Receiving\ReceivingInvariants::check($db));
         array_push($v, ...SiteWriter\SiteWriterInvariants::check($db));
+        array_push($v, ...StockOps\StockOpsInvariants::check($db));
         return $v;
     }
 

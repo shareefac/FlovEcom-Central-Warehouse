@@ -9,7 +9,8 @@ namespace CW;
  *
  *   goods_in, transfer_in                        on_hand + |qty| x u
  *   supplier_return, erp_sale, write_off,
- *   transfer_out, trade_sale (documents only)    on_hand - |qty| x u   (the type sets the sign)
+ *   transfer_out, trade_sale, stock_out
+ *   (the last two: documents only)               on_hand - |qty| x u   (the type sets the sign)
  *   adjustment                                   on_hand + qty x u     (signed, non-zero)
  *   count (counted_at required)                  on_hand = counted - net ships already applied
  *                                                that were dispatched after counted_at (§8.2)
@@ -38,7 +39,7 @@ final class Movements
 {
     public const TYPES = ['goods_in', 'supplier_return', 'erp_sale', 'adjustment', 'count', 'write_off', 'transfer_out', 'transfer_in'];
     private const PLUS = ['goods_in', 'transfer_in'];
-    private const MINUS = ['supplier_return', 'erp_sale', 'write_off', 'transfer_out', 'trade_sale'];
+    private const MINUS = ['supplier_return', 'erp_sale', 'write_off', 'transfer_out', 'trade_sale', 'stock_out'];
     private const SUSPENSE = ['goods_in', 'supplier_return', 'erp_sale'];
     /** The only types a site may be granted (the ERP relay, §9). */
     public const CHANNEL_TYPES = ['goods_in', 'supplier_return', 'erp_sale'];
@@ -46,9 +47,11 @@ final class Movements
     public const COST_TYPES = Stock::COST_TYPES;
     /**
      * Types a document posting books (bookForDocument, I7). `trade_sale` (stock issued on a trade or
-     * inter-site document, IM11) is document-only: record() refuses it with 400 bad_type (I8).
+     * inter-site document, IM11) and `stock_out` (a stock out record: samples, staff use, a trade sale, goods sent for repair;
+     * pack A1, docs/decisions.md SO2) are document-only: record() refuses them with 400 bad_type (I8). Neither carries a cost: what
+     * goes out is valued at the average cost (IM8).
      */
-    public const DOCUMENT_TYPES = ['goods_in', 'supplier_return', 'adjustment', 'count', 'write_off', 'transfer_out', 'transfer_in', 'trade_sale'];
+    public const DOCUMENT_TYPES = ['goods_in', 'supplier_return', 'adjustment', 'count', 'write_off', 'transfer_out', 'transfer_in', 'trade_sale', 'stock_out'];
     /** The largest unit cost stock_ledger.unit_cost (DECIMAL(14,6)) holds. */
     public const MAX_COST = '99999999.999999';
     /** Movements per document posting (bookForDocument). */

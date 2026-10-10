@@ -53,11 +53,13 @@ final class Grants
      * integrity_run: one row per nightly check (0019, Y33): what the Safety checks page shows is never rewritten.
      * mapping_batch / mapping_batch_row: a bulk action of the matching screens and what became of each ticked row (0021, M47): the
      * result page and the batch page read them, so who asked for what, and why a row was skipped, is never rewritten.
+     * other_account_entry: the running balance owed to another account (0022, pack A1): a release, a payment and their reversals are
+     * rows of their own, never rewritten or removed, so the balance and how it came about stay readable.
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
         'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
         'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change', 'grn_posting', 'item_selling_mode_log', 'item_channel_mode_log',
-        'config_change', 'integrity_run', 'mapping_batch', 'mapping_batch_row'];
+        'config_change', 'integrity_run', 'mapping_batch', 'mapping_batch_row', 'other_account_entry'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -83,7 +85,7 @@ final class Grants
             'cancel_reason', 'review_state'],
         'barcode_review' => ['status', 'decision', 'decided_units', 'decided_by', 'decided_actor', 'decided_at', 'note'],
         'incident' => ['status', 'resolution', 'resolved_by', 'resolved_actor', 'resolved_at'],
-        'reason_code' => ['label', 'applies_to', 'is_active'],
+        'reason_code' => ['label', 'applies_to', 'is_active', 'needs_given_to', 'below_zero'],
         'warehouse' => ['name', 'is_sellable', 'is_active', 'stock_owner', 'owner_entity', 'note', 'updated_at'],
         'warehouse_location' => ['name', 'is_active', 'note'],
         'staff_role_request' => ['state', 'decided_by', 'decided_at', 'decision_note', 'used_at'],
@@ -104,7 +106,8 @@ final class Grants
      */
     public const UPDATE_ONLY_COLUMNS = [
         'app_setting' => ['value_json', 'provisional', 'updated_actor', 'updated_at'],
-        'document_type' => ['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action'],
+        'document_type' => ['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action', 'size_approval',
+            'size_units', 'size_value'],
     ];
     /**
      * vat_code: changed by a migration (I-2). reason_code, document_type and app_setting were read-only until 0019: the screens
@@ -126,9 +129,10 @@ final class Grants
      * reversed, never deleted: 0017, I127) and an item's selling mode (changed, never removed: its log keeps every write, I137), also
      * per site (item_channel_mode, 0018, I151).
      * grn_line keeps FULL rights: a draft's lines are replaced (its rows go with their document_line, ON DELETE CASCADE).
+     * stock_op: the header of a stock record (0022, pack A1): changed while it is a draft, never removed (documents are never deleted).
      */
     public const NO_DELETE = ['channel_listing', 'listing_profile', 'sku', 'staff_user', 'supplier', 'supplier_item', 'import_run', 'purchase_order',
-        'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode'];
+        'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode', 'stock_op'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

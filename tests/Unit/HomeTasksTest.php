@@ -232,11 +232,28 @@ final class HomeTasksTest extends TestCase
      * the deliveries booked in to check as their own card, taken out of "Done work to check" so the two add up to the badge; the
      * people who close incidents see the open ones.
      */
+    /**
+     * The stock records (pack A1): the person's own drafts are a job; their records waiting for a reviewer's OK a note (the reviewer
+     * acts: their "Things that need your OK first" card counts them); each card opens the list of that kind, filtered.
+     */
+    public function testTheStockRecordCards(): void
+    {
+        self::assertSame(['stock_ops'], HomeTasks::needs(['warehouse']), 'the warehouse keeps transfers');
+        $f = ['stock_ops' => ['drafts' => 2, 'waiting' => 1, 'drafts_kind' => 'out', 'waiting_kind' => 'adjust']];
+        $cards = HomeTasks::build(9, ['stock_controller'], $f);
+        self::assertSame(['stock_drafts'], self::keys($cards['jobs']));
+        self::assertSame(['stock_waiting'], self::keys($cards['notes']));
+        self::assertSame([2, 'drafts', '/ui/stock/out?state=draft'], [$cards['jobs'][0]['count'], $cards['jobs'][0]['unit'], $cards['jobs'][0]['href']]);
+        self::assertSame([1, '/ui/stock/adjustments?state=awaiting_approval'], [$cards['notes'][0]['count'], $cards['notes'][0]['href']]);
+        self::assertOneButtonToAPageTheyMayOpen($cards['jobs'][0], ['stock_controller']);
+        self::assertSame([], HomeTasks::build(9, ['stock_controller'], ['stock_ops' => ['drafts' => 0, 'waiting' => 0, 'drafts_kind' => null, 'waiting_kind' => null]])['jobs']);
+    }
+
     public function testTheDeliveryCards(): void
     {
         self::assertSame(['company', 'receiving'], HomeTasks::needs(['goods_in']));
-        self::assertSame(['company', 'receiving', 'incidents'], HomeTasks::needs(['purchasing_desk']));
-        self::assertSame(['barcodes', 'incidents'], HomeTasks::needs(['stock_controller']));
+        self::assertSame(['company', 'receiving', 'stock_ops', 'incidents'], HomeTasks::needs(['purchasing_desk']));
+        self::assertSame(['barcodes', 'stock_ops', 'incidents'], HomeTasks::needs(['stock_controller']));
 
         $f = ['receiving' => ['bench' => 2, 'to_post' => 1, 'refused' => 1], 'incidents' => 3, 'company' => ['confirmed' => true, 'missing' => []]];
         $goodsIn = HomeTasks::build(5, ['goods_in'], $f);

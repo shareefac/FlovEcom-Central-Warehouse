@@ -34,6 +34,8 @@
     </fieldset>
     <label class="choice"><input type="checkbox" name="needs_note" value="1"<?php if ($typed['needs_note']): ?> checked<?php endif; ?>> <?= $word('REASONS_EDIT', 'needs_note') ?></label>
     <label class="choice"><input type="checkbox" name="is_gift" value="1"<?php if ($typed['is_gift']): ?> checked<?php endif; ?>> <?= $word('REASONS_EDIT', 'gift') ?></label>
+    <label class="choice"><input type="checkbox" name="needs_given_to" value="1"<?php if ($typed['needs_given_to']): ?> checked<?php endif; ?>> <?= $word('REASONS_EDIT', 'given_to') ?></label>
+    <label class="choice"><input type="checkbox" name="below_zero" value="1"<?php if ($typed['below_zero']): ?> checked<?php endif; ?>> <?= $word('REASONS_EDIT', 'below_zero') ?></label>
     <label><?= $word('CONFIG', 'reason') ?>
       <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?= $e($typed['reason']) ?></textarea>
@@ -53,6 +55,8 @@
       <th scope="col"><?= $word('SETTINGS_PAGE', 'direction') ?></th>
       <th scope="col"><?= $word('SETTINGS_PAGE', 'needs_note') ?></th>
       <th scope="col"><?= $word('SETTINGS_PAGE', 'gift') ?></th>
+      <th scope="col"><?= $word('REASONS_EDIT', 'given_to_short') ?></th>
+      <th scope="col"><?= $word('REASONS_EDIT', 'below_zero_short') ?></th>
       <th scope="col"><?= $word('SETTINGS_PAGE', 'by_cw') ?></th>
     </tr>
   </thead>
@@ -66,6 +70,8 @@
       <td data-label="<?= $word('SETTINGS_PAGE', 'direction') ?>"><?= $e($r['way']) ?></td>
       <td data-label="<?= $word('SETTINGS_PAGE', 'needs_note') ?>"><?= $word('SETTINGS_PAGE', $r['needs_note'] ? 'yes' : 'no') ?></td>
       <td data-label="<?= $word('SETTINGS_PAGE', 'gift') ?>"><?= $word('SETTINGS_PAGE', $r['is_gift'] ? 'yes' : 'no') ?></td>
+      <td data-label="<?= $word('REASONS_EDIT', 'given_to_short') ?>"><?= $word('SETTINGS_PAGE', $r['needs_given_to'] ? 'yes' : 'no') ?></td>
+      <td data-label="<?= $word('REASONS_EDIT', 'below_zero_short') ?>"><?= $word('SETTINGS_PAGE', $r['below_zero'] ? 'yes' : 'no') ?></td>
       <td data-label="<?= $word('SETTINGS_PAGE', 'by_cw') ?>"><?= $word('SETTINGS_PAGE', $r['system_only'] ? 'yes' : 'no') ?></td>
     </tr>
 <?php endforeach; ?>

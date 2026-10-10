@@ -47,14 +47,26 @@ abstract class KernelUiTestCase extends MappingTestCase
         self::$box = SecretBox::fromBase64($key);
     }
 
-    /** The kernel as production builds it (DocumentHandlers::all: PO since I-2), plus the test-only ADJ document type (I27). */
+    /** The kernel as production builds it (DocumentHandlers::all), with the document types of handlers(). */
     protected function kernel(): Kernel
     {
         $db = self::$appDb;
         $key = self::$uiKey;
         return new Kernel(static fn (): Db => $db, static fn (): string => $key, static function (string $m): void {
             self::$log[] = $m;
-        }, static fn (Db $db): array => DocumentHandlers::all($db) + ['ADJ' => new FixtureAdjustmentHandler($db)]);
+        }, fn (Db $db): array => $this->handlers($db));
+    }
+
+    /**
+     * The live document types of the screens under test: production's, with the test-only ADJ (I27) in place of the real adjustment
+     * (pack A1) for the screen tests written before it (they post ADJ records without reasons). A test of the stock records returns
+     * DocumentHandlers::all($db) itself.
+     *
+     * @return array<string, \CW\Documents\DocumentHandler>
+     */
+    protected function handlers(Db $db): array
+    {
+        return array_replace(DocumentHandlers::all($db), ['ADJ' => new FixtureAdjustmentHandler($db)]);
     }
 
     protected function browser(string $ip = '198.51.100.20'): KernelBrowser

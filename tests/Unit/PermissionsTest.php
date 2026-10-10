@@ -45,7 +45,7 @@ final class PermissionsTest extends TestCase
     public function testEveryRoleOfTheMapIsKnownAndTheMappingRolesAreUnchanged(): void
     {
         foreach (Permissions::MAP as $perm => $roles) {
-            self::assertMatchesRegularExpression('/^[a-z]+\.[a-z]+$|^doc\.(PO|GRN|SINV|DN|CNT|ADJ|WO|TRD)\.post$/D', $perm);
+            self::assertMatchesRegularExpression('/^[a-z]+\.[a-z]+$|^doc\.(PO|GRN|SINV|DN|CNT|ADJ|WO|TRD|SIN|SOUT|TRF|REL)\.post$/D', $perm);
             self::assertNotSame([], $roles, $perm);
             self::assertSame([], array_values(array_diff($roles, Permissions::ROLES)), "{$perm}: unknown role");
             self::assertSame(array_values(array_unique($roles)), $roles, $perm);
@@ -216,7 +216,7 @@ final class PermissionsTest extends TestCase
         self::assertSame(['invoices', 'returns', 'trade'], Permissions::comingLater(['purchasing_desk']), 'named on the Dashboard; receiving is built');
         self::assertSame([], Permissions::comingLater(['goods_in']));
         self::assertSame([], Permissions::comingLater(['buyer']));
-        self::assertSame(['counts', 'adjustments'], Permissions::comingLater(['stock_controller']));
+        self::assertSame(['counts'], Permissions::comingLater(['stock_controller']), 'adjustments are built (pack A1)');
     }
 
     /** Admin switches the working roles off (I12, read fail-closed): the screens say which, and which page Admin alone keeps from them. */

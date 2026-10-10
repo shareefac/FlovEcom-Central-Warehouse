@@ -751,7 +751,10 @@ final class Queries
         foreach ($this->db->column('SELECT warehouse_id FROM stock_balance WHERE sku_id = ?', [$skuId]) as $wid) {
             array_push($rows, ...$this->db->all(
                 'SELECT l.id, w.code AS warehouse, l.bucket, l.qty_delta, l.balance_after, l.movement_type, l.order_ref, l.doc_ref, l.actor, l.note, '
-                . 'l.effective_at, l.created_at FROM stock_ledger l JOIN warehouse w ON w.id = l.warehouse_id WHERE l.warehouse_id = ? AND l.sku_id = ? ORDER BY l.id DESC LIMIT ?',
+                . 'l.effective_at, l.created_at, l.document_id, d.doc_type, r.label AS reason_label, op.given_to '
+                . 'FROM stock_ledger l JOIN warehouse w ON w.id = l.warehouse_id LEFT JOIN document d ON d.id = l.document_id '
+                . 'LEFT JOIN document_line dl ON dl.document_id = l.document_id AND dl.line_no = l.document_line LEFT JOIN stock_op op ON op.document_id = l.document_id '
+                . 'LEFT JOIN reason_code r ON r.code = COALESCE(dl.reason_code, d.reason_code) WHERE l.warehouse_id = ? AND l.sku_id = ? ORDER BY l.id DESC LIMIT ?',
                 [(int) $wid, $skuId, $limit],
             ));
         }

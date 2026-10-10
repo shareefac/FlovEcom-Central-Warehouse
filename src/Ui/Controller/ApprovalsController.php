@@ -48,7 +48,7 @@ final class ApprovalsController
         $seen = $req->field('seen');
         $reason = (string) ($req->field('reason') ?? '');
         $typed = [];
-        foreach (['review_rule', 'review_limit', 'review_due_days', 'approval', 'approval_limit', 'reject_action', 'value'] as $f) {
+        foreach (['review_rule', 'review_limit', 'review_due_days', 'approval', 'approval_limit', 'reject_action', 'value', 'size', 'size_units', 'size_value'] as $f) {
             $typed[$f] = $req->field($f);
         }
         $typed['reason'] = $reason;
@@ -69,6 +69,12 @@ final class ApprovalsController
                 if (isset(DocumentRules::APPROVAL_KIND[$key])) {
                     $change['approval'] = $typed['approval'] === '1';
                     $change['approval_limit_units'] = (string) $typed['approval_limit'];
+                }
+                if (in_array($key, DocumentRules::SIZE_TYPES, true)) {
+                    // The OK first for a big record (pack A1): on or off, and its sizes (empty: not checked).
+                    $change['size'] = $typed['size'] === '1';
+                    $change['size_units'] = (string) $typed['size_units'];
+                    $change['size_value'] = (string) $typed['size_value'];
                 }
                 $r = (new DocumentRules($ctx->db))->set($ctx->caller(), $key, $change, $reason, (int) $seen);
             } else {
@@ -206,11 +212,16 @@ final class ApprovalsController
             default => Words::say('APPROVALS', 'units_cancel', $limit),
         };
         $reject = $r['reject_action'] === 'record' ? Words::SETTINGS_PAGE[$code === 'PO' ? 'rule_record_po' : 'rule_record'] : Words::SETTINGS_PAGE['rule_reverse'];
+        $sizeParts = array_filter([$r['size_units'] === null ? null : Words::say('APPROVALS', 'size_units_part', number_format((int) $r['size_units'])),
+            $r['size_value'] === null ? null : Words::say('APPROVALS', 'size_value_part', number_format((int) $r['size_value']))]);
+        $size = !$r['has_size'] ? null : ((int) $r['size_approval'] === 1 && $sizeParts !== []
+            ? Words::say('APPROVALS', 'size_on', implode(' ' . Words::APPROVALS['size_or'] . ' ', $sizeParts)) : Words::APPROVALS['size_off']);
         $t = $typed ?? [];
         return [
             'title' => Words::docType($code, true, (string) $r['name']),
             'live' => $live,
-            'sentences' => array_values(array_filter([ucfirst($review), $approval, $reject])),
+            'sentences' => array_values(array_filter([ucfirst($review), $approval, $size, $reject])),
+            'hasSize' => (bool) $r['has_size'],
             'seen' => (int) $r['version'],
             'hasApproval' => $r['approval_kind'] !== null,
             'recordOnly' => in_array($code, DocumentRules::REJECT_RECORD_ONLY, true),
@@ -222,6 +233,9 @@ final class ApprovalsController
                 'approval' => $t === [] ? $r['approval_rule'] !== 'none' : ($t['approval'] ?? '0') === '1',
                 'approval_limit' => (string) ($t['approval_limit'] ?? ($r['approval_limit_units'] === null ? '' : (string) $r['approval_limit_units'])),
                 'reject_action' => (string) ($t['reject_action'] ?? $r['reject_action']),
+                'size' => $t === [] ? (int) $r['size_approval'] === 1 : ($t['size'] ?? '0') === '1',
+                'size_units' => (string) ($t['size_units'] ?? ($r['size_units'] === null ? '' : (string) $r['size_units'])),
+                'size_value' => (string) ($t['size_value'] ?? ($r['size_value'] === null ? '' : (string) $r['size_value'])),
                 'reason' => (string) ($t['reason'] ?? ''),
             ],
         ];

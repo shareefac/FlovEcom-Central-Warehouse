@@ -64,9 +64,11 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame('/ui/reference/access', array_column(self::sectionTabs($buyer->get('/ui/reference/company')), 'href', 'label')['Users']);
         // Products: the product list for everyone; the barcodes to check only for catalogue.edit (I109); no matching for these jobs.
         self::assertSame(['All Products'], self::tabLabels($buyer->get('/ui/items/cards')));
-        // Stock: everyone who sees a product's stock; the screens not built yet are "Soon" tabs, never links.
+        // Stock: everyone who sees a product's stock; the stock records for the people who read records (pack A1); the screens not built yet
+        // are "Soon" tabs, never links.
         $stock = self::sectionTabs($desk->get('/ui/stock'));
-        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Adjustments', null], ['Counts', null], ['Transfers', null]],
+        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Stock In', '/ui/stock/in'], ['Stock Out', '/ui/stock/out'],
+            ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', null], ['Reservations', null], ['Quality', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], $stock));
 
         // The desk's screens of Phase I-4 to I-6 are named on the Dashboard, without phase codes.
@@ -143,7 +145,8 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::HOME['progress'], $home->text(), 'no matching progress without linking.view');
         self::assertStringNotContainsString('coming in Phase', $home->text());
         $xp = new \DOMXPath($home->dom());
-        self::assertSame(['/ui/items/cards', '/ui/stock', '/ui/stock/movements', '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
+        self::assertSame(['/ui/items/cards', '/ui/stock', '/ui/stock/movements', '/ui/stock/in', '/ui/stock/out', '/ui/stock/transfers', '/ui/stock/adjustments',
+            '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
             '/ui/documents', '/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals', '/ui/reference/reasons',
             '/ui/reference/settings'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),

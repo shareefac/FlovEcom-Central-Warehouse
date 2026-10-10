@@ -25,6 +25,7 @@ use CW\Ui\Controller\FilesController;
 use CW\Ui\Controller\IncidentsController;
 use CW\Ui\Controller\ItemCardsController;
 use CW\Ui\Controller\ItemController;
+use CW\Ui\Controller\OtherAccountsController;
 use CW\Ui\Controller\PeopleController;
 use CW\Ui\Controller\PurchaseOrdersController;
 use CW\Ui\Controller\ReasonsController;
@@ -40,6 +41,7 @@ use CW\Ui\Controller\SellingModeController;
 use CW\Ui\Controller\SettingsController;
 use CW\Ui\Controller\StaffRequestsController;
 use CW\Ui\Controller\StockController;
+use CW\Ui\Controller\StockOpsController;
 use CW\Ui\Controller\StoreProductsController;
 use CW\Ui\Controller\SupplierItemsController;
 use CW\Ui\Controller\SuppliersController;
@@ -559,10 +561,18 @@ final class Kernel
         $r->add('GET', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->benchForm(...));
         $r->add('POST', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->bench(...));
         // Stock (the owner's request of 8 Oct 2026): what each warehouse holds and every change, read only, for everyone who sees an
-        // item's stock on its page (catalogue.view). Adjustments, counts and transfers come with IM2/IM7 (Ui\Sections: "Soon").
+        // item's stock on its page (catalogue.view). Counts, reservations and quality come with pack A2 (Ui\Sections: "Soon").
         $stock = new StockController();
         $r->add('GET', '/ui/stock', 'catalogue.view', $stock->overview(...));
         $r->add('GET', '/ui/stock/movements', 'catalogue.view', $stock->movements(...));
+        // The stock records of pack A1 (docs/decisions.md SO10): documents.view looks; doc.<TYPE>.post keeps them (checked again by
+        // CW\StockOps\StockOps and the document base, never admin). The balance owed to another account: documents.view looks,
+        // accounts.pay records and reverses payments (checked again by CW\StockOps\OtherAccounts).
+        StockOpsController::routes($r);
+        $accounts = new OtherAccountsController();
+        $r->add('GET', '/ui/stock/accounts', 'documents.view', $accounts->index(...));
+        $r->add('POST', '/ui/stock/accounts/{id}/payments', 'accounts.pay', $accounts->pay(...));
+        $r->add('POST', '/ui/stock/accounts/payments/{id}/reverse', 'accounts.pay', $accounts->reverse(...));
         return $this->router = $r;
     }
 

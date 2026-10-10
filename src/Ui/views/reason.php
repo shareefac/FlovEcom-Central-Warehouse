@@ -14,6 +14,8 @@
   <dt><?= $word('SETTINGS_PAGE', 'direction') ?></dt><dd><?= $e($r['way']) ?></dd>
   <dt><?= $word('SETTINGS_PAGE', 'needs_note') ?></dt><dd><?= $word('SETTINGS_PAGE', $r['needs_note'] ? 'yes' : 'no') ?></dd>
   <dt><?= $word('SETTINGS_PAGE', 'gift') ?></dt><dd><?= $word('SETTINGS_PAGE', $r['is_gift'] ? 'yes' : 'no') ?></dd>
+  <dt><?= $word('REASONS_EDIT', 'given_to') ?></dt><dd><?= $word('SETTINGS_PAGE', $r['needs_given_to'] ? 'yes' : 'no') ?></dd>
+  <dt><?= $word('REASONS_EDIT', 'below_zero') ?></dt><dd><?= $word('SETTINGS_PAGE', $r['below_zero'] ? 'yes' : 'no') ?></dd>
 </dl>
 <?php if ($r['system_only']): ?>
 <p class="note read-only"><?= $word('REASONS_EDIT', 'locked') ?></p>
@@ -54,6 +56,23 @@
       <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'uses'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
     </label>
     <p class="actions"><button type="submit" class="primary"><?= $word('REASONS_EDIT', 'uses_button') ?></button></p>
+  </form>
+</section>
+<section aria-labelledby="rules-h">
+  <h2 id="rules-h"><?= $word('REASONS_EDIT', 'rules_title') ?></h2>
+  <p class="muted"><?= $word('REASONS_EDIT', 'rules_text') ?></p>
+  <form class="record" method="post" action="/ui/reference/reasons/reason">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="code" value="<?= $e($r['code']) ?>">
+    <input type="hidden" name="seen" value="<?= $e($seen) ?>">
+    <input type="hidden" name="do" value="rules">
+    <label class="choice"><input type="checkbox" name="needs_given_to" value="1"<?php if ($typed['needs_given_to']): ?> checked<?php endif; ?>> <?= $word('REASONS_EDIT', 'given_to') ?></label>
+    <label class="choice"><input type="checkbox" name="below_zero" value="1"<?php if ($typed['below_zero']): ?> checked<?php endif; ?>> <?= $word('REASONS_EDIT', 'below_zero') ?></label>
+    <label><?= $word('CONFIG', 'reason') ?>
+      <span class="hint"><?= $word('CONFIG', 'reason_hint') ?></span>
+      <textarea name="reason" rows="2" minlength="3" maxlength="500" required><?php if ($typed['do'] === 'rules'): ?><?= $e($typed['reason']) ?><?php endif; ?></textarea>
+    </label>
+    <p class="actions"><button type="submit" class="primary"><?= $word('REASONS_EDIT', 'rules_button') ?></button></p>
   </form>
 </section>
 <section aria-labelledby="switch-h">

@@ -6820,3 +6820,144 @@ ACTION `unignore`, `send_back`; audit `mapping.bulk`). A list setting is shown i
 **U112. Not done, and open.** No "select every row of every page" (the owner asked for none beyond the setting). No undo of a whole batch
 (M47). No per-person "skip". A batch runs inside one request, row by row (the setting allows up to 500 rows; the default is 100). The
 "By store" figures of a store with tens of thousands of products cost what Home's matching progress costs (its `coverage()`).
+## Pack A1: Stock In, Stock Out, Adjustments, Transfers and the VPG 2 release (slot `stocka`, 8 Oct 2026)
+
+The owner's 16-module list of 8 Oct 2026 ("Stock In, Stock Out, Stock Transfer, Stock Adjustment, ...; where already added skip, otherwise
+create"), build order A1, with the owner answers Q2 (shelf places optional), Q5 (samples and staff use: a reason and "given to"), Q6/Q7 (the
+VPG 2 room: another account's stock, released rarely by a sales invoice; the overflow room: a place of MAIN), Q9 (never delete), Q13 (pounds
+only). Code: `migrations/0022_stock_ops.sql` (numbered 0022: another branch may take 0021), `src/StockOps/{StockOps,StockOpHandler,OtherAccounts,
+CostHints,StockOpsInvariants,StockOpPdf}.php` (new), `src/Documents/SizeApproval.php` (new), `src/Documents/{Documents,DocumentHandlers}.php`,
+`src/Movements.php`, `src/Admin/{DocumentRules,ReasonCodes,ConfigHistory,ConfigInvariants,ApprovalRules,Warehouses}.php`,
+`src/Auth/Permissions.php`, `src/Schema/Grants.php`, `src/Invariants.php`, `src/Ui/{Sections,Words,Context,Kernel,HomeTasks,HomeCounts,
+StockViews,Queries}.php`, controllers `StockOps`, `OtherAccounts` (new), `Approvals`, `Reasons`, `Reviews`, `Documents`, `Stock`, `Item`,
+`Reference`; templates `stock_ops`, `stock_op`, `stock_op_fields`, `stock_accounts`, `decide_box` (new; the decide box moved out of
+`document`), `approvals`, `reason`, `reasons`, `stock_movements`, `item`, `warehouse`, `document`.
+
+**SO1. Five kinds of stock record, each a document type.** Stock In (SIN), Stock Out (SOUT), Adjustments (the existing ADJ, write-offs
+included: the WO type stays "not in use yet"), Transfers (TRF) and Releases from another account (REL), on the document base: draft ->
+"make it final" (a reviewer's OK first when a rule asks) -> final; a final record is cancelled by a new record of its kind that puts
+everything back (Documents::reverse); a draft is stopped, never deleted. 0022 seeds the four new types (phase `A1`) and their number
+series (`SIN-`, `SOUT-`, `TRF-`, `REL-`, 6 digits, from 1). A record is a `document` (the warehouse it starts from, the reason of a stock in
+or out, a reference, its date, a note) plus a `stock_op` header (kind; the optional place; where a transfer or release goes and its optional
+place; who a stock out was given to; the other account's name when a release was posted) and its lines (product, units; a unit cost on a
+stock in, the agreed price on a release, a reason on each adjustment line). `CW\StockOps\StockOps` is the service (drafts, lines, add by
+barcode / CW number / words, post, stop, cancel, take back, files, the read side); `StockOpHandler` (one class, registered once per kind
+in `DocumentHandlers::all`) validates and books.
+
+**SO2. What each kind books (Stock.php stays the only writer).** Stock in: `adjustment` +units, at the line's unit cost when given (cost
+source `document`), else valued at the average later (IM8). Stock out: the new document-only movement `stock_out` (Movements::MINUS and
+DOCUMENT_TYPES; no cost: it goes out at the average). Adjustment: per line; a decrease whose reason only takes stock down AND is offered for
+write-offs is booked as `write_off` (damaged, lost or stolen, written off), every other line as a signed `adjustment` (a + line may carry a
+cost) -- the Reasons page decides which reasons those are, not the code. Transfer between two warehouses: `transfer_out` + `transfer_in` in
+one bookForDocument call. Release: `transfer_out` of the other account's room and `goods_in` into our warehouse AT the agreed price (the
+stock enters our books as a purchase from that account; transfer rows cannot carry a cost, ck_stock_ledger_cost). Module rows (the balance
+owed, the reversal's header) are written before the stock (I21).
+
+**SO3. Never below zero for a protected product.** "Protected" is Stock.php's own notion: sell policy strict or stopped (flagShortfalls;
+legacy is "not protected yet", backorder is below zero on purpose). A stock out, an adjustment's decrease or a transfer that would leave a
+protected product with less available (on hand - reserved) than nothing at its warehouse is refused (422 `below_zero`, the line, the product,
+what is free and what goes out) unless EVERY line of it that takes that product down has a reason that allows it (`reason_code.below_zero`,
+the Reasons page; off for every reason); a transfer has no reason, so never. A release never takes more than the other account's room holds,
+whatever the product (422 `not_enough_held`). The handler checks in validate() on what it reads (the early answer) and again in post() after
+booking, on the balances its transaction holds locked, so two records posted at once cannot both pass. A negative quantity is refused where
+it must be: every line of a stock in, out, transfer or release is above zero; an adjustment line is + or -, never 0; a reason's direction
+must match (found is +, damaged is -: 422 `reason_direction`).
+
+**SO4. Reasons: two new uses and two new rules, all on the Reasons page.** `reason_code.applies_to` gains `stock_in` and `stock_out`;
+two new rules (`needs_given_to`: a stock out with it names who it was given to, Q5; `below_zero`: SO3), tracked in the history
+(ConfigHistory::TRACKED; a version written before them reads as 0), shown on the list, changed with a reason (`ReasonCodes::setRules`, audit
+`reason.rules`, history action `rules`) and settable when a reason is added. 0022 seeds opening stock, returned by a trade customer (stock
+in), staff use (needs given to), trade sale, sent for repair or return (stock out) and written off (adjustment, write-off), each with its
+baseline; found gains stock in (v2), sample gains stock out and needs given to (v2), other gains both (v3), per docs/dev.md rule 5.
+`Documents::REASON_USE` maps SIN and SOUT to their uses. "Given to" is required by the reason, not by code.
+
+**SO5. Approvals: the existing rule stays, the new ones start off.** ADJ keeps its "stock put back without a supplier document" OK first
+(on, 10 units: the plan's decided rule; now really implemented: the record's positive units plus the same person's positive units of the UK
+day on final stock-ins and adjustments, so five records of +10 are one of +50; 0 when an invoice or delivery note is attached). A stock in
+has the same kind of rule, OFF (the owner's rule: extra approvals off; see SO16). NEW for ADJ, SIN, SOUT, TRF and REL: the OK first for a
+big record (`document_type.size_approval`, `size_units`, `size_value` in whole pounds; `Documents\SizeApproval`; review_task reason
+`over_size`): more than N units, or worth more than £V (each line at its cost or price, else the average cost so far, else 0), waits for a
+reviewer before anything is numbered or booked. Off by default with sizes kept for when it is switched on (ADJ, SIN, SOUT: 100 units / £500;
+TRF, REL: 500 / £2,000; provisional); set on Settings > Approval Rules per kind (`DocumentRules::set`: `size`, `size_units`, `size_value`;
+on needs at least one size: 400 `size_required`); switching it off, raising a size or dropping one is looser and needs a Reviewer (I1, Y45).
+The new kinds' reviewer check after posting is `none` (switchable there too). A cancellation that puts more stock back than the "stock put
+back" limit still waits for an OK (I32), whatever the kind.
+
+**SO6. Values: estimates, no value ledger yet.** IM8 is not built, so nothing writes `stock_value_ledger`; costs go on the ledger rows as
+receiving does (C0), and the value sequence is assigned by Stock.php as always (invariants 7-9 hold after every posting). `CostHints` gives
+the screens and the size rule their estimates: the average cost so far (the weighted average of every unit that came in with a cost, read
+through stock_value_seq, never a ledger scan) and the last supplier price of a unit (the preferred supplier item's last pack price / its
+pack, else the most recently priced active one). The words say "average cost so far" and "about"; stock values for the accounts come with
+IM8.
+
+**SO7. Transfers never change whose stock it is; places are optional.** A transfer goes between two warehouses whose `stock_owner` and
+account name are equal (422 `owner_differs` otherwise: our rooms with our rooms, never in or out of another account's), or between two
+places of ONE warehouse (both places required and different: 422 `same_place`): such a move books nothing (stock is not split by place, Y18)
+and the record says where the stock went (the overflow room of MAIN, Q6/Q7). Places are optional on every kind (Q2) and must be inside their
+warehouse and switched on. A warehouse with a transfer or release not final yet that goes to it is not empty (Warehouses::notEmpty); a place
+named by a stock record not final yet is not switched off.
+
+**SO8. The release and the balance owed (Q6/Q7).** The other account is a warehouse with `stock_owner = other` and its name in
+`owner_entity`, set on the Warehouses page (never code; I4/Y48 unchanged: its owner changes only while it is empty). Its stock is recorded
+with a stock in into that warehouse (reason opening stock). A release (REL) goes from such a warehouse into one of ours; each line has its
+units and the agreed price of a unit (default: the last supplier price, else the average cost so far; editable). Posting moves the stock
+(SO2) and adds the amount (each line's units x price to the penny, half up; pounds only) to the balance owed: `other_account_entry`
+(append-only: `release` +, `release_reversal` -, `payment` -, `payment_reversal` +; the account's name kept on each entry). Stock >
+Transfers > Balance owed (`/ui/stock/accounts`) shows, per such warehouse: what it holds now (units, products, about what it is worth at the
+suggested prices, how many have no price), what was released this month (UK month, net of cancellations), the balance owed (a credit when
+negative), the last payment, and every release and payment. "Record a payment to the account" (amount, the day it was paid -- not after
+today --, the bank reference, a note) lowers it; a payment more than the balance owed is refused (409 `more_than_owed`: a zero too many is
+caught; money paid in advance waits for the release it pays for: SO16); a payment recorded by mistake is reversed with a reason (a new
+entry; once). A release is cancelled like any record: the stock goes back to the room and its amount comes off the balance. The balance is
+per warehouse (an account with two rooms has two). Audit `account.payment`, `account.payment_reverse`.
+
+**SO9. Who (provisional, owner to confirm).** `doc.SIN.post` and `doc.SOUT.post`: stock controller, purchasing desk; `doc.ADJ.post` stays the
+stock controller's; `doc.TRF.post`: stock controller, warehouse; `doc.REL.post`: purchasing desk, purchasing manager, stock controller;
+`accounts.pay` (record / reverse a payment): purchasing desk, purchasing manager. The lists and pages: `documents.view`. Never admin (I12).
+Reviewers decide the OKs and checks on the record's own page.
+
+**SO10. The screens.** Stock tabs: Overview, Movements, Stock In, Stock Out, Transfers (segments Transfers, Releases, Balance owed),
+Adjustments, Counts, Reservations, Quality (the last three "Soon": pack A2). Each kind: a v4 board grouped by status (Draft, Waiting for OK,
+Final, Cancelled, Cancellation records; stopped drafts behind a filter), Search (number, reference, note, given to, account), Filter (status,
+warehouse), Export (CSV), the split "New ..." button, a "How it works" fold and the create form (FormOnce); a record's page: its facts, the
+decide box (the generic record page's, now the `decide_box` partial, `DocumentsController::decideBox`), the products (add by barcode -- a
+case barcode counts its units --, CW number or words, with choices; units, cost or price, reason per adjustment line; stock here now; remove),
+the details form, "make it final" with what it does, stop, cancel (a reason from the cancellation reasons), take back, files (a delivery
+note or invoice lifts the "stock put back" rule), its checks. The review queue and the generic record page link to it; a decision comes back
+to it. Movements and the product page show a stock record's kind, its reason and "given to", with a link to the record. Home: the person's
+own drafts (a job) and records waiting for an OK (a note); tab badges count the checks and OKs of that kind the reviewer may decide.
+
+**SO11. PDFs.** The transfer note (from, to, products and units, lines to sign for picking and receiving) and the release invoice (sold by
+the other account, bought by us -- our company details --, their invoice number, units, prices, amounts, total) on PdfWriter, as the PO's.
+
+**SO12. Numbering.** Each kind has its own gapless series (D1), listed on Settings > System > Numbering in the kinds' order. The digits are
+NOT made changeable on that page: D1 checks every number in its canonical form with the series' current digits, so changing them would break
+every number already given (skipped as doubtful; SO16).
+
+**SO13. Words.** Every word is in `Ui\Words` (new groups STOCK_KIND, STOCK_OPS, STOCK_FILE, STOCK_NOTICE, STOCK_ERROR, ACCOUNTS,
+ACCOUNT_ERROR, STOCK_PDF; additions to MENU, SEGMENT, NEW, MENU_HELP, BADGE, PAGE_INTRO, DOC_TYPE(S), CHECK_REASON, MOVEMENT, REASON_USE,
+APPROVALS, CONFIG_ERROR, CONFIG_ACTION, REASONS_EDIT, REASON_NOTICE, PERMISSION, AUDIT_*, TASK). The record ADJ is now "Adjustment" (was
+"Stock correction") to match its tab; the movement kind `adjustment` keeps "Stock correction".
+
+**SO14. Nightly checks O1-O6 (`StockOpsInvariants`, in Invariants::check).** O1 every final release has one release entry of its amount on
+its warehouse; O2 every posted cancellation of a release has its negation; O3 entries name final releases (or their cancellations) of the
+right kind; O4 a payment reversal mirrors a payment of its warehouse; O5 a final transfer or release nets to zero per product on the ledger
+and books only transfers (a release: goods in at the price); O6 a stock header is of its document's kind, and every final SIN, SOUT, TRF
+and REL has one. With D1-D7 and invariants 1-11 they hold after every test of the pack.
+
+**SO15. Tests.** `tests/Integration/StockOps/{StockOpsTestCase,StockOpsTest}.php` (each kind drafted, posted and reversed with its ledger,
+balances and value sequence; given to; below zero and the reason that allows it; the "stock put back" rule and a supplier document; the OK
+first for a big record on and off, by units and by pounds, loosening needs a Reviewer; same-owner transfers, ownership never changed,
+moves between places book nothing; the release, the balance owed, payments and cancellations; the default price; number series; who may do
+what; the migration's rows and K1-K4); `tests/Integration/UiKernel/StockOpsScreensTest.php` (tabs, lists, the create form once, a record
+filled in and made final on its page, movements and product page words, CSV, given to in words, the PDFs, the balance owed and its
+payment, 403 for the wrong job, for admin and without the CSRF token on every POST); pinned tests updated (Sections, Menus, Stock screens,
+templates, Words, Permissions, the documents list). `KernelUiTestCase::handlers()` keeps the test-only ADJ for the screen tests written
+before A1; a test of the stock records returns `DocumentHandlers::all`.
+
+**SO16. Provisional and left for later.** Provisional: the permissions of SO9; the sizes of SO5; the reviewer check `none` on the new kinds;
+the reason list and labels; "more than owed" refused. Left: (1) the stock in's "stock put back without a supplier document" OK first is
+OFF although ADJ's is on, so "found" stock booked as a stock in does not wait (the owner switches it on at Approval Rules if wanted); (2)
+the number series' digits stay fixed (SO12); (3) money paid in advance to the other account cannot be recorded before its release; (4) the
+release invoice is our record of their invoice, not a VAT invoice; (5) valuation (IM8), counts, reservations and quality (pack A2) are not
+built; (6) per-line places (document_line.location_id) are not written: a record has one place (and a transfer one place each side).

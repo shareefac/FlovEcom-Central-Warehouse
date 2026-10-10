@@ -37,7 +37,9 @@ final class SetItYourselfUnitTest extends TestCase
         }
         self::assertSame(['value' => 'true', 'provisional' => 1], ConfigHistory::normalise('setting', ['value' => 'true', 'provisional' => '1', 'extra' => 'x']));
         self::assertSame(['review_rule' => 'all', 'review_limit_units' => null, 'review_due_days' => 7, 'approval_rule' => 'over_value', 'approval_limit_units' => 10000,
-            'reject_action' => 'record'], ConfigHistory::normalise('document_rule', ['review_rule' => 'all', 'review_limit_units' => null, 'review_due_days' => '7',
+            'reject_action' => 'record', 'size_approval' => 0, 'size_units' => null, 'size_value' => null],
+            // a version written before 0022 has no sizes: it reads as off (SO5)
+            ConfigHistory::normalise('document_rule', ['review_rule' => 'all', 'review_limit_units' => null, 'review_due_days' => '7',
                 'approval_rule' => 'over_value', 'approval_limit_units' => '10000', 'reject_action' => 'record']));
         self::assertSame('MAIN/OVERFLOW', ConfigHistory::locationKey('MAIN', 'OVERFLOW'));
         foreach (ConfigHistory::TYPES as $type) {

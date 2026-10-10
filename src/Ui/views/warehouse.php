@@ -10,7 +10,7 @@
 <?php endif; ?>
 <dl class="wide">
   <dt><?= $word('WAREHOUSES', 'code_label') ?></dt><dd><code><?= $e($w['code']) ?></code></dd>
-  <dt><?= $word('WAREHOUSES', 'owner') ?></dt><dd><?php if ($w['stock_owner'] === 'other'): ?><?= $say('WAREHOUSES', 'theirs', (string) $w['owner_entity']) ?><?php else: ?><?= $word('WAREHOUSES', 'ours') ?><?php endif; ?></dd>
+  <dt><?= $word('WAREHOUSES', 'owner') ?></dt><dd><?php if ($w['stock_owner'] === 'other'): ?><?= $say('WAREHOUSES', 'theirs', (string) $w['owner_entity']) ?> <a href="<?= $u('/ui/stock/accounts') ?>#account-<?= $e($w['id']) ?>"><?= $word('WAREHOUSES', 'balance_link') ?></a><?php else: ?><?= $word('WAREHOUSES', 'ours') ?><?php endif; ?></dd>
   <dt><?= $word('WAREHOUSES', 'sold_from') ?></dt><dd><?php if ($w['is_sellable']): ?><?= $word('CONFIG', 'yes') ?><?php else: ?><?= $word('CONFIG', 'no') ?><?php endif; ?></dd>
   <dt><?= $word('WAREHOUSES', 'websites') ?></dt><dd><?php if ($w['selling'] === []): ?><span class="muted"><?= $word('WAREHOUSES', 'none') ?></span><?php else: ?><?= $e(implode(', ', $w['selling'])) ?><?php endif; ?></dd>
 <?php if ($w['assigned'] !== []): ?>

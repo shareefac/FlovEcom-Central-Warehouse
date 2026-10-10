@@ -31,8 +31,16 @@ final class DocumentRules
 {
     public const REVIEW_RULES = ['all', 'over_limit', 'none'];
     public const REJECT_ACTIONS = ['reverse', 'record'];
-    /** type => the kind of its blocking approval (the only types that can have one). */
-    public const APPROVAL_KIND = ['PO' => 'over_value', 'ADJ' => 'positive_without_supplier_doc'];
+    /**
+     * type => the kind of its blocking approval (the only types that can have one). A stock in (pack A1) has the adjustment's: stock
+     * put back without a supplier document (off for it by default, the owner's rule that extra approvals start off).
+     */
+    public const APPROVAL_KIND = ['PO' => 'over_value', 'ADJ' => 'positive_without_supplier_doc', 'SIN' => 'positive_without_supplier_doc'];
+    /**
+     * The types with the OK first for a big record (pack A1, docs/decisions.md SO5): more than size_units units, or more than size_value
+     * whole pounds, waits for a reviewer before it is final. Off by default; at least one of the two sizes while it is on.
+     */
+    public const SIZE_TYPES = ['ADJ', 'SIN', 'SOUT', 'TRF', 'REL'];
     public const LIMIT_MAX = 2_000_000_000;
     public const DAYS_MIN = 1;
     public const DAYS_MAX = 120;
@@ -41,7 +49,8 @@ final class DocumentRules
     /** The review rules from the strictest. */
     private const REVIEW_RANK = ['all' => 2, 'over_limit' => 1, 'none' => 0];
     /** The fields of a rule, in the order the CLI prints a change. */
-    public const FIELDS = ['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action'];
+    public const FIELDS = ['review_rule', 'review_limit_units', 'review_due_days', 'approval_rule', 'approval_limit_units', 'reject_action', 'size_approval',
+        'size_units', 'size_value'];
 
     public function __construct(private readonly Db $db)
     {
@@ -57,11 +66,14 @@ final class DocumentRules
     {
         $out = [];
         foreach ($this->db->all('SELECT code, name, CAST(review_rule AS CHAR) AS review_rule, review_limit_units, review_due_days, '
-            . 'CAST(approval_rule AS CHAR) AS approval_rule, approval_limit_units, CAST(reject_action AS CHAR) AS reject_action FROM document_type ORDER BY code') as $r) {
+            . 'CAST(approval_rule AS CHAR) AS approval_rule, approval_limit_units, CAST(reject_action AS CHAR) AS reject_action, size_approval, size_units, size_value '
+            . 'FROM document_type ORDER BY code') as $r) {
             $out[] = ['code' => (string) $r['code'], 'name' => (string) $r['name'], 'review_rule' => (string) $r['review_rule'],
                 'review_limit_units' => $r['review_limit_units'] === null ? null : (int) $r['review_limit_units'], 'review_due_days' => (int) $r['review_due_days'],
                 'approval_rule' => (string) $r['approval_rule'], 'approval_limit_units' => $r['approval_limit_units'] === null ? null : (int) $r['approval_limit_units'],
                 'reject_action' => (string) $r['reject_action'], 'approval_kind' => self::APPROVAL_KIND[(string) $r['code']] ?? null,
+                'size_approval' => (int) $r['size_approval'], 'size_units' => $r['size_units'] === null ? null : (int) $r['size_units'],
+                'size_value' => $r['size_value'] === null ? null : (int) $r['size_value'], 'has_size' => in_array((string) $r['code'], self::SIZE_TYPES, true),
                 'version' => ConfigHistory::version($this->db, 'document_rule', (string) $r['code'])];
         }
         return $out;
@@ -71,8 +83,10 @@ final class DocumentRules
      * Changes one type's rules. $change may hold: review_rule (all | over_limit | none), review_limit_units (0..2,000,000,000; only
      * with over_limit, which needs one), review_due_days (1..120), approval (bool: the type's blocking approval on or off; only the
      * types of APPROVAL_KIND, and on needs a limit), approval_limit_units (0..2,000,000,000; only those types), reject_action
-     * (reverse | record). Refusals are 400 with a code (bad_rule, bad_limit, bad_days, no_approval_rule, limit_required,
-     * bad_reject_action, nothing_to_change), 404 unknown_type, 409 changed_meanwhile ($seen: the history version the form had).
+     * (reverse | record), and for the SIZE_TYPES the OK first for a big record: size (bool), size_units and size_value (0..2,000,000,000
+     * or null / '' for "not checked"; on needs at least one). Refusals are 400 with a code (bad_rule, bad_limit, bad_days,
+     * no_approval_rule, no_size_rule, limit_required, size_required, bad_reject_action, nothing_to_change), 404 unknown_type, 409
+     * changed_meanwhile ($seen: the history version the form had).
      * The same values again write nothing (`changed` false).
      *
      * @param array<string, mixed> $change
@@ -81,7 +95,8 @@ final class DocumentRules
     public function set(Caller $caller, string $type, array $change, string $reason, ?int $seen = null): array
     {
         $reason = ConfigHistory::reason($reason);
-        $unknown = array_diff(array_keys($change), ['review_rule', 'review_limit_units', 'review_due_days', 'approval', 'approval_limit_units', 'reject_action']);
+        $unknown = array_diff(array_keys($change), ['review_rule', 'review_limit_units', 'review_due_days', 'approval', 'approval_limit_units', 'reject_action',
+            'size', 'size_units', 'size_value']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException('unknown rule field ' . implode(', ', $unknown));
         }
@@ -103,8 +118,9 @@ final class DocumentRules
                 ApprovalRules::authoriseLoosening($db, $caller);
             }
             $db->exec('UPDATE document_type SET review_rule = ?, review_limit_units = ?, review_due_days = ?, approval_rule = ?, approval_limit_units = ?, '
-                . 'reject_action = ? WHERE code = ?', [$after['review_rule'], $after['review_limit_units'], $after['review_due_days'], $after['approval_rule'],
-                    $after['approval_limit_units'], $after['reject_action'], $type]);
+                . 'reject_action = ?, size_approval = ?, size_units = ?, size_value = ? WHERE code = ?', [$after['review_rule'], $after['review_limit_units'],
+                    $after['review_due_days'], $after['approval_rule'], $after['approval_limit_units'], $after['reject_action'], $after['size_approval'],
+                    $after['size_units'], $after['size_value'], $type]);
             $v = ConfigHistory::record($db, $caller, 'document_rule', $type, 'change', $before, $after, $reason);
             Audit::write($db, $caller, 'document_type.change', 'document_type', $type, null,
                 ['type' => $type, 'before' => $before, 'after' => $after, 'reason' => $reason, 'version' => $v['version']] + ($loosened ? ['loosened' => true] : []));
@@ -130,6 +146,19 @@ final class DocumentRules
         if ($before['approval_rule'] !== 'none' && ($after['approval_rule'] === 'none'
             || (int) $after['approval_limit_units'] > (int) $before['approval_limit_units'])) {
             return true;
+        }
+        // The OK first for a big record: switched off, or (on both times) a size raised or no longer checked.
+        if ((int) ($before['size_approval'] ?? 0) === 1) {
+            if ((int) ($after['size_approval'] ?? 0) !== 1) {
+                return true;
+            }
+            foreach (['size_units', 'size_value'] as $f) {
+                $b = $before[$f] ?? null;
+                $a = $after[$f] ?? null;
+                if ($b !== null && ($a === null || (int) $a > (int) $b)) {
+                    return true;
+                }
+            }
         }
         return $before['reject_action'] === 'reverse' && $after['reject_action'] === 'record';
     }
@@ -194,6 +223,23 @@ final class DocumentRules
         }
         if ($after['approval_rule'] !== 'none' && $after['approval_limit_units'] === null) {
             throw new CwException('limit_required', 'a blocking approval needs its limit', 400, ['field' => 'approval_limit_units']);
+        }
+        if (array_key_exists('size_units', $change) || array_key_exists('size_value', $change) || array_key_exists('size', $change)) {
+            if (!in_array($type, self::SIZE_TYPES, true)) {
+                throw new CwException('no_size_rule', "{$type} has no OK first for a big record", 400, ['field' => 'size']);
+            }
+            foreach (['size_units', 'size_value'] as $f) {
+                if (array_key_exists($f, $change)) {
+                    $v = $change[$f];
+                    $after[$f] = $v === null || (is_string($v) && trim($v) === '') ? null : $limit($v, $f);
+                }
+            }
+            if (array_key_exists('size', $change)) {
+                $after['size_approval'] = $change['size'] === true ? 1 : 0;
+            }
+            if ((int) ($after['size_approval'] ?? 0) === 1 && ($after['size_units'] ?? null) === null && ($after['size_value'] ?? null) === null) {
+                throw new CwException('size_required', 'the OK first for a big record needs a number of units, a value in pounds, or both', 400, ['field' => 'size_units']);
+            }
         }
         if (array_key_exists('reject_action', $change)) {
             if (!in_array($change['reject_action'], self::REJECT_ACTIONS, true)) {

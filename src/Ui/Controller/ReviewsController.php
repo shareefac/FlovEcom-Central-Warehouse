@@ -8,6 +8,7 @@ use CW\CwException;
 use CW\Documents\Document;
 use CW\Documents\Documents;
 use CW\Suppliers\Suppliers;
+use CW\StockOps\StockOps;
 use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
@@ -65,7 +66,9 @@ final class ReviewsController
                     'PO' => '/ui/purchasing/orders/' . ($doc->reversesId ?? $doc->id),
                     // A receipt (IM6, I141) and its reversal are decided on the receipt's page in Receiving.
                     'GRN' => '/ui/receiving/' . ($doc->reversesId ?? $doc->id),
-                    default => '/ui/documents/' . $doc->id,
+                    // A stock record (pack A1), and a cancellation of one, on its own page in Stock.
+                    default => StockOps::kindOf($doc->docType) !== null ? StockOps::PATHS[(string) StockOps::kindOf($doc->docType)] . '/' . $doc->id
+                        : '/ui/documents/' . $doc->id,
                 },
                 'reason' => (string) $r['task_reason'], 'money' => $isPo && $r['po_net'] !== null ? (string) $r['po_net'] : null,
                 'items' => !$isPo && $r['units'] !== null ? (int) $r['units'] : null, 'opened_by' => $r['opened_by_name'],
@@ -153,6 +156,8 @@ final class ReviewsController
         // receipt (and its reversal) on the receipt's page in Receiving (I141).
         $po = $task['doc_type'] === 'PO';
         $grn = $task['doc_type'] === 'GRN';
+        // A stock record (pack A1) and its cancellation are decided on the record's own page, and the decision comes back there.
+        $stock = $task['doc_type'] === null ? null : StockOps::kindOf((string) $task['doc_type']);
         $note = $ctx->req->field('note');
         try {
             if ($approve) {
@@ -171,8 +176,12 @@ final class ReviewsController
             return match (true) {
                 $po => (new PurchaseOrdersController())->page($ctx, $docId, $e->httpStatus, $e),
                 $grn => (new ReceivingController())->page($ctx, (int) ($task['reverses_id'] ?? $docId), $e->httpStatus, $e),
+                $stock !== null => (new StockOpsController())->page($ctx, $stock, $docId, $e->httpStatus, $e),
                 default => (new DocumentsController())->page($ctx, $docId, $e->httpStatus, $e),
             };
+        }
+        if ($stock !== null) {
+            return HtmlResponse::redirect(Html::url(StockOps::PATHS[$stock] . '/' . $docId, ['notice' => $notice]));
         }
         if ($po) {
             return HtmlResponse::redirect(Html::url('/ui/purchasing/orders/' . ($task['reverses_id'] ?? $docId), ['notice' => $notice]));
