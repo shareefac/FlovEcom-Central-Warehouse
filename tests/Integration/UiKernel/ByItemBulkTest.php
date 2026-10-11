@@ -10,6 +10,7 @@ use CW\Mapping\BulkDecisions;
 use CW\Settings;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
+use CW\Ui\ByProductContext;
 use CW\Ui\Controller\BulkController;
 use CW\Ui\Controller\ByItemBulkController;
 use CW\Ui\Controller\ByProductController;
@@ -975,7 +976,7 @@ final class ByItemBulkTest extends KernelUiTestCase
             'cells with two spaces' => [400, ['cells_' . $sku => $cell . '  ' . $cell] + $good],
             'cells of more variants than one bulk action can ever take' => [400, ['cells_' . $sku => implode(' ', array_map(static fn (int $i): string => (1000 + $i) . '.1.0',
                 range(1, ByItemBulkController::MAX_PER_ITEM + 1)))] + $good],
-            'more ticks than a page has rows' => [400, array_fill_keys(array_map(static fn (int $i): string => 'pick_' . $i, range(1000, 1200)), '1') + $good],
+            'more ticks than a page has rows' => [400, array_fill_keys(array_map(static fn (int $i): string => 'pick_' . $i, range(1000, 1000 + ByProductContext::MAX_TICKED)), '1') + $good],
             // Numbers no variant or version can be (beyond INT UNSIGNED): refused before anything could be written (review finding A).
             'a variant number beyond its column' => [400, ['cells_' . $sku => '4294967296.1.0'] + $good],
             'a version beyond its column' => [400, ['cells_' . $sku => $l . '.' . $this->proposalOf($l) . '.4294967296'] + $good],

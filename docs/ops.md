@@ -2087,8 +2087,9 @@ counts), and the old code runs on the new one. Before it, as for every Mapping c
 
 **What the owner sees and does.** Above the list, on the right: "Rows 50 100 200" — press a number to see that many items on a page.
 The number the page opens with is a setting (Settings → System → Settings → Matching products → "Items on a page of By Item": 50, 100
-or 200). Every item that has a suggested variant on some store has a tick box (the box in the table's head ticks the whole page). Tick
-the items you want; a bar appears at the bottom: "On" (All stores, or one store) and three buttons.
+or 200). Every item that has a suggested variant on some store has a tick box (the box in the table's head ticks every item it may:
+an item whose every suggestion was marked not a match before is ticked by hand; an item with more than 500 suggested variants has no
+tick box and says so). Tick the items you want; a bar appears at the bottom: "On" (All stores, or one store) and three buttons.
 - **Confirm suggested matches**: every variant suggested for a ticked item, on the chosen store, is matched to that item — except the
   doubtful ones, which are left for you to decide one at a time and listed with the reason: a variant that was marked not a match for
   that item before; an item that already has a variant on that store (or a match waiting there for a second OK); and an item with more
@@ -2098,14 +2099,16 @@ the items you want; a bar appears at the bottom: "On" (All stores, or one store)
 
 No button saves anything at once. Each opens a **preview**: one line for every variant, with its item and its store, and what will
 happen to it — "Will be matched", "Will wait for a second OK" (with the reason: 1 sale is not 1 product, the store already sells
-warehouse stock, it was marked wrong before, or the rule "matches confirmed from a ticked list" is on), or "Will be skipped" with the
-reason in words (held back, in a spot check, a rule or a flag says no, a match strength that may not be confirmed together — the same
-setting as on the lists —, changed since you opened the page, only a matching lead decides it). On top is the count: "12 will be matched
+warehouse stock, or the rule "matches confirmed from a ticked list" is on), or "Will be skipped" with the
+reason in words (the three doubtful cases of a confirm named above, held back, in a spot check, a rule or a flag says no, a match
+strength that may not be confirmed together — the same setting as on the lists —, changed since you opened the page, only a matching
+lead decides it). On top is the count: "12 will be matched
 · 3 will wait for a second OK · 5 will be skipped". Read it, then press the one button at the bottom ("Yes, do these 15"; for Not a
 match it is red: "Yes, these 15 are not a match" — this preview is the second step that Not a match always has), or "No, go back to By
 Item": the list comes back as you left it, with the same filter, page and ticks. A cell that reads **"Marked not a match"** (red)
-instead of "Suggested" is a suggestion somebody already said no to for that item: "Select all on this page" does not tick such an
-item (tick it yourself if you want to send that suggestion back for matching), and a confirm skips it. After the button, the result page says what was done,
+instead of "Suggested" is a suggestion somebody already said no to for that item, and a confirm skips it. "Select all on this page"
+leaves out an item whose every suggestion, on every store, reads so (tick it yourself if you want to send that suggestion back for
+matching); an item that also has another, live suggestion is ticked as usual. After the button, the result page says what was done,
 lists the skipped variants with the reason and a link to each, and leads back to the list. Everything is checked again at the button:
 a variant that someone decided, or whose suggestion changed, between the preview and the button is skipped ("It is not as it was when
 you looked"), never matched to something else; a variant the preview said it would skip is never done.

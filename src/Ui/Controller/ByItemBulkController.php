@@ -71,7 +71,7 @@ final class ByItemBulkController
             return $ctx->error(422, 'nothing_ticked', Words::BY_ITEM_BULK['nothing_ticked'], $back);
         }
         if (count($picked) > ByProductContext::MAX_TICKED) {
-            // More ticks than a page has rows: no page of ours.
+            // More ticks than a page has rows (its largest size and the one pinned item): no page of ours.
             return $ctx->error(400, 'bad_form', Words::ERROR['bad_form'], $back);
         }
         // What each ticked row showed: its suggested variants, each with its suggestion and version. A variant is suggested for one
