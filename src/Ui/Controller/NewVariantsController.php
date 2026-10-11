@@ -7,6 +7,7 @@ namespace CW\Ui\Controller;
 use CW\Admin\Sites;
 use CW\Clock;
 use CW\Mapping\BulkDecisions;
+use CW\Mapping\OneAtATime;
 use CW\Output\CsvWriter;
 use CW\Settings;
 use CW\Ui\Context;
@@ -37,6 +38,8 @@ use CW\Ui\Words;
  * there the seed can only skip, and each variant's item is created on its own page. Confirm match and Ignore…
  * are BulkDecisions' existing actions too. "Open" leads to the variant's existing page (match by hand, or create one item with its
  * details checked: also one the computer has not checked). This class only reads; it has no POST and no way to decide of its own.
+ * A variant no bulk action takes (held back, or a match of a spot check: OneAtATime, M63, U139) has no tick box and says so under
+ * its name, as on the match-strength lists.
  */
 final class NewVariantsController
 {
@@ -84,12 +87,18 @@ final class NewVariantsController
         // Asked only when the period shows no row marked New: one that is there answers it.
         $everNew = $counts['new'] > 0 || $q->everFoundNew((int) $store['id']);
         $all = $req->param('all') === '1';
+        $found = array_map(self::row(...), $q->newVariantRows($result['ids']));
+        // The variants of this page no bulk action takes (held back, or a match of a spot check), of those still to match: the one
+        // read of it (OneAtATime, M63). Such a row has no tick box and says so under its name (U139).
+        $never = OneAtATime::of($ctx->db, array_values(array_map(static fn (array $row): int => $row['listing_id'],
+            array_filter($found, static fn (array $row): bool => in_array($row['state'], self::OPEN_KINDS, true)))));
         $rows = [];
-        foreach ($q->newVariantRows($result['ids']) as $r) {
-            $row = self::row($r);
+        foreach ($found as $row) {
             [$row['barcodes_shown'], $row['barcodes_more']] = [array_slice($row['barcodes'], 0, self::BARCODES_SHOWN), max(0, count($row['barcodes']) - self::BARCODES_SHOWN)];
-            // Only the rows an action of the bar applies to can be ticked: matched, on-hold, waiting and ignored ones change on their own page.
-            $row['pickable'] = $bulkActions !== [] && in_array($row['state'], self::OPEN_KINDS, true);
+            $row['manual'] = ReviewController::oneAtATime($never[$row['listing_id']] ?? null);
+            // Only the rows an action of the bar applies to can be ticked: matched, on-hold, waiting and ignored ones change on their
+            // own page; and of those not the ones that are decided one at a time.
+            $row['pickable'] = $bulkActions !== [] && in_array($row['state'], self::OPEN_KINDS, true) && $row['manual'] === null;
             $row['picked'] = $row['pickable'] && $all;
             $rows[] = $row;
         }

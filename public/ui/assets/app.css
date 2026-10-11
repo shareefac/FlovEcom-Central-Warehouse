@@ -1590,6 +1590,15 @@ table.by-store-table td.share .muted.small { display: block; }
 .grp-block.by-store .grp-count a { font-weight: 400; }
 /* The bulk result and its second step */
 .bulk-confirm { max-width: 760px; }
+/* A row no bulk action takes (held back, or a match of a spot check; docs/decisions.md U139-U141): the line under its name says so
+   and what to do, and its tick cell is empty. On the match-strength lists: what the list shows ("Show"), and the notice above a page
+   that holds such rows. */
+.o-sub.no-bulk, table.board .o-sub.no-bulk { margin-top: 4px; max-width: 52ch; color: var(--ink); font: 400 12px/16px var(--font); white-space: normal; }
+.o-sub.no-bulk::before { content: "!"; content: "!" / ""; display: inline-block; margin-right: 4px; color: var(--working); font-weight: 700; }
+.o-sub.no-bulk a { font-weight: 600; text-decoration: underline; }
+.show-pills { align-items: center; }
+.pills-label { color: var(--ink-2); font: 400 14px/20px var(--font); }
+.alert.no-box { margin-bottom: 16px; }
 
 /* ---------- 22. By Item: one column per store, and its picker (docs/decisions.md U113-U122) ---------- */
 /* A store's cell: the state label, then the website product and its lines, left-aligned from the top (a board centres its cells) */

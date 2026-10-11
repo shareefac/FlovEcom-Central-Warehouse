@@ -10,6 +10,9 @@
 <?php if ($qc->channel !== null): ?>
   <input type="hidden" name="channel" value="<?= $e($qc->channel) ?>">
 <?php endif; ?>
+<?php if ($show !== null): ?>
+  <input type="hidden" name="show" value="<?= $e($show) ?>">
+<?php endif; ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('QUEUE', 'text') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($qc->text) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <details class="tb-pop">
     <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($qc->lane !== null || $qc->min > 0): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
@@ -37,7 +40,7 @@
 <?php endif; ?>
   <nav class="legend" aria-label="<?= $word('QUEUE', 'lists') ?>">
 <?php foreach ($bands as $b): ?>
-    <a class="<?= $e(\CW\Ui\Words::tone('BAND', $b['band'])) ?>" href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel]) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php endif; ?>><span class="key" aria-hidden="true"></span><?= $e($b['label']) ?> <strong class="tab-count"><?= $n($b['count']) ?></strong></a>
+    <a class="<?= $e(\CW\Ui\Words::tone('BAND', $b['band'])) ?>" href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel, 'show' => $show]) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php endif; ?>><span class="key" aria-hidden="true"></span><?= $e($b['label']) ?> <strong class="tab-count"><?= $n($b['count']) ?></strong></a>
 <?php endforeach; ?>
   </nav>
 </section>
@@ -46,6 +49,19 @@
 <?php endif; ?>
 <?php if ($leadOnly): ?>
 <p class="note"><?= $word('QUEUE', 'lead_only') ?></p>
+<?php endif; ?>
+<?php if ($shows !== []): ?>
+<nav class="pills show-pills" aria-label="<?= $word('QUEUE', 'show') ?>">
+  <span class="pills-label" aria-hidden="true"><?= $word('QUEUE', 'show') ?></span>
+<?php foreach ($shows as $s): ?>
+  <a href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?= $e($s['label']) ?> <strong class="tab-count"><?= $n($s['count']) ?></strong></a>
+<?php endforeach; ?>
+</nav>
+<?php endif; ?>
+<?php if ($noBox !== null): ?>
+<div class="alert info no-box" role="note">
+  <p><?= $e($noBox['text']) ?><?php if ($noBox['link'] !== null): ?> <a href="<?= $e($noBox['link'][0]) ?>"><?= $e($noBox['link'][1]) ?></a><?php endif; ?><?php if ($noBox['none'] !== null): ?> <?= $e($noBox['none']) ?><?php endif; ?></p>
+</div>
 <?php endif; ?>
 
 <?php if ($total === 0 && $filtered): ?>
@@ -91,8 +107,8 @@
 <?php foreach ($rows as $r): ?>
     <tr<?php if ($bulk && $r['picked']): ?> class="picked"<?php endif; ?>>
 <?php if ($bulk): ?>
-      <td class="c-pick" data-label=""><label class="pick"><input type="checkbox" name="pick_<?= $e($r['listing_id']) ?>" value="1" data-bulk-row<?php if ($r['picked']): ?> checked<?php endif; ?>><span class="visually-hidden"><?= $say('BULK', 'pick_row', $r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></span></label>
-        <input type="hidden" name="ver_<?= $e($r['listing_id']) ?>" value="<?= $e($r['map_version']) ?>"><input type="hidden" name="prop_<?= $e($r['listing_id']) ?>" value="<?= $e($r['proposal_id']) ?>"></td>
+      <td class="c-pick" data-label=""><?php if ($r['manual'] === null): ?><label class="pick"><input type="checkbox" name="pick_<?= $e($r['listing_id']) ?>" value="1" data-bulk-row<?php if ($r['picked']): ?> checked<?php endif; ?>><span class="visually-hidden"><?= $say('BULK', 'pick_row', $r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></span></label>
+        <input type="hidden" name="ver_<?= $e($r['listing_id']) ?>" value="<?= $e($r['map_version']) ?>"><input type="hidden" name="prop_<?= $e($r['listing_id']) ?>" value="<?= $e($r['proposal_id']) ?>"><?php endif; ?></td>
 <?php endif; ?>
       <th scope="row" class="c-head">
         <a class="o-name" href="<?= $e($r['link']) ?>"><?= $e($r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></a>
@@ -101,6 +117,9 @@
 <?php endif; ?>
 <?php if ($r['brand'] !== null): ?>
         <span class="o-sub"><?= $e($r['brand']) ?></span>
+<?php endif; ?>
+<?php if ($r['manual'] !== null): ?>
+        <?= $partial('one_at_a_time', ['why' => $r['manual']]) ?>
 <?php endif; ?>
       </th>
       <td data-label="<?= $word('QUEUE', 'website') ?>"><?= $e($r['channel']) ?> <span class="muted small"><?= $say('QUEUE', 'option', (string) $r['variant']) ?></span></td>

@@ -46,7 +46,7 @@ final class Words
         'APPROVALS', 'REASONS_EDIT', 'REASON_NOTICE', 'WAREHOUSES', 'WHY_NOT_EMPTY', 'WAREHOUSE_NOTICE', 'MODE', 'SITES', 'SITE_COMMAND', 'INTEGRITY', 'AUDIT',
         'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
-        'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE',
+        'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE', 'QUEUE_SHOW', 'ONE_AT_A_TIME',
         'BY_ITEM_BULK', 'BY_ITEM_SKIP',
         'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
@@ -2900,6 +2900,44 @@ final class Words
         'previous' => 'Previous',
         'next' => 'Next',
         'page' => 'Page %s of %s',
+        // The notice above a list whose page holds rows with no tick box (docs/decisions.md U141): "47 on this page are held back and 3
+        // are in a spot check: they are decided one at a time and have no tick box. Show only the ones a bulk action can take (863)"
+        'no_box_held_one' => '1 on this page is held back',
+        'no_box_held_many' => '%s on this page are held back',
+        'no_box_spot_one' => '1 on this page is in a spot check',
+        'no_box_spot_many' => '%s on this page are in a spot check',
+        'no_box_and_spot_one' => '1 is in a spot check',
+        'no_box_and_spot_many' => '%s are in a spot check',
+        'no_box_both' => '%s and %s',
+        'no_box_one' => '%s: it is decided on its own and has no tick box.',
+        'no_box_many' => '%s: they are decided one at a time and have no tick box.',
+        'show_ready' => 'Show only the ones a bulk action can take (%s)',
+        'none_ready' => 'Nothing in this list is ready for a bulk action.',
+    ];
+
+    /**
+     * What a match-strength list shows (Queries::SHOWS; docs/decisions.md U140): the "Show" filter, each with how many it holds.
+     * "Ready for a bulk action" is every row that is neither held back nor in a spot check.
+     */
+    public const QUEUE_SHOW = [
+        'all' => 'All',
+        'ready' => 'Ready for a bulk action',
+        'held' => 'Held back',
+        'spot' => 'In a spot check',
+    ];
+
+    /**
+     * A row no bulk action takes (CW\Mapping\OneAtATime; docs/decisions.md M63, U139), under its name on the lists whose rows are
+     * variants (To review, Store Products, New Variants): what it is, and what to do. Held back: when and by whom it was set aside
+     * (%s the day, %s the name), and that its own page says why and is where it is decided. The hold's note itself is NOT printed
+     * here: the stored notes are long technical rule texts (a build decision of 12 Oct 2026, not yet put to the owner); the row's own page shows it in
+     * full (LISTING `held`). A match of a spot check: the spot check's name. The same words on the three screens, so they name
+     * neither "product" nor "variant".
+     */
+    public const ONE_AT_A_TIME = [
+        'held' => 'Held back on %s (set aside by %s). Open it to see why and to decide it.',
+        'in_spot_check' => 'In spot check %s: it is answered in the spot check.',
+        'open_spot' => 'Open the spot check',
     ];
 
     /** One website product (/ui/review/listing/{id}, plan §6.16). */
@@ -3106,6 +3144,8 @@ final class Words
         'approved' => 'Approved: the decision on %s now takes effect.',
         'withdrawn' => 'Cancelled: the decision on %s. It is back in its list.',
         'queue_done' => 'This list is done.',
+        // After the last row of a list that is narrowed (what it shows, found by, units sold, a search): the list itself may hold more.
+        'shown_done' => 'That was the last one of what this list is showing.',
         'decided_unlink' => 'Done: the match of %s is undone. It is back in its list.',
         'next' => 'Here is the next one.',
         'the_product' => 'the website product',

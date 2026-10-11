@@ -13,6 +13,7 @@ use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\Queries;
+use CW\Ui\QueueContext;
 use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
@@ -101,7 +102,9 @@ final class BulkController
             }
             return $ctx->error($e->httpStatus, $e->errorCode, $text, $back);
         }
-        return HtmlResponse::redirect('/ui/review/batches/' . $r['batch_id']);
+        // The result page of a match-strength list leads back to the list as it was shown (U140): what it showed travels in the
+        // address, as By Item's choices do, and is read there as the list reads it.
+        return HtmlResponse::redirect(Html::url('/ui/review/batches/' . $r['batch_id'], ['show' => $source === 'review' ? self::shown($req->field('show')) : null]));
     }
 
     /** The batch page: what was asked, what became of every row (done, sent to Second approval, skipped with why), and the way back. */
@@ -154,7 +157,8 @@ final class BulkController
             'store' => [Html::url('/ui/review/store', ['channel' => $b['channel_code']]), Words::MENU['store_products']],
             'item' => [self::itemList($ctx), Words::MENU['by_product']],
             'new' => [Html::url(NewVariantsController::PATH, ['channel' => $b['channel_code']]), Words::MENU['new_variants']],
-            default => [Html::url('/ui/review', ['queue' => $b['band'], 'channel' => $b['channel_code']]), Words::of('BAND_TITLE', (string) $b['band'])],
+            default => [Html::url('/ui/review', ['queue' => $b['band'], 'channel' => $b['channel_code'], 'show' => self::shown($ctx->req->param('show'))]),
+                Words::of('BAND_TITLE', (string) $b['band'])],
         };
         // The words of the page: a batch of By Item speaks of variants (U122); one of New Variants says its action and its list in the
         // owner's words (items and variants, U137); the lists' batches speak of products, as before.
@@ -206,7 +210,7 @@ final class BulkController
         }
         $n = count($rows);
         $keep = [];
-        foreach (['queue', 'lane', 'min', 'q', 'page', 'state', 'sort', 'period'] as $k) {
+        foreach (['queue', 'lane', 'min', 'show', 'q', 'page', 'state', 'sort', 'period'] as $k) {
             $v = $ctx->req->field($k);
             if ($v !== null && $v !== '') {
                 $keep[$k] = mb_substr($v, 0, 100);
@@ -306,7 +310,15 @@ final class BulkController
         }
         return [Html::url('/ui/review', ['queue' => $band, 'channel' => $channel['code'] ?? null, 'lane' => self::opt($req->field('lane'), Queries::LANES),
             'min' => preg_match('/^[0-9]{1,6}$/D', (string) $req->field('min')) === 1 && (int) $req->field('min') > 0 ? (int) $req->field('min') : null,
-            'q' => self::text($req->field('q')), 'page' => UiRequest::id($req->field('page'))]), Words::of('BAND_TITLE', $band)];
+            'show' => self::shown($req->field('show')), 'q' => self::text($req->field('q')), 'page' => UiRequest::id($req->field('page'))]),
+            Words::of('BAND_TITLE', $band)];
+    }
+
+    /** What a match-strength list showed, as its address writes it (Queries::SHOWS; nothing for every row or an unknown word). */
+    private static function shown(?string $v): ?string
+    {
+        $show = QueueContext::show($v);
+        return $show === Queries::SHOW_ALL ? null : $show;
     }
 
     /** @return array{id: int, code: string, name: string}|null the store a code names */

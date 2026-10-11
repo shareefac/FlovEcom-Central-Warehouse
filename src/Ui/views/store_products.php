@@ -77,6 +77,9 @@
         <span class="o-sub"><?= $e($r['variant_title']) ?></span>
 <?php endif; ?>
         <span class="o-sub"><?php if ($r['brand'] !== null): ?><?= $e($r['brand']) ?> · <?php endif; ?><?= $say('QUEUE', 'option', (string) $r['variant']) ?></span>
+<?php if ($r['manual'] !== null): ?>
+        <?= $partial('one_at_a_time', ['why' => $r['manual']]) ?>
+<?php endif; ?>
       </th>
       <td class="c-status"><?= $stateChip('STORE_STATE', $r['state']) ?></td>
       <td class="c-wide" data-label="<?= $word('STORE_PRODUCTS', 'warehouse') ?>">

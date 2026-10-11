@@ -10,6 +10,7 @@ use CW\Mapping\DecisionService;
 use CW\Mapping\KeyEligibility;
 use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
+use CW\Mapping\OneAtATime;
 use CW\Mapping\Proposals;
 use CW\Matching\Form;
 use CW\Ui\ByProductContext;
@@ -46,6 +47,7 @@ final class ReviewController
         'approved' => Words::MATCH_NOTICE['approved'],
         'withdrawn' => Words::MATCH_NOTICE['withdrawn'],
         'queue_done' => Words::MATCH_NOTICE['queue_done'],
+        'shown_done' => Words::MATCH_NOTICE['shown_done'],
         'decided_unlink' => Words::MATCH_NOTICE['decided_unlink'],
     ];
     public const ACTIONS = ['link', 'new_item', 'ignore', 'reject', 'unlink'];
@@ -77,15 +79,23 @@ final class ReviewController
         }
         $me = $ctx->me();
         $page = UiRequest::id($req->param('page')) ?? 1;
-        $result = $q->queue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $page);
+        $result = $q->queue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $page, $qc->show);
         $leadOnly = $qc->band === 'Conflict' && !$me->isLead();
         // Bulk action (M46-M53, U108): the actions this list offers this person; "Select all on this page" without app.js (`all=1`).
-        $bulkActions = self::bulkActions('review', $qc->band, $me->roles, BulkDecisions::confirmBands($ctx->db));
+        $offered = self::bulkActions('review', $qc->band, $me->roles, BulkDecisions::confirmBands($ctx->db));
         $all = $req->param('all') === '1';
+        // The rows of this page no bulk action takes (M63, U139): held back, or a match of a spot check. Such a row has no tick
+        // box, "select all" (the script's and `all=1`) leaves it, and it says so under its name.
+        $never = OneAtATime::of($ctx->db, array_map(static fn (array $r): int => (int) $r['listing_id'], $result['rows']));
+        $noBox = array_fill_keys(OneAtATime::KINDS, 0);
         $rows = [];
         foreach ($result['rows'] as $r) {
             $hasTarget = $r['proposed_sku_id'] !== null || (bool) $r['proposed_new_item'];
             $outcome = self::s($r['ai_outcome']);
+            $why = self::oneAtATime($never[(int) $r['listing_id']] ?? null);
+            if ($why !== null) {
+                $noBox[$why['code']]++;
+            }
             $rows[] = [
                 'listing_id' => (int) $r['listing_id'],
                 'channel' => $names[(string) $r['channel_code']] ?? self::s($r['channel_code']),
@@ -107,8 +117,18 @@ final class ReviewController
                 'link' => Html::url('/ui/review/listing/' . (int) $r['listing_id'], $qc->query()),
                 'map_version' => (int) $r['map_version'],
                 'proposal_id' => (int) $r['proposal_id'],
-                'picked' => $all,
+                'manual' => $why,
+                'picked' => $all && $why === null,
             ];
+        }
+        // The action bar is drawn when at least one row of the page can be ticked; a page of rows that all go one at a time has
+        // none (its buttons could only answer "tick a row first"), and the notice above the list says why.
+        $bulkActions = count($rows) > array_sum($noBox) ? $offered : [];
+        $show = $qc->showValue();
+        $shows = [];
+        foreach (Queries::SHOWS as $s) {
+            $shows[] = ['key' => $s, 'label' => Words::of('QUEUE_SHOW', $s), 'count' => $result['shows'][$s], 'current' => $qc->show === $s,
+                'href' => Html::url('/ui/review', array_replace($qc->pageQuery(), ['show' => $s === Queries::SHOW_ALL ? null : $s]))];
         }
         $counts = [];
         $bandCounts = $q->bandCounts();
@@ -123,7 +143,8 @@ final class ReviewController
         $order = array_merge(array_slice(Proposals::BANDS, (int) $at + 1), array_slice(Proposals::BANDS, 0, (int) $at));
         foreach ($order as $b) {
             if (($counts[$b] ?? 0) > 0) {
-                $next = ['href' => Html::url('/ui/review', ['queue' => $b, 'channel' => $qc->channel]), 'label' => Words::of('BAND_TITLE', $b), 'count' => $counts[$b]];
+                $next = ['href' => Html::url('/ui/review', ['queue' => $b, 'channel' => $qc->channel, 'show' => $show]), 'label' => Words::of('BAND_TITLE', $b),
+                    'count' => $counts[$b]];
                 break;
             }
         }
@@ -138,9 +159,14 @@ final class ReviewController
             'leadOnly' => $leadOnly && $me->canDecide(),
             'button' => $me->canDecide() && !$leadOnly ? Words::QUEUE['open'] : Words::QUEUE['look'],
             // A filter that hides what the list still has (F161); an empty list is "empty" even when it was filtered.
-            'filtered' => ($qc->lane !== null || $qc->min > 0 || $qc->text !== '') && ($counts[$qc->band] ?? 0) > 0,
+            'filtered' => $qc->filtered() && ($counts[$qc->band] ?? 0) > 0,
             'clear_link' => Html::url('/ui/review', ['queue' => $qc->band, 'channel' => $qc->channel]),
-            'stores' => self::storeItems($q->stores(), '/ui/review', ['queue' => $qc->band], $qc->channel, $perStore, true),
+            // What the list shows (U140) travels with the store and the strength, as the address writes it (nothing for every row).
+            'stores' => self::storeItems($q->stores(), '/ui/review', ['queue' => $qc->band, 'show' => $show], $qc->channel, $perStore, true),
+            'show' => $show,
+            'shows' => $result['shows']['all'] > 0 ? $shows : [],
+            'noBox' => $offered !== [] ? self::noBoxNotice($noBox, $result['shows']['ready'], $show === 'ready' ? null
+                : Html::url('/ui/review', array_replace($qc->pageQuery(), ['show' => 'ready']))) : null,
             'bulkActions' => $bulkActions,
             'bulkMax' => BulkDecisions::maxRows($ctx->db),
             'bulkKeep' => array_filter($qc->pageQuery() + ['page' => $result['page'] > 1 ? $result['page'] : null], static fn (mixed $v): bool => $v !== null && $v !== ''),
@@ -289,6 +315,55 @@ final class ReviewController
         return $out;
     }
 
+    /**
+     * A row no bulk action takes, as the lists whose rows are variants say it under the row's name (To review, Store Products, New
+     * Variants; OneAtATime: M63, U139): held back, with the day and who set it aside, and that its own page says why and is where
+     * it is decided (the hold's note is not printed on a list: the stored notes are long rule texts; the variant's page shows it
+     * in full); or a match of a spot check, by its name, with the link to it. Null for a row a bulk action can take.
+     *
+     * @param array{code: string, detail: array<string, mixed>, sample_id: int, sample: string}|null $why OneAtATime::of()'s answer for the row
+     * @return array{code: string, text: string, link: ?array{0: string, 1: string}}|null
+     */
+    public static function oneAtATime(?array $why): ?array
+    {
+        if ($why === null) {
+            return null;
+        }
+        if ($why['code'] === OneAtATime::HELD) {
+            return ['code' => OneAtATime::HELD, 'link' => null, 'text' => Words::say('ONE_AT_A_TIME', 'held', Html::day(self::s($why['detail']['at'] ?? null)),
+                self::s($why['detail']['by'] ?? null) ?? Words::ROLE['mapping_lead'])];
+        }
+        return ['code' => OneAtATime::SPOT, 'text' => Words::say('ONE_AT_A_TIME', 'in_spot_check', $why['sample']),
+            'link' => ['/ui/review/samples/' . $why['sample_id'], Words::ONE_AT_A_TIME['open_spot']]];
+    }
+
+    /**
+     * The notice above a match-strength list whose page holds rows with no tick box (U141): how many of the page are held back
+     * and how many are in a spot check, that they are decided one at a time, and the way to the rows a bulk action can take with
+     * how many there are (no link on that list itself; a sentence instead of the link when there are none). Null when every row
+     * of the page has its box.
+     *
+     * @param array<string, int> $noBox OneAtATime's kind => rows of this page
+     * @return array{text: string, link: ?array{0: string, 1: string}, none: ?string}|null
+     */
+    public static function noBoxNotice(array $noBox, int $ready, ?string $readyLink): ?array
+    {
+        $held = $noBox[OneAtATime::HELD] ?? 0;
+        $spot = $noBox[OneAtATime::SPOT] ?? 0;
+        if ($held + $spot === 0) {
+            return null;
+        }
+        $what = match (true) {
+            $spot === 0 => $held === 1 ? Words::QUEUE['no_box_held_one'] : Words::say('QUEUE', 'no_box_held_many', $held),
+            $held === 0 => $spot === 1 ? Words::QUEUE['no_box_spot_one'] : Words::say('QUEUE', 'no_box_spot_many', $spot),
+            default => Words::say('QUEUE', 'no_box_both', $held === 1 ? Words::QUEUE['no_box_held_one'] : Words::say('QUEUE', 'no_box_held_many', $held),
+                $spot === 1 ? Words::QUEUE['no_box_and_spot_one'] : Words::say('QUEUE', 'no_box_and_spot_many', $spot)),
+        };
+        return ['text' => Words::say('QUEUE', $held + $spot === 1 ? 'no_box_one' : 'no_box_many', $what),
+            'link' => $ready > 0 && $readyLink !== null ? [$readyLink, Words::say('QUEUE', 'show_ready', $ready)] : null,
+            'none' => $ready === 0 ? Words::QUEUE['none_ready'] : null];
+    }
+
     /** @param list<array{id: int, code: string, name: string}> $channels @return array{id: int, code: string, name: string}|null the store a code names */
     public static function store(array $channels, ?string $code): ?array
     {
@@ -431,7 +506,7 @@ final class ReviewController
 
         $protected = $target !== null && $target['sell_policy'] !== 'legacy';
         $rejectedIds = $q->rejectedOf($id);
-        $next = $qc !== null ? $q->nextInQueue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $id) : null;
+        $next = $qc !== null ? $q->nextInQueue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $id, $qc->show) : null;
         // Opened from a spot check (M28): the page, its forms and its picks lead back there instead of to a list.
         $sample = null;
         $sampleId = $qc === null ? UiRequest::id($req->param('sample') ?? $req->field('sample')) : null;
@@ -916,7 +991,7 @@ final class ReviewController
             return $refuse(self::plain($e, 'decide'), $field, $e->httpStatus);
         }
         $notice = $result['state'] === 'pending_second' ? 'pending_second' : 'decided_' . $action;
-        $to = $qc !== null ? $q->nextInQueue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $id) : null;
+        $to = $qc !== null ? $q->nextInQueue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $id, $qc->show) : null;
         if ($qc === null) {
             $sample = UiRequest::id($req->field('sample'));
             // Decided from By Item (U119): back to its list at that product, with the same notice. Only a product number and a
@@ -932,8 +1007,10 @@ final class ReviewController
             return HtmlResponse::redirect(Html::url('/ui/review/listing/' . $id, $qc->query() + ['notice' => $notice]));
         }
         if ($to === null) {
-            // The last listing: a decision that waits for a second person must still be said (it is not "done").
-            $end = $notice === 'pending_second' ? ['notice' => 'pending_second', 'prev' => $id] : ['notice' => 'queue_done'];
+            // The last listing: a decision that waits for a second person must still be said (it is not "done"). The last one of a
+            // list that is narrowed (what it shows, found by, units sold, a search) is not the list's last: the list is not called
+            // done, the notice says it was the last one of what the list is showing (U140).
+            $end = $notice === 'pending_second' ? ['notice' => 'pending_second', 'prev' => $id] : ['notice' => $qc->filtered() ? 'shown_done' : 'queue_done'];
             return HtmlResponse::redirect(Html::url('/ui/review', $qc->pageQuery() + $end));
         }
         return HtmlResponse::redirect(Html::url('/ui/review/listing/' . $to, $qc->query() + ['notice' => $notice, 'prev' => $id]));
@@ -1029,8 +1106,8 @@ final class ReviewController
         if (!isset(self::NOTICES[$key])) {
             return null;
         }
-        if ($key === 'queue_done') {
-            return Words::MATCH_NOTICE['queue_done'];
+        if ($key === 'queue_done' || $key === 'shown_done') {
+            return Words::MATCH_NOTICE[$key];
         }
         $prev = UiRequest::id($ctx->req->param('prev'));
         $about = $prev ?? $current;

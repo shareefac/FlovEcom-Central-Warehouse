@@ -9,6 +9,7 @@ use CW\CwException;
 use CW\Documents\Document;
 use CW\Mapping\BulkDecisions;
 use CW\Mapping\DecisionService;
+use CW\Mapping\OneAtATime;
 use CW\Mapping\Proposals;
 use CW\Matching\Band;
 use CW\Matching\Form;
@@ -447,6 +448,67 @@ final class WordsTest extends TestCase
         }
         foreach (Words::BY_ITEM_SKIP as $code => $text) {
             self::assertSame(substr_count(Words::BULK_SKIP[$code], '%s'), substr_count($text, '%s'), "{$code}: filled in from the same record");
+        }
+    }
+
+    /**
+     * The rows no bulk action takes, and what a match-strength list shows (docs/decisions.md M63, U139-U141): a word for each choice
+     * of "Show" and for each kind of such a row; the line under the row says what it is and what to do: for a held-back one the
+     * day and the name, and that its own page says why, never the hold's note (the stored notes are long rule texts; a build
+     * decision of 12 Oct 2026); the notice above the list says how many of the page have no tick box, in the singular and the
+     * plural, and leads to the ones a bulk action can take with how many there are. The same line is shown on New Variants, so it
+     * names no "product". After the last row of a narrowed list the notice does not call the list done.
+     */
+    public function testTheListsSayWhichRowsNoBulkActionTakesAndWhatAListShows(): void
+    {
+        self::assertSame(Queries::SHOWS, array_keys(Words::QUEUE_SHOW), 'a word for each choice, in the filter\'s order');
+        self::assertSame(['All', 'Ready for a bulk action', 'Held back', 'In a spot check'], array_values(Words::QUEUE_SHOW));
+        self::assertSame('Show', Words::QUEUE['show']);
+        self::assertSame(['held', 'in_spot_check'], OneAtATime::KINDS, 'the two kinds of such a row; each has its own choice of "Show" (held, spot)');
+        foreach (OneAtATime::KINDS as $kind) {
+            self::assertTrue(Words::has('ONE_AT_A_TIME', $kind), "ONE_AT_A_TIME: no word for `{$kind}`");
+            self::assertContains($kind, BulkDecisions::SKIPS, 'the kinds are the reasons a bulk action skips such a row for');
+        }
+        // The line under the row. A held-back one: the day and the name, and where to see why; the note itself is not printed (a
+        // stored note is a rule text of some hundred characters), whatever it holds.
+        $note = 'rule: [MEDIUM] model_number_differs: model/line numbers: EF - vs VPG 25000 (only EF: -; only VPG: 25000) | rule: [MEDIUM] norm_line_numbers_differ';
+        $held = ['code' => 'held', 'detail' => ['reason' => $note, 'by' => 'Business owner', 'at' => '2026-10-06 09:15:00.000000'], 'sample_id' => 4, 'sample' => 'owner-1'];
+        self::assertSame(['code' => 'held', 'link' => null, 'text' => 'Held back on 6 Oct 2026 (set aside by Business owner). Open it to see why and to decide it.'],
+            ReviewController::oneAtATime($held));
+        self::assertSame(ReviewController::oneAtATime($held), ReviewController::oneAtATime(['detail' => ['reason' => str_repeat('x ', 240)] + $held['detail']] + $held),
+            'the same line whatever the note says and however long it is');
+        self::assertStringContainsString('"' . $note . '" (set aside by Business owner on 6 Oct 2026)', Words::say('LISTING', 'held', $note, 'Business owner', '6 Oct 2026'),
+            'the row\'s own page still says the note in full, with the same name and day');
+        self::assertSame('Held back on 6 Oct 2026 (set aside by Matching lead). Open it to see why and to decide it.',
+            ReviewController::oneAtATime(['detail' => ['by' => null] + $held['detail']] + $held)['text'] ?? null, 'nobody named: the job, as on the row\'s page');
+        self::assertSame(['code' => 'in_spot_check', 'text' => 'In spot check owner-1: it is answered in the spot check.', 'link' => ['/ui/review/samples/4', 'Open the spot check']],
+            ReviewController::oneAtATime(['code' => 'in_spot_check', 'detail' => ['sample' => 'owner-1'], 'sample_id' => 4, 'sample' => 'owner-1']));
+        self::assertNull(ReviewController::oneAtATime(null), 'a row a bulk action can take says nothing');
+        // The notice above the list.
+        $say = static fn (int $held, int $spot, int $ready, ?string $to = '/list'): ?array => ReviewController::noBoxNotice(['held' => $held, 'in_spot_check' => $spot], $ready, $to);
+        self::assertNull($say(0, 0, 900), 'every row has its box: no notice');
+        self::assertSame(['text' => '47 on this page are held back and 3 are in a spot check: they are decided one at a time and have no tick box.',
+            'link' => ['/list', 'Show only the ones a bulk action can take (863)'], 'none' => null], $say(47, 3, 863));
+        self::assertSame(['1 on this page is held back: it is decided on its own and has no tick box.', '1 on this page is in a spot check: it is decided on its own and has no tick box.',
+            '50 on this page are held back: they are decided one at a time and have no tick box.', '2 on this page are in a spot check: they are decided one at a time and have no tick box.',
+            '1 on this page is held back and 1 is in a spot check: they are decided one at a time and have no tick box.',
+            '2 on this page are held back and 1 is in a spot check: they are decided one at a time and have no tick box.'],
+            array_map(static fn (array $n): string => $say(...$n)['text'] ?? '', [[1, 0, 5], [0, 1, 5], [50, 0, 5], [0, 2, 5], [1, 1, 5], [2, 1, 5]]));
+        self::assertSame(['/list', 'Show only the ones a bulk action can take (1,234)'], $say(50, 0, 1234)['link'] ?? null);
+        self::assertSame([null, 'Nothing in this list is ready for a bulk action.'], [$say(2, 0, 0)['link'] ?? null, $say(2, 0, 0)['none'] ?? null],
+            'none to show: a sentence, not a link to an empty list');
+        self::assertSame([null, null], [$say(2, 0, 9, null)['link'] ?? null, $say(2, 0, 9, null)['none'] ?? null], 'on the list of the ready ones itself: no link to itself');
+        // After the last row of a narrowed list: words of their own, never "This list is done." (the list may hold more).
+        self::assertSame(['This list is done.', 'That was the last one of what this list is showing.'], [Words::MATCH_NOTICE['queue_done'], Words::MATCH_NOTICE['shown_done']]);
+        self::assertSame(Words::MATCH_NOTICE['shown_done'], ReviewController::NOTICES['shown_done'] ?? null, 'a notice the address may name');
+        // New Variants shows the same line: variants and items there, never "product".
+        foreach ([...array_values(Words::ONE_AT_A_TIME), ...array_values(Words::QUEUE_SHOW)] as $text) {
+            self::assertDoesNotMatchRegularExpression('/website products?|warehouse products?|\bproducts?\b/i', $text, $text);
+        }
+        foreach ([Words::QUEUE_SHOW, Words::ONE_AT_A_TIME] as $texts) {
+            foreach ($texts as $code => $text) {
+                self::assertDoesNotMatchRegularExpression('/\\bcount(ed|s)?\\b/i', $text, "{$code}: 'count' is only for shelf counts (correction b)");
+            }
         }
     }
 

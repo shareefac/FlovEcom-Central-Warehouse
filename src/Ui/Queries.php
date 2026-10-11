@@ -6,6 +6,8 @@ namespace CW\Ui;
 
 use CW\Db;
 use CW\Mapping\BulkDecisions;
+use CW\Mapping\KeyHold;
+use CW\Mapping\OneAtATime;
 use CW\Matching\Gtin;
 
 /**
@@ -24,6 +26,14 @@ final class Queries
      * Duplicates (CW\Ui\Duplicates, M34).
      */
     public const LANES = ['barcode', 'transfer', 'candidates'];
+    /**
+     * What a match-strength list shows (docs/decisions.md U140): every row (`all`, the list as it always was), only the rows a bulk
+     * action can take (`ready`), only the ones held back (`held`), only the ones that are a match of a spot check that is not
+     * complete and are not held back (`spot`). The last two are OneAtATime's two kinds, by its own conditions: `ready` is the rest,
+     * so the three parts never overlap and add up to `all`. It changes what is listed, never what a bulk action does.
+     */
+    public const SHOW_ALL = 'all';
+    public const SHOWS = [self::SHOW_ALL, 'ready', 'held', 'spot'];
     /**
      * How a band is named on the screens: Words::BAND for all six (plan F170; the URL values queue=Key ... stay). `Manual` is
      * the run's "Manual (relabel)": listings that differ from a Vape and Go item only by a renamed range ("Renamed range").
@@ -120,27 +130,37 @@ final class Queries
     }
 
     /**
-     * One page of a band's queue.
+     * One page of a band's queue, of what $show names (SHOWS; anything else: every row), and how many rows each choice of "Show"
+     * holds under the same band, store and filters (`shows`). The list's own count is read once, as before, for every row; the
+     * held-back rows and the spot checks' rows are counted from the small side (queueShows()); "ready" is the rest. So the total
+     * of the page shown is one of those four numbers, and "all" is the sum of the other three.
      *
-     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int}
+     * @param list<int>|null $spotMatches the variants that are a match of a spot check that is not complete (the listing ids of
+     *        OneAtATime::spotMatchesToDecide()) when the caller has read them; read here when not given
+     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int, shows: array{all: int, ready: int, held: int, spot: int}}
      */
-    public function queue(string $band, ?int $channelId, string $q, ?string $lane, int $min30, int $page): array
+    public function queue(string $band, ?int $channelId, string $q, ?string $lane, int $min30, int $page, string $show = self::SHOW_ALL, ?array $spotMatches = null): array
     {
+        $show = in_array($show, self::SHOWS, true) ? $show : self::SHOW_ALL;
         [$where, $params] = $this->queueWhere($band, $channelId, $q, $lane, $min30);
         // The count joins the profile only when a filter reads it: the site (an inner join on a foreign key), the profile and the
         // item (left joins on a primary key) never change how many rows there are, and the profile's rows are wide (their JSON).
         $profile = $min30 > 0 || trim($q) !== '' ? 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id ' : '';
-        $total = (int) $this->db->value('SELECT ' . ($profile !== '' && trim($q) === '' ? self::UNITS_HINT : '')
+        $all = (int) $this->db->value('SELECT ' . ($profile !== '' && trim($q) === '' ? self::UNITS_HINT : '')
             . 'COUNT(*) FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id ' . $profile
             . 'WHERE ' . $where, $params);
+        // (an empty list has no part to count or to show: the spot checks are not read for it)
+        $spotMatches = $all === 0 ? [] : ($spotMatches ?? array_keys(OneAtATime::spotMatchesToDecide($this->db)));
+        $shows = $this->queueShows($where, $params, $profile, trim($q) === '', $all, $spotMatches);
+        $total = $shows[$show];
         $pages = max(1, (int) ceil($total / self::PER_PAGE));
         $page = min(max(1, $page), $pages);
         // The page's 50 in queue order first, on narrow index columns only (the units come from ix_listing_profile_units, 0020),
         // then their columns: the sort no longer carries every candidate's titles, flags and item.
-        $ids = array_map('intval', $this->db->column(
+        $ids = $total === 0 && $show !== self::SHOW_ALL ? [] : array_map('intval', $this->db->column(
             'SELECT ' . (trim($q) === '' ? self::UNITS_HINT : '') . 'p.id FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id '
             . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
-            . 'WHERE ' . $where . self::ORDER . ' LIMIT ? OFFSET ?',
+            . 'WHERE ' . $where . self::showWhere($show, $spotMatches) . self::ORDER . ' LIMIT ? OFFSET ?',
             [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE],
         ));
         $rows = $ids === [] ? [] : $this->db->all(
@@ -152,16 +172,70 @@ final class Queries
             . ' AND p.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')' . self::ORDER,
             [...$params, ...$ids],
         );
-        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages];
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages, 'shows' => $shows];
+    }
+
+    /**
+     * How many rows each choice of "Show" holds (SHOWS), for a list whose own conditions are $where and whose every row was
+     * counted as $all. The held-back rows and the spot checks' rows are counted FROM THE SMALL SIDE: the holds in force
+     * (key_bulk_hold: a few hundred rows) and the spot checks' matches (a few dozen listings, named by their ids), each joined to
+     * its open suggestion on the list's own index (status, band, listing_id) and to its listing by the primary key (the profile,
+     * when a filter reads it: its units from their narrow index unless a text is searched). Never a pass over the list.
+     * A row that is both is held back (OneAtATime's order). "ready" is what is left.
+     *
+     * @param list<mixed> $params
+     * @param string $profile the join of the profile when a filter reads it ('' when none does)
+     * @param bool $unitsOnly no text is searched: a filter reads the profile's units only
+     * @param list<int> $spotMatches
+     * @return array{all: int, ready: int, held: int, spot: int}
+     */
+    private function queueShows(string $where, array $params, string $profile, bool $unitsOnly, int $all, array $spotMatches): array
+    {
+        if ($all === 0) {
+            return ['all' => 0, 'ready' => 0, 'held' => 0, 'spot' => 0];
+        }
+        $units = $profile !== '' && $unitsOnly ? ' INDEX(lp ix_listing_profile_units)' : '';
+        $held = (int) $this->db->value('SELECT /*+ JOIN_ORDER(h, p, cl)' . $units . ' */ COUNT(DISTINCT h.listing_id) FROM key_bulk_hold h '
+            . 'JOIN match_proposal p ON p.listing_id = h.listing_id JOIN channel_listing cl ON cl.id = p.listing_id ' . $profile
+            . 'WHERE ' . KeyHold::IN_FORCE . ' AND ' . $where, $params);
+        $spot = $spotMatches === [] ? 0 : (int) $this->db->value('SELECT /*+ JOIN_ORDER(cl, p)' . $units . ' */ COUNT(*) FROM channel_listing cl '
+            . 'JOIN match_proposal p ON p.listing_id = cl.id ' . $profile
+            . 'WHERE ' . OneAtATime::spotSql('cl.id', $spotMatches) . ' AND NOT ' . OneAtATime::heldSql('cl.id') . ' AND ' . $where, $params);
+        return ['all' => $all, 'ready' => max(0, $all - $held - $spot), 'held' => $held, 'spot' => $spot];
+    }
+
+    /**
+     * What a choice of "Show" adds to a list's conditions (on the listing `cl`): OneAtATime's two conditions, in its order.
+     *
+     * @param list<int> $spotMatches
+     */
+    private static function showWhere(string $show, array $spotMatches): string
+    {
+        $held = OneAtATime::heldSql('cl.id');
+        $spot = OneAtATime::spotSql('cl.id', $spotMatches);
+        return match ($show) {
+            'ready' => " AND NOT {$held} AND NOT {$spot}",
+            'held' => " AND {$held}",
+            'spot' => " AND {$spot} AND NOT {$held}",
+            default => '',
+        };
     }
 
     /**
      * The listing to review after $currentId: the next one in queue order (units 365d, units 30d
      * desc, id), else the first of the queue other than $currentId; null when the queue is empty.
+     * Of what $show names (SHOWS), as the list itself: "next" from a list of the ready ones is the next ready one.
+     *
+     * @param list<int>|null $spotMatches as queue()
      */
-    public function nextInQueue(string $band, ?int $channelId, string $q, ?string $lane, int $min30, int $currentId): ?int
+    public function nextInQueue(string $band, ?int $channelId, string $q, ?string $lane, int $min30, int $currentId, string $show = self::SHOW_ALL,
+        ?array $spotMatches = null): ?int
     {
         [$where, $params] = $this->queueWhere($band, $channelId, $q, $lane, $min30);
+        if ($show !== self::SHOW_ALL && in_array($show, self::SHOWS, true)) {
+            // (the held-back ones are told without the spot checks, so those are not read for that choice)
+            $where .= self::showWhere($show, $spotMatches ?? ($show === 'held' ? [] : array_keys(OneAtATime::spotMatchesToDecide($this->db))));
+        }
         $from = 'FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ';
         $order = self::ORDER . ' LIMIT 1';
         $cur = $this->db->one('SELECT COALESCE(units_30d, 0) AS u30, COALESCE(units_365d, 0) AS u365 FROM listing_profile WHERE listing_id = ?', [$currentId])

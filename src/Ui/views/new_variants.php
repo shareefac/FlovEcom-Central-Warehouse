@@ -96,6 +96,9 @@
 <?php if ($r['brand'] !== null): ?>
         <span class="o-sub muted"><?= $e($r['brand']) ?></span>
 <?php endif; ?>
+<?php if ($r['manual'] !== null): ?>
+        <?= $partial('one_at_a_time', ['why' => $r['manual']]) ?>
+<?php endif; ?>
       </th>
       <td data-label="<?= $word('NEW_VARIANTS', 'option') ?>"><?= $e($r['variant']) ?></td>
       <td data-label="<?= $word('NEW_VARIANTS', 'barcode') ?>"><?php foreach ($r['barcodes_shown'] as $i => $b): ?><?php if ($i > 0): ?> <br><?php endif; ?><span class="code"><?= $e($b) ?></span><?php endforeach; ?><?php if ($r['barcodes_more'] > 0): ?> <span class="muted small"><?= $say('NEW_VARIANTS', 'more_barcodes', $r['barcodes_more']) ?></span><?php endif; ?></td>

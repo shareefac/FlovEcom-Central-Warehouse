@@ -7803,3 +7803,143 @@ since you last looked". (6) No "create as new items" for a whole filter across p
 three fixed periods, the CSV's 50,000 and the 180 seconds of "heard from lately" (the Stores page's own constant) are not settings.
 (9) A search over "Any time" costs what Store Products' search costs (U136). (10) The barcode rule does not see through punctuation
 inside a code (M61).
+
+## Products › Mapping: the rows no bulk action takes, and what a list shows (slot `newvar`, 11 Oct 2026)
+
+What was found on staging (read only, 11 Oct 2026): on 10 Oct the owner used the bulk action on Products › Mapping › To review, store
+Electrofag, list Strong match: 15 batches of 50 "Confirm match". 234 were matched. The last three batches matched nothing: page 1 of
+the list then held only rows every bulk action skips, 47 held back (M30) and 3 matches of the open spot check (M28). "Tick all +
+Confirm" on that page was a dead end, and the page did not say why before the button was pressed. The rule itself (M51) is right
+and stays; the lists did not show it.
+Code: `src/Mapping/OneAtATime.php` (new), `src/Mapping/KeyHold.php` (`IN_FORCE`), `src/Mapping/BulkDecisions.php` (it asks
+`OneAtATime`; no rule changed), `src/Ui/QueueContext.php`, `src/Ui/Queries.php` (`SHOWS`, `queue()`, `nextInQueue()`),
+`src/Ui/Controller/{Review,Bulk,StoreProducts,NewVariants}Controller.php`, the views `queue`, `store_products`, `new_variants` and
+`one_at_a_time` (new), `src/Ui/Words.php` (`QUEUE`, `QUEUE_SHOW`, `ONE_AT_A_TIME`), `public/ui/assets/app.css` (section 21). No
+migration, no setting, no change to `app.js`. Tests: `tests/Integration/UiKernel/OneAtATimeScreenTest.php` and
+`tests/Unit/QueueContextTest.php` (new), one test added to each of `tests/Integration/Mapping/BulkDecisionsTest.php`,
+`tests/Unit/WordsTest.php` and the HTTP tests `tests/Integration/UiReviewFlowTest.php` (slot `ui`), and the new partial added to the
+templates `tests/Unit/UiTemplatesTest.php` lints (its two lists of templates gained the name). No assertion that was there before
+had to change. `DecisionService`, `KeyBulk` and Products › By Item are not touched.
+
+**M63. One read of what no bulk action takes.** `OneAtATime::of(db, listing ids)` answers, for each of the listings no bulk action
+takes, why, in this order: `held` when a hold is in force on the listing (`KeyHold::activeForListings`), with the hold's reason, who
+set it aside and when; else `in_spot_check` when the listing is one of the matches (a `key_sample_member` with a position) of a
+spot check whose verdict (`KeySample::verdicts`) is not `complete`, that is waiting or failed, with the spot check's name (the
+oldest such spot check when it is a match of several). It also gives the spot check's id and name, for a link.
+`BulkDecisions::prechecks()` takes its `held` and `in_spot_check` skips from this read, with the same code and detail as before, in
+the same place in its order (after "no such listing" and "another store", before everything else), for every action and every
+list; `one()` asks it again under the row's lock (a hold found only then is `held_meanwhile`, as before). What a batch row records
+and what the result page says are unchanged. The private `inSpotCheck()` became `OneAtATime::spotChecksOf()`; its read is now
+ordered by spot check, so the one named is the same each time. `KeyHold::IN_FORCE` is the one text of "a hold in force" (a hold row
+that no release names): KeyHold's own read is built from it, and so is the SQL the lists filter and count by
+(`OneAtATime::heldSql()`). For the lists' spot-check side `OneAtATime::spotMatchesToDecide()` gives the variants still to decide
+that are a match of a spot check that is not complete: the candidates are read from the spot checks to their matches to each
+match's listing, and the answer is `spotChecksOf()` of those candidates, the same function a row is asked with; `spotSql()` names
+them to the SQL by their ids (a few dozen numbers). The engine is unchanged: a hand-made form that ticks such a row is skipped as
+`held` or `in_spot_check`, on every list.
+
+**U139. Such a row has no tick box and says why.** Every match-strength list of Products › Mapping › To review, Store Products and
+New Variants ask `OneAtATime::of()` for the rows of their page. A row it names has an empty tick cell: no box and none of the row's
+hidden fields, so the page's form cannot send it. Under its name one line says what it is and what to do (the partial
+`one_at_a_time`, `Words::ONE_AT_A_TIME`): `Held back on <day> (set aside by <name>). Open it to see why and to decide it.`, with the
+day and the name as the row's own page says them (the job "Matching lead" when the hold names nobody); or `In spot check <name>:
+it is answered in the spot check.` followed by the link "Open the spot check". The hold's note is NOT printed on a list (a build
+decision of 12 Oct 2026, the reviewer's and not yet put to the owner, from staging's data: the stored notes are the screening rules' own texts, 190 characters typical and up to
+480, `rule: [MEDIUM] model_number_differs: model/line numbers: EF - vs VPG 25000 …`, which under 47 rows of a page is neither plain
+English nor readable). The variant's own page shows the note in full, as before, and so does the skip sentence of a bulk action's
+result page (`BULK_SKIP` `held`), which is unchanged. "Select all on this page" needed no new script: `app.js`
+ticks the boxes marked `data-bulk-row` and such a row has none; without the script `all=1` draws a row ticked only when it has a box.
+On Store Products and New Variants the line is on the rows of the states a bulk action applies to there (Suggested, Not matched,
+Ignored; New, Suggested match, Not checked yet): a matched, on-hold or waiting row had no box before and says nothing new. Someone
+who can only look has no boxes, as before, and still reads the line. Products › By Item is unchanged: its preview lists such a
+variant as "Will be skipped" with the reason (M56).
+
+**U140. "Show" on a match-strength list.** Under the strength legend: Show · All · Ready for a bulk action · Held back · In a spot
+check, each with how many rows it holds of this list, this store and the list's other filters (search, found by, units sold). All
+is the list as it was, and the default. The query value is `show` = `ready`, `held` or `spot` (`Queries::SHOWS`); none, `all` or
+any other word is All and is then written nowhere, so every address the list had before is unchanged. It is one more part of
+`QueueContext` (`show`, `showValue()`), so it travels with `query()` and `pageQuery()`: the pager, a row's link to its page, that
+page's way back, the hidden fields of that page's forms and so the address after a decision, and the bulk form's keep fields.
+"The next one" follows it (`Queries::nextInQueue()` takes it): from the list of the ready ones the next ready one opens. It is also
+kept by the search box (a hidden field), the links of the strength legend and of the store selector (which did not and do not
+carry the search, found-by and units filters), the link to the next list with work, the second step of "Not a match…" and
+"Ignore…", and a refused request's way back (`BulkController::back()`). The result page of a bulk action leads back to the list
+as it was shown: the redirect to the batch page carries `?show=` (a match-strength list's batch only) and the batch page reads it as
+the list does, By Item's way (U127); a batch page opened without it leads back to the whole list. Held back is
+`OneAtATime::heldSql()`; In a spot check is `spotSql()` and not held back; Ready is neither. So the three never overlap and add up
+to All. "Clear filters" clears it too; a choice that hides every row shows "No website product matches your filters" with the
+choices still there. An empty list offers no choice. It changes what is listed, never what a bulk action does.
+After the last row of what a list is showing, the list is not called done: when the answer saved was the last one of a list that is
+narrowed (`QueueContext::filtered()`: a choice of Show, found by, units sold or a search), the notice is `shown_done`, "That was the
+last one of what this list is showing.", and the page below it says what is left (the choices with their numbers, or "No website
+product matches your filters" with "Clear filters"). `queue_done`, "This list is done.", stays for a list nothing narrows. (Before
+this build the found-by, units and search filters ended on "This list is done." too; with Show > Held back it would have been the
+ordinary end of the owner's routine.)
+The counts (`Queries::queue()` returns them as `shows`): the list's own count is read once, as before, and is All; the held-back
+rows are counted from `key_bulk_hold` (the holds in force, each joined to its open suggestion and its listing) and the spot checks'
+rows from the listing ids of `spotMatchesToDecide()`; Ready is All less those two. The total of the page shown is one of these four
+numbers: no second count of the list is made. A list with no row reads none of it.
+
+**U141. The notice above the list, and a page with nothing to tick.** When the page shown holds rows with no tick box, and this
+person has a bulk action on this list, one box above the list says so and leads on: "47 on this page are held back and 3 are in a
+spot check: they are decided one at a time and have no tick box." and the link "Show only the ones a bulk action can take (863)"
+to the same list with Ready for a bulk action (the count is that list's). It has its singular forms; when nothing is ready it says
+"Nothing in this list is ready for a bulk action." in place of the link; on the list of the ready ones it has no link to itself.
+A page whose every row has a box has no notice. When NO row of the page can be ticked (the page the owner was stuck on) the
+action bar, the tick column and "Select all on this page" are not drawn on that page: its buttons could only answer "Tick at least
+one product first".
+
+**U142. What it costs; no index.** Measured on the slot's test schema filled like staging (38,040 variants, 15,000 items, 2,638
+open suggestions of which 1,116 strong matches of one store; a spot check that waits with 20 matches there, 300 holds of which 260
+in force, a second spot check that waits on another store, a third whose matches were decided long ago), MySQL 8.4.8 with its 32
+MB buffer pool. The script ran six times that evening, each case three times in a run. The first two runs still had an EXISTS for
+the spot checks' side of the filter, which MySQL answered by reading the spot checks' whole populations (`ready_explain_try2.txt`);
+that form was dropped for the listing ids of `spotMatchesToDecide()`, and the figures below are from the four runs made after
+that. The cluster's times vary a lot, so each figure is the lowest, the middle and the highest of those twelve
+(`/root/cw_work/runs/ready_explain.txt` is the last run with every SQL and its EXPLAIN, `ready_explain_try3.txt` to `_try5.txt`
+the three before it, in the first two of which the candidates of `spotMatchesToDecide()` were still read in one statement, 2 ms
+either way; the script is `ready_explain_script.php` there and is not in the repository). The change of 12 Oct (the held line's
+words, the notice after the last row) touches none of these reads and was not measured again:
+- the rows of a page (`OneAtATime::of()`, 50 rows): 5 / 6 / 26 ms, two reads of about 2 ms each (the holds by their listing, the
+  spot checks' matches by their listing); 17 / 22 / 95 ms when the page shows a spot check's match, because that spot check's
+  verdict is then worked out (KeySample's five reads). The same read for 100 ticked rows before a bulk action: 7 / 11 / 26 ms (the
+  two reads the pre-checks made before);
+- the spot checks' matches a list names (`spotMatchesToDecide()`, two spot checks that wait): 21 / 31 / 120 ms. Its own three reads
+  take about 1, 2 and 2 ms; the rest is KeySample's verdict of the two spot checks;
+- a list page (`Queries::queue()`, 1,116 rows, page 1): All 38 / 63 / 86 ms, Ready for a bulk action 46 / 56 / 130 ms, Held back
+  41 / 54 / 149 ms, In a spot check 28 / 56 / 95 ms. By statement (the middle of the four runs): the list's own count 8-13 ms and
+  its page of ids 21-26 ms, both as before; the held-back count 6-11 ms (it reads the 340 hold rows); the spot checks' count 4-7 ms
+  (it starts from the 40 listings named); the page's rows 5-7 ms, as before. With "sold at least" 43 / 51 / 127 ms, with a search
+  57 / 65 / 387 ms (the list's own count reads the profiles, as before), with "found by" 52 / 141 / 601 ms (the suggestions' rows
+  are read, as before). An empty list: one read, 1 / 3 / 8 ms;
+- "the next one": 13 / 18 / 35 ms for every row (as before), 21 / 23 / 28 ms of the ready ones, 16 / 18 / 38 ms of the held-back
+  ones, 5 / 7 / 9 ms of a spot check's.
+With about ten times more of both (2,371 hold rows of which 2,291 in force, 676 of them on that list; 11 spot checks that wait, 220
+matches): the spot checks' matches 104 / 164 / 431 ms (11 verdicts), the rows of a page 50 / 65 / 182 ms, the list page All 55 / 64
+/ 343 ms, Ready 58 / 107 / 182 ms, Held back 55 / 86 / 157 ms, "the next ready one" 29 / 34 / 60 ms. So the cost follows the number
+of spot checks that are not complete and the number of holds, not the size of the lists.
+What a page of the All list reads on top of what it read before (about 45 ms on the first fill), by the middle figures: the two
+counts (about 15 ms), the spot checks' matches (about 30 ms for the two spot checks that wait) and the answer for its rows (about
+6 ms). The old code was not timed on this fill: "before" is the sum of the statements that did not change.
+No index was added. Every read is by an existing index: the holds by their listing (`ix_key_bulk_hold_listing`) or read whole for
+the count (the table is the small side: 340 rows there), a hold's release by `uq_key_bulk_hold_release`, a spot check's matches by
+`uq_key_sample_member_position` (one range of 20 for each spot check) or by their listing (`ix_key_sample_member_listing`), the
+open suggestion by `ix_match_proposal_open_band` (status, band, listing: the index alone), the listing by its primary key. No plan
+reads a spot check's population or passes over the list or `listing_profile` for the two new counts, with two exceptions the
+list's own count already had: with a search the counts read the profiles of the rows they count (a few hundred, where the list's
+count reads the whole strength), and with "found by" they read the suggestions' rows.
+
+**U143. Words; not done, and open.** Every word is in `Ui\Words`: `QUEUE_SHOW` (the four choices), `ONE_AT_A_TIME` (`held`,
+`in_spot_check`, `open_spot`), `QUEUE` `no_box_…`, `show_ready`, `none_ready`, `MATCH_NOTICE` `shown_done`, and `QUEUE` `show`,
+which was there. The line is the same on the three screens and names neither "product" nor "variant" (New Variants speaks of
+variants and items, U137). Not done, and open: (1) Store Products and New Variants have the row treatment only: no "Show" and no
+notice there. (2) New Variants' CSV does not say which variants are held back or in a spot check. (3) The numbers on the strength
+legend, the store selector, the "By store" overview and Home are of the whole list, not of its ready part. (4) "Ready for a bulk
+action" says only that a row is neither held back nor in a spot check: a confirm still skips what it always skipped (a veto, a flag,
+a change since the page was drawn, …: M51), each with its reason on the result page. (5) A spot check that failed is not complete
+either, so its matches that still wait stay "In a spot check", as the bulk action always treated them; its owner still answers them.
+(6) A spot check's verdict is worked out on each page view (KeySample's five reads for each spot check that is not complete and has
+a match still to decide), and a second time on a page that shows one of its matches: nothing is cached. (7) Coming back from a
+variant's page to Store Products or New Variants is still not built (U138). (8) The two small items the handoff of 11 Oct left for
+"the next mapping build" (the reason said when two people create an item from one variant in the same second; one more sentence in
+M61) are not in this build: its brief was this feature only.

@@ -2034,7 +2034,9 @@ the person through To review, every strength list, Spot check and Second approva
 one store with its state. On a list, tick rows and use the bar at the bottom: Confirm match, Not a match…, Create as new product, Ignore… (and
 on Store Products: Ignore…, Take off the ignored list, Send back for matching…). Each ticked row is decided on its own, with every rule of a
 single decision; held-back matches, a spot check's own matches and anything changed since the page was drawn are skipped and listed on the
-result page (`/ui/review/batches/<n>`), which also says what went to Second approval. There is no undo of a whole bulk action: undo one match
+result page (`/ui/review/batches/<n>`), which also says what went to Second approval. Since 11 Oct 2026 a held-back match and a spot check's
+match have no tick box on the lists, and a match-strength list can show only the rows a bulk action can take (the section "Rows a bulk action
+leaves" below). There is no undo of a whole bulk action: undo one match
 on its page ("Change this match", a matching lead, with a note).
 
 ### Deploying 0021 to staging (the owner's go first)
@@ -2199,6 +2201,44 @@ on the first store by name. With this change every list's bulk action also refus
 range or a note that is not readable text (they ended on the error page), the "barcode is already elsewhere" rule also finds a
 barcode that the other record holds with other leading zeros, and "Create as new product" on the New products list skips what New
 Variants' seed skips (a page heading, not published, changed after the check, an item already made from it, a name that is taken).
+
+## Rows a bulk action leaves: held back, and in a spot check (`docs/decisions.md` M63, U139–U143)
+
+**What the owner sees and does.** Two kinds of rows are never changed by a bulk action, whatever the action and whatever the list:
+a match that was **held back** (set aside as doubtful, to be checked by hand), and a match that is one of a **spot check**'s (only
+the spot check's owner answers those, one at a time). That was always so; the lists now show it:
+- On every match-strength list of Products › Mapping › To review, on Store Products and on New Variants, such a row has **no tick
+  box**, and a line under its name says what it is and what to do: `Held back on <day> (set aside by <name>). Open it to see why
+  and to decide it.` or `In spot check <name>: it is answered in the spot check.` with the link "Open the spot check". The note
+  that was written when a match was held back is not shown on the lists (the notes are long rule texts): the row's own page shows
+  it in full. "Select all on this page" ticks only the rows that have a box.
+- On a match-strength list, **Show** chooses what is listed: All (as before) · Ready for a bulk action · Held back · In a spot
+  check. Each has its number for the list and store you are on, and the three add up to All. The choice stays while you page, open
+  a row and come back, save an answer ("the next one" is the next one of your choice), change the store or the strength, search,
+  or run a bulk action: the result page's link leads back to the same list. "Clear filters" goes back to All. After you save the
+  last one of your choice (or the last one a search or another filter found) the page says "That was the last one of what this
+  list is showing.": the list may still hold other rows, so pick another choice or "Clear filters". "This list is done." is said
+  only when nothing narrows the list.
+- On a match-strength list, when a page holds rows with no tick box, a box above the list says how many, and leads to the others
+  (it is shown to people who can use a bulk action on that list): "47 on this page are held back and 3 are in a spot check: they
+  are decided one at a time and have no tick box. Show only the ones a bulk action can take (863)". A page of such a list where no
+  row can be ticked has no action bar at all. Store Products and New Variants show the line under the row only: no "Show", no box
+  above the list, and their action bar stays.
+
+**To confirm a store's strong matches in batches:** Products › Mapping › To review, the store, Strong match; press **Ready for a
+bulk action**; "Select all on this page"; "Confirm match". The next page says what was done; its link at the top leads back to the
+ready ones: repeat until that list is empty. A row can still be skipped there, each with its reason (it changed since you opened
+the page, a rule says it cannot be that item, …): "Ready" only means it is neither held back nor in a spot check.
+**Then the rest:** Show › **Held back**: open each one, read on its page why it was held back, and decide it there (match, not a
+match, new, or ignore); saving opens the next held-back one. Show › **In a spot check**: these are answered in the spot check
+(Products › Mapping › Spot check, or the link on the row), by the person who started it. A spot check that failed keeps its
+unanswered matches in this list: the same person still answers them.
+
+**Deploy.** Code only: no migration, no setting, no new table or grant, nothing to run besides the usual
+`install_cron.sh --migrate` (which finds no migration to apply). Before it, as for every Mapping change: the slot suite, then
+`scripts/remote.sh ui vendor/bin/phpunit --filter 'UiAuthTest|UiSecurityTest|UiReviewFlowTest'`. After it: a match-strength list
+shows "Show" with its four numbers, and a page of such a list that holds held-back rows or a spot check's says so above the list.
+Nothing a bulk action does has changed: a row it skipped before it skips now, with the same reason.
 
 ## Changing settings and rules yourself (`docs/decisions.md` Y1–Y38; the owner's rule of 8 Oct 2026)
 

@@ -25,7 +25,8 @@ use CW\Staff\StaffRoles;
  * overwritten (M5, M19), and one row that fails never undoes another. Every rule of a single decision applies to each row
  * (roles, the Conflict band, the two-person rules, the owner's approval switches); a row that needs a second person is stored
  * waiting for one (Second approval), never linked. Before a row is sent, what DecisionService does not know is checked (M51):
- * a listing held back from the bulk confirm (M30) or in a spot check that is not complete (M28) is never bulk-actioned, and a
+ * a listing held back from the bulk confirm (M30) or in a spot check that is not complete (M28) is never bulk-actioned (the one
+ * read of that is OneAtATime, M63: the lists of variants mark their rows from the same read, so such a row has no tick box), and a
  * confirm also skips a vetoed or flagged suggestion, a listing of a failed spot check's population, and one whose bulk link was
  * undone before. A bulk "create as new" (any list: seedCheck(), M61) makes an item only from a listing whose open suggestion says
  * "new product", and skips everything that could make a second item for one thing or an item for nothing: a listing an item was
@@ -369,11 +370,13 @@ final class BulkDecisions
                         ['skip' => 'name_elsewhere', 'detail' => ['sku' => (string) reset($taken), 'name' => $name]]);
                 }
                 $d = $this->ds->decide($caller, $req);
-                // Under the decision's lock on the listing: a hold (M30) or a spot check written since the checks above stops it.
-                if (KeyHold::activeForListings($db, [$lid]) !== []) {
+                // Under the decision's lock on the listing: a hold (M30) or a spot check written since the checks above stops it
+                // (the same read as before the row was sent, OneAtATime; a hold found only now is `held_meanwhile`).
+                $now = OneAtATime::of($db, [$lid])[$lid]['code'] ?? null;
+                if ($now === OneAtATime::HELD) {
                     throw new CwException('bulk_skip', 'held meanwhile', 409, ['skip' => 'held_meanwhile']);
                 }
-                if ($this->inSpotCheck([$lid]) !== []) {
+                if ($now === OneAtATime::SPOT) {
                     throw new CwException('bulk_skip', 'in a spot check', 409, ['skip' => 'in_spot_check']);
                 }
                 $outcome = $d['state'] === 'pending_second' ? 'pending_second' : 'done';
@@ -430,8 +433,8 @@ final class BulkDecisions
             $listings[(int) $l['id']] = $l;
         }
         $made = $seed ? self::madeFrom($this->db, $ids) : [];
-        $held = KeyHold::activeForListings($this->db, $ids);
-        $spot = $this->inSpotCheck($ids);
+        // What no bulk action takes, whatever the action and the list (M51): the one read of it (M63), which the lists ask too.
+        $never = OneAtATime::of($this->db, $ids);
         $failed = $action === 'link' ? $this->failedPopulation($ids) : [];
         $undone = $action === 'link' ? array_fill_keys(array_map('intval', $this->db->column(
             "SELECT DISTINCT listing_id FROM match_decision WHERE listing_id IN ({$in}) AND bulk_batch_id LIKE 'undo:%'", $ids)), true) : [];
@@ -454,13 +457,9 @@ final class BulkDecisions
                 $out[$lid] = $skip('other_store');
                 continue;
             }
-            if (isset($held[$lid])) {
-                $h = $held[$lid];
-                $out[$lid] = $skip('held', ['reason' => $h['reason'], 'by' => $h['by'], 'at' => $h['at']]);
-                continue;
-            }
-            if (isset($spot[$lid])) {
-                $out[$lid] = $skip('in_spot_check', ['sample' => $spot[$lid]]);
+            if (isset($never[$lid])) {
+                // `held` (with the hold's reason, by, at) or `in_spot_check` (with the spot check's name), as OneAtATime says it.
+                $out[$lid] = $skip($never[$lid]['code'], $never[$lid]['detail']);
                 continue;
             }
             if ((int) $l['map_version'] !== $row['map_version']) {
@@ -813,38 +812,6 @@ final class BulkDecisions
     private static function text(mixed $v): ?string
     {
         return is_string($v) ? $v : null;
-    }
-
-    /**
-     * The listings that are one of the matches of a spot check that is not complete (M28: only its owner answers them, one at a time;
-     * a bulk decision on one would fail it), with the spot check's name.
-     *
-     * @param list<int> $listingIds
-     * @return array<int, string> listing id => spot check name
-     */
-    private function inSpotCheck(array $listingIds): array
-    {
-        $members = [];
-        foreach (array_chunk($listingIds, 500) as $chunk) {
-            foreach ($this->db->all('SELECT m.listing_id, m.sample_id, k.name FROM key_sample_member m JOIN key_sample k ON k.id = m.sample_id '
-                . 'WHERE m.position IS NOT NULL AND m.listing_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $m) {
-                $members[(int) $m['listing_id']][(int) $m['sample_id']] = (string) $m['name'];
-            }
-        }
-        if ($members === []) {
-            return [];
-        }
-        $verdicts = (new KeySample($this->db))->verdicts(array_values(array_unique(array_merge(...array_map('array_keys', array_values($members))))));
-        $out = [];
-        foreach ($members as $lid => $samples) {
-            foreach ($samples as $sid => $name) {
-                if (($verdicts[$sid]['verdict'] ?? 'waiting') !== 'complete') {
-                    $out[$lid] = $name;
-                    break;
-                }
-            }
-        }
-        return $out;
     }
 
     /**

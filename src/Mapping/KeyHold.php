@@ -54,10 +54,15 @@ final class KeyHold
     /** Outcomes that write a row (with $apply), and those that change nothing. */
     public const WRITES = ['hold', 'release'];
     public const ALREADY = ['already_held', 'already_released'];
+    /**
+     * A hold in force, as a condition on a key_bulk_hold row `h`: a hold (not a release) that no release names. The one text of it:
+     * the reads below use it, and so does what the lists filter and count by (OneAtATime, docs/decisions.md M63).
+     */
+    public const IN_FORCE = "h.kind = 'hold' AND NOT EXISTS (SELECT 1 FROM key_bulk_hold r WHERE r.released_hold_id = h.id)";
     /** The holds without a release (+ a condition on h). */
     private const ACTIVE_SQL = 'SELECT h.id, h.sample_id, k.name AS sample, h.proposal_id, h.listing_id, h.reason, h.staff_user_id, h.created_at, '
         . 'u.display_name, u.email FROM key_bulk_hold h JOIN key_sample k ON k.id = h.sample_id LEFT JOIN staff_user u ON u.id = h.staff_user_id '
-        . "WHERE h.kind = 'hold' AND NOT EXISTS (SELECT 1 FROM key_bulk_hold r WHERE r.released_hold_id = h.id) AND ";
+        . 'WHERE ' . self::IN_FORCE . ' AND ';
 
     public function __construct(private readonly Db $db)
     {

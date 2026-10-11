@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration;
 
+use CW\Mapping\KeyHold;
+use CW\Mapping\KeySample;
+use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\UiClient;
 use CW\Tests\Support\UiResponse;
 use CW\Tests\Support\UiTestCase;
+use CW\Ui\Controller\BulkController;
+use CW\Ui\Html;
 use CW\Ui\Words;
 
 /**
@@ -16,6 +21,8 @@ use CW\Ui\Words;
  */
 final class UiReviewFlowTest extends UiTestCase
 {
+    use KeyFixtures;
+
     // ---- the main path -------------------------------------------------------------------------
 
     public function testAReviewerWorksThroughTheKeyQueueBestSellersFirst(): void
@@ -925,6 +932,101 @@ final class UiReviewFlowTest extends UiTestCase
     private function submit(UiClient $web, int $listing, array $form, array $over = []): UiResponse
     {
         return $web->post("/ui/review/listing/{$listing}/decide", array_replace($form, $over));
+    }
+
+    /**
+     * The rows no bulk action takes (docs/decisions.md M63, U139-U143) over real HTTP: on a Strong list a held-back match and a spot
+     * check's matches have no tick box and say why, the notice leads to "Ready for a bulk action", that list ticked whole and
+     * confirmed matches every row of it and leads back to itself, and a hand-made form that names the held row is skipped as before.
+     */
+    public function testAHeldRowHasNoTickBoxAndTheReadyListIsConfirmedTogether(): void
+    {
+        $size = (string) self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'approvals.spot_check_size'");
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('5' AS JSON) WHERE setting_key = 'approvals.spot_check_size'");
+        try {
+            $this->keySetup();
+            $lead = $this->staffUser('mapping_lead');
+            $pop = [];
+            for ($i = 0; $i < 7; $i++) {
+                $pop[] = $this->firstMatch($this->vpgItem(), 90 + $i, [], [], null, [], 300 - $i);
+            }
+            $sample = (new KeySample(self::$db))->create($lead, 'http-1', 5, true);
+            $spot = array_map('intval', array_column($sample['members'], 'listing_id'));
+            [$held, $free] = array_values(array_filter($pop, static fn (array $m): bool => !in_array($m['listing'], $spot, true)));
+            (new KeyHold(self::$db))->run($lead, 'http-1', KeyHold::parse("proposal_id,listing_id,reason\n{$held['proposal']},{$held['listing']},Pack size <script>alert(1)</script> differs\n"), false, true);
+            $sku = $this->item('legacy', 0, 'Elux Legend Blue Razz');
+            $one = $this->queued($this->altSite, 'R1', 'Key', $sku, ['product_title' => 'Ready one', 'units_365d' => 50]);
+            $two = $this->queued($this->altSite, 'R2', 'Key', $sku, ['product_title' => 'Ready two', 'units_365d' => 40]);
+            $web = $this->signIn($this->uiUser('mapper'));
+            $query = ['queue' => 'Key', 'channel' => 'alt'];
+
+            $list = $web->get('/ui/review', $query);
+            self::assertSame(200, $list->status, $list->describe());
+            self::assertHardened($list, 'strong list with held rows');
+            self::assertInert($list, 'strong list with held rows');
+            self::assertCount(9, self::listed($list));
+            $form = $list->form('/ui/review/bulk');
+            foreach ([$held['listing'], ...$spot] as $id) {
+                self::assertArrayNotHasKey('ver_' . $id, $form, 'a row no bulk action takes is not in the form');
+            }
+            foreach ([$free['listing'], $one, $two] as $id) {
+                self::assertArrayHasKey('ver_' . $id, $form);
+            }
+            $hold = self::$db->one('SELECT h.created_at, u.display_name FROM key_bulk_hold h JOIN staff_user u ON u.id = h.staff_user_id WHERE h.listing_id = ?',
+                [$held['listing']]) ?? [];
+            self::assertStringContainsString('Held back on ' . Html::day((string) $hold['created_at']) . ' (set aside by ' . $hold['display_name']
+                . '). Open it to see why and to decide it.', $list->text());
+            self::assertStringNotContainsString('alert(1)', $list->text(), 'a hold\'s note is not printed on a list');
+            $own = $web->get('/ui/review/listing/' . $held['listing'], $query);
+            self::assertInert($own, 'a held variant\'s own page');
+            self::assertStringContainsString('"Pack size <script>alert(1)</script> differs"', $own->text(), 'its own page says the note, as the text it is');
+            self::assertStringContainsString(Words::say('ONE_AT_A_TIME', 'in_spot_check', 'http-1'), $list->text());
+            self::assertStringContainsString('1 on this page is held back and 5 are in a spot check: they are decided one at a time and have no tick box. '
+                . Words::say('QUEUE', 'show_ready', 3), $list->text());
+            self::assertContains('/ui/review?queue=Key&channel=alt&show=ready', $list->hrefs());
+
+            // "Ready for a bulk action", "Select all on this page", "Confirm match".
+            $ready = $web->get('/ui/review', $query + ['show' => 'ready', 'all' => '1']);
+            self::assertSame(200, $ready->status, $ready->describe());
+            self::assertHardened($ready, 'the ready ones');
+            self::assertSame([$free['listing'], $one, $two], self::listed($ready));
+            $form = $ready->form('/ui/review/bulk');
+            self::assertSame(['ready', '1', '1', '1'], [$form['show'] ?? null, $form['pick_' . $free['listing']] ?? null, $form['pick_' . $one] ?? null, $form['pick_' . $two] ?? null]);
+            $r = $web->post('/ui/review/bulk', $form + ['action' => 'link']);
+            self::assertSame(303, $r->status, $r->describe());
+            self::assertMatchesRegularExpression('#^/ui/review/batches/[0-9]+\?show=ready$#', (string) $r->location());
+            self::assertSame(['mapped', 'mapped', 'mapped', 'suggested', 'suggested'], [$this->link($free['listing'])['status'], $this->link($one)['status'],
+                $this->link($two)['status'], $this->link($held['listing'])['status'], $this->link($spot[0])['status']]);
+            self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM mapping_batch_row WHERE outcome = 'skipped'"), 'no row of the ready list was skipped');
+            $result = $web->follow($r);
+            self::assertSame(200, $result->status, $result->describe());
+            self::assertHardened($result, 'the ready ones, result');
+            self::assertStringContainsString(Words::say('BULK', 'summary', Words::say('BULK_DONE', 'link', 3), 0, 0), $result->text());
+            self::assertContains('/ui/review?queue=Key&channel=alt&show=ready', $result->hrefs(), 'back to the list as it was shown');
+            // Its way back: nothing is ready any more, and the page says so with the way out.
+            $back = $web->get('/ui/review', $query + ['show' => 'ready']);
+            self::assertSame([], self::listed($back));
+            self::assertStringContainsString(Words::QUEUE['empty_filter'], $back->text());
+
+            // A hand-made form that names the held row and one of the spot check's: skipped as before, nothing decided.
+            $crafted = ['csrf' => $this->token($web), 'source' => 'review', 'action' => 'link'] + $query;
+            foreach ([$held['listing'], $spot[0]] as $id) {
+                $crafted += ['pick_' . $id => '1', 'ver_' . $id => (string) $this->version($id),
+                    'prop_' . $id => (string) self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$id])];
+            }
+            $r = $web->post('/ui/review/bulk', $crafted);
+            self::assertSame(303, $r->status, $r->describe());
+            $skipped = $web->follow($r);
+            self::assertInert($skipped, 'a held row skipped, result');
+            $text = $skipped->text();
+            self::assertStringContainsString(BulkController::why('held', ['reason' => 'Pack size <script>alert(1)</script> differs']), $text);
+            self::assertStringContainsString(BulkController::why('in_spot_check', ['sample' => 'http-1']), $text);
+            self::assertSame(['suggested', 'suggested'], [$this->link($held['listing'])['status'], $this->link($spot[0])['status']]);
+            self::assertSame(['held', 'in_spot_check'], array_map('strval', self::$db->column('SELECT skip_code FROM mapping_batch_row WHERE listing_id IN (?, ?) ORDER BY skip_code',
+                [$held['listing'], $spot[0]])));
+        } finally {
+            self::$db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = 'approvals.spot_check_size'", [$size]);
+        }
     }
 
     /** @return array{path: string, query: array<string, string>} where a redirect goes */

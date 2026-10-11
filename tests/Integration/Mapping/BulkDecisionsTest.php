@@ -10,6 +10,7 @@ use CW\Mapping\BulkDecisions;
 use CW\Mapping\DecisionService;
 use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
+use CW\Mapping\OneAtATime;
 use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\MappingTestCase;
 
@@ -147,6 +148,121 @@ final class BulkDecisionsTest extends MappingTestCase
         self::assertEquals(['asked' => 9, 'done' => 1, 'pending_second' => 2, 'skipped' => 6], array_intersect_key($sum, ['asked' => 0, 'done' => 0, 'pending_second' => 0, 'skipped' => 0]),
             'MySQL keeps a JSON object in its own key order');
         self::assertSame('waiting', (new KeySample(self::$db))->status('bk1')['verdict'], 'the spot check is untouched');
+    }
+
+    /**
+     * M63: OneAtATime is the ONE read of what no bulk action takes, and the pre-checks ask it. On a mixed set (free; held back; a
+     * hold released again; matched since and still held; the matches of a spot check that waits; one of them held back as well;
+     * the matches of a spot check that is complete; one made after the spot checks) it names exactly the rows the pre-checks skip
+     * as `held` or `in_spot_check`, with the same code and detail, for every list and every action, and it still does once the
+     * spot check has failed. What a batch records for such a row is that code and detail.
+     */
+    public function testTheOneReadOfWhatNoBulkActionTakesAgreesWithThePreChecksRowByRow(): void
+    {
+        $this->keySetup();
+        $this->setting('approvals.spot_check_size', '5');
+        $lead = $this->staffUser('mapping_lead');
+        $samples = new KeySample(self::$db);
+        // A first spot check, answered in full by its owner: complete. Its matches are in no spot check any more.
+        for ($i = 0; $i < 5; $i++) {
+            $this->firstMatch($this->vpgItem(), 95);
+        }
+        $complete = $samples->create($lead, 'ok1', 5, true);
+        foreach ($complete['members'] as $m) {
+            $this->confirm($lead, (int) $m['proposal_id']);
+        }
+        self::assertSame('complete', $samples->status('ok1')['verdict']);
+        // A second one of 5 drawn from 9, not answered: it waits.
+        $pop = [];
+        for ($i = 0; $i < 9; $i++) {
+            $pop[] = $this->firstMatch($this->vpgItem(), 90 + $i);
+        }
+        $open = $samples->create($lead, 'open1', 5, true);
+        $members = array_map('intval', array_column($open['members'], 'listing_id'));
+        [$held, $released, $linked, $free] = array_values(array_filter($pop, static fn (array $m): bool => !in_array($m['listing'], $members, true)));
+        $file = static fn (array ...$rows): array => KeyHold::parse("proposal_id,listing_id,reason\n" . implode('', array_map(
+            static fn (array $r): string => "{$r[0]['proposal']},{$r[0]['listing']},{$r[1]}\n", $rows)));
+        (new KeyHold(self::$db))->run($lead, 'open1', $file([$held, 'Pack size differs'], [$released, 'Looked doubtful'], [$linked, 'Check the flavour']), false, true);
+        (new KeyHold(self::$db))->run($lead, 'open1', $file([$released, 'It is fine after all']), true, true);
+        $this->confirm($lead, $linked['proposal']); // decided one at a time since: matched, and its hold is still on record
+        // One of the spot check's own matches is held back as well. The hold tool refuses that (sample_member); the table does
+        // not, so the row is written straight in: such a variant is `held`, the first of the two that is asked.
+        $both = $members[0];
+        self::$db->exec("INSERT INTO key_bulk_hold (sample_id, proposal_id, listing_id, kind, reason, staff_user_id, actor) VALUES (?, ?, ?, 'hold', ?, ?, ?)",
+            [(int) $open['sample_id'], (int) self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$both]), $both, 'Held as well',
+                $lead->staffUserId, $lead->actor]);
+        $after = $this->firstMatch($this->vpgItem(), 95); // made after both spot checks: in no population
+        $ids = [...array_map('intval', array_column($complete['members'], 'listing_id')), ...array_column($pop, 'listing'), $after['listing']];
+        sort($ids);
+
+        $expect = [$held['listing'] => 'held', $linked['listing'] => 'held', $both => 'held'];
+        foreach (array_slice($members, 1) as $m) {
+            $expect[$m] = 'in_spot_check';
+        }
+        ksort($expect);
+        $never = OneAtATime::of(self::$db, array_reverse($ids));
+        ksort($never);
+        self::assertSame($expect, array_map(static fn (array $n): string => $n['code'], $never));
+        $by = (string) self::$db->value('SELECT display_name FROM staff_user WHERE id = ?', [$lead->staffUserId]);
+        self::assertSame(['reason' => 'Pack size differs', 'by' => $by, 'at' => (string) self::$db->value('SELECT created_at FROM key_bulk_hold WHERE listing_id = ?', [$held['listing']])],
+            $never[$held['listing']]['detail'], 'held: the hold\'s reason, who set it aside and when');
+        self::assertSame(['Held as well', 'open1', (int) $open['sample_id']], [$never[$both]['detail']['reason'], $never[$both]['sample'], $never[$both]['sample_id']]);
+        self::assertSame([['sample' => 'open1'], 'open1', (int) $open['sample_id']], [$never[$members[1]]['detail'], $never[$members[1]]['sample'], $never[$members[1]]['sample_id']],
+            'in a spot check: its name');
+        self::assertSame([], OneAtATime::of(self::$db, []));
+        self::assertEquals(array_fill_keys($members, ['id' => (int) $open['sample_id'], 'name' => 'open1']), OneAtATime::spotMatchesToDecide(self::$db),
+            'what a list\'s filter names: the matches still to decide of the spot check that is not complete, and none of the complete one');
+        self::assertEquals(array_fill_keys($members, ['id' => (int) $open['sample_id'], 'name' => 'open1']), OneAtATime::spotChecksOf(self::$db, $ids),
+            'the spot check\'s five, whether or not one of them is held back too');
+
+        // Every list and every action: the pre-checks skip exactly these rows, with this code and detail.
+        $mapper = $this->staffUser('mapper');
+        $rows = array_map(fn (int $id): array => $this->seen($id), $ids);
+        $alt = (int) $this->altSite->channelId;
+        $agree = function (string $when) use ($mapper, $rows, $ids, $alt): void {
+            $never = OneAtATime::of(self::$db, $ids);
+            foreach ([['review', 'link', ['band' => 'Key']], ['review', 'reject', ['band' => 'Key']], ['review', 'ignore', ['band' => 'Key', 'reason' => 'x']],
+                ['store', 'ignore', ['reason' => 'x']], ['store', 'unignore', []], ['store', 'send_back', []],
+                ['new', 'new_item', ['channel_id' => $alt]], ['new', 'link', ['channel_id' => $alt]], ['new', 'ignore', ['channel_id' => $alt, 'reason' => 'x']],
+                ['item', 'link', []], ['item', 'reject', []], ['item', 'send_back', []]] as [$source, $action, $more]) {
+                $p = $this->bulk()->preview($mapper, $action, $rows, ['source' => $source] + $more);
+                self::assertSame($ids, array_keys($p['rows']));
+                foreach ($ids as $id) {
+                    $row = $p['rows'][$id];
+                    if (isset($never[$id])) {
+                        self::assertSame(['skipped', $never[$id]['code'], $never[$id]['detail']], [$row['outcome'], $row['code'], $row['detail']], "{$when}: {$source} {$action} row {$id}");
+                    } else {
+                        self::assertNotContains($row['code'], OneAtATime::KINDS, "{$when}: {$source} {$action} row {$id} is not one of them");
+                    }
+                }
+            }
+        };
+        $agree('while the spot check waits');
+        // The owner says "not a match" to one of the spot check's matches: it has failed. Its matches still waiting stay the spot
+        // check's (`in_spot_check` is asked before a confirm's "the spot check failed").
+        $wrong = $members[1];
+        $this->decide($lead, 'reject', $wrong, ['sku_id' => (int) self::$db->value('SELECT proposed_sku_id FROM match_proposal WHERE open_listing_id = ?', [$wrong]),
+            'proposal_id' => (int) self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$wrong])]);
+        self::assertSame('failed', $samples->status('open1')['verdict']);
+        $rows = array_map(fn (int $id): array => $this->seen($id), $ids);
+        $now = OneAtATime::of(self::$db, $ids);
+        ksort($now);
+        self::assertSame($expect, array_map(static fn (array $n): string => $n['code'], $now), 'a spot check that failed is not complete either');
+        $agree('after the spot check failed');
+
+        // What a batch records for such a row is the same code and detail.
+        $r = $this->bulk()->run($mapper, 'link', $rows, ['source' => 'review', 'band' => 'Key']);
+        $b = self::batchRows($r['batch_id']);
+        foreach ($ids as $id) {
+            if (isset($now[$id])) {
+                self::assertSame(['skipped', $now[$id]['code']], [$b[$id]['outcome'], $b[$id]['skip_code']], "row {$id}");
+                self::assertEquals($now[$id]['detail'], json_decode((string) $b[$id]['detail'], true), "row {$id}");
+            } else {
+                self::assertNotContains($b[$id]['skip_code'], OneAtATime::KINDS, "row {$id}");
+            }
+        }
+        self::assertSame('mapped', $this->link($after['listing'])['status'], 'a row a bulk action can take is done');
+        self::assertSame('suggested', $this->link($held['listing'])['status']);
     }
 
     public function testADisallowedStrengthIsRefusedEvenWhenPostedAndTheSettingDecides(): void
