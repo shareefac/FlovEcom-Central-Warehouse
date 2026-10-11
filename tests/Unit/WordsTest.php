@@ -475,14 +475,20 @@ final class WordsTest extends TestCase
             'The computer could not say what it is (Not sure – you choose): open it and decide.'],
             [Words::say('BULK_SKIP', 'made_before', 'CW-000101'), Words::BULK_SKIP['changed_since_check'], Words::say('BULK_SKIP', 'name_elsewhere', 'CW-000201'),
                 Words::BULK_SKIP['name_twice'], Words::say('BULK_SKIP', 'not_new', Words::BAND["Can't tell"])]);
-        self::assertSame(['made_before', 'not_new', 'changed_since_check', 'name_elsewhere', 'name_twice'], array_slice(\CW\Mapping\BulkDecisions::SKIPS, -5));
+        self::assertSame(['made_before', 'not_new', 'changed_since_check', 'name_elsewhere', 'name_twice', 'match_no_item'], array_slice(\CW\Mapping\BulkDecisions::SKIPS, -6));
+        // A match that names no item is not "could not say what it is": its own reason, on the result page and on the row.
+        self::assertSame(['The computer matched it to a variant of the main store that has no item yet: open it and decide.',
+            'The computer matched it to a variant of the main store that has no item yet: open it and decide.',
+            'Strong match, to a variant of the main store that has no item yet: open it to decide.'],
+            [\CW\Ui\Controller\BulkController::why('match_no_item', ['band' => 'Key']), \CW\Ui\Controller\BulkController::why('match_no_item', ['band' => 'Check'], 'BY_ITEM_SKIP'),
+                Words::say('NEW_VARIANTS', 'match_no_item', Words::BAND['Key'])]);
         // The row says the same before it is ticked, and a store no check has marked a variant New on is told so.
         self::assertSame(['When the computer checked it, it found nothing like it.', 'An item was already made from this variant (CW-000101): open it to decide.',
             'It changed on the website after the computer checked it: open it to decide.'],
             [Words::NEW_VARIANTS['is_new'], Words::say('NEW_VARIANTS', 'made_before', 'CW-000101'), Words::NEW_VARIANTS['changed']]);
         self::assertStringContainsString('has not marked any variant of Some Store as New so far', Words::say('NEW_VARIANTS', 'never_new', 'Some Store'));
         self::assertStringContainsString('create the item on its own page', Words::NEW_VARIANTS['never_new']);
-        foreach (['not checked yet', 'a suggested match', 'one the computer could not decide', 'a page heading', 'not published on the website', 'changed on the website after the check',
+        foreach (['not checked yet', 'a suggested match', 'a variant of the main store that has no item yet', 'one the computer could not decide', 'a page heading', 'not published on the website', 'changed on the website after the check',
             'an item already made from it', 'a name that an item already has or that two ticked rows share', 'a barcode that is already on an item or on another variant'] as $reason) {
             self::assertStringContainsString($reason, Words::NEW_VARIANTS['seed_note'], 'the line beside the bar names every reason a ticked row is skipped for');
         }
@@ -501,7 +507,8 @@ final class WordsTest extends TestCase
             array_values(Words::NEW_VARIANT_PENDING), array_values(Words::NEW_VARIANT_STATE), array_values(Words::NEW_VARIANT_FILTER), Words::PAGE_INTRO['new_variants'],
             [Words::MENU['new_variants'], Words::MENU_HELP['new_variants'], Words::ERROR['unknown_variants_store'], Words::BULK_SKIP['suggested_match'], Words::BULK_SKIP['not_checked'],
                 Words::BULK_SKIP['page_heading'], Words::BULK_SKIP['not_published'], Words::BULK_SKIP['made_before'], Words::BULK_SKIP['not_new'], Words::BULK_SKIP['changed_since_check'],
-                Words::BULK_SKIP['name_elsewhere'], Words::BULK_SKIP['name_twice'], Words::SETTING['mapping.new_variants_days'], Words::SETTING_HELP['mapping.new_variants_days']]);
+                Words::BULK_SKIP['name_elsewhere'], Words::BULK_SKIP['name_twice'], Words::BULK_SKIP['match_no_item'], Words::SETTING['mapping.new_variants_days'],
+                Words::SETTING_HELP['mapping.new_variants_days']]);
         foreach ($texts as $text) {
             self::assertDoesNotMatchRegularExpression('/website products?|warehouse products?|\bproducts?\b/i', $text, $text);
             foreach (Words::SITE as $name) {

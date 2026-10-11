@@ -3267,6 +3267,7 @@ final class Words
         'changed_since_check' => 'It changed on the website after the computer checked it: open it and decide.',
         'name_elsewhere' => 'An item with the same name is already in the warehouse (%s): open it and decide.',
         'name_twice' => 'Another row you ticked has the same name, so the two may be one item: open each and decide.',
+        'match_no_item' => 'The computer matched it to a variant of the main store that has no item yet: open it and decide.',
     ];
 
     /** A bulk request refused as a whole (nothing was saved). */
@@ -3569,6 +3570,7 @@ final class Words
         'changed_since_check' => 'It changed on its store after the computer checked it: open it and decide.',
         'name_elsewhere' => 'An item with the same name is already in the warehouse (%s): open it and decide.',
         'name_twice' => 'Another row you ticked has the same name, so the two may be one item: open each and decide.',
+        'match_no_item' => 'The computer matched it to a variant of the main store that has no item yet: open it and decide.',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -3617,6 +3619,8 @@ final class Words
         'changed' => 'It changed on the website after the computer checked it: open it to decide.',
         'not_checked' => 'The computer has not checked it yet: open it to decide.',
         'suggested_item' => '%s: %s',
+        // A suggested match that names no item (%s: its strength): the matched main-store variant has no item (BulkDecisions::matchNoItem).
+        'match_no_item' => '%s, to a variant of the main store that has no item yet: open it to decide.',
         'site_heading' => 'A page heading on the website, not something that is sold.',
         'site_status' => 'Not published on the website (%s).',
         'matched_to' => 'Matched to %s',
@@ -3628,7 +3632,8 @@ final class Words
         'empty_search_text' => 'Other variants of this period are hidden by it.',
         'seed_note' => '"Create as new items" takes only the rows marked New: when the computer checked them, it found nothing like them. '
             . 'It makes a warehouse item from each, with the variant\'s own name and details, and matches the two. Every other ticked row is '
-            . 'skipped and listed afterwards with the reason: not checked yet, a suggested match, one the computer could not decide, a page '
+            . 'skipped and listed afterwards with the reason: not checked yet, a suggested match (also one to a variant of the main store '
+            . 'that has no item yet), one the computer could not decide, a page '
             . 'heading, not published on the website, changed on the website after the check, an item already made from it, a name that an '
             . 'item already has or that two ticked rows share, or a barcode that is already on an item or on another variant. Open a '
             . 'skipped one to decide it.',

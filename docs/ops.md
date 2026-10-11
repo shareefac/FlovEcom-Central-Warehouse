@@ -2137,7 +2137,9 @@ Variants looks back" (30; change it there with a reason, like every setting). Ea
 - **New**: when the computer checked it, it found nothing like it. The check compares a store's variants with the main store's
   list as it was that day: it does not know the items made since, so "New" is a strong hint, not a promise (the rules below cover
   that);
-- **Suggested match**: the computer thinks it is an item you already have (it names the item and how sure it is), or could not tell;
+- **Suggested match**: the computer thinks it is an item you already have (it names the item and how sure it is), or could not
+  tell, or matched it to a variant of the main store that has no item yet (the row says so: typically the main store added that
+  thing after its first seed, so there is no item to name; open the row and decide there);
 - **Not checked yet**: the computer has not looked at it (a variant that only just arrived, or one whose earlier answer was sent
   back);
 - Matched to CW-…, Waiting for a second OK, or Ignored.
@@ -2150,7 +2152,8 @@ file (if it ever holds more than 50,000 variants, its last line says only the fi
 **To make warehouse items from new variants ("seed") on any store:** tick variants and press "Create as new items" in the bar at the
 bottom. It takes ONLY the rows marked New: each becomes a new item with its own CW number, named and described as the variant is,
 and is matched to it. Everything else you ticked is skipped and listed on the next page with the reason, and nothing is changed on
-it: not checked yet; a suggested match ("the computer suggests it is CW-…"); one the computer could not decide; a page heading; not
+it: not checked yet; a suggested match ("the computer suggests it is CW-…", or "matched … to a variant of the main store that has
+no item yet"); one the computer could not decide; a page heading; not
 published on the website; changed on the website after the check; an item was already made from it ("…(CW-…)"); an item with the
 same name is already in the warehouse ("…(CW-…)": for example the same thing listed on another store, seeded yesterday); two rows
 you ticked have the same name; a barcode that is already on an item or on another variant; already matched, ignored or waiting for

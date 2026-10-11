@@ -557,6 +557,152 @@ final class BulkDecisionsTest extends MappingTestCase
             BulkDecisions::changedSinceCheck(5, 'aa', 'aa'), BulkDecisions::changedSinceCheck(5, null, null), BulkDecisions::changedSinceCheck(null, 'aa', 'bb')]);
     }
 
+    /**
+     * F1 (M61 point 7): the record of what a suggestion was made on dates from its IMPORT; the run that judged the variant was
+     * exported earlier. A variant renamed in between has a record on its new identity, so the title the computer judged (the
+     * suggestion's evidence) is compared with the title now as well: a suggestion made on another title is not seeded.
+     */
+    public function testAVariantRenamedBetweenTheChecksExportAndItsImportIsNotSeeded(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $site = $this->site('alt', 'shadow');
+        $new = fn (int $l, array $evidence = []): int => $this->propose($l, 'New item', null, ['proposed_new_item' => 1] + ($evidence === [] ? [] : ['evidence' => $evidence]));
+        foreach (self::seedLists($site) as $n => $context) {
+            // The profile already holds the new title when the suggestion is imported: its record is on the identity of now.
+            $renamed = $this->withProfile($site, "E{$n}1", "Lost Mary BM600 Blueberry 20mg {$n}");
+            $p = $new($renamed, ['title' => "Elux Legend 3500 10mg {$n}", 'variant_status' => 'Published']);
+            self::assertSame([null, null], [self::$db->value('SELECT identity_hash FROM match_proposal_basis WHERE proposal_id = ?', [$p]),
+                self::$db->value('SELECT identity_hash FROM listing_profile WHERE listing_id = ?', [$renamed])], 'the record and the profile agree: only the title tells');
+            // The option's own title is the one compared when the variant has one (as the computer was shown it).
+            $option = $this->withProfile($site, "E{$n}2", 'A range page');
+            self::$db->exec('UPDATE listing_profile SET variant_title = ? WHERE listing_id = ?', ["Blueberry Ice 20mg {$n}", $option]);
+            $new($option, ['title' => 'A range page']);
+            // The same title, typed with other capitals and spaces: not a change. The option's title judged: not a change.
+            $same = $this->withProfile($site, "E{$n}3", "Hayati Pro Max Cola {$n}");
+            $new($same, ['title' => "  HAYATI pro  max cola {$n} "]);
+            $sameOption = $this->withProfile($site, "E{$n}4", 'Another range page');
+            self::$db->exec('UPDATE listing_profile SET variant_title = ? WHERE listing_id = ?', ["Peach Ice 20mg {$n}", $sameOption]);
+            $new($sameOption, ['title' => "Peach Ice 20mg {$n}"]);
+            // No title in the evidence, an empty one, one that is no text: not known, so nothing is skipped for it.
+            $none = $this->withProfile($site, "E{$n}5", "No title was recorded {$n}");
+            $new($none, ['variant_status' => 'Published']);
+            $empty = $this->withProfile($site, "E{$n}6", "An empty title was recorded {$n}");
+            $new($empty, ['title' => '   ']);
+            $odd = $this->withProfile($site, "E{$n}7", "A title that is no text was recorded {$n}");
+            $new($odd, ['title' => 7]);
+            $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+            $rows = $this->seed($mapper, [$renamed, $option, $same, $sameOption, $none, $empty, $odd], $context);
+            self::assertSame([$renamed => 'changed_since_check', $option => 'changed_since_check', $same => null, $sameOption => null, $none => null, $empty => null, $odd => null],
+                array_map(static fn (array $row): ?string => $row['skip_code'], $rows), $context['source']);
+            self::assertSame([$skus + 5, 'suggested', 'suggested'], [(int) self::$db->value('SELECT COUNT(*) FROM sku'), $this->link($renamed)['status'], $this->link($option)['status']],
+                'no item from a variant the computer judged under another title');
+            // One at a time a person may still make it: they see the title there.
+            self::assertSame('mapped', $this->decide($mapper, 'new_item', $renamed, ['proposal_id' => $p])['status']);
+        }
+        // The one question, as the list asks it too: the record's identity, or the judged title.
+        self::assertSame([true, true, false, false, false, false, true], [
+            BulkDecisions::changedSinceCheck(null, null, null, 'Old title', 'New title', null),
+            BulkDecisions::changedSinceCheck(5, 'aa', 'aa', 'Old title', 'A page', 'New option title'),
+            BulkDecisions::changedSinceCheck(5, 'aa', 'aa', 'new OPTION  title', 'A page', 'New option title'),
+            BulkDecisions::changedSinceCheck(5, 'aa', 'aa', null, 'New title', null),
+            BulkDecisions::changedSinceCheck(5, 'aa', 'aa', '  ', 'New title', null),
+            BulkDecisions::changedSinceCheck(null, null, null, 7, 'New title', null),
+            BulkDecisions::changedSinceCheck(5, 'aa', 'bb', 'Same title', 'Same title', null),
+        ]);
+    }
+
+    /**
+     * F2 (M61): the name guard is read once before the first row, and again for each "create as new" just before its decision.
+     * An item of the row's name made in between (an earlier row of the same run whose name differs by an accent only, another
+     * person's create, an approval) is found by the second read: the row is skipped with that item's CW number.
+     */
+    public function testTheNameOfACreateIsReadAgainJustBeforeItsDecision(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $site = $this->site('alt', 'shadow');
+        $new = fn (int $l): int => $this->propose($l, 'New item', null, ['proposed_new_item' => 1]);
+        foreach (self::seedLists($site) as $n => $context) {
+            // Two ticked rows whose names differ by accents only: not a pair to `name_twice` (compared without letter case), but
+            // one name to the item table. The first is made; at the second's turn its name is an item's.
+            $first = $this->withProfile($site, "Q{$n}1", "Café Crème Tobacco 20mg {$n}");
+            $second = $this->withProfile($site, "Q{$n}2", "Cafe Creme Tobacco 20mg {$n}");
+            $other = $this->withProfile($site, "Q{$n}3", "Menthol Tobacco 20mg {$n}");
+            foreach ([$first, $second, $other] as $l) {
+                $new($l);
+            }
+            $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+            $rows = $this->seed($mapper, [$first, $second, $other], $context);
+            self::assertSame([$first => null, $second => 'name_elsewhere', $other => null], array_map(static fn (array $row): ?string => $row['skip_code'], $rows), $context['source']);
+            self::assertEquals(['sku' => (string) self::$db->value('SELECT code FROM sku WHERE origin_listing_id = ?', [$first]), 'name' => "Cafe Creme Tobacco 20mg {$n}"],
+                json_decode((string) $rows[$second]['detail'], true), 'with the CW number of the item the first row made');
+            self::assertSame([$skus + 2, 'suggested'], [(int) self::$db->value('SELECT COUNT(*) FROM sku'), $this->link($second)['status']]);
+        }
+        // The same with an item someone else makes between the pre-checks and the row's turn. The two private steps are driven
+        // one after the other (docs/dev.md: a race made deterministic without a hook in the code).
+        $bulk = $this->bulk();
+        $prechecks = new \ReflectionMethod($bulk, 'prechecks');
+        $one = new \ReflectionMethod($bulk, 'one');
+        $batch = static fn (): int => self::$db->transaction(static fn (\CW\Db $db): int => $db->insert(
+            "INSERT INTO mapping_batch (action, source, channel_id, band, rows_asked, staff_user_id, actor) VALUES ('new_item', 'new', ?, NULL, 2, ?, ?)",
+            [$site->channelId, $mapper->staffUserId, $mapper->actor]));
+        $raced = $this->withProfile($site, 'Q91', 'Made by someone else meanwhile');
+        $free = $this->withProfile($site, 'Q92', 'Made by nobody meanwhile');
+        $new($raced);
+        $new($free);
+        $pre = $prechecks->invoke($bulk, 'new_item', 'new', [$this->seen($raced), $this->seen($free)], $site->channelId, BulkDecisions::confirmBands(self::$db));
+        self::assertSame([['', 'Made by someone else meanwhile'], ['', 'Made by nobody meanwhile']], [[$pre[$raced]['code'], $pre[$raced]['name']], [$pre[$free]['code'], $pre[$free]['name']]],
+            'the pre-checks pass both, and carry each one\'s name to its turn');
+        $theirs = self::makeSku('MADE by someone else meanwhile');
+        $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+        $b = $batch();
+        self::assertSame(['skipped', 'name_elsewhere'], $one->invoke($bulk, $mapper, 'new_item', $this->seen($raced), 1, $b, DecisionService::SCREEN_BATCH_PREFIX . $b, null, $pre[$raced]));
+        self::assertSame(['done', null], $one->invoke($bulk, $mapper, 'new_item', $this->seen($free), 2, $b, DecisionService::SCREEN_BATCH_PREFIX . $b, null, $pre[$free]));
+        $rows = self::batchRows($b);
+        self::assertSame(['skipped', 'name_elsewhere', null], [$rows[$raced]['outcome'], $rows[$raced]['skip_code'], $rows[$raced]['decision_id']]);
+        self::assertEquals(['sku' => (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$theirs]), 'name' => 'Made by someone else meanwhile'], json_decode((string) $rows[$raced]['detail'], true));
+        self::assertSame([$skus + 1, 'suggested', 'mapped', 0], [(int) self::$db->value('SELECT COUNT(*) FROM sku'), $this->link($raced)['status'], $this->link($free)['status'],
+            (int) self::$db->value('SELECT COUNT(*) FROM sku WHERE origin_listing_id = ?', [$raced])], 'no second item of the name; the other row is made');
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM match_proposal WHERE open_listing_id = ?', [$raced]), 'its suggestion is still open');
+        // Only a "create as new" reads a name: a confirm of a variant whose name an item has is decided as before.
+        $sku = $this->item('legacy', 0, 'A name an item has');
+        $match = $this->withProfile($site, 'Q93', 'A name an item has');
+        $this->propose($match, 'Key', $sku);
+        self::assertSame(1, $bulk->run($mapper, 'link', [$this->seen($match)], ['source' => 'new', 'channel_id' => $site->channelId])['done']);
+    }
+
+    /**
+     * F3 (M61 point 6): a Strong or Likely match that names no item (the import stores it so when the main-store variant the
+     * computer matched has no item) is not "one the computer could not decide": on New Variants it has its own reason.
+     */
+    public function testAMatchThatNamesNoItemHasItsOwnReasonOnNewVariants(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $site = $this->site('alt', 'shadow');
+        $strong = $this->withProfile($site, 'W1', 'Matched strongly to a variant with no item');
+        $this->propose($strong, 'Key', null, ['flags' => ['target_not_minted']]);
+        // The strength is what is asked, not the flag: one stored without it reads the same.
+        $likely = $this->withProfile($site, 'W2', 'Matched, likely, to a variant with no item');
+        $this->propose($likely, 'Check', null);
+        $unsure = $this->withProfile($site, 'W3', 'The computer could not tell');
+        $this->propose($unsure, "Can't tell", null);
+        $clash = $this->withProfile($site, 'W4', 'The clues disagree');
+        $this->propose($clash, 'Conflict', null);
+        $manual = $this->withProfile($site, 'W5', 'Left to a person');
+        $this->propose($manual, 'Manual', null);
+        $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+        $rows = $this->seed($mapper, [$strong, $likely, $unsure, $clash, $manual], ['source' => 'new', 'channel_id' => $site->channelId]);
+        self::assertSame([$strong => 'match_no_item', $likely => 'match_no_item', $unsure => 'not_new', $clash => 'not_new', $manual => 'not_new'],
+            array_map(static fn (array $row): ?string => $row['skip_code'], $rows));
+        self::assertEquals([['band' => 'Key'], ['band' => 'Check']], [json_decode((string) $rows[$strong]['detail'], true), json_decode((string) $rows[$likely]['detail'], true)]);
+        self::assertSame([$skus, 'suggested'], [(int) self::$db->value('SELECT COUNT(*) FROM sku'), $this->link($strong)['status']]);
+        // New Variants' own reason: on the New products list such a row is "not one of this list's strengths", as before.
+        $rows = $this->seed($mapper, [$strong, $unsure], ['source' => 'review', 'band' => 'New item']);
+        self::assertSame([$strong => 'band_not_allowed', $unsure => 'band_not_allowed'], array_map(static fn (array $row): ?string => $row['skip_code'], $rows));
+        self::assertSame([true, true, false, false, false, false], [BulkDecisions::matchNoItem('Key', null), BulkDecisions::matchNoItem('Check', null), BulkDecisions::matchNoItem('Key', 12),
+            BulkDecisions::matchNoItem("Can't tell", null), BulkDecisions::matchNoItem('New item', null), BulkDecisions::matchNoItem(null, null)]);
+        self::assertContains('match_no_item', BulkDecisions::SKIPS);
+    }
+
     /** The barcode rule of a bulk "new product" (any list): a code is found on another record whichever way its leading zeros were typed. */
     public function testTheBarcodeRuleFindsACodeStoredWithOtherLeadingZerosAndLooksAtEveryBarcode(): void
     {

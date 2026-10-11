@@ -527,6 +527,19 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame(['c1', 'Only the first 1 variants are in this file.'], [str_getcsv($file(1, 'not_checked')[1], ',', '"', '')[1], str_getcsv($file(1, 'not_checked')[2], ',', '"', '')[2]],
             'a filter is cut the same way');
         self::assertCount(2, $file(1, null, 'Variant 07'), 'a search that finds one row: the head and the row');
+        // The line is decided by the ids that came back, never by the counts read before them: handed counts that are wrong (as when
+        // someone decides rows between the two reads), the file is right either way. Counts that say more than there is, under a
+        // limit the 55 rows fit in: no line (a rule that compared the count with the rows would write it). Counts that say fewer
+        // than there are, under a limit the rows do not fit in: the line (that rule would leave it out).
+        $stale = static fn (int $max, int $said): array => explode("\r\n", rtrim(substr(NewVariantsController::csvText($q, $store, null, 'not_checked', '', false, $max,
+            array_replace(array_fill_keys(Queries::NEW_KINDS, 0), ['not_checked' => $said])), strlen(CsvWriter::BOM)), "\r\n"));
+        $over = $stale(60, 99);
+        self::assertCount(56, $over, 'counts that overstate: the head and all 55, no line');
+        self::assertSame(['c55', false], [str_getcsv($over[55], ',', '"', '')[1], str_contains(implode("\n", $over), 'Only the first')]);
+        $under = $stale(54, 1);
+        self::assertCount(56, $under, 'counts that understate: the head, the first 54 and the line');
+        self::assertSame(['c54', 'Only the first 54 variants are in this file.'], [str_getcsv($under[54], ',', '"', '')[1], str_getcsv($under[55], ',', '"', '')[2]]);
+        self::assertSame($file(54, 'not_checked'), $under, 'the same file as with the counts read just before');
         self::assertSame(1, substr_count(NewVariantsController::csvText($q, $store, null, null, '', true, 54), "\r\n"), 'a search that is not text: the head alone');
 
         $matched = $this->variant($alt, 'a1', 'Matched one', 5, ['variant_title' => '=cmd|x', 'brand' => 'Elux', 'barcodes' => ['5056168800042', '5056168800059'], 'units_30d' => 3, 'units_365d' => 9]);
@@ -916,12 +929,17 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         // The computer could not say what it is; and one it found new that nothing is wrong with.
         $unsure = $this->suggested($alt, '6008', 'Could be two things', 17, "Can't tell", null);
         $good = $this->found($alt, '6009', 'Nothing wrong with this one', 18);
+        // Renamed between the check's export and its import: the suggestion's record is on the title of now, and only the title
+        // the computer judged (its evidence) shows that it checked something else.
+        $judgedOther = $this->suggested($alt, '6010', 'The title it has now', 19, 'New item', null, $new + ['evidence' => ['title' => 'The title the computer judged']]);
+        // A strong match to a variant of the main store that has no item yet: a match with no item to name.
+        $noItem = $this->suggested($alt, '6011', 'Matched to a variant with no item', 20, 'Key', null, ['flags' => ['target_not_minted']]);
         $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
         $web = $this->signIn($this->uiUser('mapper'));
 
         $page = $web->get(self::PATH);
         $said = [];
-        foreach (range(1, 9) as $n) {
+        foreach (range(1, 11) as $n) {
             $said[self::row($page, $n)[Words::NEW_VARIANTS['option']]] = self::row($page, $n)['state'];
         }
         $chip = Words::NEW_VARIANT_STATE['new'];
@@ -936,18 +954,25 @@ final class NewVariantsScreenTest extends KernelUiTestCase
             '6007' => $chip . ' When the computer checked it, it found nothing like it.',
             '6008' => Words::NEW_VARIANT_STATE['suggested'] . ' ' . Words::BAND["Can't tell"],
             '6009' => $chip . ' When the computer checked it, it found nothing like it.',
+            '6010' => $chip . ' It changed on the website after the computer checked it: open it to decide.',
+            '6011' => Words::NEW_VARIANT_STATE['suggested'] . ' Strong match, to a variant of the main store that has no item yet: open it to decide.',
         ], $said, 'each row says what the seed will find, where the list can know it');
-        $ids = [$again, $againMatch, $renamed, $binned, $sameName, $twinA, $twinB, $unsure, $good];
+        $ids = [$again, $againMatch, $renamed, $binned, $sameName, $twinA, $twinB, $unsure, $good, $judgedOther, $noItem];
         $r = $web->post('/ui/review/bulk', self::ticked($page, $ids, 'new_item'));
         $batch = self::batchOf($r);
         self::assertSame([$again => ['skipped', 'made_before'], $againMatch => ['skipped', 'made_before'], $renamed => ['skipped', 'changed_since_check'],
             $binned => ['skipped', 'not_published'], $sameName => ['skipped', 'name_elsewhere'], $twinA => ['skipped', 'name_twice'], $twinB => ['skipped', 'name_twice'],
-            $unsure => ['skipped', 'not_new'], $good => ['done', null]], self::batchRows($batch));
+            $unsure => ['skipped', 'not_new'], $good => ['done', null], $judgedOther => ['skipped', 'changed_since_check'], $noItem => ['skipped', 'match_no_item']],
+            self::batchRows($batch));
         self::assertSame($skus + 1, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'one item, for the one row nothing is wrong with');
         self::assertSame([1, 1], [(int) self::$db->value('SELECT COUNT(*) FROM sku WHERE origin_listing_id = ?', [$again]),
             (int) self::$db->value("SELECT COUNT(*) FROM sku WHERE name = 'Hayati Pro Max Cola'")], 'no second item from the variant, none of the name');
         $text = $web->follow($r)->text();
-        self::assertStringContainsString('Done: 1 new items created and matched, 0 sent to Second approval, 8 skipped.', $text);
+        self::assertStringContainsString('Done: 1 new items created and matched, 0 sent to Second approval, 10 skipped.', $text);
+        self::assertStringContainsString('The computer matched it to a variant of the main store that has no item yet: open it and decide.', $text);
+        self::assertStringNotContainsString('could not say what it is (' . Words::BAND['Key'] . ')', $text, 'a strong match is not "could not say"');
+        self::assertSame(4, substr_count($text, 'It changed on the website after the computer checked it: open it and decide.'),
+            'the renamed one and the one judged under another title (each in the skipped list and in the list of every row)');
         foreach (['An item was already made from this variant (' . $firstCode . '): open it and decide.', 'An item was already made from this variant (' . $secondCode . '): open it and decide.',
             'It changed on the website after the computer checked it: open it and decide.', 'It is not published on the website (Bin). Open it and decide.',
             'An item with the same name is already in the warehouse (' . $nameCode . '): open it and decide.',
@@ -960,7 +985,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
             [BulkController::why('made_before', []), BulkController::why('not_new', [])], 'a record without its detail still reads as a sentence');
         // The line beside the bar names these reasons too; and one at a time, on its own page, a person may still make the item.
         foreach (['an item already made from it', 'changed on the website after the check', 'a name that an item already has or that two ticked rows share',
-            'one the computer could not decide'] as $reason) {
+            'one the computer could not decide', 'a variant of the main store that has no item yet'] as $reason) {
             self::assertStringContainsString($reason, $page->text());
         }
         $own = $web->get('/ui/review/listing/' . $twinA);

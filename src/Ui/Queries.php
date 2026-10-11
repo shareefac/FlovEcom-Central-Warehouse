@@ -628,7 +628,8 @@ final class Queries
      * the decision waiting for a second OK, what the website said of it when its features were stored (`site_status`,
      * `is_placeholder`: NULL when not known) and when the computer checked it (`check_status`: the open suggestion's evidence, a
      * text or NULL), what the open suggestion was made on and what the product is now (`basis_id`, `basis_identity`,
-     * `identity_hash`: BulkDecisions::changedSinceCheck), and the CW number of the item already made from it (`made_code`,
+     * `identity_hash`, and `check_title`, the title the computer judged, from the same evidence: BulkDecisions::changedSinceCheck),
+     * and the CW number of the item already made from it (`made_code`,
      * BulkDecisions::madeFrom: one more read, by the index on sku.origin_listing_id). Primary-key and unique-index reads besides.
      *
      * @param list<int> $ids
@@ -646,6 +647,7 @@ final class Queries
             . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS site_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder, "
             // Only a text counts, as where the seed decodes the same evidence (BulkDecisions::seedCheck).
             . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.variant_status')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.variant_status')) END AS check_status, "
+            . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.title')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.title')) END AS check_title, "
             . 'lp.identity_hash, pb.proposal_id AS basis_id, pb.identity_hash AS basis_identity, '
             . 'p.id AS proposal_id, p.band, p.proposed_sku_id, p.proposed_new_item, ps.code AS proposed_code, ps.name AS proposed_name, '
             . 'pd.id AS pending_id, pd.action AS pending_action '

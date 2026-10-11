@@ -156,15 +156,19 @@ final class NewVariantsController
      * The CSV's text: at most $max variants, and a last line "Only the first … variants are in this file." only when the list holds
      * more. Whether it does is decided from the read of the ids alone: one more than $max is asked for, and the line is written
      * when that one came back. (A count read a moment earlier can differ from the ids read after it, while someone decides rows:
-     * the line was then written under a file that was not cut.)
+     * the line was then written under a file that was not cut.) $counts is the kinds' counts read before the ids (read here when
+     * not given): the id read only uses them to skip itself when they say the list is empty, and the line never depends on them,
+     * which a test shows by handing in counts that are wrong either way.
      *
      * @param array<string, mixed> $store the store's row (id, name)
+     * @param array<string, int>|null $counts Queries::newVariantCounts for the store and the period
      */
-    public static function csvText(Queries $q, array $store, ?string $since, ?string $filter, string $text, bool $nothing, int $max = self::CSV_MAX): string
+    public static function csvText(Queries $q, array $store, ?string $since, ?string $filter, string $text, bool $nothing, int $max = self::CSV_MAX,
+        ?array $counts = null): string
     {
         $ids = [];
         if (!$nothing) {
-            $counts = $q->newVariantCounts((int) $store['id'], $since);
+            $counts ??= $q->newVariantCounts((int) $store['id'], $since);
             $ids = $q->newVariants((int) $store['id'], $since, $filter, $text, null, $counts, $max + 1)['ids'];
         }
         $more = count($ids) > $max;
@@ -288,8 +292,11 @@ final class NewVariantsController
      * (BulkDecisions::seedCheck asks the same functions), so a row and its skip cannot disagree:
      *  - an item was already made from it (`made_code`): said in place of "found nothing like it" or "not checked yet" (under a
      *    suggested match: as a note);
-     *  - a row marked New that changed on the website after the computer checked it (BulkDecisions::changedSinceCheck): said in
-     *    place of "found nothing like it";
+     *  - a row marked New that changed on the website after the computer checked it (BulkDecisions::changedSinceCheck: its
+     *    identity is not the suggestion's recorded one, or its title is not the one the computer judged): said in place of "found
+     *    nothing like it";
+     *  - a suggested match that names no item (BulkDecisions::matchNoItem: the matched main-store variant has no item yet): said
+     *    with its strength, in place of the strength alone;
      *  - what the website said of it (a page heading; not published, from its stored features or else from what the check
      *    recorded: BulkDecisions::siteState): a note; none when it is on sale or not known.
      *
@@ -306,7 +313,8 @@ final class NewVariantsController
         $made = $open ? self::s($r['made_code'] ?? null) : null;
         $madeBefore = $made === null ? null : Words::say('NEW_VARIANTS', 'made_before', $made);
         $detail = match ($st) {
-            'new' => $madeBefore ?? (BulkDecisions::changedSinceCheck($r['basis_id'] ?? null, $r['basis_identity'] ?? null, $r['identity_hash'] ?? null)
+            'new' => $madeBefore ?? (BulkDecisions::changedSinceCheck($r['basis_id'] ?? null, $r['basis_identity'] ?? null, $r['identity_hash'] ?? null,
+                $r['check_title'] ?? null, is_string($r['product_title'] ?? null) ? $r['product_title'] : null, is_string($r['variant_title'] ?? null) ? $r['variant_title'] : null)
                 ? Words::NEW_VARIANTS['changed'] : Words::NEW_VARIANTS['is_new']),
             'not_checked' => $madeBefore ?? Words::NEW_VARIANTS['not_checked'],
             'waiting' => Words::NEW_VARIANT_PENDING[(string) $r['pending_action']] ?? Words::NEW_VARIANT_PENDING['other'],
@@ -321,6 +329,9 @@ final class NewVariantsController
                 $code = self::s($r['proposed_code']);
                 $name = self::s($r['proposed_name']);
                 $detail = Words::say('NEW_VARIANTS', 'suggested_item', Words::of('BAND', $band), (string) $code);
+            } elseif (BulkDecisions::matchNoItem($band, $r['proposed_sku_id'])) {
+                // A match to a variant of the main store that has no item yet: said, with its strength (the seed skips it for this).
+                $detail = Words::say('NEW_VARIANTS', 'match_no_item', Words::of('BAND', $band));
             } else {
                 // A suggestion the computer could not settle (not sure, clues disagree): its strength in words.
                 $detail = Words::of('BAND', $band);

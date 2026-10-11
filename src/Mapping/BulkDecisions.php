@@ -33,10 +33,11 @@ use CW\Staff\StaffRoles;
  * (`not_published`), one that changed on the website after the computer checked it (`changed_since_check`), one whose barcode is
  * elsewhere (`barcode_elsewhere`; the single page does not preselect it either), one whose name an item already has
  * (`name_elsewhere`) or another ticked row shares (`name_twice`). On New Variants, where the rows are of every kind, also one with
- * no open suggestion (`not_checked`), one whose suggestion is a match to an item (`suggested_match`) and one the computer could not
- * decide (`not_new`): a person opens each and decides. The hold and the spot check are read again under the decision's listing
- * lock (a hold written meanwhile rolls the row back, as in KeyBulk). "Skip anything doubtful, finish the rest": each skipped row
- * is recorded with why.
+ * no open suggestion (`not_checked`), one whose suggestion is a match to an item (`suggested_match`), one matched to a variant of
+ * the main store that has no item yet (`match_no_item`) and one the computer could not decide (`not_new`): a person opens each
+ * and decides. The hold and the spot check are read again under the decision's listing lock (a hold written meanwhile rolls the
+ * row back, as in KeyBulk), and the name of a "create as new" is read again just before its decision (one()). "Skip anything
+ * doubtful, finish the rest": each skipped row is recorded with why.
  *
  * The existing Key bulk confirm of unseen strong matches (KeyBulk, the spot check) is a separate thing and is unchanged.
  *
@@ -77,8 +78,12 @@ final class BulkDecisions
         'already_ignored', 'linked', 'not_waiting', 'no_suggestion', 'lead_only', 'not_allowed', 'product_joined', 'no_name', 'refused',
         // By Item's confirm only (M59, confirmScope()):
         'rejected_before', 'item_on_store', 'several_suggested',
-        // A bulk "create as new" only (M61, seedCheck() and nameChecks(); `suggested_match`, `not_checked` and `not_new` on New Variants only):
-        'suggested_match', 'not_checked', 'page_heading', 'not_published', 'made_before', 'not_new', 'changed_since_check', 'name_elsewhere', 'name_twice'];
+        // A bulk "create as new" only (M61, seedCheck() and nameChecks(); `suggested_match`, `not_checked`, `not_new` and `match_no_item` on
+        // New Variants only):
+        'suggested_match', 'not_checked', 'page_heading', 'not_published', 'made_before', 'not_new', 'changed_since_check', 'name_elsewhere', 'name_twice',
+        'match_no_item'];
+    /** The strengths that say "it is that one" (a match), as the computer check writes them: matchNoItem(). */
+    private const MATCH_BANDS = ['Key', 'Check'];
     /** The website's own state of a listing that is on sale (listing_profile.features `variant_status`, as the load tools read it). */
     public const PUBLISHED = 'Published';
     /** DecisionService refusals => the skip they are reported as (others: `refused`, with the code). */
@@ -331,9 +336,14 @@ final class BulkDecisions
 
     /**
      * One row: a skip found before, or the decision in its own transaction with its batch row; a refusal is recorded as a skip.
+     * A "create as new" reads its name again first (M61): the pre-checks read the name guard once, before the first row, and an
+     * item of that name made since is found here by one look-up on the index of 0026, and the row is skipped as `name_elsewhere`
+     * with that item's CW number. "Since" is an earlier row of this run whose name differs by an accent only (the item table
+     * calls the two one name; nameChecks() does not), another person's create, or an approval in Second approval. It is a read,
+     * not a lock: two creates of one name decided in the same instant can still both make an item (written down in M61).
      *
      * @param array{listing_id: int, proposal_id: ?int, map_version: int} $row
-     * @param array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}|null $pre
+     * @param array{code: string, detail: array<string, mixed>, request?: array<string, mixed>, name?: string}|null $pre
      * @return array{0: string, 1: ?string} outcome, skip code
      */
     private function one(Caller $caller, string $action, array $row, int $seq, int $batchId, string $batch, ?string $reason, ?array $pre): array
@@ -351,7 +361,13 @@ final class BulkDecisions
             $req['reason'] = $reason;
         }
         try {
-            $d = $this->db->transaction(function (Db $db) use ($caller, $req, $lid, $row, $seq, $batchId): array {
+            $name = $action === 'new_item' && is_string($pre['name'] ?? null) ? $pre['name'] : null;
+            $d = $this->db->transaction(function (Db $db) use ($caller, $req, $lid, $row, $seq, $batchId, $name): array {
+                $taken = $name === null ? [] : $this->namesTaken([$name]);
+                if ($taken !== []) {
+                    throw new CwException('bulk_skip', 'an item of this name was made meanwhile', 409,
+                        ['skip' => 'name_elsewhere', 'detail' => ['sku' => (string) reset($taken), 'name' => $name]]);
+                }
                 $d = $this->ds->decide($caller, $req);
                 // Under the decision's lock on the listing: a hold (M30) or a spot check written since the checks above stops it.
                 if (KeyHold::activeForListings($db, [$lid]) !== []) {
@@ -371,7 +387,8 @@ final class BulkDecisions
             return ['skipped', 'refused'];
         } catch (CwException $e) {
             $code = $e->errorCode === 'bulk_skip' ? (string) $e->detail['skip'] : (self::REFUSAL_SKIP[$e->errorCode] ?? 'refused');
-            $detail = $e->errorCode === 'bulk_skip' ? [] : ['code' => $e->errorCode, 'message' => mb_substr($e->getMessage(), 0, 300)];
+            $detail = $e->errorCode === 'bulk_skip' ? (is_array($e->detail['detail'] ?? null) ? $e->detail['detail'] : [])
+                : ['code' => $e->errorCode, 'message' => mb_substr($e->getMessage(), 0, 300)];
             if ($e->errorCode === 'map_version_conflict' && is_string($e->detail['status'] ?? null)) {
                 $detail['status'] = $e->detail['status'];
             }
@@ -569,11 +586,16 @@ final class BulkDecisions
      *     features' `variant_status`; when they give none (a listing that changed since has no features), what the open
      *     suggestion recorded when the computer checked it (its evidence's `variant_status`). Known from neither: skips nothing;
      *  5. NO open suggestion, whatever came before: `not_checked` on New Variants, `no_suggestion` on the other lists (as before);
-     *  6. an open suggestion that does not say "new product": `not_new` on New Variants (with its strength: the computer could
-     *     not say what it is), `band_not_allowed` on the other lists (as before);
-     *  7. the listing's identity (titles, brand, attributes, barcodes: its profile's identity_hash) is not the one the suggestion
-     *     was made on (its match_proposal_basis row): `changed_since_check`. A suggestion with no basis row (made before 0012 and
-     *     never proved unchanged) skips nothing here;
+     *  6. an open suggestion that does not say "new product". On New Variants: `match_no_item` when it is a match (Strong or
+     *     Likely) that names no item (the import stores it so when the main-store variant the computer matched has no item:
+     *     matchNoItem()), else `not_new` (with its strength: the computer could not say what it is). On the other lists
+     *     `band_not_allowed` (as before);
+     *  7. the listing is not what the computer checked: `changed_since_check` (changedSinceCheck()). Either its identity (titles,
+     *     brand, attributes, barcodes: its profile's identity_hash) is not the one on the suggestion's match_proposal_basis row
+     *     (a suggestion with no basis row, made before 0012 and never proved unchanged, skips nothing by this); or the title the
+     *     suggestion's evidence holds (the one the computer judged) is not the listing's title now (evidence with no title skips
+     *     nothing by this). The second is needed because the basis dates from the IMPORT of a suggestion, not from the run's
+     *     export: a listing renamed between the two has a basis on its new identity;
      *  8. its barcode is on an item or on another listing: `barcode_elsewhere`.
      * What is left is sent with the suggestion's units, unless its name is taken (nameChecks()). The single page is not touched by
      * any of this: there a person sees the listing's details and may still make its item.
@@ -604,10 +626,14 @@ final class BulkDecisions
             return $skip($mixed ? 'not_checked' : 'no_suggestion');
         }
         $band = (string) $l['band'];
+        if ($mixed && self::matchNoItem($band, $l['proposed_sku_id'])) {
+            return $skip('match_no_item', ['band' => $band]);
+        }
         if ($band !== 'New item' || (int) $l['proposed_new_item'] !== 1) {
             return $skip($mixed ? 'not_new' : 'band_not_allowed', ['band' => $band]);
         }
-        if (self::changedSinceCheck($l['basis_id'] ?? null, $l['basis_identity'] ?? null, $l['identity_hash'] ?? null)) {
+        if (self::changedSinceCheck($l['basis_id'] ?? null, $l['basis_identity'] ?? null, $l['identity_hash'] ?? null, is_array($ev) ? ($ev['title'] ?? null) : null,
+            self::text($l['product_title'] ?? null), self::text($l['variant_title'] ?? null))) {
             return $skip('changed_since_check');
         }
         if ($this->barcodeElsewhere((int) $l['id'], self::strings(json_decode((string) ($l['barcodes'] ?? 'null'), true)))) {
@@ -623,11 +649,12 @@ final class BulkDecisions
      *    accents do not tell two names apart): `name_elsewhere`, with that item's CW number. This is what stops the second of two
      *    stores' listings of one thing, and a listing renamed to an item's name;
      *  - else two or more of the request's rows have it (compared without letter case): `name_twice`, every row of the group.
-     * A row with no name is left to DecisionService, which refuses it (`no_name`).
+     * A row with no name is left to DecisionService, which refuses it (`no_name`). A row that is still to be sent carries its
+     * name (`name`): one() reads the first of the two again just before the row's decision.
      *
      * @param array<int, array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}> $out the rows' pre-checks
      * @param array<int, array<string, mixed>> $listings prechecks()' rows
-     * @return array<int, array{code: string, detail: array<string, mixed>, request?: array<string, mixed>}>
+     * @return array<int, array{code: string, detail: array<string, mixed>, request?: array<string, mixed>, name?: string}>
      */
     private function nameChecks(array $out, array $listings): array
     {
@@ -653,6 +680,11 @@ final class BulkDecisions
         foreach ($groups as $lids) {
             foreach (count($lids) > 1 ? $lids : [] as $lid) {
                 $out[$lid] = ['code' => 'name_twice', 'detail' => ['name' => $names[$lid], 'rows' => count($lids)]];
+            }
+        }
+        foreach ($names as $lid => $name) {
+            if ($out[$lid]['code'] === '') {
+                $out[$lid]['name'] = $name;
             }
         }
         return $out;
@@ -745,13 +777,42 @@ final class BulkDecisions
     }
 
     /**
-     * Whether a listing is no longer what its open suggestion was made on: the suggestion has a basis row (match_proposal_basis,
-     * $basisId) and the identity recorded there is not the listing profile's identity now (titles, brand, attributes, barcodes;
-     * no profile then or now reads as null). No basis row: not known, so false. The list and the seed both ask here.
+     * Whether a listing is no longer what the computer checked when it made the open suggestion. Two signs, either is enough:
+     *  - the suggestion has a basis row (match_proposal_basis, $basisId) and the identity recorded there is not the listing
+     *    profile's identity now (titles, brand, attributes, barcodes; no profile then or now reads as null). No basis row: not
+     *    known by this sign;
+     *  - the suggestion's evidence holds the title the computer judged ($judgedTitle: a text that is not empty) and it is not the
+     *    listing's title now (KeyEligibility::sameTitle: the option's title, else the title, compared without letter case and
+     *    spacing: the comparison the Key bulk confirm uses for the same question, M28). No title in the evidence: not known by
+     *    this sign. The basis is recorded when a suggestion is IMPORTED, on the listing as it is then; the run that judged it
+     *    was exported earlier, so a listing renamed in between has a basis on its new identity and only the title shows it. A
+     *    change of the brand, attributes or barcodes in that window is not seen (M61).
+     * The list and the seed both ask here, so a row and its skip cannot disagree.
      */
-    public static function changedSinceCheck(mixed $basisId, mixed $basisIdentity, mixed $identity): bool
+    public static function changedSinceCheck(mixed $basisId, mixed $basisIdentity, mixed $identity, mixed $judgedTitle = null, ?string $productTitle = null,
+        ?string $variantTitle = null): bool
     {
-        return $basisId !== null && (is_string($basisIdentity) ? $basisIdentity : null) !== (is_string($identity) ? $identity : null);
+        if ($basisId !== null && (is_string($basisIdentity) ? $basisIdentity : null) !== (is_string($identity) ? $identity : null)) {
+            return true;
+        }
+        return is_string($judgedTitle) && trim($judgedTitle) !== '' && !KeyEligibility::sameTitle($judgedTitle, $productTitle, $variantTitle);
+    }
+
+    /**
+     * Whether an open suggestion is a match that names no item: its strength says "it is that one" (Strong, Likely) and no item
+     * is proposed. The import of a computer check stores a suggestion so when the main-store variant it matched has no item
+     * (bin/import_proposals.php, flag `target_not_minted`); the strength is what is asked here, not the flag, so one stored
+     * without the flag reads the same. The list and the seed both ask here.
+     */
+    public static function matchNoItem(mixed $band, mixed $proposedSkuId): bool
+    {
+        return $proposedSkuId === null && in_array($band, self::MATCH_BANDS, true);
+    }
+
+    /** A column's text, or null. */
+    private static function text(mixed $v): ?string
+    {
+        return is_string($v) ? $v : null;
     }
 
     /**
