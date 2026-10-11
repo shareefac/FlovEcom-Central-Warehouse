@@ -423,6 +423,10 @@ final class WordsTest extends TestCase
         self::assertSame(['Confirm suggested matches', 'Not a match…', 'Send back for matching…'], [Words::BY_ITEM_BULK['link'], Words::BY_ITEM_BULK['reject'], Words::BY_ITEM_BULK['send_back']]);
         self::assertSame(['Preview: confirm suggested matches', 'Yes, do these 12', 'Yes, these 3 are not a match'],
             [Words::say('BY_ITEM_BULK', 'title', Words::BY_ITEM_BULK['title_link']), Words::say('BY_ITEM_BULK', 'button_link', 12), Words::say('BY_ITEM_BULK', 'button_reject', 3)]);
+        self::assertSame(['On all stores · 1 item ticked · 1 suggested variant', 'On Alt Store · 12 items ticked · 1,200 suggested variants'],
+            [Words::say('BY_ITEM_BULK', 'scope', Words::BY_ITEM_BULK['all_stores_lower'], Words::BY_ITEM_BULK['selected_one'], Words::BY_ITEM_BULK['variants_one']),
+                Words::say('BY_ITEM_BULK', 'scope', 'Alt Store', Words::say('BY_ITEM_BULK', 'selected_many', 12), Words::say('BY_ITEM_BULK', 'variants_many', 1200))],
+            'the preview says one item and one variant in the singular');
         self::assertSame('12 will be matched · 3 will wait for a second OK · 5 will be skipped', implode(' · ', [Words::say('BY_ITEM_BULK', 'summary_link', 12),
             Words::say('BY_ITEM_BULK', 'summary_pending', 3), Words::say('BY_ITEM_BULK', 'summary_skipped', 5)]));
         self::assertSame(array_keys(Words::BULK_SKIP), array_keys(Words::BY_ITEM_SKIP), 'the same reasons, in the same order');

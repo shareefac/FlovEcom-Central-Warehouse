@@ -24,8 +24,11 @@ final class ByProductContext
     public const MAX_TEXT = 100;
     /** How many items a page of By Item may show (U123): the setting mapping.by_item_page_size is one of these, and so is `n`. */
     public const PAGE_SIZES = [50, 100, 200];
-    /** The most ticked items a link back to the list carries (`ticked`, U126): a page holds no more. */
-    public const MAX_TICKED = 200;
+    /**
+     * The most ticked items a link back to the list carries (`ticked`, U126): a page holds no more. That is its largest number of rows
+     * and the one item drawn above them when a person comes back to it and it no longer fits the filter (`at`).
+     */
+    public const MAX_TICKED = 201;
     /**
      * How an emptied picker search travels: Html::url() and the forms leave out an empty value, and "no search" means "the
      * picker's own first search". One space is read back as the empty search.

@@ -420,7 +420,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertSame('Preview: confirm suggested matches', self::squash($xp->evaluate('string(//main//h1)')));
         self::assertSame('1 will be matched · 2 will wait for a second OK · 7 will be skipped', self::squash($xp->evaluate('string(//p[@class="alert-title"])')));
         $text = $preview->text();
-        self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'scope', 'Alt Store', 11, 10), $text, 'the chosen store, the items ticked, the variants: Big Store\'s are left out');
+        self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'scope', 'Alt Store', Words::say('BY_ITEM_BULK', 'selected_many', 11), Words::say('BY_ITEM_BULK', 'variants_many', 10)), $text, 'the chosen store, the items ticked, the variants: Big Store\'s are left out');
         self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'nothing_here_one', 'Alt Store'), $text, 'the item suggested on Big Store only');
         self::assertStringContainsString(Words::BY_ITEM_BULK['text_link'], $text);
         self::assertStringContainsString(Words::BY_ITEM_BULK['again'], $text);
@@ -532,7 +532,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         self::assertSame('Preview: not a match', self::squash($xp->evaluate('string(//main//h1)')));
         self::assertSame('2 will be marked not a match · 2 will be skipped', self::squash($xp->evaluate('string(//p[@class="alert-title"])')));
         self::assertStringContainsString(Words::BY_ITEM_BULK['text_reject'], $preview->text(), 'this page is the second step of "Not a match"');
-        self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'scope', Words::BY_ITEM_BULK['all_stores_lower'], 4, 4), $preview->text());
+        self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'scope', Words::BY_ITEM_BULK['all_stores_lower'], Words::say('BY_ITEM_BULK', 'selected_many', 4), Words::say('BY_ITEM_BULK', 'variants_many', 4)), $preview->text());
         self::assertSame(1, $xp->query('//div[contains(@class, "confirm-step")]')->length);
         self::assertSame(['Yes, these 2 are not a match', 'danger'], self::button($preview), 'the red button, stating how many');
         $lines = self::lines($preview);
@@ -885,7 +885,7 @@ final class ByItemBulkTest extends KernelUiTestCase
         // All stores: all sixty are counted and shown, and the limit of the setting is what refuses.
         $all = $web->post('/ui/review/products/bulk', self::ticked($page, [$wide], 'send_back'));
         self::assertSame([...$onAlt, ...$onBig], array_keys(self::lines($all)));
-        self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'scope', Words::BY_ITEM_BULK['all_stores_lower'], 1, 60), $all->text());
+        self::assertStringContainsString(Words::say('BY_ITEM_BULK', 'scope', Words::BY_ITEM_BULK['all_stores_lower'], Words::BY_ITEM_BULK['selected_one'], Words::say('BY_ITEM_BULK', 'variants_many', 60)), $all->text());
         $this->setting('mapping.bulk_max_rows', '50');
         $refused = $web->post('/ui/review/products/bulk', self::ticked($page, [$wide], 'send_back'));
         self::assertSame([422, 'too_many_rows'], [$refused->status, $refused->errorCode()], $refused->describe());

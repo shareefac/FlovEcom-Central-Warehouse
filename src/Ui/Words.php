@@ -3459,7 +3459,9 @@ final class Words
         'summary_send_back' => '%s will be sent back for matching',
         'summary_pending' => '%s will wait for a second OK',
         'summary_skipped' => '%s will be skipped',
-        'scope' => 'On %s · %s items ticked · %s suggested variants',
+        'scope' => 'On %s · %s · %s',
+        'variants_one' => '1 suggested variant',
+        'variants_many' => '%s suggested variants',
         'nothing_here_one' => '1 ticked item has no suggestion on %s: nothing happens to it.',
         'nothing_here_many' => '%s ticked items have no suggestion on %s: nothing happens to them.',
         'text_link' => 'Each variant is matched to the item it is suggested for, with the units per sale the computer suggests. The usual rules apply: '
