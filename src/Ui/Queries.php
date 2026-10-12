@@ -27,13 +27,15 @@ final class Queries
      */
     public const LANES = ['barcode', 'transfer', 'candidates'];
     /**
-     * What a match-strength list shows (docs/decisions.md U140): every row (`all`, the list as it always was), only the rows a bulk
-     * action can take (`ready`), only the ones held back (`held`), only the ones that are a match of a spot check that is not
-     * complete and are not held back (`spot`). The last two are OneAtATime's two kinds, by its own conditions: `ready` is the rest,
-     * so the three parts never overlap and add up to `all`. It changes what is listed, never what a bulk action does.
+     * What a match-strength list shows (docs/decisions.md U140, U144): every row (`all`, the list as it always was), only the rows a
+     * bulk action can take (`ready`), only the ones held back (`held`), only the ones that are a match of a spot check that is not
+     * complete and are not held back (`spot`), only the ones found by the check on arrival that are decided one at a time and are
+     * neither of the first two (`arrival`). The last three are OneAtATime's three kinds, by its own conditions and in its order:
+     * `ready` is the rest, so the four parts never overlap and add up to `all`. It changes what is listed, never what a bulk action
+     * does.
      */
     public const SHOW_ALL = 'all';
-    public const SHOWS = [self::SHOW_ALL, 'ready', 'held', 'spot'];
+    public const SHOWS = [self::SHOW_ALL, 'ready', 'held', 'spot', 'arrival'];
     /**
      * How a band is named on the screens: Words::BAND for all six (plan F170; the URL values queue=Key ... stay). `Manual` is
      * the run's "Manual (relabel)": listings that differ from a Vape and Go item only by a renamed range ("Renamed range").
@@ -132,14 +134,18 @@ final class Queries
     /**
      * One page of a band's queue, of what $show names (SHOWS; anything else: every row), and how many rows each choice of "Show"
      * holds under the same band, store and filters (`shows`). The list's own count is read once, as before, for every row; the
-     * held-back rows and the spot checks' rows are counted from the small side (queueShows()); "ready" is the rest. So the total
-     * of the page shown is one of those four numbers, and "all" is the sum of the other three.
+     * held-back rows, the spot checks' rows and the check on arrival's rows are counted from the small side (queueShows());
+     * "ready" is the rest. So the total of the page shown is one of those five numbers, and "all" is the sum of the other four.
      *
      * @param list<int>|null $spotMatches the variants that are a match of a spot check that is not complete (the listing ids of
      *        OneAtATime::spotMatchesToDecide()) when the caller has read them; read here when not given
-     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int, shows: array{all: int, ready: int, held: int, spot: int}}
+     * @param list<int>|null $arrivalRuns the runs whose open suggestions are the check on arrival's that go one at a time
+     *        (OneAtATime::arrivalRuns()) when the caller has read them; read here when not given
+     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int, shows: array{all: int, ready: int, held: int, spot: int, arrival: int},
+     *     arrival_runs: list<int>}
      */
-    public function queue(string $band, ?int $channelId, string $q, ?string $lane, int $min30, int $page, string $show = self::SHOW_ALL, ?array $spotMatches = null): array
+    public function queue(string $band, ?int $channelId, string $q, ?string $lane, int $min30, int $page, string $show = self::SHOW_ALL, ?array $spotMatches = null,
+        ?array $arrivalRuns = null): array
     {
         $show = in_array($show, self::SHOWS, true) ? $show : self::SHOW_ALL;
         [$where, $params] = $this->queueWhere($band, $channelId, $q, $lane, $min30);
@@ -151,7 +157,8 @@ final class Queries
             . 'WHERE ' . $where, $params);
         // (an empty list has no part to count or to show: the spot checks are not read for it)
         $spotMatches = $all === 0 ? [] : ($spotMatches ?? array_keys(OneAtATime::spotMatchesToDecide($this->db)));
-        $shows = $this->queueShows($where, $params, $profile, trim($q) === '', $all, $spotMatches);
+        $arrivalRuns = $all === 0 ? [] : ($arrivalRuns ?? OneAtATime::arrivalRuns($this->db));
+        $shows = $this->queueShows($where, $params, $profile, trim($q) === '', $all, $spotMatches, $arrivalRuns);
         $total = $shows[$show];
         $pages = max(1, (int) ceil($total / self::PER_PAGE));
         $page = min(max(1, $page), $pages);
@@ -160,7 +167,7 @@ final class Queries
         $ids = $total === 0 && $show !== self::SHOW_ALL ? [] : array_map('intval', $this->db->column(
             'SELECT ' . (trim($q) === '' ? self::UNITS_HINT : '') . 'p.id FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id '
             . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
-            . 'WHERE ' . $where . self::showWhere($show, $spotMatches) . self::ORDER . ' LIMIT ? OFFSET ?',
+            . 'WHERE ' . $where . self::showWhere($show, $spotMatches, $arrivalRuns) . self::ORDER . ' LIMIT ? OFFSET ?',
             [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE],
         ));
         $rows = $ids === [] ? [] : $this->db->all(
@@ -172,27 +179,31 @@ final class Queries
             . ' AND p.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')' . self::ORDER,
             [...$params, ...$ids],
         );
-        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages, 'shows' => $shows];
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages, 'shows' => $shows, 'arrival_runs' => $arrivalRuns];
     }
 
     /**
      * How many rows each choice of "Show" holds (SHOWS), for a list whose own conditions are $where and whose every row was
-     * counted as $all. The held-back rows and the spot checks' rows are counted FROM THE SMALL SIDE: the holds in force
-     * (key_bulk_hold: a few hundred rows) and the spot checks' matches (a few dozen listings, named by their ids), each joined to
-     * its open suggestion on the list's own index (status, band, listing_id) and to its listing by the primary key (the profile,
-     * when a filter reads it: its units from their narrow index unless a text is searched). Never a pass over the list.
-     * A row that is both is held back (OneAtATime's order). "ready" is what is left.
+     * counted as $all. The held-back rows, the spot checks' rows and the check on arrival's rows are counted FROM THE SMALL SIDE:
+     * the holds in force (key_bulk_hold: a few hundred rows) and the spot checks' matches (a few dozen listings, named by their
+     * ids), each joined to its open suggestion on the list's own index (status, band, listing_id) and to its listing by the
+     * primary key (the profile, when a filter reads it: its units from their narrow index unless a text is searched); and the open
+     * suggestions of the check on arrival's runs (named by their ids), read from the index (run, status, band, lane, listing) of
+     * 0027 alone, each with its listing by the primary key. Never a pass over the list, and never a suggestion's flags.
+     * A row that is more than one is the first of: held back, in a spot check, found on arrival (OneAtATime's order). "ready" is
+     * what is left.
      *
      * @param list<mixed> $params
      * @param string $profile the join of the profile when a filter reads it ('' when none does)
      * @param bool $unitsOnly no text is searched: a filter reads the profile's units only
      * @param list<int> $spotMatches
-     * @return array{all: int, ready: int, held: int, spot: int}
+     * @param list<int> $arrivalRuns
+     * @return array{all: int, ready: int, held: int, spot: int, arrival: int}
      */
-    private function queueShows(string $where, array $params, string $profile, bool $unitsOnly, int $all, array $spotMatches): array
+    private function queueShows(string $where, array $params, string $profile, bool $unitsOnly, int $all, array $spotMatches, array $arrivalRuns): array
     {
         if ($all === 0) {
-            return ['all' => 0, 'ready' => 0, 'held' => 0, 'spot' => 0];
+            return ['all' => 0, 'ready' => 0, 'held' => 0, 'spot' => 0, 'arrival' => 0];
         }
         $units = $profile !== '' && $unitsOnly ? ' INDEX(lp ix_listing_profile_units)' : '';
         $held = (int) $this->db->value('SELECT /*+ JOIN_ORDER(h, p, cl)' . $units . ' */ COUNT(DISTINCT h.listing_id) FROM key_bulk_hold h '
@@ -201,22 +212,31 @@ final class Queries
         $spot = $spotMatches === [] ? 0 : (int) $this->db->value('SELECT /*+ JOIN_ORDER(cl, p)' . $units . ' */ COUNT(*) FROM channel_listing cl '
             . 'JOIN match_proposal p ON p.listing_id = cl.id ' . $profile
             . 'WHERE ' . OneAtATime::spotSql('cl.id', $spotMatches) . ' AND NOT ' . OneAtATime::heldSql('cl.id') . ' AND ' . $where, $params);
-        return ['all' => $all, 'ready' => max(0, $all - $held - $spot), 'held' => $held, 'spot' => $spot];
+        $arrival = $arrivalRuns === [] ? 0 : (int) $this->db->value('SELECT /*+ JOIN_ORDER(p, cl) INDEX(p ix_match_proposal_run_open)' . $units . ' */ COUNT(*) '
+            . 'FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id ' . $profile
+            . 'WHERE ' . OneAtATime::arrivalSql('p.match_run_id', $arrivalRuns) . ' AND NOT ' . OneAtATime::heldSql('cl.id') . ' AND NOT '
+            . OneAtATime::spotSql('cl.id', $spotMatches) . ' AND ' . $where, $params);
+        return ['all' => $all, 'ready' => max(0, $all - $held - $spot - $arrival), 'held' => $held, 'spot' => $spot, 'arrival' => $arrival];
     }
 
     /**
-     * What a choice of "Show" adds to a list's conditions (on the listing `cl`): OneAtATime's two conditions, in its order.
+     * What a choice of "Show" adds to a list's conditions (on the listing `cl` and its open suggestion `p`): OneAtATime's three
+     * conditions, in its order.
      *
      * @param list<int> $spotMatches
+     * @param list<int> $arrivalRuns
      */
-    private static function showWhere(string $show, array $spotMatches): string
+    private static function showWhere(string $show, array $spotMatches, array $arrivalRuns): string
     {
         $held = OneAtATime::heldSql('cl.id');
         $spot = OneAtATime::spotSql('cl.id', $spotMatches);
+        $arrival = OneAtATime::arrivalSql('p.match_run_id', $arrivalRuns);
         return match ($show) {
-            'ready' => " AND NOT {$held} AND NOT {$spot}",
+            // (with no suggestion of the check on arrival in the data the condition is left out: the statement is the one of before)
+            'ready' => " AND NOT {$held} AND NOT {$spot}" . ($arrivalRuns === [] ? '' : " AND NOT {$arrival}"),
             'held' => " AND {$held}",
             'spot' => " AND {$spot} AND NOT {$held}",
+            'arrival' => " AND {$arrival} AND NOT {$held} AND NOT {$spot}",
             default => '',
         };
     }
@@ -227,14 +247,17 @@ final class Queries
      * Of what $show names (SHOWS), as the list itself: "next" from a list of the ready ones is the next ready one.
      *
      * @param list<int>|null $spotMatches as queue()
+     * @param list<int>|null $arrivalRuns as queue()
      */
     public function nextInQueue(string $band, ?int $channelId, string $q, ?string $lane, int $min30, int $currentId, string $show = self::SHOW_ALL,
-        ?array $spotMatches = null): ?int
+        ?array $spotMatches = null, ?array $arrivalRuns = null): ?int
     {
         [$where, $params] = $this->queueWhere($band, $channelId, $q, $lane, $min30);
         if ($show !== self::SHOW_ALL && in_array($show, self::SHOWS, true)) {
-            // (the held-back ones are told without the spot checks, so those are not read for that choice)
-            $where .= self::showWhere($show, $spotMatches ?? ($show === 'held' ? [] : array_keys(OneAtATime::spotMatchesToDecide($this->db))));
+            // (the held-back ones are told without the spot checks and without the check on arrival's runs, so neither is read for
+            // that choice; the spot checks' ones without the runs)
+            $where .= self::showWhere($show, $spotMatches ?? ($show === 'held' ? [] : array_keys(OneAtATime::spotMatchesToDecide($this->db))),
+                $arrivalRuns ?? (in_array($show, ['held', 'spot'], true) ? [] : OneAtATime::arrivalRuns($this->db)));
         }
         $from = 'FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ';
         $order = self::ORDER . ' LIMIT 1';
@@ -704,7 +727,10 @@ final class Queries
      * text or NULL), what the open suggestion was made on and what the product is now (`basis_id`, `basis_identity`,
      * `identity_hash`, and `check_title`, the title the computer judged, from the same evidence: BulkDecisions::changedSinceCheck),
      * and the CW number of the item already made from it (`made_code`,
-     * BulkDecisions::madeFrom: one more read, by the index on sku.origin_listing_id). Primary-key and unique-index reads besides.
+     * BulkDecisions::madeFrom: one more read, by the index on sku.origin_listing_id); for a suggestion of the check on arrival
+     * (`check_kind` = arrival) its first reason and the closest item it names (`check_reason`, `closest_code`: one more primary-key
+     * read of an item), and what the check left on the profile (`arrival_state`, `arrival_outcome`: columns of the profile row that
+     * is read anyway). Primary-key and unique-index reads besides.
      *
      * @param list<int> $ids
      * @return list<array<string, mixed>>
@@ -722,11 +748,16 @@ final class Queries
             // Only a text counts, as where the seed decodes the same evidence (BulkDecisions::seedCheck).
             . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.variant_status')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.variant_status')) END AS check_status, "
             . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.title')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.title')) END AS check_title, "
+            // A suggestion of the check on arrival (its evidence says so: `check`), its first reason and the closest item it names;
+            // and what the check left on the profile of a variant with no suggestion (U144).
+            . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.check')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.check')) END AS check_kind, "
+            . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.band_reasons[0]')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.band_reasons[0]')) END AS check_reason, "
+            . 'cs.code AS closest_code, lp.arrival_state, lp.arrival_outcome, '
             . 'lp.identity_hash, pb.proposal_id AS basis_id, pb.identity_hash AS basis_identity, '
             . 'p.id AS proposal_id, p.band, p.proposed_sku_id, p.proposed_new_item, ps.code AS proposed_code, ps.name AS proposed_name, '
             . 'pd.id AS pending_id, pd.action AS pending_action '
             . 'FROM channel_listing cl ' . self::STATE_JOINS . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN sku s ON s.id = cl.sku_id '
-            . 'LEFT JOIN sku ps ON ps.id = p.proposed_sku_id LEFT JOIN match_proposal_basis pb ON pb.proposal_id = p.id '
+            . 'LEFT JOIN sku ps ON ps.id = p.proposed_sku_id LEFT JOIN sku cs ON cs.id = p.closest_sku_id LEFT JOIN match_proposal_basis pb ON pb.proposal_id = p.id '
             . 'WHERE cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
             $ids,
         ) as $r) {
@@ -744,6 +775,24 @@ final class Queries
             }
         }
         return $out;
+    }
+
+    /**
+     * The check on arrival for one store (New Variants' box, U144): whether it is switched on for it (the setting), how many of
+     * its variants wait for it (the queue index alone) and its last run's counts for the store (the last run's audit row, by the
+     * index on the action; null when that run did not look at this store, or there was none).
+     *
+     * @return array{on: bool, waiting: int, last: array{at: string, looked: int, match: int, conflict: int, not_sure: int, left: int}|null}
+     */
+    public function arrivalCheck(int $channelId, string $code): array
+    {
+        $on = isset(\CW\Mapping\ArrivalCheck::stores($this->db)[$channelId]);
+        $last = $on ? \CW\Mapping\ArrivalCheck::lastRun($this->db) : null;
+        $s = $last['per_store'][$code] ?? null;
+        return ['on' => $on, 'waiting' => $on ? \CW\Mapping\ArrivalCheck::waiting($this->db, $channelId) : 0,
+            'last' => !is_array($s) || (int) ($s['looked'] ?? 0) === 0 ? null : ['at' => (string) $last['at'], 'looked' => (int) $s['looked'], 'match' => (int) ($s['match'] ?? 0),
+                'conflict' => (int) ($s['conflict'] ?? 0), 'not_sure' => (int) ($s['not_sure'] ?? 0),
+                'left' => (int) array_sum(array_map('intval', is_array($s['left'] ?? null) ? $s['left'] : []))]];
     }
 
     // ------------------------------------------------------------------------------------------

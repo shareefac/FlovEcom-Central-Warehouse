@@ -13,6 +13,7 @@ staging cluster. Nothing touches a live or proto site or database.
 | `bin/invariants.php` | 03:47 | The nightly bucket check (`CW\Invariants`, D44), run on one consistent snapshot (H5): cached buckets = unit states = ledger sums, unit states match their reservations; since C0 also the per-item value sequence (checks 7–9, I3): one seq per on_hand ledger row, seqs 1..N per item matching its clock, seq order = ledger id order within a balance; since 0008 also the document base (D1–D7, `CW\Documents\DocumentInvariants`): gapless numbers per series, whole reversal pairs that net to zero, ledger rows naming posted documents by their number, review tasks on the right documents and never decided by the document's own people, line items that exist, and every posted document against its write-once posting record (`document_posting`: number, hash, poster, time, and its header and lines re-hashed; I33); since 0019 also the configuration history (K1–K4, Y2, Y53: a setting, rule, reason or warehouse changed around its history, or added with none), and every run is recorded in `integrity_run` (Settings → Safety checks; a failed run is Home's first card, Y33). | 0 ok · **1 mismatch** · 3 cannot run |
 | `deploy/staging/seal_file_store.sh /srv/cw-docs` | every minute | The document store's seal sweep (I36): every stored file not yet immutable becomes root:www-data 0440 and `chattr +i`, so it cannot be rewritten in place, removed or renamed. Silent when nothing is new; does nothing before `install_file_store.sh`. Log: `/var/log/cw/seal_file_store.log`. | 0 ok · **1 a file could not be sealed** · 3 cannot run |
 | `bin/verify_files.php` | 04:27 (only once `/srv/cw-docs` exists) | Re-hashes every stored file (I23, I36); a missing or changed file goes to syslog too (`journalctl -t cw-files`). | 0 ok · **1 missing or changed** · 3 cannot run |
+| `bin/check_arrivals.php --apply` | every 10 minutes | The check on arrival (M64, M65; "The check on arrival" below): a rules-only suggestion for a newly arrived variant whose barcode, or whose web address copied from the main store, points at an item. Only the variants the listing intake marked, of the stores named in the setting `mapping.arrival_stores`; with none named it logs "switched off". One transaction per variant, one audit row (`mapping.arrival_check`) per run that looked at anything. Log: `/var/log/cw/check_arrivals.log`. | 0 ok (also: switched off, a store left for a hand run) · **1 the database refused a variant** (it stays to check) · 2 usage · 3 cannot run |
 | `bin/health_alert.php` | not scheduled (stub) | Lists shadow/live channels that stopped heartbeating (no heartbeat, or none for 180 s), report dead letters, or run another mode than CW's (H8). Prints only. | 0 ok · 1 problems printed · 3 cannot run |
 
 Common to all jobs (`CW\Ops\Cli`, H3):
@@ -1700,6 +1701,80 @@ Exit codes: 0 done · 1 refused rows or a refused file (nothing saved) · 2 usag
 run. Every run, dry runs included, is an `import_run` row (kind `item_cards`; `summary.origin` says `screen` or `cli` with the
 OS user); each changed card has its history row and `item_card.change` audit row (kind `import`); a real run is audited
 `item_card.import` (with the origin). A file the screen refuses as a whole on "Save the changes" is recorded too (I120).
+
+### The check on arrival (`bin/check_arrivals.php`, `docs/decisions.md` M64, M65, U144, U145)
+
+A computer check with no AI: a variant nobody has looked at gets a suggestion when its barcode, or a web address copied from the
+main store, points at an item. It only suggests (Likely, Not sure or Clues disagree; never Strong, never New); a person confirms
+every match. It leaves every variant a person or another run has touched, every held variant and every member of a spot check.
+
+**It is switched off until a store is named** in Settings › Matching products › "Stores whose new variants the computer checks"
+(`mapping.arrival_stores`, store codes with commas). The cron line runs every 10 minutes all the same and logs:
+
+```
+2026-10-12T08:10:01Z check_arrivals [cw_staging] switched off: no store is named in the setting mapping.arrival_stores (nothing looked at)
+```
+
+The other settings: the main store (`mapping.arrival_main_store`, `vapeandgo`), whether a clean match of the check may be
+confirmed from a ticked list (`mapping.arrival_bulk_confirm`, off: such a row has no tick box and is decided on its page), the most
+variants and seconds of one run (200, 45), and the queue above which the timer leaves a store to a hand run (300).
+
+```bash
+cd /opt/cw-staging
+php bin/check_arrivals.php --db=cw_staging                                   # DRY RUN of the queue: what it would do; writes NOTHING
+php bin/check_arrivals.php --db=cw_staging --channel=electrofag --backfill --list --limit=200   # DRY: the variants that were there before, one line each
+php bin/check_arrivals.php --db=cw_staging --listing=12345                    # explain one variant (always dry)
+php bin/check_arrivals.php --db=cw_staging --score --channel=electrofag      # read only: the rules against the judged run and people's matches
+php bin/check_arrivals.php --db=cw_staging --apply --channel=electrofag --backfill --limit=10    # the first 10 for real; then read them on the screens
+php bin/check_arrivals.php --db=cw_staging --apply --channel=electrofag --backfill --after-id=<the id it printed>   # go on
+```
+
+- **No option = a dry run.** It reads, counts and prints, and writes nothing: no suggestion, no mark on a profile, no run row, no
+  audit row. Without `--channel` it looks at the stores of the setting (none named: "switched off"); with `--channel` at any store.
+- **`--apply` writes**, and refuses (exit 2) a `--channel` that is not in the setting: name the store on the Settings page first.
+- **The command line is read whole or not at all.** An option the tool does not have (a misspelt `--channel` would otherwise mean
+  "every store of the setting"), a value on a flag (`--apply=false` would otherwise be `--apply`), an option with no value or given
+  twice, or a stray word: the usage and exit 2, before anything is read. Write a value with `=` (`--limit=10`).
+- **The timer takes only the queue**: the variants the listing intake marked "to check" (a new variant; one whose titles, brand,
+  attributes or barcodes changed; one whose web address changed). The variants that were there before the check are taken only by
+  `--backfill --channel=<code>`, by hand, with a `--limit` first. A backfill looks at the store's unmatched variants that have no
+  mark, in id order, and marks each, so a second run goes on where the first stopped (`--after-id` saves it reading the marked
+  ones again).
+- **A store with more waiting than the alarm** (`mapping.arrival_queue_alarm`; a store whose whole list was just loaded) is left
+  by the timer and the log says so. Run it by hand, naming the store: `--apply --channel=<code>` (add `--limit` / `--max-seconds`).
+- **A log line per store**, then one for the run:
+
+```
+2026-10-12T08:20:02Z check_arrivals [cw_staging] store=electrofag waiting=12 looked=12 match=3 conflict=1 not_sure=2 same_as_before=0 changed_meanwhile=0 failed=0 no_suggestion={"has_history":1,"no_clue":5}
+2026-10-12T08:20:02Z check_arrivals [cw_staging] rules=ar1.0/n2.1/v2.1 run=arrival-20261012T082001Z looked=12 ms=412
+```
+
+  `match` / `conflict` / `not_sure`: suggestions written (Likely / Clues disagree / Not sure). `same_as_before`: its own earlier
+  suggestion says the same, nothing written. `changed_meanwhile`: the variant changed, or someone touched it, between the look and
+  the write: nothing written, it stays to check. `failed`: the database refused it (exit 1); it stays to check. `no_suggestion`:
+  left, by why (`no_clue`: no barcode on anything and no copied address; `has_history`, `not_open`, `held`, `in_spot_check`,
+  `no_title`: not the check's to touch). A dry run says `would_match` and so on.
+- **`--score --channel=<code> [--run=<run id>]`** reads only. For every variant of the store that has a suggestion of the judged run
+  (the newest one unless `--run` names it) it says what the rules say now, with the variant's history ignored, against T1 the
+  run's own clue (its lane and the item its lane target is now; every difference is a line) and T2 the item the run proposed where
+  the rules say "match", and the item a person has matched the variant to. Read the numbers with their limits: the run's truth is
+  its AI plus a key, except people's matches; the run looked only at variants that sold; an older Normalizer made it.
+- **Switching it off**: empty the setting. Suggestions already written stay, and are decided like any other. Nothing is deleted.
+- **What the screens show**: Products › New Variants says in its box whether the check is on for the store, how many variants wait
+  and what the last run did; a row with no suggestion says why. Products › Mapping › To review lists the suggestions by strength;
+  "Show: Found on arrival" lists the ones decided one at a time. The audit log has "The check on arrival ran" for each run.
+
+**Rolling it out on staging** (after the review; nothing here was run against `cw_staging` by the build):
+1. `scripts/remote.sh hammer bash deploy/staging/install_cron.sh --migrate` applies 0027. It COPIES `listing_profile` once (111 MB;
+   9 seconds on a scratch table of that size, 17 with reads and writes going on; reads go on, a listing push or import waits) and
+   adds one index to `match_proposal` in place. The smoke list runs the tool dry: expect "switched off".
+2. `php bin/check_arrivals.php --db=cw_staging --score --channel=electrofag` at a quiet hour; read T1 and its misses.
+3. `php bin/check_arrivals.php --db=cw_staging --channel=electrofag --backfill --list --limit=300` (dry): read the lines.
+4. The owner names the store(s) in the setting. Electrofag only after spot check owner-1 is answered (the owner's rule: no new
+   Electrofag matching work before it; the check touches none of that spot check's variants, but it does write new suggestions).
+5. `--apply --channel=<code> --backfill --limit=10`, read the ten on the screens, then the rest in time-boxed runs.
+Before and after each step compare: spot check owner-1 still has its 20 open members and none superseded; Electrofag's Strong
+list still reads 1,137 = 863 + 254 + 20 (the check never writes Strong, so its "Found on arrival" stays out of that list).
 
 ### The barcode sync (`bin/sync_barcodes.php`, I106–I108, I116–I118)
 

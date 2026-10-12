@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\UiKernel;
 
 use CW\Caller;
+use CW\Mapping\ArrivalCheck;
 use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
 use CW\Mapping\OneAtATime;
+use CW\Tests\Support\ArrivalFixtures;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\UiResponse;
@@ -28,10 +30,17 @@ use CW\Ui\Words;
  *    filter) the list is not called done;
  *  - "Ready for a bulk action" + tick all + Confirm match takes a full page and skips none of them as held or in a spot check;
  *  - the engine is unchanged: a hand-made form that names such a row is skipped as before, on every list.
+ *
+ * Since the check on arrival (M64, U144) there is a third kind of such a row: a variant whose open suggestion the check on arrival
+ * made (a barcode or a copied web address, no AI). The same promises hold for it: no tick box and a line under its name on the three
+ * lists, its own choice of "Show" ("Found on arrival") with its count, never among "Ready for a bulk action", and All is still the
+ * sum of the choices. With the setting `mapping.arrival_bulk_confirm` on, a clean match of the check is an ordinary row again; one
+ * with a warning never. And while the check has written nothing, every list and every count reads exactly as before.
  */
 final class OneAtATimeScreenTest extends KernelUiTestCase
 {
     use KeyFixtures;
+    use ArrivalFixtures;
 
     /** @var array<string, string> */
     private array $saved = [];
@@ -302,7 +311,8 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         $alt = (int) $this->altSite->channelId;
         foreach (Queries::SHOWS as $show) {
             $r = $q->queue('Key', $alt, '', null, 0, 1, $show);
-            self::assertSame(['all' => 12, 'ready' => 5, 'held' => 3, 'spot' => 4], $r['shows'], $show);
+            self::assertSame(['all' => 12, 'ready' => 5, 'held' => 3, 'spot' => 4, 'arrival' => 0], $r['shows'], $show);
+            self::assertSame([], $r['arrival_runs'], 'nothing found by the check on arrival: nothing of it is read or named');
             self::assertSame([$r['shows'][$show], $r['shows'][$show]], [$r['total'], count($r['rows'])], $show);
         }
 
@@ -344,7 +354,12 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         $empty = $web->get('/ui/review', ['queue' => 'Conflict', 'channel' => 'alt', 'show' => 'held']);
         self::assertSame(200, $empty->status, $empty->describe());
         self::assertSame([[], []], [self::listed($empty), self::shows($empty)]);
-        self::assertSame(['all' => 0, 'ready' => 0, 'held' => 0, 'spot' => 0], $q->queue('Conflict', $alt, '', null, 0, 1, 'held')['shows']);
+        self::assertSame(['all' => 0, 'ready' => 0, 'held' => 0, 'spot' => 0, 'arrival' => 0], $q->queue('Conflict', $alt, '', null, 0, 1, 'held')['shows']);
+        // "Found on arrival" is offered only where the check on arrival found something (U144): here it is not, and a request for it
+        // lists nothing and still shows the four choices, with itself as the fifth while it is the one chosen.
+        $noneFound = $web->get('/ui/review', $query + ['show' => 'arrival']);
+        self::assertSame([[], 'Found on arrival 0'], [self::listed($noneFound), self::shown($noneFound)]);
+        self::assertSame(['All 11', 'Ready for a bulk action 6', 'Held back 2', 'In a spot check 3', 'Found on arrival 0'], self::shows($noneFound));
     }
 
     public function testWhatTheListShowsTravelsThroughThePagerTheVariantPageTheNextOneTheBulkFormAndBack(): void
@@ -561,6 +576,198 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         $none = $web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt', 'notice' => 'shown_done_x'])->text();
         self::assertStringNotContainsString(Words::MATCH_NOTICE['shown_done'], $none);
         self::assertStringNotContainsString(Words::MATCH_NOTICE['queue_done'], $none);
+    }
+
+    /**
+     * The Likely list of a store: two judged matches, then two the check on arrival found (a clean one and one with a warning).
+     * Before the check has written anything the list reads as it always did.
+     *
+     * @return array{judged: list<int>, clean: int, warned: int, item: array<string, mixed>}
+     */
+    private function likelyListWithArrivals(): array
+    {
+        $this->keySetup();
+        foreach (['mapping.arrival_stores' => '"alt"', 'mapping.arrival_main_store' => '"vpg"', 'mapping.arrival_bulk_confirm' => 'false'] as $key => $json) {
+            $this->setting($key, $json);
+        }
+        $this->arrivalMain = $this->vpgSite;
+        $this->arrival = new ArrivalCheck(self::$db, $this->ds);
+        $judged = [$this->queued($this->altSite, 'J1', 'Check', $this->item('legacy'), ['product_title' => 'Judged one', 'units_365d' => 90]),
+            $this->queued($this->altSite, 'J2', 'Check', $this->item('legacy'), ['product_title' => 'Judged two', 'units_365d' => 80])];
+        $q = new Queries(self::$db);
+        $alt = (int) $this->altSite->channelId;
+        self::assertSame([], OneAtATime::arrivalRuns(self::$db));
+        self::assertSame([['all' => 2, 'ready' => 2, 'held' => 0, 'spot' => 0, 'arrival' => 0], []], [$q->queue('Check', $alt, '', null, 0, 1)['shows'], $q->queue('Check', $alt, '', null, 0, 1)['arrival_runs']]);
+        $title = 'Bar Juice 5000 Blue Razz 10ml Nic Salt E-Liquid';
+        $item = $this->mainItem($title, '10mg', [self::gtin(1)]);
+        $clean = $this->arrives($this->altSite, $title, '10mg', [self::gtin(1)]);
+        $this->mainItem($title, '20mg', [self::gtin(2)]);
+        $warned = $this->arrives($this->altSite, $title, '', [self::gtin(2)]); // no strength stated: a warning
+        $r = $this->arrival->run(['apply' => true]);
+        self::assertSame(2, $r['per_store']['alt']['match']);
+        self::assertSame([['rules_only'], ['arrival_warned', 'rules_only', 'strength_missing']], [self::arrivalOpen($clean)['flags'], self::arrivalOpen($warned)['flags']]);
+        return ['judged' => $judged, 'clean' => $clean, 'warned' => $warned, 'item' => $item];
+    }
+
+    public function testARowFoundByTheCheckOnArrivalHasNoTickBoxItsOwnChoiceOfShowAndIsNeverAmongTheReadyOnes(): void
+    {
+        $f = $this->likelyListWithArrivals();
+        $line = 'Found by the check on arrival: no AI has looked at it. Open it to check and decide.';
+        $web = $this->signIn($this->uiUser('mapper'));
+        $query = ['queue' => 'Check', 'channel' => 'alt'];
+        $page = $web->get('/ui/review', $query);
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertSame([...$f['judged'], $f['clean'], $f['warned']], self::listed($page), 'best sellers first, as always');
+
+        // No tick box, and the line under the name; the rows a bulk action can take are as they always were.
+        self::assertSame($f['judged'], self::boxes($page));
+        $form = $page->form('/ui/review/bulk');
+        foreach ([$f['clean'], $f['warned']] as $id) {
+            self::assertSame([false, false, false], [isset($form['pick_' . $id]), isset($form['ver_' . $id]), isset($form['prop_' . $id])], "row {$id} is not in the form");
+            self::assertSame($line, self::whyLine($page, $id));
+            self::assertSame(1, substr_count(self::squash((new \DOMXPath($page->dom()))->evaluate('string(' . self::row($page, $id) . ')')), 'no AI has looked at it'),
+                'the row says it once: under its name, not again among its warnings');
+        }
+        $warnedRow = self::squash((new \DOMXPath($page->dom()))->evaluate('string(' . self::row($page, $f['warned']) . ')'));
+        self::assertStringContainsString(Words::FLAG['arrival_warned'], $warnedRow);
+        self::assertStringContainsString(Words::FLAG['strength_missing'], $warnedRow);
+        self::assertStringNotContainsString(Words::FLAG['arrival_warned'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(' . self::row($page, $f['clean']) . ')')));
+        foreach ($f['judged'] as $id) {
+            self::assertNull(self::whyLine($page, $id));
+        }
+        self::assertSame($f['judged'], self::boxes($web->get('/ui/review', $query + ['all' => '1']), true), '"select all" leaves them');
+        self::assertSame(['2 on this page were found by the check on arrival: they are decided one at a time and have no tick box. Show only the ones a bulk action can take (2)',
+            '/ui/review?queue=Check&channel=alt&show=ready'], self::notice($page));
+
+        // "Show": a fifth choice with its count; each lists exactly its rows; All is the sum; Ready holds none of them.
+        $parts = ['ready' => $f['judged'], 'held' => [], 'spot' => [], 'arrival' => [$f['clean'], $f['warned']]];
+        foreach (['all' => [...$f['judged'], $f['clean'], $f['warned']]] + $parts as $show => $ids) {
+            $p = $web->get('/ui/review', $query + ($show === 'all' ? [] : ['show' => $show]));
+            self::assertSame($ids, self::listed($p), $show);
+            self::assertSame(['All 4', 'Ready for a bulk action 2', 'Held back 0', 'In a spot check 0', 'Found on arrival 2'], self::shows($p), $show);
+            self::assertSame(Words::QUEUE_SHOW[$show] . ' ' . count($ids), self::shown($p), $show);
+        }
+        self::assertSame(4, array_sum(array_map('count', $parts)), 'All is the sum of the four');
+        self::assertContains('/ui/review?queue=Check&channel=alt&show=arrival', $page->hrefs());
+        $q = new Queries(self::$db);
+        $alt = (int) $this->altSite->channelId;
+        $runs = OneAtATime::arrivalRuns(self::$db);
+        self::assertCount(2, $runs, 'the run\'s two rows: its clean matches, and the rest');
+        foreach (Queries::SHOWS as $show) {
+            $r = $q->queue('Check', $alt, '', null, 0, 1, $show);
+            self::assertSame(['all' => 4, 'ready' => 2, 'held' => 0, 'spot' => 0, 'arrival' => 2], $r['shows'], $show);
+            self::assertSame([$r['shows'][$show], $r['shows'][$show], $runs], [$r['total'], count($r['rows']), $r['arrival_runs']], $show);
+        }
+        // The parts are OneAtATime's own answer for each row, and the counts follow the list's filters.
+        $never = OneAtATime::of(self::$db, [...$f['judged'], $f['clean'], $f['warned']]);
+        self::assertSame([$f['clean'] => 'on_arrival', $f['warned'] => 'on_arrival'], array_map(static fn (array $n): string => $n['code'], $never));
+        self::assertSame(['All 2', 'Ready for a bulk action 0', 'Held back 0', 'In a spot check 0', 'Found on arrival 2'], self::shows($web->get('/ui/review', $query + ['lane' => 'barcode'])));
+        self::assertSame([[], []], [self::listed($web->get('/ui/review', $query + ['lane' => 'transfer', 'show' => 'arrival'])),
+            self::shows($web->get('/ui/review', $query + ['lane' => 'transfer', 'show' => 'arrival']))], 'nothing found that way: an empty list has no parts to choose from');
+        self::assertSame([$f['judged'][1], $f['clean'], $f['judged'][0]], [$q->nextInQueue('Check', $alt, '', null, 0, $f['judged'][0], 'ready'),
+            $q->nextInQueue('Check', $alt, '', null, 0, $f['judged'][1]), $q->nextInQueue('Check', $alt, '', null, 0, $f['judged'][1], 'ready')],
+            'the next ready one after the last ready one is the first again: never one of the check\'s');
+        self::assertSame($f['warned'], $q->nextInQueue('Check', $alt, '', null, 0, $f['clean'], 'arrival'));
+        // The other strengths' lists and the other stores are untouched; another list offers no fifth choice.
+        $strong = $this->queued($this->altSite, 'K1', 'Key', $this->item('legacy'), ['product_title' => 'Strong one']);
+        self::assertSame(['All 1', 'Ready for a bulk action 1', 'Held back 0', 'In a spot check 0'], self::shows($web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt'])));
+        self::assertSame([$strong], self::boxes($web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt'])));
+
+        // "Ready for a bulk action" + tick all + Confirm match: the page is the judged ones, and none is skipped as one of the kinds.
+        $ready = $web->get('/ui/review', $query + ['show' => 'ready', 'all' => '1']);
+        self::assertSame([$f['judged'], $f['judged']], [self::listed($ready), self::boxes($ready, true)]);
+        self::assertSame(0, (new \DOMXPath($ready->dom()))->query('//span[contains(@class, "no-bulk")]')->length);
+        $r = $web->post('/ui/review/bulk', $ready->form('/ui/review/bulk') + ['action' => 'link']);
+        $batch = self::batch($r);
+        self::assertEqualsCanonicalizing($f['judged'], array_keys($batch));
+        self::assertSame(['done' => 2], array_count_values(array_column($batch, 'outcome')));
+        self::assertSame([], array_values(array_filter(array_column($batch, 'skip_code'))), 'none skipped');
+        self::assertSame(['suggested', 'suggested'], [$this->link($f['clean'])['status'], $this->link($f['warned'])['status']], 'the check\'s two are as they were');
+        // What is left of the list is the check's two: no bar, and the notice says why.
+        $left = $web->get('/ui/review', $query);
+        self::assertSame([[$f['clean'], $f['warned']], []], [self::listed($left), self::boxes($left)]);
+        self::assertFalse($left->hasForm('/ui/review/bulk'));
+        self::assertSame('2 on this page were found by the check on arrival: they are decided one at a time and have no tick box. Nothing in this list is ready for a bulk action.',
+            self::notice($left)[0]);
+        // Each is decided on its own page, which says what the clue is and that no AI looked.
+        $own = $web->get('/ui/review/listing/' . $f['clean'], $query + ['show' => 'arrival']);
+        self::assertSame(200, $own->status, $own->describe());
+        self::assertStringContainsString(Words::BAND_HELP_RULES['Check'], $own->text());
+        self::assertStringNotContainsString(Words::BAND_HELP['Check'], $own->text(), 'not "the AI thinks"');
+        self::assertStringContainsString('Its barcode is on this item', $own->text());
+        self::assertTrue($own->hasForm('/ui/review/listing/' . $f['clean'] . '/decide'), 'and it can be decided there');
+    }
+
+    public function testAHandMadeFormThatTicksARowFoundOnArrivalIsSkippedOnEveryListAndTheOtherListsGiveItNoTickBox(): void
+    {
+        $f = $this->likelyListWithArrivals();
+        $line = Words::ONE_AT_A_TIME['on_arrival'];
+        $web = $this->signIn($this->uiUser('mapper'));
+        $csrf = $this->token($web);
+        $decisions = $this->decisions();
+        foreach ([
+            'a match-strength list: Confirm match' => ['source' => 'review', 'queue' => 'Check', 'channel' => 'alt', 'action' => 'link'],
+            'a match-strength list: Not a match' => ['source' => 'review', 'queue' => 'Check', 'channel' => 'alt', 'action' => 'reject', 'confirm' => '1'],
+            'a match-strength list: Ignore' => ['source' => 'review', 'queue' => 'Check', 'channel' => 'alt', 'action' => 'ignore', 'confirm' => '1', 'reason' => 'x'],
+            'Store Products: Send back for matching' => ['source' => 'store', 'channel' => 'alt', 'action' => 'send_back', 'confirm' => '1'],
+            'New Variants: Create as new items' => ['source' => 'new', 'channel' => 'alt', 'action' => 'new_item'],
+            'New Variants: Confirm match' => ['source' => 'new', 'channel' => 'alt', 'action' => 'link'],
+        ] as $what => $list) {
+            $r = $web->post('/ui/review/bulk', ['csrf' => $csrf] + $list + $this->ticked($f['clean']) + $this->ticked($f['warned']));
+            $batch = self::batch($r);
+            self::assertEquals([$f['clean'] => ['skipped', 'on_arrival'], $f['warned'] => ['skipped', 'on_arrival']],
+                array_map(static fn (array $b): array => [$b['outcome'], $b['skip_code']], $batch), $what);
+            self::assertStringContainsString(BulkController::why('on_arrival', []), $web->follow($r)->text(), $what);
+            self::assertSame(['suggested', 'suggested', $decisions], [$this->link($f['clean'])['status'], $this->link($f['warned'])['status'], $this->decisions()], $what . ': nothing was decided');
+        }
+        self::assertSame('Its suggestion was found by the check on arrival, and no AI has looked at it: open it to check and decide.', BulkController::why('on_arrival', []));
+
+        // Store Products and New Variants: no tick box and the same line; the judged rows keep theirs.
+        foreach (['Store Products' => ['/ui/review/store', ['channel' => 'alt']], 'New Variants' => ['/ui/review/new-variants', ['channel' => 'alt', 'state' => 'all', 'period' => 'all']]] as $screen => [$path, $query]) {
+            $page = $web->get($path, $query);
+            self::assertSame(200, $page->status, $screen . ': ' . $page->describe());
+            self::assertEqualsCanonicalizing([...$f['judged'], $f['clean'], $f['warned']], self::listed($page), $screen);
+            self::assertEqualsCanonicalizing($f['judged'], self::boxes($page), $screen);
+            self::assertSame([$line, $line], [self::whyLine($page, $f['clean']), self::whyLine($page, $f['warned'])], $screen);
+            self::assertEqualsCanonicalizing($f['judged'], self::boxes($web->get($path, $query + ['all' => '1']), true), $screen);
+        }
+        self::assertDoesNotMatchRegularExpression('/\bproducts?\b/i', $line);
+        // By Item ticks items, not variants: its preview lists such a variant as skipped, with the words in items and variants.
+        self::assertSame('Its suggestion was found by the check on arrival, and no AI has looked at it: open it to check and decide.', BulkController::why('on_arrival', [], 'BY_ITEM_SKIP'));
+    }
+
+    public function testWithTheSettingOnACleanMatchOfTheCheckIsAnOrdinaryRowAndOneWithAWarningNeverIs(): void
+    {
+        $f = $this->likelyListWithArrivals();
+        $this->setting('mapping.arrival_bulk_confirm', 'true');
+        $web = $this->signIn($this->uiUser('mapper'));
+        $query = ['queue' => 'Check', 'channel' => 'alt'];
+        $page = $web->get('/ui/review', $query);
+        // The clean one has its tick box now, and still says what found it (among its warnings, as a flag of the row).
+        self::assertSame([...$f['judged'], $f['clean']], self::boxes($page));
+        self::assertNull(self::whyLine($page, $f['clean']));
+        self::assertStringContainsString(Words::FLAG['rules_only'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(' . self::row($page, $f['clean']) . ')')));
+        self::assertSame(Words::ONE_AT_A_TIME['on_arrival'], self::whyLine($page, $f['warned']));
+        self::assertSame(['All 4', 'Ready for a bulk action 3', 'Held back 0', 'In a spot check 0', 'Found on arrival 1'], self::shows($page));
+        self::assertSame('1 on this page was found by the check on arrival: it is decided on its own and has no tick box. Show only the ones a bulk action can take (3)', self::notice($page)[0]);
+        self::assertSame([$f['warned']], self::listed($web->get('/ui/review', $query + ['show' => 'arrival'])));
+        self::assertSame([$f['warned'] => 'on_arrival'], array_map(static fn (array $n): string => $n['code'], OneAtATime::of(self::$db, [...$f['judged'], $f['clean'], $f['warned']])));
+        self::assertCount(1, OneAtATime::arrivalRuns(self::$db), 'only the run row of the ones with a warning');
+
+        // Ready + tick all + Confirm match: the clean one is matched to the item its barcode names; the warned one is not on the page.
+        $ready = $web->get('/ui/review', $query + ['show' => 'ready', 'all' => '1']);
+        self::assertSame([...$f['judged'], $f['clean']], self::boxes($ready, true));
+        $batch = self::batch($web->post('/ui/review/bulk', $ready->form('/ui/review/bulk') + ['action' => 'link']));
+        self::assertSame(['done' => 3], array_count_values(array_column($batch, 'outcome')));
+        self::assertSame(['mapped', $f['item']['sku']], [$this->link($f['clean'])['status'], $this->link($f['clean'])['sku_id']]);
+        self::assertSame('suggested', $this->link($f['warned'])['status']);
+        // A hand-made form for the warned one is skipped, setting or no setting.
+        $r = $web->post('/ui/review/bulk', ['csrf' => $this->token($web), 'source' => 'review', 'queue' => 'Check', 'channel' => 'alt', 'action' => 'link'] + $this->ticked($f['warned']));
+        self::assertEquals([$f['warned'] => 'on_arrival'], array_map(static fn (array $b): ?string => $b['skip_code'], self::batch($r)));
+        self::assertSame('suggested', $this->link($f['warned'])['status']);
+        // Switched off again: the list reads as with the setting off.
+        $this->setting('mapping.arrival_bulk_confirm', 'false');
+        self::assertSame(['All 1', 'Ready for a bulk action 0', 'Held back 0', 'In a spot check 0', 'Found on arrival 1'], self::shows($web->get('/ui/review', $query)));
     }
 
     public function testStoreProductsAndNewVariantsGiveSuchARowNoTickBoxAndTheSameLine(): void

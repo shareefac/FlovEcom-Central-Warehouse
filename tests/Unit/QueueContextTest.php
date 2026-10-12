@@ -19,13 +19,14 @@ final class QueueContextTest extends TestCase
 {
     private const STORES = [['id' => 3, 'code' => 'alt', 'name' => 'Alt Store'], ['id' => 9, 'code' => 'vbig', 'name' => 'Big Store']];
 
-    public function testWhatTheListShowsIsOneOfTheFourAndAnythingElseIsEveryRow(): void
+    public function testWhatTheListShowsIsOneOfTheFiveAndAnythingElseIsEveryRow(): void
     {
-        self::assertSame(['all', 'ready', 'held', 'spot'], Queries::SHOWS);
+        // (the fifth, `arrival`, since the check on arrival: docs/decisions.md U144)
+        self::assertSame(['all', 'ready', 'held', 'spot', 'arrival'], Queries::SHOWS);
         self::assertSame('all', Queries::SHOW_ALL);
         $from = static fn (mixed $show): QueueContext => QueueContext::from(['queue' => 'Key', 'show' => $show], 'q', self::STORES) ?? throw new \LogicException('not a list');
-        self::assertSame(['ready', 'held', 'spot', 'all'], array_map(static fn (string $s): string => $from($s)->show, ['ready', 'held', 'spot', 'all']));
-        foreach ([null, '', 'READY', ' ready', "ready\n", 'ready,held', 'in_spot_check', 'nonsense', '1', ['ready'], 7, true, '//evil.example', "held' OR 1=1"] as $junk) {
+        self::assertSame(['ready', 'held', 'spot', 'arrival', 'all'], array_map(static fn (string $s): string => $from($s)->show, ['ready', 'held', 'spot', 'arrival', 'all']));
+        foreach ([null, '', 'READY', ' ready', "ready\n", 'ready,held', 'in_spot_check', 'on_arrival', 'Arrival', 'nonsense', '1', ['ready'], 7, true, '//evil.example', "held' OR 1=1"] as $junk) {
             self::assertSame('all', $from($junk)->show, json_encode($junk));
             self::assertNull($from($junk)->showValue(), json_encode($junk));
             self::assertSame('all', QueueContext::show($junk), json_encode($junk));
@@ -53,7 +54,7 @@ final class QueueContextTest extends TestCase
         self::assertSame(['queue' => 'Key', 'channel' => 'alt', 'lane' => null, 'min' => null, 'show' => null, 'fq' => null], $plain?->query());
         self::assertSame('/ui/review?queue=Key&channel=alt', Html::url('/ui/review', $plain?->pageQuery() ?? []));
         self::assertSame('/ui/review/listing/7?queue=Key&channel=alt', Html::url('/ui/review/listing/7', $plain?->query() ?? []));
-        foreach (['held', 'spot'] as $show) {
+        foreach (['held', 'spot', 'arrival'] as $show) {
             self::assertSame('/ui/review?queue=Key&show=' . $show, Html::url('/ui/review', QueueContext::from(['queue' => 'Key', 'show' => $show], 'q', self::STORES)?->pageQuery() ?? []));
         }
     }
@@ -64,8 +65,8 @@ final class QueueContextTest extends TestCase
         $narrowed = static fn (array $more): bool => (QueueContext::from(['queue' => 'Key'] + $more, 'q', self::STORES) ?? throw new \LogicException('not a list'))->filtered();
         self::assertSame([false, false, false, false, false, false], array_map($narrowed, [[], ['channel' => 'alt'], ['show' => 'all'], ['show' => 'nonsense'], ['min' => '0'],
             ['q' => '   ', 'lane' => 'nonsense']]));
-        self::assertSame([true, true, true, true, true, true], array_map($narrowed, [['show' => 'ready'], ['show' => 'held'], ['show' => 'spot'], ['lane' => 'barcode'], ['min' => '3'],
-            ['q' => 'elux']]));
+        self::assertSame([true, true, true, true, true, true, true], array_map($narrowed, [['show' => 'ready'], ['show' => 'held'], ['show' => 'spot'], ['show' => 'arrival'],
+            ['lane' => 'barcode'], ['min' => '3'], ['q' => 'elux']]));
         self::assertTrue((QueueContext::from(['queue' => 'Key', 'fq' => 'elux'], 'fq', self::STORES) ?? throw new \LogicException('not a list'))->filtered(), 'on a variant\'s page the search is `fq`');
     }
 }

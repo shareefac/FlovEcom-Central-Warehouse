@@ -299,7 +299,7 @@ final class WordsTest extends TestCase
         }
         $keys = [];
         foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql', '0019_set_it_yourself.sql',
-            '0021_mapping_bulk.sql', '0025_by_item_bulk.sql', '0026_new_variants.sql'] as $file) {
+            '0021_mapping_bulk.sql', '0025_by_item_bulk.sql', '0026_new_variants.sql', '0027_arrival_check.sql'] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
         }
@@ -462,9 +462,10 @@ final class WordsTest extends TestCase
     public function testTheListsSayWhichRowsNoBulkActionTakesAndWhatAListShows(): void
     {
         self::assertSame(Queries::SHOWS, array_keys(Words::QUEUE_SHOW), 'a word for each choice, in the filter\'s order');
-        self::assertSame(['All', 'Ready for a bulk action', 'Held back', 'In a spot check'], array_values(Words::QUEUE_SHOW));
+        self::assertSame(['All', 'Ready for a bulk action', 'Held back', 'In a spot check', 'Found on arrival'], array_values(Words::QUEUE_SHOW));
         self::assertSame('Show', Words::QUEUE['show']);
-        self::assertSame(['held', 'in_spot_check'], OneAtATime::KINDS, 'the two kinds of such a row; each has its own choice of "Show" (held, spot)');
+        self::assertSame(['held', 'in_spot_check', 'on_arrival'], OneAtATime::KINDS,
+            'the three kinds of such a row (the third since the check on arrival, M64); each has its own choice of "Show" (held, spot, arrival)');
         foreach (OneAtATime::KINDS as $kind) {
             self::assertTrue(Words::has('ONE_AT_A_TIME', $kind), "ONE_AT_A_TIME: no word for `{$kind}`");
             self::assertContains($kind, BulkDecisions::SKIPS, 'the kinds are the reasons a bulk action skips such a row for');
@@ -483,6 +484,12 @@ final class WordsTest extends TestCase
             ReviewController::oneAtATime(['detail' => ['by' => null] + $held['detail']] + $held)['text'] ?? null, 'nobody named: the job, as on the row\'s page');
         self::assertSame(['code' => 'in_spot_check', 'text' => 'In spot check owner-1: it is answered in the spot check.', 'link' => ['/ui/review/samples/4', 'Open the spot check']],
             ReviewController::oneAtATime(['code' => 'in_spot_check', 'detail' => ['sample' => 'owner-1'], 'sample_id' => 4, 'sample' => 'owner-1']));
+        // Found by the check on arrival (U144): that no AI has looked at it and what to do; it belongs to no spot check, so no link.
+        self::assertSame(['code' => 'on_arrival', 'link' => null, 'text' => 'Found by the check on arrival: no AI has looked at it. Open it to check and decide.'],
+            ReviewController::oneAtATime(['code' => 'on_arrival', 'detail' => [], 'sample_id' => 0, 'sample' => '']));
+        self::assertSame(['Its suggestion was found by the check on arrival, and no AI has looked at it: open it to check and decide.',
+            'Its suggestion was found by the check on arrival, and no AI has looked at it: open it to check and decide.'],
+            [\CW\Ui\Controller\BulkController::why('on_arrival', []), \CW\Ui\Controller\BulkController::why('on_arrival', [], 'BY_ITEM_SKIP')]);
         self::assertNull(ReviewController::oneAtATime(null), 'a row a bulk action can take says nothing');
         // The notice above the list.
         $say = static fn (int $held, int $spot, int $ready, ?string $to = '/list'): ?array => ReviewController::noBoxNotice(['held' => $held, 'in_spot_check' => $spot], $ready, $to);
@@ -498,6 +505,15 @@ final class WordsTest extends TestCase
         self::assertSame([null, 'Nothing in this list is ready for a bulk action.'], [$say(2, 0, 0)['link'] ?? null, $say(2, 0, 0)['none'] ?? null],
             'none to show: a sentence, not a link to an empty list');
         self::assertSame([null, null], [$say(2, 0, 9, null)['link'] ?? null, $say(2, 0, 9, null)['none'] ?? null], 'on the list of the ready ones itself: no link to itself');
+        // The third kind (U144) in the same notice: alone, after one of the others, after both. Without it the notice reads as before.
+        $say3 = static fn (int $held, int $spot, int $arrival): string => ReviewController::noBoxNotice(['held' => $held, 'in_spot_check' => $spot, 'on_arrival' => $arrival], 5, '/list')['text'] ?? '';
+        self::assertSame(['1 on this page was found by the check on arrival: it is decided on its own and has no tick box.',
+            '50 on this page were found by the check on arrival: they are decided one at a time and have no tick box.',
+            '2 on this page are held back and 1 was found by the check on arrival: they are decided one at a time and have no tick box.',
+            '1 on this page is in a spot check and 12 were found by the check on arrival: they are decided one at a time and have no tick box.',
+            '2 on this page are held back, 1 is in a spot check and 3 were found by the check on arrival: they are decided one at a time and have no tick box.',
+            '47 on this page are held back and 3 are in a spot check: they are decided one at a time and have no tick box.'],
+            [$say3(0, 0, 1), $say3(0, 0, 50), $say3(2, 0, 1), $say3(0, 1, 12), $say3(2, 1, 3), $say3(47, 3, 0)]);
         // After the last row of a narrowed list: words of their own, never "This list is done." (the list may hold more).
         self::assertSame(['This list is done.', 'That was the last one of what this list is showing.'], [Words::MATCH_NOTICE['queue_done'], Words::MATCH_NOTICE['shown_done']]);
         self::assertSame(Words::MATCH_NOTICE['shown_done'], ReviewController::NOTICES['shown_done'] ?? null, 'a notice the address may name');
@@ -526,7 +542,7 @@ final class WordsTest extends TestCase
         self::assertSame('Done: 2 new items created and matched, 0 sent to Second approval, 1 skipped.',
             Words::say('BULK', 'summary', Words::say('NEW_VARIANT_DONE', 'new_item', 2), 0, 1));
         self::assertSame('The computer suggests it is CW-000041: open it and decide.', Words::say('BULK_SKIP', 'suggested_match', 'CW-000041'));
-        self::assertSame(['The computer has not checked this variant yet. Open it and decide.', 'It is a page heading on the website, not something that is sold. Open it and decide.',
+        self::assertSame(['Nothing is suggested for this variant. Open it and decide.', 'It is a page heading on the website, not something that is sold. Open it and decide.',
             'It is not published on the website (Bin). Open it and decide.'],
             [Words::BULK_SKIP['not_checked'], Words::BULK_SKIP['page_heading'], Words::say('BULK_SKIP', 'not_published', 'Bin')]);
         // Round 2b's reasons, each in plain words: an item was made from it before, it changed after the check, its name is taken
@@ -550,15 +566,16 @@ final class WordsTest extends TestCase
             [Words::NEW_VARIANTS['is_new'], Words::say('NEW_VARIANTS', 'made_before', 'CW-000101'), Words::NEW_VARIANTS['changed']]);
         self::assertStringContainsString('has not marked any variant of Some Store as New so far', Words::say('NEW_VARIANTS', 'never_new', 'Some Store'));
         self::assertStringContainsString('create the item on its own page', Words::NEW_VARIANTS['never_new']);
-        foreach (['not checked yet', 'a suggested match', 'a variant of the main store that has no item yet', 'one the computer could not decide', 'a page heading', 'not published on the website', 'changed on the website after the check',
+        foreach (['no suggestion', 'a suggested match', 'a variant of the main store that has no item yet', 'one the computer could not decide', 'a page heading', 'not published on the website', 'changed on the website after the check',
             'an item already made from it', 'a name that an item already has or that two ticked rows share', 'a barcode that is already on an item or on another variant'] as $reason) {
             self::assertStringContainsString($reason, Words::NEW_VARIANTS['seed_note'], 'the line beside the bar names every reason a ticked row is skipped for');
         }
         // What a row is (the chip) and the filter: "New" is the one kind the seed takes.
         self::assertSame(Queries::NEW_KINDS, array_keys(Words::NEW_VARIANT_STATE));
         self::assertSame([...Queries::NEW_FILTERS, 'all'], array_keys(Words::NEW_VARIANT_FILTER));
-        self::assertSame(['All not matched', 'New: the computer found nothing like it', 'Suggested match', 'Not checked yet', 'All'], array_values(Words::NEW_VARIANT_FILTER));
-        self::assertSame(['New', 'Suggested match', 'Not checked yet'], array_slice(array_values(Words::NEW_VARIANT_STATE), 0, 3));
+        // "No suggestion" since the check on arrival (U144): "Not checked yet" stopped being true the day a check could look and find nothing.
+        self::assertSame(['All not matched', 'New: the computer found nothing like it', 'Suggested match', 'No suggestion', 'All'], array_values(Words::NEW_VARIANT_FILTER));
+        self::assertSame(['New', 'Suggested match', 'No suggestion'], array_slice(array_values(Words::NEW_VARIANT_STATE), 0, 3));
         self::assertStringContainsString('takes only the rows marked New', Words::NEW_VARIANTS['seed_note']);
         foreach (\CW\Mapping\BulkDecisions::SKIPS as $code) {
             self::assertTrue(Words::has('BULK_SKIP', $code), "BULK_SKIP: no word for `{$code}`");
@@ -566,7 +583,8 @@ final class WordsTest extends TestCase
         self::assertSame(['Last 7 days', 'Last day', 'Any time'], [Words::say('NEW_VARIANTS', 'period_days', 7), Words::NEW_VARIANTS['period_day'],
             Words::NEW_VARIANTS['period_all']]);
         $texts = array_merge(array_values(Words::NEW_VARIANTS), array_values(Words::NEW_VARIANT_ACTION), array_values(Words::NEW_VARIANT_DONE),
-            array_values(Words::NEW_VARIANT_PENDING), array_values(Words::NEW_VARIANT_STATE), array_values(Words::NEW_VARIANT_FILTER), Words::PAGE_INTRO['new_variants'],
+            array_values(Words::NEW_VARIANT_PENDING), array_values(Words::NEW_VARIANT_STATE), array_values(Words::NEW_VARIANT_FILTER), array_values(Words::ARRIVAL_LEFT),
+            Words::PAGE_INTRO['new_variants'],
             [Words::MENU['new_variants'], Words::MENU_HELP['new_variants'], Words::ERROR['unknown_variants_store'], Words::BULK_SKIP['suggested_match'], Words::BULK_SKIP['not_checked'],
                 Words::BULK_SKIP['page_heading'], Words::BULK_SKIP['not_published'], Words::BULK_SKIP['made_before'], Words::BULK_SKIP['not_new'], Words::BULK_SKIP['changed_since_check'],
                 Words::BULK_SKIP['name_elsewhere'], Words::BULK_SKIP['name_twice'], Words::BULK_SKIP['match_no_item'], Words::SETTING['mapping.new_variants_days'],
@@ -578,6 +596,90 @@ final class WordsTest extends TestCase
             }
         }
         self::assertStringContainsString('Nothing here is made up', Words::NEW_VARIANTS['where_from']);
+    }
+
+    /**
+     * The check on arrival's words (docs/decisions.md U144, U145): every strength it can write has its own help (no "the AI thinks"),
+     * every reason of its rules its words, both of its flags theirs; a row with no suggestion says why it has none, whatever the
+     * check left on it; the box at the top of New Variants says whether the check is on, what waits and what the last run did; its
+     * six settings have a plain name and say what they do; and all of it speaks of variants and items, names no store and prints no
+     * setting's number.
+     */
+    public function testTheCheckOnArrivalSaysWhatItFoundInVariantsAndItems(): void
+    {
+        self::assertSame(\CW\Matching\ArrivalRules::BANDS, array_keys(Words::BAND_HELP_RULES), 'a help text for each strength the check can write, and no other');
+        self::assertSame('A barcode, or a web address copied from the main store, points to this item. No AI has looked at it: check the details, then confirm.',
+            Words::BAND_HELP_RULES['Check']);
+        foreach (Words::BAND_HELP_RULES as $band => $text) {
+            self::assertStringContainsString('No AI has looked at it', $text, $band);
+            self::assertStringNotContainsString('The AI', $text, $band);
+        }
+        self::assertSame(['Found by the check on arrival: no AI has looked at it', 'A detail needs a look: open it'], [Words::FLAG['rules_only'], Words::FLAG['arrival_warned']]);
+        foreach (\CW\Matching\ArrivalRules::REASONS as $reason) {
+            self::assertTrue(Words::has('BAND_REASON', $reason), "BAND_REASON: no word for `{$reason}`");
+        }
+        self::assertSame(['Its barcode is on this item', 'A rule says the item the clue points to cannot be right; its web address was copied from this item\'s variant on the main store',
+            'The item already has a variant of this store, or is suggested for one; its barcode is on this item'],
+            array_map(static fn (array $r): ?string => (new \ReflectionMethod(ReviewController::class, 'bandReasons'))->invoke(null, $r),
+                [['arrival_barcode'], ['veto_on_key', 'arrival_copy'], ['arrival_item_taken', 'arrival_barcode']]), 'the reasons as the variant\'s page says them');
+        // A row with no suggestion: why, from the mark the check left (state, outcome) and whether the check is on for the store.
+        $left = static fn (?string $state, ?string $outcome, bool $on): string => \CW\Ui\Controller\NewVariantsController::left($state, $outcome, $on);
+        self::assertSame(['The check on arrival is switched off for this store: open it to decide.', 'The check on arrival is switched off for this store: open it to decide.',
+            'It was here before the check on arrival, which has not looked at it: open it to decide.', 'Waiting for the check on arrival.',
+            'The check on arrival found no barcode and no copied web address for it: open it to decide.',
+            'A person or an earlier computer check has dealt with it, so the check on arrival leaves it: open it to decide.',
+            'The check on arrival suggested something for it before, and that suggestion is closed: open it to decide.',
+            'The check on arrival found no barcode and no copied web address for it: open it to decide.'],
+            [$left(null, null, false), $left('queued', null, false), $left(null, null, true), $left('queued', 'no_clue', true), $left('done', 'no_clue', true),
+                $left('done', 'has_history', true), $left('done', 'arrival_barcode', true), $left('done', 'no_clue', false)]);
+        foreach ([\CW\Matching\ArrivalRules::NO_CLUE, ...\CW\Matching\ArrivalRules::REFUSALS] as $outcome) {
+            self::assertArrayHasKey($outcome, Words::ARRIVAL_LEFT, 'every outcome that leaves a variant with no suggestion says why');
+            self::assertSame(Words::ARRIVAL_LEFT[$outcome], $left('done', $outcome, true));
+        }
+        self::assertSame(Words::ARRIVAL_LEFT['other'], $left('done', null, true));
+        // A suggestion of the check on a New Variants row: its strength, the item or the closest one, and why.
+        self::assertSame(['Likely match – check it: CW-000041 (its barcode is on this item)', 'Not sure – you choose, closest CW-000041 (its barcode is recorded as a pack of more than one)',
+            'Clues disagree (its barcode is on more than one item)'],
+            [Words::say('NEW_VARIANTS', 'arrival_item', Words::BAND['Check'], 'CW-000041', Words::BAND_REASON['arrival_barcode']),
+                Words::say('NEW_VARIANTS', 'arrival_closest', Words::BAND["Can't tell"], 'CW-000041', Words::BAND_REASON['arrival_barcode_pack']),
+                Words::say('NEW_VARIANTS', 'arrival_none', Words::BAND['Conflict'], Words::BAND_REASON['arrival_barcode_two_items'])]);
+        // The box at the top of New Variants.
+        $lines = static fn (bool $on, int $waiting, ?array $last): array => \CW\Ui\Controller\NewVariantsController::arrivalLines(['on' => $on, 'waiting' => $waiting, 'last' => $last], 'Some Store');
+        self::assertSame(['The check on arrival is switched off for Some Store, so its new variants get no suggestion by themselves (it is switched on for a store on the Settings page).'],
+            $lines(false, 7, null), 'off: nothing about what waits');
+        self::assertSame(['The check on arrival is on for Some Store: a new variant whose barcode, or whose web address copied from the main store, points to an item gets a '
+            . 'suggestion. No AI looks at it.'], $lines(true, 0, null));
+        self::assertSame(['1 variant is waiting for the check.', '1,204 variants are waiting for the check.'], [$lines(true, 1, null)[1], $lines(true, 1204, null)[1]]);
+        self::assertSame('Its last run on 12 Oct 2026 looked at 10 here: 3 suggested as a match, 1 where the clues disagree, 2 not sure, 4 left with no suggestion.',
+            $lines(true, 0, ['at' => '2026-10-12 06:30:00.000000', 'looked' => 10, 'match' => 3, 'conflict' => 1, 'not_sure' => 2, 'left' => 4])[1]);
+        // The settings: a plain name, what it does, under Matching; and the audit log's word for a run.
+        $settings = ['mapping.arrival_stores' => 'Stores whose new variants the computer checks', 'mapping.arrival_main_store' => 'The main store',
+            'mapping.arrival_bulk_confirm' => 'Matches from the check on arrival may be confirmed from a ticked list',
+            'mapping.arrival_max_per_run' => 'Most variants one run of the check looks at', 'mapping.arrival_max_seconds' => 'Longest one run of the check may take, in seconds',
+            'mapping.arrival_queue_alarm' => 'Most waiting variants the timer takes by itself'];
+        foreach ($settings as $key => $name) {
+            self::assertSame($name, Words::SETTING[$key]);
+            self::assertArrayHasKey($key, Words::SETTING_HELP);
+            self::assertSame($key !== 'mapping.arrival_bulk_confirm', isset(\CW\Settings::RULES[$key]), "{$key}: what it may hold is checked (a switch needs no rule)");
+            self::assertDoesNotMatchRegularExpression('/\d/', $name . Words::SETTING_HELP[$key], "{$key}: no number of a setting is written into a text");
+        }
+        self::assertSame('The check on arrival ran', Words::AUDIT_ACTION['mapping.arrival_check']);
+        // Variants and items, no store named, and a sent-back variant is no longer promised a new suggestion by the next check.
+        $texts = [...array_values(Words::BAND_HELP_RULES), ...array_values(Words::ARRIVAL_LEFT), Words::FLAG['rules_only'], Words::FLAG['arrival_warned'], Words::ONE_AT_A_TIME['on_arrival'],
+            Words::BULK_SKIP['on_arrival'], Words::BY_ITEM_SKIP['on_arrival'], Words::QUEUE_SHOW['arrival'], ...array_map(static fn (string $r): string => Words::BAND_REASON[$r],
+                array_values(array_diff(\CW\Matching\ArrivalRules::REASONS, ['veto_on_key']))), Words::BAND_REASON['veto_on_key'], ...array_values($settings),
+            ...array_map(static fn (string $k): string => Words::SETTING_HELP[$k], array_keys($settings)), Words::HOME['not_checked_help'], Words::BY_ITEM_BULK['text_send_back']];
+        foreach ($texts as $text) {
+            self::assertDoesNotMatchRegularExpression('/website products?|warehouse products?|\bproducts?\b|\blistings?\b|\bSKU\b/i', $text, $text);
+            foreach (Words::SITE as $name) {
+                self::assertStringNotContainsStringIgnoringCase($name, $text, 'no store is named');
+            }
+        }
+        foreach ([Words::BULK_CONFIRM['send_back_text'], Words::BY_ITEM_BULK['text_send_back'], Words::HOME['not_checked_help']] as $text) {
+            self::assertStringNotContainsString('which suggests again', $text);
+            self::assertStringNotContainsString('Nothing to do now', $text);
+        }
+        self::assertStringContainsString('the check on arrival leaves a variant that was sent back', Words::BY_ITEM_BULK['text_send_back']);
     }
 
     public function testEveryStateOfAReservationHasItsWords(): void

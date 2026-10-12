@@ -7,23 +7,30 @@ namespace CW\Mapping;
 use CW\Db;
 
 /**
- * The variants no bulk action ever takes, and why (docs/decisions.md M63): the ONE read that answers it. Two kinds, asked in this
- * order (a variant that is both is the first):
+ * The variants no bulk action ever takes, and why (docs/decisions.md M63, M64): the ONE read that answers it. Three kinds, asked in
+ * this order (a variant that is more than one is the first):
  *
  *  - `held`: a hold is in force on the listing (key_bulk_hold, KeyHold, M30: a strong match that looked doubtful, set aside for
  *    one-at-a-time review), with the hold's reason, who set it aside and when;
  *  - `in_spot_check`: the listing is one of the matches of a spot check that is not complete (key_sample_member with a position,
  *    KeySample's verdict `waiting` or `failed`, M28: only the spot check's owner answers them, one at a time; a bulk decision on
- *    one would fail the spot check), with the spot check's name.
+ *    one would fail the spot check), with the spot check's name;
+ *  - `on_arrival`: the variant's open suggestion was found by the check on arrival (Mapping\ArrivalCheck, M64: a barcode or a
+ *    copied web address and no AI). While the setting `mapping.arrival_bulk_confirm` is off, every such suggestion; with it on,
+ *    only the ones the check wrote with a warning (a clean match is then an ordinary row). They are told BY THEIR RUN: the check
+ *    writes a run's clean matches under one match_run row (source `arrival`) and everything else under another (source
+ *    `arrival_warned`), so arrivalRuns() names the kind by a handful of run ids and neither this read nor the lists' filter ever
+ *    opens a suggestion's flags. With no such suggestion in the data arrivalRuns() is empty and nothing here reads or changes.
  *
  * Who asks here: BulkDecisions, before a row is sent (prechecks(): the row is skipped with this code and detail, whatever the
  * action and the list) and again under the row's lock (one()); and the lists whose rows are variants, for the rows of their page
  * (Products › Mapping › To review, Store Products, New Variants): such a row has no tick box and says so under its name. (By
  * Item ticks items, not variants: it asks nothing here itself, and its preview, which is BulkDecisions', lists such a variant
  * as skipped, M56.) A row and its skip therefore cannot disagree. The "Show" filter of the match-strength lists and its counts (Ui\Queries) are built
- * from the SQL below, which states the same two conditions: the hold in force is KeyHold::IN_FORCE, the text KeyHold itself reads
+ * from the SQL below, which states the same conditions: the hold in force is KeyHold::IN_FORCE, the text KeyHold itself reads
  * with; the spot checks' matches are the answer of the same read (spotMatchesToDecide(): spotChecksOf() for the few dozen
- * variants that are a match of any spot check and still to decide), named to the SQL by their ids.
+ * variants that are a match of any spot check and still to decide), named to the SQL by their ids; the check on arrival's
+ * suggestions are the open ones of arrivalRuns(), named to the SQL by those run ids (arrivalSql()), which of() reads too.
  *
  * Read only. Nothing here decides anything, and the rule itself is unchanged: a hand-made form that names such a row is skipped
  * exactly as before.
@@ -32,20 +39,23 @@ final class OneAtATime
 {
     public const HELD = 'held';
     public const SPOT = 'in_spot_check';
-    /** The kinds, in the order they are asked (BulkDecisions::SKIPS holds both). */
-    public const KINDS = [self::HELD, self::SPOT];
+    public const ARRIVAL = 'on_arrival';
+    /** The kinds, in the order they are asked (BulkDecisions::SKIPS holds each). */
+    public const KINDS = [self::HELD, self::SPOT, self::ARRIVAL];
     /** One of a spot check's matches, as a condition on the member row `m` (the rest of its population has no position). */
     private const MEMBER = 'm.position IS NOT NULL';
 
     /**
      * Of these variants, the ones no bulk action takes: listing id => why. `detail` is what a skipped row records and what the
-     * result page's words are filled from (held: reason, by, at; in_spot_check: sample, the spot check's name); `sample_id` and
-     * `sample` name the spot check (a hold names the one whose population it was written for), for a link.
+     * result page's words are filled from (held: reason, by, at; in_spot_check: sample, the spot check's name; on_arrival: none);
+     * `sample_id` and `sample` name the spot check (a hold names the one whose population it was written for), for a link (0 and
+     * '' for on_arrival: it belongs to none).
      *
      * @param list<int> $listingIds
+     * @param list<int>|null $arrivalRuns arrivalRuns() when the caller has read them; read here when not given
      * @return array<int, array{code: string, detail: array<string, mixed>, sample_id: int, sample: string}>
      */
-    public static function of(Db $db, array $listingIds): array
+    public static function of(Db $db, array $listingIds, ?array $arrivalRuns = null): array
     {
         $ids = array_values(array_unique(array_map('intval', $listingIds)));
         if ($ids === []) {
@@ -53,6 +63,7 @@ final class OneAtATime
         }
         $held = KeyHold::activeForListings($db, $ids);
         $spot = self::spotChecksOf($db, $ids);
+        $arrival = self::onArrival($db, $ids, $arrivalRuns ?? self::arrivalRuns($db));
         $out = [];
         foreach ($ids as $lid) {
             if (isset($held[$lid])) {
@@ -61,6 +72,63 @@ final class OneAtATime
                     'sample' => $h['sample']];
             } elseif (isset($spot[$lid])) {
                 $out[$lid] = ['code' => self::SPOT, 'detail' => ['sample' => $spot[$lid]['name']], 'sample_id' => $spot[$lid]['id'], 'sample' => $spot[$lid]['name']];
+            } elseif (isset($arrival[$lid])) {
+                $out[$lid] = ['code' => self::ARRIVAL, 'detail' => [], 'sample_id' => 0, 'sample' => ''];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The match_run rows whose OPEN suggestions are decided one at a time now (M64): the check on arrival's runs that still have
+     * an open suggestion; of both its sources while `mapping.arrival_bulk_confirm` is off, only the ones with a warning
+     * (ArrivalCheck::SOURCE_WARNED) while it is on. Read from two indexes and no row: the runs by their id's first letters (the
+     * unique key (run_id, source); every run of the check is named `arrival-...`), each asked on the index (run, status) of the
+     * suggestions whether one is still open. A handful of numbers: of() and the SQL of the lists (arrivalSql()) both take them, so
+     * a row and its filter cannot disagree. Empty while the check has written nothing that is still open: nothing reads further.
+     *
+     * @return list<int>
+     */
+    public static function arrivalRuns(Db $db): array
+    {
+        $sources = ArrivalCheck::bulkConfirm($db) ? [ArrivalCheck::SOURCE_WARNED] : ArrivalCheck::SOURCES;
+        return array_map('intval', $db->column('SELECT r.id FROM match_run r WHERE r.run_id LIKE ? AND r.source IN (' . implode(',', array_fill(0, count($sources), '?')) . ') '
+            . "AND EXISTS (SELECT /*+ INDEX(p ix_match_proposal_run_open) */ 1 FROM match_proposal p WHERE p.match_run_id = r.id AND p.status = 'open') ORDER BY r.id",
+            ['arrival-%', ...$sources]));
+    }
+
+    /**
+     * Is this suggestion one of the check on arrival's that are decided one at a time now, WHATEVER ITS STATE (M64)? What a bulk
+     * action asks under the row's lock about the suggestion its row named, after the decision (BulkDecisions::one()). of() reads
+     * a variant's OPEN suggestion, and a confirm, a "create as new", an ignore and a "send back" have just closed it: of() alone
+     * would not see `mapping.arrival_bulk_confirm` switched off while a batch runs. The same sources as arrivalRuns(), by the
+     * suggestion's primary key and its run's.
+     */
+    public static function arrivalSuggestion(Db $db, int $proposalId): bool
+    {
+        $sources = ArrivalCheck::bulkConfirm($db) ? [ArrivalCheck::SOURCE_WARNED] : ArrivalCheck::SOURCES;
+        return $db->value('SELECT 1 FROM match_proposal p JOIN match_run r ON r.id = p.match_run_id WHERE p.id = ? AND r.source IN ('
+            . implode(',', array_fill(0, count($sources), '?')) . ')', [$proposalId, ...$sources]) !== null;
+    }
+
+    /**
+     * Of these variants, the ones whose open suggestion is of one of $runs: listing id => true. The suggestions by their own
+     * unique key (the open one of a listing), a page of them at most.
+     *
+     * @param list<int> $listingIds
+     * @param list<int> $runs
+     * @return array<int, true>
+     */
+    private static function onArrival(Db $db, array $listingIds, array $runs): array
+    {
+        $out = [];
+        if ($runs === []) {
+            return $out;
+        }
+        foreach (array_chunk($listingIds, 500) as $chunk) {
+            foreach ($db->column('SELECT p.open_listing_id FROM match_proposal p WHERE p.open_listing_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ') AND '
+                . self::arrivalSql('p.match_run_id', $runs), $chunk) as $lid) {
+                $out[(int) $lid] = true;
             }
         }
         return $out;
@@ -139,6 +207,17 @@ final class OneAtATime
     public static function spotSql(string $listingId, array $matches): string
     {
         return $matches === [] ? '(1 = 0)' : '(' . self::column($listingId) . ' IN (' . implode(',', array_map('intval', $matches)) . '))';
+    }
+
+    /**
+     * SQL that is true of a suggestion found by the check on arrival that is decided one at a time now: its run (`$runColumn`, a
+     * column of the outer query: `p.match_run_id`) is one of $runs (arrivalRuns()). None named: true of nothing.
+     *
+     * @param list<int> $runs
+     */
+    public static function arrivalSql(string $runColumn, array $runs): string
+    {
+        return $runs === [] ? '(1 = 0)' : '(' . self::column($runColumn) . ' IN (' . implode(',', array_map('intval', $runs)) . '))';
     }
 
     /**

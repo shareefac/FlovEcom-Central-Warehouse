@@ -100,6 +100,23 @@ final class DeployTest extends TestCase
     }
 
     /**
+     * The check on arrival (docs/decisions.md M64) has ONE cron line, every ten minutes, in its writing form; the installer's smoke
+     * list runs it in its dry-run form (no --apply: it writes nothing), and nothing else schedules or runs it.
+     */
+    public function testTheCheckOnArrivalIsScheduledOnceAndSmokeTestedDry(): void
+    {
+        $cron = (string) file_get_contents(self::DIR . '/cw-staging.cron');
+        self::assertMatchesRegularExpression('#^\*/10 \* \* \* \*  root  cd /opt/cw-staging && php bin/check_arrivals\.php --db=cw_staging --apply >> /var/log/cw/check_arrivals\.log 2>&1$#m', $cron);
+        self::assertSame(1, preg_match_all('#^[^\#\n]*check_arrivals\.php#m', $cron), 'one line');
+        self::assertDoesNotMatchRegularExpression('#^[^\#\n]*check_arrivals\.php[^\n]*--(backfill|channel|score)#m', $cron, 'the timer takes the queue only: a backfill is a hand run');
+        $install = (string) file_get_contents(self::DIR . '/install_cron.sh');
+        self::assertMatchesRegularExpression('#^for job in [^\n]*"check_arrivals\.php"[^\n]*; do$#m', $install, 'smoke: the dry run');
+        self::assertDoesNotMatchRegularExpression('#check_arrivals\.php[^"\n]*--apply#', $install, 'the installer never runs it in its writing form');
+        $tool = (string) file_get_contents(dirname(self::DIR, 2) . '/bin/check_arrivals.php');
+        self::assertStringContainsString('DRY RUN by default', $tool);
+    }
+
+    /**
      * I36: new files of the document store are sealed every minute (root:www-data 0440, chattr +i) and every stored file
      * is re-hashed nightly; the installer seals what is there and checks that a sealed file cannot be rewritten in place.
      */

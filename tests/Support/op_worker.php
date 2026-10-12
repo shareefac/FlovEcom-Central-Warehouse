@@ -11,12 +11,16 @@ declare(strict_types=1);
  *
  * job = {now?: CW's clock (default StockTestCase::NOW), ops: [{op, channel_id?, channel_code?, key?, ...}]}
  * op  = reserve | commit | release | ship | opening | listings | move | decide (staff_id, request) | wait_lock
+ *       | check_arrivals (opts: CW\Mapping\ArrivalCheck::run, the check on arrival as bin/check_arrivals.php runs it)
+ *       | bulk (staff_id, action, rows, context: CW\Mapping\BulkDecisions::run, a ticked batch as a list page sends it)
  */
 
 use CW\Caller;
 use CW\Clock;
 use CW\CwException;
 use CW\Db;
+use CW\Mapping\ArrivalCheck;
+use CW\Mapping\BulkDecisions;
 use CW\Mapping\DecisionService;
 use CW\Mapping\ListingIngestService;
 use CW\Movements;
@@ -67,10 +71,16 @@ foreach ($job['ops'] as $op) {
             'listings' => (new ListingIngestService($db))->push($caller, $op['listings']),
             'decide' => (new DecisionService($db, null, $res))->decide(Caller::staff((int) $op['staff_id']), $op['request']),
             'move' => $moves->record($caller, $op['request'], (string) $op['key']),
+            'check_arrivals' => ['arrival' => (new ArrivalCheck($db))->run($op['opts'] ?? [])],
+            'bulk' => ['bulk' => (new BulkDecisions($db, new DecisionService($db, null, $res)))->run(Caller::staff((int) $op['staff_id']), (string) $op['action'], $op['rows'], $op['context'])],
             'wait_lock' => waitLock($db, (string) $op['table'], (string) $op['status'], (float) ($op['timeout'] ?? 30.0), (int) ($op['interval_ms'] ?? 2)),
             default => throw new \InvalidArgumentException('unknown op'),
         };
-        if (is_array($r) && isset($r['found'])) {
+        if (is_array($r) && isset($r['arrival'])) {
+            $row += ['status' => 200, 'result' => 'checked', 'body' => $r['arrival']];
+        } elseif (is_array($r) && isset($r['bulk'])) {
+            $row += ['status' => 200, 'result' => 'batch', 'body' => $r['bulk']];
+        } elseif (is_array($r) && isset($r['found'])) {
             $row += ['status' => 200, 'result' => 'lock_seen'];
         } elseif (is_array($r) && isset($r['decision_id'])) {
             $row += ['status' => 200, 'result' => $r['state'], 'body' => $r];

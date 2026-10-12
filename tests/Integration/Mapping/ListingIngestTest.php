@@ -125,6 +125,110 @@ final class ListingIngestTest extends StockTestCase
         self::assertSame('system:import_listings', self::$db->value("SELECT actor FROM audit_log WHERE action = 'listing.profiles'"));
     }
 
+    /**
+     * The check on arrival's mark (0027, M64): a profile is marked "to check" when it is created, when its identity changed and
+     * when its web address changed; a push that changes neither (nothing at all, a price, the units sold) marks nothing. The mark
+     * names the store, and its number moves on with every marking, so a check that read an older number writes nothing.
+     */
+    public function testAProfileIsMarkedToCheckWhenItIsCreatedOrItsIdentityOrItsAddressChanged(): void
+    {
+        $site = $this->site('electrofag', 'off');
+        $channel = (int) $site->channelId;
+        $v = ['variant_id' => 'A1', 'product_title' => 'Bar Juice 5000 Blue Razz', 'variant_title' => '10mg', 'barcodes' => ['5060769492206'], 'price' => 4.99,
+            'perma_link' => 'bar-juice-5000-blue-razz/10mg', 'units_30d' => 1, 'units_365d' => 9];
+        $mark = fn (): array => array_values((array) self::$db->one('SELECT lp.arrival_state, lp.arrival_seq, lp.arrival_channel_id, lp.arrival_checked_at, lp.arrival_outcome '
+            . "FROM listing_profile lp JOIN channel_listing cl ON cl.id = lp.listing_id WHERE cl.external_variant_id = 'A1'"));
+        $looked = static function (): void {
+            self::$db->exec("UPDATE listing_profile SET arrival_state = 'done', arrival_checked_at = '2026-10-12 08:00:00.000000', arrival_outcome = 'no_clue'");
+        };
+        $detail = static fn (): array => json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'listing.profiles' ORDER BY id DESC LIMIT 1"), true);
+
+        // Created: to check, number 1, its store.
+        $this->svc->push($site, [$v]);
+        self::assertSame(['queued', 1, $channel, null, null], $mark());
+        self::assertSame(1, $detail()['arrival_queued']);
+
+        // The same push again, and one that changes only the price and the units sold: no mark (what the check wrote stays).
+        $looked();
+        self::assertSame(1, $this->svc->push($site, [$v])['unchanged']);
+        self::assertSame(['done', 1, $channel, '2026-10-12 08:00:00.000000', 'no_clue'], $mark());
+        self::assertSame(0, $detail()['arrival_queued']);
+        $r = $this->svc->push($site, [['price' => 5.49, 'units_30d' => 2, 'units_365d' => 10] + $v]);
+        self::assertSame([1, false], [$r['updated'], $r['listings'][0]['identity_changed']]);
+        self::assertSame(['done', 1, $channel, '2026-10-12 08:00:00.000000', 'no_clue'], $mark(), 'a price is nothing the check reads');
+        self::assertSame(0, $detail()['arrival_queued']);
+        $v = ['price' => 5.49, 'units_30d' => 2, 'units_365d' => 10] + $v;
+
+        // The identity changed (a barcode came): to check again, the number moves on.
+        $v['barcodes'] = ['5060769492206', '5060769492213'];
+        self::assertTrue($this->svc->push($site, [$v])['listings'][0]['identity_changed']);
+        self::assertSame(['queued', 2, $channel], array_slice($mark(), 0, 3));
+        self::assertSame(1, $detail()['arrival_queued']);
+
+        // The address changed and nothing else: the identity did not, the mark did.
+        $looked();
+        $v['perma_link'] = 'bar-juice-5000-blue-razz-nic-salt/10mg';
+        $r = $this->svc->push($site, [$v]);
+        self::assertSame([1, false], [$r['updated'], $r['listings'][0]['identity_changed']]);
+        self::assertSame(['queued', 3, $channel], array_slice($mark(), 0, 3));
+        // ... taken away altogether: a change of the address too.
+        $looked();
+        unset($v['perma_link']);
+        $this->svc->push($site, [$v]);
+        self::assertSame(['queued', 4, $channel], array_slice($mark(), 0, 3));
+        $looked();
+        self::assertSame(1, $this->svc->push($site, [$v])['unchanged']);
+        self::assertSame(['done', 4], array_slice($mark(), 0, 2), 'no address before and none now is no change');
+
+        // A profile that was there before the check (no mark at all) is marked the same way when it changes, and not before.
+        self::$db->exec('UPDATE listing_profile SET arrival_state = NULL, arrival_seq = 0, arrival_channel_id = NULL, arrival_checked_at = NULL, arrival_outcome = NULL');
+        $this->svc->push($site, [$v]);
+        self::assertSame([null, 0, null], array_slice($mark(), 0, 3), 'an unchanged push of an old profile does not queue it: the timer never drains what was there');
+        $v['product_title'] = 'Bar Juice 5000 Blue Razz Ice';
+        $this->svc->push($site, [$v]);
+        self::assertSame(['queued', 1, $channel], array_slice($mark(), 0, 3));
+
+        // A batch: only the profiles that need it are marked (one new, one unchanged).
+        $this->svc->push($site, [$v, ['variant_id' => 'A2', 'product_title' => 'Another']]);
+        self::assertSame(1, $detail()['arrival_queued']);
+        self::assertSame(['A1' => 1, 'A2' => 1], array_map('intval', array_column(self::$db->all('SELECT cl.external_variant_id AS v, lp.arrival_seq FROM listing_profile lp '
+            . 'JOIN channel_listing cl ON cl.id = lp.listing_id ORDER BY cl.id'), 'arrival_seq', 'v')));
+        // No suggestion is made by the intake, and no link is touched.
+        self::assertSame([0, 0, 0], [(int) self::$db->value('SELECT COUNT(*) FROM match_proposal'), (int) self::$db->value('SELECT COUNT(*) FROM match_run'),
+            (int) self::$db->value('SELECT COUNT(*) FROM match_decision')]);
+    }
+
+    /**
+     * Neither hash reads the mark or anything else the check on arrival added: a fixed push hashes to the values main's own code
+     * gave before 0027 (commit 6faa6f7; `profile()` run on this push), and both are still what their definitions say: the identity
+     * is the five identity fields, the profile every field of the push. And an export line still becomes the same ten fields.
+     */
+    public function testBothHashesAndTheExportShapeAreWhatTheyWereBeforeTheCheckOnArrival(): void
+    {
+        $site = $this->site('electrofag', 'off');
+        $push = ['variant_id' => 'A1', 'product_title' => ' Bar Juice 5000 Blue Razz ', 'variant_title' => '10mg', 'brand' => 'Bar Juice 5000',
+            'attributes' => ['items' => [['name' => 'Strength', 'value' => '10mg', 'attr_id' => 3, 'is_variable' => 1]]], 'barcodes' => ['5060769492206', 5055],
+            'price' => '4.99', 'perma_link' => 'bar-juice-5000-blue-razz/10mg/', 'units_30d' => 3, 'units_365d' => 40];
+        $this->svc->push($site, [$push]);
+        $p = self::$db->one('SELECT identity_hash, profile_hash, product_title, variant_title, brand, CAST(attributes AS CHAR) AS attributes, CAST(barcodes AS CHAR) AS barcodes, '
+            . 'price, perma_link, units_30d, units_365d FROM listing_profile');
+        self::assertSame(['64038423fd53b121604acc4d153b4348af14622e900d284c3aecc5f85f15b572', 'c7a6fd65b42e28bd0924af2a47d32cb2a8d534e4d4fe5db1d34f80763dd8b35a'],
+            [$p['identity_hash'], $p['profile_hash']], 'as main computed them before the check on arrival');
+        $identity = ['product_title' => 'Bar Juice 5000 Blue Razz', 'variant_title' => '10mg', 'brand' => 'Bar Juice 5000',
+            'attributes' => \CW\Idempotency::canonical($push['attributes']), 'barcodes' => ['5055', '5060769492206']];
+        self::assertSame(hash('sha256', \CW\Idempotency::canonicalJson($identity)), $p['identity_hash']);
+        self::assertSame(hash('sha256', \CW\Idempotency::canonicalJson(['variant_id' => 'A1'] + $identity + ['price' => '4.99', 'perma_link' => 'bar-juice-5000-blue-razz/10mg/',
+            'units_30d' => 3, 'units_365d' => 40])), $p['profile_hash']);
+        // The mark moves, the hashes do not: the check's writes never make a push look changed.
+        self::$db->exec("UPDATE listing_profile SET arrival_state = 'done', arrival_seq = 7, arrival_checked_at = UTC_TIMESTAMP(6), arrival_outcome = 'arrival_barcode'");
+        self::assertSame(1, $this->svc->push($site, [$push])['unchanged']);
+        self::assertSame(['done', 7], array_values((array) self::$db->one('SELECT arrival_state, arrival_seq FROM listing_profile')));
+
+        self::assertSame(['variant_id', 'product_title', 'variant_title', 'brand', 'attributes', 'barcodes', 'price', 'perma_link', 'units_30d', 'units_365d'],
+            array_keys(ListingIngestService::fromExport(['variant_id' => 3, 'variant_status' => 'Published', 'product_status' => 'Published', 'is_landing' => 0,
+                'product_type' => 'variable', 'permalink' => 'x/'])), 'an export line carries no website state into a push yet (build 2)');
+    }
+
     /** @return array{0: int, 1: string} */
     private static function error(callable $fn): array
     {

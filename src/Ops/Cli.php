@@ -37,12 +37,24 @@ final class Cli
      * Runs a job: parse options, connect, check the schema is current, take the job's lock
      * (unless $singleRun is false), call $fn and turn every failure into an exit code.
      *
+     * With $strict the command line is read whole or not at all: a word unreadable() names ends the job with the usage and exit 2
+     * before anything is connected to or read (a job that writes on `--apply` asks for it: bin/check_arrivals.php).
+     *
      * @param list<string> $longopts the job's own getopt() long options
      * @param callable(self, array<string, mixed>): int $fn returns the exit code
      */
-    public static function main(string $job, array $longopts, string $usage, callable $fn, bool $singleRun = true): int
+    public static function main(string $job, array $longopts, string $usage, callable $fn, bool $singleRun = true, bool $strict = false): int
     {
-        $opts = getopt('', array_merge(['db:', 'admin', 'help'], $longopts));
+        $all = array_merge(['db:', 'admin', 'help'], $longopts);
+        if ($strict) {
+            $argv = is_array($_SERVER['argv'] ?? null) ? array_values($_SERVER['argv']) : [];
+            $bad = self::unreadable(array_map(static fn (mixed $a): string => is_string($a) ? $a : '', array_slice($argv, 1)), $all);
+            if ($bad !== null) {
+                self::stderr($job, "{$bad}\n{$usage}\n  common: [--db=<schema>] [--admin]");
+                return self::USAGE;
+            }
+        }
+        $opts = getopt('', $all);
         if (!is_array($opts)) {
             $opts = [];
         }
@@ -73,6 +85,46 @@ final class Cli
             self::stderr($job, "[{$cli->schema}] " . self::describe($e));
             return self::CANNOT_RUN;
         }
+    }
+
+    /**
+     * The first word of a command line that getopt() would drop or misread without saying so, as a sentence; null when every
+     * word is one of the job's options, written `--name` (a flag) or `--name=value`. What it names: a word that is no option
+     * (getopt() stops reading there, so everything after it is lost), an option the job does not have (a misspelt one: dropped),
+     * a value on a flag (`--apply=false` is `--apply` to getopt()), an option that takes a value given none or an empty one (an
+     * unset shell variable: dropped), the value as a word of its own, and an option given twice (getopt() gives a list).
+     *
+     * @param list<string> $args the words after the script's name
+     * @param list<string> $longopts getopt() long options: `name` a flag, `name:` takes a value
+     */
+    public static function unreadable(array $args, array $longopts): ?string
+    {
+        $takesValue = [];
+        foreach ($longopts as $o) {
+            $takesValue[rtrim($o, ':')] = str_ends_with($o, ':');
+        }
+        $seen = [];
+        foreach ($args as $arg) {
+            if (preg_match('/^--([a-z][a-z0-9-]*)(=.*)?$/sD', $arg, $m) !== 1) {
+                return "not an option: {$arg}";
+            }
+            $name = $m[1];
+            $value = isset($m[2]) ? substr($m[2], 1) : null;
+            if (!isset($takesValue[$name])) {
+                return "unknown option --{$name}";
+            }
+            if (isset($seen[$name])) {
+                return "--{$name} is given twice";
+            }
+            $seen[$name] = true;
+            if ($takesValue[$name] && ($value === null || $value === '')) {
+                return "--{$name} needs a value: --{$name}=<value>";
+            }
+            if (!$takesValue[$name] && $value !== null) {
+                return "--{$name} takes no value";
+            }
+        }
+        return null;
     }
 
     /** @param array<string, mixed> $opts */

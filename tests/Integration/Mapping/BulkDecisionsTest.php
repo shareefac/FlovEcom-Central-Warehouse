@@ -28,6 +28,7 @@ use CW\Tests\Support\MappingTestCase;
 final class BulkDecisionsTest extends MappingTestCase
 {
     use KeyFixtures;
+    use \CW\Tests\Support\ArrivalFixtures;
 
     /** @var array<string, string> setting key => its stored JSON before the test */
     private array $saved = [];
@@ -148,6 +149,103 @@ final class BulkDecisionsTest extends MappingTestCase
         self::assertEquals(['asked' => 9, 'done' => 1, 'pending_second' => 2, 'skipped' => 6], array_intersect_key($sum, ['asked' => 0, 'done' => 0, 'pending_second' => 0, 'skipped' => 0]),
             'MySQL keeps a JSON object in its own key order');
         self::assertSame('waiting', (new KeySample(self::$db))->status('bk1')['verdict'], 'the spot check is untouched');
+    }
+
+    /**
+     * M64: a variant whose open suggestion was found by the check on arrival is the third kind OneAtATime answers, after held back
+     * and in a spot check. While `mapping.arrival_bulk_confirm` is off, every such suggestion: the pre-checks skip the row for every
+     * list and every action with the code `on_arrival`, a real run records it so and decides nothing. With the setting on, a clean
+     * match is an ordinary row (a ticked confirm matches it to the item the check named); one the check wrote with a warning, a
+     * "not sure" and a conflict stay one at a time, whatever the setting. The rows are told by their run alone (arrivalRuns()),
+     * and with nothing found by the check nothing is read and nothing changes.
+     */
+    public function testAVariantFoundByTheCheckOnArrivalIsDecidedOneAtATimeUnlessTheSettingAllowsACleanMatch(): void
+    {
+        $this->keySetup();
+        foreach (['mapping.arrival_stores' => '"alt"', 'mapping.arrival_main_store' => '"vpg"', 'mapping.arrival_bulk_confirm' => 'false'] as $key => $json) {
+            $this->setting($key, $json);
+        }
+        $this->arrivalMain = $this->vpgSite;
+        $this->arrival = new \CW\Mapping\ArrivalCheck(self::$db, $this->ds);
+        $free = $this->firstMatch($this->vpgItem(), 95)['listing']; // a judged strong match: an ordinary row throughout
+        self::assertSame([[], []], [OneAtATime::arrivalRuns(self::$db), OneAtATime::of(self::$db, [$free])], 'nothing found by the check: nothing to tell');
+
+        $title = 'Bar Juice 5000 Blue Razz 10ml Nic Salt E-Liquid';
+        $a = $this->mainItem($title, '10mg', [self::gtin(1)]);
+        $clean = $this->arrives($this->altSite, $title, '10mg', [self::gtin(1)]);
+        $this->mainItem($title, '20mg', [self::gtin(2)]);
+        $warned = $this->arrives($this->altSite, $title, '', [self::gtin(2)]);          // a match with a warning (no strength stated)
+        $this->mainItem($title, '10mg', [self::gtin(3)]);
+        $this->mainItem($title, '10mg', [self::gtin(3)]);
+        $clash = $this->arrives($this->altSite, $title, '10mg', [self::gtin(3)]);        // the barcode is on two items: a conflict
+        $none = $this->arrives($this->altSite, 'Nothing like it', 'Red');                // no clue: no suggestion
+        $this->arrival->run(['apply' => true]);
+        $ids = [$free, $clean, $warned, $clash, $none];
+        sort($ids);
+        $lead = $this->staffUser('mapping_lead');
+        $rows = array_map(fn (int $id): array => $this->seen($id), $ids);
+        $alt = (int) $this->altSite->channelId;
+        $lists = [['review', 'link', ['band' => 'Check']], ['review', 'reject', ['band' => 'Check']], ['review', 'ignore', ['band' => 'Check', 'reason' => 'x']],
+            ['review', 'ignore', ['band' => 'Conflict', 'reason' => 'x']], ['store', 'ignore', ['reason' => 'x']], ['store', 'send_back', []],
+            ['new', 'new_item', ['channel_id' => $alt]], ['new', 'link', ['channel_id' => $alt]], ['new', 'ignore', ['channel_id' => $alt, 'reason' => 'x']],
+            ['item', 'link', []], ['item', 'reject', []], ['item', 'send_back', []]];
+        $agree = function (array $expect, string $when) use ($lead, $rows, $ids, $lists): void {
+            $never = OneAtATime::of(self::$db, $ids);
+            ksort($never);
+            self::assertSame($expect, array_map(static fn (array $n): string => $n['code'], $never), $when);
+            foreach ($never as $n) {
+                self::assertSame([[], 0, ''], [$n['detail'], $n['sample_id'], $n['sample']], 'found on arrival: nothing to fill in, and no spot check');
+            }
+            foreach ($lists as [$source, $action, $more]) {
+                $p = $this->bulk()->preview($lead, $action, $rows, ['source' => $source] + $more);
+                foreach ($ids as $id) {
+                    $row = $p['rows'][$id];
+                    if (isset($never[$id])) {
+                        self::assertSame(['skipped', 'on_arrival', []], [$row['outcome'], $row['code'], $row['detail']], "{$when}: {$source} {$action} row {$id}");
+                    } else {
+                        self::assertNotContains($row['code'], OneAtATime::KINDS, "{$when}: {$source} {$action} row {$id} is not one of them");
+                    }
+                }
+            }
+        };
+
+        // The setting off: every suggestion of the check, whatever it says. Told by two run rows.
+        $both = [$clean => 'on_arrival', $warned => 'on_arrival', $clash => 'on_arrival'];
+        ksort($both);
+        $agree($both, 'setting off');
+        self::assertCount(2, OneAtATime::arrivalRuns(self::$db));
+        self::assertContains('on_arrival', BulkDecisions::SKIPS);
+        self::assertSame(['held', 'in_spot_check', 'on_arrival'], OneAtATime::KINDS);
+        $decisions = $this->decisions();
+        $r = $this->bulk()->run($lead, 'link', [$this->seen($clean), $this->seen($warned), $this->seen($clash), $this->seen($none)], ['source' => 'review', 'band' => 'Check']);
+        $batch = self::batchRows($r['batch_id']);
+        self::assertSame([0, 4], [$r['done'], $r['skipped']]);
+        self::assertSame(['on_arrival', 'on_arrival', 'on_arrival', 'no_suggestion'], [$batch[$clean]['skip_code'], $batch[$warned]['skip_code'], $batch[$clash]['skip_code'], $batch[$none]['skip_code']]);
+        self::assertSame([null, null, null], [$batch[$clean]['detail'], $batch[$warned]['detail'], $batch[$clash]['detail']]);
+        self::assertSame(['suggested', 'suggested', 'suggested', $decisions], [$this->link($clean)['status'], $this->link($warned)['status'], $this->link($clash)['status'], $this->decisions()],
+            'nothing was decided');
+        // The other bulk actions too: an ignore does not take them either.
+        $r = $this->bulk()->run($lead, 'ignore', [$this->seen($clean), $this->seen($clash)], ['source' => 'store', 'reason' => 'not wanted']);
+        self::assertSame([0, 2], [$r['done'], $r['skipped']]);
+        self::assertSame(['suggested', 'suggested'], [$this->link($clean)['status'], $this->link($clash)['status']]);
+
+        // The setting on: the clean match is an ordinary row; the warned one and the conflict never.
+        $this->setting('mapping.arrival_bulk_confirm', 'true');
+        $rest = [$warned => 'on_arrival', $clash => 'on_arrival'];
+        ksort($rest);
+        $agree($rest, 'setting on');
+        self::assertCount(1, OneAtATime::arrivalRuns(self::$db), 'only the run row of the ones with a warning');
+        $p = $this->bulk()->preview($lead, 'link', $rows, ['source' => 'review', 'band' => 'Check']);
+        self::assertSame(['done', null], [$p['rows'][$clean]['outcome'], $p['rows'][$clean]['code']]);
+        $r = $this->bulk()->run($lead, 'link', [$this->seen($clean), $this->seen($warned), $this->seen($clash)], ['source' => 'review', 'band' => 'Check']);
+        $batch = self::batchRows($r['batch_id']);
+        self::assertSame([1, 2, 'done', 'on_arrival', 'on_arrival'], [$r['done'], $r['skipped'], $batch[$clean]['outcome'], $batch[$warned]['skip_code'], $batch[$clash]['skip_code']]);
+        self::assertSame(['mapped', $a['sku'], 1], [$this->link($clean)['status'], $this->link($clean)['sku_id'], $this->link($clean)['units_per_item']], 'matched to the item the barcode named');
+        self::assertSame(['suggested', 'suggested'], [$this->link($warned)['status'], $this->link($clash)['status']]);
+        // Off again: the two that are left are as before; a run row with no open suggestion left is not named any more.
+        $this->setting('mapping.arrival_bulk_confirm', 'false');
+        self::assertSame($rest, array_map(static fn (array $n): string => $n['code'], OneAtATime::of(self::$db, $ids)));
+        self::assertCount(1, OneAtATime::arrivalRuns(self::$db), 'the clean matches\' run row has no open suggestion any more');
     }
 
     /**

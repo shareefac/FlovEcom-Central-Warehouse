@@ -4,7 +4,8 @@
 #                              never run from a slot directory, which remote.sh re-syncs with --delete
 #   /etc/cron.d/cw-staging     expire_reservations (every minute), prune_changes, invariants (nightly), the document
 #                              store's seal sweep (every minute) and verify_files (nightly; both idle until
-#                              install_file_store.sh has made /srv/cw-docs)
+#                              install_file_store.sh has made /srv/cw-docs), the check on arrival (every 10 minutes;
+#                              it does nothing until a store is named in the setting mapping.arrival_stores)
 #   /etc/logrotate.d/cw-staging, /var/log/cw/
 # Then runs every job once, as cron will (app login), and prints what they said.
 # Run from this machine (remote.sh syncs the slot first, then this copies the slot):
@@ -65,7 +66,8 @@ say "installed /etc/cron.d/cw-staging, /etc/logrotate.d/cw-staging, /var/log/cw"
 
 # 4. Smoke: each job once, exactly as cron runs it.
 fail=0
-for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "health_alert.php"; do
+# (check_arrivals.php in its dry-run form: it reads and prints, and writes nothing, whatever the setting names)
+for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "check_arrivals.php" "health_alert.php"; do
     set +e
     out=$(php bin/$job --db="$schema" 2>&1)
     code=$?

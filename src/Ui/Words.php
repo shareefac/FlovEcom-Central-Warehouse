@@ -31,7 +31,7 @@ final class Words
     /** The groups of() accepts (the constant names below). */
     private const GROUPS = ['SITE', 'ROLE', 'ROLE_PLURAL', 'ROLE_HELP', 'ROLE_GROUP', 'SECTION', 'SECTION_DESC', 'MENU', 'SEGMENT', 'NEW', 'FLOW', 'MENU_HELP', 'TAB',
         'BADGE', 'COMING_LATER',
-        'PAGE_TITLE', 'BAND', 'BAND_TITLE', 'BAND_HELP', 'LANE', 'AI', 'FLAG', 'VETO', 'BAND_REASON', 'FIELD_STATE', 'NEEDS_SECOND', 'ACTION',
+        'PAGE_TITLE', 'BAND', 'BAND_TITLE', 'BAND_HELP', 'BAND_HELP_RULES', 'LANE', 'AI', 'FLAG', 'VETO', 'BAND_REASON', 'FIELD_STATE', 'NEEDS_SECOND', 'ACTION',
         'DECISION_STATE', 'LISTING_STATUS', 'POLICY', 'STOCK', 'SAMPLE_STATE', 'SAMPLE_RESULT', 'PO_STATE', 'SEND_VIA', 'REASON', 'SUPPLIER_STATUS',
         'CHECK_REASON', 'CHECK_KIND', 'REVIEW_STATE', 'TASK_STATE', 'DOC_STATUS', 'REORDER_FLAG', 'SETTING', 'ERROR_TITLE', 'ERROR', 'UI', 'HOME',
         'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
@@ -48,7 +48,7 @@ final class Words
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
         'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE', 'QUEUE_SHOW', 'ONE_AT_A_TIME',
         'BY_ITEM_BULK', 'BY_ITEM_SKIP',
-        'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER',
+        'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER', 'ARRIVAL_LEFT',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN'];
 
@@ -513,6 +513,18 @@ final class Words
         'Manual' => 'The websites use different names for the same range (Crystal Pro Max = Hayati Pro Max).',
     ];
 
+    /**
+     * The same three strengths when the suggestion was found by the check on arrival (docs/decisions.md U144; the suggestion's flag
+     * `rules_only`): a barcode or a copied web address and no AI, so BAND_HELP's "the AI thinks" would not be true. The check never
+     * writes the other three strengths.
+     */
+    public const BAND_HELP_RULES = [
+        'Check' => 'A barcode, or a web address copied from the main store, points to this item. No AI has looked at it: check the details, then confirm.',
+        "Can't tell" => 'A barcode or a copied web address gives a clue, but not an answer. No AI has looked at it: check the details and choose the item yourself.',
+        'Conflict' => 'The clues do not fit: the barcode and the web address point to different items, the barcode is on more than one item or '
+            . 'on two variants of one store, or a rule says the item cannot be right. No AI has looked at it: decide it yourself.',
+    ];
+
     /** How the computer found the suggestion (Queries::LANES). */
     public const LANE = [
         'barcode' => 'Same barcode',
@@ -554,6 +566,9 @@ final class Words
         'gtin_on_multiple_items' => 'Barcode is on 2 products',
         'gtin_dup_in_channel' => 'Barcode is on 2 pages of this website',
         'barcode_transfer_disagree' => 'Barcode and copy disagree',
+        // The check on arrival (docs/decisions.md U144): on every suggestion it writes, and on each one that is not a clean match.
+        'rules_only' => 'Found by the check on arrival: no AI has looked at it',
+        'arrival_warned' => 'A detail needs a look: open it',
     ];
 
     /** A rule that says "cannot be this product" (Veto::CODES). */
@@ -586,11 +601,28 @@ final class Words
         'soft_flags' => 'small warnings',
         'barcode_on_2_items' => 'barcode on 2 products',
         'ai_vs_barcode' => 'AI and barcode disagree',
-        'veto_on_key' => 'a rule says the barcode\'s product cannot be right',
+        'veto_on_key' => 'a rule says the item the clue points to cannot be right',
         'alias_pending' => 'the range has another name',
         'no_candidates' => 'nothing similar in the warehouse list',
         'all_candidates_vetoed' => 'every similar product is ruled out',
         'placeholder' => 'not a real product',
+        // The check on arrival's reasons (Matching\ArrivalRules::REASONS; docs/decisions.md M65, U144): what the barcode and the copied
+        // web address of the variant say. Each key is exact.
+        'arrival_barcode' => 'its barcode is on this item',
+        'arrival_copy' => 'its web address was copied from this item\'s variant on the main store',
+        'arrival_barcode_and_copy' => 'its barcode and its copied web address both point to this item',
+        'arrival_not_compared' => 'the item has no variant to compare it with',
+        'arrival_renamed_range' => 'the range has another name on the main store',
+        'arrival_clues_differ' => 'its barcode points to one item and its web address to another',
+        'arrival_barcode_two_items' => 'its barcode is on more than one item',
+        'arrival_barcode_same_store' => 'another variant of the same store has the same barcode',
+        'arrival_item_taken' => 'the item already has a variant of this store, or is suggested for one',
+        'arrival_barcode_pack' => 'its barcode is recorded as a pack of more than one',
+        'arrival_copy_pack' => 'its web address was copied from a main-store variant that sells more than one of this item at a time',
+        'arrival_barcode_no_item' => 'its barcode is on another variant that has no item yet',
+        'arrival_copy_no_item' => 'its web address was copied from a main-store variant that has no item',
+        'arrival_copy_several' => 'its web address is used by more than one item',
+        'arrival_no_longer' => 'the barcode or web address that pointed to an item is no longer on it',
     ];
 
     /** The field-by-field comparison. */
@@ -1493,6 +1525,12 @@ final class Words
         'mapping.bulk_max_rows' => 'Most products in one bulk action',
         'mapping.by_item_page_size' => 'Items on a page of By Item',
         'mapping.new_variants_days' => 'Days New Variants looks back',
+        'mapping.arrival_stores' => 'Stores whose new variants the computer checks',
+        'mapping.arrival_main_store' => 'The main store',
+        'mapping.arrival_bulk_confirm' => 'Matches from the check on arrival may be confirmed from a ticked list',
+        'mapping.arrival_max_per_run' => 'Most variants one run of the check looks at',
+        'mapping.arrival_max_seconds' => 'Longest one run of the check may take, in seconds',
+        'mapping.arrival_queue_alarm' => 'Most waiting variants the timer takes by itself',
         'staff.setup_hours' => 'Hours to set up a sign-in',
         'staff.min_reviewers' => 'Reviewers needed',
     ];
@@ -1744,7 +1782,8 @@ final class Words
         'how_sure' => 'How sure',
         'total' => 'Total',
         'not_checked' => 'Not checked by the computer yet',
-        'not_checked_help' => 'Nothing to do now: they come in the next computer check.',
+        'not_checked_help' => 'They have no suggestion. Where a barcode or a copied web address points to an item, the check on arrival suggests it; '
+            . 'the rest wait for a person, or for the next full computer check.',
         'best_first' => 'Lists show best sellers first.',
         'pending_one' => '1 match is waiting for a second OK from a matching lead.',
         'pending_many' => '%s matches are waiting for a second OK from a matching lead.',
@@ -2568,6 +2607,19 @@ final class Words
             . 'can show another number for a while.',
         'mapping.new_variants_days' => 'The New Variants page opens with the variants first seen in this many days (30: the last month). '
             . 'The page also offers 7, 30 and 90 days and any time.',
+        'mapping.arrival_stores' => 'The check on arrival looks at the newly arrived variants of these stores (store codes, with commas between them). '
+            . 'Empty: the check is switched off. It only suggests: a variant whose barcode, or whose web address copied from the main store, points to '
+            . 'an item gets a suggestion for a person to confirm. No AI looks at it. It leaves every variant a person or another computer check has '
+            . 'already dealt with.',
+        'mapping.arrival_main_store' => 'The store the warehouse items were made from (one store code). A variant of another store whose web address '
+            . 'was copied from one of its variants is suggested for that variant\'s item. Empty: no copied web address is used.',
+        'mapping.arrival_bulk_confirm' => 'Off: a match found by the check on arrival has no tick box, and each is opened and decided on its own page. '
+            . 'On: a match with nothing against it can be ticked and confirmed with others. One with a warning, a "not sure" and a "clues disagree" are '
+            . 'always decided on their own page.',
+        'mapping.arrival_max_per_run' => 'The most variants the check on arrival looks at in one run. The rest wait for the next run.',
+        'mapping.arrival_max_seconds' => 'A run of the check on arrival stops after this many seconds and goes on at its next run.',
+        'mapping.arrival_queue_alarm' => 'When more variants of one store than this wait for the check on arrival (a whole store was just loaded, '
+            . 'say), the timer leaves that store alone until someone has run the check for it by hand (ask ' . self::ASK . ').',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
     ];
@@ -2908,7 +2960,13 @@ final class Words
         'no_box_spot_many' => '%s on this page are in a spot check',
         'no_box_and_spot_one' => '1 is in a spot check',
         'no_box_and_spot_many' => '%s are in a spot check',
+        // (U144) the rows found by the check on arrival that are decided one at a time: first in the sentence, or after another kind
+        'no_box_arrival_one' => '1 on this page was found by the check on arrival',
+        'no_box_arrival_many' => '%s on this page were found by the check on arrival',
+        'no_box_and_arrival_one' => '1 was found by the check on arrival',
+        'no_box_and_arrival_many' => '%s were found by the check on arrival',
         'no_box_both' => '%s and %s',
+        'no_box_three' => '%s, %s and %s',
         'no_box_one' => '%s: it is decided on its own and has no tick box.',
         'no_box_many' => '%s: they are decided one at a time and have no tick box.',
         'show_ready' => 'Show only the ones a bulk action can take (%s)',
@@ -2916,14 +2974,16 @@ final class Words
     ];
 
     /**
-     * What a match-strength list shows (Queries::SHOWS; docs/decisions.md U140): the "Show" filter, each with how many it holds.
-     * "Ready for a bulk action" is every row that is neither held back nor in a spot check.
+     * What a match-strength list shows (Queries::SHOWS; docs/decisions.md U140, U144): the "Show" filter, each with how many it holds.
+     * "Ready for a bulk action" is every row that is neither held back, nor in a spot check, nor one of the check on arrival's that
+     * are decided one at a time ("Found on arrival").
      */
     public const QUEUE_SHOW = [
         'all' => 'All',
         'ready' => 'Ready for a bulk action',
         'held' => 'Held back',
         'spot' => 'In a spot check',
+        'arrival' => 'Found on arrival',
     ];
 
     /**
@@ -2931,12 +2991,13 @@ final class Words
      * variants (To review, Store Products, New Variants): what it is, and what to do. Held back: when and by whom it was set aside
      * (%s the day, %s the name), and that its own page says why and is where it is decided. The hold's note itself is NOT printed
      * here: the stored notes are long technical rule texts (a build decision of 12 Oct 2026, not yet put to the owner); the row's own page shows it in
-     * full (LISTING `held`). A match of a spot check: the spot check's name. The same words on the three screens, so they name
-     * neither "product" nor "variant".
+     * full (LISTING `held`). A match of a spot check: the spot check's name. Found by the check on arrival (M64, U144): that no AI
+     * has looked at it, and what to do. The same words on the three screens, so they name neither "product" nor "variant".
      */
     public const ONE_AT_A_TIME = [
         'held' => 'Held back on %s (set aside by %s). Open it to see why and to decide it.',
         'in_spot_check' => 'In spot check %s: it is answered in the spot check.',
+        'on_arrival' => 'Found by the check on arrival: no AI has looked at it. Open it to check and decide.',
         'open_spot' => 'Open the spot check',
     ];
 
@@ -3274,6 +3335,7 @@ final class Words
         'held' => 'Held back to be checked one at a time: %s',
         'held_meanwhile' => 'It was held back to be checked one at a time while this ran.',
         'in_spot_check' => 'It is one of the matches of spot check %s: only that spot check\'s owner answers it, one at a time.',
+        'on_arrival' => 'Its suggestion was found by the check on arrival, and no AI has looked at it: open it to check and decide.',
         'spot_check_failed' => 'Spot check %s found a wrong match, so these strong matches are checked one at a time.',
         'bulk_undone' => 'A bulk match of it was undone before, so it is checked one at a time.',
         'band_not_allowed' => 'Its match strength (%s) is not one that may be confirmed together. Open it to decide it.',
@@ -3299,7 +3361,7 @@ final class Words
         // A bulk "create as new" (M61) takes only what the computer checked and found new, and of that not what is doubtful. The
         // others, each with why (the first three on New Variants only; the rest on every list that offers it):
         'suggested_match' => 'The computer suggests it is %s: open it and decide.',
-        'not_checked' => 'The computer has not checked this variant yet. Open it and decide.',
+        'not_checked' => 'Nothing is suggested for this variant. Open it and decide.',
         'not_new' => 'The computer could not say what it is (%s): open it and decide.',
         'page_heading' => 'It is a page heading on the website, not something that is sold. Open it and decide.',
         'not_published' => 'It is not published on the website (%s). Open it and decide.',
@@ -3336,7 +3398,8 @@ final class Words
         'ignore_text' => 'Each one is marked as not a real product (a gift card, a bundle, a placeholder) and leaves the lists. Nothing is matched.',
         'ignore_button' => 'Yes, ignore these %s',
         'send_back_title' => 'Send %s products back for matching?',
-        'send_back_text' => 'Each suggestion is closed. The products wait for the next computer check, which suggests again.',
+        'send_back_text' => 'Each suggestion is closed. The products wait for a person or for the next full computer check (the check on arrival '
+            . 'leaves a product that was sent back).',
         'send_back_button' => 'Yes, send these %s back',
         'skips' => 'Products held back, in a spot check, or changed since you opened the page are skipped and listed afterwards.',
         'reason' => 'Why (for all of them)',
@@ -3533,7 +3596,8 @@ final class Words
             . 'an item that already has a variant on that store, and an item with more than one suggested variant on a store.',
         'text_reject' => 'This is the second step of "Not a match": nothing is marked before you press the red button. Each suggestion is marked '
             . 'wrong; nothing is matched, and each variant stays in its list for another choice. Matching it to that item later needs a second OK.',
-        'text_send_back' => 'Each suggestion is closed. The variants wait for the next computer check, which suggests again. Nothing is matched.',
+        'text_send_back' => 'Each suggestion is closed. The variants wait for a person or for the next full computer check (the check on arrival '
+            . 'leaves a variant that was sent back). Nothing is matched.',
         'again' => 'Everything is checked again when you press the button. A variant that changed since you looked is skipped, never changed, and '
             . 'the skipped ones stay as they are. The next page says what was done.',
         'button_link' => 'Yes, do these %s',
@@ -3577,6 +3641,7 @@ final class Words
         'held' => 'Held back to be checked one at a time: %s',
         'held_meanwhile' => 'It was held back to be checked one at a time while this ran.',
         'in_spot_check' => 'It is one of the matches of spot check %s: only that spot check\'s owner answers it, one at a time.',
+        'on_arrival' => 'Its suggestion was found by the check on arrival, and no AI has looked at it: open it to check and decide.',
         'spot_check_failed' => 'Spot check %s found a wrong match, so these strong matches are checked one at a time.',
         'bulk_undone' => 'A bulk match of it was undone before, so it is checked one at a time.',
         'band_not_allowed' => 'Its match strength (%s) is not one that may be confirmed together. Open it to decide it.',
@@ -3602,7 +3667,7 @@ final class Words
         // A bulk "create as new" is not offered on By Item (ITEM_ACTIONS): the reasons it skips for are here so that every reason has its
         // words in both sets (the same sentences; "its store" where the lists' words say "the website").
         'suggested_match' => 'The computer suggests it is %s: open it and decide.',
-        'not_checked' => 'The computer has not checked this variant yet. Open it and decide.',
+        'not_checked' => 'Nothing is suggested for this variant. Open it and decide.',
         'not_new' => 'The computer could not say what it is (%s): open it and decide.',
         'page_heading' => 'It is a page heading on its store, not something that is sold. Open it and decide.',
         'not_published' => 'It is not published on its store (%s). Open it and decide.',
@@ -3657,8 +3722,21 @@ final class Words
         'is_new' => 'When the computer checked it, it found nothing like it.',
         'made_before' => 'An item was already made from this variant (%s): open it to decide.',
         'changed' => 'It changed on the website after the computer checked it: open it to decide.',
-        'not_checked' => 'The computer has not checked it yet: open it to decide.',
         'suggested_item' => '%s: %s',
+        // A suggestion of the check on arrival (U144): its strength, the item when it names one, and why (the reason's words).
+        'arrival_item' => '%s: %s (%s)',
+        'arrival_closest' => '%s, closest %s (%s)',
+        'arrival_none' => '%s (%s)',
+        // Above the list: whether the check on arrival is on for this store (%s the store), how many of its variants wait for it, and
+        // what its last run did there (%s the day, then how many it looked at, suggested and left).
+        'arrival_on' => 'The check on arrival is on for %s: a new variant whose barcode, or whose web address copied from the main store, '
+            . 'points to an item gets a suggestion. No AI looks at it.',
+        'arrival_off' => 'The check on arrival is switched off for %s, so its new variants get no suggestion by themselves (it is switched '
+            . 'on for a store on the Settings page).',
+        'arrival_waiting_one' => '1 variant is waiting for the check.',
+        'arrival_waiting_many' => '%s variants are waiting for the check.',
+        'arrival_last' => 'Its last run on %s looked at %s here: %s suggested as a match, %s where the clues disagree, %s not sure, %s left '
+            . 'with no suggestion.',
         // A suggested match that names no item (%s: its strength): the matched main-store variant has no item (BulkDecisions::matchNoItem).
         'match_no_item' => '%s, to a variant of the main store that has no item yet: open it to decide.',
         'site_heading' => 'A page heading on the website, not something that is sold.',
@@ -3672,7 +3750,7 @@ final class Words
         'empty_search_text' => 'Other variants of this period are hidden by it.',
         'seed_note' => '"Create as new items" takes only the rows marked New: when the computer checked them, it found nothing like them. '
             . 'It makes a warehouse item from each, with the variant\'s own name and details, and matches the two. Every other ticked row is '
-            . 'skipped and listed afterwards with the reason: not checked yet, a suggested match (also one to a variant of the main store '
+            . 'skipped and listed afterwards with the reason: no suggestion, a suggested match (also one to a variant of the main store '
             . 'that has no item yet), one the computer could not decide, a page '
             . 'heading, not published on the website, changed on the website after the check, an item already made from it, a name that an '
             . 'item already has or that two ticked rows share, or a barcode that is already on an item or on another variant. Open a '
@@ -3684,7 +3762,7 @@ final class Words
     public const NEW_VARIANT_STATE = [
         'new' => 'New',
         'suggested' => 'Suggested match',
-        'not_checked' => 'Not checked yet',
+        'not_checked' => 'No suggestion',
         'linked' => 'Matched',
         'quarantined' => 'On hold',
         'waiting' => 'Waiting for a second OK',
@@ -3696,8 +3774,28 @@ final class Words
         'unmatched' => 'All not matched',
         'new' => 'New: the computer found nothing like it',
         'suggested' => 'Suggested match',
-        'not_checked' => 'Not checked yet',
+        'not_checked' => 'No suggestion',
         'all' => 'All',
+    ];
+
+    /**
+     * Why a variant of New Variants has no suggestion (U144): the line under a "No suggestion" row, from what the check on arrival
+     * left on its profile (listing_profile.arrival_state and arrival_outcome; NewVariantsController::left()). `off`: the check is
+     * not switched on for the row's store and has never looked at it; `before`: it is on, and the variant was there before it;
+     * `queued`: it is waiting; the others are the outcomes the check records when it suggests nothing (Matching\ArrivalRules:
+     * NO_CLUE and REFUSALS); `other`: it suggested something once and that suggestion is closed.
+     */
+    public const ARRIVAL_LEFT = [
+        'off' => 'The check on arrival is switched off for this store: open it to decide.',
+        'before' => 'It was here before the check on arrival, which has not looked at it: open it to decide.',
+        'queued' => 'Waiting for the check on arrival.',
+        'no_clue' => 'The check on arrival found no barcode and no copied web address for it: open it to decide.',
+        'has_history' => 'A person or an earlier computer check has dealt with it, so the check on arrival leaves it: open it to decide.',
+        'not_open' => 'It was matched or ignored when the check on arrival looked, so the check left it: open it to decide.',
+        'held' => 'It was held back when the check on arrival looked, so the check left it: open it to decide.',
+        'in_spot_check' => 'It was in a spot check when the check on arrival looked, so the check left it: open it to decide.',
+        'no_title' => 'It has no name, so the check on arrival could not look at it: open it to decide.',
+        'other' => 'The check on arrival suggested something for it before, and that suggestion is closed: open it to decide.',
     ];
 
     /** New Variants' action bar, in the owner's words (a "…" means a second step follows). */
@@ -6832,6 +6930,7 @@ final class Words
         'location.switch_off' => 'Place switched off',
         'location.switch_on' => 'Place switched on again',
         'mapping.bulk' => 'Bulk action on matches',
+        'mapping.arrival_check' => 'The check on arrival ran',
         'staff.create' => 'Staff member added',
         'staff.roles' => 'Jobs changed',
         'staff.activate' => 'Can sign in again',

@@ -26,6 +26,13 @@ use CW\Idempotency;
  * listing that existed before the call on (design I7), so a stale form or a pending_second
  * decision of that listing is refused with 409 instead of being applied to another product.
  * One transaction per call; at most MAX_LISTINGS listings.
+ *
+ * The check on arrival (0027, docs/decisions.md M64): the intake only leaves a mark, in the statements it runs anyway. A profile is
+ * marked "to check" (arrival_state `queued`, arrival_seq + 1, arrival_channel_id = its store) when it is created, when its identity
+ * changed, or when its web address (perma_link) changed: the three things the check's rules read. A push that changes none of them
+ * (a price, the units sold, or nothing) marks nothing. No suggestion is made here: the check (CW\Mapping\ArrivalCheck, a
+ * command-line job) reads the mark later, in its own transactions. Neither hash reads the mark, and the mark is not part of a
+ * profile: the same push hashes the same with or without it.
  */
 final class ListingIngestService
 {
@@ -90,7 +97,7 @@ final class ListingIngestService
             sort($listingIds);
             foreach (array_chunk($listingIds, 500) as $chunk) {
                 foreach ($db->all(
-                    'SELECT listing_id, profile_hash, identity_hash FROM listing_profile WHERE listing_id IN ('
+                    'SELECT listing_id, profile_hash, identity_hash, perma_link FROM listing_profile WHERE listing_id IN ('
                     . implode(',', array_fill(0, count($chunk), '?')) . ') ORDER BY listing_id FOR UPDATE',
                     $chunk,
                 ) as $r) {
@@ -100,6 +107,7 @@ final class ListingIngestService
             $counts = ['created' => 0, 'updated' => 0, 'unchanged' => 0];
             $out = [];
             $stale = [];
+            $queued = 0;
             foreach ($variants as $v) {
                 $p = $profiles[$v];
                 $id = $ids[$v];
@@ -107,20 +115,26 @@ final class ListingIngestService
                 if ($old === null) {
                     $db->exec(
                         'INSERT INTO listing_profile (listing_id, product_title, variant_title, brand, attributes, barcodes, price, perma_link, '
-                        . 'units_30d, units_365d, profile_hash, identity_hash, pushed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(6))',
-                        [$id, ...self::columns($p)],
+                        . 'units_30d, units_365d, profile_hash, identity_hash, pushed_at, arrival_state, arrival_seq, arrival_channel_id) '
+                        . "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(6), 'queued', 1, ?)",
+                        [$id, ...self::columns($p), $channelId],
                     );
                     $result = 'created';
                     $identityChanged = true;
+                    $queued++;
                 } elseif ($old['profile_hash'] !== $p['profile_hash']) {
                     $identityChanged = $old['identity_hash'] !== $p['identity_hash'];
+                    // The check on arrival looks again when what its rules read has changed: the identity, or the web address.
+                    $toCheck = $identityChanged || $old['perma_link'] !== $p['perma_link'];
                     // Features were extracted from the old titles/attributes: stale once the identity changes.
                     $db->exec(
                         'UPDATE listing_profile SET product_title = ?, variant_title = ?, brand = ?, attributes = ?, barcodes = ?, price = ?, '
                         . 'perma_link = ?, units_30d = ?, units_365d = ?, profile_hash = ?, identity_hash = ?, pushed_at = UTC_TIMESTAMP(6)'
-                        . ($identityChanged ? ', features = NULL, features_version = NULL' : '') . ' WHERE listing_id = ?',
-                        [...self::columns($p), $id],
+                        . ($identityChanged ? ', features = NULL, features_version = NULL' : '')
+                        . ($toCheck ? ", arrival_state = 'queued', arrival_seq = arrival_seq + 1, arrival_channel_id = ?" : '') . ' WHERE listing_id = ?',
+                        [...self::columns($p), ...($toCheck ? [$channelId] : []), $id],
                     );
+                    $queued += $toCheck ? 1 : 0;
                     $result = 'updated';
                 } else {
                     $db->exec('UPDATE listing_profile SET pushed_at = UTC_TIMESTAMP(6) WHERE listing_id = ?', [$id]);
@@ -137,7 +151,7 @@ final class ListingIngestService
             // writer of channel_listing, moves their map_version on).
             $bumped = $stale === [] ? 0 : DecisionService::identityChanged($db, $stale);
             Audit::write($db, $caller, 'listing.profiles', 'channel', (string) $channelId, null,
-                $counts + ['received' => count($variants), 'new_listings' => $created, 'identity_changed' => $bumped]);
+                $counts + ['received' => count($variants), 'new_listings' => $created, 'identity_changed' => $bumped, 'arrival_queued' => $queued]);
             return ['received' => count($variants)] + $counts + ['listings' => $out];
         });
     }

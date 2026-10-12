@@ -8,6 +8,7 @@ use CW\Caller;
 use CW\Mapping\BulkDecisions;
 use CW\Output\CsvWriter;
 use CW\Tests\Support\KernelBrowser;
+use CW\Tests\Support\ArrivalFixtures;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\UiResponse;
 use CW\Ui\Controller\BulkController;
@@ -20,7 +21,7 @@ use CW\Ui\Words;
  * Products › New Variants (docs/decisions.md M60-M62, U131-U138), through the real /ui kernel as cw_app, with three stores made by
  * the test (no store is named in the code): the tab and its place, one store's variants first seen in a period (newest first, with
  * their facts and what each is, in words), the box that says whether the store sends (its mode and its latest heartbeat), the
- * period filter and its setting changed on the Settings page, the filter (All not matched, New, Suggested match, Not checked yet,
+ * period filter and its setting changed on the Settings page, the filter (All not matched, New, Suggested match, No suggestion,
  * All) with its counts, the search, the pager and the CSV, the action bar per person, the seed "Create as new items" (an item only
  * for a row the computer found new; each skip with its reason; the result page), Confirm match and Ignore… from this list, CSRF and
  * permissions, numbers out of range and a note that is not text, and odd values in the address. Round 2b: a variant an item was
@@ -30,6 +31,8 @@ use CW\Ui\Words;
  */
 final class NewVariantsScreenTest extends KernelUiTestCase
 {
+    use ArrivalFixtures;
+
     private const PATH = NewVariantsController::PATH;
 
     /** @var list<array<string, mixed>> */
@@ -227,7 +230,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame('£4.99', $row[Words::NEW_VARIANTS['price']]);
         self::assertSame(['4', '31'], [$row[Words::QUEUE['sold_30']], $row[Words::QUEUE['sold_365']]]);
         self::assertSame(Html::when((string) self::$db->value('SELECT created_at FROM channel_listing WHERE id = ?', [$newer])), $row[Words::NEW_VARIANTS['first_seen']]);
-        self::assertSame(Words::NEW_VARIANT_STATE['not_checked'] . ' ' . Words::NEW_VARIANTS['not_checked'], $row['state'], 'what it is, and why');
+        self::assertSame(Words::NEW_VARIANT_STATE['not_checked'] . ' ' . Words::ARRIVAL_LEFT['off'], $row['state'], 'what it is, and why');
         self::assertSame('/ui/review/listing/' . $newer, $row['open'], 'Open is the variant\'s existing page');
         self::assertStringStartsWith(Words::NEW_VARIANT_STATE['suggested'] . ' ' . Words::say('NEW_VARIANTS', 'suggested_item', Words::BAND['Key'], $this->codeOf($sku)),
             self::row($page, 1)['state'], 'Suggested match, with its strength and the item');
@@ -401,7 +404,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         $page = $web->get(self::PATH);
         self::assertSame(['Plain mango', 'Suggested melon', 'Brand new cherry', 'Unsure grape', 'Heading row', 'Binned kiwi'], self::titles($page),
             'the page opens with everything still to match');
-        self::assertSame([['All not matched 6', true], ['New: the computer found nothing like it 2', false], ['Suggested match 2', false], ['Not checked yet 2', false], ['All 9', false]],
+        self::assertSame([['All not matched 6', true], ['New: the computer found nothing like it 2', false], ['Suggested match 2', false], ['No suggestion 2', false], ['All 9', false]],
             self::pills($page, 'state-pills'));
         $new = $web->get(self::PATH, ['state' => 'new']);
         self::assertSame(['Brand new cherry', 'Binned kiwi'], self::titles($new), 'the rows the computer checked and found new');
@@ -414,17 +417,17 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('NEW_VARIANTS', 'shown', 9, 9), $all->text());
         $name = (string) self::$db->value('SELECT name FROM sku WHERE id = ?', [$sku]);
         self::assertSame([
-            Words::NEW_VARIANT_STATE['not_checked'] . ' ' . Words::NEW_VARIANTS['not_checked'],
+            Words::NEW_VARIANT_STATE['not_checked'] . ' ' . Words::ARRIVAL_LEFT['off'],
             Words::NEW_VARIANT_STATE['suggested'] . ' ' . Words::say('NEW_VARIANTS', 'suggested_item', Words::BAND['Key'], $code) . ' ' . $name,
             Words::NEW_VARIANT_STATE['new'] . ' ' . Words::NEW_VARIANTS['is_new'],
             Words::NEW_VARIANT_STATE['suggested'] . ' ' . Words::BAND["Can't tell"],
             Words::NEW_VARIANT_STATE['linked'] . ' ' . Words::say('NEW_VARIANTS', 'matched_to', $code) . ' ' . $name,
             Words::NEW_VARIANT_STATE['ignored'],
             Words::NEW_VARIANT_STATE['waiting'] . ' ' . Words::NEW_VARIANT_PENDING['link'],
-            Words::NEW_VARIANT_STATE['not_checked'] . ' ' . Words::NEW_VARIANTS['not_checked'] . ' ' . Words::NEW_VARIANTS['site_heading'],
+            Words::NEW_VARIANT_STATE['not_checked'] . ' ' . Words::ARRIVAL_LEFT['off'] . ' ' . Words::NEW_VARIANTS['site_heading'],
             Words::NEW_VARIANT_STATE['new'] . ' ' . Words::NEW_VARIANTS['is_new'] . ' ' . Words::say('NEW_VARIANTS', 'site_status', 'Bin'),
         ], array_map(static fn (int $n): string => self::row($all, $n)['state'], range(1, 9)), 'each row says what it is, and what the website said of it');
-        self::assertSame(['New', 'Suggested match', 'Not checked yet'], [Words::NEW_VARIANT_STATE['new'], Words::NEW_VARIANT_STATE['suggested'], Words::NEW_VARIANT_STATE['not_checked']]);
+        self::assertSame(['New', 'Suggested match', 'No suggestion'], [Words::NEW_VARIANT_STATE['new'], Words::NEW_VARIANT_STATE['suggested'], Words::NEW_VARIANT_STATE['not_checked']]);
         self::assertStringNotContainsString(Words::BAND['New item'], (string) (new \DOMXPath($all->dom()))->evaluate('string(//table[contains(@class, "new-variants")])'),
             'this list says "New", in the owner\'s words');
         // A value that is no filter of this page is the default.
@@ -438,13 +441,13 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame([], self::titles($web->get(self::PATH, ['q' => '100', 'state' => 'all'])), 'an option number is searched whole');
         self::assertSame([], self::titles($web->get(self::PATH, ['q' => 'lime'])), 'a matched one is not on the "still to match" list');
         $none = $web->get(self::PATH, ['q' => 'melon', 'state' => 'not_checked']);
-        self::assertSame([], self::titles($none), 'the suggested one is not on the Not checked yet list');
+        self::assertSame([], self::titles($none), 'the suggested one is not on the No suggestion list');
         self::assertStringContainsString(Words::NEW_VARIANTS['empty_search'], $none->text());
         self::assertContains(self::PATH . '?channel=alt&state=not_checked', $none->hrefs(), 'with the way out of the search');
         $found = $web->get(self::PATH, ['q' => 'melon', 'state' => 'suggested']);
         self::assertSame(['Suggested melon'], self::titles($found));
         self::assertStringContainsString(Words::say('NEW_VARIANTS', 'shown', 1, 1), $found->text());
-        self::assertSame([['All not matched 6', false], ['New: the computer found nothing like it 2', false], ['Suggested match 2', true], ['Not checked yet 2', false], ['All 9', false]],
+        self::assertSame([['All not matched 6', false], ['New: the computer found nothing like it 2', false], ['Suggested match 2', true], ['No suggestion 2', false], ['All 9', false]],
             self::pills($found, 'state-pills'), 'the counts are the period\'s, not the search\'s');
         self::assertSame('melon', $found->form(self::PATH)['q']);
         self::assertSame(self::PATH . '.csv?channel=alt&state=suggested&q=melon', (new \DOMXPath($found->dom()))->evaluate('string(//form[@class="toolbar"]//a[contains(@href, ".csv")]/@href)'));
@@ -558,7 +561,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertSame(['Alt Store', 'a1', 'Matched one', "'=cmd|x", 'Elux', '5056168800042 5056168800059', '12.50', '3', '9', '2021-03-01 08:15:30', Words::NEW_VARIANT_STATE['linked'], $code,
             Words::say('NEW_VARIANTS', 'matched_to', $code)], $all[3], 'a matched variant: its item, and a formula made harmless');
         self::assertSame([Words::NEW_VARIANT_STATE['suggested'], $code, Words::say('NEW_VARIANTS', 'suggested_item', Words::BAND['Check'], $code)], array_slice($all[0], 10));
-        self::assertSame([Words::NEW_VARIANT_STATE['not_checked'], '', Words::NEW_VARIANTS['not_checked']], array_slice($all[1], 10));
+        self::assertSame([Words::NEW_VARIANT_STATE['not_checked'], '', Words::ARRIVAL_LEFT['off']], array_slice($all[1], 10));
         self::assertSame([Words::NEW_VARIANT_STATE['new'], '', Words::NEW_VARIANTS['is_new'] . ' ' . Words::say('NEW_VARIANTS', 'site_status', 'Bin')], array_slice($all[2], 10),
             'and what the website said of it');
         self::assertSame(['a2', 'a3', 'a4'], array_column($rows($web->get(self::PATH . '.csv', ['channel' => 'alt', 'period' => 'all'])), 1), 'the filter is the file\'s too');
@@ -681,13 +684,13 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         $web = $this->signIn($me);
 
         $page = $web->get(self::PATH, ['state' => 'all']);
-        // Before ticking, each row says what it is: the sent-back one reads "Not checked yet", as the never-seen one; the undone one
+        // Before ticking, each row says what it is: the sent-back one reads "No suggestion", as the never-seen one; the undone one
         // names the item that was made from it.
         $said = [];
         foreach (range(1, 16) as $n) {
             $said[self::row($page, $n)[Words::NEW_VARIANTS['option']]] = self::row($page, $n)['state'];
         }
-        self::assertSame(array_fill(0, 2, Words::NEW_VARIANT_STATE['not_checked'] . ' ' . Words::NEW_VARIANTS['not_checked']), [$said['3003'], $said['3005']]);
+        self::assertSame(array_fill(0, 2, Words::NEW_VARIANT_STATE['not_checked'] . ' ' . Words::ARRIVAL_LEFT['off']), [$said['3003'], $said['3005']]);
         self::assertSame(Words::NEW_VARIANT_STATE['not_checked'] . ' An item was already made from this variant (' . $this->codeOf($firstItem) . '): open it to decide.', $said['3004']);
         self::assertSame(Words::NEW_VARIANT_STATE['new'] . ' ' . Words::NEW_VARIANTS['is_new'], $said['3001'], 'published on the website: no note');
         self::assertSame(Words::NEW_VARIANT_STATE['new'] . ' ' . Words::NEW_VARIANTS['is_new'] . ' ' . Words::NEW_VARIANTS['site_heading'], $said['3006']);
@@ -748,7 +751,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         $text = $result->text();
         self::assertStringContainsString('Done: 2 new items created and matched, 0 sent to Second approval, 15 skipped.', $text);
         self::assertStringContainsString(Words::say('BULK', 'summary', Words::say('NEW_VARIANT_DONE', 'new_item', 2), 0, 15), $text);
-        foreach (['The computer has not checked this variant yet. Open it and decide.', 'It is a page heading on the website, not something that is sold. Open it and decide.',
+        foreach (['Nothing is suggested for this variant. Open it and decide.', 'It is a page heading on the website, not something that is sold. Open it and decide.',
             'An item was already made from this variant (' . $this->codeOf($firstItem) . '): open it and decide.',
             'It is not published on the website (Bin). Open it and decide.', BulkController::why('barcode_elsewhere', []),
             'The computer suggests it is ' . $code . ': open it and decide.', BulkController::why('changed', ['status' => 'ignored']),
@@ -756,7 +759,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
             BulkController::why('other_store', [])] as $why) {
             self::assertStringContainsString($why, $text);
         }
-        self::assertSame(['The computer has not checked this variant yet. Open it and decide.', 'It is not published on the website (Bin). Open it and decide.'],
+        self::assertSame(['Nothing is suggested for this variant. Open it and decide.', 'It is not published on the website (Bin). Open it and decide.'],
             [BulkController::why('not_checked', []), BulkController::why('not_published', ['site_status' => 'Bin'])]);
         $xp = new \DOMXPath($result->dom());
         self::assertSame(15, $xp->query('//table[contains(@class, "bulk-skipped")]/tbody/tr')->length);
@@ -1209,5 +1212,98 @@ final class NewVariantsScreenTest extends KernelUiTestCase
             [$range['first'], $range['last']]);
         self::assertSame(['first' => null, 'last' => null], $q->seenRange(999999));
         self::assertCount(10, $q->newVariants((int) $alt->channelId, null, 'new', '', 1, $q->newVariantCounts((int) $alt->channelId, null))['ids']);
+    }
+
+    /**
+     * The check on arrival on this page (docs/decisions.md U144): the box at the top says whether it is on for the store, how many
+     * of the store's variants wait for it and what its last run did there; a row with no suggestion says why it has none, from the
+     * mark the check left; a row whose suggestion the check made says the reason in words (and the closest item when the check is
+     * not sure), has no tick box and the line under its name. Switched off, the page says so and the rows that were never looked
+     * at say so too.
+     */
+    public function testTheCheckOnArrivalSaysWhatItDidAndWhyARowHasNoSuggestion(): void
+    {
+        $alt = $this->site('alt', 'shadow');
+        $vpg = $this->site('vpg', 'off');
+        self::$db->exec("UPDATE channel SET name = 'Alt Store' WHERE code = 'alt'");
+        self::$db->exec("UPDATE channel SET name = 'Main Store' WHERE code = 'vpg'");
+        $this->arrivalSetup($vpg, $alt);
+        $title = 'Bar Juice 5000 Blue Razz 10ml Nic Salt E-Liquid';
+        $item = $this->mainItem($title, '10mg', [self::gtin(1)]);
+        $pack = $this->mainItem($title, '10mg');
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id, is_usable, units_per_scan, source) VALUES (?, ?, 1, 10, 'test')", [ltrim(self::gtin(2), '0'), $pack['sku']]);
+        $this->mainItem($title, '10mg', [self::gtin(3)]);
+        $this->mainItem($title, '10mg', [self::gtin(3)]);
+        $match = $this->seen($this->arrives($alt, $title, '10mg', [self::gtin(1)]), 10);
+        $unsure = $this->seen($this->arrives($alt, $title, '10mg', [self::gtin(2)]), 20);
+        $clash = $this->seen($this->arrives($alt, $title, '10mg', [self::gtin(3)]), 30);
+        $noClue = $this->seen($this->arrives($alt, 'Nothing like it', 'Red'), 40);
+        $touched = $this->seen($this->arrives($alt, 'Sent back once', 'Blue'), 50);
+        $mapper = $this->staffUser('mapper');
+        $this->decide($mapper, 'ignore', $touched, ['reason' => 'x']);
+        $this->decide($mapper, 'unignore', $touched);
+        $before = $this->variant($alt, '9100', 'Here before the check', 60);
+        $r = $this->arrival->run(['apply' => true]);
+        self::assertSame([5, 1, 1, 1], [$r['looked'], $r['per_store']['alt']['match'], $r['per_store']['alt']['conflict'], $r['per_store']['alt']['not_sure']]);
+        $waiting = $this->seen($this->arrives($alt, 'Arrived just now', 'Green'), 5);
+        $web = $this->signIn($this->uiUser('mapper'));
+
+        $page = $web->get(self::PATH, ['channel' => 'alt', 'state' => 'all', 'period' => 'all']);
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertSame(['Arrived just now', $title, $title, $title, 'Nothing like it', 'Sent back once', 'Here before the check'], self::titles($page));
+        // The box: on, what waits, and the last run.
+        $box = trim((string) preg_replace('/\s+/u', ' ', (string) (new \DOMXPath($page->dom()))->evaluate('string(//div[contains(@class, "where-from")])')));
+        self::assertStringContainsString('The check on arrival is on for Alt Store: a new variant whose barcode, or whose web address copied from the main store, points to an item gets a suggestion. '
+            . 'No AI looks at it. 1 variant is waiting for the check. Its last run on ' . Html::day(gmdate('Y-m-d H:i:s')) . ' looked at 5 here: 1 suggested as a match, 1 where the clues disagree, '
+            . '1 not sure, 2 left with no suggestion.', $box);
+        // Each row: what it is, and why.
+        $code = static fn (array $i): string => (string) $i['code'];
+        self::assertSame([
+            'No suggestion Waiting for the check on arrival.',
+            'Suggested match Likely match – check it: ' . $code($item) . ' (its barcode is on this item) ' . self::$db->value('SELECT name FROM sku WHERE id = ?', [$item['sku']]),
+            'Suggested match Not sure – you choose, closest ' . $code($pack) . ' (its barcode is recorded as a pack of more than one)',
+            'Suggested match Clues disagree (its barcode is on more than one item)',
+            'No suggestion The check on arrival found no barcode and no copied web address for it: open it to decide.',
+            'No suggestion A person or an earlier computer check has dealt with it, so the check on arrival leaves it: open it to decide.',
+            'No suggestion It was here before the check on arrival, which has not looked at it: open it to decide.',
+        ], array_map(static fn (int $n): string => self::row($page, $n)['state'], range(1, 7)));
+        self::assertSame([['All not matched 7', false], ['New: the computer found nothing like it 0', false], ['Suggested match 3', false], ['No suggestion 4', false], ['All 7', true]],
+            self::pills($page, 'state-pills'));
+        // The rows the check suggested for have no tick box and say so under their name; the others keep theirs.
+        $xp = new \DOMXPath($page->dom());
+        $boxes = [];
+        foreach ($xp->query('//tbody/tr//input[@type="checkbox"][@data-bulk-row]') as $b) {
+            /** @var \DOMElement $b */
+            $boxes[] = (int) substr($b->getAttribute('name'), strlen('pick_'));
+        }
+        self::assertEqualsCanonicalizing([$waiting, $noClue, $touched, $before], $boxes);
+        self::assertSame(3, $xp->query('//tbody/tr/th/span[contains(@class, "no-bulk")][contains(., "Found by the check on arrival: no AI has looked at it.")]')->length);
+        // The file says the same.
+        $lines = explode("\r\n", rtrim(substr($web->get(self::PATH . '.csv', ['channel' => 'alt', 'state' => 'all', 'period' => 'all'])->body, strlen(CsvWriter::BOM)), "\r\n"));
+        $csv = array_map(static fn (string $l): array => str_getcsv($l, ',', '"', ''), array_slice($lines, 1));
+        self::assertSame(['No suggestion', '', 'Waiting for the check on arrival.'], array_slice($csv[0], 10));
+        self::assertSame(['Suggested match', $code($item), 'Likely match – check it: ' . $code($item) . ' (its barcode is on this item)'], array_slice($csv[1], 10));
+        self::assertSame(['Suggested match', '', 'Not sure – you choose, closest ' . $code($pack) . ' (its barcode is recorded as a pack of more than one)'], array_slice($csv[2], 10));
+
+        // With clean matches allowed in a ticked list, the clean one gets its tick box; the other two never do.
+        $this->arrivalSetting('mapping.arrival_bulk_confirm', 'true');
+        $on = $web->get(self::PATH, ['channel' => 'alt', 'state' => 'suggested', 'period' => 'all']);
+        self::assertSame(1, (new \DOMXPath($on->dom()))->query('//tbody/tr//input[@type="checkbox"][@data-bulk-row][@name="pick_' . $match . '"]')->length);
+        self::assertSame(2, (new \DOMXPath($on->dom()))->query('//tbody/tr/th/span[contains(@class, "no-bulk")]')->length);
+        self::assertSame(0, (new \DOMXPath($on->dom()))->query('//tbody/tr//input[@name="pick_' . $unsure . '" or @name="pick_' . $clash . '"]')->length);
+
+        // Switched off for the store: the box says so (and nothing about a queue), and a variant the check never looked at says so.
+        $this->arrivalSetting('mapping.arrival_stores', '""');
+        $off = $web->get(self::PATH, ['channel' => 'alt', 'state' => 'not_checked', 'period' => 'all']);
+        $box = trim((string) preg_replace('/\s+/u', ' ', (string) (new \DOMXPath($off->dom()))->evaluate('string(//div[contains(@class, "where-from")])')));
+        self::assertStringContainsString('The check on arrival is switched off for Alt Store, so its new variants get no suggestion by themselves', $box);
+        self::assertStringNotContainsString('waiting for the check', $box);
+        self::assertStringNotContainsString('Its last run', $box);
+        self::assertSame(['No suggestion ' . Words::ARRIVAL_LEFT['off'], 'No suggestion ' . Words::ARRIVAL_LEFT['no_clue'], 'No suggestion ' . Words::ARRIVAL_LEFT['has_history'],
+            'No suggestion ' . Words::ARRIVAL_LEFT['off']], array_map(static fn (int $n): string => self::row($off, $n)['state'], range(1, 4)),
+            'what the check found when it looked is still true; what it never looked at says the check is off');
+        // A store the check is not on for at all says so, whatever else is switched on.
+        $this->arrivalSetting('mapping.arrival_stores', '"alt"');
+        self::assertStringContainsString('The check on arrival is switched off for Main Store', $web->get(self::PATH, ['channel' => 'vpg', 'period' => 'all'])->text());
     }
 }

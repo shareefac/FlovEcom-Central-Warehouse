@@ -25,7 +25,8 @@ use CW\Staff\StaffRoles;
  * overwritten (M5, M19), and one row that fails never undoes another. Every rule of a single decision applies to each row
  * (roles, the Conflict band, the two-person rules, the owner's approval switches); a row that needs a second person is stored
  * waiting for one (Second approval), never linked. Before a row is sent, what DecisionService does not know is checked (M51):
- * a listing held back from the bulk confirm (M30) or in a spot check that is not complete (M28) is never bulk-actioned (the one
+ * a listing held back from the bulk confirm (M30) or in a spot check that is not complete (M28) is never bulk-actioned, and neither is
+ * one whose open suggestion was found by the check on arrival while that is decided one at a time (M64: `on_arrival`) (the one
  * read of that is OneAtATime, M63: the lists of variants mark their rows from the same read, so such a row has no tick box), and a
  * confirm also skips a vetoed or flagged suggestion, a listing of a failed spot check's population, and one whose bulk link was
  * undone before. A bulk "create as new" (any list: seedCheck(), M61) makes an item only from a listing whose open suggestion says
@@ -74,7 +75,7 @@ final class BulkDecisions
     /** Proposal flags a confirm never does in bulk (a person decides them one at a time: KeyEligibility::FLAG_BLOCKS). */
     public const FLAG_BLOCKS = KeyEligibility::FLAG_BLOCKS;
     /** Why a row is skipped (Ui\Words::BULK_SKIP has the words of each). */
-    public const SKIPS = ['unknown_listing', 'other_store', 'changed', 'suggestion_changed', 'pending_second', 'held', 'held_meanwhile', 'in_spot_check',
+    public const SKIPS = ['unknown_listing', 'other_store', 'changed', 'suggestion_changed', 'pending_second', 'held', 'held_meanwhile', 'in_spot_check', 'on_arrival',
         'spot_check_failed', 'bulk_undone', 'band_not_allowed', 'vetoed', 'flagged', 'no_product', 'barcode_elsewhere', 'already_rejected', 'not_ignored',
         'already_ignored', 'linked', 'not_waiting', 'no_suggestion', 'lead_only', 'not_allowed', 'product_joined', 'no_name', 'refused',
         // By Item's confirm only (M59, confirmScope()):
@@ -379,6 +380,12 @@ final class BulkDecisions
                 if ($now === OneAtATime::SPOT) {
                     throw new CwException('bulk_skip', 'in a spot check', 409, ['skip' => 'in_spot_check']);
                 }
+                if ($now === OneAtATime::ARRIVAL || ($row['proposal_id'] !== null && OneAtATime::arrivalSuggestion($db, $row['proposal_id']))) {
+                    // One of the check on arrival's that go one at a time now. Asked of the suggestion the row named, whatever the
+                    // decision has just made of it: a confirm, a create, an ignore and a "send back" close it, and of() reads only
+                    // an open one, so a setting switched off since the checks above would not be seen (M64).
+                    throw new CwException('bulk_skip', 'found by the check on arrival', 409, ['skip' => 'on_arrival']);
+                }
                 $outcome = $d['state'] === 'pending_second' ? 'pending_second' : 'done';
                 $this->record($batchId, $seq, $row, $outcome, null, $outcome === 'pending_second' ? ['needs_second' => $d['needs_second']] : null,
                     (int) $d['decision_id']);
@@ -458,7 +465,8 @@ final class BulkDecisions
                 continue;
             }
             if (isset($never[$lid])) {
-                // `held` (with the hold's reason, by, at) or `in_spot_check` (with the spot check's name), as OneAtATime says it.
+                // `held` (with the hold's reason, by, at), `in_spot_check` (with the spot check's name) or `on_arrival` (a suggestion
+                // of the check on arrival that is decided on its own page, M64), as OneAtATime says it.
                 $out[$lid] = $skip($never[$lid]['code'], $never[$lid]['detail']);
                 continue;
             }

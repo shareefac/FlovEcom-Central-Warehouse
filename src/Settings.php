@@ -78,6 +78,15 @@ final class Settings
         'mapping.by_item_page_size' => ['in' => [50, 100, 200]],
         // Products › New Variants (0026, U132): the days back the page looks when it opens (up to a year; "Any time" is on the page).
         'mapping.new_variants_days' => ['min' => 1, 'max' => 365],
+        // The check on arrival (0027, U145): the stores it looks at, as channel codes (empty: the check is switched off); the one main
+        // store; how many variants and how many seconds one run takes at most; and above how many waiting variants of a store the
+        // timer leaves the store to a hand run.
+        'mapping.arrival_stores' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
+            'pattern_says' => 'channel codes separated by commas, like vapebig,electrofag (empty: the check is switched off)'],
+        'mapping.arrival_main_store' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}$/D', 'pattern_says' => 'one channel code, like vapeandgo (empty: no main store)'],
+        'mapping.arrival_max_per_run' => ['min' => 1, 'max' => 5000],
+        'mapping.arrival_max_seconds' => ['min' => 5, 'max' => 600],
+        'mapping.arrival_queue_alarm' => ['min' => 1, 'max' => 100000],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];

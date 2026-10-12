@@ -53,8 +53,12 @@ final class KeySample
         . 'in each stratum the lowest sha256("<seed>:<proposal id>"); positions in that hash order; seed drawn by the server';
     public const FAILED_STATES = ['rejected', 'waiting_second', 'needed_second', 'superseded', 'decided_otherwise', 'confirmed_by_other',
         'confirmed_not_by_lead', 'changed_since'];
-    /** match_run sources that are not a new matching run (an override needs a real one, or a new band version). */
-    public const NOT_A_MATCHING_RUN = [Reband::SOURCE, KeyBulk::UNDO_SOURCE];
+    /**
+     * match_run sources that are not a new matching run (an override needs a real one, or a new band version). The check on
+     * arrival's runs are none (M64): it looks only at variants nothing has touched, with no AI, so it says nothing new about a
+     * variant of a failed spot check.
+     */
+    public const NOT_A_MATCHING_RUN = [Reband::SOURCE, KeyBulk::UNDO_SOURCE, ArrivalCheck::SOURCE, ArrivalCheck::SOURCE_WARNED];
 
     public function __construct(private readonly Db $db)
     {

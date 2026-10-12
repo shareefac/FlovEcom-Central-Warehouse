@@ -414,6 +414,13 @@ final class KeyBulkTest extends MappingTestCase
         self::assertSame(['failed_sample_population' => 4, 'listing_rejected_before' => 2, 'protected_item' => 1, 'units_per_item' => 1], $e->detail['excluded']);
         // An override is refused while nothing changed: same band, no new matching run (a re-band or an undo is not one).
         self::refused(409, 'override_not_allowed', fn () => $this->samples()->create($owner, 'second', 20, false, ['s2']));
+        // The check on arrival is no matching run either (M64): a run of it since, of either of its sources, unlocks nothing.
+        foreach (\CW\Mapping\ArrivalCheck::SOURCES as $source) {
+            $this->proposals->run('arrival-20261012T101500Z', $source, null, \CW\Mapping\ArrivalCheck::engine());
+        }
+        self::assertSame(2, (int) self::$db->value("SELECT COUNT(*) FROM match_run WHERE run_id = 'arrival-20261012T101500Z' AND created_at > ?", [(string) self::$db->value(
+            "SELECT created_at FROM key_sample WHERE name = 's2'")]));
+        self::refused(409, 'override_not_allowed', fn () => $this->samples()->create($owner, 'second', 20, false, ['s2']));
         // After a new matching run: only its NEW proposals on those listings may be drawn again, and only with the override.
         $rest = self::$db->all('SELECT proposal_id, listing_id FROM key_sample_member WHERE sample_id = ? AND position IS NULL ORDER BY proposal_id', [$s['sample_id']]);
         $run4 = $this->proposals->run('run4-sold', 'first_match', null, 'n2.1/c1.0/v2.1/b2.1', null, ['band_version' => 'b2.1']);

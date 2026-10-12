@@ -2,8 +2,9 @@
 // Products › New Variants (docs/decisions.md U131-U138): one store's variants first seen in a period, newest first, with the "seed"
 // (tick, "Create as new items") in the existing action bar. The stores come from the channel table; every word from Words. In the
 // owner's words (U122) a store's sellable option is a VARIANT and the warehouse record it is matched to an ITEM. Each row says what
-// it is (New, Suggested match, Not checked yet, …) and why, so a person sees which rows the seed takes before ticking; a store where
-// no computer check has marked a variant New is told so in the box ($checkLine).
+// it is (New, Suggested match, No suggestion, …) and why, so a person sees which rows the seed takes before ticking; a store where
+// no computer check has marked a variant New is told so in the box ($checkLine), and the box says whether the check on arrival is on
+// for the store, how many variants wait for it and what its last run did there ($arrivalLines, U144).
 ?>
 <h1><?= $word('MENU', 'new_variants') ?></h1>
 <?= $intro('new_variants', $lookOnly) ?>
@@ -18,6 +19,7 @@
 <?php if ($checkLine !== null): ?>
   <p><?= $e($checkLine) ?></p>
 <?php endif; ?>
+  <p><?= $e(implode(' ', $arrivalLines)) ?></p>
 </div>
 
 <form class="toolbar" method="get" action="/ui/review/new-variants" aria-label="<?= $word('UI', 'filter') ?>">

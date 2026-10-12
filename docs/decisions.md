@@ -7943,3 +7943,262 @@ a match still to decide), and a second time on a page that shows one of its matc
 variant's page to Store Products or New Variants is still not built (U138). (8) The two small items the handoff of 11 Oct left for
 "the next mapping build" (the reason said when two people create an item from one variant in the same second; one more sentence in
 M61) are not in this build: its brief was this feature only.
+
+## The check on arrival, build 1: matches by barcode and copied address (slot `newvar`, 12 Oct 2026)
+
+The owner, 11-12 Oct 2026: "do the check on arrival next". Until now a variant arrived with no suggestion and stayed "Not checked
+yet" until a developer ran the one-off first match; 6,391 of Electrofag's variants were in that state on staging (104 with a barcode
+on exactly one item, 1,167 with a web address copied from a main-store variant, 5,120 with neither). This build is the safe half of
+the design (`/root/cw_work/Arrival_check_design_2026-10-12.md`, rules version ar1.0), as the build's scope cut it
+(`Arrival_check_build1_2026-10-12.md`): a never-touched variant whose barcode or copied web address points at an item gets a
+suggestion. "New: nothing like it", the name search and the website's state are build 2 and are not started. Whose choice each
+thing is, is said where it is said: the owner's rules are quoted; the scope's choices are "the build's" (made by the orchestrating
+session, not yet put to the owner); the rest was settled while building and is marked so.
+Code: `migrations/0027_arrival_check.sql`, `src/Matching/ArrivalRules.php` and `src/Mapping/ArrivalCheck.php` (new),
+`bin/check_arrivals.php` (new), `src/Mapping/ListingIngestService.php` (the mark), `src/Mapping/OneAtATime.php`,
+`src/Mapping/BulkDecisions.php` (the skip code and the read under the lock; no rule of a decision changed),
+`src/Mapping/KeySample.php` (`NOT_A_MATCHING_RUN`), `src/Settings.php` (`RULES`), `src/Ui/Queries.php`,
+`src/Ui/Controller/{Review,NewVariants}Controller.php`, the views `one_at_a_time` and `new_variants`, `src/Ui/Words.php`,
+`deploy/staging/cw-staging.cron` and `install_cron.sh`. Not touched: `Proposals`, `ProposalBasis`, `DecisionService`, `Band`, `Veto`,
+`Candidates`, `Normalizer`, `Gtin`, `StoredBand`, `Reband`, `KeyEligibility`, `KeyBulk`, `Stock`, `Reservations`, the API,
+`Grants` (no new table), both hashes of a profile, `fromExport()`, `seedCheck()` / `nameChecks()`, `tools/first_match`, the other
+tools, `app.css`, `app.js`. Tests: `tests/Integration/Migration0027Test.php`, `tests/Unit/ArrivalRulesTest.php`,
+`tests/Integration/Mapping/ArrivalCheckTest.php`, `tests/Support/ArrivalFixtures.php` (new); added to `ListingIngestTest`,
+`BulkDecisionsTest`, `KeyBulkTest`, `OneAtATimeScreenTest`, `NewVariantsScreenTest`, `WordsTest`, `QueueContextTest`, `DeployTest`,
+and one op (`check_arrivals`) to `tests/Support/op_worker.php`.
+
+**M64. When the check runs, who it looks at, what it never does.**
+*When.* The listing intake (`ListingIngestService`, the push and the import alike) only leaves a mark on the profile, in the
+statements it runs anyway: `arrival_state = 'queued'`, `arrival_seq + 1`, `arrival_channel_id`, when a profile is created, when its
+identity changed and when its web address changed (the three things the rules read). A push that changes none of them marks
+nothing. No suggestion is made inside the intake's transaction: a suggestion takes the feed clock as the last lock of its
+transaction, and the intake holds up to 1,000 profile locks. The check itself is `bin/check_arrivals.php` and nothing else: no web
+or API request runs it. One cron line (`*/10 * * * *`, `--apply`) takes the QUEUED variants of the stores named in
+`mapping.arrival_stores`; with no store named it logs "switched off" and exits 0. The variants that were there before the check
+(mark NULL) are never taken by the timer: only a hand run with `--backfill --channel=<code>` looks at them, and it marks each
+`done` in that run, so they are never queued for the timer either. A store whose queue is above `mapping.arrival_queue_alarm` is
+left by the timer's form (no `--channel`) for a hand run that names it: a whole store that was just loaded is not drained by the
+timer. (Settled while building: the alarm applies to the form without `--channel`; a run that names a store takes its queue.)
+*Who.* `Proposals::add()` supersedes whatever suggestion is open without asking, so the refusals are the check's own, made twice:
+before the rules (`ArrivalCheck::look()`, no lock), and again under `SELECT … FROM channel_listing WHERE id = ? FOR UPDATE` just
+before `add()` (`write()`). A variant gets a suggestion only when all of this holds; the first that does not is recorded on its
+profile (`arrival_outcome`): its store is in the setting; it is `unmapped`, or `suggested` by the check's own untouched suggestion
+(`not_open`); no hold is in force on it (`held`); it is in no spot check, as a match or in a population (`in_spot_check`); it has
+no suggestion of any state from another run, no decision other than the check's own `suggest` (so none waiting for a second
+person, no ignore, no un-match, no "sent back", no "not a match") and no `match_reject` row (`has_history`); its profile has a
+title (`no_title`); and under the lock its identity, its web address, its mark's number and its own open suggestion are the ones
+the rules read: if not, nothing is written and it stays queued. The owner's rule (facts file): "DO NOT replace or close the open
+suggestion of a variant that is in a spot check or held back". The setting the design had for "wait while a store has a spot check
+to answer" is not built (the build's choice: the refusals above already keep the check away from every spot-check member, every
+held variant and every variant with any history). (Settled while building: the outcomes are asked in the order state, hold, spot
+check, other history, title, so the recorded outcome names the check that stopped it; the store is checked for the run, not again
+under each variant's lock: a store taken out of the setting is left from the next run.)
+*What it never does.* It writes Likely (`Check`), Not sure (`Can't tell`) or Clues disagree (`Conflict`), never Strong (`Key`),
+Renamed range (`Manual`) or New item: `ArrivalRules::BANDS` is all it can say. It never writes an `ai` block, so
+`StoredBand::inputs()` cannot read its evidence and a suggestion of it enters no spot check, no Key bulk confirm and no re-band
+(`Reband` skips it as `unknown_band_version`: its run names no band version, in `engine_version` or in `detail`). Its run sources
+are in `KeySample::NOT_A_MATCHING_RUN`: a run of it does not unlock an override of a failed spot check. It never confirms,
+matches, ignores or creates: its caller is a system caller, which `DecisionService` lets only `suggest`. It never names an item
+that was joined into another (`DecisionService::rootOf`). It never replaces anything but its own untouched suggestion. It never
+locks a profile row inside its transaction (the intake locks profile, then listing; the check locks the listing and reads the
+profile without a lock; its mark is a compare-and-set on `arrival_seq` in a statement of its own after the commit), and it adds no
+lock after the feed clock, which `add()` takes through the `suggest` (`add()` itself then inserts the suggestion's basis, whose
+foreign keys take share locks on the item and the target's listing: that is `Proposals::add()` for every import, unchanged; a
+deadlock there rolls the variant's whole transaction back and `Db::transaction` runs it again, refusals included). It never
+deletes, and it never scans a big table (the reads are listed under U144). A dry run (no `--apply`) writes nothing at all: no
+suggestion, no mark, no run row, no audit row. A real run that looked at anything writes ONE audit row, `mapping.arrival_check`,
+with its counts per store.
+*Its own suggestion* is looked at again when the variant is marked again. The same answer: nothing is written (the older
+suggestion and its basis stay as they are). Another answer: a new suggestion supersedes it; the variant stays `suggested`, with no
+second `suggest`. No clue any more: it is replaced by a Not sure that names no item and says why (`arrival_no_longer`); a stale
+one is never left open, and that Not sure is not written again at every later look. Once a person has touched the variant (a "not
+a match" that leaves the suggestion open, say) it has a history and the check leaves it. A later judged run supersedes a
+rules-only suggestion like any other: that is wanted.
+*Two run rows* (settled while building, because of E below). A run that writes makes its `match_run` rows when it first needs
+them, inside the transaction of that first suggestion (a rolled-back variant leaves no run row): one of source `arrival` for its
+clean matches and one of source `arrival_warned` for everything else, under one run id `arrival-<UTC yyyymmddThhmmssZ>` (the
+unique key is (run_id, source)); a new pair for every run, because one run row holds one suggestion per variant for ever. So
+"found by the check on arrival" and, of those, "with a warning" are told from the run alone, without a suggestion's flags.
+
+**M65. The rules of build 1 (`CW\Matching\ArrivalRules`, pure, version `ar1.0`).** Two clues and nothing else. The BARCODE: the
+variant's usable barcodes, by the strict cleaner of the barcode sync (`BarcodeSync::keys`: no junk, no in-store numbers), are on
+an item through the item's own barcode records (`sku_barcode`) or through a variant matched to it (`listing_profile.barcodes`, the
+multi-valued index of 0005; every text the code may be stored as, `Gtin::forms`); not through a variant whose item people ruled
+the barcode away from (a removal, a barcode review: "The review of build 1" below, C). The ADDRESS: its web address equals a
+main-store variant's (`permaKey()`, character for character `tools/first_match/run.php`'s: trimmed, lower case, no closing slash);
+the address rule compares WITH `mapping.arrival_main_store` and is never applied TO a variant of it, which can still get a barcode
+answer. An item the clues name is compared with the variant by `Veto::check`, both sides normalised afresh from their profiles
+(stored features lack the words the comparison reads), with `s_strength_sibling` always on, so "Strength not stated" fires
+whenever the variant states no strength and the item has one: stricter than the batch run, on purpose. The item's side is its
+representative variant: its origin variant while that is still matched to it, else its lowest matched main-store variant, else its
+lowest matched variant.
+The answers, the first that applies (settled while building: a Conflict before a Not sure, a Not sure before a match; the design's
+table gave the lines, not their order):
+
+| The facts | Strength | Item named | Reason (a key of `Words::BAND_REASON`) |
+|---|---|---|---|
+| the barcode is on two or more items, or on a barcode record marked not usable | Clues disagree | none | `arrival_barcode_two_items` |
+| the barcode is on another variant of the same store | Clues disagree | none | `arrival_barcode_same_store` |
+| the barcode and the address point at different things | Clues disagree | none | `arrival_clues_differ` |
+| an item is named, and a hard veto says it cannot be that item | Clues disagree | closest only | `veto_on_key` (the codes in `evidence.target_vetoes`) |
+| an item is named by a barcode recorded as more than one unit a scan, or (with no barcode record of the item's own) carried by a variant matched with more than one unit a sale | Not sure | closest only | `arrival_barcode_pack` |
+| an item is named by an address whose main-store variant is matched with more than one unit a sale | Not sure | closest only | `arrival_copy_pack` |
+| an item is named, and another variant of the same store is matched to it, waits for a second OK to be, or has it suggested | Not sure | closest only | `arrival_item_taken` |
+| an item is named, and only a pending range rename stands between the two (`Band::ALIAS_PENDING_FLAGS`) | Not sure | closest only | `arrival_renamed_range` |
+| the barcode is only on variants that have no item | Not sure | none | `arrival_barcode_no_item` |
+| the address is on several items | Not sure | none | `arrival_copy_several` |
+| the address is only on main-store variants that have no item | Not sure | none | `arrival_copy_no_item` |
+| an item is named, with a soft flag of the engine, or an address several variants share that the one with an item settles, or a barcode that is also on a main-store variant with no item, or nothing to compare the item with (`arrival_not_compared`) | Likely | the item | the clue's, with the flag `arrival_warned` |
+| barcode and address name the same item, nothing against it | Likely | the item | `arrival_barcode_and_copy` |
+| the barcode is on exactly one item, nothing against it | Likely | the item | `arrival_barcode` |
+| the address is exactly one item's main-store variant, nothing against it | Likely | the item | `arrival_copy` |
+| no barcode on anything and no copied address | no suggestion | | outcome `no_clue` |
+
+Every suggestion carries the flag `rules_only`; everything but a clean match also `arrival_warned`. "The two clues point at
+different things" is told as the batch run tells it (its flag `barcode_transfer_disagree`): two items; or one clue names an item
+and the other's variants are not that item's and do not carry the barcode. A barcode that is also on a variant of a third store
+with no item is no warning (two stores' copies of one new thing); only on such variants, it is a Not sure. Two things the design
+did not have (settled while building): `arrival_not_compared`, for an item with no matched variant to compare with (a match that
+could not be checked is a warned one, never a clean one); and a barcode shared by more than 200 other variants counts as "on two
+or more items" without being read further. NOT in this build, by the build's choice: the name search (a variant with no clue gets
+NO suggestion and the outcome `no_clue`), "New: nothing like it" (the check never writes New item, and the seed is untouched), and
+the website's state (the answers above are written whatever the state: a match makes nothing).
+
+**U144. The screens, the words and the reads.**
+*No dead end on the lists* (the build's choice, in place of the design's "block only the ticked confirm": the owner had just had
+"tick all + Confirm does nothing" fixed, M63). While `mapping.arrival_bulk_confirm` is off, a variant whose open suggestion the
+check made is a third kind of row no bulk action takes: `OneAtATime::of()` answers `on_arrival` for it, after `held` and
+`in_spot_check`; `BulkDecisions::prechecks()` skips it for every action and list with that code (`BULK_SKIP` / `BY_ITEM_SKIP`:
+"Its suggestion was found by the check on arrival, and no AI has looked at it: open it to check and decide."), and `one()` asks
+again under the row's lock, of the suggestion the row named whatever the decision has just made of it
+(`OneAtATime::arrivalSuggestion()`: a confirm closes the suggestion and `of()` reads only an open one, so a setting switched
+off while a batch runs would otherwise not be seen); on the three lists of variants the row has no tick box and one line under its name, "Found by the
+check on arrival: no AI has looked at it. Open it to check and decide.". With the setting on, a clean match is an ordinary row
+that can be ticked and confirmed; one with a warning, a Not sure and a Clues disagree stay one at a time whatever the setting. The
+match-strength lists' "Show" gains a fifth choice, **Found on arrival**, with its count; "Ready for a bulk action" leaves these
+rows out, so "Ready + tick all + Confirm match skips none of the kinds" still holds, and All is the sum of the four parts. The
+fifth choice is offered only on a list where it holds a row (or while it is the one chosen): with nothing found by the check, the
+lists, their counts, their addresses and their statements are the ones of before (settled while building). The notice above a list
+names the third kind beside the other two ("2 on this page are held back, 1 is in a spot check and 3 were found by the check on
+arrival: …"). The rows are told BY THEIR RUN: `OneAtATime::arrivalRuns()` gives the run rows of the check that still have an open
+suggestion (both sources while the setting is off, `arrival_warned` only while it is on), and both the row's answer and the
+lists' SQL (`arrivalSql()`: `p.match_run_id IN (…)`) take those numbers, so a row and its filter cannot disagree. For that the
+migration adds the index `match_proposal (match_run_id, status, band, lane, listing_id)` (settled while building: the table had
+its run column and the unique key (match_run_id, listing_id), which holds neither status nor strength, so a count would have read
+every suggestion a run ever made).
+*The variant's page.* A suggestion with the flag `rules_only` says what the strength means without "the AI thinks"
+(`BAND_HELP_RULES`), its reasons in words ("Its barcode is on this item"), and the warnings about the clue itself beside the
+engine's. Nothing is preselected.
+*New Variants.* The chip and the filter "Not checked yet" read **No suggestion**: the old words stopped being true the day a
+check could look and find nothing. Under such a row one line says why, from the mark the check left (`ARRIVAL_LEFT`): the check is
+switched off for the store; it was here before the check; "Waiting for the check on arrival."; "The check on arrival found no
+barcode and no copied web address for it: open it to decide."; "A person or an earlier computer check has dealt with it, so the
+check on arrival leaves it: open it to decide."; and the like. A row the check suggested for says the strength, the item (or the
+closest one) and the reason in words. The box at the top says whether the check is on for the store, how many variants wait and
+what its last run did there. The sentences that promised "the next computer check, which suggests again" for a variant sent back
+(two bulk texts) and Home's "Nothing to do now: they come in the next computer check." are corrected: the check on arrival leaves
+a variant a person sent back. The skip sentence and the seed's note that said "not checked yet" say "nothing is suggested" / "no
+suggestion" (settled while building, for the same reason). `AUDIT_ACTION` names `mapping.arrival_check`.
+*Not done here* (build 2 or later): the words for New and "state not known", "Name search" for the lane, a "Check now" button, a
+runs page, a line on Home; Store Products and New Variants have the row treatment only (no "Show", as before).
+*The reads* (EXPLAIN and three timings of each on a fill of staging's size, 38,000 variants: `/root/cw_work/runs/arrival_explain.txt`).
+One variant: its listing and its profile by primary key; the holds, the spot-check memberships, the suggestions, the decisions and
+the rejects by their listing indexes; `sku_barcode` by its key; the other variants with the barcode by the multi-valued index of
+0005; the main-store variants with the address by `ix_listing_profile_perma_key` (the index compares without letter case: a
+superset, and `permaKey()` in PHP decides); the item, its origin listing and, only when that is not matched to it, one range of
+`channel_listing (sku_id, channel_id)`; "is the item taken" by that index, by `match_proposal (status, proposed_sku_id, …)` and by
+the pending decisions. The queue and its count: `ix_listing_profile_arrival` alone. A backfill: `channel_listing (channel_id,
+status)` in id order, each profile by its primary key. The lists: the runs by the first letters of their name on `uq_match_run`,
+each asked on the new index for one open suggestion; the count and the page of "Found on arrival" from the new index and each
+listing's primary key.
+
+**U145. Settings (Settings › Matching products; all provisional, the design's recommended defaults, for the owner to confirm).**
+`mapping.arrival_stores` (store codes, empty = switched off: the check ships off), `mapping.arrival_main_store` (`vapeandgo`),
+`mapping.arrival_bulk_confirm` (off), `mapping.arrival_max_per_run` (200; 1 to 5,000), `mapping.arrival_max_seconds` (45; 5 to
+600), `mapping.arrival_queue_alarm` (300; 1 to 100,000). Each has its baseline in `config_change`, its bounds in
+`Settings::RULES`, its name and its help in `Words::SETTING` / `SETTING_HELP`. The command-line options `--limit` and
+`--max-seconds` exist for hand runs only. No store's code is written in the code; no setting's number is printed on a screen. The
+other settings of the design (the New switches, the name search, the state's age, "wait for a spot check") are not in this build.
+
+**The migration, and what the database server really does** (settled while building; `Migration0027Test`,
+`/root/cw_work/runs/arrival_probe_ddl*.log`). The design asked for `ALGORITHM = INSTANT`. On staging's database server (MySQL
+8.4.8, a managed build) that word is accepted and the table is rebuilt all the same (a new table id and tablespace, no row
+version), for a plain column on a plain table too; and `listing_profile` has the multi-valued barcode index of 0005, with which
+MySQL refuses to add any column in place, and, asked for INSTANT, copies the table without saying so (rows affected = every row).
+So nothing but a copy adds a column to this table here, and 0027 copies it once and says so: ONE statement (the five columns of
+the mark, the VIRTUAL `perma_key`, both indexes), `ALGORITHM = COPY, LOCK = SHARED`. Reads go on while it runs; a write to
+`listing_profile` (a push, an import) waits for it. On a scratch table of staging's size (38,000 profiles, 120 MB) it took 9
+seconds alone and 17 seconds while one connection read and another wrote without pause (2,716 reads, the slowest 0.6 s; the one
+write that met it waited the 17 s and went through). Every later column on this table will cost the same while that index is
+there (build 2's website state: put its columns in one statement too). The index on `match_proposal` is added in place and online
+(`INPLACE, LOCK = NONE`; the table is not rebuilt: the test holds its id). The alternative that copies nothing, the mark in a small
+table of its own, was not taken: the build's scope names the columns and "no new table" (`Grants` untouched), and the intake would
+have needed a second statement for every profile.
+
+**Open, and for the reviewer first.** (1) The copy above: 9 to 17 seconds during which a listing push waits. No store pushes to
+staging today (every store is `off`). (2) `Proposals::add()` inserts the basis after the feed clock (above): unchanged, and the
+check's write is retried whole on a deadlock. (3) A suggestion kept because the answer is the same keeps its old basis and evidence
+title although the variant's identity moved; nothing in build 1 reads those for a match (the seed's "changed since the check" is
+for New only). Build 2 must write a fresh suggestion when the identity moved, or a New would read "changed" for ever. (4) The
+score's T2 counts "match" only where the rules offer the item; an item that another variant of the store already has reads Not
+sure there too, which is the rule. (5) Settled in the review below (fix B): `BulkDecisions::one()` now asks for the third kind of
+the suggestion the row named, and a test forces the setting to be switched while a batch waits on the row.
+
+### The review of build 1 (12 Oct 2026, on the tree of `678bf3d`)
+
+Four reviewers, each with one question (can it replace anything but its own untouched suggestion; does it write only when and
+where it may; is what the rules write right and harmless; can a row and its filter, count, tick box or skip disagree), then a
+refuter on every finding. No critical finding: no path replaces a person's decision or another run's suggestion, a dry run writes
+nothing, the timer takes only queued rows, nothing is ever Strong, Manual or New. Each of the 21 mutations of the build was then
+applied alone and killed by its own test (`/root/cw_work/runs/arrival_mutations_2.log`).
+
+**The index order, measured.** A last change before the review led `ix_match_proposal_run_open` with `status` and read the
+check's runs from the open suggestions. Its tests passed, and its plans were worse: the lists' own reads that main already had
+(`status = 'open' AND band = ?`) left `ix_match_proposal_open_band` (only that strength's rows) for the new index with the
+status alone (every open suggestion), and no read got faster (`arrival_explain2.txt`). It was taken back whole: the index is
+(`match_run_id`, `status`, `band`, `lane`, `listing_id`) and `arrivalRuns()` asks each run of the check once. The cost of that
+choice is under "Left" (the run list).
+
+**Fixed (each with a test that failed first).**
+- **A. The tool reads its command line whole or refuses it.** `getopt()` drops a word it does not know and goes on: `--apply=false`
+  was an apply, a misspelt or empty `--channel` left the timer's form (every store of the setting), `--backfill=0` was a backfill,
+  a second `--db` fell back to the default schema (seen on staging's PHP 8.3.6). `Ops\Cli::unreadable()` names the first such
+  word and `Cli::main(..., strict: true)` ends with the usage and exit 2 before anything is connected to. Only
+  `bin/check_arrivals.php` asks for it; the other jobs read their options as before. `Unit\CliOptionsTest`, the tool test.
+- **B. A batch and the switch.** Above (U144, Open 5). `ArrivalCheckTest::testATickedBatchLeavesAMatchOfTheCheckOnceTheSettingIsSwitchedOffWhileItRuns`.
+- **C. People's barcode rulings bind the barcode clue (M65).** A barcode a person took off an item stays on the profile of that
+  item's variant, and the check found the item through the variant; a barcode a review gave to one of two items read "on more
+  than one item" for ever. Now a matched variant that carries the barcode does not name its item when, for every barcode the two
+  share, the item has no barcode record of its own for it and the latest decided `barcode_review` of (barcode, the variant's
+  item) keeps it away (`BarcodeReviews::KEEPS_AWAY`, the read the barcode sync and the seeder make). Such a variant counts as one
+  that carries the barcode and has no item. A record of the item's own wins over an older ruling. Known limit, the sync's own: a
+  ruling made for an item that was joined into another since is not found. The batch tool (`tools/first_match`) reads no
+  barcode ruling at all; that is older than this build and unchanged.
+- **D. A clue through a pack (M65; settled while building, past the letter of the design's "pack" line and on the safe side).** A
+  suggestion carries no units, so a confirm links one unit a sale. A barcode carried by a variant matched with more than one
+  unit a sale, when no barcode record of the item's own says what it stands for, is the "pack" line; an address whose main-store
+  variant is matched with more than one unit a sale is Not sure, closest only, with the new reason `arrival_copy_pack`. On
+  staging no variant is matched with units other than 1 today, and no barcode ruling is decided: neither C nor D changes an
+  answer there yet.
+
+**Refuted.** A push that changes only the web address while the check writes: the end state is the one of "check, then push"
+(the suggestion made on what was read, the variant marked to check again), which the lock test pins on purpose.
+
+**Left, each confirmed and minor (for build 2 or a small follow-up; none lets a bulk action take a row it must not).**
+(1) The check's own suggestion stays open when the variant loses its title. (2) The roll-back after `add()` and the time cap are
+run by no test; the second refusal is not tested with the check's own suggestion open and a person acting in between. (3) A run
+that dies in `mark()` leaves its suggestions without the run's audit record. (4) The queue alarm counts variants the check can
+only leave (a matched variant that changed), and a store named for the first time starts with whatever queued since the deploy.
+(5) `install_cron.sh` copies the code before it migrates (older than this build): a listing push in that gap fails. (6) A store
+code that is no store is accepted by the settings and then ignored; for `mapping.arrival_main_store` that marks every
+address-only variant `done` with no word, and nothing looks at a `done` variant again (no "check again" option exists yet). (7)
+A barcode match whose address is shared by several main-store variants loses the "shared" warning. (8) A dry run counts two
+matches where an apply writes one match and one Not sure (the second variant of a store for one item). (9) `bin/mint_vpg.php`
+refuses a main-store variant that holds an open suggestion of the check. (10) With `mapping.arrival_bulk_confirm` on, a clean
+row is tagged "found by the check on arrival" and is not in "Found on arrival": name the choice by what it holds before the
+setting is switched on. (11) The list of run ids `arrivalRuns()` hands to the lists grows by two for every run that writes and
+shrinks only as people decide: do a backfill in few large runs; if it ever reaches hundreds, tell the kind by a join. (12) The
+box above New Variants shows the last run that looked at anything in any store. (13) Four lane flags that alone make a match
+"warned" have no words (`transfer_ambiguous`, `transfer_target_not_in_seed`, `transfer_resolved_by_seed`,
+`gtin_target_not_in_seed`): the page says a detail needs a look and not which. (14) Home and Mapping › To review still say "Not
+checked by the computer yet" where New Variants says "No suggestion". (15) A dry run's `--list` lines say `written`.

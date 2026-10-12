@@ -84,9 +84,11 @@ final class ReviewController
         // Bulk action (M46-M53, U108): the actions this list offers this person; "Select all on this page" without app.js (`all=1`).
         $offered = self::bulkActions('review', $qc->band, $me->roles, BulkDecisions::confirmBands($ctx->db));
         $all = $req->param('all') === '1';
-        // The rows of this page no bulk action takes (M63, U139): held back, or a match of a spot check. Such a row has no tick
-        // box, "select all" (the script's and `all=1`) leaves it, and it says so under its name.
-        $never = OneAtATime::of($ctx->db, array_map(static fn (array $r): int => (int) $r['listing_id'], $result['rows']));
+        // The rows of this page no bulk action takes (M63, U139): held back, a match of a spot check, or found by the check on
+        // arrival while that is decided one at a time (M64, U144). Such a row has no tick box, "select all" (the script's and
+        // `all=1`) leaves it, and it says so under its name. (The runs of the check are the ones the list's own counts were made
+        // with: a row and the count it is in cannot disagree.)
+        $never = OneAtATime::of($ctx->db, array_map(static fn (array $r): int => (int) $r['listing_id'], $result['rows']), $result['arrival_runs']);
         $noBox = array_fill_keys(OneAtATime::KINDS, 0);
         $rows = [];
         foreach ($result['rows'] as $r) {
@@ -113,7 +115,9 @@ final class ReviewController
                 'sku_code' => self::s($r['sku_code']),
                 'sku_name' => self::s($r['sku_name']),
                 'new_item' => (bool) $r['proposed_new_item'],
-                'watch' => self::flagWords(Html::strings(Html::json($r['flags']))),
+                // (a row whose line under its name already says "found by the check on arrival" does not say it a second time here)
+                'watch' => self::flagWords($why !== null && $why['code'] === OneAtATime::ARRIVAL
+                    ? array_values(array_diff(Html::strings(Html::json($r['flags'])), [\CW\Matching\ArrivalRules::RULES_ONLY])) : Html::strings(Html::json($r['flags']))),
                 'link' => Html::url('/ui/review/listing/' . (int) $r['listing_id'], $qc->query()),
                 'map_version' => (int) $r['map_version'],
                 'proposal_id' => (int) $r['proposal_id'],
@@ -127,6 +131,9 @@ final class ReviewController
         $show = $qc->showValue();
         $shows = [];
         foreach (Queries::SHOWS as $s) {
+            if ($s === 'arrival' && $result['shows'][$s] === 0 && $qc->show !== $s) {
+                continue; // a list with nothing found by the check on arrival offers the four choices it always had (U144)
+            }
             $shows[] = ['key' => $s, 'label' => Words::of('QUEUE_SHOW', $s), 'count' => $result['shows'][$s], 'current' => $qc->show === $s,
                 'href' => Html::url('/ui/review', array_replace($qc->pageQuery(), ['show' => $s === Queries::SHOW_ALL ? null : $s]))];
         }
@@ -319,7 +326,8 @@ final class ReviewController
      * A row no bulk action takes, as the lists whose rows are variants say it under the row's name (To review, Store Products, New
      * Variants; OneAtATime: M63, U139): held back, with the day and who set it aside, and that its own page says why and is where
      * it is decided (the hold's note is not printed on a list: the stored notes are long rule texts; the variant's page shows it
-     * in full); or a match of a spot check, by its name, with the link to it. Null for a row a bulk action can take.
+     * in full); or a match of a spot check, by its name, with the link to it; or found by the check on arrival, which no AI has
+     * looked at (M64, U144). Null for a row a bulk action can take.
      *
      * @param array{code: string, detail: array<string, mixed>, sample_id: int, sample: string}|null $why OneAtATime::of()'s answer for the row
      * @return array{code: string, text: string, link: ?array{0: string, 1: string}}|null
@@ -333,33 +341,42 @@ final class ReviewController
             return ['code' => OneAtATime::HELD, 'link' => null, 'text' => Words::say('ONE_AT_A_TIME', 'held', Html::day(self::s($why['detail']['at'] ?? null)),
                 self::s($why['detail']['by'] ?? null) ?? Words::ROLE['mapping_lead'])];
         }
+        if ($why['code'] === OneAtATime::ARRIVAL) {
+            return ['code' => OneAtATime::ARRIVAL, 'link' => null, 'text' => Words::ONE_AT_A_TIME['on_arrival']];
+        }
         return ['code' => OneAtATime::SPOT, 'text' => Words::say('ONE_AT_A_TIME', 'in_spot_check', $why['sample']),
             'link' => ['/ui/review/samples/' . $why['sample_id'], Words::ONE_AT_A_TIME['open_spot']]];
     }
 
     /**
-     * The notice above a match-strength list whose page holds rows with no tick box (U141): how many of the page are held back
-     * and how many are in a spot check, that they are decided one at a time, and the way to the rows a bulk action can take with
-     * how many there are (no link on that list itself; a sentence instead of the link when there are none). Null when every row
-     * of the page has its box.
+     * The notice above a match-strength list whose page holds rows with no tick box (U141, U144): how many of the page are held
+     * back, how many are in a spot check and how many were found by the check on arrival, that they are decided one at a time, and
+     * the way to the rows a bulk action can take with how many there are (no link on that list itself; a sentence instead of the
+     * link when there are none). Null when every row of the page has its box.
      *
      * @param array<string, int> $noBox OneAtATime's kind => rows of this page
      * @return array{text: string, link: ?array{0: string, 1: string}, none: ?string}|null
      */
     public static function noBoxNotice(array $noBox, int $ready, ?string $readyLink): ?array
     {
-        $held = $noBox[OneAtATime::HELD] ?? 0;
-        $spot = $noBox[OneAtATime::SPOT] ?? 0;
-        if ($held + $spot === 0) {
+        // Each kind's count in words: the first one named says "on this page", the ones after it do not say it again.
+        $parts = [];
+        foreach ([OneAtATime::HELD => 'held', OneAtATime::SPOT => 'spot', OneAtATime::ARRIVAL => 'arrival'] as $kind => $word) {
+            $n = $noBox[$kind] ?? 0;
+            if ($n > 0) {
+                $key = ($parts === [] ? 'no_box_' : 'no_box_and_') . $word . ($n === 1 ? '_one' : '_many');
+                $parts[] = $n === 1 ? Words::QUEUE[$key] : Words::say('QUEUE', $key, $n);
+            }
+        }
+        if ($parts === []) {
             return null;
         }
-        $what = match (true) {
-            $spot === 0 => $held === 1 ? Words::QUEUE['no_box_held_one'] : Words::say('QUEUE', 'no_box_held_many', $held),
-            $held === 0 => $spot === 1 ? Words::QUEUE['no_box_spot_one'] : Words::say('QUEUE', 'no_box_spot_many', $spot),
-            default => Words::say('QUEUE', 'no_box_both', $held === 1 ? Words::QUEUE['no_box_held_one'] : Words::say('QUEUE', 'no_box_held_many', $held),
-                $spot === 1 ? Words::QUEUE['no_box_and_spot_one'] : Words::say('QUEUE', 'no_box_and_spot_many', $spot)),
+        $what = match (count($parts)) {
+            1 => $parts[0],
+            2 => Words::say('QUEUE', 'no_box_both', $parts[0], $parts[1]),
+            default => Words::say('QUEUE', 'no_box_three', $parts[0], $parts[1], $parts[2]),
         };
-        return ['text' => Words::say('QUEUE', $held + $spot === 1 ? 'no_box_one' : 'no_box_many', $what),
+        return ['text' => Words::say('QUEUE', array_sum($noBox) === 1 ? 'no_box_one' : 'no_box_many', $what),
             'link' => $ready > 0 && $readyLink !== null ? [$readyLink, Words::say('QUEUE', 'show_ready', $ready)] : null,
             'none' => $ready === 0 ? Words::QUEUE['none_ready'] : null];
     }
@@ -662,6 +679,14 @@ final class ReviewController
             foreach ([...$targetSoft, ...Html::strings($ai['soft_flags_on_chosen'] ?? null)] as $flag) {
                 $watch[] = Words::of('FLAG', $flag);
             }
+            // A suggestion of the check on arrival (U144): no AI looked, so the strength's help says what the clue is; and the
+            // warnings about the clue itself (the barcode is also on an old page, say) are shown with the others.
+            $rulesOnly = in_array(\CW\Matching\ArrivalRules::RULES_ONLY, Html::strings(Html::json($proposal['flags'])), true);
+            foreach ($rulesOnly ? Html::strings($ev['lane_flags'] ?? null) : [] as $flag) {
+                if (Words::has('FLAG', $flag)) {
+                    $watch[] = Words::of('FLAG', $flag);
+                }
+            }
             $cannot = [];
             $proposedCode = $proposedId !== null && isset($skus[$proposedId]) ? (string) $skus[$proposedId]['code'] : Words::THING['proposed_item'];
             foreach ($targetVetoes as $v) {
@@ -679,7 +704,8 @@ final class ReviewController
             $reason = self::s($ai['reason'] ?? null, 1500);
             $refs = array_filter(array_map(static fn (array $c): ?string => $c['ref'], $candView));
             $why = [
-                'band' => Words::of('BAND', $band), 'band_help' => Words::of('BAND_HELP', $band),
+                'band' => Words::of('BAND', $band),
+                'band_help' => $rulesOnly && Words::has('BAND_HELP_RULES', (string) $band) ? Words::of('BAND_HELP_RULES', $band) : Words::of('BAND_HELP', $band),
                 'barcode' => $target === null ? null : ['tone' => $bc === 'same' ? 'done' : ($bc === 'differs' ? 'blocked' : 'off'),
                     'text' => Words::LISTING['barcode_' . ($bc === 'same' || $bc === 'differs' ? $bc : 'unknown')]],
                 'ai' => $outcome === null ? null : ($proposal['ai_confidence'] !== null && !in_array($outcome, ['cannot_tell', 'multiple_plausible'], true)
