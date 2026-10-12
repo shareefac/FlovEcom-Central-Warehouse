@@ -73,6 +73,21 @@ abstract class MappingTestCase extends StockTestCase
         return $this->proposals->add(Caller::system('test'), $listingId, $runId, ['band' => $band, 'proposed_sku_id' => $sku] + $p, $suggest)['proposal_id'];
     }
 
+    /**
+     * Stores a website state on a variant's profile (the columns of 0028; docs/decisions.md M66) as the state-only load writes
+     * it: the columns and nothing else, so no mark of the check on arrival moves. On sale and something that is sold, a product
+     * of its own, as of now, unless $over says otherwise (column => value; `site_state_at` a UTC time). A profile no test gave a
+     * state has none: nothing is known of it.
+     *
+     * @param array<string, mixed> $over
+     */
+    protected static function siteState(int $listingId, array $over = []): void
+    {
+        $s = $over + ['site_variant_status' => 'Published', 'site_product_status' => 'Published', 'site_product_type' => 'simple', 'site_product_id' => 'p' . $listingId,
+            'site_is_landing' => 0, 'site_is_default' => 1, 'site_product_link' => null, 'site_state_at' => \CW\Clock::db(\CW\Clock::now())];
+        self::$db->exec('UPDATE listing_profile SET ' . implode(' = ?, ', array_keys($s)) . ' = ? WHERE listing_id = ?', [...array_values($s), $listingId]);
+    }
+
     /** Asserts that $fn throws a CwException with this status and code; returns it. */
     protected static function refused(int $status, string $code, callable $fn): CwException
     {

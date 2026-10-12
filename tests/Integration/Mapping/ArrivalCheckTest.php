@@ -27,6 +27,8 @@ use CW\Tests\Support\TestDb;
  * refused variant gets no row in match_run, match_proposal or match_decision, and the only audit row of the run is its own record),
  * the second look under the lock, a variant that moved between the look and the write, the check's own suggestion looked at again,
  * a dry run that changes no table, the timer's form and its alarm, the tool as cron runs it, and the locks against a listing push.
+ * Build 2a (M66): the evidence of a suggestion carries the website state when it is known, and says so when it is not; the state
+ * is one more thing that must not have moved between the look and the write; and no state changes what the rules answer.
  */
 final class ArrivalCheckTest extends MappingTestCase
 {
@@ -52,6 +54,12 @@ final class ArrivalCheckTest extends MappingTestCase
         $this->stopWorkers();
         $this->arrivalTearDown();
         parent::tearDown();
+    }
+
+    /** The `website` part of a suggestion's evidence, as it comes back from the database (a JSON object's keys are stored in its own order). @return array<string, mixed> */
+    private static function website(bool $known, ?string $asOf, ?string $productStatus, ?bool $heading): array
+    {
+        return ['as_of' => $asOf, 'known' => $known, 'heading' => $heading, 'product_status' => $productStatus];
     }
 
     /** What a suggestion would add to: the runs, the suggestions, the decisions, the audit rows other than a run's own record, the feed. @return list<int> */
@@ -518,10 +526,17 @@ final class ArrivalCheckTest extends MappingTestCase
             'identity' => fn (int $v) => $this->arrivesAgain($v, ['variant_title' => '20mg']),
             'address' => fn (int $v) => $this->arrivesAgain($v, ['perma_link' => 'somewhere/new']),
             'number' => fn (int $v) => self::$db->exec("UPDATE listing_profile SET arrival_state = 'queued', arrival_seq = arrival_seq + 1 WHERE listing_id = ?", [$v]),
+            // The website state (M66), moved as the state-only load moves it: the columns only, the mark's number stays. A state
+            // that becomes known for the first time; and one that was known and says something else now.
+            'state, first known' => fn (int $v) => self::siteState($v),
+            'state, changed' => fn (int $v) => self::siteState($v, ['site_variant_status' => 'Bin']),
         ];
         $n = 0;
         foreach ($moves as $what => $fn) {
             [$item, $v] = $this->clean(++$n);
+            if ($what === 'state, changed') {
+                self::siteState($v);
+            }
             $look = $this->arrival->look($v);
             self::assertSame('write', $look['action']);
             $fn($v);
@@ -529,9 +544,16 @@ final class ArrivalCheckTest extends MappingTestCase
             $done = $this->arrival->write($look);
             self::assertSame(['moved', null], [$done['result'], $done['proposal_id']], $what);
             self::assertSame($before, self::written(), "{$what}: nothing written, no run row left behind");
-            self::assertSame(['queued', 2, null], self::arrivalMark($v), "{$what}: still to check, by its new number");
+            self::assertSame(['queued', str_starts_with($what, 'state') ? 1 : 2, null], self::arrivalMark($v), "{$what}: still to check" . (str_starts_with($what, 'state') ? '' : ', by its new number'));
             self::assertSame('unmapped', $this->link($v)['status']);
         }
+        // The same state seen again (only its date moved on) is no move: the suggestion is written.
+        [$item, $v] = $this->clean(++$n);
+        self::siteState($v, ['site_state_at' => '2026-09-26 09:41:52.000000']);
+        $look = $this->arrival->look($v);
+        self::siteState($v);
+        self::assertSame('written', $this->arrival->write($look)['result'], 'a state that says the same under a newer date is what the rules ran on');
+        self::assertSame('2026-09-26 09:41:52.000000', self::arrivalOpen($v)['evidence']['website']['as_of'], 'the evidence keeps the date that was read');
         // The same inside a run: the variant changes while the run is under way (here: just before it).
         [$item, $v] = $this->clean(++$n);
         $look = $this->arrival->look($v);
@@ -541,10 +563,90 @@ final class ArrivalCheckTest extends MappingTestCase
         $stale['snapshot']['identity_hash'] = str_repeat('0', 64);
         self::assertSame('moved', $this->arrival->write($stale)['result']);
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM match_proposal WHERE listing_id = ?', [$v]));
-        // The next run looks at each again, with what it is now.
+        // The next run looks at each again, with what it is now (the one written above is done).
         $r = $this->arrival->run(['apply' => true]);
-        self::assertSame(4, $r['looked']);
-        self::assertSame(4, (int) self::$db->value("SELECT COUNT(*) FROM match_proposal p JOIN match_run r ON r.id = p.match_run_id WHERE p.status = 'open' AND r.source LIKE 'arrival%'"));
+        self::assertSame(6, $r['looked']);
+        self::assertSame(7, (int) self::$db->value("SELECT COUNT(*) FROM match_proposal p JOIN match_run r ON r.id = p.match_run_id WHERE p.status = 'open' AND r.source LIKE 'arrival%'"));
+    }
+
+    /**
+     * The website state in a suggestion's evidence (M66): `variant_status` (a text, only when known) and `website` {known, as_of,
+     * product_status, heading}. `known` is true only for a STORED state that has the variant's status, its product's status and
+     * an answer for the page heading; a variant whose state is not known says so (`known` false, nothing else), and so "not known"
+     * is recorded as what it is. And the state is recorded only: no state makes a new outcome or changes a rule's answer. A
+     * variant in the bin, one whose product is a draft and a page heading get the same match as one on sale ("a match makes
+     * nothing"); the rules' version is what it was.
+     */
+    public function testTheEvidenceCarriesTheWebsiteStateWhenItIsKnownAndSaysSoWhenItIsNot(): void
+    {
+        self::assertSame('ar1.0', ArrivalRules::VERSION, 'the rules did not change with the state');
+        $at = '2026-09-26 09:41:52.000000';
+        $cases = [
+            'not known' => [null, [false, null, null, null], null],
+            'on sale' => [['site_state_at' => $at], [true, $at, 'Published', false], 'Published'],
+            'in the bin' => [['site_variant_status' => 'Bin', 'site_state_at' => $at], [true, $at, 'Published', false], 'Bin'],
+            'its product a draft' => [['site_product_status' => 'Draft', 'site_state_at' => $at], [true, $at, 'Draft', false], 'Published'],
+            'a landing row' => [['site_is_landing' => 1, 'site_state_at' => $at], [true, $at, 'Published', true], 'Published'],
+            'the status not known' => [['site_variant_status' => null, 'site_state_at' => $at], [false, $at, 'Published', false], null],
+            'the product status not known' => [['site_product_status' => null, 'site_state_at' => $at], [false, $at, null, false], 'Published'],
+            'an input of the heading not known' => [['site_product_type' => null, 'site_state_at' => $at], [false, $at, 'Published', null], 'Published'],
+        ];
+        $n = 0;
+        $made = [];
+        foreach ($cases as $what => [$state, $website, $status]) {
+            [$item, $v] = $this->clean(++$n);
+            if ($state !== null) {
+                self::siteState($v, $state);
+            }
+            $made[$what] = [$item, $v];
+        }
+        // The state as a matching run stored it in the features, with no stored state: the status is recorded as build 1 recorded
+        // it, with the heading the features hold; it is not a state the warehouse "knows" (it has no date).
+        [$item, $byFeatures] = $this->clean(++$n);
+        self::$db->exec("UPDATE listing_profile SET features = JSON_OBJECT('variant_status', 'Draft', 'is_placeholder', false) WHERE listing_id = ?", [$byFeatures]);
+        // A stored state comes first: the features are not read beside it.
+        [$item, $both] = $this->clean(++$n);
+        self::$db->exec("UPDATE listing_profile SET features = JSON_OBJECT('variant_status', 'Draft', 'is_placeholder', true) WHERE listing_id = ?", [$both]);
+        self::siteState($both, ['site_state_at' => $at]);
+        // The default row of a range with two published variants in this store: a heading by the Normalizer's rule, counted now.
+        $range = $this->mainItem('Bar Juice 5000 Range', 'Blue Razz 10mg', [self::gtin(++$n)]);
+        $parent = $this->arrives($this->shop, 'Bar Juice 5000 Range');
+        self::$db->exec('UPDATE listing_profile SET units_30d = 0 WHERE listing_id = ?', [$parent]);
+        self::siteState($parent, ['site_product_type' => 'variable', 'site_product_id' => 'range', 'site_is_default' => 1]);
+        $child = $this->arrives($this->shop, 'Bar Juice 5000 Range', 'Blue Razz 10mg', [self::gtin($n)]);
+        self::siteState($child, ['site_product_type' => 'variable', 'site_product_id' => 'range', 'site_is_default' => 0]);
+
+        $r = $this->arrival->run(['apply' => true]);
+        self::assertSame([count($cases) + 3, 0, 0, ['no_clue' => 1]], [$r['per_store']['electrofag']['match'], $r['per_store']['electrofag']['conflict'], $r['per_store']['electrofag']['not_sure'],
+            $r['per_store']['electrofag']['left']], 'every one of them is the same clean match, whatever its state; the range page has no clue');
+        foreach ($cases as $what => [$state, $website, $status]) {
+            [$item, $v] = $made[$what];
+            $p = self::arrivalOpen($v);
+            self::assertSame(['Check', 'barcode', $item['sku'], ['rules_only'], ['arrival_barcode'], ArrivalCheck::SOURCE],
+                [$p['band'], $p['lane'], (int) $p['proposed_sku_id'], $p['flags'], $p['evidence']['band_reasons'], $p['source']], "{$what}: the match is written whatever the state");
+            self::assertSame(self::website(...$website), $p['evidence']['website'], $what);
+            self::assertSame($status, $p['evidence']['variant_status'] ?? null, $what);
+            self::assertSame($status !== null, array_key_exists('variant_status', $p['evidence']), "{$what}: the status is written only when it is known");
+        }
+        $ev = self::arrivalOpen($byFeatures)['evidence'];
+        self::assertSame(['Draft', self::website(false, null, null, false)], [$ev['variant_status'], $ev['website']]);
+        $ev = self::arrivalOpen($both)['evidence'];
+        self::assertSame(['Published', self::website(true, $at, 'Published', false)], [$ev['variant_status'], $ev['website']]);
+        $ev = self::arrivalOpen($child)['evidence'];
+        self::assertSame([true, false], [$ev['website']['known'], $ev['website']['heading']], 'a flavour of the range is no heading');
+        // The range page itself has no clue and gets no suggestion in this build, whatever its state. What the check would record of
+        // it is what the seed works out (the same function): asked here of the look.
+        self::assertNull(self::arrivalOpen($parent));
+        self::assertSame(['done', 'no_clue'], [self::arrivalMark($parent)[0], self::arrivalMark($parent)[2]]);
+        // No evidence has an `ai` block, and none can be replayed as a judged match: as in build 1.
+        self::assertArrayNotHasKey('ai', self::arrivalOpen($child)['evidence']);
+        self::assertNull(StoredBand::inputs(self::arrivalOpen($child)['evidence']));
+        // A page heading with a clue is matched like anything else, and its evidence says it is a heading.
+        $this->mainItem('Bar Juice 5000 Range', '', [], 'bar-juice-5000-range');
+        $this->arrivesAgain($parent, ['perma_link' => 'bar-juice-5000-range/']);
+        $look = $this->arrival->look($parent);
+        self::assertSame(['write', 'transfer', true], [$look['action'], $look['answer']['lane'], $look['evidence']['website']['heading']],
+            'two published variants in its product, the default one, the product\'s own name, no barcode, no sale: a heading; and still matched');
     }
 
     // ------------------------------------------------------------------------------------------------------------------

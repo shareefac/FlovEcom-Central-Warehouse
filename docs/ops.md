@@ -391,7 +391,7 @@ server: copy `/root/cw_work/first_match/{*.jsonl.gz,run2,run3,private/run3}` ove
 ```bash
 php bin/create_channel.php --code=vapeandgo --name="Vape and Go" ...   # once per site (electrofag, vapebig)
 php bin/create_staff.php --email=lead@example --roles=mapping_lead     # prints password= and otpauth= ONCE
-php bin/import_listings.php --channel=vapeandgo --file=vapeandgo_listings_<ts>.jsonl.gz
+php bin/import_listings.php --channel=vapeandgo --file=vapeandgo_listings_<ts>.jsonl.gz        # (values with "=": the line is read whole or refused)
 php bin/import_listings.php --channel=electrofag --file=electrofag_listings_<ts>.jsonl.gz
 php bin/mint_vpg.php --features=run2/listings_features.jsonl --staff=lead@example --channel=vapeandgo --dry-run   # counts + duplicate report
 php bin/mint_vpg.php --features=run2/listings_features.jsonl --staff=lead@example --channel=vapeandgo
@@ -404,7 +404,7 @@ The `--channel` defaults of `mint_vpg` and `import_proposals` are `vpg` and `alt
 
 | Tool | Does | Re-run | Exit 1 when |
 |---|---|---|---|
-| `import_listings` | export lines → `listing_profile` (+ `unmapped` listing rows), batches of `--batch` (500) per transaction; a barcode the checks refuse is dropped and counted, the listing is kept (M17) | every profile `unchanged` | a line fails the `PUT /v1/listings` checks (skipped) |
+| `import_listings` | export lines → `listing_profile` (+ `unmapped` listing rows), batches of `--batch` (500) per transaction; a barcode the checks refuse is dropped and counted, the listing is kept (M17). Since 0028 it also stores each line's website state (M66), dated with `--exported-at`, else the time in the file's name; a file with neither is imported as before and its state is not written (`state_at=not_dated`). `--state-only [--apply]`: the state and nothing else ("The website state" below). Its command line is read whole or not at all: write values with `=` | every profile `unchanged` (the state's date moves on) | a line fails the `PUT /v1/listings` checks (skipped); with `--state-only`: any line was left |
 | `mint_vpg` | features → `listing_profile.features`; one item + applied `link` per seed listing (`bulk_batch_id vpg_mint:<run>`); duplicate groups → merge-suggestion proposals | linked listings skipped, proposals `exists` | a seed listing has no row (import first) or a mint failed |
 | `import_proposals` | one `match_run`, one proposal per Electrofag listing (CWP ids → minted items, candidates from the private ref maps), unmapped → suggested | proposals `exists` | a proposal's listing was not imported |
 | `seed_barcodes` | usable GTINs of each item's origin listing -> `sku_barcode` (GTIN key); a key already on another item is marked unusable, not moved (M25) | rows already there are `already` | never (clashes are counted) |
@@ -1775,6 +1775,92 @@ php bin/check_arrivals.php --db=cw_staging --apply --channel=electrofag --backfi
 5. `--apply --channel=<code> --backfill --limit=10`, read the ten on the screens, then the rest in time-boxed runs.
 Before and after each step compare: spot check owner-1 still has its 20 open members and none superseded; Electrofag's Strong
 list still reads 1,137 = 863 + 254 + 20 (the check never writes Strong, so its "Found on arrival" stays out of that list).
+
+### The website state and the state-only load (`bin/import_listings.php --state-only`, `docs/decisions.md` M66, U146)
+
+Whether a variant is on sale on its website (its status, its product's status) and whether it is a page heading is kept on its
+profile since 0028: eight columns, with ONE date (`site_state_at`: as of when they were true). "Create as new items" reads it:
+a variant that is not published, or under a product that is not published, or a page heading, is skipped as before; and so is one
+whose state the warehouse does **not know**, or knows only from a state older than Settings › Matching products › "How old the
+website's state may be" (`mapping.arrival_state_max_days`, 30). Nothing else reads the state yet: the check on arrival records it
+in a suggestion's evidence and decides nothing by it.
+
+**Deploy this build WITH `--migrate`** (`scripts/remote.sh <slot> bash deploy/staging/install_cron.sh --migrate`), never the plain
+form. The new code reads the new columns (New Variants, a variant's own page, the pre-checks of every bulk action, the listing
+intake, the check on arrival), and the installer copies the code before it looks at the schema: the plain form leaves staging on
+the new code with the old schema, and those pages and the stores' pushes fail until it is run again with `--migrate` (the
+command-line jobs refuse a schema that is behind and say so). With `--migrate` the gap is the one copy of `listing_profile`
+(0027's took 17 seconds; reads go on, a write to that table waits): pick a quiet moment. (The review of build 2a.)
+
+Who writes it: the listing intake, when its caller supplies a state. A store's connector may send the optional object `website`
+with a listing (no store does yet); the import of an export file sends what the file holds, dated with the export's time; and
+the **state-only load** writes it for the variants that are already there, without touching anything else:
+
+```bash
+cd /opt/cw-staging
+# DRY RUN (no --apply): counts and prints, writes NOTHING
+php bin/import_listings.php --db=cw_staging --channel=vapeandgo  --file=/srv/cw-import/vapeandgo_listings_20260926T094152Z.jsonl.gz  --state-only
+php bin/import_listings.php --db=cw_staging --channel=electrofag --file=/srv/cw-import/electrofag_listings_20260926T094157Z.jsonl.gz --state-only
+# the same two lines with --apply write the state, one store after the other
+# NOT the Vape Big sample (vapebig_sample_listings_20261010.jsonl.gz): see "Leave the Vape Big sample out" below
+```
+
+- **What it writes:** the eight state columns of a variant whose line IS the stored profile (the same `profile_hash`, after the
+  tool's own barcode cleaning), one transaction and one audit row (`listing.website_state`, "Website state of a store's variants
+  loaded") a batch. Nothing else: no listing is created, no identity, `map_version`, features or `pushed_at` moves, no mark of the
+  check on arrival moves, nothing is queued.
+- **What it leaves, counted and listed (20 of each) on stderr:**
+  `differs`: the line is not the stored profile (a title, a barcode, the price, the web address or the units sold changed since
+  the profile was stored). **Expected 0 for the files of 26 Sep and the Vape Big sample**: a read-only comparison of the three
+  files with `cw_staging` on 12 Oct 2026 found every line's hash stored (29,105 + 9,014 + 40; `/root/cw_work/runs/arrival2_facts.log`).
+  If it is not 0, stop and read why: someone loaded another file since, or a store pushed. To bring the profiles up to a newer
+  file use the ordinary import (no `--state-only`), which changes profiles and everything that follows from an identity change.
+  `unknown`: the warehouse has no such variant (it is not created). `no_state`: the line carries no state. `older`: the stored
+  state is newer than this file (a newer state is never replaced by an older one).
+- **The date:** `--exported-at=<UTC time>`, else the time in the file's name (`…_listings_20260926T094152Z.jsonl.gz`). A file
+  whose name has a day and no time (the Vape Big sample's; its manifest says `2026-10-10T05:03:19Z`) needs `--exported-at`. A
+  file with no date is refused by `--state-only`; a date in the future is refused.
+- **The command line is read whole or not at all** (as `bin/check_arrivals.php`): a misspelt option, a value on a flag
+  (`--apply=false`), an option with no value or given twice, a stray word: the usage and exit 2, before anything is read.
+  `--apply` without `--state-only` is refused too (the ordinary import always writes).
+- **The line it prints** (a dry run says `DRY RUN (nothing written)` and `would_write`):
+
+```
+2026-10-12T17:12:39Z import_listings [cw_staging] STATE ONLY channel=electrofag file=electrofag_listings_20260926T094157Z.jsonl.gz sites=electrofag state_at=2026-09-26T09:41:57Z lines=9014 received=9014 written=9014 (first=9014 changed=0 same=0) differs=0 unknown=0 no_state=0 older=0 values_ignored=0 skipped=0 batches=19 ms=…
+```
+
+  `first`: no state was stored before; `changed`: the state says something else than the stored one; `same`: the same state, its
+  date moved on. A second run of the same file says `first=0 … same=9014`. Exit 0 when nothing was left, 1 when any line was.
+- **How long:** about 4 ms a variant on the test slot (300 real lines: 1.2 s), so about two minutes for the main store's 29,105.
+  A batch locks its 500 profiles while it is written; a listing push of the same variants waits for that batch.
+- **The ordinary import queues, the state-only load never does.** The intake marks a variant "to check" when its state changed
+  from a known value, and when a variant that already carries a mark of the check on arrival gets its FIRST state. So an
+  ordinary import of a dated file into a store whose variants the check has already looked at, before their state was ever
+  loaded, queues every one of them (more than the queue alarm: the timer then leaves the store to a hand run). Load the state
+  with `--state-only` first; later imports then queue only the variants whose state really changed.
+- **How old the state is matters.** The files are of 26 Sep 2026. With the setting at 30 days, from 26 Oct the seed reads the
+  state of every Vape and Go and Electrofag variant as not known and skips them ("The warehouse does not know if it is on sale on
+  the website now"), until a newer export is loaded or the setting is raised. Electrofag's 119 rows marked New read "on sale"
+  from their stored state until then (the same read-only run; today they read it from the features of their matching run).
+- **A page heading is counted from what the warehouse holds.** "Its product has more than one published variant" is counted
+  over the variants of the store whose state is stored. A store whose list the warehouse holds only in part, or a load that
+  left lines (`differs`, `unknown`), counts short, and a short count errs one way: a page heading reads as a real variant.
+- **Leave the Vape Big sample out of the state-only load** (the review of build 2a). Its list on staging is a sample of 40 of
+  the store's 2,503 variants. Loaded, each of the 40 would have a stored state that looks whole, and the default row of a
+  product whose other variants are outside the 40 would read "on sale, not a page heading". Not loaded, the 40 read their
+  state exactly as today: from the features of their matching run, where it stored any (its 11 rows marked New have them, and
+  are made as today, with no age limit). Load Vape Big's state only from a list of the WHOLE store. The same holds for any
+  store the warehouse holds in part.
+- **A stored state never makes "Create as new items" less strict than it was** (the review of build 2a, F1). Beside a stored
+  state that says "on sale", a variant whose features (a matching run's) call it a page heading, or whose features or
+  suggestion give a status that is not Published, is still skipped and still says so on New Variants, as before the load. So a
+  row whose OLD features say Draft stays one at a time although a newer export says it is on sale, until a matching run made
+  on that export is imported (`bin/import_proposals.php` rewrites the features). Nothing changes for a row whose features agree
+  with its state: all of Electrofag's 119.
+- **What New Variants reads for it.** Every row still to match says "A page heading on the website…" when its stored state
+  makes it one (before the review only a row marked New did, and after a load the line was gone from the others). That is one
+  more read for each PRODUCT among the page's rows that are on sale by a stored state and that nothing already calls a heading
+  or not published: at most 50 a page, one range of the index on the product's number each; the CSV the same for each 500 rows.
 
 ### The barcode sync (`bin/sync_barcodes.php`, I106–I108, I116–I118)
 

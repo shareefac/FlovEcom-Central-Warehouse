@@ -1531,6 +1531,7 @@ final class Words
         'mapping.arrival_max_per_run' => 'Most variants one run of the check looks at',
         'mapping.arrival_max_seconds' => 'Longest one run of the check may take, in seconds',
         'mapping.arrival_queue_alarm' => 'Most waiting variants the timer takes by itself',
+        'mapping.arrival_state_max_days' => 'How old the website\'s state may be',
         'staff.setup_hours' => 'Hours to set up a sign-in',
         'staff.min_reviewers' => 'Reviewers needed',
     ];
@@ -2620,6 +2621,9 @@ final class Words
         'mapping.arrival_max_seconds' => 'A run of the check on arrival stops after this many seconds and goes on at its next run.',
         'mapping.arrival_queue_alarm' => 'When more variants of one store than this wait for the check on arrival (a whole store was just loaded, '
             . 'say), the timer leaves that store alone until someone has run the check for it by hand (ask ' . self::ASK . ').',
+        'mapping.arrival_state_max_days' => 'In days. The warehouse keeps what each website last said of a variant: whether it is on sale, and '
+            . 'whether it is a page heading. "Create as new items" takes a variant only while that is known and not older than this. An older '
+            . 'state reads as not known: such a variant is skipped until its store\'s list is loaded again, or a person opens it and decides.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
     ];
@@ -3365,6 +3369,8 @@ final class Words
         'not_new' => 'The computer could not say what it is (%s): open it and decide.',
         'page_heading' => 'It is a page heading on the website, not something that is sold. Open it and decide.',
         'not_published' => 'It is not published on the website (%s). Open it and decide.',
+        // (M66, U146) nothing says whether it is on sale, or the last word on it is too old: one sentence for both
+        'state_not_known' => 'The warehouse does not know if it is on sale on the website now. Open it and decide.',
         'made_before' => 'An item was already made from this variant (%s): open it and decide.',
         'changed_since_check' => 'It changed on the website after the computer checked it: open it and decide.',
         'name_elsewhere' => 'An item with the same name is already in the warehouse (%s): open it and decide.',
@@ -3671,6 +3677,7 @@ final class Words
         'not_new' => 'The computer could not say what it is (%s): open it and decide.',
         'page_heading' => 'It is a page heading on its store, not something that is sold. Open it and decide.',
         'not_published' => 'It is not published on its store (%s). Open it and decide.',
+        'state_not_known' => 'The warehouse does not know if it is on sale on its store now. Open it and decide.',
         'made_before' => 'An item was already made from this variant (%s): open it and decide.',
         'changed_since_check' => 'It changed on its store after the computer checked it: open it and decide.',
         'name_elsewhere' => 'An item with the same name is already in the warehouse (%s): open it and decide.',
@@ -3741,6 +3748,9 @@ final class Words
         'match_no_item' => '%s, to a variant of the main store that has no item yet: open it to decide.',
         'site_heading' => 'A page heading on the website, not something that is sold.',
         'site_status' => 'Not published on the website (%s).',
+        // (M66, U146) under a row marked New whose state on the website is not known, or known only from a state that is too old:
+        // "Create as new items" will skip it for that (SiteState::doubt(), the question the seed asks last)
+        'site_unknown' => 'The warehouse does not know if it is on sale on the website now: open it to decide.',
         'matched_to' => 'Matched to %s',
         'on_hold' => 'On hold: shows as out of stock',
         'empty' => 'Nothing new to show here.',
@@ -3752,7 +3762,8 @@ final class Words
             . 'It makes a warehouse item from each, with the variant\'s own name and details, and matches the two. Every other ticked row is '
             . 'skipped and listed afterwards with the reason: no suggestion, a suggested match (also one to a variant of the main store '
             . 'that has no item yet), one the computer could not decide, a page '
-            . 'heading, not published on the website, changed on the website after the check, an item already made from it, a name that an '
+            . 'heading, not published on the website, one the warehouse does not know to be on sale on the website now, changed on the '
+            . 'website after the check, an item already made from it, a name that an '
             . 'item already has or that two ticked rows share, or a barcode that is already on an item or on another variant. Open a '
             . 'skipped one to decide it.',
         'csv_more' => 'Only the first %s variants are in this file.',
@@ -6931,6 +6942,7 @@ final class Words
         'location.switch_on' => 'Place switched on again',
         'mapping.bulk' => 'Bulk action on matches',
         'mapping.arrival_check' => 'The check on arrival ran',
+        'listing.website_state' => 'Website state of a store\'s variants loaded',
         'staff.create' => 'Staff member added',
         'staff.roles' => 'Jobs changed',
         'staff.activate' => 'Can sign in again',

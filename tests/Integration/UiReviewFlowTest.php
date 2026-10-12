@@ -770,6 +770,8 @@ final class UiReviewFlowTest extends UiTestCase
         $site = $this->site('vpg');
         $sku = $this->item('legacy', 0, 'Elux Legend Blue Razz');
         $new = $this->queued($site, 'V1', 'New item', null, ['product_title' => 'Brand new kit', 'units_30d' => 2], ['proposed_new_item' => true]);
+        // (on sale by its stored website state: since M66 the seed skips a variant whose state the warehouse does not know)
+        self::siteState($new);
         $known = $this->queued($site, 'V2', 'Key', $sku, ['product_title' => 'Elux Legend Blue Razz']);
         $unchecked = $this->profiled($site, 'V4', ['product_title' => 'Nobody looked at this one']);
         $web = $this->signIn($this->uiUser('mapper'));

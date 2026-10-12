@@ -8,6 +8,7 @@ use CW\Admin\ApprovalRules;
 use CW\Audit;
 use CW\Auth\Permissions;
 use CW\Caller;
+use CW\Clock;
 use CW\CwException;
 use CW\Db;
 use CW\Idempotency;
@@ -32,8 +33,11 @@ use CW\Staff\StaffRoles;
  * undone before. A bulk "create as new" (any list: seedCheck(), M61) makes an item only from a listing whose open suggestion says
  * "new product", and skips everything that could make a second item for one thing or an item for nothing: a listing an item was
  * already made from (`made_before`), a page heading of the website (`page_heading`), one the website does not publish
- * (`not_published`), one that changed on the website after the computer checked it (`changed_since_check`), one whose barcode is
- * elsewhere (`barcode_elsewhere`; the single page does not preselect it either), one whose name an item already has
+ * (`not_published`: the variant, or its product), one that changed on the website after the computer checked it
+ * (`changed_since_check`), one whose barcode is elsewhere (`barcode_elsewhere`; the single page does not preselect it either), one
+ * whose state on the website the warehouse does not know, or knows only from a stored state that is too old (`state_not_known`,
+ * M66: the state is read by CW\Mapping\SiteState, the stored columns first; what the features and the suggestion's record say
+ * against a variant counts beside a stored state too), one whose name an item already has
  * (`name_elsewhere`) or another ticked row shares (`name_twice`). On New Variants, where the rows are of every kind, also one with
  * no open suggestion (`not_checked`), one whose suggestion is a match to an item (`suggested_match`), one matched to a variant of
  * the main store that has no item yet (`match_no_item`) and one the computer could not decide (`not_new`): a person opens each
@@ -82,12 +86,13 @@ final class BulkDecisions
         'rejected_before', 'item_on_store', 'several_suggested',
         // A bulk "create as new" only (M61, seedCheck() and nameChecks(); `suggested_match`, `not_checked`, `not_new` and `match_no_item` on
         // New Variants only):
-        'suggested_match', 'not_checked', 'page_heading', 'not_published', 'made_before', 'not_new', 'changed_since_check', 'name_elsewhere', 'name_twice',
+        // (`state_not_known` since the website state is stored, M66)
+        'suggested_match', 'not_checked', 'page_heading', 'not_published', 'state_not_known', 'made_before', 'not_new', 'changed_since_check', 'name_elsewhere', 'name_twice',
         'match_no_item'];
     /** The strengths that say "it is that one" (a match), as the computer check writes them: matchNoItem(). */
     private const MATCH_BANDS = ['Key', 'Check'];
-    /** The website's own state of a listing that is on sale (listing_profile.features `variant_status`, as the load tools read it). */
-    public const PUBLISHED = 'Published';
+    /** The website's own state of a listing that is on sale (SiteState: the stored state, the features and the exports all say it so). */
+    public const PUBLISHED = SiteState::PUBLISHED;
     /** DecisionService refusals => the skip they are reported as (others: `refused`, with the code). */
     private const REFUSAL_SKIP = [
         'map_version_conflict' => 'changed',
@@ -115,6 +120,10 @@ final class BulkDecisions
     private const MAX_JOINS = 32;
     /** How many names one read of the name guard asks about (one index look-up each, in one statement). */
     private const NAMES_A_READ = 50;
+    /** @var array<string, ?int> "store:product number" => the published variants of that product (SiteState::publishedSiblings), for one request */
+    private array $siblings = [];
+    /** How old a stored website state may be, in days (the setting, read once a request). */
+    private ?int $stateMaxDays = null;
 
     public function __construct(private readonly Db $db, private readonly DecisionService $ds)
     {
@@ -425,12 +434,15 @@ final class BulkDecisions
         foreach ($this->db->all(
             'SELECT cl.id, cl.channel_id, cl.status, cl.map_version, p.id AS proposal_id, p.band, p.proposed_sku_id, p.proposed_new_item, p.ai_units_per_item, '
             . 'p.flags, p.evidence, ps.code AS proposed_code, pd.id AS pending_id, lp.barcodes, '
-            // What the website said of the listing when its features were stored (a load of the store's list); NULL when not known.
-            . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS site_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder, "
+            // The website state of the listing (M66; SiteState::read): its stored state (the columns of 0028, with their date), and
+            // what the website said of it when its features were stored by a matching run; each NULL when not known.
+            . 'lp.site_variant_status, lp.site_product_status, lp.site_product_type, lp.site_product_id, lp.site_is_landing, lp.site_is_default, lp.site_state_at, '
+            . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS features_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder, "
             // What the open suggestion was made on (its basis row, by its primary key) and what the listing is now.
             . 'lp.identity_hash, pb.proposal_id AS basis_id, pb.identity_hash AS basis_identity'
-            // What a new item would be named from (DecisionService::card reads the same four).
-            . ($seed ? ', lp.product_title, lp.variant_title, lp.brand, lp.features' : '') . ' '
+            // What a new item would be named from (DecisionService::card reads the same four), and the units sold in the month
+            // (the page-heading rule reads them, with the titles and the barcodes).
+            . ($seed ? ', lp.product_title, lp.variant_title, lp.brand, lp.features, lp.units_30d' : '') . ' '
             . 'FROM channel_listing cl LEFT JOIN match_proposal p ON p.open_listing_id = cl.id LEFT JOIN sku ps ON ps.id = p.proposed_sku_id '
             . 'LEFT JOIN match_decision pd ON pd.pending_listing_id = cl.id '
             . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN match_proposal_basis pb ON pb.proposal_id = p.id '
@@ -588,10 +600,20 @@ final class BulkDecisions
      *     and whatever suggestion is open now): `made_before`, with that item's CW number. A later computer check compares the
      *     listing with the main store's list only, so it says "new" again of a listing whose own item it cannot see;
      *  2. New Variants only: the open suggestion is a match to an item: `suggested_match`, with that item's CW number;
-     *  3. a page heading of the website (features `is_placeholder`): `page_heading`;
-     *  4. its state on the website is known and is not Published: `not_published`, with that state. The state is the stored
-     *     features' `variant_status`; when they give none (a listing that changed since has no features), what the open
-     *     suggestion recorded when the computer checked it (its evidence's `variant_status`). Known from neither: skips nothing;
+     *  3. a page heading of the website, as the stored features of a matching run recorded it (`is_placeholder`): `page_heading`
+     *     (a variant with a stored state: at 4, after that state's own status; and worked out again at 9);
+     *  4. it is known not to be on sale: `not_published`, with the status that says so (SiteState::notOnSale()): the variant's
+     *     own status when that is known and is not Published; else its PRODUCT's (a stored state only: a published variant under
+     *     a product that is not published is not on sale; the record then says `of: product`). The state is read in SiteState's
+     *     order: the stored columns (0028); else the stored features' `variant_status`; else what the open suggestion recorded
+     *     when the computer checked it (its evidence's `variant_status`: a listing that changed since has no features). What an
+     *     old stored state knows against a variant counts here too.
+     *     BESIDE A STORED STATE that does not say "not on sale", the features and the record are asked all the same what they
+     *     say AGAINST the variant, as they were before the state was stored (SiteState::against(); the review of build 2a, F1):
+     *     `page_heading` when the features call it one, then `not_published` with the status the features, else the record,
+     *     give when that is not Published. A stored state is never a reason to make a row that was skipped without it: the
+     *     features can be newer than it, and its own heading (9) hangs on a count that can be short. What they say FOR a
+     *     variant is not read beside a stored state;
      *  5. NO open suggestion, whatever came before: `not_checked` on New Variants, `no_suggestion` on the other lists (as before);
      *  6. an open suggestion that does not say "new product". On New Variants: `match_no_item` when it is a match (Strong or
      *     Likely) that names no item (the import stores it so when the main-store variant the computer matched has no item:
@@ -603,7 +625,18 @@ final class BulkDecisions
      *     suggestion's evidence holds (the one the computer judged) is not the listing's title now (evidence with no title skips
      *     nothing by this). The second is needed because the basis dates from the IMPORT of a suggestion, not from the run's
      *     export: a listing renamed between the two has a basis on its new identity;
-     *  8. its barcode is on an item or on another listing: `barcode_elsewhere`.
+     *  8. its barcode is on an item or on another listing: `barcode_elsewhere`;
+     *  9. for a row that would now be made, with a stored state: its page heading worked out again, at this click, from the
+     *     stored inputs, the titles, the barcodes, the units sold and the published variants of its product counted in the
+     *     database (SiteState::heading(): the Normalizer's own answer): `page_heading` when it is one. A product that gained a
+     *     second published variant since the computer's check makes its default row a heading from then on;
+     * 10. the warehouse does not know that it is on sale and something that is sold: `state_not_known` (SiteState::doubt(); the
+     *     record says `state`: `not_known` or `too_old`, and the date of a state that is too old). That is: no reader gives a
+     *     state at all; or its stored state lacks the variant's status, its product's status or an input of the heading; or its
+     *     stored state is older than the setting `mapping.arrival_state_max_days`. THIS REVERSES A RULE ON PURPOSE (M66): until
+     *     the state was stored, "known from neither: skips nothing". A state known only from the features or from the
+     *     suggestion's record has no date; it is relied on exactly as before (so nothing changes for the rows a matching run
+     *     judged, until their store's state is loaded).
      * What is left is sent with the suggestion's units, unless its name is taken (nameChecks()). The single page is not touched by
      * any of this: there a person sees the listing's details and may still make its item.
      *
@@ -621,13 +654,23 @@ final class BulkDecisions
         if ($mixed && $l['proposal_id'] !== null && $l['proposed_sku_id'] !== null) {
             return $skip('suggested_match', ['sku' => (string) $l['proposed_code']]);
         }
-        if (self::isPlaceholder($l['is_placeholder'] ?? null)) {
+        $ev = json_decode((string) ($l['evidence'] ?? 'null'), true);
+        $features = ['variant_status' => $l['features_status'] ?? null, 'is_placeholder' => $l['is_placeholder'] ?? null];
+        $state = SiteState::read($l, $features, is_array($ev) ? $ev : null);
+        if ($state['heading'] === true) {
             return $skip('page_heading');
         }
-        $ev = json_decode((string) ($l['evidence'] ?? 'null'), true);
-        $site = self::siteState($l['site_status'] ?? null, is_array($ev) ? ($ev['variant_status'] ?? null) : null);
-        if ($site !== null && $site !== self::PUBLISHED) {
-            return $skip('not_published', ['site_status' => $site]);
+        $off = SiteState::notOnSale($state);
+        if ($off !== null) {
+            return $skip('not_published', ['site_status' => $off] + ($off === $state['variant_status'] ? [] : ['of' => 'product']));
+        }
+        // Beside a stored state: what the features and the record say against the variant, as before the state was stored.
+        $against = SiteState::against($state, $features, is_array($ev) ? $ev : null);
+        if ($against['heading']) {
+            return $skip('page_heading');
+        }
+        if ($against['status'] !== null) {
+            return $skip('not_published', ['site_status' => $against['status']]);
         }
         if ($l['proposal_id'] === null) {
             return $skip($mixed ? 'not_checked' : 'no_suggestion');
@@ -645,6 +688,24 @@ final class BulkDecisions
         }
         if ($this->barcodeElsewhere((int) $l['id'], self::strings(json_decode((string) ($l['barcodes'] ?? 'null'), true)))) {
             return $skip('barcode_elsewhere');
+        }
+        // The row would be made. The last two questions (M66): is it a page heading NOW, and does the warehouse know its state?
+        if (SiteState::headingInputs($state)) {
+            $key = (int) $l['channel_id'] . ':' . $state['product_id'];
+            if (!array_key_exists($key, $this->siblings)) {
+                $this->siblings[$key] = SiteState::publishedSiblings($this->db, (int) $l['channel_id'], $state['product_id']);
+            }
+            $heading = SiteState::heading($state, $l, $this->siblings[$key]);
+            if ($heading === true) {
+                return $skip('page_heading');
+            }
+            if ($heading === null) {
+                return $skip('state_not_known', ['state' => 'not_known']); // (the Normalizer could not read its titles)
+            }
+        }
+        $doubt = SiteState::doubt($state, $this->stateMaxDays ??= SiteState::maxDays($this->db), Clock::now());
+        if ($doubt !== null) {
+            return $skip('state_not_known', ['state' => $doubt] + ($doubt === 'too_old' ? ['as_of' => $state['as_of']] : []));
         }
         return ['code' => '', 'detail' => [], 'request' => ['units_per_item' => $l['ai_units_per_item'] === null ? 1 : max(1, (int) $l['ai_units_per_item'])]];
     }
@@ -767,20 +828,21 @@ final class BulkDecisions
         return $v === true || $v === 1 || $v === 'true' || $v === '1';
     }
 
-    /** The website's state of a listing as one source gives it (a text), or null when it gives none. */
+    /** The website's state of a listing as one source gives it (a text), or null when it gives none (SiteState::text()). */
     public static function siteStatus(mixed $v): ?string
     {
-        return is_string($v) && trim($v) !== '' && $v !== 'null' ? mb_substr(trim($v), 0, 64) : null;
+        return SiteState::text($v);
     }
 
     /**
-     * The website's state of a listing: what its stored features say (`variant_status`), else what its open suggestion recorded
-     * when the computer checked it (its evidence's `variant_status`), else null. The list and the seed both ask here, so a row
-     * and its skip cannot disagree.
+     * The website's state of a listing that has NO stored state (the columns of 0028; SiteState::read() asks those first): what
+     * its stored features say (`variant_status`), else what its open suggestion recorded when the computer checked it (its
+     * evidence's `variant_status`), else null. The second and third readers of SiteState, which the list and the seed both ask,
+     * so a row and its skip cannot disagree.
      */
     public static function siteState(mixed $fromFeatures, mixed $fromCheck): ?string
     {
-        return self::siteStatus($fromFeatures) ?? self::siteStatus($fromCheck);
+        return SiteState::read([], ['variant_status' => $fromFeatures], ['variant_status' => $fromCheck])['variant_status'];
     }
 
     /**

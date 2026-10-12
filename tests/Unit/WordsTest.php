@@ -299,7 +299,7 @@ final class WordsTest extends TestCase
         }
         $keys = [];
         foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql', '0019_set_it_yourself.sql',
-            '0021_mapping_bulk.sql', '0025_by_item_bulk.sql', '0026_new_variants.sql', '0027_arrival_check.sql'] as $file) {
+            '0021_mapping_bulk.sql', '0025_by_item_bulk.sql', '0026_new_variants.sql', '0027_arrival_check.sql', '0028_arrival_site_state.sql'] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
         }
@@ -680,6 +680,44 @@ final class WordsTest extends TestCase
             self::assertStringNotContainsString('Nothing to do now', $text);
         }
         self::assertStringContainsString('the check on arrival leaves a variant that was sent back', Words::BY_ITEM_BULK['text_send_back']);
+    }
+
+    /**
+     * The website state (docs/decisions.md M66, U146): where the warehouse does not know whether a variant is on sale, the screens
+     * say so in words: the skip of a bulk "create as new" (in the lists' words and in By Item's), the line under a row marked New,
+     * the line beside the bar. A variant whose product is not published is "not published". The setting has a plain name and says
+     * what it does; the audit log names the load of the state. Variants and items, no store named, no code and no number of a setting.
+     */
+    public function testTheWebsiteStateSaysNotKnownInWordsOfVariantsAndItems(): void
+    {
+        self::assertContains('state_not_known', BulkDecisions::SKIPS);
+        self::assertSame(['The warehouse does not know if it is on sale on the website now. Open it and decide.',
+            'The warehouse does not know if it is on sale on its store now. Open it and decide.'],
+            [\CW\Ui\Controller\BulkController::why('state_not_known', ['state' => 'too_old', 'as_of' => '2026-01-01 00:00:00.000000']),
+                \CW\Ui\Controller\BulkController::why('state_not_known', ['state' => 'not_known'], 'BY_ITEM_SKIP')],
+            'one sentence whether the state was never known or is too old: either way the warehouse does not know it NOW');
+        self::assertSame('The warehouse does not know if it is on sale on the website now: open it to decide.', Words::NEW_VARIANTS['site_unknown']);
+        self::assertStringContainsString('one the warehouse does not know to be on sale on the website now', Words::NEW_VARIANTS['seed_note'],
+            'the line beside the bar names this reason with the others');
+        self::assertSame('It is not published on the website (Draft). Open it and decide.', \CW\Ui\Controller\BulkController::why('not_published', ['site_status' => 'Draft', 'of' => 'product']),
+            'a variant whose product is not published: the same words, with the product\'s state');
+        // The setting, under Matching products; and the audit log's word for the load.
+        $key = 'mapping.arrival_state_max_days';
+        self::assertSame('How old the website\'s state may be', Words::SETTING[$key]);
+        self::assertStringContainsString('In days.', Words::SETTING_HELP[$key]);
+        self::assertDoesNotMatchRegularExpression('/\d/', Words::SETTING[$key] . Words::SETTING_HELP[$key], 'no number of a setting is written into a text');
+        self::assertSame(['min' => 1, 'max' => 365], \CW\Settings::RULES[$key]);
+        self::assertSame(Words::settingTopic('mapping.arrival_stores'), Words::settingTopic($key));
+        self::assertSame('Website state of a store\'s variants loaded', Words::AUDIT_ACTION['listing.website_state']);
+        $texts = [Words::BULK_SKIP['state_not_known'], Words::BY_ITEM_SKIP['state_not_known'], Words::NEW_VARIANTS['site_unknown'], Words::SETTING[$key], Words::SETTING_HELP[$key],
+            Words::AUDIT_ACTION['listing.website_state']];
+        foreach ($texts as $text) {
+            self::assertDoesNotMatchRegularExpression('/website products?|warehouse products?|\bproducts?\b|\blistings?\b|\bSKU\b/i', $text, $text);
+            foreach (Words::SITE as $name) {
+                self::assertStringNotContainsStringIgnoringCase($name, $text, 'no store is named');
+            }
+        }
+        self::assertDoesNotMatchRegularExpression('/website/i', Words::BY_ITEM_SKIP['state_not_known'], 'By Item says "its store"');
     }
 
     public function testEveryStateOfAReservationHasItsWords(): void

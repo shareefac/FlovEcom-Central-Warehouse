@@ -6,6 +6,7 @@ namespace CW\Mapping;
 
 use CW\Audit;
 use CW\Caller;
+use CW\Clock;
 use CW\CwException;
 use CW\Db;
 use CW\Idempotency;
@@ -33,6 +34,24 @@ use CW\Idempotency;
  * (a price, the units sold, or nothing) marks nothing. No suggestion is made here: the check (CW\Mapping\ArrivalCheck, a
  * command-line job) reads the mark later, in its own transactions. Neither hash reads the mark, and the mark is not part of a
  * profile: the same push hashes the same with or without it.
+ *
+ * The website state (0028, docs/decisions.md M66; CW\Mapping\SiteState): a listing may carry the optional object `website`
+ * (variant_status, product_status, product_type, product_id, is_landing, is_default, product_link): whether the variant is on sale
+ * on its website and what the page-heading rule reads. It is read leniently (a wrong type is ignored and counted in the audit
+ * row, never a 400) and attached to the profile AFTER both hashes are made, so neither hash and nothing of the identity knows it:
+ * a state never makes a push look changed, never wipes the features and never moves a map_version. When a state is supplied it is
+ * written in the statement the intake runs anyway, in each of its three branches (created, changed, unchanged), whole (what it
+ * leaves out is not known from then on), and its date (`site_state_at`: the push's time, or the export's for an import) is moved
+ * on even when it says the same. A push with no usable state leaves the stored one, which grows old by itself. A state older
+ * than the stored one (an old file loaded after a newer one) is not written. The mark gains two rules: a state that changed FROM
+ * A KNOWN VALUE (one of the values the readers use: SiteState::changed()) marks the profile "to check" whatever its mark was; a
+ * state that was not known before marks it only when it already carries a mark (the check has looked at it, or is about to,
+ * without knowing whether it is on sale). So the first load of the state marks none of the variants that were there before the
+ * check. No site sends `website` yet (the stores' connector is not changed by this); bin/import_listings.php does, from the
+ * export files (SiteState::fromExport()).
+ *
+ * The state-only load (stateOnly(); bin/import_listings.php --state-only): the state columns and nothing else, for the variants
+ * that are already there, and only where the line is the stored profile (the same profile_hash).
  */
 final class ListingIngestService
 {
@@ -42,6 +61,8 @@ final class ListingIngestService
     /** column => max characters (longer values are cut, not refused: this is a data feed). */
     private const TEXT = ['product_title' => 512, 'variant_title' => 512, 'brand' => 128, 'perma_link' => 512];
     private const IDENTITY = ['product_title', 'variant_title', 'brand', 'attributes', 'barcodes'];
+    /** The eight columns of the website state (0028): the seven values in SiteState::COLUMNS' order, then their date. */
+    private const STATE_NAMES = [...SiteState::COLUMNS, SiteState::DATE];
 
     public function __construct(private readonly Db $db)
     {
@@ -55,15 +76,18 @@ final class ListingIngestService
         if (!$caller->isChannel()) {
             throw new CwException('channel_required', 'listings are pushed by a site', 403);
         }
-        return $this->ingest($caller, (int) $caller->channelId, $listings);
+        // (a site is answered what it always was: the counts of the website state are in the audit row)
+        return array_diff_key($this->ingest($caller, (int) $caller->channelId, $listings), ['website' => true]);
     }
 
     /**
-     * The same for any caller (a site for its own channel, or a system import naming the channel).
+     * The same for any caller (a site for its own channel, or a system import naming the channel). $stateAt: as of when the
+     * website state the listings carry was true (an import: its export's time); not given: now (a push says what is true now).
+     * `website` counts the states: written, values ignored for their type, states left because the stored one is newer.
      *
-     * @return array{received: int, created: int, updated: int, unchanged: int, listings: list<array<string, mixed>>}
+     * @return array{received: int, created: int, updated: int, unchanged: int, listings: list<array<string, mixed>>, website: array{written: int, ignored: int, older: int}}
      */
-    public function ingest(Caller $caller, int $channelId, mixed $listings): array
+    public function ingest(Caller $caller, int $channelId, mixed $listings, ?\DateTimeImmutable $stateAt = null): array
     {
         if (!is_array($listings) || $listings === [] || !array_is_list($listings)) {
             throw new CwException('bad_listings', 'listings must be a non-empty list', 400);
@@ -82,8 +106,9 @@ final class ListingIngestService
         }
         $variants = array_map('strval', array_keys($profiles));
         sort($variants, SORT_STRING);
+        $at = Clock::db($stateAt ?? Clock::now());
 
-        return $this->db->transaction(function (Db $db) use ($caller, $channelId, $profiles, $variants): array {
+        return $this->db->transaction(function (Db $db) use ($caller, $channelId, $profiles, $variants, $at): array {
             [$ids, $created, $preexisting] = $this->listingIds($db, $channelId, $variants);
             $seen = [];
             foreach ($ids as $v => $id) {
@@ -97,7 +122,7 @@ final class ListingIngestService
             sort($listingIds);
             foreach (array_chunk($listingIds, 500) as $chunk) {
                 foreach ($db->all(
-                    'SELECT listing_id, profile_hash, identity_hash, perma_link FROM listing_profile WHERE listing_id IN ('
+                    'SELECT listing_id, profile_hash, identity_hash, perma_link, arrival_state, ' . implode(', ', self::STATE_NAMES) . ' FROM listing_profile WHERE listing_id IN ('
                     . implode(',', array_fill(0, count($chunk), '?')) . ') ORDER BY listing_id FOR UPDATE',
                     $chunk,
                 ) as $r) {
@@ -108,36 +133,58 @@ final class ListingIngestService
             $out = [];
             $stale = [];
             $queued = 0;
+            $site = ['written' => 0, 'ignored' => 0, 'older' => 0];
+            $mark = ", arrival_state = 'queued', arrival_seq = arrival_seq + 1, arrival_channel_id = ?";
             foreach ($variants as $v) {
                 $p = $profiles[$v];
                 $id = $ids[$v];
                 $old = $existing[$id] ?? null;
+                // The website state, when the caller supplied one (M66): written whole, with its date, in the statement of whichever
+                // branch this profile takes. Not when the stored one is newer (an old file loaded after a newer one).
+                $state = $p['website'];
+                $before = $old === null ? null : SiteState::stored($old);
+                $site['ignored'] += $p['website_ignored'];
+                if ($state !== null && $before !== null && $at < (string) $before['as_of']) {
+                    $state = null;
+                    $site['older']++;
+                }
+                $site['written'] += $state === null ? 0 : 1;
+                $stateSet = $state === null ? '' : ', ' . implode(' = ?, ', self::STATE_NAMES) . ' = ?';
+                $stateValues = $state === null ? [] : [...SiteState::values($state), $at];
+                // A state that changed from a known value is looked at again by the check on arrival, whatever the profile's mark; a
+                // state that was not known before, only on a profile that carries a mark (the first load of the state marks none
+                // of the variants that were there before the check).
+                $stateQueues = $state !== null && $old !== null && ($before !== null ? SiteState::changed($before, $state) : $old['arrival_state'] !== null);
                 if ($old === null) {
                     $db->exec(
                         'INSERT INTO listing_profile (listing_id, product_title, variant_title, brand, attributes, barcodes, price, perma_link, '
-                        . 'units_30d, units_365d, profile_hash, identity_hash, pushed_at, arrival_state, arrival_seq, arrival_channel_id) '
-                        . "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(6), 'queued', 1, ?)",
-                        [$id, ...self::columns($p), $channelId],
+                        . 'units_30d, units_365d, profile_hash, identity_hash, pushed_at, arrival_state, arrival_seq, arrival_channel_id'
+                        . ($state === null ? '' : ', ' . implode(', ', self::STATE_NAMES)) . ') '
+                        . "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(6), 'queued', 1, ?" . str_repeat(', ?', count($stateValues)) . ')',
+                        [$id, ...self::columns($p), $channelId, ...$stateValues],
                     );
                     $result = 'created';
                     $identityChanged = true;
                     $queued++;
                 } elseif ($old['profile_hash'] !== $p['profile_hash']) {
                     $identityChanged = $old['identity_hash'] !== $p['identity_hash'];
-                    // The check on arrival looks again when what its rules read has changed: the identity, or the web address.
-                    $toCheck = $identityChanged || $old['perma_link'] !== $p['perma_link'];
+                    // The check on arrival looks again when what its rules read has changed: the identity, the web address, or
+                    // the website state (the rule above).
+                    $toCheck = $identityChanged || $old['perma_link'] !== $p['perma_link'] || $stateQueues;
                     // Features were extracted from the old titles/attributes: stale once the identity changes.
                     $db->exec(
                         'UPDATE listing_profile SET product_title = ?, variant_title = ?, brand = ?, attributes = ?, barcodes = ?, price = ?, '
                         . 'perma_link = ?, units_30d = ?, units_365d = ?, profile_hash = ?, identity_hash = ?, pushed_at = UTC_TIMESTAMP(6)'
-                        . ($identityChanged ? ', features = NULL, features_version = NULL' : '')
-                        . ($toCheck ? ", arrival_state = 'queued', arrival_seq = arrival_seq + 1, arrival_channel_id = ?" : '') . ' WHERE listing_id = ?',
-                        [...self::columns($p), ...($toCheck ? [$channelId] : []), $id],
+                        . ($identityChanged ? ', features = NULL, features_version = NULL' : '') . $stateSet
+                        . ($toCheck ? $mark : '') . ' WHERE listing_id = ?',
+                        [...self::columns($p), ...$stateValues, ...($toCheck ? [$channelId] : []), $id],
                     );
                     $queued += $toCheck ? 1 : 0;
                     $result = 'updated';
                 } else {
-                    $db->exec('UPDATE listing_profile SET pushed_at = UTC_TIMESTAMP(6) WHERE listing_id = ?', [$id]);
+                    $db->exec('UPDATE listing_profile SET pushed_at = UTC_TIMESTAMP(6)' . $stateSet . ($stateQueues ? $mark : '') . ' WHERE listing_id = ?',
+                        [...$stateValues, ...($stateQueues ? [$channelId] : []), $id]);
+                    $queued += $stateQueues ? 1 : 0;
                     $result = 'unchanged';
                     $identityChanged = false;
                 }
@@ -151,9 +198,121 @@ final class ListingIngestService
             // writer of channel_listing, moves their map_version on).
             $bumped = $stale === [] ? 0 : DecisionService::identityChanged($db, $stale);
             Audit::write($db, $caller, 'listing.profiles', 'channel', (string) $channelId, null,
-                $counts + ['received' => count($variants), 'new_listings' => $created, 'identity_changed' => $bumped, 'arrival_queued' => $queued]);
-            return ['received' => count($variants)] + $counts + ['listings' => $out];
+                $counts + ['received' => count($variants), 'new_listings' => $created, 'identity_changed' => $bumped, 'arrival_queued' => $queued,
+                    'website' => $site['written'], 'website_ignored' => $site['ignored'], 'website_older' => $site['older']]);
+            return ['received' => count($variants)] + $counts + ['listings' => $out, 'website' => $site];
         });
+    }
+
+    /**
+     * The state-only load (M66; bin/import_listings.php --state-only): the website state of variants that are ALREADY THERE, and
+     * nothing else. For each listing (validated as a push's):
+     *  - the warehouse has no such variant, or it has no profile: `unknown`, left (no listing is ever created here);
+     *  - its profile_hash, worked out as the intake works it out, is not the stored one (the line is not the stored profile: a
+     *    title, a barcode, a price, the address or the units sold differ): `differs`, left. Writing a state taken from another
+     *    version of the variant beside the stored one would date it wrongly, and bringing the profile up to the line is the
+     *    ordinary import's work, with everything that follows from an identity change;
+     *  - the line carries no usable state: `no_state`, left;
+     *  - the stored state is newer than $stateAt: `older`, left;
+     *  - else the eight state columns are written, and nothing else of the row: `first` (no state was stored), `changed` (one of
+     *    the values the readers use differs) or `same` (the date moves on all the same).
+     * It never touches the mark of the check on arrival (it queues nothing), the features, either hash, pushed_at, or a listing.
+     * Without $apply it reads (no lock, no transaction) and writes NOTHING: no state and no audit row. With $apply: one transaction,
+     * the profiles locked in listing order (the intake's order), one audit row (`listing.website_state`) with the counts.
+     *
+     * @return array{received: int, written: int, first: int, changed: int, same: int, differs: int, unknown: int, no_state: int, older: int, ignored: int,
+     *     listings: list<array{variant_id: string, result: string}>} `written` = first + changed + same (what an apply writes, or would)
+     */
+    public function stateOnly(Caller $caller, int $channelId, mixed $listings, \DateTimeImmutable $stateAt, bool $apply): array
+    {
+        if (!is_array($listings) || $listings === [] || !array_is_list($listings)) {
+            throw new CwException('bad_listings', 'listings must be a non-empty list', 400);
+        }
+        if (count($listings) > self::MAX_LISTINGS) {
+            throw new CwException('bad_listings', 'send at most ' . self::MAX_LISTINGS . ' listings per call', 413);
+        }
+        $profiles = [];
+        foreach ($listings as $i => $l) {
+            $p = self::profile($l, $i);
+            if (isset($profiles[$p['variant_id']])) {
+                throw new CwException('bad_listings', "variant {$p['variant_id']} appears twice", 400, ['field' => "listings[{$i}].variant_id"]);
+            }
+            $profiles[$p['variant_id']] = $p;
+        }
+        $variants = array_map('strval', array_keys($profiles));
+        sort($variants, SORT_STRING);
+        $at = Clock::db($stateAt);
+
+        $work = function (Db $db) use ($caller, $channelId, $profiles, $variants, $at, $apply): array {
+            $ids = self::storedIds($db, $channelId, $variants);
+            foreach ($variants as $v) {
+                // (a variant stored under another letter case is the same variant: asked of the database, one by one, as the intake does)
+                $ids[$v] ??= ($id = $db->value('SELECT id FROM channel_listing WHERE channel_id = ? AND external_variant_id = ?', [$channelId, $v])) === null ? null : (int) $id;
+            }
+            $existing = [];
+            $listingIds = array_values(array_unique(array_filter($ids, static fn (?int $id): bool => $id !== null)));
+            sort($listingIds);
+            foreach (array_chunk($listingIds, 500) as $chunk) {
+                foreach ($db->all('SELECT listing_id, profile_hash, ' . implode(', ', self::STATE_NAMES) . ' FROM listing_profile WHERE listing_id IN ('
+                    . implode(',', array_fill(0, count($chunk), '?')) . ') ORDER BY listing_id' . ($apply ? ' FOR UPDATE' : ''), $chunk) as $r) {
+                    $existing[(int) $r['listing_id']] = $r;
+                }
+            }
+            $n = ['received' => count($variants), 'written' => 0, 'first' => 0, 'changed' => 0, 'same' => 0, 'differs' => 0, 'unknown' => 0, 'no_state' => 0, 'older' => 0, 'ignored' => 0];
+            $out = [];
+            foreach ($variants as $v) {
+                $p = $profiles[$v];
+                $old = $ids[$v] === null ? null : ($existing[$ids[$v]] ?? null);
+                $before = $old === null ? null : SiteState::stored($old);
+                $n['ignored'] += $p['website_ignored'];
+                $result = match (true) {
+                    $old === null => 'unknown',
+                    $old['profile_hash'] !== $p['profile_hash'] => 'differs',
+                    $p['website'] === null => 'no_state',
+                    $before !== null && $at < (string) $before['as_of'] => 'older',
+                    $before === null => 'first',
+                    default => SiteState::changed($before, $p['website']) ? 'changed' : 'same',
+                };
+                $n[$result]++;
+                $out[] = ['variant_id' => $v, 'result' => $result];
+                if (!in_array($result, ['first', 'changed', 'same'], true)) {
+                    continue;
+                }
+                $n['written']++;
+                if ($apply) {
+                    // The eight state columns and nothing else, and only while the row is still the profile the line was compared with.
+                    $db->exec('UPDATE listing_profile SET ' . implode(' = ?, ', self::STATE_NAMES) . ' = ? WHERE listing_id = ? AND profile_hash = ?',
+                        [...SiteState::values($p['website']), $at, (int) $ids[$v], $p['profile_hash']]);
+                }
+            }
+            if ($apply) {
+                Audit::write($db, $caller, 'listing.website_state', 'channel', (string) $channelId, null, $n + ['state_at' => $at]);
+            }
+            return $n + ['listings' => $out];
+        };
+        return $apply ? $this->db->transaction($work) : $work($this->db);
+    }
+
+    /**
+     * The listing ids the channel has for these variants, by the text they are stored under (a variant asked for in another letter
+     * case than it is stored is not in the answer: the callers ask the database for those one by one).
+     *
+     * @param list<string> $variants
+     * @return array<string, int> stored variant text => listing id
+     */
+    private static function storedIds(Db $db, int $channelId, array $variants): array
+    {
+        $stored = [];
+        foreach (array_chunk($variants, 500) as $chunk) {
+            foreach ($db->all(
+                'SELECT id, external_variant_id FROM channel_listing WHERE channel_id = ? AND external_variant_id IN ('
+                . implode(',', array_fill(0, count($chunk), '?')) . ')',
+                [$channelId, ...$chunk],
+            ) as $r) {
+                $stored[(string) $r['external_variant_id']] = (int) $r['id'];
+            }
+        }
+        return $stored;
     }
 
     /**
@@ -168,19 +327,7 @@ final class ListingIngestService
      */
     private function listingIds(Db $db, int $channelId, array $variants): array
     {
-        $read = static function () use ($db, $channelId, $variants): array {
-            $stored = [];
-            foreach (array_chunk($variants, 500) as $chunk) {
-                foreach ($db->all(
-                    'SELECT id, external_variant_id FROM channel_listing WHERE channel_id = ? AND external_variant_id IN ('
-                    . implode(',', array_fill(0, count($chunk), '?')) . ')',
-                    [$channelId, ...$chunk],
-                ) as $r) {
-                    $stored[(string) $r['external_variant_id']] = (int) $r['id'];
-                }
-            }
-            return $stored;
-        };
+        $read = static fn (): array => self::storedIds($db, $channelId, $variants);
         $before = $read();
         $preexisting = array_fill_keys(array_values($before), true);
         $created = DecisionService::createUnmappedListings($db, $channelId, $variants);
@@ -308,6 +455,11 @@ final class ListingIngestService
         $identity = array_intersect_key($p, array_flip(self::IDENTITY));
         $p['identity_hash'] = hash('sha256', Idempotency::canonicalJson($identity));
         $p['profile_hash'] = hash('sha256', Idempotency::canonicalJson(array_diff_key($p, ['identity_hash' => true])));
+        // The website state (M66), attached only now: both hashes are made, and neither has read it. Read leniently: a value of
+        // the wrong type is ignored and counted, the listing is never refused for it.
+        $site = SiteState::parse($l[SiteState::KEY] ?? null);
+        $p['website'] = $site['state'];
+        $p['website_ignored'] = $site['ignored'];
         return $p;
     }
 

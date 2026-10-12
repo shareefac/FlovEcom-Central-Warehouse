@@ -162,7 +162,8 @@ final class BulkScreensTest extends KernelUiTestCase
      * One rule for every bulk "create as new" (M61): on the New products list a draft, a page heading, a website product an item
      * was already made from, one that changed on the website after the check and one whose name an item already has are skipped,
      * each with its reason on the result page; a row nothing is wrong with becomes a product. (Before round 2b this list made
-     * every ticked row whose barcode was free.)
+     * every ticked row whose barcode was free.) Since the website state is stored (M66): a row whose state on the website the
+     * warehouse does not know is skipped too, where it was made before; the rows this test makes are on sale by a stored state.
      */
     public function testCreateAsNewProductOnTheNewProductsListSkipsWhatTheSeedSkipsEachWithItsReason(): void
     {
@@ -171,6 +172,9 @@ final class BulkScreensTest extends KernelUiTestCase
         $new = ['proposed_new_item' => 1];
         $proposal = static fn (int $l): int => (int) self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$l]);
         $good = $this->queued($alt, 'G1', 'New item', null, ['product_title' => 'A new kit nothing is wrong with'], $new);
+        self::siteState($good);
+        // Nothing is known of this one's state on the website (no stored state, no features, nothing in the suggestion's record).
+        $unknown = $this->queued($alt, 'G7', 'New item', null, ['product_title' => 'Nothing known of its state'], $new);
         $draft = $this->queued($alt, 'G2', 'New item', null, ['product_title' => 'A draft', 'features' => ['variant_status' => 'Draft']], $new);
         $heading = $this->queued($alt, 'G3', 'New item', null, ['product_title' => 'A heading', 'features' => ['is_placeholder' => true]], $new);
         // Made into a product, the match undone, and a later check says "new" again.
@@ -182,6 +186,7 @@ final class BulkScreensTest extends KernelUiTestCase
         // A name a product already has (capitals apart); and one renamed on the website after the check.
         $named = self::makeSku('A name that is taken');
         $sameName = $this->queued($alt, 'G5', 'New item', null, ['product_title' => 'a NAME that is taken'], $new);
+        self::siteState($sameName);
         $renamed = $this->queued($alt, 'G6', 'New item', null, ['product_title' => 'Before the rename'], $new);
         (new \CW\Mapping\ListingIngestService(self::$db))->ingest(Caller::system('test'), (int) $alt->channelId, [['variant_id' => 'G6', 'product_title' => 'After the rename']]);
         $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
@@ -189,20 +194,22 @@ final class BulkScreensTest extends KernelUiTestCase
 
         $page = $web->get('/ui/review', ['queue' => 'New item', 'channel' => 'alt']);
         self::assertSame(['new_item', 'ignore'], self::barActions($page));
-        $r = $web->post('/ui/review/bulk', self::ticked($page, [$good, $draft, $heading, $again, $sameName, $renamed], 'new_item'));
+        $r = $web->post('/ui/review/bulk', self::ticked($page, [$good, $draft, $heading, $again, $sameName, $renamed, $unknown], 'new_item'));
         self::assertSame(303, $r->status, $r->describe());
         $batch = (int) substr((string) $r->location(), strlen('/ui/review/batches/'));
         $codes = [];
         foreach (self::$db->all('SELECT listing_id, skip_code FROM mapping_batch_row WHERE batch_id = ? ORDER BY seq', [$batch]) as $row) {
             $codes[(int) $row['listing_id']] = $row['skip_code'];
         }
-        self::assertSame([$good => null, $draft => 'not_published', $heading => 'page_heading', $again => 'made_before', $sameName => 'name_elsewhere', $renamed => 'changed_since_check'], $codes);
+        self::assertSame([$good => null, $unknown => 'state_not_known', $draft => 'not_published', $heading => 'page_heading', $again => 'made_before', $sameName => 'name_elsewhere',
+            $renamed => 'changed_since_check'], $codes);
         self::assertSame(['review', 'New item'], array_values(self::$db->one('SELECT source, band FROM mapping_batch WHERE id = ?', [$batch]) ?? []));
         self::assertSame([$skus + 1, 'mapped', 1], [(int) self::$db->value('SELECT COUNT(*) FROM sku'), $this->link($good)['status'],
             (int) self::$db->value('SELECT COUNT(*) FROM sku WHERE origin_listing_id = ?', [$again])], 'one new product; no second one from the same website product');
         $text = $web->follow($r)->text();
-        self::assertStringContainsString(Words::say('BULK', 'summary', Words::say('BULK_DONE', 'new_item', 1), 0, 5), $text);
+        self::assertStringContainsString(Words::say('BULK', 'summary', Words::say('BULK_DONE', 'new_item', 1), 0, 6), $text);
         foreach (['It is not published on the website (Draft). Open it and decide.', 'It is a page heading on the website, not something that is sold. Open it and decide.',
+            'The warehouse does not know if it is on sale on the website now. Open it and decide.',
             'An item was already made from this variant (' . $firstCode . '): open it and decide.',
             'An item with the same name is already in the warehouse (' . self::$db->value('SELECT code FROM sku WHERE id = ?', [$named]) . '): open it and decide.',
             'It changed on the website after the computer checked it: open it and decide.'] as $why) {

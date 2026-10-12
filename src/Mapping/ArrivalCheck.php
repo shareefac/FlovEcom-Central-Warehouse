@@ -37,8 +37,8 @@ use CW\Settings;
  *    the `suggest` of the check itself (so none waiting for a second person, no "not a match", no ignore, no undo, no "sent back"),
  *    no "not this item" record;
  *  - its profile has a title (`no_title`);
- *  - under the lock, its identity, its web address and its "to check" number are still the ones the rules read. If not, nothing
- *    is written and it stays to check.
+ *  - under the lock, its identity, its web address, its stored website state and its "to check" number are still the ones that
+ *    were read. If not, nothing is written and it stays to check.
  *
  * WHAT IT NEVER DOES. It never writes Strong (Key), Renamed range (Manual) or New item: ArrivalRules::BANDS is all it can say. It
  * never writes an `ai` block (so the evidence cannot be replayed as a judged match: Matching\StoredBand reads none, and a
@@ -55,6 +55,16 @@ use CW\Settings;
  * new suggestion replaces it. No clue any more (the barcode was taken off, the address changed): it is replaced by a "not sure"
  * that says so (`arrival_no_longer`); a stale one is never left open. A later judged run supersedes a rules-only suggestion like
  * any other: that is wanted.
+ *
+ * THE WEBSITE STATE (build 2a, 0028, docs/decisions.md M66; CW\Mapping\SiteState) is RECORDED, and decides nothing here: no outcome
+ * and no rule reads it, and a match is written whatever the state says (a match makes nothing: a person confirms it, and only a
+ * "New" lets an item be made, which this build never writes). A suggestion's evidence says what was known when it was made:
+ * `variant_status` (a text, only when known) and `website` {known, as_of, product_status, heading}. `known` is true only for a
+ * stored state (the profile's own columns) that has the variant's status, its product's status and an answer for the page
+ * heading; "not known" is written as what it is. The heading of a stored state is worked out at the look (the Normalizer's own
+ * answer, with the published variants of the product counted in the database: one more read, on the index of 0028, only for a
+ * variant that gets a suggestion). The snapshot the write compares under the lock holds the stored state too: a state that
+ * moved between the look and the write (the state-only load moves it without touching the mark) means nothing is written.
  *
  * TWO RUN ROWS. A run that writes makes its match_run rows when it first needs them, in the transaction of that first suggestion:
  * one of source `arrival` for its clean matches, one of source `arrival_warned` for everything else (a match with a warning, a
@@ -298,7 +308,7 @@ final class ArrivalCheck
      * What the check says of one variant now. Read only and without a lock: the refusals (unless $ignoreHistory: the scoring asks
      * what the rules alone say), then the facts and the rules' answer, and what would be done with it.
      *
-     * @return array{listing_id: int, channel_id: ?int, store: ?string, variant: ?string, title: ?string, snapshot: array{identity_hash: ?string, perma_link: ?string, seq: int, own: ?int},
+     * @return array{listing_id: int, channel_id: ?int, store: ?string, variant: ?string, title: ?string, snapshot: array{identity_hash: ?string, perma_link: ?string, seq: int, own: ?int, site: ?array<string, mixed>},
      *     outcome: string, action: string, answer: array<string, mixed>, facts: ?array<string, mixed>, target: ?array<string, mixed>, evidence: ?array<string, mixed>}
      *     action: `write` (a suggestion to write), `keep` (its own suggestion says the same already), `leave` (nothing to suggest)
      */
@@ -309,7 +319,8 @@ final class ArrivalCheck
         $p = $l === null ? null : $this->profile($listingId);
         $out = ['listing_id' => $listingId, 'channel_id' => $l === null ? null : (int) $l['channel_id'], 'store' => null,
             'variant' => $l === null ? null : (string) $l['external_variant_id'], 'title' => $p === null ? null : self::title($p),
-            'snapshot' => ['identity_hash' => $p['identity_hash'] ?? null, 'perma_link' => $p['perma_link'] ?? null, 'seq' => (int) ($p['arrival_seq'] ?? 0), 'own' => null],
+            'snapshot' => ['identity_hash' => $p['identity_hash'] ?? null, 'perma_link' => $p['perma_link'] ?? null, 'seq' => (int) ($p['arrival_seq'] ?? 0), 'own' => null,
+                'site' => self::storedState($p)],
             'outcome' => 'not_open', 'action' => 'leave', 'answer' => ArrivalRules::none('not_open'), 'facts' => null, 'target' => null, 'evidence' => null];
         if ($l === null) {
             return $out;
@@ -341,14 +352,14 @@ final class ArrivalCheck
         // (the item the answer names is one of the items the facts were read for: its record is there, with nothing read twice)
         $target = $answer['target'] === null ? null : ($facts['items'][(int) $answer['target']]['record'] ?? null);
         $out['target'] = $target === null ? null : array_diff_key($target, ['features' => true]);
-        $out['evidence'] = self::evidence($p, $answer, $facts, $target);
+        $out['evidence'] = self::evidence($p, $answer, $facts, $target, $this->website($p, (int) $l['channel_id']));
         $out['action'] = $own !== null && ArrivalRules::same($own, $answer) ? 'keep' : 'write';
         return $out;
     }
 
     /**
-     * Writes what look() said, in ONE transaction: the variant's row lock, every refusal again, the variant still as the rules
-     * read it, then Proposals::add() (which moves an unmatched variant to `suggested` through DecisionService and takes the feed
+     * Writes what look() said, in ONE transaction: the variant's row lock, every refusal again, the variant still as it was read
+     * (its identity, its web address, its stored website state, its "to check" number, its own suggestion), then Proposals::add() (which moves an unmatched variant to `suggested` through DecisionService and takes the feed
      * lock last), then the suggestion's basis read back: the identity it recorded must be the one the rules ran on, or everything
      * is rolled back. The profile row is never locked here. After the commit the profile's mark is set, only while its number is
      * still the one that was read: a variant marked again meanwhile stays to check.
@@ -385,7 +396,7 @@ final class ArrivalCheck
                     return ['result' => 'refused', 'outcome' => $state['refusal'], 'proposal_id' => null];
                 }
                 if ($p === null || ($p['identity_hash'] ?? null) !== $snap['identity_hash'] || ($p['perma_link'] ?? null) !== $snap['perma_link']
-                    || (int) $p['arrival_seq'] !== (int) $snap['seq'] || ($state['own']['id'] ?? null) !== $snap['own']) {
+                    || (int) $p['arrival_seq'] !== (int) $snap['seq'] || ($state['own']['id'] ?? null) !== $snap['own'] || self::storedState($p) !== ($snap['site'] ?? null)) {
                     return ['result' => 'moved', 'outcome' => (string) $look['outcome'], 'proposal_id' => null];
                 }
                 $runRow = $this->runRows[$source] ?? null;
@@ -521,8 +532,44 @@ final class ArrivalCheck
     private function profile(int $listingId): ?array
     {
         return $this->db->one('SELECT lp.product_title, lp.variant_title, lp.brand, lp.attributes, lp.barcodes, lp.price, lp.perma_link, lp.units_30d, lp.units_365d, '
-            . "lp.identity_hash, lp.arrival_state, lp.arrival_seq, JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS variant_status "
+            . 'lp.identity_hash, lp.arrival_state, lp.arrival_seq, '
+            // The website state (M66): the stored one (the columns of 0028), and what a matching run's features recorded.
+            . 'lp.site_variant_status, lp.site_product_status, lp.site_product_type, lp.site_product_id, lp.site_is_landing, lp.site_is_default, lp.site_state_at, '
+            . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS features_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder "
             . 'FROM listing_profile lp WHERE lp.listing_id = ?', [$listingId]);
+    }
+
+    /**
+     * The stored website state as the snapshot holds it: the values the readers use (SiteState::READ), or null when no state is
+     * stored. Not its date: the same state seen again under a newer date is still what was read.
+     *
+     * @param array<string, mixed>|null $p the profile
+     * @return array<string, mixed>|null
+     */
+    private static function storedState(?array $p): ?array
+    {
+        $stored = $p === null ? null : SiteState::stored($p);
+        return $stored === null ? null : array_intersect_key($stored, array_flip(SiteState::READ));
+    }
+
+    /**
+     * The website state of a variant as a suggestion's evidence records it (M66): its status when a reader gives one (the
+     * stored state, else the features), and `website`: whether the warehouse KNOWS the state (a stored state with the variant's
+     * status, its product's status and an answer for the page heading), as of when, the product's status, and the heading (true,
+     * false, or null when not known). The heading of a stored state is worked out here (SiteState::heading(), with the published
+     * variants of its product counted now); without a stored state it is what the features recorded. Nothing here decides
+     * anything: the rules have answered before this is read.
+     *
+     * @param array<string, mixed> $p the profile
+     * @return array{variant_status: ?string, website: array{known: bool, as_of: ?string, product_status: ?string, heading: ?bool}}
+     */
+    private function website(array $p, int $channelId): array
+    {
+        $state = SiteState::read($p, ['variant_status' => $p['features_status'] ?? null, 'is_placeholder' => $p['is_placeholder'] ?? null]);
+        $heading = SiteState::headingInputs($state) ? SiteState::heading($state, $p, SiteState::publishedSiblings($this->db, $channelId, $state['product_id'])) : $state['heading'];
+        return ['variant_status' => $state['variant_status'], 'website' => [
+            'known' => $state['source'] === SiteState::STORED && $state['variant_status'] !== null && $state['product_status'] !== null && $heading !== null,
+            'as_of' => $state['as_of'], 'product_status' => $state['product_status'], 'heading' => $heading]];
     }
 
     /**
@@ -725,14 +772,16 @@ final class ArrivalCheck
      * @param array<string, mixed> $answer
      * @param array<string, mixed> $facts
      * @param array<string, mixed>|null $target item()
+     * @param array{variant_status: ?string, website: array<string, mixed>} $site website()
      * @return array<string, mixed>
      */
-    private static function evidence(array $p, array $answer, array $facts, ?array $target): array
+    private static function evidence(array $p, array $answer, array $facts, ?array $target, array $site): array
     {
         $ev = ['check' => 'arrival', 'rules' => ArrivalRules::VERSION, 'title' => self::title($p)];
-        if (is_string($p['variant_status'] ?? null) && trim($p['variant_status']) !== '' && $p['variant_status'] !== 'null') {
-            $ev['variant_status'] = mb_substr(trim($p['variant_status']), 0, 64); // only when the website's state is known
+        if ($site['variant_status'] !== null) {
+            $ev['variant_status'] = $site['variant_status']; // a text, written only when the status is known
         }
+        $ev['website'] = $site['website'];
         $lane = null;
         if ($target !== null) {
             $lane = ['sku_id' => $target['sku_id'], 'code' => $target['code'], 'title' => $target['title'] ?? $target['name'], 'via' => $answer['via']];

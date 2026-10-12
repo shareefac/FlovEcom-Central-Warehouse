@@ -8,6 +8,7 @@ use CW\Admin\Sites;
 use CW\Clock;
 use CW\Mapping\BulkDecisions;
 use CW\Mapping\OneAtATime;
+use CW\Mapping\SiteState;
 use CW\Output\CsvWriter;
 use CW\Settings;
 use CW\Ui\Context;
@@ -27,7 +28,9 @@ use CW\Ui\Words;
  * `mapping.new_variants_days`), newest first, 50 a page: each with its option number, barcodes, price, units sold, when it was first
  * seen and what it is, in words: New (when the computer checked it, it found nothing like it), Suggested match, No suggestion,
  * Matched, Waiting for a second OK, Ignored; and what a person should know before ticking it: that an item was already made from
- * it, that it changed on the website after the check, that it is a page heading or not published on the website. A filter (All
+ * it, that it changed on the website after the check, that it is a page heading or not published on the website (every row still
+ * to match, whether that is known from its stored state or from the features of a matching run), or (a row marked New) that the
+ * warehouse does not know whether it is on sale there now (docs/decisions.md M66, U146). A filter (All
  * not matched by default, New, Suggested match, No suggestion, All), Store Products' search and a CSV.
  *
  * The check on arrival (docs/decisions.md M64, U144): the box at the top says whether it is switched on for the store, how many
@@ -55,7 +58,7 @@ final class NewVariantsController
     public const STATES = [...Queries::NEW_FILTERS, 'all'];
     public const DEFAULT_STATE = 'unmatched';
     /** The kinds a row can be ticked for: the ones still to match (a matched, on-hold, waiting or ignored variant changes on its own page). */
-    private const OPEN_KINDS = ['new', 'suggested', 'not_checked'];
+    private const OPEN_KINDS = Queries::NEW_OPEN;
     /** The setting of the period the page opens with, and its default on a schema before 0026. */
     public const SETTING = 'mapping.new_variants_days';
     public const DEFAULT_DAYS = 30;
@@ -317,8 +320,17 @@ final class NewVariantsController
      *    nothing like it";
      *  - a suggested match that names no item (BulkDecisions::matchNoItem: the matched main-store variant has no item yet): said
      *    with its strength, in place of the strength alone;
-     *  - what the website said of it (a page heading; not published, from its stored features or else from what the check
-     *    recorded: BulkDecisions::siteState): a note; none when it is on sale or not known.
+     *  - its state on the website (M66; CW\Mapping\SiteState, read by Queries::newVariantRows as the seed reads it: the stored
+     *    state first, then the features, then what the check recorded), as ONE note, the first of these that applies, in the
+     *    seed's own order: a page heading by its features; not published (the variant, or its product); beside a stored state,
+     *    what the features and the check's record say against the variant, as they said it before the state was stored (a
+     *    page heading, then a status that is not Published: SiteState::against(), the review of build 2a, F1); a page heading
+     *    worked out now from its stored state (under EVERY row still to match: the review of build 2a, CS-A; a row that is not
+     *    marked New is skipped by the seed for what it is, and a person who opens it must still be told); and, only for a row
+     *    marked New that the seed would not already skip as made before or changed, "the warehouse does not know if it is on sale
+     *    now" (nothing known, a stored state that lacks something, or one older than the setting). None when it is on sale, and
+     *    none about a state that is not known under a row the seed skips for what it is (no suggestion, a suggested match, made
+     *    before, changed).
      *
      * @param array<string, mixed> $r a row of Queries::newVariantRows
      * @param bool $checkOn whether the check on arrival is switched on for the row's store
@@ -333,10 +345,10 @@ final class NewVariantsController
         $open = in_array($st, self::OPEN_KINDS, true);
         $made = $open ? self::s($r['made_code'] ?? null) : null;
         $madeBefore = $made === null ? null : Words::say('NEW_VARIANTS', 'made_before', $made);
+        $changed = $st === 'new' && BulkDecisions::changedSinceCheck($r['basis_id'] ?? null, $r['basis_identity'] ?? null, $r['identity_hash'] ?? null,
+            $r['check_title'] ?? null, is_string($r['product_title'] ?? null) ? $r['product_title'] : null, is_string($r['variant_title'] ?? null) ? $r['variant_title'] : null);
         $detail = match ($st) {
-            'new' => $madeBefore ?? (BulkDecisions::changedSinceCheck($r['basis_id'] ?? null, $r['basis_identity'] ?? null, $r['identity_hash'] ?? null,
-                $r['check_title'] ?? null, is_string($r['product_title'] ?? null) ? $r['product_title'] : null, is_string($r['variant_title'] ?? null) ? $r['variant_title'] : null)
-                ? Words::NEW_VARIANTS['changed'] : Words::NEW_VARIANTS['is_new']),
+            'new' => $madeBefore ?? ($changed ? Words::NEW_VARIANTS['changed'] : Words::NEW_VARIANTS['is_new']),
             'not_checked' => $madeBefore ?? self::left($r['arrival_state'] ?? null, $r['arrival_outcome'] ?? null, $checkOn),
             'waiting' => Words::NEW_VARIANT_PENDING[(string) $r['pending_action']] ?? Words::NEW_VARIANT_PENDING['other'],
             default => '',
@@ -372,11 +384,28 @@ final class NewVariantsController
             if ($st === 'suggested' && $madeBefore !== null) {
                 $notes[] = $madeBefore;
             }
-            $site = BulkDecisions::siteState($r['site_status'] ?? null, $r['check_status'] ?? null);
-            if (BulkDecisions::isPlaceholder($r['is_placeholder'] ?? null)) {
+            $features = ['variant_status' => $r['features_status'] ?? null, 'is_placeholder' => $r['is_placeholder'] ?? null];
+            $record = ['variant_status' => $r['check_status'] ?? null];
+            $state = is_array($r['site_state'] ?? null) ? $r['site_state'] : SiteState::read($r, $features, $record);
+            $off = SiteState::notOnSale($state);
+            // Beside a stored state: what the features and the record say against the variant (the seed asks the same, there).
+            $against = SiteState::against($state, $features, $record);
+            // The seed asks its last question (does the warehouse know the state?) only of a row it would otherwise make.
+            $last = $st === 'new' && $madeBefore === null && !$changed;
+            if ($state['heading'] === true) {
                 $notes[] = Words::NEW_VARIANTS['site_heading'];
-            } elseif ($site !== null && $site !== BulkDecisions::PUBLISHED) {
-                $notes[] = Words::say('NEW_VARIANTS', 'site_status', $site);
+            } elseif ($off !== null) {
+                $notes[] = Words::say('NEW_VARIANTS', 'site_status', $off);
+            } elseif ($against['heading']) {
+                $notes[] = Words::NEW_VARIANTS['site_heading'];
+            } elseif ($against['status'] !== null) {
+                $notes[] = Words::say('NEW_VARIANTS', 'site_status', $against['status']);
+            } elseif (($r['site_heading'] ?? null) === true) {
+                // (worked out from its stored state: said under every row still to match, as a heading by the features always was)
+                $notes[] = Words::NEW_VARIANTS['site_heading'];
+            } elseif ($last && (($r['site_doubt'] ?? null) !== null || (SiteState::headingInputs($state) && ($r['site_heading'] ?? null) === null))) {
+                // Nothing says whether it is on sale now, or what says it is too old (or its heading could not be worked out).
+                $notes[] = Words::NEW_VARIANTS['site_unknown'];
             }
         }
         return [

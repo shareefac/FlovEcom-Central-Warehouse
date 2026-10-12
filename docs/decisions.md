@@ -8202,3 +8202,278 @@ box above New Variants shows the last run that looked at anything in any store. 
 "warned" have no words (`transfer_ambiguous`, `transfer_target_not_in_seed`, `transfer_resolved_by_seed`,
 `gtin_target_not_in_seed`): the page says a detail needs a look and not which. (14) Home and Mapping › To review still say "Not
 checked by the computer yet" where New Variants says "No suggestion". (15) A dry run's `--list` lines say `written`.
+
+## The check on arrival, build 2a: the website state (slot `newvar`, 12 Oct 2026)
+
+"New: nothing like it" lets a person make an item with one click, so it needs to know whether the variant is on sale on its
+website and whether it is a page heading. Until now the warehouse knew that only for the variants a one-off matching run had
+looked at (inside `listing_profile.features`, wiped by any identity change); a variant that arrived by itself had no state, the
+stores' connector does not send one, and the seed's rule for it was "known from neither: skips nothing". The orchestrating
+session cut build 2 of the design (`/root/cw_work/Arrival_check_design_2026-10-12.md`) in two; this is 2a, as its scope cut it
+(`Arrival_check_build2a_2026-10-12.md`): the state is stored, loaded for the variants that are there, and read by the seed. It
+suggests nothing new by itself. The name search and "New" are build 2b and are not started. Whose choice each thing is: the
+owner's rules are quoted; the scope's choices are "the build's" (the orchestrating session's, not yet put to the owner); what
+was settled while building is marked so.
+Code: `migrations/0028_arrival_site_state.sql`, `src/Mapping/SiteState.php` (new), `src/Mapping/ListingIngestService.php`,
+`bin/import_listings.php`, `src/Mapping/BulkDecisions.php` (`seedCheck()`, `prechecks()`), `src/Mapping/ArrivalCheck.php` (the
+evidence and the snapshot; no rule), `src/Ui/Queries.php`, `src/Ui/Controller/NewVariantsController.php`, `src/Ui/Words.php`,
+`src/Settings.php` (`RULES`). Not touched: `Proposals`, `ProposalBasis`, `DecisionService`, `Band`, `Veto`, `Candidates`,
+`Normalizer` (asked, never changed), `Gtin`, `DuplicateSweep*`, `StoredBand`, `Reband`, `KeyEligibility`, `KeyBulk`, `Stock`,
+`Reservations`, `ArrivalRules` (`ar1.0` stays), `OneAtATime`, `Grants` (no new table), the band ENUM, the `IDENTITY` list and
+both hashes, `fromExport()`, `tools/first_match`, `bin/import_proposals.php`, `bin/mint_vpg.php`, `bin/sync_barcodes.php`,
+migrations 0001 to 0027, the API layer, the stores' connector, `app.css`, `app.js`, every view. Tests:
+`tests/Integration/Migration0028Test.php`, `tests/Unit/SiteStateTest.php` (new); added to `ListingIngestTest`, `ImportToolsTest`,
+`BulkDecisionsTest`, `ArrivalCheckTest`, `NewVariantsScreenTest`, `BulkScreensTest`, `WordsTest`, `UiReviewFlowTest`, and one
+helper (`siteState()`) to `tests/Support/MappingTestCase.php`.
+
+**M66. The website state: where it lives, who writes it, who reads it, in which order.**
+*Where.* Eight columns of `listing_profile` (0028), the raw inputs as the website gives them: `site_variant_status`,
+`site_product_status`, `site_product_type`, `site_product_id`, `site_is_landing`, `site_is_default`, `site_product_link`, and ONE
+date for all seven, `site_state_at` (as of when they were true). Each is NULL until known. Not in `features` (an identity change
+wipes those, and a half-filled object breaks the item-card reader), not in the identity (`IDENTITY`) and in neither hash: a state
+never makes a push look changed, never wipes the features and never moves a `map_version`. One index, on the product's number.
+*Who writes it.* Only the listing intake (`ListingIngestService`), with what its caller supplies. (1) A push may carry the
+optional object `website` (`variant_status`, `product_status`, `product_type`, `product_id`, `is_landing`, `is_default`,
+`product_link`; not `site`, the word an export line uses for its store's code). It is read leniently (`SiteState::parse()`): a
+value of the wrong type, or one that cannot be what it says, is ignored and counted in the audit row (`website_ignored`), never
+a 400; something that is no object at all is ignored whole. No store sends it yet, and the stores' connector is not changed. The
+API layer hands a pushed listing to the intake whole, so nothing had to be let through there. (2) `bin/import_listings.php` adds
+it from the export line (`SiteState::fromExport()`; `fromExport()` of the intake is as its test pins it), dated with
+`--exported-at`, else the time in the file's name. The state is attached to a profile AFTER both hashes are made
+(`ListingIngestTest` pins both hashes to the values of before the check on arrival, with and without `website`). It is written in
+the statement the intake runs anyway, in each of its three branches (created, changed, unchanged), and its date is moved on even
+when it says the same. (3) The state-only load (below).
+*Settled while building, about what is written.* A supplied state is WHOLE: what the object leaves out is not known from then
+on, never kept from an older state under the new date (one date covers all seven values). An object with nothing usable in it
+supplies no state: the stored one stays and grows old by itself. A state OLDER than the stored one is not written and is counted
+(`website_older`): an old export loaded after a newer state must not put old values back; the cost is that going back to an
+older file on purpose means clearing the columns by hand. An import of a file that has no date (no time in its name, no
+`--exported-at`) works as before and writes NO state (`state_at=not_dated`): a state with no date is no state.
+*The queue.* Two rules are added to the three of the mark (created, identity, address): a state that changed FROM A KNOWN VALUE
+(one of the six values the readers use; not the product's address, which nothing reads yet) marks the profile "to check"
+whatever its mark was; a state that was not known before marks it only when the profile already carries a mark. So the first
+load of the state marks none of the 38,000 variants that were there before the check. In this build the check's rules do not
+read the state, so a variant queued for its state gets the same answer again and nothing is written; the rule is here for 2b.
+*Who reads it, in which order* (`SiteState::read()`, the one reader; the three SQL reads that named the features now select the
+columns too: `BulkDecisions::prechecks()`, `Queries::newVariantRows()`, `Queries::barcodeElsewhere()`). (1) The stored columns:
+a profile with a date has a stored state, and that is THE state, with what it does not know; the other two are not mixed into it.
+(2) Else the stored features of a matching run (`variant_status`, `is_placeholder`). (3) Else what the open suggestion recorded
+when the computer checked the variant (its evidence's `variant_status`). (4) None of the three: not known. One thing is still
+asked of (2) and (3) beside a stored state, by the seed and by New Variants only: what they say AGAINST the variant
+(`SiteState::against()`; "The review of build 2a" below, F1, which changed this on purpose).
+*Not known is a state.* A missing value is never read as "on sale" and never as "not a page heading". A stored state older than
+the setting `mapping.arrival_state_max_days` (30 days; 1 to 365; Settings › Matching products; provisional, for the owner to
+confirm) reads as not known. A state from (2) or (3) has no date: it is neither fresh nor old and is relied on exactly as before
+the columns were there, so nothing changes for the rows a matching run judged until their store's state is loaded.
+*The page heading* of a stored state is the Normalizer's own answer: `SiteState::heading()` hands `Normalizer::normalize()` the
+stored inputs (landing row, the product's type, default variant), the profile's titles, barcodes and units sold in the month,
+and the number of published variants of the same product on the same store, counted from the database
+(`SiteState::publishedSiblings()`, the new index, each row's listing by its primary key for the store), and returns its
+`is_placeholder`. `SiteState` knows no part of the rule (`SiteStateTest` compares the two over 864 combinations); when one of the
+inputs it hands over is missing the answer is "not known", for a landing row too. *Open:* a published variant under a product
+that is not published is treated as not on sale; the export tool counts it the same way.
+
+**The seed (`BulkDecisions::seedCheck()`): a tested rule is reversed on purpose.** Until this build a row marked New whose
+state was "known from neither" was made (`BulkDecisionsTest` pinned `$plain => null`). Now, in the order the reasons are
+recorded: `page_heading` for a heading the features recorded (as before); `not_published` when the variant's status is known
+and is not Published (as before, now read from the stored state first) AND ALSO when its PRODUCT's status is known and is not
+Published (the record says `of: product`; the words are the same, with the product's status); beside a stored state that does
+not say so, `page_heading` and `not_published` for what the features and the record say against the variant, as before the state
+was stored (the review below, F1); then the checks of before (no suggestion, not New, changed since the check, barcode
+elsewhere); then, for a row that would be made and has a stored state, the
+page heading worked out again at the click (`page_heading`: a product that gained a second published variant since the check
+makes its default row a heading from then on); then **`state_not_known`**: no reader gives a state at all, or the stored state
+lacks the variant's status, its product's status or an input of the heading, or it is older than the setting (the record says
+`state`: `not_known` or `too_old`, with the date). A person opens such a variant and decides: the single page is untouched and
+still makes its item. The tests that pinned the old rule say so where they changed (`BulkDecisionsTest`: `$plain`, `$odd`;
+`BulkScreensTest`: `$unknown`); their other rows now carry a stored state, as every variant does once its store is loaded.
+What an old stored state knows AGAINST a variant still counts (`not_published` is asked before the age).
+
+**The state-only load** (`ListingIngestService::stateOnly()`; `php bin/import_listings.php --channel=<code> --file=<export>
+--state-only [--apply]`). For the variants that are already there: the eight state columns and nothing else, and only where the
+line IS the stored profile (the same `profile_hash`, after the tool's own barcode cleaning). A line that differs, a variant the
+warehouse does not know, a line with no state and a line whose stored state is newer are counted, listed and left. It creates
+no listing, moves no identity, no `map_version`, no features, no `pushed_at`, and never a mark of the check on arrival: it
+queues nothing. Without `--apply` it reads without a lock or a transaction and writes nothing (`ImportToolsTest` compares the
+checksum of every table); with it, one transaction and one audit row (`listing.website_state`) a batch. *Settled while
+building:* (a) it never moves a mark, also not of a variant the check has already looked at whose state becomes known for the
+first time (the scope's test says "never a mark"; the intake's queue rule would have marked it): build 2b must give those
+variants their look another way; (b) the whole tool now reads its command line whole or not at all (`Cli::main(..., strict:
+true)`, build 1's fix A): every documented call of it is written `--name=value` and survives; a misspelt `--state-only` would
+otherwise have been the ordinary import, which changes profiles, and `--apply=false` an apply; (c) `--apply` without
+`--state-only` is refused (the ordinary import always writes); (d) a date in the future is refused; (e) exit 1 when any line
+was left.
+
+**The check (`ArrivalCheck`): the state is recorded and decides nothing.** A suggestion's evidence gains `variant_status` (a
+text, only when known) and `website` {`known`, `as_of`, `product_status`, `heading`}. *Settled while building:* `website` is
+written into every suggestion, with `known: false` and nulls when the state is not known (not known is recorded as what it is);
+`known` is true only for a stored state with the variant's status, its product's status and an answer for the heading. The
+snapshot the write compares under the variant's lock holds the stored state's six values (not its date: the same state seen
+again is no move): a state that moved between the look and the write means nothing is written and the variant stays to check
+(the state-only load moves a state without touching the mark's number, so the number alone would not have shown it). No outcome
+and no rule reads the state: a variant in the bin, one under a draft product and a page heading get the same match as one on
+sale ("a match makes nothing"), and `ArrivalRules` is unchanged.
+
+**U146. Words** (all in `Words`; variant and item; no code, no number of a setting). `BULK_SKIP['state_not_known']`: "The
+warehouse does not know if it is on sale on the website now. Open it and decide." (`BY_ITEM_SKIP`: "… on its store now …"); one
+sentence whether the state was never known or is too old. New Variants: under a row marked New that the seed would skip for it,
+one line, "The warehouse does not know if it is on sale on the website now: open it to decide." (`NEW_VARIANTS['site_unknown']`);
+the line beside the bar names the reason with the others. *Settled while building:* the row also says "A page heading on the
+website…" for a heading worked out from its stored state, and "Not published on the website (Draft)." for a product that is not
+published, so that a row and its skip cannot disagree (the list reads the state through the same functions as the seed:
+`Queries::newVariantRows()` attaches them; one more indexed read for each row marked New, for its product's published variants;
+since the review below, CS-A, the heading is said under every row still to match, for one such read a product);
+the line about a state that is not known is shown only under rows marked New that are not already "made before" or "changed":
+every other row is skipped by the seed for what it is, and thousands of "No suggestion" rows would otherwise all carry it. The
+setting: "How old the website's state may be", with its help. The audit log: "Website state of a store's variants loaded"
+(`listing.website_state`). *Not done here:* the design's line above the New Variants list ("the warehouse does not know which of
+a store's variants are on sale… marks nothing New") and the outcomes `state_unknown`, `state_old`, `not_published` and
+`page_heading` of the CHECK belong to 2b, where the check can say New; the match-strength lists and the variant's own page show
+no state line (they showed none before).
+
+**The migration.** As 0027, and for 0027's reasons (measured there; `Migration0027Test`'s second test still holds the server
+to them): ONE statement, `ALGORITHM = COPY, LOCK = SHARED`, the eight columns and the index in one pass, written first in the
+file; `Migration0028Test` holds the file to it (one ALTER in the whole file, no INSTANT, no INPLACE), shows the columns exactly,
+that the profiles that were there come through with every other column as it was and no state, that the indexes of 0005 and 0027
+still answer, and that the statements the code of before 0028 runs still work on the new schema. Reads go on during the copy; a
+write to `listing_profile` waits (applying 0027 to staging took 17 seconds in all).
+
+**Measured** (12 Oct 2026; nothing was written to `cw_staging` by the build). *Read only on staging*, one snapshot
+(`/root/cw_work/runs/cw_arrival2_facts.php`, `arrival2_facts.log`): every line of the three export files in `/srv/cw-import` has
+its `profile_hash` stored: Vape and Go 29,105 of 29,105, Electrofag 9,014 of 9,014, the Vape Big sample 40 of 40 (differs 0,
+unknown 0, no line without a state, no value ignored). So the state-only load should write all of them and leave none. Of the
+open "New" suggestions (Electrofag 119, Vape Big 11, the main store none), all 130 read their state from the features of their
+matching run today, so the reversed rule changes nothing for them before the load; after the load all 130 read "on sale" from
+the stored state (none not published, none a page heading); and from 26 Oct the 119 of Electrofag read "not known" (their file
+is of 26 Sep; Vape Big's is of 10 Oct). The files say: Vape and Go 17,931 published variants, 1,318 of them under a product
+that is not published, and 4,470 landing rows; Electrofag 8,304 published, 165 under such a product, 1,103 landing rows.
+*A rehearsal on the test slot's schema* (`arrival2_rehearsal.log`): 300 real Electrofag lines imported from a file with no time
+in its name, then the state-only load of the first 350 lines under the export's own name: the dry run counts 300 to write and 50
+unknown and writes nothing; `--apply` writes the 300 in 1.2 seconds (about 4 ms a variant); a second run finds all 300 the
+same; no listing is made and no mark moves. The seed's state questions over those 300 (as if each were marked New): 279 on
+sale, 21 page headings (landing rows), 150 ms for all 300, the count of each product's published variants included.
+*Each fix removed in turn* (`arrival2_mutate_one.py`, `arrival2_mutations.log`): 27 mutations, one at a time on a copy of the
+worktree, each killed by the test named beside it (the state attached before the hash; a branch of the intake that does not
+write it; each queue rule; the older state written; a 400 for a wrong type; the state-only load writing a line that differs,
+writing without `--apply`, moving the mark, or reading its command line loosely; nothing known relied on; a state never too
+old; the product's status not read; no heading at the click; a features-only state doubted; the features read first; the
+variants of a product counted over every store or whatever their status; the evidence without the state; a moved state not
+noticed; the state's date compared; the row not saying "not known", or every row saying it; a missing input read as "not a
+heading"; the record not naming the product).
+
+**Open, and for the reviewer first.** (1) The published variants of a product are counted from the stored states: a variant of
+the product that arrived without a state is not counted, and a store that holds only a sample of its variants (Vape Big on
+staging: 40 of 2,503) undercounts for every product. So "not a heading" can be said of a default row whose other variants the
+warehouse cannot see. The seed works the heading out again at the click, which heals a count that was incomplete only for a
+moment; it does not heal a sample. (Since the review below: a heading the features recorded is skipped beside a stored state
+too, F1; and the Vape Big sample is left out of the load.)
+(2) After the state-only load is applied, the rows a matching run judged New read their
+STORED state: the files are of 26 Sep, so from 26 Oct (30 days) the seed skips them all as `state_not_known` until a fresher
+export is loaded or the setting is raised. That is the rule working; it needs the owner's word on how the state is to be kept
+fresh (the handoff's open question about refreshing staging's catalogues). (3) The state-only load never queues (above, a):
+for 2b. (4) The ordinary import of a dated file now writes the state too, and so can queue (a state that changed from a known
+value): a nightly refresh would queue the variants whose state changed, which is what 2b wants, and the queue alarm counts them.
+(5) A features-only state never reads the features' `product_live`: on purpose, so that nothing changes before the load.
+(6) The new reads name the new columns (the intake, a bulk action's pre-checks, New Variants, the check): between the copy of
+the code and the end of the migration (the installer copies first, as build 1's review noted; the copy of the table takes
+some seconds) those requests fail on staging; the command-line jobs refuse a schema that is behind the code and say so.
+(7) `website` in a suggestion's evidence is written also when nothing is known (`known: false`); the scope's words were "when
+known". (8) The state-only load exits 1 for a line that carries no state or whose stored state is newer, as for one that differs.
+
+### The review of build 2a (12-13 Oct 2026, on `6002a73`)
+
+Four reviewers, each with one question (does the seed do exactly what it should, and does nothing change for the owner before a
+store's state is loaded; is the check still build 1's check plus the state, and are the new reads on the screens right, safe and
+cheap; does the state-only load write only the state columns, only when told, and only for lines that are really the same
+variant; is the ordinary intake unchanged except for the state, and are the migration and the deploy safe), then a refuter on
+every finding; where the two differed the refuter's version was followed. No critical finding: before a store's state is loaded
+nothing changes for the 130 rows marked New; a dry run of the load writes nothing, and an apply writes the eight columns of the
+same variant and nothing else; both hashes are main's, with and without `website`; the check is build 1's plus the state
+(`ar1.0`); the migration is one additive copy, and the code of before 0028 runs on the new schema. Two findings were important,
+both about what a STORED state hides once a store is loaded, and both are fixed here. Their tests were pushed alone and seen to
+fail (`/root/cw_work/runs/arrival2_fix_red.log`), then F1's code alone (`arrival2_fix_f1.log`: CS-A's rows still red), then
+both (`arrival2_fix_green.log`); and each part of the two fixes was removed alone and killed by its test
+(`arrival2_fix_mutate.py`, `arrival2_fix_mutations.log`: 14 mutations).
+
+**Fixed (each with a test that failed first).**
+- **F1. The seed is never less strict than it was before the state was stored. A decision of the build is changed on purpose.**
+  The build had settled that a stored state is THE state and that the features and a suggestion's record are not read beside
+  it, "even where it knows less" (M66, "Who reads it" (1); pinned as made by `$storedGood` and by row `7011`). With the count of
+  Open (1) that let a row be MADE which the code before this build skips: the default row of a product whose features call it a
+  page heading, when another variant of its product has no stored state (the count says one: no heading); and a variant that the
+  features and the record of a LATER matching run call Draft, under the stored state of an older export that says Published.
+  Neither is on staging today (every line's hash is stored, and the features of the 130 rows agree with their state). It takes a
+  matching run imported after the stored state's export, from an export whose own state was not stored (a file with no time in
+  its name, a line the state-only load left, the run's import without the listings'), or a variant of the product without a
+  state. But the scope names only ADDED skips and one reversed rule, and an item is never deleted. Now `SiteState::against()`
+  gives what the two readers that have no date say AGAINST a variant beside its stored state, and `seedCheck()` asks it right
+  after the stored state's own status and before "no suggestion", where the features were asked before: `page_heading` when the
+  features call it one, then `not_published` with the status the features, else the record, give when that is not Published.
+  New Variants' row says the same two lines (`NewVariantsController::row()`), so a row and its skip agree. `SiteState::read()`
+  is as it was (the check on arrival and "where else is this barcode" read the stored state alone), and nothing the two say FOR
+  a variant is read beside a stored state: a stored "Bin" is not overruled. **The cost, a build decision:** a row whose OLD
+  features say Draft or page heading stays one at a time although a newer stored state says it is on sale, exactly as on main
+  today, until a matching run rewrites its features. Nothing changes for a row whose features and record agree with its stored
+  state (all 130). Tests: `BulkDecisionsTest::testTheSeedReadsTheStoredWebsiteStateWorksTheHeadingOutAtTheClickAndSkipsWhatIsNotKnown`
+  (`$storedGood` is now `page_heading`; new: `$draftSince` and `$binnedByRecord` are `not_published`, `$aloneHeading` and
+  `$uncheckedHeading` are `page_heading`, `$agreed` is still made), `NewVariantsScreenTest::testARowMarkedNewSaysWhatTheSeedWillFindOfItsStateOnTheWebsite`
+  (rows 7011, 7014 to 7016, 7029), `SiteStateTest::testWhatTheFeaturesAndTheRecordSayAgainstAVariantCountsBesideItsStoredState`.
+- **CS-A. New Variants says "a page heading" under every row still to match, also once its store's state is loaded.** A stored
+  state holds no heading (it is worked out), the build worked it out only for rows marked New (U146, to spare a read), and the
+  features were not read beside a stored state. So after a load the line "A page heading on the website, not something that is
+  sold." was gone from every "No suggestion" and "Suggested match" row: on the main store, its 4,470 landing rows. U133 promises
+  that line under a row still to match; it is how a person knows which rows to Ignore (M62); and the variant's own page, where
+  the item of such a row is made one at a time, says nothing of a heading. Now `Queries::newVariantRows()` works the heading out
+  for every row still to match (`Queries::NEW_OPEN`: New, a suggested match, no suggestion) whose stored state holds the inputs,
+  unless the row already says "not published" or "a page heading" without it (the stored status; the features and the record,
+  through F1), and `row()` says it whenever it is true. "The warehouse does not know…" stays under rows marked New only, for
+  U146's reason. The seed is not changed by this: it skips such a row for what it is (`not_checked`, `suggested_match`).
+  *What the page costs now* (held in the test by the session's own statement counter): when a row of the page has a stored
+  state, one read of the setting; and ONE count for each PRODUCT among the rows that need it (one range of the index on the
+  product's number, each listing by its primary key: the plan `Migration0028Test` pins), remembered for the call. At most one a
+  row: 50 a page, 500 a chunk of the CSV; the build asked the same count for the rows marked New only. A page heading of the
+  main store has features that say so, so its landing rows cost nothing more; each count still reads its siblings' own profile
+  rows (Left 3). Tests: `NewVariantsScreenTest::testTheFilterTheSearchAndWhatEachVariantIsInWords` (the Heading row, now with a
+  stored state: the review's test, red on `6002a73`; F1 alone turns it green, because that row's features say heading) and
+  `::testARowMarkedNewSaysWhatTheSeedWillFindOfItsStateOnTheWebsite`, rows 7022 to 7028 (a stored state and no features: a
+  landing row under "No suggestion" and under a suggested match, a default row by the count, one by an old state, a binned one
+  that says "not published" first, one that lacks an input and says nothing), with the counts of statements.
+
+**Refuted (three; none is a fault of this build).** Two reviewers found that a state the state-only load commits while the check
+writes a suggestion is not seen by that write: the end state is exactly "the check finished, then the load ran", which the build
+accepts on purpose and hands to 2b ("The state-only load", (a); Open (3)); no rule reads the state in 2a. For 2b: `mark()` should
+also ask the six state values. And an apply of the load also moves `listing_profile.updated_at`: that is the row's own change
+stamp, MySQL moves it, nothing reads it, and holding it still would make it lie.
+
+**Left, each confirmed and minor (for 2b or a small follow-up; none lets a bulk action make an item it must not).**
+(1) From 26 Oct 2026 09:41:57 UTC the states loaded from the 26 Sep files are older than the 30 days and the seed skips every
+loaded row marked New: the age limit is a build decision and is written down (Open (2)); left is that the skip's words do not
+say it is an age limit or give the date its record holds, that a load applied after that moment switches the rows off at once,
+that a later matching run does not bring them back, and that the load prints no warning for a file already past the limit.
+(2) `BulkDecisionsTest`'s older row `$c` ("made before" is said first, also where "not published" would apply) had lost its
+second reason to the new fixture default; fix F1 gives it back without a change of its own (its features say Draft beside a
+stored state), and "made before asked after not published" is killed again (X14 of the mutations above).
+(3) The count of a product's published variants reads each sibling's own wide profile row, and other stores' rows of the same
+number, only to test a status: served by the index and bounded, not covered; an index on (`site_product_id`,
+`site_variant_status`) can be added in place later (as 0020 did), and fix CS-A makes it worth more (the CSV of a whole store).
+(4) A count that is short says "known, not a page heading" (a store held in part; a variant whose line the load left): counting
+from the stored states is a build decision (Open (1)); before 2b, New must not be switched on for a store whose list is not
+whole or whose load left lines.
+(5) `Queries::barcodeElsewhere()` reads the stored state first, and no test fails when it reads the features alone.
+(6) A time in a file's name that is no real time rolls over (`20260931T…` is read as 1 Oct) instead of being refused.
+(7) A second run of the tool while another holds its job lock ends with exit 0 and "skipped", having written nothing (the
+frame's rule, made for the timers): load the stores one after another.
+(8) A file that is cut short can end with exit 0, and the manifest beside it is not compared: read `lines=` against the count
+expected.
+(9) No test would notice the row lock of the state-only apply gone; the code is right.
+(10) `install_cron.sh` copies the code before it migrates (build 1's Left 5, older than both builds): this build's pages and
+the intake name the new columns, so it must be run WITH `--migrate`, and they fail for the seconds of the copy (Open (6), which
+did not name the variant's own page).
+(11) The ordinary import's summary line prints no count of the variants it queued (the number is in its audit row only), and
+this build adds one more way to queue.
+(12) `--exported-at` wins over the time in the file's name and the two are not compared (the design's order, a build decision;
+both are printed): a pasted option can date an old file as new.
+
+**For the rollout** (`docs/ops.md`, "The website state and the state-only load"): `install_cron.sh` WITH `--migrate`; the Vape
+Big sample is left OUT of the state-only load (40 of 2,503 variants: point (4)), so after the load Electrofag's 119 rows marked
+New read their stored state and Vape Big's 11 keep reading their features as today; and the date of point (1).

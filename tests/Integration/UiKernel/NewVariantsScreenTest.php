@@ -27,7 +27,11 @@ use CW\Ui\Words;
  * permissions, numbers out of range and a note that is not text, and odd values in the address. Round 2b: a variant an item was
  * already made from, one that changed on the website after the check, a name an item already has or two ticked rows share and a
  * suggestion the computer could not decide are skipped, each row saying so before it is ticked where the list can know it; the
- * CSV's last line is written only for a file that was cut; and a store where no check has marked a variant New is told so.
+ * CSV's last line is written only for a file that was cut; and a store where no check has marked a variant New is told so. The
+ * website state (M66, U146): a row marked New says what the seed will find of its state, before it is ticked: not published (the
+ * variant, or its product), a page heading, or that the warehouse does not know whether it is on sale now. The review of build 2a:
+ * every row still to match says when it is a page heading or not published, also once its store's state is loaded (CS-A), and
+ * what the features and the check's record say against a variant counts beside its stored state (F1).
  */
 final class NewVariantsScreenTest extends KernelUiTestCase
 {
@@ -89,10 +93,21 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         return $this->seen($this->queued($site, $option, $band, $sku, ['product_title' => $title] + $p, $proposal), $minutes);
     }
 
-    /** A variant the computer checked and found new (an open "new product" suggestion): what the seed takes. @param array<string, mixed> $p */
+    /**
+     * A variant the computer checked and found new (an open "new product" suggestion): what the seed takes. What is known of its
+     * state on the website (M66): it is on sale by its STORED state (the profile's own columns, as of now), as every variant is
+     * once its store's state is loaded; unless $p gives the features of a matching run instead (`features`: no stored state, as
+     * before 0028), or `site`: false (nothing at all is known) or the columns of a stored state that says something else.
+     *
+     * @param array<string, mixed> $p
+     */
     private function found(Caller $site, string $option, string $title, int $minutes, array $p = []): int
     {
-        return $this->suggested($site, $option, $title, $minutes, 'New item', null, ['proposed_new_item' => 1], $p);
+        $id = $this->suggested($site, $option, $title, $minutes, 'New item', null, ['proposed_new_item' => 1], array_diff_key($p, ['site' => true]));
+        if (is_array($p['site'] ?? null) || (!isset($p['features']) && ($p['site'] ?? null) !== false)) {
+            self::siteState($id, is_array($p['site'] ?? null) ? $p['site'] : []);
+        }
+        return $id;
     }
 
     private function proposalOf(int $listing): int
@@ -395,8 +410,11 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         $this->decide($lead, 'ignore', $ignored, ['reason' => 'a placeholder']);
         $waiting = $this->variant($alt, '1007', 'Waiting pack', 70);
         $this->decide($lead, 'link', $waiting, ['sku_id' => $sku, 'units_per_item' => 6]);
-        // What the website said of two of them when their features were stored: a page heading, and one in the bin.
-        $this->variant($alt, '1008', 'Heading row', 80, ['features' => ['is_placeholder' => true, 'placeholder_reason' => 'landing_row', 'variant_status' => 'Published']]);
+        // What the website said of two of them when their features were stored: a page heading, and one in the bin. The heading
+        // has a stored state too, as every variant of a store has once its state is loaded: its row still says it is a heading
+        // (the review of build 2a, CS-A: after the load the line was gone from every row that is not marked New).
+        self::siteState($this->variant($alt, '1008', 'Heading row', 80, ['features' => ['is_placeholder' => true, 'placeholder_reason' => 'landing_row', 'variant_status' => 'Published']]),
+            ['site_is_landing' => 1]);
         $this->found($alt, '1009', 'Binned kiwi', 90, ['features' => ['is_placeholder' => false, 'variant_status' => 'Bin']]);
         $this->variant($big, '1001', 'Plain mango of another store', 10);
         $web = $this->signIn($this->uiUser('mapper'));
@@ -1221,6 +1239,160 @@ final class NewVariantsScreenTest extends KernelUiTestCase
      * not sure), has no tick box and the line under its name. Switched off, the page says so and the rows that were never looked
      * at say so too.
      */
+    /**
+     * The website state on New Variants (M66, U146). A row marked New says, before it is ticked, what "Create as new items" will
+     * find of its state: that it is not published (the variant, or its product), that it is a page heading (worked out now from
+     * its stored state, as the seed works it out), or that the warehouse does not know whether it is on sale now (nothing known
+     * at all; a stored state that lacks something; one older than the setting). One that is on sale says nothing more. The seed
+     * then skips exactly those rows, each with the reason its row gave, and the result page says it in words. The stored state
+     * comes before the features; but what the features say AGAINST a variant (a page heading, a status that is not Published)
+     * is said, and skipped, beside a stored state that says it is on sale too (the review of build 2a, F1).
+     * EVERY row still to match (New, a suggested match, no suggestion) says when it is not published or a page heading, the
+     * heading worked out from its stored state as for a row marked New (the review of build 2a, CS-A). Only "the warehouse does
+     * not know" stays with the rows marked New: the seed skips every other row for what it is.
+     */
+    public function testARowMarkedNewSaysWhatTheSeedWillFindOfItsStateOnTheWebsite(): void
+    {
+        ['alt' => $alt, 'big' => $big] = $this->stores();
+        $sku = $this->item('legacy');
+        $old = \CW\Clock::db(\CW\Clock::now()->modify('-60 days'));
+        $range = ['site_product_type' => 'variable', 'site_product_id' => 'range-1'];
+        $rows = [
+            '7001' => [$this->found($alt, '7001', 'On sale', 1), '', 'done'],
+            '7002' => [$this->found($alt, '7002', 'Nothing known', 2, ['site' => false]), Words::NEW_VARIANTS['site_unknown'], 'state_not_known'],
+            '7003' => [$this->found($alt, '7003', 'A state of two months ago', 3, ['site' => ['site_state_at' => $old]]), Words::NEW_VARIANTS['site_unknown'], 'state_not_known'],
+            '7004' => [$this->found($alt, '7004', 'No word on its product', 4, ['site' => ['site_product_status' => null]]), Words::NEW_VARIANTS['site_unknown'], 'state_not_known'],
+            '7005' => [$this->found($alt, '7005', 'Nothing of a heading known', 5, ['site' => ['site_is_landing' => null]]), Words::NEW_VARIANTS['site_unknown'], 'state_not_known'],
+            '7006' => [$this->found($alt, '7006', 'In the bin', 6, ['site' => ['site_variant_status' => 'Bin']]), Words::say('NEW_VARIANTS', 'site_status', 'Bin'), 'not_published'],
+            '7007' => [$this->found($alt, '7007', 'Under a draft', 7, ['site' => ['site_product_status' => 'Draft']]), Words::say('NEW_VARIANTS', 'site_status', 'Draft'), 'not_published'],
+            '7008' => [$this->found($alt, '7008', 'A landing row', 8, ['site' => ['site_is_landing' => 1]]), Words::NEW_VARIANTS['site_heading'], 'page_heading'],
+            '7009' => [$this->found($alt, '7009', 'A range', 9, ['site' => $range + ['site_is_default' => 1]]), Words::NEW_VARIANTS['site_heading'], 'page_heading'],
+            '7010' => [$this->found($alt, '7010', 'A range', 10, ['variant_title' => 'A flavour of the range', 'site' => $range + ['site_is_default' => 0]]), '', 'done'],
+            // CHANGED ON PURPOSE (the review of build 2a, F1; this row was pinned as made, with no line under it). What the features
+            // of a matching run say AGAINST a variant counts beside a stored state that says it is on sale, as it did before the
+            // state was stored: a heading (said first), or a status that is not Published.
+            '7011' => [$this->found($alt, '7011', 'On sale by its stored state, a binned heading by its features', 11, ['features' => ['variant_status' => 'Bin', 'is_placeholder' => true],
+                'site' => []]), Words::NEW_VARIANTS['site_heading'], 'page_heading'],
+            '7014' => [$this->found($alt, '7014', 'On sale by its stored state, a draft by its features', 14, ['features' => ['variant_status' => 'Draft'], 'site' => []]),
+                Words::say('NEW_VARIANTS', 'site_status', 'Draft'), 'not_published'],
+            // Features that agree with the stored state change nothing; and a stored "Bin" is not overruled by features that say Published.
+            '7015' => [$this->found($alt, '7015', 'On sale by its stored state and by its features', 15, ['features' => ['variant_status' => 'Published', 'is_placeholder' => false],
+                'site' => []]), '', 'done'],
+            '7016' => [$this->found($alt, '7016', 'In the bin by its stored state, published by its features', 16, ['features' => ['variant_status' => 'Published'],
+                'site' => ['site_variant_status' => 'Bin']]), Words::say('NEW_VARIANTS', 'site_status', 'Bin'), 'not_published'],
+            // Known only from a matching run's features: no date, so never "not known"; as before.
+            '7012' => [$this->found($alt, '7012', 'Published by its features', 12, ['features' => ['variant_status' => 'Published']]), '', 'done'],
+            '7013' => [$this->found($alt, '7013', 'An old state that says Bin', 13, ['site' => ['site_variant_status' => 'Bin', 'site_state_at' => $old]]),
+                Words::say('NEW_VARIANTS', 'site_status', 'Bin'), 'not_published'],
+        ];
+        // Not marked New: no word about an unknown state. A variant of another store shares the range's product number: not counted.
+        $plain = $this->variant($alt, '7020', 'No suggestion, nothing known', 20);
+        $match = $this->suggested($alt, '7021', 'A suggested match, nothing known', 21, 'Key', $sku);
+        self::siteState($this->variant($big, '7030', 'Another store, the same product number', 5), $range + ['site_is_default' => 0]);
+        // Not marked New, with a stored state (the review of build 2a, CS-A): each says a page heading or "not published" as a row
+        // marked New does, [what its row says after what it is, what the seed skips it as]. None of them has features that say so.
+        $stored = function (int $id, array $state) {
+            self::siteState($id, $state);
+            return $id;
+        };
+        $others = [
+            '7022' => [$stored($this->variant($alt, '7022', 'No suggestion, a landing row', 22), ['site_is_landing' => 1]), Words::NEW_VARIANTS['site_heading'], 'not_checked'],
+            '7023' => [$stored($this->suggested($alt, '7023', 'A suggested match, a landing row', 23, 'Key', $sku), ['site_is_landing' => 1]), Words::NEW_VARIANTS['site_heading'],
+                'suggested_match'],
+            // The default row of the range above: a heading by the published variants of its product, counted for this row too.
+            '7024' => [$stored($this->variant($alt, '7024', 'A range', 24), $range + ['site_is_default' => 1]), Words::NEW_VARIANTS['site_heading'], 'not_checked'],
+            '7025' => [$stored($this->variant($alt, '7025', 'No suggestion, on sale and no heading', 25), []), '', 'not_checked'],
+            // Not on sale is said first (and its heading is not asked for); the seed says so before "no suggestion".
+            '7026' => [$stored($this->variant($alt, '7026', 'No suggestion, a binned landing row', 26), ['site_is_landing' => 1, 'site_variant_status' => 'Bin']),
+                Words::say('NEW_VARIANTS', 'site_status', 'Bin'), 'not_published'],
+            // "The warehouse does not know" stays with the rows marked New: a state that lacks something says nothing here.
+            '7027' => [$stored($this->variant($alt, '7027', 'No suggestion, nothing of a heading known', 27), ['site_is_landing' => null]), '', 'not_checked'],
+            // What an old state knows against a variant still counts: a landing row by a state of two months ago.
+            '7028' => [$stored($this->variant($alt, '7028', 'No suggestion, a landing row by an old state', 28), ['site_is_landing' => 1, 'site_state_at' => $old]),
+                Words::NEW_VARIANTS['site_heading'], 'not_checked'],
+            // A heading by its features, no heading by its stored state (F1): said, and skipped as a heading, as before the state was stored.
+            '7029' => [$stored($this->variant($alt, '7029', 'No suggestion, a heading by its features', 29, ['features' => ['is_placeholder' => true, 'variant_status' => 'Published']]), []),
+                Words::NEW_VARIANTS['site_heading'], 'page_heading'],
+        ];
+        $web = $this->signIn($this->uiUser('mapper'));
+
+        $page = $web->get(self::PATH, ['state' => 'all']);
+        $said = [];
+        foreach (range(1, count($rows) + count($others) + 2) as $n) {
+            $said[self::row($page, $n)[Words::NEW_VARIANTS['option']]] = self::row($page, $n)['state'];
+        }
+        $new = Words::NEW_VARIANT_STATE['new'] . ' ' . Words::NEW_VARIANTS['is_new'];
+        foreach ($rows as $option => [$id, $note, $outcome]) {
+            self::assertSame(trim($new . ' ' . $note), $said[$option], "{$option}: what the row says of its state");
+        }
+        $none = Words::NEW_VARIANT_STATE['not_checked'] . ' ' . Words::ARRIVAL_LEFT['off'];
+        $suggested = Words::NEW_VARIANT_STATE['suggested'] . ' ' . Words::say('NEW_VARIANTS', 'suggested_item', Words::BAND['Key'], $this->codeOf($sku)) . ' '
+            . self::$db->value('SELECT name FROM sku WHERE id = ?', [$sku]);
+        self::assertSame([$none, $suggested], [$said['7020'], $said['7021']], 'a row that is not marked New says nothing of a state that is not known');
+        foreach ($others as $option => [$id, $note, $outcome]) {
+            self::assertSame(trim(((int) $option === 7023 ? $suggested : $none) . ' ' . $note), $said[$option], "{$option}: what a row that is not marked New says of its state");
+        }
+        self::assertSame('The warehouse does not know if it is on sale on the website now: open it to decide.', Words::NEW_VARIANTS['site_unknown']);
+        self::assertStringContainsString('one the warehouse does not know to be on sale on the website now', $page->text(), 'the line beside the bar names the reason');
+        // What the heading costs the list (CS-A): one more read for each PRODUCT among the rows still to match that are on sale by
+        // a stored state which holds the heading's inputs, remembered for the call; none for a row that says "not published" or
+        // "a heading" without it. Counted in statements sent (the session's own counter; its own read is one of them).
+        $q = new Queries(self::$db);
+        $sent = static function (array $ids) use ($q): int {
+            $n = static fn (): int => (int) self::$db->pdo()->query("SHOW SESSION STATUS LIKE 'Questions'")->fetch(\PDO::FETCH_NUM)[1];
+            $before = $n();
+            $q->newVariantRows($ids);
+            return $n() - $before - 1;
+        };
+        $base = $sent([$plain]); // (no stored state: the rows themselves and the items made from them)
+        $with = static fn (string ...$options): array => array_map(static fn (string $o): int => ($rows + $others)[$o][0], $options);
+        self::assertSame([2, 1, 1, 1, 1, 1, 1, 2, 3], array_map(static fn (array $ids): int => $sent($ids) - $base, [
+            $with('7025'),                 // the setting of the age, and its product's published variants
+            $with('7026'),                 // in the bin: the setting only
+            $with('7029'),                 // a heading by its features: the setting only
+            $with('7014'),                 // a draft by its features: the setting only
+            $with('7027'),                 // no landing mark: nothing to work out
+            $with('7005'),                 // the same under a row marked New
+            $with('7013'),                 // an old state that says Bin
+            $with('7009', '7010', '7024'), // three rows of one product: one read
+            $with('7022', '7023'),         // two products: two reads
+        ]), 'one read a product, and only where the answer is needed');
+        self::assertLessThanOrEqual($base + 1 + count($rows) + count($others), $sent([...array_column($rows, 0), ...array_column($others, 0), $plain, $match]), 'never more than one a row');
+
+        // The seed finds what each row said.
+        $r = $web->post('/ui/review/bulk', self::ticked($page, [...array_column($rows, 0), $plain, $match, ...array_column($others, 0)], 'new_item'));
+        $batch = self::batchOf($r);
+        $expected = [$plain => ['skipped', 'not_checked'], $match => ['skipped', 'suggested_match']];
+        foreach ([...$rows, ...$others] as [$id, $note, $outcome]) {
+            $expected[$id] = $outcome === 'done' ? ['done', null] : ['skipped', $outcome];
+        }
+        ksort($expected);
+        self::assertSame($expected, self::batchRows($batch));
+        $text = $web->follow($r)->text();
+        self::assertStringContainsString('Done: 4 new items created and matched, 0 sent to Second approval, 22 skipped.', $text);
+        self::assertSame(8, substr_count($text, 'The warehouse does not know if it is on sale on the website now. Open it and decide.'),
+            'four rows, each in the skipped list and in the list of every row');
+        foreach (['It is not published on the website (Bin). Open it and decide.', 'It is not published on the website (Draft). Open it and decide.',
+            'It is a page heading on the website, not something that is sold. Open it and decide.'] as $why) {
+            self::assertStringContainsString($why, $text);
+        }
+        // The CSV says the same of a row as the page; and the setting decides what "too old" is.
+        $csv = $web->get(self::PATH . '.csv', ['state' => 'new'])->body;
+        self::assertSame(4, substr_count($csv, Words::NEW_VARIANTS['site_unknown']));
+        self::assertSame(3, substr_count($csv, Words::NEW_VARIANTS['site_heading']));
+        $csv = $web->get(self::PATH . '.csv', ['state' => 'not_checked'])->body;
+        self::assertSame([4, 0], [substr_count($csv, Words::NEW_VARIANTS['site_heading']), substr_count($csv, Words::NEW_VARIANTS['site_unknown'])],
+            'and of a row that is not marked New');
+        $this->setting('mapping.arrival_state_max_days', '90');
+        self::assertSame($new, self::row($web->get(self::PATH, ['state' => 'new', 'q' => '7003']), 1)['state'], 'two months is not too old when the setting allows three');
+        self::assertSame([$rows['7003'][0] => ['done', null]], self::batchRows(self::batchOf($web->post('/ui/review/bulk',
+            self::ticked($web->get(self::PATH, ['state' => 'new', 'q' => '7003']), [$rows['7003'][0]], 'new_item')))));
+        // One at a time a person may still make the item of a variant whose state is not known: its own page is not touched.
+        $own = $web->get('/ui/review/listing/' . $rows['7002'][0]);
+        $ok = $web->post('/ui/review/listing/' . $rows['7002'][0] . '/decide', ['action' => 'new_item', 'units_per_item' => '1'] + $own->form('/ui/review/listing/' . $rows['7002'][0] . '/decide'));
+        self::assertSame([303, 'mapped'], [$ok->status, $this->link($rows['7002'][0])['status']], $ok->describe());
+    }
+
     public function testTheCheckOnArrivalSaysWhatItDidAndWhyARowHasNoSuggestion(): void
     {
         $alt = $this->site('alt', 'shadow');

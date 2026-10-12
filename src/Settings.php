@@ -87,6 +87,9 @@ final class Settings
         'mapping.arrival_max_per_run' => ['min' => 1, 'max' => 5000],
         'mapping.arrival_max_seconds' => ['min' => 5, 'max' => 600],
         'mapping.arrival_queue_alarm' => ['min' => 1, 'max' => 100000],
+        // The website state (0028, M66): how many days old a variant's stored state may be before it reads as not known (a day
+        // at the least, a year at the most: not the 0 to 120 of the other day counts).
+        'mapping.arrival_state_max_days' => ['min' => 1, 'max' => 365],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];

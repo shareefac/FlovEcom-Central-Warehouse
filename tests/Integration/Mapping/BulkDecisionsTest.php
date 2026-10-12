@@ -23,7 +23,9 @@ use CW\Tests\Support\MappingTestCase;
  * stored with other leading zeros; a number out of range and a note that is not text are refused before anything is written.
  * One rule for every bulk "create as new" (M61), on New Variants and on the New products list alike: never a second item from a
  * variant an item was already made from, none under a name an item already has or two ticked rows share, none from a variant that
- * changed on the website after the computer checked it, a page heading or one that is not published.
+ * changed on the website after the computer checked it, a page heading or one that is not published. Since the website state is
+ * stored (M66): it is read from the profile's own columns first, the page heading is worked out again at the click, and a variant
+ * whose state is not known, or known only from a state older than the setting, is skipped (`state_not_known`).
  */
 final class BulkDecisionsTest extends MappingTestCase
 {
@@ -474,6 +476,9 @@ final class BulkDecisionsTest extends MappingTestCase
         $b = $this->listing($site, 'N2', null);
         self::$db->exec("INSERT INTO listing_profile (listing_id, product_title, barcodes, units_30d, units_365d) VALUES (?, 'Another kit', JSON_ARRAY('5000000000017'), 1, 2)", [$b]);
         $this->propose($b, 'New item', null, ['proposed_new_item' => 1]);
+        // (both are on sale by their stored website state: since M66 a variant whose state is not known is not made in bulk)
+        self::siteState($a);
+        self::siteState($b);
         $sku = $this->item('legacy');
         self::$db->exec("INSERT INTO sku_barcode (sku_id, barcode, is_usable, units_per_scan, source) VALUES (?, '5000000000017', 1, 1, 'manual')", [$sku]);
         $r = $this->bulk()->run($mapper, 'new_item', [$this->seen($a), $this->seen($b)], ['source' => 'review', 'band' => 'New item']);
@@ -486,12 +491,24 @@ final class BulkDecisionsTest extends MappingTestCase
         self::assertSame('suggested', $this->link($b)['status']);
     }
 
-    /** A listing of $site with a profile. @param list<string> $barcodes @param array<string, mixed>|null $features */
-    private function withProfile(Caller $site, string $variant, string $title, array $barcodes = [], ?array $features = null): int
+    /**
+     * A listing of $site with a profile. What is known of its state on the website (M66):
+     *  - $features not given: an ordinary variant on sale, by its STORED state (the profile's own columns of 0028, as of now):
+     *    published, its product published, nothing of a page heading. What every variant is like once its store's state is loaded;
+     *  - $features an array: the stored features of a matching run, and NO stored state (as a variant was before 0028);
+     *  - $features false: nothing at all: no stored state and no features (a variant that arrived by itself).
+     *
+     * @param list<string> $barcodes
+     * @param array<string, mixed>|false|null $features
+     */
+    private function withProfile(Caller $site, string $variant, string $title, array $barcodes = [], array|false|null $features = null): int
     {
         $id = $this->listing($site, $variant, null);
         self::$db->exec('INSERT INTO listing_profile (listing_id, product_title, barcodes, units_30d, units_365d, features) VALUES (?, ?, ?, 0, 0, ?)',
-            [$id, $title, json_encode($barcodes, JSON_THROW_ON_ERROR), $features === null ? null : json_encode($features, JSON_THROW_ON_ERROR)]);
+            [$id, $title, json_encode($barcodes, JSON_THROW_ON_ERROR), is_array($features) ? json_encode($features, JSON_THROW_ON_ERROR) : null]);
+        if ($features === null) {
+            self::siteState($id);
+        }
         return $id;
     }
 
@@ -507,11 +524,17 @@ final class BulkDecisionsTest extends MappingTestCase
         $other = $this->site('vbig', 'off');
         $sku = $this->item('legacy');
         $new = fn (int $l): int => $this->propose($l, 'New item', null, ['proposed_new_item' => 1]);
-        // Found new by the computer: with no stored features (a variant that arrived by itself), and with features that say Published.
-        $plain = $this->withProfile($site, 'S1', 'Found new, no features');
+        // Found new by the computer: with nothing known of its state on the website (a variant that arrived by itself: no stored
+        // state, no features, nothing in the suggestion's record), with features that say Published, and with a stored state.
+        // THE RULE THIS TEST PINNED IS REVERSED ON PURPOSE (M66): until the website state was stored, a variant whose state was
+        // "known from neither" was made (`$plain => null` here). Now "not known" is a state of its own and such a variant is
+        // skipped as `state_not_known`: a person opens it and decides.
+        $plain = $this->withProfile($site, 'S1', 'Found new, nothing known of its state', [], false);
         $new($plain);
         $published = $this->withProfile($site, 'S2', 'Found new, published', ['5056168800097'], ['variant_status' => 'Published', 'is_placeholder' => false]);
         $new($published);
+        $stored = $this->withProfile($site, 'S2b', 'Found new, on sale by its stored state');
+        $new($stored);
         // Never checked; a seed that was undone (an item was made from it: said first); sent back for matching; a suggestion marked
         // wrong and then sent back: no OPEN suggestion.
         $never = $this->withProfile($site, 'S3', 'Never checked');
@@ -540,23 +563,26 @@ final class BulkDecisionsTest extends MappingTestCase
         $this->withProfile($other, 'T1', 'The twin elsewhere', ['05056168800103']);
         $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
 
-        $ids = [$plain, $published, $never, $undone, $sentBack, $rejected, $heading, $headingToo, $draft, $match, $unsure, $twin];
+        $ids = [$plain, $published, $stored, $never, $undone, $sentBack, $rejected, $heading, $headingToo, $draft, $match, $unsure, $twin];
         $r = $this->bulk()->run($mapper, 'new_item', array_map($this->seen(...), $ids), ['source' => 'new', 'channel_id' => $site->channelId]);
-        self::assertSame(['done' => 2, 'pending' => 0, 'skipped' => 10], ['done' => $r['done'], 'pending' => $r['pending'], 'skipped' => $r['skipped']]);
+        self::assertSame(['done' => 2, 'pending' => 0, 'skipped' => 11], ['done' => $r['done'], 'pending' => $r['pending'], 'skipped' => $r['skipped']]);
         $rows = self::batchRows($r['batch_id']);
-        self::assertSame([$plain => null, $published => null, $never => 'not_checked', $undone => 'made_before', $sentBack => 'not_checked', $rejected => 'not_checked',
-            $heading => 'page_heading', $headingToo => 'page_heading', $draft => 'not_published', $match => 'suggested_match', $unsure => 'not_new',
+        self::assertSame([$plain => 'state_not_known', $published => null, $stored => null, $never => 'not_checked', $undone => 'made_before', $sentBack => 'not_checked',
+            $rejected => 'not_checked', $heading => 'page_heading', $headingToo => 'page_heading', $draft => 'not_published', $match => 'suggested_match', $unsure => 'not_new',
             $twin => 'barcode_elsewhere'], array_map(static fn (array $row): ?string => $row['skip_code'], $rows));
+        self::assertEquals(['state' => 'not_known'], json_decode((string) $rows[$plain]['detail'], true), 'the record says it is not known (not: too old)');
         self::assertEquals(['band' => "Can't tell"], json_decode((string) $rows[$unsure]['detail'], true), 'a suggestion that names no item and is not "new": its own reason, with its strength');
         self::assertEquals(['sku' => (string) self::$db->value('SELECT code FROM sku WHERE origin_listing_id = ?', [$undone])], json_decode((string) $rows[$undone]['detail'], true));
-        self::assertSame($skus + 2, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'an item for each of the two found new, none for a skipped row');
-        self::assertSame(['mapped', 'mapped'], [$this->link($plain)['status'], $this->link($published)['status']]);
+        self::assertSame($skus + 2, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'an item for each of the two found new and on sale, none for a skipped row');
+        self::assertSame(['suggested', 'mapped', 'mapped'], [$this->link($plain)['status'], $this->link($published)['status'], $this->link($stored)['status']]);
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM sku WHERE origin_listing_id = ?', [$undone]), 'the undone seed is not made a second time');
         self::assertEquals(['site_status' => 'Draft'], json_decode((string) $rows[$draft]['detail'], true), 'the record keeps what the website said');
         self::assertEquals(['sku' => (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$sku])], json_decode((string) $rows[$match]['detail'], true));
         self::assertSame('new', self::$db->value('SELECT source FROM mapping_batch WHERE id = ?', [$r['batch_id']]));
-        // DecisionService itself is unchanged: one at a time, a person may still make the item of a variant the computer never checked.
+        // DecisionService itself is unchanged: one at a time, a person may still make the item of a variant the computer never checked,
+        // and of one whose state on the website the warehouse does not know.
         self::assertSame('mapped', $this->decide($mapper, 'new_item', $never)['status']);
+        self::assertSame('mapped', $this->decide($mapper, 'new_item', $plain, ['proposal_id' => $this->seen($plain)['proposal_id']])['status']);
 
         // The New products list (a match-strength list) has the same guards since round 2b (M61: one rule for every bulk "create
         // as new"; before, it made its ticked rows whatever the stored features said): a draft and a page heading are skipped
@@ -733,14 +759,15 @@ final class BulkDecisionsTest extends MappingTestCase
             $renamed = $this->withProfile($site, "N{$n}3", "Published, then renamed {$n}", [], ['variant_status' => 'Published']);
             $new($renamed, ['variant_status' => 'Published']);
             // The suggestion recorded "Draft"; the features were never stored (the load had no features file).
-            $draft = $this->withProfile($site, "N{$n}4", "A draft by the check's record {$n}");
+            $draft = $this->withProfile($site, "N{$n}4", "A draft by the check's record {$n}", [], false);
             $new($draft, ['variant_status' => 'Draft']);
             // Not changed: published by the features; published by the check's record only; a state that is no text says nothing.
             $same = $this->withProfile($site, "N{$n}5", "Published and unchanged {$n}", [], ['variant_status' => 'Published']);
             $new($same, ['variant_status' => 'Bin']);
-            $sameByCheck = $this->withProfile($site, "N{$n}6", "Published by the check's record {$n}");
+            $sameByCheck = $this->withProfile($site, "N{$n}6", "Published by the check's record {$n}", [], false);
             $new($sameByCheck, ['variant_status' => 'Published']);
-            $odd = $this->withProfile($site, "N{$n}7", "A state that is no text {$n}");
+            // (reversed on purpose, M66: a state that is no text says nothing, and "nothing known" is now skipped, where it was made)
+            $odd = $this->withProfile($site, "N{$n}7", "A state that is no text {$n}", [], false);
             $new($odd, ['variant_status' => 7]);
             // Changed, but its suggestion has no record of what it was made on (one made before such records were kept).
             $noBasis = $this->withProfile($site, "N{$n}8", "No record of the check {$n}");
@@ -758,10 +785,10 @@ final class BulkDecisionsTest extends MappingTestCase
             $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
             $rows = $this->seed($mapper, [$binned, $binnedOnly, $renamed, $draft, $same, $sameByCheck, $odd, $noBasis], $context);
             self::assertSame([$binned => 'not_published', $binnedOnly => 'changed_since_check', $renamed => 'changed_since_check', $draft => 'not_published', $same => null,
-                $sameByCheck => null, $odd => null, $noBasis => null], array_map(static fn (array $row): ?string => $row['skip_code'], $rows), $context['source']);
+                $sameByCheck => null, $odd => 'state_not_known', $noBasis => null], array_map(static fn (array $row): ?string => $row['skip_code'], $rows), $context['source']);
             self::assertEquals(['site_status' => 'Bin'], json_decode((string) $rows[$binned]['detail'], true), 'what the check recorded');
             self::assertEquals(['site_status' => 'Draft'], json_decode((string) $rows[$draft]['detail'], true));
-            self::assertSame($skus + 4, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'no item from a skipped row');
+            self::assertSame($skus + 3, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'no item from a skipped row');
             self::assertSame(['suggested', 'suggested', 'suggested', 'suggested'], array_map(fn (int $l): string => $this->link($l)['status'], [$binned, $binnedOnly, $renamed, $draft]));
         }
         // The two questions the list asks too (so a row and its skip cannot disagree).
@@ -823,6 +850,154 @@ final class BulkDecisionsTest extends MappingTestCase
             BulkDecisions::changedSinceCheck(null, null, null, 7, 'New title', null),
             BulkDecisions::changedSinceCheck(5, 'aa', 'bb', 'Same title', 'Same title', null),
         ]);
+    }
+
+    /**
+     * The website state at the seed (M66; BulkDecisions::seedCheck, CW\Mapping\SiteState). The state is read from the profile's
+     * own columns first (a stored state is THE state: features and a suggestion's record that say "published" do not overrule
+     * it), then from the features, then from the suggestion's record. `not_published` also when the variant's PRODUCT is known
+     * not to be published. What the features and the record say AGAINST a variant still counts beside a stored state that says
+     * it is on sale (the review of build 2a, F1: the seed is never less strict than it was before the state was stored): a page
+     * heading by its features is `page_heading`, a status of theirs that is not Published is `not_published`, asked where they
+     * were asked before (so before "no suggestion").
+     * After the barcode rule, for a row that would be made: its page heading is worked out again, now, from the stored inputs and
+     * the published variants of its product in the database (`page_heading`); then `state_not_known` when the stored state lacks
+     * the status, the product's status or an input of the heading, when it is older than the setting, and when nothing is known
+     * at all. A state known only from the features or from the suggestion's record has no date and behaves exactly as before.
+     */
+    public function testTheSeedReadsTheStoredWebsiteStateWorksTheHeadingOutAtTheClickAndSkipsWhatIsNotKnown(): void
+    {
+        $mapper = $this->staffUser('mapper');
+        $site = $this->site('alt', 'shadow');
+        $other = $this->site('vbig', 'off');
+        $new = fn (int $l, array $evidence = []): int => $this->propose($l, 'New item', null, ['proposed_new_item' => 1] + ($evidence === [] ? [] : ['evidence' => $evidence]));
+        $days = static fn (int $n): string => \CW\Clock::db(\CW\Clock::now()->modify("-{$n} days"));
+        self::assertSame(30, \CW\Mapping\SiteState::maxDays(self::$db), 'the setting as it is installed');
+        foreach (self::seedLists($site) as $n => $context) {
+            $row = function (string $what, array $state = [], array|false|null $features = null, array $evidence = [], array $barcodes = []) use ($site, $n, $new): int {
+                static $i = 0;
+                $l = $this->withProfile($site, "W{$n}-" . ++$i, "{$what} {$n}", $barcodes, $features);
+                if ($state !== []) {
+                    self::siteState($l, $state);
+                }
+                $new($l, $evidence);
+                return $l;
+            };
+            // On sale and something that is sold, by a stored state that is whole and fresh: made.
+            $good = $row('On sale by its stored state');
+            $fresh = $row('A state as old as the setting allows, less a minute', ['site_state_at' => \CW\Clock::db(\CW\Clock::now()->modify('-30 days +1 minute'))]);
+            // Not on sale: the variant itself, or its product (a published variant under a product that is not published).
+            $binned = $row('In the bin by its stored state', ['site_variant_status' => 'Bin']);
+            $underDraft = $row('Published, under a product that is a draft', ['site_product_status' => 'Draft']);
+            // ... also when the state is old: what an old state knows against a variant still counts.
+            $oldBin = $row('In the bin by an old state', ['site_variant_status' => 'Bin', 'site_state_at' => $days(200)]);
+            // A stored state is THE state. Features and a record that say "published" do not overrule a stored "Bin".
+            $storedWins = $row('In the bin by its stored state, published by its features', ['site_variant_status' => 'Bin', 'site_product_type' => 'simple'],
+                ['variant_status' => 'Published', 'is_placeholder' => false], ['variant_status' => 'Published']);
+            // THE RULE THE FIRST OF THESE ROWS PINNED IS CHANGED ON PURPOSE (the review of build 2a, F1). The build said: features
+            // that say "Draft" and "page heading" do not speak beside a stored state that says it is on sale (`$storedGood => null`:
+            // made). But before the state was stored such a row was skipped, and the features of a later matching run can be NEWER
+            // than the stored state, and the count of a product's published variants can be short. So what the features and the
+            // suggestion's record say AGAINST a variant counts beside its stored state too, exactly as it did before: a heading by
+            // the features (said first), then a status of theirs that is not Published (the features', else the record's).
+            $storedGood = $row('On sale by its stored state, a draft heading by its features', ['site_variant_status' => 'Published'], ['variant_status' => 'Draft', 'is_placeholder' => true],
+                ['variant_status' => 'Draft']);
+            $draftSince = $row('On sale by its stored state, a draft by its features and the record', ['site_variant_status' => 'Published'], ['variant_status' => 'Draft'],
+                ['variant_status' => 'Draft']);
+            $binnedByRecord = $row('On sale by its stored state, in the bin by the record of the check', [], null, ['variant_status' => 'Bin']);
+            // The default row of a variable product that is alone in its product by the stored states (as when its other variants
+            // have none): not a heading by the count, a heading by its features.
+            $aloneHeading = $row('A range page alone in its product, a heading by its features', ['site_product_type' => 'variable', 'site_product_id' => "alone-{$n}", 'site_is_default' => 1],
+                ['is_placeholder' => true]);
+            // Never checked, a heading by its features, on sale by its stored state: the heading is said, as before the state was stored.
+            $uncheckedHeading = $this->withProfile($site, "W{$n}-unchecked", "A heading nobody checked, on sale by its stored state {$n}", [], ['is_placeholder' => true]);
+            self::siteState($uncheckedHeading);
+            // Nothing changes for a row whose features and record agree with its stored state: made.
+            $agreed = $row('On sale by its stored state, by its features and by the record', ['site_variant_status' => 'Published'], ['variant_status' => 'Published', 'is_placeholder' => false],
+                ['variant_status' => 'Published']);
+            // Not known: nothing at all; a stored state that lacks the status, the product's status, or an input of the heading.
+            $nothing = $row('Nothing known of its state', [], false);
+            $noStatus = $row('A stored state without the status', ['site_variant_status' => null]);
+            $noProduct = $row('A stored state without the product status', ['site_product_status' => null]);
+            $noLanding = $row('A stored state without the landing mark', ['site_is_landing' => null]);
+            $noType = $row('A stored state without the product type', ['site_product_type' => null]);
+            $noDefault = $row('A stored state without the default mark', ['site_is_default' => null]);
+            $noNumber = $row('A stored state without the product number', ['site_product_id' => null]);
+            // Too old: older than the setting, by a minute and by months.
+            $old = $row('A state a minute older than the setting allows', ['site_state_at' => \CW\Clock::db(\CW\Clock::now()->modify('-30 days -1 minute'))]);
+            $older = $row('A state of last winter', ['site_state_at' => $days(250)]);
+            // A page heading, worked out now. The website's landing row; and the default variant of a variable product that has the
+            // product's own name, no barcode and no sale, while the product has more than one published variant in this store.
+            $landing = $row('A landing row', ['site_is_landing' => 1, 'site_product_type' => 'variable']);
+            $product = "range-{$n}";
+            $parent = $row('A range page', ['site_product_type' => 'variable', 'site_product_id' => $product, 'site_is_default' => 1]);
+            $child = $row('A flavour of the range', ['site_product_type' => 'variable', 'site_product_id' => $product, 'site_is_default' => 0]);
+            self::$db->exec('UPDATE listing_profile SET variant_title = ? WHERE listing_id = ?', ["Blue Razz 10mg {$n}", $child]);
+            // The same shape with only itself published in the product: no heading. Its other variants do not count when they are
+            // in the bin, or when they are another store's product of the same number.
+            $lone = "lone-{$n}";
+            $single = $row('A range of one', ['site_product_type' => 'variable', 'site_product_id' => $lone, 'site_is_default' => 1]);
+            $row('A binned flavour of the range of one', ['site_product_type' => 'variable', 'site_product_id' => $lone, 'site_is_default' => 0, 'site_variant_status' => 'Bin']);
+            $elsewhere = $this->withProfile($other, "X{$n}", "Another store's variant of the same product number {$n}");
+            self::siteState($elsewhere, ['site_product_type' => 'variable', 'site_product_id' => $lone, 'site_is_default' => 0]);
+            // A landing row whose barcode another variant has: the barcode is said first (the heading is worked out last).
+            $landingTwin = $row('A landing row with a barcode elsewhere', ['site_is_landing' => 1], null, [], ['50561688009' . (10 + $n)]);
+            $this->withProfile($other, "Y{$n}", "Holds that barcode {$n}", ['50561688009' . (10 + $n)]);
+            // Known only from the features, or only from the suggestion's record: no date, so never too old; exactly as before.
+            $byFeatures = $row('Published by its features only', [], ['variant_status' => 'Published']);
+            $byRecord = $row('Published by the record of the check only', [], false, ['variant_status' => 'Published']);
+            $headingByFeatures = $row('A heading by its features', [], ['variant_status' => 'Published', 'is_placeholder' => true]);
+
+            $ids = [$good, $fresh, $binned, $underDraft, $oldBin, $storedWins, $storedGood, $draftSince, $binnedByRecord, $aloneHeading, $uncheckedHeading, $agreed, $nothing, $noStatus,
+                $noProduct, $noLanding, $noType, $noDefault, $noNumber, $old, $older, $landing, $parent, $child, $single, $landingTwin, $byFeatures, $byRecord, $headingByFeatures];
+            $skus = (int) self::$db->value('SELECT COUNT(*) FROM sku');
+            $rows = $this->seed($mapper, $ids, $context);
+            self::assertSame([$good => null, $fresh => null, $binned => 'not_published', $underDraft => 'not_published', $oldBin => 'not_published', $storedWins => 'not_published',
+                $storedGood => 'page_heading', $draftSince => 'not_published', $binnedByRecord => 'not_published', $aloneHeading => 'page_heading', $uncheckedHeading => 'page_heading',
+                $agreed => null, $nothing => 'state_not_known', $noStatus => 'state_not_known', $noProduct => 'state_not_known', $noLanding => 'state_not_known',
+                $noType => 'state_not_known', $noDefault => 'state_not_known', $noNumber => 'state_not_known', $old => 'state_not_known', $older => 'state_not_known',
+                $landing => 'page_heading', $parent => 'page_heading', $child => null, $single => null, $landingTwin => 'barcode_elsewhere', $byFeatures => null, $byRecord => null,
+                $headingByFeatures => 'page_heading'], array_map(static fn (array $r): ?string => $r['skip_code'], $rows), $context['source']);
+            self::assertSame($skus + 7, (int) self::$db->value('SELECT COUNT(*) FROM sku'), 'an item for each of the seven that are known to be on sale, none for a skipped row');
+            foreach ([$binned, $underDraft, $nothing, $noStatus, $old, $landing, $parent, $storedGood, $draftSince, $binnedByRecord, $aloneHeading, $uncheckedHeading] as $l) {
+                self::assertSame($l === $uncheckedHeading ? 'unmapped' : 'suggested', $this->link($l)['status']);
+            }
+            // What the record keeps: the status that says "not on sale" (the product's is marked as such), and why a state is not known.
+            self::assertEquals([['site_status' => 'Bin'], ['site_status' => 'Draft', 'of' => 'product'], ['site_status' => 'Bin']],
+                [json_decode((string) $rows[$binned]['detail'], true), json_decode((string) $rows[$underDraft]['detail'], true), json_decode((string) $rows[$storedWins]['detail'], true)]);
+            self::assertEquals([['site_status' => 'Draft'], ['site_status' => 'Bin']], [json_decode((string) $rows[$draftSince]['detail'], true),
+                json_decode((string) $rows[$binnedByRecord]['detail'], true)], 'beside a stored state: the status the features, else the record, give against the variant');
+            self::assertEquals(['state' => 'not_known'], json_decode((string) $rows[$nothing]['detail'], true));
+            self::assertSame(['not_known', 'not_known', 'not_known', 'not_known', 'too_old', 'too_old'], array_map(static fn (int $l): string => json_decode((string) $rows[$l]['detail'], true)['state'],
+                [$noStatus, $noProduct, $noLanding, $noNumber, $old, $older]));
+            self::assertSame(self::$db->value('SELECT site_state_at FROM listing_profile WHERE listing_id = ?', [$older]), json_decode((string) $rows[$older]['detail'], true)['as_of'],
+                'with the date of the state that was too old');
+            if ($context['source'] === 'new') {
+                $again = $this->withProfile($site, "W{$n}-again", "A state of last winter, again {$n}");
+                self::siteState($again, ['site_state_at' => $days(250)]);
+                $new($again);
+                // The setting decides what "too old" is: with a year allowed, the same variant is made.
+                self::assertSame([$again => 'state_not_known'], array_map(static fn (array $r): ?string => $r['skip_code'], $this->seed($mapper, [$again], $context)));
+                $this->setting('mapping.arrival_state_max_days', '365');
+                self::assertSame([$again => null], array_map(static fn (array $r): ?string => $r['skip_code'], $this->seed($mapper, [$again], $context)));
+                $this->setting('mapping.arrival_state_max_days', '30');
+                // A product that gains a second published variant makes its default row a heading from then on: worked out at the click.
+                $late = $this->withProfile($site, "W{$n}-late", "A range that grew {$n}");
+                self::siteState($late, ['site_product_type' => 'variable', 'site_product_id' => "grew-{$n}", 'site_is_default' => 1]);
+                $new($late);
+                $sibling = $this->withProfile($site, "W{$n}-sibling", "A range that grew {$n}");
+                self::siteState($sibling, ['site_product_type' => 'variable', 'site_product_id' => "grew-{$n}", 'site_is_default' => 0, 'site_variant_status' => 'Draft']);
+                self::$db->exec('UPDATE listing_profile SET variant_title = ? WHERE listing_id = ?', ["Cola 20mg {$n}", $sibling]);
+                $pre = (new \ReflectionMethod(BulkDecisions::class, 'prechecks'))->invoke($this->bulk(), 'new_item', 'new', [$this->seen($late)], $site->channelId, []);
+                self::assertSame('', $pre[$late]['code'], 'one published variant in its product: not a heading');
+                self::$db->exec("UPDATE listing_profile SET site_variant_status = 'Published' WHERE listing_id = ?", [$sibling]);
+                self::assertSame([$late => 'page_heading'], array_map(static fn (array $r): ?string => $r['skip_code'], $this->seed($mapper, [$late], $context)));
+            }
+        }
+        // One at a time a person may still make any of them (DecisionService is unchanged): they see the variant there.
+        $l = $this->withProfile($site, 'W-own', 'Nothing known, decided on its own page', [], false);
+        self::assertSame('mapped', $this->decide($mapper, 'new_item', $l, ['proposal_id' => $new($l)])['status']);
+        self::assertContains('state_not_known', BulkDecisions::SKIPS);
     }
 
     /**

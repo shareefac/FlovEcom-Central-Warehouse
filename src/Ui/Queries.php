@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace CW\Ui;
 
+use CW\Clock;
 use CW\Db;
 use CW\Mapping\BulkDecisions;
 use CW\Mapping\KeyHold;
 use CW\Mapping\OneAtATime;
+use CW\Mapping\SiteState;
 use CW\Matching\Gtin;
 
 /**
@@ -535,6 +537,8 @@ final class Queries
     public const NEW_KINDS = ['new', 'suggested', 'not_checked', 'linked', 'quarantined', 'waiting', 'ignored'];
     /** New Variants' filter (null = every variant): all still to match, then each kind of them. */
     public const NEW_FILTERS = ['unmatched', 'new', 'suggested', 'not_checked'];
+    /** The kinds still to match (the filter `unmatched`): the rows a bulk action can be ticked for, and the ones that say what the website says of them. */
+    public const NEW_OPEN = ['new', 'suggested', 'not_checked'];
     /** The periods New Variants offers besides its setting's and "any time", in days. */
     public const NEW_PERIODS = [7, 30, 90];
     /** "One store, newest first, since a date": the index of 0026. A hint naming an index that is not there yet is ignored. */
@@ -722,9 +726,19 @@ final class Queries
     /**
      * The rows of New Variants for these website products, in the order given: the product's facts (titles, brand, option number,
      * barcodes, price, units sold, first seen), what it is (`kind`, NEW_KIND_SQL), the item it is matched to, its open suggestion,
-     * the decision waiting for a second OK, what the website said of it when its features were stored (`site_status`,
-     * `is_placeholder`: NULL when not known) and when the computer checked it (`check_status`: the open suggestion's evidence, a
-     * text or NULL), what the open suggestion was made on and what the product is now (`basis_id`, `basis_identity`,
+     * the decision waiting for a second OK, its state on the website (M66: the stored state, the `site_` columns of 0028 with their
+     * date; what the website said of it when its features were stored, `features_status` and `is_placeholder`, NULL when not
+     * known; and when the computer checked it, `check_status`: the open suggestion's evidence, a text or NULL), with what
+     * CW\Mapping\SiteState makes of them: `site_state` (the three read in their order), `site_doubt` (why the state cannot be
+     * relied on, or null: `not_known`, `too_old` by the setting read now) and `site_heading` (whether it is a page heading,
+     * worked out now from its stored state as "Create as new items" works it out; null when not asked or not known). The heading
+     * is asked for EVERY row still to match (NEW_OPEN: New, a suggested match, no suggestion; the review of build 2a, CS-A: once
+     * a store's state is loaded this is what says "a page heading" under a row) whose stored state holds the inputs, unless the
+     * row says something of the website before it anyway and so needs no count: the stored state says it is not on sale, or its
+     * features or the check's record say a heading or a status that is not Published (SiteState::against()). The cost: one more
+     * read for each PRODUCT among those rows (its published variants, by the index of 0028 and each one's listing by its primary
+     * key), remembered for the call: at most one a row, so 50 a page and 500 a chunk of the CSV,
+     * what the open suggestion was made on and what the product is now (`basis_id`, `basis_identity`,
      * `identity_hash`, and `check_title`, the title the computer judged, from the same evidence: BulkDecisions::changedSinceCheck),
      * and the CW number of the item already made from it (`made_code`,
      * BulkDecisions::madeFrom: one more read, by the index on sku.origin_listing_id); for a suggestion of the check on arrival
@@ -744,7 +758,8 @@ final class Queries
         foreach ($this->db->all(
             'SELECT cl.id AS listing_id, cl.status, cl.sku_id, cl.units_per_item, cl.map_version, cl.external_variant_id, cl.created_at, ' . self::NEW_KIND_SQL . ' AS kind, '
             . 'lp.product_title, lp.variant_title, lp.brand, lp.barcodes, lp.price, lp.units_30d, lp.units_365d, s.code AS sku_code, s.name AS sku_name, '
-            . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS site_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder, "
+            . 'lp.site_variant_status, lp.site_product_status, lp.site_product_type, lp.site_product_id, lp.site_is_landing, lp.site_is_default, lp.site_state_at, cl.channel_id, '
+            . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS features_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder, "
             // Only a text counts, as where the seed decodes the same evidence (BulkDecisions::seedCheck).
             . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.variant_status')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.variant_status')) END AS check_status, "
             . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.title')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.title')) END AS check_title, "
@@ -766,6 +781,27 @@ final class Queries
         foreach (BulkDecisions::madeFrom($this->db, $ids) as $id => $code) {
             if (isset($by[$id])) {
                 $by[$id]['made_code'] = $code;
+            }
+        }
+        // The state on the website, as the seed reads it (the same functions, so a row and its skip cannot disagree).
+        $maxDays = null; // (the setting is read only when a row has a stored state: only such a state has an age)
+        $now = Clock::now();
+        $siblings = [];
+        foreach ($by as $id => $r) {
+            $features = ['variant_status' => $r['features_status'], 'is_placeholder' => $r['is_placeholder']];
+            $record = ['variant_status' => $r['check_status']];
+            $state = SiteState::read($r, $features, $record);
+            $by[$id]['site_state'] = $state;
+            $by[$id]['site_doubt'] = SiteState::doubt($state, $state['source'] === SiteState::STORED ? ($maxDays ??= SiteState::maxDays($this->db)) : SiteState::MAX_DAYS, $now);
+            $by[$id]['site_heading'] = null;
+            // Every row still to match, not only one marked New; none whose row says "not published" or "a heading" without it.
+            if (in_array($r['kind'], self::NEW_OPEN, true) && SiteState::headingInputs($state) && SiteState::notOnSale($state) === null
+                && SiteState::against($state, $features, $record) === ['heading' => false, 'status' => null]) {
+                $key = (int) $r['channel_id'] . ':' . $state['product_id'];
+                if (!array_key_exists($key, $siblings)) {
+                    $siblings[$key] = SiteState::publishedSiblings($this->db, (int) $r['channel_id'], $state['product_id']);
+                }
+                $by[$id]['site_heading'] = SiteState::heading($state, $r, $siblings[$key]);
             }
         }
         $out = [];
@@ -1265,7 +1301,9 @@ final class Queries
     /**
      * Where else these barcodes are: items (sku_barcode) and the profiles of other listings, on any site,
      * linked or not (e.g. a Vape and Go variant that was never minted because the site binned it). Uses
-     * the multi-valued index on listing_profile.barcodes (0005). At most $limit listings.
+     * the multi-valued index on listing_profile.barcodes (0005). At most $limit listings. Each listing's
+     * `variant_status` is its status on the website as CW\Mapping\SiteState reads it (M66): the stored
+     * state first, then what its features recorded; null when not known.
      *
      * @param list<string> $barcodes
      * @return array{items: list<array<string, mixed>>, listings: list<array<string, mixed>>}
@@ -1286,11 +1324,18 @@ final class Queries
         );
         $listings = $this->db->all(
             'SELECT cl.id, ch.code AS channel_code, cl.external_variant_id, cl.status, s.code AS sku_code, lp.product_title, lp.variant_title, '
-            . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS variant_status, lp.units_365d "
+            // Its status on the website (M66): the stored state's when it has one, else what its features recorded (resolved below).
+            . 'lp.site_variant_status, lp.site_product_status, lp.site_product_type, lp.site_product_id, lp.site_is_landing, lp.site_is_default, lp.site_state_at, '
+            . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS features_status, lp.units_365d "
             . 'FROM listing_profile lp JOIN channel_listing cl ON cl.id = lp.listing_id JOIN channel ch ON ch.id = cl.channel_id LEFT JOIN sku s ON s.id = cl.sku_id '
             . 'WHERE JSON_OVERLAPS(lp.barcodes, CAST(? AS JSON)) AND lp.listing_id <> ? ORDER BY ch.code, cl.id LIMIT ?',
             [json_encode($codes, JSON_THROW_ON_ERROR), $listingId, $limit],
         );
+        foreach ($listings as $i => $l) {
+            // (the status that says it is not on sale, its own or its product's, when one does; else its own)
+            $state = SiteState::read($l, ['variant_status' => $l['features_status']]);
+            $listings[$i]['variant_status'] = SiteState::notOnSale($state) ?? $state['variant_status'];
+        }
         return ['items' => $items, 'listings' => $listings];
     }
 
