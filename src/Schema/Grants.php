@@ -130,9 +130,12 @@ final class Grants
      * per site (item_channel_mode, 0018, I151).
      * grn_line keeps FULL rights: a draft's lines are replaced (its rows go with their document_line, ON DELETE CASCADE).
      * stock_op: the header of a stock record (0022, pack A1): changed while it is a draft, never removed (documents are never deleted).
+     * count_sheet / count_sheet_line: a count sheet's header and lines (0029, pack A2a): a line is filled in, emptied again, booked and
+     * checked in place, never removed (a sheet is the stocktake record; a line put on it by mistake stays, not counted).
      */
     public const NO_DELETE = ['channel_listing', 'listing_profile', 'sku', 'staff_user', 'supplier', 'supplier_item', 'import_run', 'purchase_order',
-        'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode', 'stock_op'];
+        'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode', 'stock_op',
+        'count_sheet', 'count_sheet_line'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

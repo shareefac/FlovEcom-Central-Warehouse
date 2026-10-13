@@ -317,6 +317,30 @@
     show();
   });
 
+  // A count sheet's lines (form[data-mark], Stock > Counts): a quantity is saved when Enter is pressed in its box (the form's own
+  // button; the server keeps only the lines changed on this page). The script only marks a box typed in and not saved yet, with the
+  // page's words (data-mark-text: Words::COUNTS); the guard above (data-unsaved) asks before the scan box or another form leaves.
+  each(document.querySelectorAll('form[data-mark]'), function (form) {
+    var prefix = form.getAttribute('data-mark') || '';
+    form.addEventListener('input', function (ev) {
+      var input = ev.target;
+      if (!input || !input.name || input.name.indexOf(prefix) !== 0) {
+        return;
+      }
+      var was = form.elements['was_' + input.name.slice(prefix.length)];
+      var changed = !was || was.value !== input.value.trim();
+      var state = input.parentNode ? input.parentNode.querySelector('.save-state') : null;
+      input.classList.toggle('unsaved', changed);
+      if (state) {
+        if (!state.hasAttribute('data-was')) {
+          state.setAttribute('data-was', state.textContent);
+        }
+        state.textContent = changed ? (form.getAttribute('data-mark-text') || '') : state.getAttribute('data-was');
+        state.classList.toggle('unsaved', changed);
+      }
+    });
+  });
+
   // A link to a folded form (the toolbar's "New user", "New warehouse", "New reason" lead to #new): the fold opens.
   var openTarget = function () {
     var id = window.location.hash.slice(1);

@@ -1639,3 +1639,16 @@ table.by-item-preview td.c-wide { text-align: left; }
 table.by-item-preview td.c-wide .why { display: block; margin-top: 4px; color: var(--ink-2); }
 form.by-item-apply .preview-facts { margin: 0 0 16px; }
 @media (max-width: 959.98px) { .bulkbar-choice select { min-height: 44px; } }
+
+
+/* Stock > Counts (pack A2a): the sheet's scanned line, a quantity typed and not saved yet, the "open a sheet" box, the line filters. */
+table.count-sheet tr.marked > *, table.count-before tr.needs > * { background: var(--needs-bg, #fff7e6); }
+table.count-sheet input[type="text"] { width: 7rem; max-width: 100%; text-align: right; }
+table.count-sheet input.unsaved { border: 2px solid var(--block-icon); }
+.save-state.unsaved { color: var(--block-icon); font-weight: 600; }
+fieldset.count-open-how { margin-top: 12px; }
+fieldset.count-open-how .inline-field { display: inline-flex; align-items: center; gap: 6px; }
+fieldset.count-open-how .inline-field input { width: 5rem; }
+p.seg-links { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+p.seg-links a, p.seg-links strong { display: inline-flex; align-items: center; min-height: 44px; }
+form.count-answer { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-end; }

@@ -20,6 +20,8 @@ final class UiSecurityTest extends UiTestCase
         '/ui/items/cards', '/ui/items/cards.csv', '/ui/items/cards/import', '/ui/items/1/card', '/ui/items/barcodes',
         '/ui/receiving', '/ui/receiving/template.csv', '/ui/receiving/1', '/ui/receiving/1/bench', '/ui/receiving/bench', '/ui/receiving/incidents',
         '/ui/stock/in', '/ui/stock/out/1', '/ui/stock/adjustments', '/ui/stock/transfers/1', '/ui/stock/releases', '/ui/stock/accounts',
+        '/ui/stock/counts', '/ui/stock/counts/sheets', '/ui/stock/counts/sheets.csv', '/ui/stock/counts/differences', '/ui/stock/counts/1', '/ui/stock/counts/1/sheet.csv',
+        '/ui/stock/counts/1/differences',
         '/ui/review/products', '/ui/review/products.csv', '/ui/review/products/1/map?channel=vpg', '/ui/review/new-variants', '/ui/review/new-variants.csv',
         '/ui/review/store', '/ui/review/batches/1'];
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw', '/ui/review/bulk',
@@ -29,14 +31,17 @@ final class UiSecurityTest extends UiTestCase
         '/ui/receiving', '/ui/receiving/1/lines', '/ui/receiving/1/copy', '/ui/receiving/1/import', '/ui/receiving/1/files', '/ui/receiving/1/bench', '/ui/receiving/1/post',
         '/ui/receiving/1/cancel', '/ui/receiving/1/reverse', '/ui/receiving/1/invoice', '/ui/receiving/incidents/1', '/ui/items/1/selling-mode',
         '/ui/stock/in', '/ui/stock/in/1/add', '/ui/stock/out/1/post', '/ui/stock/adjustments/1/lines', '/ui/stock/transfers/1/reverse', '/ui/stock/releases/1/details',
-        '/ui/stock/accounts/1/payments', '/ui/stock/accounts/payments/1/reverse', '/ui/review/products/bulk', '/ui/review/products/bulk/apply'];
+        '/ui/stock/accounts/1/payments', '/ui/stock/accounts/payments/1/reverse', '/ui/review/products/bulk', '/ui/review/products/bulk/apply',
+        '/ui/stock/counts', '/ui/stock/counts/1/lines', '/ui/stock/counts/1/scan', '/ui/stock/counts/1/add', '/ui/stock/counts/1/upload', '/ui/stock/counts/1/recount',
+        '/ui/stock/counts/1/as-counted', '/ui/stock/counts/1/post', '/ui/stock/counts/1/cancel', '/ui/stock/counts/1/reverse',
+        '/ui/stock/counts/differences/line/1/1', '/ui/stock/counts/differences/review/1'];
 
     public function testEveryScreenNeedsASignIn(): void
     {
         $web = $this->browser();
         // The sign-in page leads back to the page asked for (behaviour item 1): not Home (the default), the sign-in pages or a download.
         $noBack = ['/ui', '/ui/', '/ui/password', '/ui/reference/company/sample.pdf', '/ui/items/cards.csv', '/ui/receiving/template.csv', '/ui/review/products.csv',
-            '/ui/review/new-variants.csv'];
+            '/ui/review/new-variants.csv', '/ui/stock/counts/sheets.csv', '/ui/stock/counts/1/sheet.csv'];
         foreach (self::GETS as $path) {
             $r = $web->get($path);
             self::assertSame(303, $r->status, $path);

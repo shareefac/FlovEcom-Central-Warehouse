@@ -2482,3 +2482,47 @@ now lead to the orders that hold them.
 out of time (its job runs every minute). If a reservation looks stuck — "time is up" for more than a few minutes, or an order "waiting to ship"
 that the store sent long ago — tell Fazil: the store's link is behind (Settings › Stores shows each store's last contact), it is not fixed
 from this page.
+
+## Stock › Counts: stock counting (pack A2a; `docs/decisions.md` CT1–CT18)
+
+**Deploy.** It goes out with its code and ONE migration, `0029_stock_counts.sql` (`install_cron.sh --migrate`): two new tables
+(`count_sheet`, `count_sheet_line`; the migrator grants `cw_app` select, insert and update, never delete), two indexes built online
+(`stock_balance (warehouse_id, counted_at, sku_id)`, `count_review (status, source, id)`: INPLACE, LOCK=NONE, the stores' calls go on),
+four settings with their baselines, and the CNT rule on Settings › Approval Rules switched off as its next version (staging had it on
+from 0008: "only over 10 items"). Pre-flight, read only on `cw_staging` (checked 12 Oct 2026): the rule is `over_limit` 10 at version 1,
+no CNT document exists, no count review is open. After it: `php bin/migrate.php --status --db=cw_staging` lists 0029, and
+`php bin/invariants.php --db=cw_staging` says ok (it now runs the count checks C1–C5 too). No job, no timer.
+
+**Before the first real count on staging (read this first).** Vape and Go's opening figure is the duty-day estimate; its T0 rebase
+(above, "A site's T0") has not run. The rebase skips every item that was ever counted (`counted`: a balance with a count time, or a
+`count` row), and keeps the count's figure for it. That is right for a real shelf count, but a count made only to try the screen
+takes the item out of the rebase for good: cancelling the sheet or putting the line back does not undo it (the count time and the
+`count` row stay), and a count at any warehouse counts (the rebase looks at every warehouse). Every item on staging is one of Vape and
+Go's. So, until T0: (1) count only on purpose: a trial is a real count, so try the screens on a handful of items you really count on the
+shelf; (2) write down which (Count sheets lists them); (3) after the T0 rebase, its dry run lists every counted item as skipped: settle
+each by counting it again (step 11). Nobody on staging has the job to count yet: give someone "Stock controller" or "Warehouse" on
+Settings › Users first (an admin never counts).
+
+**What the owner sees and does (Stock › Counts).**
+1. *Next to count*: choose the warehouse (Filter). Four figures: items in the plan, counted within the plan's days, overdue, never
+   counted. Below, what to count next: never counted (best sellers first), then the longest ago. Tick items, or type how many and take
+   "the next ones", or search a brand or a word and take all found, or open an empty sheet. "Change the days" leads to the setting.
+2. *The sheet* (a tablet with a scanner works best): scan an item (or type its CW number); its line is marked; type how many are on the
+   shelf and press Enter: it is saved at once. 0 means none found; leave an item empty if you did not count it. An item not on the sheet
+   is offered; a barcode on no item, or on two, is said and nothing changes. Or download the sheet, count on paper, upload the filled-in
+   file: check it first (nothing is saved), then "Fill in the sheet" with the time it was counted.
+3. *Before you make it final*: every difference, the biggest first; lines above the limits are marked; a line whose stock moved after
+   you counted it (a parcel left, goods came in) needs your answer: count it again, or keep your count. Then "Make the count final": the
+   shelf figures are booked at once.
+4. *Differences*: the differences above the limits (and the counts the system itself asks someone to look at). Accept with a note: the
+   count stays. Reject with a note: that one count is put back by a new record; count the item again.
+5. *Count sheets*: every sheet, open, final, cancelled or stopped; a final sheet shows what each line booked. A wrong sheet is cancelled
+   as a whole (a new record puts every figure back; more than 10 units back waits for a reviewer's OK on Approvals).
+
+**Settings** (Settings › System › Settings, topic "Stock counts"; each change with a reason): `counts.plan_days` 120,
+`counts.sheet_shows_stock` on, `counts.review_over_units` 5, `counts.review_over_percent` 10. The second person for a difference: the
+"Stock count" row on Settings › Approval Rules (off).
+
+**If something looks wrong.** A sheet that will not become final says why on the page (a line moved, a line counted more than 90 days
+ago, the sheet changed in another tab). If the nightly check reports a `count sheet` line (C1–C5), tell Fazil: it is not fixed from a
+screen.

@@ -164,9 +164,9 @@ final class ReservationsScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('viewer'));
         $page = $this->page($web);
         self::assertSame(['Stock', 'Reservations'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Counts', null], ['Reservations', self::PATH], ['Quality', null]],
+        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Reservations', self::PATH], ['Quality', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)),
-            'Reservations keeps its place between Counts and Quality (both still "Soon"); a viewer reads no stock records');
+            'Reservations keeps its place before Quality (still "Soon"); a viewer reads no stock records and no counts');
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['reservations'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertStringStartsWith(Words::PAGE_INTRO['reservations'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));

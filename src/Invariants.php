@@ -52,6 +52,8 @@ namespace CW;
  *   - the stock records (0022, pack A1): a release's amount on the balance owed and its cancellation's, payment reversals that
  *     mirror their payment, transfers and releases that net to zero per item, every stock record's header of its kind
  *     (CW\StockOps\StockOpsInvariants O1-O6, SO14).
+ *   - stock counting (0029, pack A2a): a final count sheet's record lines are its counted lines and booked what its lines say, the
+ *     checks of its differences, the records that put one line back (CW\Counts\CountInvariants C1-C5, CT16).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  *
@@ -185,6 +187,7 @@ final class Invariants
         array_push($v, ...Receiving\ReceivingInvariants::check($db));
         array_push($v, ...SiteWriter\SiteWriterInvariants::check($db));
         array_push($v, ...StockOps\StockOpsInvariants::check($db));
+        array_push($v, ...Counts\CountInvariants::check($db));
         return $v;
     }
 

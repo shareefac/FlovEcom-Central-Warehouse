@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Counts\CountSheets;
 use CW\CwException;
 use CW\Documents\Document;
 use CW\Documents\Documents;
@@ -245,7 +246,10 @@ final class DocumentsController
             // A goods receipt's own page is in Receiving (IM6, I141): its lines, bench findings, incidents and files.
             'grnHref' => $doc->docType === 'GRN' && $data['handler'] && $me->can('receiving.view') ? '/ui/receiving/' . ($doc->reversesId ?? $doc->id) : null,
             // A stock record's own page is in Stock (pack A1): its places, its "given to", its prices, the balance owed.
-            'stockHref' => ($k = StockOps::kindOf($doc->docType)) !== null && $data['handler'] ? StockOps::PATHS[$k] . '/' . $doc->id : null,
+            // A stock count's own page is Stock > Counts (pack A2a): its lines, what each booked, the checks of its differences (a
+            // cancellation: the sheet it cancels, which names it).
+            'stockHref' => ($k = StockOps::kindOf($doc->docType)) !== null && $data['handler'] ? StockOps::PATHS[$k] . '/' . $doc->id
+                : ($doc->docType === CountSheets::TYPE && $data['handler'] ? CountSheets::PATH . '/' . ($doc->reversesId ?? $doc->id) : null),
             'decide' => $decide,
             'reverse' => $reverse,
             'cols' => $cols,

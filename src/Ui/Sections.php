@@ -73,7 +73,15 @@ final class Sections
             ]],
             'adjustments' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/adjustments', 'match' => ['/ui/stock/adjustments*'],
                 'badge' => 'adjustments_open', 'new' => ['perm' => 'doc.ADJ.post', 'href' => '/ui/stock/adjustments#new', 'label' => 'adjustments']]]],
-            'counts' => ['soon' => true],
+            // Counts (pack A2a; docs/decisions.md CT14): the plan and what to count next, the count sheets, the differences to check. The
+            // people who read records look (documents.view); the people who count open, enter, post and clear (doc.CNT.post).
+            'counts' => ['segments' => true, 'pages' => [
+                ['key' => 'counts', 'perm' => 'documents.view', 'path' => '/ui/stock/counts', 'match' => ['/ui/stock/counts'],
+                    'new' => ['perm' => 'doc.CNT.post', 'href' => '/ui/stock/counts#new', 'label' => 'counts']],
+                ['key' => 'count_sheets', 'perm' => 'documents.view', 'path' => '/ui/stock/counts/sheets', 'match' => ['/ui/stock/counts/sheets*', '/ui/stock/counts/{id}*']],
+                ['key' => 'count_differences', 'perm' => 'documents.view', 'path' => '/ui/stock/counts/differences', 'match' => ['/ui/stock/counts/differences*'],
+                    'badge' => 'counts_open'],
+            ]],
             'reservations' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock/reservations', 'match' => ['/ui/stock/reservations*']]]],
             'quality' => ['soon' => true],
         ]],

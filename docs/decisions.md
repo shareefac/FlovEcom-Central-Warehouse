@@ -8477,3 +8477,182 @@ both are printed): a pasted option can date an old file as new.
 **For the rollout** (`docs/ops.md`, "The website state and the state-only load"): `install_cron.sh` WITH `--migrate`; the Vape
 Big sample is left OUT of the state-only load (40 of 2,503 variants: point (4)), so after the load Electrofag's 119 rows marked
 New read their stored state and Vape Big's 11 keep reading their features as today; and the date of point (1).
+## Stock › Counts: stock counting, pack A2a (slot `stocka2`, 12-13 Oct 2026)
+
+The owner, 12 Oct 2026: "start inventory module", and to "which part?": "All of them, in order". The 8 Oct list asked for counting: "count
+plan every 4 months (a setting), count sheets with scan / upload, variance review with a tolerance setting, `counted_at` rules"; the
+module plan says the same in IM2 and its decision 6 ("the count screen warns first when goods arrive during a count"). The scope is
+`/root/cw_work/Stock_A2a_scope_2026-10-12.md`; A2b (Quality) comes next. The count ENGINE existed and is not changed (`src/Movements.php`,
+`src/Stock.php`, `tests/Integration/Stock/CountingTest.php`): this pack wires it to a document and adds the screens. Numbered 0029 and
+CT: 0028, M66 and U146 are build 2a's. Code: `migrations/0029_stock_counts.sql`; `src/Counts/{CountSheets,CountSheetHandler,CountPosting,
+CountTimes,CountTolerance,CountReviews,CountPlan,CountInvariants}.php` (new); `src/Documents/DocumentHandlers.php`, `src/Invariants.php`,
+`src/Settings.php`, `src/Schema/Grants.php`, `src/Auth/Permissions.php`, `src/Ui/{Sections,Words,Context,Kernel}.php`; controllers
+`Counts` (new), `Item`, `Documents`; templates `stock_counts`, `stock_count_sheets`, `stock_count_reviews`, `stock_count`,
+`stock_count_before` (new); `public/ui/assets/app.{js,css}`.
+
+**CT1. A count sheet is a stock count record (CNT).** It is a `document` of type CNT (the warehouse counted, the UK day it was opened, a
+note) on the document base: draft -> final ("made final"; a number `CNT-000123`) -> cancelled as a whole by a new record; a draft is
+stopped, never deleted. Its header is `count_sheet` (kind `sheet`, an optional place inside the warehouse) and its lines `count_sheet_line`:
+one per item (an item is on a sheet once), with what the system held when the line was put on the sheet, the quantity counted (empty =
+not counted yet, nothing is booked for it; 0 = counted and none found), when it was counted, who entered it and how (typed or from a
+file). `document_line` is written only at the posting: `CountSheets::post` makes the counted lines the record's lines and posts it
+through `Documents::post` in ONE transaction, and `CountSheetHandler` books them through the engine (`Movements::bookForDocument` with
+`count` movements: the as-of rule, "a later count wins", its two reviews, all unchanged). A refusal leaves the sheet as it was. Two other
+kinds of CNT record exist: `reversal` (a whole sheet cancelled; the document base negates its stock) and `line_reversal` (CT7). A build
+decision, for the owner: a sheet is entered and made final by the person who opened it (the document base's rule for a draft, I19); a
+manager cannot prepare a sheet for a counter (each counter opens their own).
+
+**CT2. Entering quantities.** A quantity is saved the moment Enter is pressed in its box: the form's own button, no script (the house
+rule: app.js never talks to the network). Every box carries the value it was drawn with and the server keeps only the boxes changed on
+that page: a page left open in another tab never empties or overwrites what was entered since. A line whose quantity is the one it holds
+keeps the moment it was counted. A refused page saves nothing and shows what was typed again; nine or more digits in a box are refused as
+"a barcode went into the quantity box" (a scanner fired while a quantity box had the focus). app.js only marks a box typed in and not
+saved yet, and the unsaved-changes guard asks before the scan box, the upload or "stop" leaves the page. A sheet holds at most 500 items
+(`CountSheets::MAX_LINES`). Entering a quantity books nothing; every change moves the record's version, so "Before you make it final"
+drawn before a change cannot post (409 `version_conflict`).
+
+**CT3. Count times.** The engine takes ONE count time per movement and at most 20 movements a posting
+(`Movements::MAX_DOCUMENT_MOVEMENTS`); a sheet has a time per line. `CountTimes::groups` books a line under an EARLIER line's time only when
+nothing happened to its stock in between (no on-hand row, no later count) and the gap is at most the engine's "near a count" window
+(`Stock::NEAR_COUNT_SEC`, 10 minutes), widened only when more than 20 times would be needed; with no answer at all the posting is refused
+(409 `too_many_times`: count some lines again). The fewest such times are found (the textbook "fewest points that touch every interval").
+After booking, the engine's answer per line is compared with what `CountPosting::plan` worked out before (left out or not, the
+difference): a mismatch means stock moved in that instant, and the posting is refused whole (409 `moved_meanwhile`). Cost if wrong: a
+dispatch CW hears of only after the posting, made in the (at most 10-minute) gap before a line's own time, is taken off once too often (the
+figure reads low, the safe side), and the engine's own "parcel near a count" review shows it. A line counted more than a day before the
+posting is booked as a count typed in later (the engine's `backdated`, up to 90 days); older is refused (422 `count_too_old`).
+
+**CT4. The sheet, for a tablet and a scanner.** Each line shows the item (name, CW number, brand, its barcodes), its selling mode and
+"stock now" (on hand at the sheet's warehouse, and how many are reserved for orders), and the quantity box. The setting
+`counts.sheet_shows_stock` (default on: the module plan's choice; off = a blind count: the figure is shown once the line holds a quantity,
+and the download leaves the column out). The scan box at the top: a barcode on the sheet goes to its line (that page, the line marked and
+its box ready; an outer-case barcode says how many units it stands for); an item not on the sheet is offered ("Put it on the sheet"); a
+barcode on no item, or on more than one item, or not usable, is said and nothing changes (it never guesses). Digits are always a barcode;
+a CW number is typed with its letters.
+
+**CT5. Warn first (decision 6 of the module plan).** "Before you make it final" lists every counted line with its difference (counted -
+what the system holds now, after the engine's own rule: dispatches booked after the count come off it), the biggest first, the lines
+above the limits, the lines a later count leaves out, and the lines whose stock moved after they were counted, with the newest five
+movements and what keeping the count would do. Such a line blocks the posting until the person chooses: "Count it again" (the line is
+empty again) or "Keep my count" (the choice names the newest movement the page showed; anything newer asks again, and a hand-made form
+naming a movement that does not exist is refused). Nothing is adjusted behind the person's back; "Keep my count" lets the engine's as-of
+rule do the arithmetic, and a count that overwrote stock that came in opens the engine's own review.
+
+**CT6. Which differences a person looks at.** Two settings, in UNITS until costs exist (IM2): `counts.review_over_units` (default 5; 0 =
+every difference) and `counts.review_over_percent` (default 10; 0 = not used). A booked line whose difference is MORE than either is
+checked (`CountTolerance::over`); of an item the system held nothing of (or less), any difference is over the percent while it is used.
+The check is kept on the sheet line (`count_sheet_line.review`: none, open, accepted, rejected; with the limits it was opened under), NOT
+in `count_review`: a `count_review` row has a foreign key to `sku`, and inside a posting it may be written neither before the stock locks
+(it would lock the item before its balance: I141/D15) nor after them (I21). The sheet's lines exist before the posting and are locked by
+it first, so the posting adds no row. The counts are booked whatever the check says: the shelf figure is right at once (IM2).
+
+**CT7. Accepting and rejecting.** Stock › Counts › Differences lists the open checks (the item, the sheet, what the system held, what was
+counted, the difference, who counted, why it waits) and, beside them, the engine's own two kinds of review, which had no screen before
+(`count_after_movements`: stock was booked after the count's time and the count overwrote it; `count_near_ship`: a parcel left within ten
+minutes of the count). Every answer has a note (3 to 500 characters). Accept: the count stays, the row says who and why. Reject: that
+LINE's count is put back by a new CNT record of the kind `line_reversal` (one line: the item and minus what the count changed, booked as
+an `adjustment`; the engine can only negate a whole record, and a count movement would set a new count time), posted in the same
+transaction; the sheet and its other lines stand; the balance's count time stays (as the engine's own reversal leaves it): the item is
+counted again on a new sheet. A line is put back once (a UNIQUE key); putting it back settles every open review of the engine about that
+count. A sheet with a line put back cannot be cancelled as a whole afterwards (409 `line_put_back`: it would put that line back twice), and
+a line of a cancelled sheet cannot be rejected. An engine review of a count not made on a sheet can be accepted, not rejected. Cancelling
+a whole sheet closes its open checks as rejected, naming the cancellation; a cancellation that puts more than the "stock put back" limit
+back waits for a reviewer's OK first (the document base's rule, I32, as for any record): the person stays on the sheet, which links the
+waiting record on History; the record gets its count header when it is booked.
+
+**CT8. A second person: the existing rule on Settings › Approval Rules, switched OFF.** The CNT row of the Approval Rules page now means:
+none = the person who counted may clear their own difference (the row says who did); "only over N units" = a difference of more than N
+needs someone who neither counted the line nor opened or made the sheet final; "every one" = always (and the document base also opens its
+own check of the whole sheet for a Reviewer, its rule for any record). The handler hands the base 0 units, so "over N" never opens a
+whole-sheet check: differences are checked one by one. `CountReviews::refusal` gives the screen the same answer before the form is drawn,
+and the tab's badge counts only what this person may answer. **0029 switches the rule off** (version N+1 of its history, `system:migrate`,
+only when it is not off already): 0008 seeded it on (over 10 units) for a type that had no handler, so no record loses a check it had;
+extra approvals start off (the owner's rule), and one person works on staging today, where a second-person rule would wait for ever. A
+build decision, for the owner; the limit of 10 is kept for when it is switched on.
+
+**CT9. Who.** `doc.CNT.post` (stock controller, warehouse; never admin, I12) opens, enters, makes final and answers differences;
+`documents.view` looks (every GET). Each is checked again in the services inside the transaction (roles re-read). Staging, 12 Oct: nobody
+holds either job yet (the one account is admin, reviewer and mapping lead), so nobody there can open a sheet until someone is given one.
+
+**CT10. The plan.** One setting, `counts.plan_days` (default 120: "every 4 months"; 1 to 730, a rule of its own in `Settings::RULES`: a
+`_days` key stops at 120 otherwise). The plan covers the items CW keeps a stock figure for at a warehouse (a `stock_balance` row; merged
+items left out). An item counted within the days is inside the plan; never counted, or longer ago, is overdue. The tab shows four figures
+for one warehouse (in the plan, inside, overdue, never counted) and "Next to count": never counted first (the best sellers first by
+`reorder_demand.rate`, then the items without a sales figure by CW number), then the counted ones, the longest ago first. It is a work
+list of the first 50, 100 or 200 (no later pages): what is counted leaves it. From it a person ticks items, takes "the next N", takes all
+of a search (a brand, words of the name, a CW number; whatever their turn, and items with no figure at that warehouse too), or opens an
+empty sheet (FormOnce: one sheet however often the form is sent).
+
+**CT11. `counted_at` rules.** `stock_balance.counted_at` is the engine's (a posted count sets it, `Stock::setCountedAt`) and is what the
+plan reads. `sku.counted_at` and the selling policy belong to the count gate (plan §7.4) and are NOT touched. The item page's "Stock last
+counted" read `sku.counted_at`, which no count sets: it now shows the latest `stock_balance.counted_at` of the item (any warehouse).
+
+**CT12. Download and upload.** A sheet downloads as a CSV (`CsvWriter`: formula-safe): line, cw_code, item, brand, barcodes, stock_now
+(only while the setting shows it), counted. The counted quantities come back by upload: a PREVIEW first (what would be filled in, already
+holding that quantity, empty, not on this sheet, cannot be read: no CW number, not a whole number, below zero, more than 10,000,000, the
+item twice), which writes nothing (the test compares CHECKSUM TABLE of seven tables before and after); "Fill in the sheet" fills exactly
+the sheet's own lines (nothing is added, nothing is made final). The upload asks when it was counted (default now; a UK date and time,
+not after now, not more than 90 days back): a paper count typed in later keeps its true time, so "warn first" sees what moved since.
+
+**CT13. Every list read keeps to an index.** 0029 adds two, online (`ALGORITHM = INPLACE, LOCK = NONE`, not a rebuild): `stock_balance
+(warehouse_id, counted_at, sku_id)` (the never counted, the oldest counts and the figures of one warehouse, from the index alone; a count
+is the only thing that moves an entry) and `count_review (status, source, id)` (the open reviews of the two count kinds, newest first,
+without the open reviews of every other kind). The new tables carry their own (`count_sheet_line (review, document_id, line_no)` for the
+open checks, `(document_id, sku_id)` for the scan box). Every statement the tab sends was checked with EXPLAIN and timed on the test
+schema (MySQL 8.4.8, 32 MB buffer pool, 13 Oct 2026) filled like staging: 15,000 items, 8,200 balances at MAIN (half never counted),
+11,800 demand rows, 300,000 on-hand ledger rows (with no record, as nearly all of staging's are), 400 sheets of 40 lines, 20,000 count
+reviews (`/root/cw_work/runs/a2_explain.txt`, script `/root/cw_work/a2b/a2_explain_script.php`). The plan's four figures: 37 ms (index only, 8,200
+entries); Next to count reads 200 entries of the demand index backwards and 200 balances (6 ms); a sheet's page reads its lines by the
+key; the differences and the badge are ranges of their two indexes. The first run found four reads that were not index-served and
+they were changed: (1) the nightly C3 read the WHOLE ledger once per line (43.8 s): MySQL chose a full scan because nearly every
+ledger row has no record; it now reads each final sheet's rows by the ledger's document index, named, and compares in PHP (the five
+checks: 0.45 s); (2) the list of sheets sorted every header: now the ids first (the header key backwards, or the record index
+(doc_type, status, id) with a state; 51 entries), then their details; (3) "sheets with this item" walked the whole (sheet, item) index:
+the item index is named; (4) "Before you make it final" read every on-hand ledger entry of each line's balance (fine on staging
+today, seconds for a busy item after a year of sales): each line is now a range of (warehouse, item, bucket, time) with its own
+time as a value, 100 lines a statement. Known: the search by words (as Stock › Movements) reads the item names, 15,000 rows, 10-40
+ms.
+
+**CT14. The screens.** Stock › Counts is a tab with three segments: Next to count (CT10, with the split "New count sheet" button and a
+"How counting works" fold), Count sheets (every count record as a board: open sheets, final, cancelled, records that put a count back,
+stopped; Search by number or by an item on a sheet; Filter by state and warehouse; older pages by id; Export CSV, 5,000 rows at most),
+Differences (CT7, its badge). A sheet's page (CT2, CT4, CT12, stop; once final: what each line booked and what became of its check,
+cancel it as a whole) and "Before you make it final" (CT5). History's record page links a count to its sheet. The Dashboard lists the tab;
+"stock counts" is no longer "coming later".
+
+**CT15. Words.** Every word is in `Ui\Words` (new groups COUNTS, COUNT_HOW, COUNT_GROUP, COUNT_SHEET_GROUP, COUNT_KIND, COUNT_REVIEW,
+COUNT_REVIEW_HELP, COUNT_SHOW, COUNT_LINE, COUNT_CHECK, COUNT_BAD, COUNT_NOTICE, COUNT_ERROR; additions to MENU, SEGMENT, NEW, MENU_HELP,
+BADGE, PAGE_TITLE, PAGE_INTRO, SETTING, SETTING_HELP, SETTING_TOPIC, AUDIT_FAMILY, AUDIT_ACTION). One name for one thing: a "count sheet";
+"made final" as every other record (never "posted"); the "difference"; a count "put back". The page intros never say "count" alone
+(ReceivingWordsTest: a shelf count, stock counts). Every refusal says whether anything was saved.
+
+**CT16. Nightly checks C1-C5 (`CountInvariants`, in `Invariants::check`).** C1 every final CNT record has its count header of the right
+kind; C2 a final sheet's record lines are exactly its counted lines in order, each counted line says what the posting did with it, and a
+sheet never made final holds nothing of a posting; C3 a line booked as counted has exactly one `count` movement of its item from that
+record, of the difference it names, a line left out has none, and the record books nothing else; C4 a difference waits only on a final
+sheet, and a rejected one names a final record that put it back; C5 a record that puts one line back is named by exactly that line, has
+one line, booked exactly one adjustment of minus the difference, and its sheet is final (never cancelled as a whole as well). They hold
+after every stock test.
+
+**CT17. Tests.** `tests/Unit/CountRulesTest.php` (count times; the tolerance at, below and above each limit, 0 units, percent 0, an item
+that held nothing; the second-person rule), `tests/Unit/CountWordsTest.php`, `tests/Integration/Migration0029Test.php` (tables, indexes in
+place, settings and their baselines, the rule switched off as a new version and not again when it is off already),
+`tests/Integration/Counts/{CountsTestCase,CountSheetsTest,CountReviewsTest,CountInvariantsTest}.php` (a sheet books exactly its counted
+lines, skips blank ones, books a 0, posts once, cancels; times; warn first and both choices; a later count; yesterday's and too old a
+count; the scan box; the download, the upload and its preview; who; the checks, accept, reject, the second person; the engine's reviews;
+the plan; a cancellation that waits for a reviewer; C1-C5), `tests/Integration/UiKernel/CountsScreensTest.php` (the tab, a sheet from
+opening to its answered difference, warn first on the page, the upload, a blind count, the waiting cancellation, 403 for the wrong job,
+for admin, without the CSRF token and for someone who did not open the sheet). Pinned tests changed for Counts only: Sections, Menus,
+Home, Stock, StockOps, Reservations, Review and Reference screens, templates, Words, Permissions, Migration0008 (the rule off), UiSecurity
+(the new routes).
+
+**CT18. Provisional and left out.** Provisional (build decisions, for the owner; each a setting or a rule on a screen): 120 days; 5 units
+and 10 percent; "stock now" shown on a sheet; the second person off; a blank line is "not counted"; an upload never makes a sheet final;
+who may count (CT9); the opener alone enters a sheet (CT1). Left: (1) A2b: the Quality tab and IM2's "unstamped found" button on the count
+screen. (2) The count gate (`sku.counted_at`, `sell_policy`, "protected", plan §7.4): going live. (3) A count-programme scheduler with
+coverage targets, and "in transit" transfers (IM2 W2). (4) Places: a sheet names one optional place; `document_line.location_id` stays
+unwritten, and stock is not split by place (Y18). (5) The T0 rebase meets a count: an item counted on staging, at any warehouse (even
+a sheet cancelled afterwards, or a line put back), is skipped by Vape and Go's T0 rebase as `counted` (D40b) and keeps the count's
+figure; `docs/ops.md` says what to do before the first real count (the rebase is not changed). (6) The engine's reviews of a count made before this pack (none on staging) can be accepted,
+not put back. (7) A line put back keeps its item's count time: the plan sees it counted until it is counted again. Nothing was booked on
+`cw_staging` by this build.

@@ -53,7 +53,8 @@ final class ReferenceScreensTest extends KernelUiTestCase
         self::assertSame(['Purchase orders', 'Deliveries'], array_slice(self::column($series, 1), 0, 2));
         self::assertSame(['Every one', 'Over £10,000 (no VAT)'], [self::column($series, 5)[0], self::column($series, 6)[0]]);
         self::assertSame('Putting back over 10 items without a supplier document', self::column($series, 6)[4], 'ADJ');
-        self::assertSame('Over 10 items', self::column($series, 5)[9], 'CNT');
+        self::assertSame(['In use', Words::SETTINGS_PAGE['none']], [self::column($series, 2)[9], self::column($series, 5)[9]],
+            'CNT: stock counts are built (pack A2a), and their second-person check starts off (0029, docs/decisions.md CT8)');
         self::assertSame(Words::PAGE_TITLE['series'], trim((string) (new \DOMXPath($series->dom()))->evaluate('string(//main//h1)')));
         self::assertSame(['Settings', 'System'], [self::currentSection($series), self::currentTab($series)]);
         self::assertSame([['Settings', false], ['Numbering', true]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($series)),

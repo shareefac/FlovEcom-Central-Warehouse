@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Documents;
 
+use CW\Counts\CountSheetHandler;
 use CW\Db;
 use CW\PurchaseOrders\PurchaseOrderHandler;
 use CW\Receiving\GoodsReceiptHandler;
@@ -22,6 +23,7 @@ use CW\StockOps\StockOpHandler;
  *   - I-6: TRD (trade, inter-site and shop-unit issues; IM11).
  *   - pack A1 (8 Oct 2026, the owner's module list): SIN stock in, SOUT stock out, ADJ adjustments (write-offs included), TRF
  *          transfers, REL releases from another account's warehouse (CW\StockOps\StockOpHandler, docs/decisions.md SO1-SO16) — LIVE.
+ *   - pack A2a (12 Oct 2026): CNT stock counts, booked through the count engine (CW\Counts\CountSheetHandler, docs/decisions.md CT1-CT18) — LIVE.
  * The document-base tests still register tests/Support/Documents/FixtureAdjustmentHandler as ADJ on their own Documents (and
  * KernelUiTestCase::kernel() puts it in place of the real ADJ for the screen tests written before A1): it never ships.
  */
@@ -33,6 +35,7 @@ final class DocumentHandlers
      */
     public static function all(Db $db, ?\Closure $clock = null): array
     {
-        return ['PO' => new PurchaseOrderHandler($db), 'GRN' => new GoodsReceiptHandler($db)] + StockOpHandler::all($db, $clock);
+        return ['PO' => new PurchaseOrderHandler($db), 'GRN' => new GoodsReceiptHandler($db)] + StockOpHandler::all($db, $clock)
+            + [CountSheetHandler::TYPE => new CountSheetHandler($db, $clock)];
     }
 }

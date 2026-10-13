@@ -44,7 +44,8 @@ final class UiTemplatesTest extends TestCase
             'setting', 'config_history', 'approvals', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet', 'enrol',
             'staff_requests', 'new_code', 'stock', 'stock_movements', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result',
             'stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box', 'stock_reservations', 'stock_reservation', 'by_product', 'by_product_map',
-            'by_item_preview', 'new_variants', 'one_at_a_time'] as $t) {
+            'by_item_preview', 'new_variants', 'one_at_a_time',
+            'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before'] as $t) {
             self::assertContains($t . '.php', $names);
         }
         self::assertSame([], array_filter($names, static fn (string $n): bool => preg_match('/^[a-z][a-z_]*\.php$/', $n) !== 1), 'names View::render accepts');
@@ -254,7 +255,9 @@ final class UiTemplatesTest extends TestCase
     public function testTheStockRecordPagesTurnIntoCardsAndTakeEveryWordFromWords(): void
     {
         $templates = self::templates();
-        foreach (['stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box'] as $name) {
+        // The counting pages of pack A2a (Stock > Counts) are held to the same rules.
+        foreach (['stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box',
+            'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before'] as $name) {
             $src = $templates[$name . '.php'];
             preg_match_all('/<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {
@@ -373,7 +376,7 @@ final class UiTemplatesTest extends TestCase
         $f = Sections::frame(['buyer'], [], '/ui/stock');
         $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
             'segments' => [], 'actions' => [], 'flow' => null, 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringContainsString('<span class="tab soon" aria-disabled="true" title="' . Words::UI['soon_title'] . '"><span>Counts</span>'
+        self::assertStringContainsString('<span class="tab soon" aria-disabled="true" title="' . Words::UI['soon_title'] . '"><span>Quality</span>'
             . '<span class="count soon">' . Words::UI['soon'] . '</span></span>', $html);
         $f = Sections::frame(['buyer'], [], '/ui/purchasing/orders');
         $html = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],

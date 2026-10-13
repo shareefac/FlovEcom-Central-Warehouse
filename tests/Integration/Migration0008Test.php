@@ -49,7 +49,8 @@ final class Migration0008Test extends IntegrationTestCase
             self::assertSame($code, $t['prefix']);
         }
         self::assertSame(['positive_without_supplier_doc', 10, 'all'], [$by['ADJ']['approval_rule'], $by['ADJ']['approval_limit_units'], $by['ADJ']['review_rule']]);
-        self::assertSame(['over_limit', 10], [$by['CNT']['review_rule'], $by['CNT']['review_limit_units']]);
+        // 0029 (pack A2a, docs/decisions.md CT8) switched the check of a stock count off and kept its limit (Migration0029Test).
+        self::assertSame(['none', 10], [$by['CNT']['review_rule'], $by['CNT']['review_limit_units']]);
         self::assertSame(['over_limit', 10], [$by['WO']['review_rule'], $by['WO']['review_limit_units']]);
         // 0010 (provisional decision 11, I48) changed the PO row to review 'all' and approval over_value 10000 (Migration0010Test).
         self::assertSame(['all', 7, 'I-2'], [$by['PO']['review_rule'], $by['PO']['review_due_days'], $by['PO']['phase']]);

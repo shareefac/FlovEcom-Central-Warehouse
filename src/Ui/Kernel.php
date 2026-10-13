@@ -20,6 +20,7 @@ use CW\Ui\Controller\BulkController;
 use CW\Ui\Controller\ByItemBulkController;
 use CW\Ui\Controller\ByProductController;
 use CW\Ui\Controller\CompanyController;
+use CW\Ui\Controller\CountsController;
 use CW\Ui\Controller\DashboardController;
 use CW\Ui\Controller\DocumentsController;
 use CW\Ui\Controller\DuplicatesController;
@@ -584,7 +585,7 @@ final class Kernel
         $r->add('GET', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->benchForm(...));
         $r->add('POST', '/ui/receiving/{id}/bench', 'doc.GRN.post', $recv->bench(...));
         // Stock (the owner's request of 8 Oct 2026): what each warehouse holds and every change, read only, for everyone who sees an
-        // item's stock on its page (catalogue.view). Counts and quality come with pack A2 (Ui\Sections: "Soon").
+        // item's stock on its page (catalogue.view). Quality comes with pack A2b (Ui\Sections: "Soon").
         $stock = new StockController();
         $r->add('GET', '/ui/stock', 'catalogue.view', $stock->overview(...));
         $r->add('GET', '/ui/stock/movements', 'catalogue.view', $stock->movements(...));
@@ -598,6 +599,9 @@ final class Kernel
         // CW\StockOps\StockOps and the document base, never admin). The balance owed to another account: documents.view looks,
         // accounts.pay records and reverses payments (checked again by CW\StockOps\OtherAccounts).
         StockOpsController::routes($r);
+        // Stock > Counts (pack A2a; docs/decisions.md CT14): documents.view looks; doc.CNT.post opens a sheet, enters its quantities,
+        // posts it and clears count differences (checked again by CW\Counts\CountSheets, CountReviews and the document base, never admin).
+        CountsController::routes($r);
         $accounts = new OtherAccountsController();
         $r->add('GET', '/ui/stock/accounts', 'documents.view', $accounts->index(...));
         $r->add('POST', '/ui/stock/accounts/{id}/payments', 'accounts.pay', $accounts->pay(...));

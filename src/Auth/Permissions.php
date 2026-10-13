@@ -137,11 +137,10 @@ final class Permissions
         'staff.approve' => ['reviewer'],
     ];
 
-    /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
+    /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
     public const COMING_LATER = [
         ['key' => 'invoices', 'perm' => 'doc.SINV.post'],
         ['key' => 'returns', 'perm' => 'doc.DN.post'],
-        ['key' => 'counts', 'perm' => 'doc.CNT.post'],
         ['key' => 'trade', 'perm' => 'doc.TRD.post'],
         ['key' => 'values', 'perm' => 'accounts.view'],
     ];

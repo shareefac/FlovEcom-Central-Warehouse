@@ -216,7 +216,8 @@ final class PermissionsTest extends TestCase
         self::assertSame(['invoices', 'returns', 'trade'], Permissions::comingLater(['purchasing_desk']), 'named on the Dashboard; receiving is built');
         self::assertSame([], Permissions::comingLater(['goods_in']));
         self::assertSame([], Permissions::comingLater(['buyer']));
-        self::assertSame(['counts'], Permissions::comingLater(['stock_controller']), 'adjustments are built (pack A1)');
+        self::assertSame([], Permissions::comingLater(['stock_controller']), 'adjustments are built (pack A1), stock counts too (pack A2a)');
+        self::assertSame([], Permissions::comingLater(['warehouse']));
     }
 
     /** Admin switches the working roles off (I12, read fail-closed): the screens say which, and which page Admin alone keeps from them. */

@@ -319,7 +319,7 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::HOME['progress'], $home->text(), 'a buyer has no matching progress');
     }
 
-    /** Nothing waiting: the empty state says so; the warehouse looks at the matching progress; Coming later names its counts. */
+    /** Nothing waiting: the empty state says so; the warehouse looks at the matching progress; its counts are built (pack A2a), so nothing comes later. */
     public function testNothingWaiting(): void
     {
         $web = $this->signIn($this->uiUser('warehouse'));
@@ -328,7 +328,9 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertSame([], self::cardsOf($home));
         self::assertStringContainsString(Words::HOME['nothing'] . ' ' . Words::HOME['nothing_text'], $home->text());
         self::assertStringContainsString(Words::HOME['look_match'], $home->text());
-        self::assertStringContainsString(Words::UI['coming_later'] . ' stock counts.', $home->text());
+        self::assertStringNotContainsString(Words::UI['coming_later'], $home->text(), 'stock counts are built: nothing is coming later for the warehouse');
+        self::assertContains('/ui/stock/counts', $home->hrefs());
+        self::assertStringContainsString(Words::MENU_HELP['counts'], $home->text());
         self::assertStringNotContainsString('jobs need you', $home->text());
     }
 }

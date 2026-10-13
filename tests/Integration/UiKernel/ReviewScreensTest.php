@@ -75,10 +75,10 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertSame(Words::CHECK_REASON['positive_without_supplier_doc'], trim((string) $xp->evaluate('string(//section[@aria-labelledby="approvals-h"]//tbody/tr[1]/td[1])')));
         self::assertSame('25 items', trim((string) $xp->evaluate('string(//section[@aria-labelledby="approvals-h"]//tbody/tr[1]/td[2])')));
         self::assertStringNotContainsString('UTC', $queue->text());
-        self::assertSame(['Everything', 'Purchase orders', 'Deliveries', 'Stock in records', 'Stock out records', 'Adjustments', 'Transfers', 'Releases', 'Suppliers',
-            'Company details'],
+        self::assertSame(['Everything', 'Purchase orders', 'Deliveries', 'Stock in records', 'Stock out records', 'Adjustments', 'Transfers', 'Releases', 'Stock counts',
+            'Suppliers', 'Company details'],
             array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent), iterator_to_array($xp->query('//select[@name="type"]/option'))),
-            'the filter offers the kinds in use (F102): PO, GRN (IM6) and the stock records (pack A1; ADJ is the fixture here), never the kinds still to come');
+            'the filter offers the kinds in use (F102): PO, GRN (IM6), the stock records (pack A1; ADJ is the fixture here) and the stock counts (pack A2a), never the kinds still to come');
         self::assertSame(3, self::nav($queue)['Approvals']['count'], 'the count is what this reviewer may decide');
         self::assertSame(3, self::sectionTabs($queue)[0]['count']);
 
@@ -252,8 +252,8 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertSame(200, $list->status, $list->describe());
         self::assertStringContainsString('2 records, newest first.', $list->text());
         self::assertContains('/ui/documents/' . $doc->id, $list->hrefs());
-        self::assertStringContainsString('Today this list holds purchase orders, deliveries, stock in records, stock out records, adjustments, transfers and releases, '
-            . 'and their cancellations.', $list->text(), 'the fixture ADJ in tests, GRN since IM6, the stock records since pack A1');
+        self::assertStringContainsString('Today this list holds purchase orders, deliveries, stock in records, stock out records, adjustments, transfers, releases and stock counts, '
+            . 'and their cancellations.', $list->text(), 'the fixture ADJ in tests, GRN since IM6, the stock records since pack A1, the stock counts since pack A2a');
         self::assertSame(Words::MENU['documents'], trim((string) (new \DOMXPath($list->dom()))->evaluate('string(//main//h1)')));
         $lxp = new \DOMXPath($list->dom());
         self::assertSame(1, $lxp->query('//table[contains(@class, "stack")]')->length, 'one card per record on a phone');
@@ -286,8 +286,8 @@ final class ReviewScreensTest extends KernelUiTestCase
         }));
         $plain->cookies = $web->cookies;
         $live = $plain->get('/ui/documents');
-        self::assertStringContainsString('Today this list holds purchase orders, deliveries, stock in records, stock out records, adjustments, transfers and releases, '
-            . 'and their cancellations. Supplier invoices, returns to suppliers, stock counts, write-offs and trade sales will appear here when those screens are added.',
+        self::assertStringContainsString('Today this list holds purchase orders, deliveries, stock in records, stock out records, adjustments, transfers, releases and stock counts, '
+            . 'and their cancellations. Supplier invoices, returns to suppliers, write-offs and trade sales will appear here when those screens are added.',
             $live->text(), 'F406: no phase codes');
         self::assertStringNotContainsString('Phase', $live->text());
         self::assertStringContainsString(Words::RECORD['open_stock'], $plain->get('/ui/documents/' . $doc->id)->text(),

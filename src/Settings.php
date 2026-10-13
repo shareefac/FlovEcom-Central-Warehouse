@@ -90,6 +90,12 @@ final class Settings
         // The website state (0028, M66): how many days old a variant's stored state may be before it reads as not known (a day
         // at the least, a year at the most: not the 0 to 120 of the other day counts).
         'mapping.arrival_state_max_days' => ['min' => 1, 'max' => 365],
+        // Stock counting (pack A2a, 0029; docs/decisions.md CT6, CT10): the count plan's days have a range of their own (a day count
+        // stops at 120 otherwise, and the plan may run to two years); the two limits above which a count difference is checked by a
+        // person (units: 0 = every difference; percent of what the system held: 0 = not used).
+        'counts.plan_days' => ['min' => 1, 'max' => 730],
+        'counts.review_over_units' => ['min' => 0, 'max' => 1_000_000],
+        'counts.review_over_percent' => ['min' => 0, 'max' => 1000],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];

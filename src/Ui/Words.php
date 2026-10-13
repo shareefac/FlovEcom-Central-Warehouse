@@ -45,6 +45,8 @@ final class Words
         'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN', 'CONFIG', 'CONFIG_ACTION', 'CONFIG_ERROR', 'SETTING_EDIT', 'SETTING_NOTICE',
         'APPROVALS', 'REASONS_EDIT', 'REASON_NOTICE', 'WAREHOUSES', 'WHY_NOT_EMPTY', 'WAREHOUSE_NOTICE', 'MODE', 'SITES', 'SITE_COMMAND', 'INTEGRITY', 'AUDIT',
         'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
+        'COUNTS', 'COUNT_GROUP', 'COUNT_SHEET_GROUP', 'COUNT_KIND', 'COUNT_REVIEW', 'COUNT_REVIEW_HELP', 'COUNT_SHOW', 'COUNT_LINE', 'COUNT_CHECK', 'COUNT_BAD',
+        'COUNT_NOTICE', 'COUNT_ERROR',
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
         'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE', 'QUEUE_SHOW', 'ONE_AT_A_TIME',
         'BY_ITEM_BULK', 'BY_ITEM_SKIP',
@@ -246,6 +248,10 @@ final class Words
         'settings' => 'Settings',
         'series' => 'Numbering',
         'integrity' => 'System checks',
+        // Stock > Counts (pack A2a)
+        'counts' => 'Next to count',
+        'count_sheets' => 'Count sheets',
+        'count_differences' => 'Differences',
         'transfers' => 'Transfers',
         'releases' => 'Releases',
         'accounts' => 'Balance owed',
@@ -264,6 +270,7 @@ final class Words
         'transfers' => 'New transfer',
         'releases' => 'New release',
         'adjustments' => 'New adjustment',
+        'counts' => 'New count sheet',
     ];
 
     /** The buying flow strip on Purchasing (Ui\FlowCounts): step => name, and the figures under the names. */
@@ -296,6 +303,7 @@ final class Words
         'stock_out' => 'Stock that goes out without a website sale: samples, staff use, trade sales, repairs.',
         'transfers' => 'Stock moved between warehouses or places, stock released from another account, and what we owe it.',
         'adjustments' => 'Corrections and write-offs of the stock figure, each line with its reason.',
+        'counts' => 'Count the shelves: what to count next, the count sheets, and the count differences to check.',
         'reservations' => 'The stock kept for each store\'s orders: in a checkout, paid and waiting to ship, freed, or run out of time.',
         'reorder' => 'What to buy now, worked out from sales.',
         'orders' => 'The orders we send to suppliers.',
@@ -331,6 +339,7 @@ final class Words
         'transfers_open' => 'transfers waiting for your check or OK',
         'releases_open' => 'releases waiting for your check or OK',
         'adjustments_open' => 'adjustments waiting for your check or OK',
+        'counts_open' => 'count differences waiting for your answer',
         // A sidebar section's count: everything in it that waits for this person.
         'section' => 'waiting for you',
     ];
@@ -339,7 +348,6 @@ final class Words
     public const COMING_LATER = [
         'invoices' => 'supplier invoices',
         'returns' => 'returns to suppliers',
-        'counts' => 'stock counts',
         'trade' => 'trade sales',
         'values' => 'stock values for the accounts',
     ];
@@ -349,6 +357,8 @@ final class Words
 
     /** Page key => title, where it is not the menu name. */
     public const PAGE_TITLE = [
+        'count_differences' => 'Count differences to check',
+        'count_before' => 'Before you make it final',
         'login' => 'Sign in',
         'password' => 'Change password',
         'search' => 'Find a product',
@@ -475,6 +485,15 @@ final class Words
         'accounts' => ['What another account\'s room holds, what was released this month, and what we owe that account.',
             'Record each payment to the account here.'],
         'stock_op' => ['One stock record: its products, what it booked and its history.', ''],
+        // Stock > Counts (pack A2a): "count" alone is not said here (ReceivingWordsTest: a shelf count, stock counts).
+        'counts' => ['The plan of shelf counts at one warehouse, and what is due next.', 'Tick items, or take the next ones of the plan, and open a sheet for the shelf count.'],
+        'count_sheets' => ['Every sheet of a shelf count: open, final, cancelled or stopped.', 'Open one to go on with it, or to see what it booked.'],
+        'count_differences' => ['Shelf counts whose difference is above the limits, and stock counts the system asks someone to look at.',
+            'Accept each one with a note, or reject it to put the old figure back.'],
+        'count_sheet_open' => ['An open sheet of a shelf count: nothing is booked until you make it final.',
+            'Scan or find each item, enter how many are on the shelf and press Enter, then open "Before you make it final".'],
+        'count_sheet' => ['One shelf count record: what was found on the shelf, what it booked, and what became of each difference.', ''],
+        'count_before' => ['What making this sheet final would do, the biggest difference first.', 'Answer the marked lines, then make it final.'],
         'reservations' => ['The stock CW keeps for each order of a store until it is sent, freed or runs out of time, newest first.',
             'Choose a store or a state, or search for a store\'s order reference, a product name or a CW number. You can only look: the stores and CW change these.'],
         'reservation' => ['One order of a store: the stock CW keeps for it, and what happened to that stock.', ''],
@@ -921,6 +940,388 @@ final class Words
 
     // ------------------------------------------------------------------------------------------------------------------
     // Pack A1: Stock In, Stock Out, Adjustments, Transfers, Releases from another account and the balance owed
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // Stock > Counts (pack A2a; docs/decisions.md CT14-CT15). One name for one thing: a "count sheet"; "make it final" as every other
+    // record; the "difference" between what was counted and what the system held; "put back" for a count that is rejected.
+
+    /** How counting works, on the first page of the tab (a folded list). */
+    public const COUNT_HOW = [
+        'Choose what to count: tick items below, take the next ones of the plan, search a brand or a word, or start an empty sheet.',
+        'On the sheet, scan or find each item, type how many are on the shelf and press Enter: it is saved at once. Leave an item empty if you '
+            . 'did not count it; 0 means you counted and found none.',
+        'Or download the sheet, count on paper, and upload the filled-in file. You see what it would fill in before anything is saved.',
+        'Open "Before you make it final". It lists every difference, the biggest first. If stock of an item moved after you counted it, you '
+            . 'choose: count it again, or keep your count.',
+        'Make it final: the shelf figures are right at once. A difference above the limits waits on Differences for someone to accept or reject it.',
+    ];
+
+    /** The board's groups of "Next to count" (the state of an item in the plan). */
+    public const COUNT_GROUP = [
+        'never' => 'Never counted',
+        'overdue' => 'Overdue',
+        'inside' => 'Inside the plan',
+    ];
+
+    /** The board's groups of the list of count sheets. */
+    public const COUNT_SHEET_GROUP = [
+        'draft' => 'Open sheets',
+        'posted' => 'Final',
+        'reversed' => 'Cancelled',
+        'put_back' => 'Records that put a count back',
+        'cancelled' => 'Stopped before they were final',
+    ];
+
+    /** count_sheet.kind => what the record is. */
+    public const COUNT_KIND = [
+        'sheet' => 'Count sheet',
+        'reversal' => 'Cancellation of a count sheet',
+        'line_reversal' => 'A count put back',
+    ];
+
+    /** The groups of "Count differences to check": a sheet line above the limits, and the two reviews the count engine opens itself. */
+    public const COUNT_REVIEW = [
+        'line' => 'Above the limits',
+        'count_after_movements' => 'Stock moved after the count',
+        'count_near_ship' => 'A parcel left close to the count',
+    ];
+
+    /** One line under each group's title: what it means and what the answers do. */
+    public const COUNT_REVIEW_HELP = [
+        'line' => 'The count changed the shelf figure by more than the limits allow without a look. Accept it if the count is right. Reject it and '
+            . 'the old figure comes back.',
+        'count_after_movements' => 'Stock came in, or was corrected, after the item was counted, and the count overwrote it. Accept it if the count '
+            . 'already had that stock in it. Reject it and the count is put back.',
+        'count_near_ship' => 'A parcel with this item left within ten minutes of the count, so the count may or may not have it. Accept it if the '
+            . 'shelf figure is right. Reject it and the count is put back.',
+    ];
+
+    /** The line filter of an open sheet. */
+    public const COUNT_SHOW = [
+        'all' => 'Every line',
+        'todo' => 'Not counted yet',
+        'done' => 'Counted',
+    ];
+
+    /** What became of a line when its sheet was made final. */
+    public const COUNT_LINE = [
+        'booked' => 'Booked',
+        'stale' => 'Left out: the item was counted again later',
+        'put_back' => 'Booked, then put back by',
+    ];
+
+    /** The check of a difference above the limits (count_sheet_line.review). */
+    public const COUNT_CHECK = [
+        'open' => 'Waiting on Differences',
+        'accepted' => 'Difference accepted',
+        'rejected' => 'Difference rejected',
+    ];
+
+    /** Why a row of an uploaded file cannot be read. */
+    public const COUNT_BAD = [
+        'no_code' => 'no CW number',
+        'not_whole' => 'not a whole number',
+        'negative' => 'below zero',
+        'too_large' => 'too large to be a count',
+        'twice' => 'the item is in the file twice',
+    ];
+
+    /** The pages' words. */
+    public const COUNTS = [
+        // Next to count
+        'find' => 'A brand, a word of the name, or a CW number',
+        'warehouse' => 'Warehouse',
+        'show' => 'How many to show',
+        'show_n' => 'The next %s',
+        'clear' => 'Back to the plan',
+        'figures' => 'The count plan in figures',
+        'tile_items' => 'Items in the plan',
+        'tile_items_sub' => 'with a stock figure at %s',
+        'tile_inside' => 'Inside the plan',
+        'tile_inside_sub' => 'counted in the last %s days',
+        'tile_overdue' => 'Overdue',
+        'tile_overdue_sub' => 'never counted, or more than %s days ago',
+        'tile_never' => 'Never counted',
+        'tile_never_sub' => 'they are part of the overdue ones',
+        'plan' => 'The plan: every item is counted at least once every %s days.',
+        'plan_link' => 'Change the days',
+        'how' => 'How counting works',
+        'none' => 'Nothing to count here yet.',
+        'none_text' => 'This warehouse has no stock figure for any item. Search for an item above, or open an empty sheet and scan what is on the shelf.',
+        'none_found' => 'No item matches your search.',
+        'none_found_text' => 'Try another word, a brand, or a CW number. Or go back to the plan.',
+        'board' => 'Next to count',
+        'board_note' => 'The first %s: never counted first (best sellers first), then the ones counted longest ago.',
+        'board_found' => 'Items found for "%s"',
+        'board_found_note' => '%s found, by CW number.',
+        'group_one' => '1 on this page',
+        'group_many' => '%s on this page',
+        'tick' => 'Put on the sheet',
+        'tick_one' => 'Put %s on the sheet',
+        'item' => 'Item',
+        'status' => 'Status',
+        'stock_now' => 'Stock now',
+        'last_counted' => 'Last counted',
+        'never' => 'never',
+        'sells' => 'Sold a day',
+        'no_sales' => 'no sales figure',
+        'foot' => 'This is a work list of up to %s items, not a report: what you count and make final leaves it, and the next ones move up.',
+        'open_title' => 'Open a count sheet',
+        'open_text' => 'The sheet is for %s. It holds at most %s items; open another one for the rest. Only you enter and finish a sheet you open.',
+        'place' => 'Place (optional)',
+        'no_place' => 'The whole warehouse',
+        'note' => 'Note (optional)',
+        'open_ticked' => 'Open a sheet for the ticked items',
+        'open_found' => 'Open a sheet for all %s found',
+        'open_next_n' => 'How many',
+        'open_next' => 'Open a sheet for the next ones',
+        'open_empty' => 'Open an empty sheet',
+        // Count sheets (the list)
+        'find_sheet' => 'A sheet number (CNT-000123), or an item on a sheet',
+        'state' => 'Show',
+        'any_state' => 'Every sheet',
+        'any_warehouse' => 'Every warehouse',
+        'clear_sheets' => 'Show every sheet',
+        'download_list' => 'Download for Excel (CSV)',
+        'by_item' => 'Your search was read as an item: these are the sheets that have it on a line.',
+        'no_sheets' => 'No count sheets yet.',
+        'no_sheets_text' => 'Open one from Next to count.',
+        'no_sheet_found' => 'No count sheet matches.',
+        'no_sheet_found_text' => 'Your search or filter hides every sheet. Clear it to see them all.',
+        'sheets_board' => 'Count sheets by status',
+        'sheets_note' => 'Newest first, %s a page.',
+        'sheets_one' => '1 on this page',
+        'sheets_many' => '%s on this page',
+        'sheet' => 'Sheet',
+        'where' => 'Where',
+        'lines' => 'Lines',
+        'counted_of' => '%s of %s counted',
+        'changed' => 'Units changed',
+        'waiting' => 'Differences waiting',
+        'opened_by' => 'Opened by',
+        'next' => 'What next',
+        'next_enter' => 'Enter what you count.',
+        'next_post' => 'Check the differences, then make it final.',
+        'next_check' => '%s differences wait on Differences.',
+        'next_done' => 'Nothing: it is done.',
+        'next_stopped' => 'Nothing: it was stopped and booked nothing.',
+        'next_put_back' => 'It put back the count of line %s of %s.',
+        'next_cancels' => 'It cancelled %s and put every figure back.',
+        'no_number' => 'No number yet',
+        'opened_on' => 'opened %s',
+        'posted_on' => 'final %s',
+        'newest' => 'Back to the newest',
+        'older' => 'Older sheets',
+        // A sheet
+        'title_open' => 'Count sheet (no number yet)',
+        'title_sheet' => 'Count sheet %s',
+        'title_put_back' => 'A count put back: %s',
+        'facts' => 'About this sheet',
+        'kind' => 'What it is',
+        'opened' => 'Opened',
+        'posted' => 'Made final',
+        'stopped' => 'Stopped',
+        'about' => 'What it is about',
+        'puts_back' => 'It puts back the count of line %s of %s',
+        'cancels' => 'It cancels %s',
+        'cancelled_by' => 'Cancelled by',
+        'cancel_waiting' => 'a cancellation that waits for a reviewer\'s OK',
+        'not_opener' => 'Only the person who opened this sheet enters its quantities and makes it final.',
+        'open_one' => '1 difference of this sheet waits for an answer:',
+        'open_many' => '%s differences of this sheet wait for an answer:',
+        'scan_title' => 'Scan an item',
+        'scan_label' => 'Barcode or CW number',
+        'scan_button' => 'Find it',
+        'scan_case' => 'That barcode is an outer case of %s units. Type how many units you counted, not how many cases.',
+        'scan_not_on_sheet' => '%s (%s) is not on this sheet.',
+        'scan_add' => 'Put it on the sheet',
+        'scan_unknown' => 'No item has "%s". Nothing was changed. Check the barcode, or type the CW number with its letters (CW-000123).',
+        'scan_ambiguous' => 'The barcode "%s" is on more than one item, so it is not used. Nothing was changed. Type the item\'s CW number instead.',
+        'lines_title' => 'Items on this sheet',
+        'lines_counted' => '%s of %s counted',
+        'no_lines' => 'This sheet has no items yet. Scan the first one above.',
+        'no_lines_shown' => 'No line to show here. Choose "Every line".',
+        'line_no' => 'line %s',
+        'barcodes' => 'Barcodes: %s',
+        'mode' => 'Selling mode',
+        'no_mode' => 'not set',
+        'reserved' => '%s of them reserved for orders',
+        'blind' => 'shown once counted',
+        'counted' => 'Counted',
+        'counted_of_item' => 'How many %s you counted',
+        'counted_when' => 'counted %s',
+        'counted_by_when' => 'Counted by %s, %s',
+        'unsaved' => 'not saved yet: press Enter',
+        'unsaved_leave' => 'You typed quantities on this page that are not saved yet. They are lost if you go on. Press Cancel, then press Enter in a '
+            . 'quantity box to save them. (OK goes on without them.)',
+        'save_page' => 'Save this page',
+        'save_hint' => 'Press Enter after each quantity: it is saved at once. This button saves every quantity you typed on this page.',
+        'held' => 'System held',
+        'difference' => 'Difference',
+        'plus' => '+%s',
+        'minus' => '−%s',
+        'no_difference' => 'none',
+        'not_counted' => 'not counted',
+        'what_happened' => 'What happened',
+        'page' => 'Page %s of %s',
+        'prev' => 'Lines before',
+        'next_page' => 'Next lines',
+        'final_title' => 'When you have counted',
+        'final_text' => 'Look at the differences first. Nothing is booked until you make the sheet final there.',
+        'final_link' => 'Before you make it final',
+        'paper_title' => 'Count on paper: download and upload',
+        'paper_text' => 'Download the sheet, fill in the column "counted" (leave it empty for an item you did not count), and upload the file. Check it '
+            . 'first: nothing is saved until you choose "Fill in the sheet". An upload never makes the sheet final.',
+        'download' => 'Download this sheet (CSV)',
+        'upload_file' => 'The filled-in file',
+        'upload_hint' => 'A CSV with the columns of the download, up to %s MB.',
+        'upload_when' => 'When was it counted?',
+        'upload_when_hint' => 'Leave it empty for "just now". A count made earlier keeps its own time, up to %s days back.',
+        'upload_check' => 'Check the file only (nothing is saved)',
+        'upload_apply' => 'Fill in the sheet',
+        'upload_button' => 'Send the file',
+        'report_title' => 'Checked: %s. Nothing was saved.',
+        'report_counts' => '%s rows read: %s would be filled in, %s already hold that quantity, %s are empty, %s are not on this sheet, %s cannot be read.',
+        'report_fill' => 'Would be filled in:',
+        'report_fill_new' => 'Row %s: %s %s: %s',
+        'report_fill_change' => 'Row %s: %s %s: from %s to %s',
+        'report_more' => 'and %s more.',
+        'report_not_on_sheet' => 'Not on this sheet (nothing is added):',
+        'report_row' => 'Row %s: %s',
+        'report_bad' => 'Cannot be read (skipped):',
+        'report_bad_row' => 'Row %s: %s: %s ("%s")',
+        'report_next' => 'If this is right, choose the file again, choose "Fill in the sheet", and send it.',
+        'stop_title' => 'Stop this sheet',
+        'stop_text' => 'A stopped sheet is kept, never deleted. It took no number and booked nothing.',
+        'stop_button' => 'Stop this sheet',
+        'cancel_title' => 'Cancel this whole sheet',
+        'cancel_text' => 'A final sheet is never changed or deleted. Cancelling it makes a new record that puts every figure of the sheet back. To '
+            . 'put back one line only, reject its difference on Differences.',
+        'cancel_button' => 'Cancel this sheet',
+        // Before you make it final
+        'before_title' => 'Before you make it final: %s',
+        'back_to_sheet' => 'Back to the sheet',
+        'tile_counted' => 'Lines counted',
+        'tile_counted_sub' => 'of %s on the sheet; the others are not booked',
+        'tile_choice' => 'Need your answer',
+        'tile_choice_sub' => 'stock moved after you counted them',
+        'tile_over' => 'Above the limits',
+        'tile_over_sub' => 'they will wait on Differences',
+        'tile_stale' => 'Left out',
+        'tile_stale_sub' => 'counted again later on another sheet',
+        'nothing_counted' => 'Nothing is counted on this sheet yet.',
+        'nothing_counted_text' => 'Enter what you counted first.',
+        'too_many_times' => 'Too much stock moved while this sheet was counted for it to be booked in one go. Count some of the lines marked below '
+            . 'again.',
+        'holds_now' => 'System holds now',
+        'what_happens' => 'What happens',
+        'left_out' => 'left out',
+        'over_chip' => 'Above the limits',
+        'over_units' => 'more than %s units',
+        'over_percent' => 'more than %s%% of what the system held',
+        'too_old_chip' => 'Counted too long ago',
+        'too_old_text' => 'A count older than %s days is not booked. Count it again.',
+        'moved_title' => 'Stock moved after you counted it:',
+        'moved_row' => '%s: %s units, %s',
+        'moved_more' => 'and %s more movements.',
+        'does_stale' => 'This item was counted again on %s. Your older count is left out. Count it again if you want yours to stand.',
+        'does_ships' => 'If you keep your count, the shelf figure becomes %1$s: your count less the %2$s that left after it.',
+        'does_overwrite' => 'If you keep your count, the shelf figure becomes %1$s and the %3$s units that came in or were corrected after it are '
+            . 'overwritten. Someone is then asked to look at it on Differences.',
+        'as_counted_chip' => 'You chose to keep this count',
+        'recount' => 'Count it again',
+        'as_counted' => 'Keep my count',
+        'make_final_title' => 'Make the sheet final',
+        'make_final_text' => 'The counted lines are booked at once and get a number. Lines without a quantity are not booked. After that the sheet '
+            . 'cannot be changed: a wrong line is put back by rejecting its difference, or the whole sheet is cancelled.',
+        'make_final_button' => 'Make the count final',
+        'make_final_blocked' => 'Answer the marked lines first: count each again, or keep your count.',
+        // Differences
+        'rules_link' => 'Approval Rules',
+        'second_none' => 'Anyone who counts stock may answer, also for their own count. Whether a second person is needed is set on',
+        'second_over' => 'A difference of more than %s units needs a second person: not the one who counted it. The rule is on',
+        'second_all' => 'Every difference needs a second person: not the one who counted it. The rule is on',
+        'no_differences' => 'No count difference is waiting.',
+        'no_differences_text' => 'A difference above the limits shows here when its sheet is made final.',
+        'differences_board' => 'Differences by kind',
+        'differences_note' => '%s waiting, newest first.',
+        'differences_more' => 'The newest %s of each kind are shown: answer them and the older ones move up.',
+        'differences_foot' => 'Accept keeps the count. Reject makes a new record that puts that one count back; the sheet and its other lines stay.',
+        'counted_by' => 'Counted by',
+        'why' => 'Why it waits',
+        'why_after' => 'The count overwrote %s units that were booked after it (%s movements).',
+        'why_near' => '%s parcels left within ten minutes of the count.',
+        'answer' => 'Your answer',
+        'answer_note' => 'Why (3 words or more help the next person)',
+        'accept' => 'Accept the count',
+        'reject' => 'Reject: put it back',
+        'no_sheet' => 'not counted on a sheet',
+    ];
+
+    /** After a click on the counting pages: what happened and what comes next. */
+    public const COUNT_NOTICE = [
+        'opened' => 'The sheet is open. Scan or find each item and enter what you count.',
+        'lines' => 'Saved: %s lines changed.',
+        'lines_same' => 'Nothing changed: every quantity was already saved.',
+        'added' => 'Added to the sheet. Enter what you counted.',
+        'uploaded' => 'Done: %s lines were filled in from the file. Nothing is booked yet: check the differences, then make it final.',
+        'posted' => 'Done: %s is final and the shelf figures are booked.',
+        'posted_check' => 'Done: %s is final and the shelf figures are booked. Some differences are above the limits and wait on Differences.',
+        'stopped' => 'Stopped. The sheet is kept with its reason; nothing was booked.',
+        'cancelled' => 'Done: %s cancels the sheet, and every figure is put back.',
+        'cancel_waits' => 'The cancellation waits for a reviewer\'s OK: it puts back more than the limit. Nothing is put back until they say OK.',
+        'accepted' => 'Accepted: the count stays.',
+        'rejected' => 'Rejected: %s puts that count back. Count the item again on a new sheet.',
+        'rejected_already' => 'Rejected. That count had been put back already, so nothing more was booked.',
+        'recount' => 'The line is empty again. Go back to the sheet and enter the new count.',
+        'as_counted' => 'Kept: this line will be booked as you counted it.',
+    ];
+
+    /** The counting pages' refusals, by the service's code ("Nothing was saved." where nothing was). */
+    public const COUNT_ERROR = [
+        'nothing_counted' => 'No line of this sheet has a quantity yet. Nothing was booked. Enter what you counted first.',
+        'moved_since' => 'Stock of line %s moved after it was counted. Nothing was booked. For each such line choose: count it again, or keep your count.',
+        'moved_meanwhile' => 'Stock of line %s moved in the very moment you made the sheet final. Nothing was booked. Look at the differences again.',
+        'count_too_old' => 'Line %s was counted more than %s days ago, which is too old to book. Nothing was booked. Count it again.',
+        'bad_counted_at' => 'The time it was counted must be a date and time that is not after now and not more than %s days ago. Nothing was saved.',
+        'too_many_lines' => 'A count sheet holds at most %s items. Nothing was saved. Open another sheet for the rest.',
+        'bad_next' => 'How many is a whole number from 1 to %s. Nothing was opened.',
+        'too_many_times' => 'Too much stock moved while this sheet was counted for it to be booked in one go (more than %s count times). Nothing was '
+            . 'booked. Count some of its lines again.',
+        'bad_quantity' => 'The quantity of line %s must be a whole number of units, 0 or more. Nothing was saved, and what you typed is still '
+            . 'in the boxes. Correct it and press Enter again.',
+        'barcode_in_quantity' => 'A barcode went into the quantity box of line %s. Nothing was saved, and what you typed is still in the boxes. '
+            . 'Clear that box, then scan into "Barcode or CW number" at the top.',
+        'unknown_line' => 'This sheet has no line %s. Nothing was saved. Reload the page.',
+        'line_put_back' => 'Line %s of this sheet was already put back on its own, so the sheet cannot be cancelled as a whole. Nothing was changed. '
+            . 'Reject its other differences one by one instead.',
+        'not_creator' => 'Only the person who opened this sheet enters its quantities and makes it final. Nothing was saved.',
+        'not_draft' => 'This sheet is not open any more, so it cannot be changed. Nothing was saved.',
+        'version_conflict' => 'The sheet changed after this page was drawn (a quantity was entered, perhaps in another tab). Nothing was booked. '
+            . 'Look at the differences again.',
+        'sheet_changed' => 'The sheet changed after this page was drawn. Nothing was booked. Look at it again.',
+        'nothing_ticked' => 'Tick the items to count first. Nothing was opened.',
+        'bad_mode' => 'Choose one of the buttons to open a sheet. Nothing was opened.',
+        'warehouse_required' => 'Choose the warehouse first. Nothing was opened.',
+        'unknown_sku' => 'One of these items does not exist any more. Nothing was saved. Reload the page.',
+        'merged_item' => 'One of these items was joined into another one. Nothing was saved. Count that other item.',
+        'no_file' => 'Choose the file first. Nothing was saved.',
+        'bad_file' => 'This file cannot be read as a count sheet. Nothing was saved. It needs the columns of the downloaded sheet: the CW number and '
+            . '"counted".',
+        'upload_failed' => 'The file did not arrive. Nothing was saved. Try again.',
+        'too_many_rows' => 'The file has too many rows for one sheet. Nothing was saved.',
+        'note_required' => 'Say why, in a few words (3 characters or more). Nothing was changed.',
+        'not_open' => 'This difference is not waiting any more: someone answered it already. Nothing was changed.',
+        'own_count' => 'You counted this line, or opened or finished its sheet. A second person must answer this one.',
+        'role_not_allowed' => 'Only people who count stock can do this. Nothing was changed.',
+        'admin_cannot_post' => 'An Admin never counts stock or answers count differences. Nothing was changed.',
+        'not_from_sheet' => 'This count was not made on a count sheet, so it cannot be put back here. Nothing was changed. You can accept it with a note.',
+        'nothing_to_put_back' => 'There is nothing to put back: the count changed nothing, it was put back already, or its sheet was cancelled. '
+            . 'Nothing was changed.',
+        'unknown_review' => 'We cannot find that difference. Nothing was changed.',
+        'bad_answer' => 'Choose Accept or Reject. Nothing was changed.',
+        'not_reversible' => 'This record cannot be cancelled. Nothing was changed.',
+    ];
 
     /**
      * Each kind of stock record (StockOps::KINDS): its names, its list and its create form. Controllers hand the kind's array to the
@@ -1477,6 +1878,11 @@ final class Words
 
     /** Plain names of the settings (app_setting keys); SETTING_HELP says what each does (the raw description is the fallback). */
     public const SETTING = [
+        // Stock counting (pack A2a, 0029; docs/decisions.md CT4, CT6, CT10).
+        'counts.plan_days' => 'Days between two counts of an item',
+        'counts.sheet_shows_stock' => 'Count sheets show what the system holds',
+        'counts.review_over_units' => 'Check a count difference above this many units',
+        'counts.review_over_percent' => 'Check a count difference above this percent',
         'company.legal_name' => 'Company name (legal)',
         'company.trading_name' => 'Trading name',
         'company.address' => 'Registered address',
@@ -2544,6 +2950,7 @@ final class Words
 
     /** app_setting key prefix => the topic its settings are listed under. */
     public const SETTING_TOPIC = [
+        'counts' => 'Stock counts',
         'po' => 'Purchase orders',
         'suppliers' => 'Suppliers',
         'reorder' => 'Reorder',
@@ -2558,6 +2965,15 @@ final class Words
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
     public const SETTING_HELP = [
+        // Stock counting (pack A2a, 0029; docs/decisions.md CT4, CT6, CT10).
+        'counts.plan_days' => 'The count plan: every item should be counted at least once in this many days (1 to 730). Stock > Counts says how many '
+            . 'items are inside the plan and how many are overdue, and lists what to count next.',
+        'counts.sheet_shows_stock' => 'On: a count sheet, and its download, show what the system holds beside each item. Off: the person counting does '
+            . 'not see it until they have entered a quantity (a blind count).',
+        'counts.review_over_units' => 'After a count is made final, a difference of more than this many units, up or down, waits on Stock > Counts > '
+            . 'Differences for a person to accept or reject it. 0: every difference waits.',
+        'counts.review_over_percent' => 'After a count is made final, a difference of more than this percent of what the system held waits on Stock > '
+            . 'Counts > Differences for a person to accept or reject it. 0: the percent is not used. Where the system held nothing, any difference waits.',
         'po.terms' => 'The text printed under every purchase order.',
         'po.default_vat_code' => 'Used on a new order line when the supplier has no VAT code.',
         'po.over_delivery_tolerance_pct' => 'How much more than ordered goods in may still accept on a delivery.',
@@ -6886,6 +7302,7 @@ final class Words
 
     /** The first part of an audit action => what kind of thing was done (the audit log's filter and rows). */
     public const AUDIT_FAMILY = [
+        'count' => 'Stock counts',
         'setting' => 'Settings',
         'document_type' => 'Rules of records',
         'reason' => 'Reasons for stock changes',
@@ -6928,6 +7345,10 @@ final class Words
         'reason.rules' => 'Reason\'s stock-out rules changed',
         'stockop.create' => 'Stock record started',
         'stockop.header' => 'Stock record\'s details changed',
+        'count.open' => 'Count sheet opened',
+        'count.upload' => 'Count sheet filled in from a file',
+        'count.accept' => 'Count difference accepted',
+        'count.reject' => 'Count difference rejected and the count put back',
         'account.payment' => 'Payment to another account recorded',
         'account.payment_reverse' => 'Payment to another account reversed',
         'warehouse.add' => 'Warehouse added',
@@ -6989,7 +7410,7 @@ final class Words
         'doc.GRN.post' => 'Book in deliveries and check them at the goods-in bench',
         'doc.SINV.post' => 'Book supplier invoices (coming later)',
         'doc.DN.post' => 'Send goods back to suppliers (coming later)',
-        'doc.CNT.post' => 'Count stock on the shelves (coming later)',
+        'doc.CNT.post' => 'Count stock on the shelves and answer count differences',
         'doc.ADJ.post' => 'Correct stock and write it off (Adjustments)',
         'doc.WO.post' => 'Write stock off (coming later)',
         'doc.TRD.post' => 'Trade sales (coming later)',

@@ -65,7 +65,7 @@ final class SectionsTest extends TestCase
                         self::assertArrayHasKey($key, Words::SEGMENT, "{$where}: the segment's name");
                     }
                     if (isset($page['badge'])) {
-                        self::assertContains($page['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open',
+                        self::assertContains($page['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open', 'counts_open',
                             ...array_keys(\CW\Ui\Context::STOCK_BADGES)],
                             "{$where}: a count Ui\\Context::badges() computes");
                         self::assertArrayHasKey($page['badge'], Words::BADGE, "{$where}: the words a screen reader hears");
@@ -82,7 +82,7 @@ final class SectionsTest extends TestCase
             }
         }
         self::assertSame(['linking_pending', 'linking_duplicates', 'barcodes_open', 'stock_in_open', 'stock_out_open', 'transfers_open', 'releases_open',
-            'adjustments_open', 'incidents_open', 'reviews_open'], Sections::badgeNames());
+            'adjustments_open', 'counts_open', 'incidents_open', 'reviews_open'], Sections::badgeNames());
     }
 
     /** Every staff page belongs to one section, tab and page: the current ones stay marked on a detail page (with its back link). */
@@ -267,11 +267,12 @@ final class SectionsTest extends TestCase
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings', 'More'], array_column($f['phone'], 'label'));
         self::assertSame('#menu', $f['phone'][4]['href']);
 
-        // Stock: the tabs not built yet are drawn without a link; Reservations (read only) is for everyone who sees the stock.
+        // Stock: the tab not built yet (Quality) is drawn without a link; Counts is built (pack A2a) and open to the people who read
+        // records; Reservations (read only) is for everyone who sees the stock.
         $f = Sections::frame(['buyer'], [], '/ui/stock');
         self::assertSame([['Overview', '/ui/stock', true, false], ['Movements', '/ui/stock/movements', false, false], ['Stock In', '/ui/stock/in', false, false],
             ['Stock Out', '/ui/stock/out', false, false], ['Transfers', '/ui/stock/transfers', false, false], ['Adjustments', '/ui/stock/adjustments', false, false],
-            ['Counts', null, false, true], ['Reservations', '/ui/stock/reservations', false, false], ['Quality', null, false, true]],
+            ['Counts', '/ui/stock/counts', false, false], ['Reservations', '/ui/stock/reservations', false, false], ['Quality', null, false, true]],
             array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current'], $t['soon']], $f['pagebar']['tabs']));
         self::assertSame([], $f['segments']);
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column($f['phone'], 'label'), 'the phone bar the owner approved');

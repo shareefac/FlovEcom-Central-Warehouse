@@ -207,7 +207,9 @@ final class ItemController
                 'line' => self::s($sku['line']), 'form' => self::s($sku['form']), 'flavour' => self::s($sku['flavour']),
                 'volume_ml' => Html::dec($sku['volume_ml']), 'puffs' => self::s($sku['puffs']), 'pack_units' => self::s($sku['pack_units']),
                 'origin' => self::s($sku['origin']), 'origin_listing_id' => $sku['origin_listing_id'] === null ? null : (int) $sku['origin_listing_id'],
-                'created_at' => self::s($sku['created_at']), 'counted_at' => self::s($sku['counted_at']),
+                // "Stock last counted": the latest count of its stock at any warehouse (stock_balance.counted_at, which a posted count
+                // sets). The count gate's own sku.counted_at (plan §7.4) is another thing and is not what this line says (pack A2a, CT11).
+                'created_at' => self::s($sku['created_at']), 'counted_at' => self::latest(array_column($stock, 'counted_at')),
                 'cwp' => $cwp === null ? null : 'CWP-' . $cwp,
             ],
             'merged_into' => $mergedInto === null ? null : ['id' => (int) $mergedInto['id'], 'code' => self::s($mergedInto['code']), 'name' => self::s($mergedInto['name'])],
@@ -349,6 +351,13 @@ final class ItemController
             return $v === 'proposed' ? Words::CARD['from_file'] : Words::CARD['h_confirmed'];
         }
         return CardProposals::shown($field, $v);
+    }
+
+    /** The latest of some times (DATETIME strings; nulls left out), or null when there is none. @param list<?string> $times */
+    private static function latest(array $times): ?string
+    {
+        $times = array_values(array_filter($times, static fn (?string $t): bool => $t !== null));
+        return $times === [] ? null : max($times);
     }
 
     private static function s(mixed $v): ?string

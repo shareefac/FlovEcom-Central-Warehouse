@@ -84,8 +84,10 @@ final class WordsTest extends TestCase
                 array_values(Sections::MAP)))),
             'SEGMENT' => ['review', 'samples', 'pending', 'reorder', 'brands', 'anomalies', 'sales_history', 'receiving', 'bench', 'incidents', 'transfers', 'releases',
                 'accounts', 'settings', 'series',
-                'integrity'],
-            'NEW' => ['orders', 'receiving', 'suppliers', 'people', 'warehouses', 'reasons', 'stock_in', 'stock_out', 'transfers', 'releases', 'adjustments'],
+                'integrity',
+                'counts', 'count_sheets', 'count_differences'],
+            'NEW' => ['orders', 'receiving', 'suppliers', 'people', 'warehouses', 'reasons', 'stock_in', 'stock_out', 'transfers', 'releases', 'adjustments',
+                'counts'],
             'DOC_TYPE' => array_values(\CW\StockOps\StockOpHandler::KINDS),
             'DOC_TYPES' => array_values(\CW\StockOps\StockOpHandler::KINDS),
             'STOCK_FILE' => array_keys(\CW\StockOps\StockOps::FILE_ROLES),
@@ -299,7 +301,8 @@ final class WordsTest extends TestCase
         }
         $keys = [];
         foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql', '0019_set_it_yourself.sql',
-            '0021_mapping_bulk.sql', '0025_by_item_bulk.sql', '0026_new_variants.sql', '0027_arrival_check.sql', '0028_arrival_site_state.sql'] as $file) {
+            '0021_mapping_bulk.sql', '0025_by_item_bulk.sql', '0026_new_variants.sql', '0027_arrival_check.sql', '0028_arrival_site_state.sql',
+            '0029_stock_counts.sql'] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
         }

@@ -12,6 +12,8 @@ use CW\Catalogue\BarcodeReviews;
 use CW\Catalogue\ItemCards;
 use CW\Company\CompanyDetails;
 use CW\Config;
+use CW\Counts\CountReviews;
+use CW\Counts\CountSheets;
 use CW\Db;
 use CW\Documents\DocumentHandlers;
 use CW\Documents\Documents;
@@ -43,6 +45,7 @@ final class Context
     private ?ItemCards $itemCards = null;
     private ?GoodsReceipts $goodsReceipts = null;
     private ?StockOps $stockOps = null;
+    private ?CountSheets $countSheets = null;
     /** @var array<string, array{review: int, approval: int}>|null the tasks this person may decide, by document type (checks()) */
     private ?array $checksByType = null;
     /** @var array<string, int>|null the badge counts of this request (computed once) */
@@ -54,7 +57,7 @@ final class Context
      * The pages that draw their own toolbar (design v4: the split create button, Search, Filter, Sort, Export in one row): they get
      * the page's create actions as `newActions` and the layout draws none.
      */
-    public const OWN_TOOLBAR = ['home', 'purchase_orders', 'suppliers', 'receipts', 'stock_ops'];
+    public const OWN_TOOLBAR = ['home', 'purchase_orders', 'suppliers', 'receipts', 'stock_ops', 'stock_counts'];
     /** Badge (Sections::MAP) of a stock record's tab => its document type: the reviews and OKs of that kind this person may decide (pack A1). */
     public const STOCK_BADGES = ['stock_in_open' => 'SIN', 'stock_out_open' => 'SOUT', 'transfers_open' => 'TRF', 'releases_open' => 'REL', 'adjustments_open' => 'ADJ'];
 
@@ -155,6 +158,18 @@ final class Context
     public function stockOps(): StockOps
     {
         return $this->stockOps ??= new StockOps($this->db, $this->documents(), fn (): FileStore => $this->files());
+    }
+
+    /** Count sheets (pack A2a, Stock > Counts): opened, entered, posted through the document base and the count engine. */
+    public function countSheets(): CountSheets
+    {
+        return $this->countSheets ??= new CountSheets($this->db, $this->documents());
+    }
+
+    /** The count differences to check (pack A2a): the list, accept, reject. */
+    public function countReviews(): CountReviews
+    {
+        return new CountReviews($this->db, $this->documents());
     }
 
     /** Another account's stock in our building and the balance owed to it (pack A1). */
@@ -283,6 +298,11 @@ final class Context
         if ($this->who !== null && $this->who->can('incidents.view')) {
             // The incident register (IM6, I131): the open incidents of posted receipts.
             $out['incidents_open'] = (new Incidents($this->db))->openCount();
+        }
+        if ($this->who !== null && Documents::mayPost($this->who->roles, CountSheets::TYPE)) {
+            // Stock > Counts > Differences (pack A2a): the open count differences this person may clear (not their own while a second
+            // person is asked for).
+            $out['counts_open'] = $this->countReviews()->openCount($this->who->id, $this->who->roles);
         }
         $checks = $this->checks();
         if ($checks !== null) {
