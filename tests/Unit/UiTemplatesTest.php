@@ -45,7 +45,8 @@ final class UiTemplatesTest extends TestCase
             'staff_requests', 'new_code', 'stock', 'stock_movements', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result',
             'stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box', 'stock_reservations', 'stock_reservation', 'by_product', 'by_product_map',
             'by_item_preview', 'new_variants', 'one_at_a_time',
-            'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before'] as $t) {
+            'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before',
+            'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns'] as $t) { // the last four: pack D
             self::assertContains($t . '.php', $names);
         }
         self::assertSame([], array_filter($names, static fn (string $n): bool => preg_match('/^[a-z][a-z_]*\.php$/', $n) !== 1), 'names View::render accepts');
@@ -166,7 +167,8 @@ final class UiTemplatesTest extends TestCase
         $templates = self::templates();
         foreach (['purchase_orders', 'purchase_order', 'purchase_order_edit', 'reorder', 'reorder_item', 'reorder_brands', 'reorder_anomalies', 'sales_history',
             'suppliers', 'supplier', 'supplier_form', 'supplier_items', 'supplier_item', 'supplier_item_form', 'item_cards', 'item_card_form', 'item_cards_import',
-            'barcode_reviews', 'stock', 'stock_movements', 'stock_reservations', 'stock_reservation'] as $name) {
+            'barcode_reviews', 'stock', 'stock_movements', 'stock_reservations', 'stock_reservation',
+            'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns'] as $name) { // the last four: pack D (docs/decisions.md PD13)
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {

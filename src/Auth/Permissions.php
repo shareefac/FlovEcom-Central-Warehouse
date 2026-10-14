@@ -135,6 +135,13 @@ final class Permissions
         'system.view' => ['admin', 'reviewer', 'auditor', 'manager'],
         // A reviewer's OK of a grant of Admin or Reviewer, while the owner has that rule on (approvals.staff_grant, Y25).
         'staff.approve' => ['reviewer'],
+        // ---- Pack D (docs/decisions.md PD2; provisional, owner to confirm): Stock › Sales, read only. Each store's orders, what
+        // waits to be sent and what came back or was cancelled: the warehouse and stock jobs, buying and the desk (returns), the
+        // reviewer, the accountant and the auditor, and the viewer (a read-only job). Not the matching jobs (their work is the
+        // links) and not admin (people and roles only, I12). Its own permission, so that the roles screen can change it alone. ----
+        'sales.view' => ['viewer', 'warehouse', 'manager', 'buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer',
+            'accountant', 'auditor'],
+        // ---- end of pack D ----
     ];
 
     /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */

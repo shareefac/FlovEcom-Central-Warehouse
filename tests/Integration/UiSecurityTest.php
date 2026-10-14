@@ -23,7 +23,8 @@ final class UiSecurityTest extends UiTestCase
         '/ui/stock/counts', '/ui/stock/counts/sheets', '/ui/stock/counts/sheets.csv', '/ui/stock/counts/differences', '/ui/stock/counts/1', '/ui/stock/counts/1/sheet.csv',
         '/ui/stock/counts/1/differences',
         '/ui/review/products', '/ui/review/products.csv', '/ui/review/products/1/map?channel=vpg', '/ui/review/new-variants', '/ui/review/new-variants.csv',
-        '/ui/review/store', '/ui/review/batches/1'];
+        '/ui/review/store', '/ui/review/batches/1',
+        '/ui/stock/sales', '/ui/stock/sales.csv', '/ui/stock/sales/1', '/ui/stock/sales/dispatch', '/ui/stock/sales/returns', '/ui/stock/sales/returns.csv']; // the last six: pack D
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw', '/ui/review/bulk',
         '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',
         '/ui/review/duplicates/1/decide', '/ui/review/duplicates/1/split', '/ui/items/1/card', '/ui/items/1/card/accept', '/ui/items/1/card/confirm',
@@ -41,7 +42,7 @@ final class UiSecurityTest extends UiTestCase
         $web = $this->browser();
         // The sign-in page leads back to the page asked for (behaviour item 1): not Home (the default), the sign-in pages or a download.
         $noBack = ['/ui', '/ui/', '/ui/password', '/ui/reference/company/sample.pdf', '/ui/items/cards.csv', '/ui/receiving/template.csv', '/ui/review/products.csv',
-            '/ui/review/new-variants.csv', '/ui/stock/counts/sheets.csv', '/ui/stock/counts/1/sheet.csv'];
+            '/ui/review/new-variants.csv', '/ui/stock/counts/sheets.csv', '/ui/stock/counts/1/sheet.csv', '/ui/stock/sales.csv', '/ui/stock/sales/returns.csv'];
         foreach (self::GETS as $path) {
             $r = $web->get($path);
             self::assertSame(303, $r->status, $path);

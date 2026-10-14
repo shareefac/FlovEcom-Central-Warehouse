@@ -164,7 +164,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('viewer'));
         $page = $this->page($web);
         self::assertSame(['Stock', 'Reservations'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Reservations', self::PATH], ['Quality', null]],
+        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Reservations', self::PATH], ['Sales', '/ui/stock/sales'], ['Quality', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)),
             'Reservations keeps its place before Quality (still "Soon"); a viewer reads no stock records and no counts');
         $xp = new \DOMXPath($page->dom());
@@ -182,7 +182,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         $home = $web->get('/ui/');
         self::assertContains(self::PATH, $home->hrefs());
         self::assertStringContainsString(Words::MENU_HELP['reservations'], $home->text());
-        self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Transfers', 'Adjustments', 'Counts', 'Reservations', 'Quality'],
+        self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Transfers', 'Adjustments', 'Counts', 'Reservations', 'Sales', 'Quality'],
             self::tabLabels($this->page($this->signIn($this->uiUser('stock_controller')))));
     }
 

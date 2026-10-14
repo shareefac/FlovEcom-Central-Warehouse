@@ -100,6 +100,16 @@ final class Settings
         // 0 to 60. Up to 10 (the default, the engine's "near a count" time) a dispatch or a reset reported late in the gap is flagged on
         // Differences; above it, it may not be.
         'counts.time_window_max_minutes' => ['min' => 0, 'max' => 60],
+        // ---- Pack D (0033; docs/decisions.md PD9): Stock › Sales, its orders, dispatch and returns per store. ----
+        // Rows a page shows (also the sold units on one order's page); the days Orders looks back when it opens; the hours after
+        // which a paid order not sent is late on Dispatch (up to 30 days); the most rows a CSV holds; and the most rows one page
+        // reads to fill itself where a filter is not in an index (the page then says it stopped, and offers to read on).
+        'sales.page_size' => ['in' => [25, 50, 100, 200]],
+        'sales.default_days' => ['min' => 1, 'max' => 365],
+        'sales.late_hours' => ['min' => 1, 'max' => 720],
+        'sales.csv_max_rows' => ['min' => 100, 'max' => 50_000],
+        'sales.scan_max_rows' => ['min' => 500, 'max' => 50_000],
+        // ---- end of pack D ----
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];

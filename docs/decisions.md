@@ -8716,3 +8716,141 @@ it) and `count_sheet_line` UPDATE_COLUMNS without its identity (`document_id`, `
 deploy gap): no change (`install_cron.sh --migrate`, docs/ops.md). 0029 was not yet applied anywhere but the test schemas, so it was changed
 in place (the setting, CNT's Not OK). Left for the owner: a shared count time could also leave the line's own time as the item's count
 time after the posting, which would remove the cost CT3 names; not done (a change of what the engine's count time means).
+
+<!-- ---- Pack D (slot `packd`, 14 Oct 2026): decisions PD1-PD14. The integrator may renumber migration 0033. ---- -->
+## Stock › Sales: each store's orders, dispatch and returns, read only (slot `packd`, pack D, 14 Oct 2026)
+
+The owner's module list of 8 Oct 2026: "Sales & Delivery: engine built; to add: sales and dispatch screens per store" and "Returns
+Management: a list view only" (Q12: no new returns process; the stores' own return module restocks, and CW books what it sends). The
+engine (`src/Reservations.php`) and the ledger writer (`src/Stock.php`) are unchanged: this pack only shows what they keep, and writes
+no stock. Code: `migrations/0033_sales_dispatch_views.sql` (five settings, four indexes), `src/Ui/SalesViews.php`,
+`src/Ui/Controller/{SalesController,DispatchController,SalesReturnsController}.php`, views `sales_orders`, `sales_order`,
+`sales_dispatch`, `sales_returns` (new); `src/Ui/{Sections,Kernel,Words}.php`, `src/Settings.php`, `src/Auth/Permissions.php`, and
+`ReservationViews::rows()` made public (marked blocks). Tests: `tests/Integration/UiKernel/SalesScreensTest.php` (new) and the pinned
+navigation, words and templates of `SectionsTest`, `WordsTest`, `UiTemplatesTest`, `StockScreensTest`, `ReservationsScreenTest`,
+`StockOpsScreensTest`, `MenusTest`, `UiSecurityTest`.
+
+**PD1. Where it lives: Stock › Sales, one tab with three segments.** Orders (`/ui/stock/sales`, its CSV, one order at
+`/ui/stock/sales/{id}`), Dispatch (`/ui/stock/sales/dispatch`) and Returns (`/ui/stock/sales/returns`, its CSV), after Reservations and
+before Quality. The store chosen travels through the three segments (`keep`). Not Reports: Reports holds figures (pack E builds
+"Sales by Store" there as a report), while these are working lists of orders and units next to the stock they move. No new sidebar
+item. The tab is named "Sales"; the segments "Orders", "Dispatch", "Returns" (page titles "Store orders", "Dispatch", "Returns and
+cancels", so an order of a store is never confused with a purchase order). A build decision, for the owner to confirm.
+
+**PD2. Who may open it: a permission of its own, `sales.view`** (provisional, owner to confirm): viewer, warehouse, manager, buyer,
+purchasing manager, goods in, purchasing desk, stock controller, reviewer, accountant, auditor. Not the matching jobs (mapper,
+matching lead: their work is the links) and not admin (people and roles only, I12). Its own permission, not `catalogue.view` as
+Reservations (RS1), so that the roles screen pack E builds can switch it per job alone. Everything here is GET: a POST to any of its
+addresses is 405, no page has a form that posts, and there is no button that changes an order (RS12 (4): the stores and the engine
+are the only writers).
+
+**PD3. Orders: a row is an order, and its state filter.** A row is one `reservation` (one order of one store), shown as Reservations
+shows it (`ReservationViews::rows()`: products, warehouse units, items not linked, what became of it), plus when it was placed, paid
+and how it came in. The state filter has seven values: Reserved, not paid (`held`); Paid (every sale: `committed`, whatever happened
+next); With a unit sent / cancelled / returned (an order with at least one sold unit in that state, so these overlap with each other and
+with Paid); Freed by the store (`released`); Ran out of time (`expired`). "Paid" is every paid order rather than "paid, not sent", so
+that a period's sales can be listed at all; what waits to be sent is Dispatch's list. The way-in filter is `reservation.origin`
+(Reserved first, Paid without a reservation, Open when the store joined).
+
+**PD4. One order: each sold unit and its stock changes.** The facts (store, reference, state and what became of it, placed, paid, how it
+came in, how long it has waited and whether that is late, store variants, warehouse units, a link to the reservation's page), then the
+sold units a page at a time (by the store's unit number, `sales.page_size`): the warehouse item (a link to its card, its CW number,
+"1 sold unit = N warehouse units"), the unit number, the store variant (its number and title), the warehouse, the state and when it was
+sent; a unit not linked at the sale is named by the store's title and says that no stock is kept for it. Then "What happened to each
+unit": the stock ledger's rows of each unit (`ix_stock_ledger_unit`), one step per call of the engine and warehouse, oldest first,
+each with the change of each stock figure, who, when (the dispatch time for a sending) and "Open": Stock › Movements for the item, every
+figure, starting at that step (`before` = its last ledger id + 1; Movements has no filter by order). A unit not linked moved no stock and
+has no steps: the page says so. At most `sales.scan_max_rows` ledger rows are read for a page of units; the page says when it cut.
+
+**PD5. Orders' days: when the order was placed, in UK days.** `reservation.created_at` (when the store first told CW: the checkout, or
+the payment for an order paid without a reservation; an order open when the store joined shows the day it joined). The list opens with
+the last `sales.default_days` days, today included; "Any time" and two dates of one's own (both days included) are offered. A day that
+is not a real day, or a first day after the last, shows the default days and says so. Order ids follow the time of placing (the one
+INSERT sets both), which the unit filters rely on (PD10).
+
+**PD6. Dispatch: waiting, late, sent, undone.** Waiting to ship = the store's units in `allocated` (paid, not sent), listed per order,
+oldest order first (by order id, i.e. the time of placing; the age shown and the late mark are from the payment, `committed_at`), with
+the units still waiting, and "Sending was undone before" when the order's ledger has an `unship`. Late = paid more than
+`sales.late_hours` hours ago and not sent; the figure looks at the oldest `sales.scan_max_rows` waiting orders of each store and says
+when there were more. Sent today / Sent this week = orders with a unit whose dispatch time is since UK midnight / since Monday 00:00 UK
+(a unit keeps its dispatch time when it is returned, so a return does not take it out of "sent"; a dispatch reset clears it). The week
+starts on Monday (UK and ISO 8601): a fixed rule, not a number the owner set; say so and it becomes a setting. Sending undone = the
+engine's `unship` rows of the ledger, newest first, one row per unit (its `allocated` row, which every reset books), with who and what
+the unit is now; units not linked move no stock and are not in the ledger, and the list says so. Four figures and four lists
+(`show`), each list paged by key.
+
+**PD7. Returns: a list per unit, no process.** The units in `returned` (the customer sent them back; the store's return page called
+`return`, and CW put them back in stock at the unit's warehouse) and in `cancelled` (the store cancelled them before sending), newest
+order first, filtered by store and by kind. "Back on sale?" and "Where the stock is" are read back from the ledger by CW's own rules:
+returned → back in stock at the warehouse; cancelled after payment, restockable → back on sale there; cancelled after payment, not
+restockable (a transfer into VERIFY noted `cancel_not_restockable` after the unit's last cancel) → in VERIFY, with its recount's state
+(open: waiting; resolved: done; dismissed: closed; `count_review` by its unique key `verify:<store>:<unit>`); cancelled before payment
+→ the reservation was freed; not linked → no stock was kept. One figure: the cancelled units waiting in VERIFY for a recount (the open
+`verify_recount` reviews, per store by their reference). Q11 (stock coming back from the sister stores, the shop units or trade
+customers) is not an order of a store and is not here: that is Stock In's "a trade customer's return" (pack A1) and pack C's returns
+to suppliers.
+
+**PD8. Read only, no stock writes.** Every route is GET (`sales.view`); `CW\Reservations` stays the only writer of orders and units,
+`CW\Stock` of the ledger. Changing an order (cancelling, re-sending, releasing a stuck hold) stays on the stores' own screens.
+
+**PD9. Five settings, nothing hard-coded** (the owner's rule of 8 Oct 2026; each provisional, set on Settings › System › Settings with a
+reason, version 1 in `config_change` from 0033, under the topic "Sales and dispatch"):
+`sales.page_size` (50; 25, 50, 100 or 200) rows on a page of Orders, Dispatch and Returns, and sold units on an order's page;
+`sales.default_days` (7; 1 to 365) the days Orders opens with; `sales.late_hours` (24; 1 to 720) when a waiting order is late;
+`sales.csv_max_rows` (5,000; 100 to 50,000) the most rows of a CSV; `sales.scan_max_rows` (5,000; 500 to 50,000) the most rows a page
+reads to fill itself where a filter is not in an index (PD10), and the most waiting orders the late figure and the ledger rows an
+order's page read. They are read in one statement on every request; a stored value outside its rule (only admin SQL could write one)
+reads as the migration's. The words never repeat a number: "longer than the hours set on the Settings page".
+
+**PD10. Paging by key; the scan limit.** No list uses an OFFSET or a COUNT over a table that grows for ever. Orders by state and way
+in: one range of `ix_reservation_store_placed` per (store, state, way in) asked for, each newest first and cut at a page, merged (at
+most 3 stores x 4 states x 3 ways = 36 ranges of 51 entries); the next page starts after the last order shown (its placed time, then
+its id: an exact boundary). Orders with a unit sent, cancelled or returned: the store's units in that state by order
+(`ix_reservation_unit_store_state`, from the index alone), newest first, starting below the newest order placed before the period's end
+(one look-up per range of the placed index); each order read is checked for the days and the way in; reading stops at the first order
+placed before the period, when the page is full, or after `sales.scan_max_rows` orders: the page then says how many it read and
+offers "Read on" from where it stopped (only when the index has more). Dispatch's waiting list after an order id; its sent lists before
+an order (its sending time, then its id); its undone list before a ledger id; Returns after (order id, unit number); an order's units
+after a unit number. The CSVs read the same way in batches of 500, up to `sales.csv_max_rows`, and say in a last row when they stopped.
+
+**PD11. Four indexes, online (0033).** `reservation (channel_id, status, origin, created_at, id)`: Orders (0023's (channel_id, status,
+id) has no time and no way in). `reservation_unit (channel_id, state, reservation_id, unit_id)`: a store's units of one state by order, for the
+waiting list and its figures, Returns, and Orders' unit filters (the unit table's indexes start with the order or the item: RS7 left
+the per-store waiting figure out for that reason; unit_id, the primary key's, is named so that (order, unit) is read in the index's order: left to the hidden primary key part, MySQL sorted the Returns page, EXPLAIN "Using filesort"). `reservation_unit (channel_id, state, dispatched_at, reservation_id)`: units sent in a
+period, read from the index alone. `stock_ledger (channel_id, movement_type, id)`: sending undone, which nothing else keeps (the unit
+goes back to waiting and its dispatch time is cleared); the week is turned into a ledger id through `ix_stock_ledger_created`. All
+non-unique, `ALGORITHM = INPLACE, LOCK = NONE`, each named in an optimizer hint (ignored before the migration). Cost for the engine: one
+more entry per order, two per sold unit, one per ledger row (about 25 bytes), moved when the indexed state changes; no new locks under
+READ COMMITTED. The ledger index is the costliest (the ledger is the biggest table); it is also the index a "sales events per store over
+time" report needs, so pack E should reuse it rather than add its own (a point for the merge).
+
+**PD12. Every statement was checked with EXPLAIN ANALYZE on a filled schema** (14 Oct 2026, the slot's test schema `cw_test_packd` on
+the staging cluster, MySQL 8.4.8, 32 MB buffer pool; the fill script is `/root/cw_work/runs/packd_explain.php`, its output
+`runs/packd_explain2.log`): 3 stores (70% / 29% / 1%), 60,000 orders over 60 days, 120,000 sold units (98,530 sent, 5,338 waiting,
+2,559 cancelled, 1,573 returned), 202,908 ledger rows (788 dispatch resets). Every list statement is a covering range of the index it
+names, read in the index's order, cut at the page: Orders' range 51 entries (1 ms; an older page by key 8 ms cold); a store's
+returned units by order, 801 entries for 500 orders; Dispatch's waiting orders 75 entries for 51 orders; Returns' (store, kind) range
+51 entries; sending undone a reverse range of the ledger index; the week's first ledger id one entry of (created_at). The reads that
+are bounded by what they count rather than by a page: a store's waiting units (3,835 index entries, 14 ms), the late figure (2,409
+waiting orders, one primary-key look-up each, 94 ms cold), a week's sent units (2,246 index entries, 8 ms; the list groups and sorts
+the week's 1,139 orders, 10 ms). End to end, each SalesViews read took 11 to 241 ms on this cold, shared machine (the 241 ms is the
+first page of every store's last 7 days: 36 ranges, cold; the same shape warm 53 ms); a sparse filter (returned units of orders open
+when the store joined) read 983 orders and ended at the index's end, under the scan limit. The new indexes on this fill: placed
+2.5 MB, units by state 5.5 MB, units sent 6.5 MB, the ledger's 5.5 MB (about 27 bytes a row). Without 0033 the per-store waiting
+figure and the Returns list would read every unit of the store (RS7). `SalesScreensTest` holds the plan of each statement shape (the
+index named, no filesort where the order comes from the index, read from the index alone where it says so), so a later change cannot
+silently fall back to a scan. The fill's ledger times are not in id order (rows were written kind by kind), so its "undone this week"
+figure is not meaningful; on a real ledger `created_at` is the insert time and follows the id.
+
+**PD13. Words and look.** Every word is in `Words` (new groups SALE, SALE_STATE, SALE_ORIGIN, SALE_ORDER, DISPATCH, DISPATCH_CHIP,
+SALE_RETURNS, SALE_RETURN_KIND, SALE_RESTOCK, SALE_RESTOCK_TEXT; MENU, SEGMENT, MENU_HELP, PAGE_INTRO, HELP, SETTING, SETTING_TOPIC,
+SETTING_HELP, PERMISSION and TONE entries), in the owner's terms (a warehouse ITEM, a store VARIANT, a sold UNIT). No new CSS and no
+script: the v4 toolbar, tiles, pills, store selector, board groups and stacked cards of the neighbouring Stock pages; the templates
+are in `UiTemplatesTest`'s lint (every value through a helper, no typed word, every table a `table.stack` with labelled cells).
+
+**PD14. Left out, on purpose.** (1) A CSV of Dispatch (the stores' own dispatch screens print the picking lists). (2) Totals of
+orders or money per state or period (no COUNT over the table; pack E's reports). (3) A search by product or by a part of an order
+reference (Reservations searches the orders that hold a product now). (4) A days filter on Returns; and units not linked to a warehouse item
+in Dispatch's "Sending undone" (they move no stock, so the ledger has no row of their reset). (5) A "late only" list (the waiting list is oldest first, so the late ones come
+first). (6) The week's first day as a setting (PD6). (7) Anything that changes an order or the stock (PD8).
+<!-- ---- end of pack D ---- -->

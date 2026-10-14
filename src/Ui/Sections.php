@@ -56,7 +56,8 @@ final class Sections
         // Overview and Movements: stock_balance and the stock ledger (the item page's own figures: catalogue.view). The stock records of
         // pack A1 (docs/decisions.md SO10): the people who read records (documents.view) see their lists; the create buttons are for the
         // people who keep them (doc.<TYPE>.post). The other account's room (VPG 2) is the Transfers tab's "Balance owed". Reservations
-        // (docs/decisions.md RS1): the stock kept for the stores' orders, read only, for the same people as Overview and Movements.
+        // (docs/decisions.md RS1): the stock kept for the stores' orders, read only, for the same people as Overview and Movements. Sales
+        // (pack D, PD1): each store's orders, dispatch and returns, read only, for the people who look at sales (sales.view).
         'stock' => ['tabs' => [
             'stock' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock', 'match' => ['/ui/stock']]]],
             'movements' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock/movements', 'match' => ['/ui/stock/movements*']]]],
@@ -83,6 +84,14 @@ final class Sections
                     'badge' => 'counts_open'],
             ]],
             'reservations' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/stock/reservations', 'match' => ['/ui/stock/reservations*']]]],
+            // ---- Pack D (docs/decisions.md PD1, PD2): Sales, read only. Each store's orders (and one order's page), what waits to be
+            // sent, and what came back or was cancelled; the store chosen travels through the three segments (`keep`). ----
+            'sales' => ['segments' => true, 'keep' => ['channel'], 'pages' => [
+                ['key' => 'sales_orders', 'perm' => 'sales.view', 'path' => '/ui/stock/sales', 'match' => ['/ui/stock/sales', '/ui/stock/sales.csv', '/ui/stock/sales/{id}']],
+                ['key' => 'sales_dispatch', 'perm' => 'sales.view', 'path' => '/ui/stock/sales/dispatch', 'match' => ['/ui/stock/sales/dispatch*']],
+                ['key' => 'sales_returns', 'perm' => 'sales.view', 'path' => '/ui/stock/sales/returns', 'match' => ['/ui/stock/sales/returns*']],
+            ]],
+            // ---- end of pack D ----
             'quality' => ['soon' => true],
         ]],
         'purchasing' => ['tabs' => [

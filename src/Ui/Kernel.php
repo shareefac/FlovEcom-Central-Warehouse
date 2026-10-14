@@ -37,6 +37,9 @@ use CW\Ui\Controller\ReceivingController;
 use CW\Ui\Controller\ReferenceController;
 use CW\Ui\Controller\ReorderController;
 use CW\Ui\Controller\ReservationsController;
+use CW\Ui\Controller\SalesController; // pack D
+use CW\Ui\Controller\DispatchController; // pack D
+use CW\Ui\Controller\SalesReturnsController; // pack D
 use CW\Ui\Controller\ReviewController;
 use CW\Ui\Controller\ReviewsController;
 use CW\Ui\Controller\SalesHistoryController;
@@ -595,6 +598,18 @@ final class Kernel
         $r->add('GET', ReservationsController::PATH, 'catalogue.view', $reservations->index(...));
         $r->add('GET', ReservationsController::PATH . '.csv', 'catalogue.view', $reservations->csv(...));
         $r->add('GET', ReservationsController::PATH . '/{id}', 'catalogue.view', $reservations->show(...));
+        // ---- Pack D (docs/decisions.md PD1, PD2): Stock › Sales, each store's orders, dispatch and returns. Read only: GET routes and
+        // nothing else (CW\Reservations stays the only writer of an order, CW\Stock of the ledger), for sales.view. ----
+        $storeOrders = new SalesController();
+        $dispatch = new DispatchController();
+        $returns = new SalesReturnsController();
+        $r->add('GET', SalesController::PATH, 'sales.view', $storeOrders->index(...));
+        $r->add('GET', SalesController::PATH . '.csv', 'sales.view', $storeOrders->csv(...));
+        $r->add('GET', DispatchController::PATH, 'sales.view', $dispatch->index(...));
+        $r->add('GET', SalesReturnsController::PATH, 'sales.view', $returns->index(...));
+        $r->add('GET', SalesReturnsController::PATH . '.csv', 'sales.view', $returns->csv(...));
+        $r->add('GET', SalesController::PATH . '/{id}', 'sales.view', $storeOrders->show(...));
+        // ---- end of pack D ----
         // The stock records of pack A1 (docs/decisions.md SO10): documents.view looks; doc.<TYPE>.post keeps them (checked again by
         // CW\StockOps\StockOps and the document base, never admin). The balance owed to another account: documents.view looks,
         // accounts.pay records and reverses payments (checked again by CW\StockOps\OtherAccounts).

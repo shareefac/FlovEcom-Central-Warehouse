@@ -69,7 +69,7 @@ final class MenusTest extends KernelUiTestCase
         $stock = self::sectionTabs($desk->get('/ui/stock'));
         self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Stock In', '/ui/stock/in'], ['Stock Out', '/ui/stock/out'],
             ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', '/ui/stock/counts'], ['Reservations', '/ui/stock/reservations'],
-            ['Quality', null]],
+            ['Sales', '/ui/stock/sales'], ['Quality', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], $stock));
 
         // The desk's screens of Phase I-4 to I-6 are named on the Dashboard, without phase codes.
@@ -147,7 +147,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString('coming in Phase', $home->text());
         $xp = new \DOMXPath($home->dom());
         self::assertSame(['/ui/items/cards', '/ui/stock', '/ui/stock/movements', '/ui/stock/in', '/ui/stock/out', '/ui/stock/transfers', '/ui/stock/adjustments',
-            '/ui/stock/counts', '/ui/stock/reservations', '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
+            '/ui/stock/counts', '/ui/stock/reservations', '/ui/stock/sales', '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
             '/ui/documents', '/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals', '/ui/reference/reasons',
             '/ui/reference/settings'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),

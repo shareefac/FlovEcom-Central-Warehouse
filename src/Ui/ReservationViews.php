@@ -324,12 +324,13 @@ final class ReservationViews
     /**
      * The reservations with these ids, newest first, each with its items added up: the store products on it, the sold items, the
      * warehouse units they stand for (an item not linked to a warehouse product stands for none), how many items are not linked, how
-     * many items are in each state, and the board's group.
+     * many items are in each state, and the board's group. Public for Stock › Sales (pack D, docs/decisions.md PD4), whose lists
+     * show the same rows.
      *
      * @param list<int> $ids
      * @return list<array<string, mixed>>
      */
-    private function rows(array $ids): array
+    public function rows(array $ids): array
     {
         if ($ids === []) {
             return [];

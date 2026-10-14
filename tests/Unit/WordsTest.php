@@ -85,7 +85,8 @@ final class WordsTest extends TestCase
             'SEGMENT' => ['review', 'samples', 'pending', 'reorder', 'brands', 'anomalies', 'sales_history', 'receiving', 'bench', 'incidents', 'transfers', 'releases',
                 'accounts', 'settings', 'series',
                 'integrity',
-                'counts', 'count_sheets', 'count_differences'],
+                'counts', 'count_sheets', 'count_differences',
+                'sales_orders', 'sales_dispatch', 'sales_returns'], // the last three: pack D
             'NEW' => ['orders', 'receiving', 'suppliers', 'people', 'warehouses', 'reasons', 'stock_in', 'stock_out', 'transfers', 'releases', 'adjustments',
                 'counts'],
             'DOC_TYPE' => array_values(\CW\StockOps\StockOpHandler::KINDS),
@@ -96,6 +97,14 @@ final class WordsTest extends TestCase
             'RESV_GROUP' => ReservationViews::GROUPS,
             'RESV_CHIP' => ReservationViews::GROUPS,
             'RESV_ORIGIN' => \CW\Reservations::ORIGINS,
+            // ---- Pack D (docs/decisions.md PD3-PD7) ----
+            'SALE_STATE' => \CW\Ui\SalesViews::STATES,
+            'SALE_ORIGIN' => \CW\Ui\SalesViews::ORIGINS,
+            'SALE_RETURN_KIND' => \CW\Ui\SalesViews::KINDS,
+            'DISPATCH_CHIP' => ['late', 'on_time'],
+            'SALE_RESTOCK' => ['yes', 'no', 'none'],
+            'SALE_RESTOCK_TEXT' => ['returned', 'cancelled', 'cancelled_held', 'verify_open', 'verify_resolved', 'verify_dismissed', 'unlinked', 'unknown'],
+            // ---- end of pack D ----
             'COMING_LATER' => array_column(Permissions::COMING_LATER, 'key'),
             'BADGE' => [...Sections::badgeNames(), 'section'],
             'TAB' => ['more'],
@@ -302,7 +311,9 @@ final class WordsTest extends TestCase
         $keys = [];
         foreach (['0009_suppliers.sql', '0010_purchase_orders.sql', '0011_reorder.sql', '0017_receiving.sql', '0018_site_writer.sql', '0019_set_it_yourself.sql',
             '0021_mapping_bulk.sql', '0025_by_item_bulk.sql', '0026_new_variants.sql', '0027_arrival_check.sql', '0028_arrival_site_state.sql',
-            '0029_stock_counts.sql'] as $file) {
+            '0029_stock_counts.sql',
+            '0033_sales_dispatch_views.sql', // pack D
+        ] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
         }

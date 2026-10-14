@@ -136,6 +136,14 @@ final class SectionsTest extends TestCase
             ['/ui/stock/reservations', ['channel' => 'vapeandgo', 'state' => 'held'], 'stock', 'reservations', 'reservations'],
             ['/ui/stock/reservations.csv', [], 'stock', 'reservations', 'reservations'],
             ['/ui/stock/reservations/12', [], 'stock', 'reservations', 'reservations'],
+            // ---- Pack D (docs/decisions.md PD1) ----
+            ['/ui/stock/sales', ['channel' => 'vpg', 'state' => 'paid'], 'stock', 'sales', 'sales_orders'],
+            ['/ui/stock/sales.csv', [], 'stock', 'sales', 'sales_orders'],
+            ['/ui/stock/sales/12', ['unit' => 'u1'], 'stock', 'sales', 'sales_orders'],
+            ['/ui/stock/sales/dispatch', ['show' => 'today'], 'stock', 'sales', 'sales_dispatch'],
+            ['/ui/stock/sales/returns', [], 'stock', 'sales', 'sales_returns'],
+            ['/ui/stock/sales/returns.csv', ['kind' => 'returned'], 'stock', 'sales', 'sales_returns'],
+            // ---- end of pack D ----
             ['/ui/purchasing/reorder', [], 'purchasing', 'reorder', 'reorder'],
             ['/ui/purchasing/reorder/items/12', [], 'purchasing', 'reorder', 'reorder'],
             ['/ui/purchasing/reorder/brands', [], 'purchasing', 'reorder', 'brands'],
@@ -202,7 +210,12 @@ final class SectionsTest extends TestCase
         self::assertSame(['All Products', 'Barcodes'], $tabs(['stock_controller'], 'products'));
         self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates'], $tabs(['mapper'], 'products'));
         self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Barcodes'], $tabs(['mapping_lead'], 'products'));
-        self::assertSame(['Overview', 'Movements', 'Reservations'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock');
+        self::assertSame(['Overview', 'Movements', 'Reservations', 'Sales'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock; Sales (pack D, PD2)');
+        // ---- Pack D (docs/decisions.md PD2): Sales is for the people who look at sales, not the matching jobs and not admin ----
+        self::assertSame(['Overview', 'Movements', 'Reservations'], $tabs(['mapper'], 'stock'));
+        self::assertSame(['Overview', 'Movements', 'Reservations'], $tabs(['admin'], 'stock'));
+        self::assertContains('Sales', $tabs(['warehouse'], 'stock'));
+        // ---- end of pack D ----
 
         // Admin: people and settings, no buying and no approvals (I12); Reports for the audit log.
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Reports', 'Settings'], $sections(['admin']));
@@ -272,7 +285,7 @@ final class SectionsTest extends TestCase
         $f = Sections::frame(['buyer'], [], '/ui/stock');
         self::assertSame([['Overview', '/ui/stock', true, false], ['Movements', '/ui/stock/movements', false, false], ['Stock In', '/ui/stock/in', false, false],
             ['Stock Out', '/ui/stock/out', false, false], ['Transfers', '/ui/stock/transfers', false, false], ['Adjustments', '/ui/stock/adjustments', false, false],
-            ['Counts', '/ui/stock/counts', false, false], ['Reservations', '/ui/stock/reservations', false, false], ['Quality', null, false, true]],
+            ['Counts', '/ui/stock/counts', false, false], ['Reservations', '/ui/stock/reservations', false, false], ['Sales', '/ui/stock/sales', false, false], ['Quality', null, false, true]],
             array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current'], $t['soon']], $f['pagebar']['tabs']));
         self::assertSame([], $f['segments']);
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column($f['phone'], 'label'), 'the phone bar the owner approved');

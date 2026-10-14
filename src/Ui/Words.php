@@ -52,7 +52,9 @@ final class Words
         'BY_ITEM_BULK', 'BY_ITEM_SKIP',
         'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER', 'ARRIVAL_LEFT',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
-        'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN'];
+        'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
+        // pack D (docs/decisions.md PD13)
+        'SALE', 'SALE_STATE', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -203,6 +205,12 @@ final class Words
         'quality' => 'Quality',
         'releases' => 'Releases',
         'accounts' => 'Balance owed',
+        // ---- Pack D (docs/decisions.md PD1): Stock › Sales and its three segments ----
+        'sales' => 'Sales',
+        'sales_orders' => 'Store orders',
+        'sales_dispatch' => 'Dispatch',
+        'sales_returns' => 'Returns and cancels',
+        // ---- end of pack D ----
         // Purchasing
         'reorder' => 'Reorder',
         'orders' => 'Purchase Orders',
@@ -255,6 +263,11 @@ final class Words
         'transfers' => 'Transfers',
         'releases' => 'Releases',
         'accounts' => 'Balance owed',
+        // ---- Pack D (docs/decisions.md PD1) ----
+        'sales_orders' => 'Orders',
+        'sales_dispatch' => 'Dispatch',
+        'sales_returns' => 'Returns',
+        // ---- end of pack D ----
     ];
 
     /** A page's create button (Sections::MAP `new`): a verb that names the result. */
@@ -305,6 +318,8 @@ final class Words
         'adjustments' => 'Corrections and write-offs of the stock figure, each line with its reason.',
         'counts' => 'Count the shelves: what to count next, the count sheets, and the count differences to check.',
         'reservations' => 'The stock kept for each store\'s orders: in a checkout, paid and waiting to ship, freed, or run out of time.',
+        // Pack D (docs/decisions.md PD1)
+        'sales' => 'Each store\'s orders, what waits to be sent, and what came back or was cancelled.',
         'reorder' => 'What to buy now, worked out from sales.',
         'orders' => 'The orders we send to suppliers.',
         'goods_in' => 'Book in each delivery against its supplier invoice, check it, and deal with what was wrong.',
@@ -497,6 +512,15 @@ final class Words
         'reservations' => ['The stock CW keeps for each order of a store until it is sent, freed or runs out of time, newest first.',
             'Choose a store or a state, or search for a store\'s order reference, a product name or a CW number. You can only look: the stores and CW change these.'],
         'reservation' => ['One order of a store: the stock CW keeps for it, and what happened to that stock.', ''],
+        // ---- Pack D (docs/decisions.md PD1-PD8) ----
+        'sales_orders' => ['Every order of each store, newest first, with what became of it.',
+            'Choose a store, the days, a state or how it came in. You can only look: the stores change their orders.'],
+        'sales_order' => ['One order of a store: each unit sold, its warehouse item, and every stock change CW booked for it.', ''],
+        'sales_dispatch' => ['Paid orders that are not sent yet, oldest first, and what was sent today and this week.',
+            'An order waiting longer than the hours set on the Settings page is late. You can only look: the stores send orders.'],
+        'sales_returns' => ['Units the customers sent back, and units cancelled before they were sent, newest order first.',
+            'The store\'s own return page puts them back in stock. A cancel that could not go back on sale waits in a check room for a recount.'],
+        // ---- end of pack D ----
         'incidents' => ['Problems the goods-in bench found in deliveries that are booked in: short, extra, damaged, the wrong product, or no duty stamp.',
             'Close each one with what was done, for example a credit asked for or the goods sent back.'],
     ];
@@ -937,6 +961,242 @@ final class Words
         // The CSV
         'csv_more' => 'only the newest %s reservations: narrow the filter for the rest',
     ];
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // ---- Pack D (docs/decisions.md PD1-PD14): Stock › Sales, each store's orders, dispatch and returns. Read only. ----
+
+    /**
+     * Store orders' state filter (Ui\SalesViews::STATES): the engine's order states (paid = every paid order), then the orders with at
+     * least one sold unit sent, cancelled or returned.
+     */
+    public const SALE_STATE = [
+        'held' => 'Reserved, not paid',
+        'paid' => 'Paid (every sale)',
+        'shipped' => 'With a unit sent',
+        'cancelled' => 'With a unit cancelled',
+        'returned' => 'With a unit returned',
+        'released' => 'Freed by the store',
+        'expired' => 'Ran out of time',
+    ];
+
+    /** How an order came in (reservation.origin), short, for the filter and the list (RESV_ORIGIN says it in full on the order). */
+    public const SALE_ORIGIN = [
+        'reserved' => 'Reserved first',
+        'unreserved' => 'Paid without a reservation',
+        'opening' => 'Open when the store joined',
+    ];
+
+    /** Stock › Sales › Orders (/ui/stock/sales; Ui\Controller\SalesController). */
+    public const SALE = [
+        'state' => 'State',
+        'any_state' => 'Every state',
+        'origin' => 'How it came in',
+        'any_origin' => 'Any way',
+        'from' => 'Placed from (day)',
+        'to' => 'Placed until (day)',
+        'clear' => 'Clear the filters',
+        'download' => 'Download this list as a spreadsheet (CSV)',
+        'store_count' => 'paid orders waiting to ship',
+        'period_default' => 'Placed in the last %s days',
+        'period_today' => 'Placed today',
+        'period_range' => 'Placed from %s to %s',
+        'period_from' => 'Placed from %s',
+        'period_to' => 'Placed until %s',
+        'period_all' => 'Placed any time',
+        'show_all' => 'Any time',
+        'show_default' => 'The last %s days',
+        'bad_dates' => 'A day you typed is not a real day, or the first day is after the last one: the list shows the last %s days instead.',
+        'board' => 'Orders',
+        'board_note' => 'Newest first, %s at a time.',
+        'on_page_one' => '1 order on this page',
+        'on_page_many' => '%s orders on this page',
+        'order' => 'Order',
+        'store' => 'Store',
+        'status' => 'Status',
+        'placed' => 'Placed',
+        'paid' => 'Paid',
+        'came_in' => 'How it came in',
+        'units' => 'Units',
+        'outcome' => 'What became of it',
+        'older' => 'Older orders',
+        'newest' => 'Back to the newest',
+        'stopped' => 'This page read %s orders and stopped before it was full. Older orders may still match.',
+        'read_on' => 'Read on',
+        'none' => 'No orders yet.',
+        'none_store' => 'No orders for this store yet.',
+        'none_text' => 'When a customer starts a checkout on a store, the order appears here and stays here once it is paid, sent, cancelled, freed or run out of time.',
+        'none_filtered' => 'No order matches your filter.',
+        'none_filtered_text' => 'No order fits the days, the state or the way in you chose. Clear them to see every order of this store choice.',
+        'foot' => 'Units are warehouse units. Nothing on this page changes an order: the stores make, pay, send, cancel and free them.',
+        'csv_more' => 'only the newest %s orders: narrow the filter for the rest',
+        'csv_stopped' => 'the list stopped after reading %s orders: narrow the filter for the rest',
+    ];
+
+    /** One order's page (/ui/stock/sales/{id}): its facts, its sold units, and each unit's stock changes. */
+    public const SALE_ORDER = [
+        'title' => 'Order %s',
+        'facts' => 'About this order',
+        'f_store' => 'Store',
+        'f_ref' => 'The store\'s order reference',
+        'f_state' => 'State',
+        'f_placed' => 'Placed',
+        'f_paid' => 'Paid',
+        'f_origin' => 'How it came in',
+        'f_waiting' => 'Waiting to ship since payment',
+        'f_products' => 'Store variants',
+        'f_units' => 'Warehouse units',
+        'f_kept' => 'Stock kept for it',
+        'kept_link' => 'See the reservation',
+        'units' => 'Sold units',
+        'units_text' => 'One row for each unit the customer bought, as the store numbers it.',
+        'no_units' => 'No sold unit is recorded for this order.',
+        'u_unit' => 'Unit',
+        'u_item' => 'Warehouse item',
+        'u_variant' => 'Store variant',
+        'u_warehouse' => 'Warehouse',
+        'u_state' => 'Status',
+        'u_sent' => 'Sent',
+        'u_unlinked' => 'Not linked to a warehouse item at the sale: no stock is kept for it',
+        'u_per_item' => '1 sold unit = %s warehouse units',
+        'u_variant_text' => 'Variant %s',
+        'more_units' => 'More units of this order',
+        'first_units' => 'Back to the first units',
+        'steps' => 'What happened to each unit',
+        'steps_text' => 'Every stock change CW booked for each unit on this page, oldest first. Open a change to see it among the item\'s movements.',
+        'steps_unit' => 'Unit %s',
+        'steps_none' => 'No stock change was booked for this unit.',
+        'steps_unlinked' => 'Not linked to a warehouse item at the sale, so no stock moved and CW keeps no steps for it. Its status now is shown above.',
+        'steps_capped' => 'Only the first %s stock changes of these units are shown.',
+        's_what' => 'What happened',
+        's_when' => 'When',
+        's_where' => 'Warehouse',
+        's_figures' => 'Stock figures',
+        's_who' => 'By',
+        's_open' => 'In Movements',
+        's_open_link' => 'Open',
+        's_cw' => 'CW, by itself',
+        'late' => 'late',
+    ];
+
+    /** Stock › Sales › Dispatch (/ui/stock/sales/dispatch; Ui\Controller\DispatchController). */
+    public const DISPATCH = [
+        'store_count' => 'orders waiting to ship',
+        'figures' => 'Main figures',
+        'tile_waiting' => 'Waiting to ship',
+        'tile_waiting_sub' => '%s units, paid and not sent',
+        'tile_late' => 'Late',
+        'tile_late_sub' => 'paid more than %s hours ago',
+        'tile_late_more' => 'at least %s',
+        'tile_today' => 'Sent today',
+        'tile_today_sub' => '%s units',
+        'tile_week' => 'Sent this week',
+        'tile_week_sub' => '%s units since Monday',
+        'tile_undone' => 'Sending undone this week',
+        'tile_undone_sub' => 'units back with the orders to ship',
+        'show' => 'Show',
+        'show_waiting' => 'Waiting to ship',
+        'show_today' => 'Sent today',
+        'show_week' => 'Sent this week',
+        'show_undone' => 'Sending undone',
+        'order' => 'Order',
+        'store' => 'Store',
+        'paid' => 'Paid',
+        'waiting' => 'Waiting',
+        'status' => 'Status',
+        'units' => 'Units',
+        'note' => 'Note',
+        'sent' => 'Sent',
+        'now' => 'Now',
+        'undone_at' => 'Undone',
+        'unit' => 'Unit',
+        'who' => 'By',
+        'hours_one' => '1 hour',
+        'hours_many' => '%s hours',
+        'days_many' => '%s days',
+        'under_hour' => 'under an hour',
+        'was_undone' => 'Sending was undone before',
+        'unlinked_one' => '1 unit not linked to a warehouse item',
+        'unlinked_many' => '%s units not linked to a warehouse item',
+        'board_waiting' => 'Waiting to ship, oldest first, %s at a time.',
+        'board_sent' => 'Newest first, %s at a time.',
+        'later' => 'Later orders',
+        'earlier' => 'Earlier orders',
+        'back' => 'Back to the start',
+        'none_waiting' => 'Nothing is waiting to ship.',
+        'none_waiting_text' => 'Every paid order of this choice is sent, cancelled or returned.',
+        'none_today' => 'Nothing was sent today yet.',
+        'none_week' => 'Nothing was sent this week yet.',
+        'none_sent_text' => 'When a store sends a paid order, it appears here with the time it was sent.',
+        'none_undone' => 'No sending was undone.',
+        'none_undone_text' => 'When a store resets a dispatch, the units go back to waiting to ship and appear here.',
+        'undone_unlinked' => 'Units that are not linked to a warehouse item move no stock, so an undone sending of one is not listed here.',
+        'late_capped' => 'The late figure looked at the oldest %s waiting orders only.',
+        'foot' => 'Units are sold units. Nothing on this page changes an order: the stores send them and undo a sending.',
+        'csv_more' => 'only the oldest %s waiting orders: choose one store for the rest',
+    ];
+
+    /** A waiting order's status label on Dispatch: paid longer ago than the setting's hours, or not. */
+    public const DISPATCH_CHIP = [
+        'late' => 'Late',
+        'on_time' => 'On time',
+    ];
+
+    /** Stock › Sales › Returns (/ui/stock/sales/returns; Ui\Controller\SalesReturnsController). */
+    public const SALE_RETURNS = [
+        'store_count' => 'units waiting for a recount',
+        'kind' => 'What happened',
+        'any_kind' => 'Returned and cancelled',
+        'figures' => 'Main figures',
+        'tile_verify' => 'Waiting for a recount',
+        'tile_verify_sub' => 'cancelled units in %s',
+        'board' => 'Returned and cancelled units',
+        'board_note' => 'Newest order first, %s at a time.',
+        'order' => 'Order',
+        'store' => 'Store',
+        'unit' => 'Unit',
+        'item' => 'Warehouse item',
+        'what' => 'What happened',
+        'when' => 'When',
+        'back_on_sale' => 'Back on sale?',
+        'stock_now' => 'Where the stock is',
+        'older' => 'Older orders',
+        'newest' => 'Back to the newest',
+        'none' => 'Nothing was returned or cancelled yet.',
+        'none_store' => 'Nothing of this store was returned or cancelled yet.',
+        'none_text' => 'When a customer sends units back, or a store cancels paid units before sending them, they appear here.',
+        'none_filtered' => 'Nothing matches your filter.',
+        'none_filtered_text' => 'Choose Returned and cancelled to see both.',
+        'clear' => 'Clear the filter',
+        'download' => 'Download this list as a spreadsheet (CSV)',
+        'foot' => 'Nothing on this page changes the stock: the store\'s own return page books a return, and a recount settles a unit in the check room.',
+        'csv_more' => 'only the newest %s units: choose one store or one kind for the rest',
+    ];
+
+    /** Returns' kind filter: what became of the unit (reservation_unit.state). */
+    public const SALE_RETURN_KIND = [
+        'returned' => 'Returned by the customer',
+        'cancelled' => 'Cancelled before sending',
+    ];
+
+    /** Back on sale? A short answer per returned or cancelled unit (Ui\SalesViews::restock). */
+    public const SALE_RESTOCK = [
+        'yes' => 'Yes',
+        'no' => 'No',
+        'none' => 'No stock kept',
+    ];
+
+    /** Where the stock of a returned or cancelled unit is now, in words (%s: a warehouse's name). */
+    public const SALE_RESTOCK_TEXT = [
+        'returned' => 'Back in stock at %s',
+        'cancelled' => 'Back on sale at %s',
+        'cancelled_held' => 'Not paid yet: the reservation was freed at %s',
+        'verify_open' => 'Not on sale: moved to %s, waiting for a recount',
+        'verify_resolved' => 'Moved to %s for a recount: the recount is done',
+        'verify_dismissed' => 'Moved to %s for a recount: the recount was closed',
+        'unlinked' => 'Not linked to a warehouse item at the sale: no stock was kept',
+        'unknown' => 'No stock change was found for it',
+    ];
+    // ---- end of pack D ----
 
     // ------------------------------------------------------------------------------------------------------------------
     // Pack A1: Stock In, Stock Out, Adjustments, Transfers, Releases from another account and the balance owed
@@ -1969,6 +2229,13 @@ final class Words
         'mapping.arrival_state_max_days' => 'How old the website\'s state may be',
         'staff.setup_hours' => 'Hours to set up a sign-in',
         'staff.min_reviewers' => 'Reviewers needed',
+        // ---- Pack D (docs/decisions.md PD9) ----
+        'sales.page_size' => 'Rows on a page of Sales',
+        'sales.default_days' => 'Days Store orders looks back',
+        'sales.late_hours' => 'Hours before a paid order is late',
+        'sales.csv_max_rows' => 'Most rows in a Sales spreadsheet',
+        'sales.scan_max_rows' => 'Most rows one Sales page reads',
+        // ---- end of pack D ----
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2057,6 +2324,13 @@ final class Words
             . '**Sold, waiting to ship:** the order is paid; the stock stays off sale until the store sends it. '
             . '**Freed by the store:** the store let the stock go, for example because the customer left the checkout. '
             . '**Ran out of time:** nobody paid in time, so CW freed the stock.',
+        // Pack D (docs/decisions.md PD3, PD5)
+        'sales_orders' => '**Paid (every sale)** is every order that was paid, whatever happened next. **With a unit sent, cancelled or returned** '
+            . 'shows the orders that have at least one such unit. **Placed** is when the store first told CW about the order, in UK days. '
+            . 'An order that was already open when the store joined CW shows the day it joined.',
+        'sales_dispatch' => '**Waiting to ship** is every paid unit the store has not sent yet. **Late** is the number of orders paid longer ago than the hours '
+            . 'set on the Settings page. **Sent today** and **Sent this week** (from Monday) are the orders with a unit sent then, also when the customer '
+            . 'sent it back later. **Sending undone** is a dispatch the store reset: the unit is back with the orders waiting to ship.',
         'join_undo' => 'Vape and Go sometimes sells one product on two pages. **Join** them when they are the same product: both pages then use one warehouse product, '
             . 'so stock and sales are kept together on one product. Nothing changes on the website. If you joined two that are different, **Undo the join**: the page gets its own product '
             . 'back (with its stock, less what sold since), or becomes a new product. Once the website sells warehouse stock, joining or undoing needs a second matching lead.',
@@ -2996,6 +3270,7 @@ final class Words
         'approvals' => 'Approval rules',
         'staff' => 'Staff',
         'mapping' => 'Matching products',
+        'sales' => 'Sales and dispatch', // pack D (PD9)
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -3081,6 +3356,15 @@ final class Words
             . 'state reads as not known: such a variant is skipped until its store\'s list is loaded again, or a person opens it and decides.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
+        // ---- Pack D (docs/decisions.md PD9) ----
+        'sales.page_size' => 'How many rows Stock › Sales shows on a page (Orders, Dispatch, Returns), and how many sold units of one order: 25, 50, 100 or 200.',
+        'sales.default_days' => 'Store orders opens with the orders placed in this many days, today included (7: the last week). '
+            . 'The page also offers any time and dates of your own.',
+        'sales.late_hours' => 'A paid order that is not sent this many hours after payment is late on Dispatch (24: a day). At most 30 days.',
+        'sales.csv_max_rows' => 'The most rows one spreadsheet of Stock › Sales holds. A spreadsheet that stops says so in its last row.',
+        'sales.scan_max_rows' => 'Some lists of Stock › Sales cannot find their rows directly, for example orders with a unit returned that came in '
+            . 'without a reservation. Such a page reads at most this many rows, then says it stopped and offers to read on.',
+        // ---- end of pack D ----
     ];
 
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */
@@ -7477,6 +7761,7 @@ final class Words
         'audit.view' => 'Read the audit log',
         'system.view' => 'Look at the websites\' link and the system checks',
         'staff.approve' => 'Give the OK when someone is given Admin or Reviewer',
+        'sales.view' => 'Look at each store\'s orders, dispatch and returns (Sales)', // pack D (PD2)
     ];
 
     /** The "Who can do what" page (/ui/reference/access). */
@@ -7644,6 +7929,10 @@ final class Words
         'RESV_UNIT' => ['held' => 'info', 'allocated' => 'needs', 'shipped' => 'done', 'cancelled' => 'off', 'released' => 'off', 'returned' => 'waiting'],
         // By Item's cells, as Store Products colours the same states.
         'PRODUCT_STORE' => ['matched' => 'done', 'waiting' => 'review', 'suggested' => 'needs', 'rejected' => 'blocked', 'none' => 'waiting'],
+        // ---- Pack D (docs/decisions.md PD6, PD7): a waiting order late or on time; back on sale or not ----
+        'DISPATCH_CHIP' => ['late' => 'blocked', 'on_time' => 'waiting'],
+        'SALE_RESTOCK' => ['yes' => 'done', 'no' => 'blocked', 'none' => 'off'],
+        // ---- end of pack D ----
     ];
 
     // ==================================================================================================================
