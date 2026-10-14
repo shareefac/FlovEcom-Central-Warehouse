@@ -46,6 +46,8 @@ final class Context
     private ?GoodsReceipts $goodsReceipts = null;
     private ?StockOps $stockOps = null;
     private ?CountSheets $countSheets = null;
+    private ?\CW\Invoices\SupplierInvoices $supplierInvoices = null;
+    private ?\CW\Invoices\SupplierReturns $supplierReturns = null;
     /** @var array<string, array{review: int, approval: int}>|null the tasks this person may decide, by document type (checks()) */
     private ?array $checksByType = null;
     /** @var array<string, int>|null the badge counts of this request (computed once) */
@@ -171,6 +173,17 @@ final class Context
     {
         return new CountReviews($this->db, $this->documents());
     }
+    // --- Pack C (IM7): supplier invoices, credit notes and returns to the supplier, with the file store for their papers.
+    public function supplierInvoices(): \CW\Invoices\SupplierInvoices
+    {
+        return $this->supplierInvoices ??= new \CW\Invoices\SupplierInvoices($this->db, $this->documents(), fn (): FileStore => $this->files());
+    }
+
+    public function supplierReturns(): \CW\Invoices\SupplierReturns
+    {
+        return $this->supplierReturns ??= new \CW\Invoices\SupplierReturns($this->db, $this->documents(), fn (): FileStore => $this->files());
+    }
+    // --- end of pack C
 
     /** Another account's stock in our building and the balance owed to it (pack A1). */
     public function otherAccounts(): OtherAccounts
@@ -303,6 +316,10 @@ final class Context
             // Stock > Counts > Differences (pack A2a): the open count differences this person may clear (not their own while a second
             // person is asked for).
             $out['counts_open'] = $this->countReviews()->openCount($this->who->id, $this->who->roles);
+        }
+        // --- Pack C: the posted invoices whose 3-way match needs a person, for the people who post or accept invoices.
+        if ($this->who !== null && ($this->who->can('doc.SINV.post') || $this->who->can('invoices.accept'))) {
+            $out['invoices_to_match'] = $this->supplierInvoices()->toMatchCount();
         }
         $checks = $this->checks();
         if ($checks !== null) {

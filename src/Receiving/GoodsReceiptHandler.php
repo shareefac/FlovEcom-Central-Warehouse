@@ -242,6 +242,9 @@ final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
         $dismissed = $db->exec("UPDATE incident SET status = 'dismissed', resolution = ?, resolved_by = ?, resolved_actor = ?, resolved_at = ? WHERE document_id = ? AND status = 'open'",
             ["the receipt was reversed by {$reversal->number}", $caller->staffUserId, $caller->actor, $now, $original->id]);
         $db->exec('UPDATE goods_receipt SET invoice_key = NULL, updated_at = ? WHERE document_id = ?', [$now, $original->id]);
+        // Pack C (docs/decisions.md PC10): the supplier invoices that bill this delivery are worked out again (it has nothing to invoice
+        // now); after this receipt's own rows, before the stock.
+        \CW\Invoices\InvoiceMatch::afterReceiptReversed($db, $original->id);
         Audit::write($db, $caller, 'grn.reverse', 'document', (string) $original->id, $opKey . ':grn', ['number' => $original->number, 'reversed_by' => $reversal->number,
             'reason' => $reversal->reasonCode, 'po_units_back' => $back, 'incidents_dismissed' => $dismissed]);
     }

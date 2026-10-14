@@ -63,7 +63,9 @@ final class ReorderScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('REORDER', 'data_from', (string) self::$db->value("SELECT name FROM channel WHERE code = 'vapeandgo'"), '1 Jun 2026',
             '1 Oct 2026'), $page->text());
         self::assertStringNotContainsString('∞', $page->text(), 'no sales: "no sales", never ∞ (F318)');
-        self::assertSame([['Reorder', '/ui/purchasing/reorder', true], ['Purchase Orders', '/ui/purchasing/orders', false], ['Suppliers', '/ui/purchasing/suppliers', false]],
+        // Pack C: + Invoices and Returns (a buyer reads them).
+        self::assertSame([['Reorder', '/ui/purchasing/reorder', true], ['Purchase Orders', '/ui/purchasing/orders', false], ['Invoices', '/ui/purchasing/invoices', false],
+            ['Returns', '/ui/purchasing/returns', false], ['Suppliers', '/ui/purchasing/suppliers', false]],
             array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']], self::sectionTabs($page)), 'Purchasing › Reorder');
         self::assertSame(['Suggestions', 'Brands', 'Anomalies', 'Sales history'], array_column(self::segments($page), 'label'));
         self::assertSame('Suggestions', self::segments($page)[0]['current'] ? 'Suggestions' : null);

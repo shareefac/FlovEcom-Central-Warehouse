@@ -27,6 +27,8 @@ use CW\Settings;
  *      approvals.staff_grant          giving Admin or Reviewer waits for a reviewer's OK (StaffAdmin; OFF by default)
  *      approvals.staff_reset          a new sign-in code, a new password or a new sign-up sheet for someone holding Admin or Reviewer
  *                                     waits for a reviewer's OK (StaffAdmin, RoleRequests; OFF by default, Y44)
+ *      approvals.invoice_accept_other accepting the differences of an invoice that does not match is done by someone other than the
+ *                                     person who posted it (Invoices\SupplierInvoices::accept; OFF by default, pack C PC6)
  *
  * A setting missing from an older schema reads as its default (SWITCHES, NUMBERS): the rules as they were before 0019.
  *
@@ -50,6 +52,8 @@ final class ApprovalRules
         'approvals.staff_reset' => false,
         // ---- Pack B (0031, docs/decisions.md PB3): an item made by hand is checked afterwards by a second person (it never waits).
         'approvals.item_by_hand_check' => false,
+        // --- Pack C (0032, docs/decisions.md PC6): accepting an invoice's differences needs a second person (off).
+        'approvals.invoice_accept_other' => false,
     ];
     /** number => its default. */
     public const NUMBERS = [
@@ -60,7 +64,9 @@ final class ApprovalRules
     public const PAGE = [
         'records' => [['document', 'PO'], ['document', 'GRN'], ['document', 'SIN'], ['document', 'SOUT'], ['document', 'ADJ'], ['document', 'TRF'],
             ['document', 'REL'], ['document', 'CNT'], ['document', 'WO'], ['document', 'SINV'], ['document', 'DN'], ['document', 'TRD'],
-            ['document', 'RPK']], // pack B: Repack (PB9)
+            ['document', 'RPK'], // pack B: Repack (PB9)
+            // --- Pack C (0032): the supplier's credit note.
+            ['document', 'SCN']],
         'suppliers' => [['switch', 'approvals.supplier_activation'], ['switch', 'suppliers.change_review'], ['number', 'suppliers.approval_due_days']],
         'matching' => [['switch', 'approvals.match_multiple'], ['switch', 'approvals.match_counted'], ['switch', 'approvals.mapping_bulk_second_ok'],
             ['number', 'approvals.spot_check_size']],
@@ -68,6 +74,8 @@ final class ApprovalRules
         'staff' => [['switch', 'approvals.staff_grant'], ['switch', 'approvals.staff_reset']],
         // ---- Pack B (PB3): items made by hand.
         'items' => [['switch', 'approvals.item_by_hand_check']],
+        // --- Pack C (0032): supplier invoices.
+        'invoices' => [['switch', 'approvals.invoice_accept_other']],
     ];
     /** The numbers whose lower value is the looser rule (a smaller spot check proves less). */
     public const LOWER_IS_LOOSER = ['approvals.spot_check_size'];

@@ -6,6 +6,8 @@ namespace CW\Documents;
 
 use CW\Counts\CountSheetHandler;
 use CW\Db;
+use CW\Invoices\SupplierInvoiceHandler;
+use CW\Invoices\SupplierReturnHandler;
 use CW\PurchaseOrders\PurchaseOrderHandler;
 use CW\Receiving\GoodsReceiptHandler;
 use CW\StockOps\StockOpHandler;
@@ -25,6 +27,8 @@ use CW\StockOps\StockOpHandler;
  *          transfers, REL releases from another account's warehouse (CW\StockOps\StockOpHandler, docs/decisions.md SO1-SO16) — LIVE.
  *   - pack A2a (12 Oct 2026): CNT stock counts, booked through the count engine (CW\Counts\CountSheetHandler, docs/decisions.md CT1-CT18) — LIVE.
  *   - pack B (14 Oct 2026, Item Management): RPK repack (CW\Items\RepackHandler, docs/decisions.md PB9-PB12) — LIVE.
+ *   - pack C (IM7): SINV supplier invoices and SCN the supplier's credit notes (CW\Invoices\SupplierInvoiceHandler), DN returns to the
+ *          supplier / debit notes (CW\Invoices\SupplierReturnHandler; docs/decisions.md PC1-PC18) — LIVE.
  * The document-base tests still register tests/Support/Documents/FixtureAdjustmentHandler as ADJ on their own Documents (and
  * KernelUiTestCase::kernel() puts it in place of the real ADJ for the screen tests written before A1): it never ships.
  */
@@ -39,6 +43,8 @@ final class DocumentHandlers
         return ['PO' => new PurchaseOrderHandler($db), 'GRN' => new GoodsReceiptHandler($db)] + StockOpHandler::all($db, $clock)
             + [CountSheetHandler::TYPE => new CountSheetHandler($db, $clock)]
             // ---- Pack B (docs/decisions.md PB9): RPK, a Repack (break packs into singles, make packs from singles).
-            + ['RPK' => new \CW\Items\RepackHandler($db, $clock)];
+            + ['RPK' => new \CW\Items\RepackHandler($db, $clock)]
+            // --- Pack C (IM7, docs/decisions.md PC1-PC18): supplier invoices, the supplier's credit notes, returns to the supplier.
+            + SupplierInvoiceHandler::all($db, $clock) + ['DN' => new SupplierReturnHandler($db, $clock)];
     }
 }

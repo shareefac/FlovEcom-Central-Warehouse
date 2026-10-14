@@ -66,6 +66,8 @@ final class ReviewsController
                     'PO' => '/ui/purchasing/orders/' . ($doc->reversesId ?? $doc->id),
                     // A receipt (IM6, I141) and its reversal are decided on the receipt's page in Receiving.
                     'GRN' => '/ui/receiving/' . ($doc->reversesId ?? $doc->id),
+                    // Pack C: a supplier invoice, credit note or return on its own page in Purchasing.
+                    'SINV', 'SCN', 'DN' => self::purchasingPath($doc->docType, $doc->id),
                     // A stock record (pack A1), and a cancellation of one, on its own page in Stock.
                     default => StockOps::kindOf($doc->docType) !== null ? StockOps::PATHS[(string) StockOps::kindOf($doc->docType)] . '/' . $doc->id
                         : '/ui/documents/' . $doc->id,
@@ -174,6 +176,10 @@ final class ReviewsController
             }
         } catch (CwException $e) {
             return match (true) {
+                // Pack C: an invoice, a credit note or a return shows the refusal on its own page.
+                in_array($task['doc_type'], ['SINV', 'SCN'], true) => (new InvoicesController())->page($ctx, $task['doc_type'] === 'SINV' ? 'invoice' : 'credit_note', $docId,
+                    $e->httpStatus, $e),
+                $task['doc_type'] === 'DN' => (new SupplierReturnsController())->page($ctx, $docId, $e->httpStatus, $e),
                 $po => (new PurchaseOrdersController())->page($ctx, $docId, $e->httpStatus, $e),
                 $grn => (new ReceivingController())->page($ctx, (int) ($task['reverses_id'] ?? $docId), $e->httpStatus, $e),
                 $stock !== null => (new StockOpsController())->page($ctx, $stock, $docId, $e->httpStatus, $e),
@@ -183,6 +189,9 @@ final class ReviewsController
         if ($stock !== null) {
             return HtmlResponse::redirect(Html::url(StockOps::PATHS[$stock] . '/' . $docId, ['notice' => $notice]));
         }
+        if (in_array($task['doc_type'], ['SINV', 'SCN', 'DN'], true)) {
+            return HtmlResponse::redirect(Html::url(self::purchasingPath((string) $task['doc_type'], $docId), ['notice' => $notice]));
+        }
         if ($po) {
             return HtmlResponse::redirect(Html::url('/ui/purchasing/orders/' . ($task['reverses_id'] ?? $docId), ['notice' => $notice]));
         }
@@ -190,5 +199,15 @@ final class ReviewsController
             return HtmlResponse::redirect(Html::url('/ui/receiving/' . ($task['reverses_id'] ?? $docId), ['notice' => $notice]));
         }
         return HtmlResponse::redirect(Html::url('/ui/documents/' . $docId, ['notice' => $notice]));
+    }
+
+    /** Pack C: the page of a supplier invoice, credit note or return (each record, a cancellation too, has its own). */
+    private static function purchasingPath(string $type, int $id): string
+    {
+        return match ($type) {
+            'SINV' => \CW\Invoices\SupplierInvoices::PATHS['invoice'],
+            'SCN' => \CW\Invoices\SupplierInvoices::PATHS['credit_note'],
+            default => \CW\Invoices\SupplierReturns::PATH,
+        } . '/' . $id;
     }
 }

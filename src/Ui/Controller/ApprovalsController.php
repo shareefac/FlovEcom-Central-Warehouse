@@ -205,6 +205,8 @@ final class ApprovalsController
         $approval = match ($r['approval_rule']) {
             'none' => $r['approval_kind'] === null ? null : Words::APPROVALS['no_ok'],
             'over_value' => Words::say('SETTINGS_PAGE', 'rule_value', $limit),
+            // Pack C (PC6): an invoice outside the match tolerances by more than the limit waits for a reviewer's OK.
+            'over_difference' => Words::say('APPROVALS', 'rule_difference', $limit),
             default => Words::say('APPROVALS', 'units_cancel', $limit),
         };
         $reject = Words::rejectRule($code, (string) $r['reject_action']);

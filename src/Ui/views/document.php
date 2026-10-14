@@ -16,6 +16,9 @@
 <?php if ($grnHref !== null): ?>
 <p class="actions"><a class="btn secondary" href="<?= $u($grnHref) ?>"><?= $word('RECORD', 'open_receipt') ?></a> <span class="muted"><?= $word('RECORD', 'open_receipt_note') ?></span></p>
 <?php endif; ?>
+<?php if ($paperHref !== null): ?>
+<p class="actions"><a class="btn secondary" href="<?= $u($paperHref) ?>"><?= $word('RECORD', 'open_paper') ?></a> <span class="muted"><?= $word('RECORD', 'open_paper_note') ?></span></p>
+<?php endif; ?>
 
 <?php if ($decide !== null): ?>
 <?= $partial('decide_box', ['decide' => $decide]) ?>

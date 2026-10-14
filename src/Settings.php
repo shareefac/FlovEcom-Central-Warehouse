@@ -113,6 +113,15 @@ final class Settings
         // ---- Pack B (0031, docs/decisions.md PB5): the most items one bulk change of a family takes (a list of CW numbers, or the ticks).
         'items.family_bulk_max_rows' => ['min' => 1, 'max' => 1000],
         // ---- end of pack B
+        // --- Pack C (0032; docs/decisions.md PC3, PC9): supplier invoices. The 3-way match's tolerances (the plan's IM7 numbers; it
+        // gives none for the quantity: exact) and how an invoice's freight and duty are spread over its goods for the stock value.
+        'invoices.price_tolerance_pct' => ['min' => '0', 'max' => '100'],
+        'invoices.price_tolerance_gbp' => ['min' => '0', 'max' => '100000'],
+        'invoices.qty_tolerance_pct' => ['min' => '0', 'max' => '100'],
+        'invoices.total_tolerance_per_line' => ['min' => '0', 'max' => '100'],
+        'invoices.freight_spread' => ['in' => ['value', 'ml']],
+        'invoices.duty_spread' => ['in' => ['ml', 'value']],
+        // --- end of pack C
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];

@@ -151,12 +151,21 @@ final class Permissions
         'families.manage' => ['mapping_lead', 'stock_controller', 'purchasing_manager', 'buyer'],
         'doc.RPK.post' => ['stock_controller', 'warehouse'],
         // ---- end of pack B
+        // --- Pack C (IM7; docs/decisions.md PC7; provisional, owner to confirm). Supplier invoices and credit notes are the purchasing
+        // desk's and manager's (doc.SINV.post since I16; doc.SCN.post the same people); invoices.view reads them, the "To match" list and
+        // the deliveries not invoiced yet (buyers, the desk, managers, reviewers, the accountant, the auditor; not goods in: money);
+        // invoices.accept accepts the differences of an invoice that does not match (the desk, the purchasing manager, a reviewer; a
+        // second person only while approvals.invoice_accept_other is on). Returns to the supplier stay doc.DN.post (the desk and the
+        // purchasing manager, I16); returns.view reads them, goods in and the stock controller too (they pack the goods). Never admin.
+        'doc.SCN.post' => ['purchasing_desk', 'purchasing_manager'],
+        'invoices.view' => ['buyer', 'purchasing_manager', 'purchasing_desk', 'reviewer', 'accountant', 'auditor', 'manager'],
+        'invoices.accept' => ['purchasing_desk', 'purchasing_manager', 'reviewer'],
+        'returns.view' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'manager'],
+        // --- end of pack C
     ];
 
-    /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
+    /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a; supplier invoices and returns since pack C): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
     public const COMING_LATER = [
-        ['key' => 'invoices', 'perm' => 'doc.SINV.post'],
-        ['key' => 'returns', 'perm' => 'doc.DN.post'],
         ['key' => 'trade', 'perm' => 'doc.TRD.post'],
         ['key' => 'values', 'perm' => 'accounts.view'],
     ];

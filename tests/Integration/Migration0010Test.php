@@ -29,7 +29,7 @@ final class Migration0010Test extends IntegrationTestCase
         self::assertSame(['positive_without_supplier_doc', 10], [$by['ADJ']['approval_rule'], $by['ADJ']['approval_limit_units']], 'ADJ unchanged');
         $enum = (string) self::$db->value("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_type' "
             . "AND COLUMN_NAME = 'approval_rule'");
-        self::assertSame("enum('none','positive_without_supplier_doc','over_value')", $enum);
+        self::assertSame("enum('none','positive_without_supplier_doc','over_value','over_difference')", $enum, 'over_difference: 0032 (pack C, PC6)');
         self::assertSame("enum('reverse','record')", (string) self::$db->value("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
             . "AND TABLE_NAME = 'document_type' AND COLUMN_NAME = 'reject_action'"));
         self::assertSame('review_due_days', self::$db->value("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "

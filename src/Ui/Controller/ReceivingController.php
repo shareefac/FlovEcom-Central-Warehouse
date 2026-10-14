@@ -699,7 +699,31 @@ final class ReceivingController
             return $ctx->page('receipt_edit', $data, $status, ['title' => $data['title'], 'active' => 'receiving', 'notice' => $notice]);
         }
         $data['canSetInvoice'] = $canPost && $doc->status === 'draft' && $doc->createdBy !== $me->id;
+        // --- Pack C: the invoices that bill this delivery, and "Book its invoice" (the quick way) while units are left to invoice.
+        $data['invoiceBook'] = self::invoiceBook($ctx, $doc);
         return $ctx->page('receipt', $data + $this->viewData($ctx, $doc), $status, ['title' => $data['title'], 'active' => 'receiving', 'notice' => $notice]);
+    }
+
+    /**
+     * Pack C (docs/decisions.md PC17): a posted delivery's supplier invoices (number, match) and, for someone who books invoices while
+     * the delivery has units left to invoice, the form of "Book its invoice"; null for a delivery not posted or a reader of no invoices.
+     *
+     * @return array{invoices: list<array<string, mixed>>, left: int, formKey: ?string}|null
+     */
+    private static function invoiceBook(Context $ctx, \CW\Documents\Document $doc): ?array
+    {
+        $me = $ctx->me();
+        if ($doc->status !== 'posted' || $doc->isReversal() || !$me->can('invoices.view')) {
+            return null;
+        }
+        $invoices = $ctx->db->all("SELECT DISTINCT d.id, d.number, si.match_state FROM sinv_line sl JOIN supplier_invoice si ON si.document_id = sl.document_id "
+            . "AND si.kind = 'invoice' JOIN document d ON d.id = sl.document_id AND d.status = 'posted' WHERE sl.grn_document_id = ? ORDER BY d.id", [$doc->id]);
+        $left = 0;
+        foreach ((new \CW\Invoices\InvoiceMatch($ctx->db))->receiptFacts([$doc->id]) as $f) {
+            $left += max(0, $f['accepted'] - $f['returned'] - $f['invoiced_elsewhere']);
+        }
+        $canBook = $left > 0 && \CW\Documents\Documents::mayPost($me->roles, 'SINV');
+        return ['invoices' => $invoices, 'left' => $left, 'formKey' => $canBook ? FormOnce::newKey() : null];
     }
 
     /** "GRN-000001 – Elux Wholesale"; "Delivery from Elux Wholesale (not booked in yet)" for a draft; "Delivery from …" for one cancelled before. */

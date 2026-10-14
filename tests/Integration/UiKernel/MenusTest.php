@@ -36,9 +36,9 @@ final class MenusTest extends KernelUiTestCase
 
         // Purchasing: the buyer reorders, the desk receives, the reviewer reads all four.
         $tabs = static fn ($web): array => self::tabLabels($web->get('/ui/purchasing/orders'));
-        self::assertSame(['Reorder', 'Purchase Orders', 'Suppliers'], $tabs($buyer));
-        self::assertSame(['Purchase Orders', 'Goods In', 'Suppliers'], $tabs($desk), 'the desk sees goods in, not reorder');
-        self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Suppliers'], $tabs($reviewer));
+        self::assertSame(['Reorder', 'Purchase Orders', 'Invoices', 'Returns', 'Suppliers'], $tabs($buyer), 'invoices and returns since pack C');
+        self::assertSame(['Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], $tabs($desk), 'the desk sees goods in, not reorder');
+        self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], $tabs($reviewer));
         self::assertNotSame($tabs($buyer), $tabs($desk));
         self::assertSame(['/ui/purchasing/orders', '/ui/purchasing/orders', '/ui/purchasing/reorder'],
             [self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($buyer->get('/ui/'))['Purchasing']['href']],
@@ -73,7 +73,7 @@ final class MenusTest extends KernelUiTestCase
             array_map(static fn (array $t): array => [$t['label'], $t['href']], $stock));
 
         // The desk's screens of Phase I-4 to I-6 are named on the Dashboard, without phase codes.
-        self::assertStringContainsString(Words::UI['coming_later'] . ' supplier invoices, returns to suppliers, trade sales.', $deskHome->text());
+        self::assertStringContainsString(Words::UI['coming_later'] . ' trade sales.', $deskHome->text(), 'supplier invoices and returns are built (pack C)');
         self::assertStringNotContainsString('receiving deliveries', $deskHome->text(), 'receiving is built (IM6)');
         self::assertStringNotContainsString('Phase', $deskHome->text());
         self::assertStringNotContainsString('coming_later', $deskHome->text());
@@ -123,7 +123,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(403, $page->status);
         self::assertStringContainsString('You work as: Buyer · Stock controller.', $page->text());
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($both->get('/ui/'))));
-        self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Suppliers'], self::tabLabels($both->get('/ui/purchasing/orders')),
+        self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($both->get('/ui/purchasing/orders')),
             'the stock controller reads the receipts and the issues (IM6, I141)');
         self::assertSame([['All Products', '/ui/items/cards'], ['Barcodes', '/ui/items/barcodes'], ['Add Item', '/ui/items/new'], ['Families', '/ui/items/families'],
             ['Multipacks', '/ui/items/packs']],
@@ -149,7 +149,9 @@ final class MenusTest extends KernelUiTestCase
         $xp = new \DOMXPath($home->dom());
         self::assertSame(['/ui/items/cards', '/ui/items/families', '/ui/items/packs', '/ui/stock', '/ui/stock/movements', '/ui/stock/in', '/ui/stock/out',
             '/ui/stock/transfers', '/ui/stock/adjustments', '/ui/stock/counts', '/ui/stock/reservations', '/ui/stock/sales', '/ui/stock/repack',
-            '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
+            '/ui/purchasing/reorder', '/ui/purchasing/orders',
+            '/ui/purchasing/invoices', '/ui/purchasing/returns', // Pack C: Purchasing › Invoices and Returns (invoices.view, returns.view)
+            '/ui/purchasing/suppliers',
             '/ui/documents', '/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals', '/ui/reference/reasons',
             '/ui/reference/settings'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),

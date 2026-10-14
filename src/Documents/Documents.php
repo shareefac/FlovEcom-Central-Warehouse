@@ -200,6 +200,7 @@ final class Documents
             $db->exec("UPDATE document SET status = 'cancelled', cancelled_by = ?, cancelled_at = ?, cancel_reason = ?, version = version + 1, "
                 . 'updated_at = ? WHERE id = ?', [$me['id'], $now, $reason, $now, $id]);
             Audit::write($db, $caller, 'document.cancel', 'document', (string) $id, null, ['reason' => $reason]);
+            $this->cancelled($id, $caller); // Pack C: CancelHook
             return $this->get($id);
         });
     }
@@ -405,6 +406,7 @@ final class Documents
                 . 'updated_at = ? WHERE id = ?', [$me['id'], $now, $note, $now, $doc->id]);
             Audit::write($db, $reviewer, 'document.reject', 'document', (string) $doc->id, null,
                 ['task_id' => $taskId, 'kind' => 'approval', 'units' => $task['units'], 'note' => $note]);
+            $this->cancelled($doc->id, $reviewer); // Pack C: CancelHook
             return $this->get($doc->id);
         });
     }
@@ -996,6 +998,19 @@ final class Documents
             throw new CwException('unknown_type', "there is no document type {$code}", 400, ['type' => mb_substr($code, 0, 16)]);
         }
         return $r;
+    }
+
+    /**
+     * --- Pack C (review finding 5): a handler with module rows tied to a live record hears that its draft or approval request was
+     * cancelled, in the same transaction (CancelHook; a supplier invoice frees the supplier's number).
+     */
+    private function cancelled(int $id, Caller $caller): void
+    {
+        $doc = $this->get($id);
+        $handler = $this->handlers[$doc->docType] ?? null;
+        if ($handler instanceof CancelHook) {
+            $handler->cancelled($this->db, $doc, $caller);
+        }
     }
 
     /** @param array<string, mixed> $t */

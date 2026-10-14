@@ -55,6 +55,9 @@ namespace CW;
  *   - stock counting (0029, pack A2a): a final count sheet's record lines are its counted lines and booked what its lines say, the
  *     checks of its differences, the records that put one line back (CW\Counts\CountInvariants C1-C5, CT16).
  *   - pack B: every repack has its header and booked exactly its lines; every item made by hand has its record (CW\Items\ItemsInvariants B1-B3).
+ *   - supplier invoices, credit notes and returns (0032, pack C): headers of their kind, the write-once posting anchor, invoice keys,
+ *     every posted invoice's stored 3-way match equal to the match now, value events netting to zero with their reversal, a return's
+ *     claim (CW\Invoices\InvoiceInvariants V1-V7, PC11).
  *
  * Returns human-readable violations; an empty list means consistent. Read-only.
  *
@@ -190,6 +193,8 @@ final class Invariants
         array_push($v, ...StockOps\StockOpsInvariants::check($db));
         array_push($v, ...Counts\CountInvariants::check($db));
         array_push($v, ...Items\ItemsInvariants::check($db)); // pack B: repacks and items made by hand (B1-B3)
+        // --- Pack C (docs/decisions.md PC11): supplier invoices, credit notes and returns V1-V7.
+        array_push($v, ...Invoices\InvoiceInvariants::check($db));
         return $v;
     }
 

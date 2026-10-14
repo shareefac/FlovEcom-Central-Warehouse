@@ -45,7 +45,7 @@ final class PermissionsTest extends TestCase
     public function testEveryRoleOfTheMapIsKnownAndTheMappingRolesAreUnchanged(): void
     {
         foreach (Permissions::MAP as $perm => $roles) {
-            self::assertMatchesRegularExpression('/^[a-z]+\.[a-z]+$|^doc\.(PO|GRN|SINV|DN|CNT|ADJ|WO|TRD|SIN|SOUT|TRF|REL|RPK)\.post$/D', $perm); // RPK: pack B
+            self::assertMatchesRegularExpression('/^[a-z]+\.[a-z]+$|^doc\.(PO|GRN|SINV|DN|CNT|ADJ|WO|TRD|SIN|SOUT|TRF|REL|RPK|SCN)\.post$/D', $perm); // RPK: pack B; SCN: pack C
             self::assertNotSame([], $roles, $perm);
             self::assertSame([], array_values(array_diff($roles, Permissions::ROLES)), "{$perm}: unknown role");
             self::assertSame(array_values(array_unique($roles)), $roles, $perm);
@@ -213,7 +213,7 @@ final class PermissionsTest extends TestCase
     /** What the Dashboard's "Coming later" names for each job (the screens not built yet). */
     public function testComingLaterNamesTheScreensNotBuiltYet(): void
     {
-        self::assertSame(['invoices', 'returns', 'trade'], Permissions::comingLater(['purchasing_desk']), 'named on the Dashboard; receiving is built');
+        self::assertSame(['trade'], Permissions::comingLater(['purchasing_desk']), 'named on the Dashboard; receiving is built, supplier invoices and returns since pack C');
         self::assertSame([], Permissions::comingLater(['goods_in']));
         self::assertSame([], Permissions::comingLater(['buyer']));
         self::assertSame([], Permissions::comingLater(['stock_controller']), 'adjustments are built (pack A1), stock counts too (pack A2a)');

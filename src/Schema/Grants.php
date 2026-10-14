@@ -63,7 +63,9 @@ final class Grants
         'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change', 'grn_posting', 'item_selling_mode_log', 'item_channel_mode_log',
         'config_change', 'integrity_run', 'mapping_batch', 'mapping_batch_row', 'other_account_entry', 'count_sheet',
         // ---- Pack B (0031): a Repack's header is written once, with its record (the cancellation's copy is a row of its own).
-        'repack'];
+        'repack',
+        // --- Pack C (0032): the posting anchor of a SINV, SCN or DN, and the value-only events of invoices waiting for IM8.
+        'purchase_doc_posting', 'invoice_value_event'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -149,7 +151,11 @@ final class Grants
         // ---- Pack B (0031): a family is renamed or switched off, never deleted; an item is taken out of its family (NULL), the row stays.
         'item_family', 'item_family_member',
         // a name's guard row (making an item by hand: written, never removed)
-        'item_name_guard'];
+        'item_name_guard',
+        // --- Pack C (0032): the header of a supplier invoice or credit note, and of a return to the supplier (cancelled or reversed,
+        // never deleted). sinv_line and dn_line keep FULL rights: a draft's lines are replaced (cascade with their document_line).
+        // grn_invoice_left: what a delivery has left to invoice, rewritten by each posting (PC18).
+        'supplier_invoice', 'supplier_return', 'grn_invoice_left'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

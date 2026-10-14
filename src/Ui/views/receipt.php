@@ -140,6 +140,32 @@
   </dl>
 </section>
 
+<?php if (($invoiceBook ?? null) !== null): ?>
+<section aria-labelledby="receipt-inv-h">
+  <h2 id="receipt-inv-h"><?= $word('INVOICES', 'receipt_invoices') ?></h2>
+<?php if ($invoiceBook['invoices'] === []): ?>
+  <p class="muted"><?= $word('INVOICES', 'receipt_none') ?></p>
+<?php else: ?>
+  <ul>
+<?php foreach ($invoiceBook['invoices'] as $inv): ?>
+    <li><a href="<?= $u('/ui/purchasing/invoices/' . $inv['id']) ?>"><?= $e($inv['number']) ?></a><?php if ($inv['match_state'] !== null): ?> <?= $stateChip('MATCH_STATE', $inv['match_state']) ?><?php endif; ?></li>
+<?php endforeach; ?>
+  </ul>
+<?php endif; ?>
+<?php if ($invoiceBook['left'] > 0): ?>
+  <p class="muted"><?= $say('INVOICES', 'receipt_left', $invoiceBook['left']) ?></p>
+<?php endif; ?>
+<?php if ($invoiceBook['formKey'] !== null): ?>
+  <form class="inline" method="post" action="/ui/purchasing/invoices/from-receipt">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="form_key" value="<?= $e($invoiceBook['formKey']) ?>">
+    <input type="hidden" name="grn_id" value="<?= $e($doc->id) ?>">
+    <button type="submit" class="primary"><?= $word('INVOICES', 'book_invoice') ?></button>
+  </form>
+<?php endif; ?>
+</section>
+<?php endif; ?>
+
 <section class="where-units" aria-labelledby="where-h">
   <div class="head-help">
     <h2 id="where-h"><?php if ($doc->status === 'draft'): ?><?= $word('RECEIPT', 'where_draft') ?><?php else: ?><?= $word('RECEIPT', 'where') ?><?php endif; ?></h2>

@@ -239,7 +239,7 @@ final class WordsTest extends TestCase
         self::assertSame('a, b and c', Words::andList(['a', 'b', 'c']));
         self::assertSame('a', Words::andList(['a']));
         self::assertSame('', Words::andList([]));
-        self::assertSame('supplier invoices, returns to suppliers, trade sales', Words::comingLater(['purchasing_desk']), 'receiving is built (IM6)');
+        self::assertSame('trade sales', Words::comingLater(['purchasing_desk']), 'receiving is built (IM6), supplier invoices and returns (pack C)');
         self::assertSame('', Words::comingLater(['goods_in']), 'the goods-in bench is built: nothing comes later for goods in');
         self::assertSame('', Words::comingLater(['buyer']));
         self::assertSame('Our name, numbers and addresses as printed on every purchase order. You can look; Reviewers change this.', Words::intro('company', 'Reviewers'));
@@ -314,6 +314,7 @@ final class WordsTest extends TestCase
             '0029_stock_counts.sql',
             '0033_sales_dispatch_views.sql', // pack D
             '0031_items_families_repack.sql', // pack B
+            '0032_supplier_invoices.sql', // pack C
         ] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];

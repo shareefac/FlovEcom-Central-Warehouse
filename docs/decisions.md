@@ -8993,3 +8993,181 @@ Tests: `tests/Integration/Items/ItemsRaceTest.php` (two worker processes, `items
 (built, off) or a block until then? (3) PB7: is "sold separately" right as "a variant matched with 1 unit a sale", or must that variant be on
 sale (the website state of 0028)? (4) PB10: carry the cost, or value what a repack makes at the average later? (5) Families on the reorder
 list, the purchase order editor and the reports (Q4's "order and see reports by product") are not built here: they come with those screens.
+
+## Pack C: supplier invoices, the 3-way match, credit and debit notes, returns to suppliers (worktree `pack-c`, 14 Oct 2026)
+
+<!-- Pack C block: decisions PC1-PC18. Kept as one block for the merge (Packs B, D and E are built at the same time). -->
+
+Plan IM7 ("supplier invoices, credit/debit notes, supplier returns"; the owner's list of 8 Oct 2026: "Purchase & Replenishment: to add
+(pack C): supplier invoices with 3-way match; returns to supplier / debit notes"). Code: `migrations/0032_supplier_invoices.sql` (after
+0029 A2a, 0031 B and 0033 D; 0030 is reserved for A2b), `src/Invoices/{InvoiceMath,InvoiceMatch,SupplierInvoiceHandler,
+SupplierInvoices,SupplierReturnHandler,SupplierReturns,InvoiceInvariants}.php` (new), `src/Ui/Controller/{Invoices,SupplierReturns}Controller.php`
+and the templates `invoices`, `invoices_to_match`, `invoices_not_invoiced`, `supplier_invoice`, `supplier_returns`, `supplier_return` (new);
+marked blocks in `src/Documents/DocumentHandlers.php`, `src/Documents/Documents.php` (two calls of the new optional `CancelHook`,
+`src/Documents/CancelHook.php`), `src/Invariants.php`, `src/Receiving/GoodsReceiptHandler.php` (one call),
+`src/Settings.php`, `src/Auth/Permissions.php`, `src/Schema/Grants.php`, `src/Admin/{DocumentRules,ApprovalRules}.php`,
+`src/Ui/{Words,Sections,Context,Kernel}.php`, `src/Ui/Controller/{Approvals,Reviews,Documents,Reference}Controller.php`,
+`src/Ui/views/document.php`. Tests: `tests/Unit/{InvoiceMath,InvoiceTemplates}Test.php`, `tests/Integration/Invoices/`,
+`tests/Integration/UiKernel/InvoiceScreensTest.php`, `tests/Integration/Migration0032Test.php`, and the shared tests the new tabs, kinds
+and words change.
+
+**PC1. Three papers, each a document type.** The supplier invoice (SINV, 0008), the supplier's credit note (SCN, new in 0032: its own
+number series `SCN-`; a credit note is not a negative invoice, so its number never mixes with the invoices') and the return to the supplier
+(DN, 0008: "supplier return / debit note"). Each is a draft -> posted (a reviewer's OK first only when a rule asks) -> cancelled by its
+reversal; a draft is stopped, never deleted. An invoice or credit note is a `document` (the supplier's number as `external_ref`, the date
+on the paper as `doc_date`) with a `supplier_invoice` header (the supplier; net, VAT and net + VAT exactly as the paper states them; a
+credit note's invoice and debit note; the stored match) and lines with a `sinv_line` (goods, freight, duty, service, other). A goods line
+is packs x units per pack at a pack price, like a receipt line (the same formulas: `PoMath`), and names the delivery line and the order
+line it bills. A return is a `document` with a `supplier_return` header and `dn_line`s (see PC13). `CW\Invoices\SupplierInvoices` and
+`SupplierReturns` are the services; `SupplierInvoiceHandler` (registered for SINV and SCN) and `SupplierReturnHandler` (DN) post them.
+The posted module content is anchored write-once in `purchase_doc_posting` (like `grn_posting`; V2).
+
+**PC2. The 3-way match, per goods line (`InvoiceMatch`, `InvoiceMath`).** What a line bills: its units and amount, less what the
+supplier's posted credit notes took off that line. What is there to invoice ("available"): the delivery line's units accepted into stock
+(`grn_line.accepted_units` of a posted receipt), less the units posted returns took back beyond the line's exceptions (PC14), less what the
+supplier's OTHER posted invoices bill of that delivery line (net of their credit notes), less what this invoice's earlier lines bill of it.
+The reference price: the order line's (pack price / units per pack), else the delivery's provisional cost, else none. A line is
+`matched` (no extra units, the price exact), `within` the tolerance, or `off`. One invoice line names at most one delivery line: several
+deliveries on one invoice are several lines (the quick way adds a line per delivery line); one delivery over several invoices is the
+"other invoices" term; a delivery billed twice shows on both invoices. A line of a paper that sums two deliveries is keyed as two lines
+(a build decision: the alternative, one line allocated over several delivery lines, needs an allocation table and a screen to split).
+Billing fewer units than are there is not a mismatch (a partial invoice): the rest waits on "Not invoiced yet".
+
+**PC3. The tolerances are settings, with the plan's numbers (IM7 W2: "price ±2% or ±£5 per line; total ±£0.05 × lines").**
+`invoices.price_tolerance_pct` 2 and `invoices.price_tolerance_gbp` 5.00: a line's price difference (its amount less the same units at the
+reference price) is within when it is at most £5 OR at most 2 % of the expected amount ("or" read as: either is enough; 0 switches that
+test off; both 0: exact; a build decision to put to the owner). `invoices.qty_tolerance_pct` 0: the plan gives no quantity tolerance, so
+exact (the over-delivery tolerance of IM5/IM6, 10 %, is about receiving, not billing). `invoices.total_tolerance_per_line` 0.05: the
+lines may differ from the stated net total by 5p a line; beyond it the posting is refused (422 `total_mismatch`: a typing error in a line,
+corrected before posting), within it the invoice is `within_tolerance`. All provisional, on Settings > Supplier invoices.
+
+**PC4. The invoice's state and the "To match" list.** `needs_review` when a goods line is off; `within_tolerance` when a line is within or
+the total differs by rounding; else `matched`. The money a person looks at (`match_difference`): on the lines that are off, what is
+charged above the units there at the reference price. The state of every posted invoice is stored (`supplier_invoice.match_*`, with the
+tolerances it was worked out with), so "To match" is one read on `(match_state, document_id)` and the badge one COUNT. A person holding
+`invoices.accept` accepts the differences with a reason (3-500 characters): `accepted`, kept while the match is exactly what they accepted:
+the same lines off with the same figures (`accepted_fingerprint`: each off line's units, money, units there, reference price, extra units,
+money above and why). Any other match drops the acceptance (columns cleared, audit `invoice.accept_dropped` keeps it), so it never covers
+a later difference nobody looked at (review finding 4, 14 Oct: the count and the money alone could match another line's difference). "Check these again" works the listed invoices out with
+the tolerances in force now (after a tolerance changed). A goods line billed before its delivery (from an order: `addOrder`) has nothing
+there to invoice and needs review (`no_delivery`): the plan has the invoice entered with or after the delivery.
+
+**PC5. When the stored match is worked out again.** Inside the transaction of every change it reads: the invoice's own posting and
+reversal; the posting and reversal of another invoice, a credit note or a return on the same deliveries; and the reversal of a receipt
+(`GoodsReceiptHandler::reverse` calls `InvoiceMatch::afterReceiptReversed`, one line: its invoices now bill units that are not there:
+`delivery_reversed`). The nightly check V4 works every stored match out again with its stored tolerances (the newest 2,000 records), so a
+change that forgot to do it is found.
+
+**PC6. Second-person rules: all OFF by default, all on the Approval Rules page (the owner's rule).** (1) The reviewer check after
+posting is `none` for SINV, DN and SCN: version 2 of SINV's and DN's rule (0008 seeded `all` as a placeholder before any screen; the
+"To match" list is the check an invoice gets), SCN's baseline `none`. (2) The OK first for a big record (`size_approval`, the SIZE_TYPES of
+pack A1) for the three, sizes kept for when it is switched on (SINV £5,000; DN 100 units or £500; SCN £1,000). (3) NEW: an invoice whose
+match needs review and charges more than a limit over what was ordered and received waits for a reviewer's OK before it is posted
+(`approval_rule` `over_difference`, its limit in whole pounds, 0: any; `approvalUnits` = the money to look at rounded up). (4) NEW switch
+`approvals.invoice_accept_other`: the differences of an invoice are accepted by someone other than the person who posted it (403
+`own_invoice`); off, the poster may accept them, and the acceptance records the version of the switch it relied on (`rule_evidence`).
+
+**PC7. Who (provisional, owner to confirm).** `doc.SINV.post` and `doc.DN.post` stay the purchasing desk's and the purchasing manager's
+(I16); `doc.SCN.post` the same people. `invoices.view` reads invoices, credit notes, "To match" and "Not invoiced yet": buyers, the desk,
+the purchasing manager, reviewers, the accountant, the auditor, the manager; not goods in (money). `invoices.accept`: the desk, the
+purchasing manager, a reviewer. `returns.view` reads returns: as invoices.view plus goods in and the stock controller (they pack the
+goods). Never admin (I12). `Permissions::COMING_LATER` no longer names invoices and returns.
+
+**PC8. Price differences, freight and duty: recorded for the value engine, which is not built.** The task: feed them into the existing
+value engine as value-only events, but only if it already has the route. It does not: `stock_value_ledger` exists (C0, I5: kinds
+`cost_adjust`, `landed`, `price_credit` among them) but nothing writes it, and `Valuation.php` (IM8) does not exist. So a posting records
+them on the invoice, in `invoice_value_event` (append-only; a reversal records the negation; V5): `price_difference` (a goods line on a
+delivery: its amount less the delivery's units at the delivery's provisional cost), `freight` and `duty` (an invoice's freight and duty
+lines spread over its delivered goods lines, PC9), `credit` (a credit note's goods line on a delivery: minus its amount). Each names the
+item, the delivery line, the units, the amount (signed), how it was worked out and the date on the paper (the valuation date). **What is
+missing for IM8:** (1) `Valuation.php`, the only writer of `stock_value_ledger`: the moving average per (pool, item), consuming
+`stock_value_seq` in seq order; (2) a consumer of `invoice_value_event` that posts each as a value-only entry (`price_credit` /
+`cost_adjust` for a price difference or a credit, `landed` for freight and duty) at its `effective_on`, the part for units still held to
+stock and the part for units sold since to cost of sales (FRS 102; the plan's A1 posting map); (3) a marker of which events it has
+consumed (none exists: nothing reads them yet); (4) whether a return's claimed price (the cost on its `supplier_return` ledger rows,
+"evidence for IM8", I1) or the average values the units going back. `Stock.php`'s locks and buckets are untouched.
+
+**PC9. How freight and duty are spread (settings).** Over the same invoice's goods lines on a delivery (IM8 Must; "across different
+invoices" is IM8 W2): freight by value (`invoices.freight_spread` value | ml), duty by the liquid (`invoices.duty_spread` ml | value: units x
+the item card's ml), to the penny by the largest remainder (the shares add up exactly); an item card without ml counts 0 and, when no line
+has any, the spread is by value. An invoice without delivered goods (a carrier's freight invoice) spreads nothing.
+
+**PC10. Locks (no cycle with the postings).** A posting or reversal of an invoice, credit note or return locks, after its own document
+row and its number series (Documents), the `document` rows of the deliveries it reads (`InvoiceMatch::lockReceipts`, FOR UPDATE, id order;
+a credit note first its invoice's row; an invoice whose OK first for differences is switched on takes them before its number series, in
+`approvalUnits`, so the decision is made with them held through the posting: review finding 1), then the `supplier_invoice` rows it rewrites (`refresh`, id order, never another invoice's
+`document` row). A receipt's reversal holds its own document row and takes the `supplier_invoice` rows. So a receipt reversed while one of
+its invoices is posted waits for the other, and the second sees what the first did. An invoice with a posted credit note is not reversed
+(409 `has_credit_notes`: reverse the credit note first), so a credit note never reduces a reversed invoice.
+
+**PC11. The nightly checks V1-V7 (`InvoiceInvariants`, called by `Invariants::check`).** V1 headers of their kind; V2 the posting anchor;
+V3 invoice keys (live: the number's key; cancelled or reversed: none); V4 the stored match; V5 value events net to zero with their reversal;
+V6 a posted return's claim is the sum of its lines; V7 what a delivery has left to invoice, as stored (PC18).
+
+**PC12. One supplier's paper is booked once.** `UNIQUE (supplier_id, kind, invoice_key)`: the key is the number as receipts compare it
+(`ReceiptMath::invoiceKey`: case and spaces ignored; hyphens and slashes kept, I176 (2) still open), held while the record is draft,
+waiting or posted and freed when it is stopped, refused at its OK first (the document base's `CancelHook`, called by `cancelDraft` and
+`reject`: review finding 5) or cancelled. A duplicate is 409 `duplicate_invoice` naming the earlier one ("SINV-000001",
+or "draft invoice #12 (who keyed it)"). An invoice and a credit note of the same number are two papers; another supplier's number is
+another paper. A receipt's own invoice number (IM6) is the same paper as the invoice booked from it: not a duplicate.
+
+**PC13. A return to the supplier is our debit note.** A DN takes stock out through the stock writer (`Movements::bookForDocument`, movement
+`supplier_return`, one per warehouse, LAST in the posting), each item line from the warehouse it names (MAIN, VERIFY, UNSTAMPED: our own
+stock, switched on), at the price claimed per unit (the ledger row's cost, cost source `document`), with a reason offered for returns that
+takes stock down (line or header; the Reasons page). A line's amount is units x price to the penny plus the duty claimed with it; a claim
+without goods (a short delivery, an overcharge) is an amount and what it is for. Posted, its claim (`claim_total`, excl. VAT) is the debit
+note. Never below zero for a protected product unless the reason allows it (pack A1's rule, checked again after booking); never more back
+from where it leaves than the delivery line put there (VERIFY: its exceptions there; UNSTAMPED: its quarantined units; anywhere else: its
+accepted units) over every posted return (422 `return_more_than_received`). A return about a delivery (its header names one) takes every
+item from that delivery's lines: an item added by hand is given the line of that item with room (else its first line), one not on the
+delivery is refused (422 `line_not_on_delivery`), and changing the delivery re-links the lines (review finding 2). Once:
+posting it again is 409 `not_draft` and moves nothing. Cancelled by its reversal (the generic exact negation; above the "stock put back"
+limit it waits for a reviewer's OK, I32). The quick way: "Return what a delivery put aside" (its VERIFY and UNSTAMPED units not gone back
+yet, from where they are, at the delivery's price).
+
+**PC14. A return before the invoice lowers what waits to be invoiced; stock value is never reduced twice.** Units returned on a delivery
+line count against what it put where they leave from (`InvoiceMatch::EXCEPTION_WAREHOUSES`): from VERIFY or UNSTAMPED, its exceptions
+(damaged, wrong item, over; unstamped: never accepted, never to be invoiced); from anywhere else, its accepted units. So returning the
+damaged units changes nothing on the invoice side (the supplier's credit note does), and returning accepted units before the invoice leaves
+fewer to invoice ("Not invoiced yet", the match). (First built as "exceptions first, whatever the warehouse": review finding 3, 14 Oct,
+showed accepted units going back from MAIN were then not taken off.)
+
+**PC15. Credit notes.** A credit note names the invoice it reduces (or none: a credit on account) and the return it answers (optional).
+Each goods line credits units of one line of that invoice (it copies the line's delivery and order) and is billed less in the match (PC2);
+never more than the line billed over every posted credit note (422 `credit_more_than_invoiced`). It lowers what is owed on the invoice
+(the invoice's net + VAT less its posted credit notes' net + VAT; payments are not in CW). A return shows how its claim stands: not
+credited yet, part credited, credited (the posted credit notes' net against the claim). "Book the supplier's credit note" on a return
+starts one with a goods credit for each returned line its invoice bills (at most what is left to credit), the duty claimed, and the rest
+of the claim as "other" lines.
+
+**PC16. Duty in a claim.** A retailer cannot reclaim duty on damaged or destroyed stock, so the supplier's credit includes it (plan IM7).
+The quick return fills the duty only when the supplier's invoice of that delivery charged duty on its own line (the receipt's expected
+duty, pro rata to the units): when the pack price includes the duty, the claimed price already does, and adding it again would claim it
+twice. The desk can change it.
+
+**PC17. Screens (the v4 look; tabs inside Purchasing; no new sidebar item).** Purchasing › Invoices (segments: Invoices, To match with its
+badge for the people who post or accept invoices, Not invoiced yet with "Book its invoice" on each delivery, Credit notes) and Purchasing ›
+Returns. The quick way is "Book its invoice", on "Not invoiced yet" and on the delivery's own page in Goods In (which also names the
+invoices that bill it): the invoice starts with the delivery's number (left empty with a notice
+when an invoice of the supplier already has it), the date on its invoice, its invoice copy, and a line per delivery line still to
+invoice; the desk checks the lines, types the total without VAT and the VAT, and posts. A record's generic page (Approvals › History) and
+a review decision lead to its own page. Every word is in `Ui\Words` (INVOICES, INVOICE_KIND, ... RETURN_ERROR).
+
+**PC18. "Not invoiced yet" reads stored figures; the list reads were measured.** Adding every delivery line up on each view took
+1.4-3.4 s on a filled schema (a year of purchasing: 5,000 deliveries of 10 lines, 4,000 invoices, 300 credit notes, 500 returns; staging,
+32 MB buffer pool) and 0.5 s for one supplier; per-line lookups and LATERAL were no better in the worst case (`packc_grni.txt`). So every
+posting and reversal of an invoice, a credit note or a return stores, for the deliveries it names (locked, before any stock is booked),
+what each still has to be invoiced (`grn_invoice_left`: units and their value at the delivery's provisional cost, `InvoiceMatch::
+storeReceipts`); a delivery none has named has no row and everything it accepted is left. The list is then one read on the posted
+deliveries, newest first. V7 checks the rows (the newest 2,000) and that every delivery named has one. The returns list's "credited" is
+one grouped read of the credit notes that answer a return (a subquery per return chose a full scan of `supplier_invoice`: 2.2-2.9 s for
+500 returns). Every other new read is an indexed one (`packc_explain.txt`, in the build's run folder, not committed).
+
+**Not done (out of scope or left for the owner):** supplier payments, the ledger, bank, VAT returns and the accountant's files (scope);
+the supplier item's "last price from the latest invoice" (IM4; I146's open item): an invoice records no `supplier_item_price` row, because a
+price row cannot be taken back when the invoice is cancelled (append-only) and S4 would then keep a cancelled price: a decision for the
+owner; a price-variance report as a file (the match is on each invoice and the "To match" list); an invoice line allocated over several
+delivery lines (PC2); freight across invoices (IM8 W2); a foreign-currency invoice (GBP only, I1).
+
+**Open for the owner:** PC3 ("or" in the price tolerance; the exact quantity); PC6 (no reviewer check after posting by default for invoices
+and returns); PC7 (who); the "last price" question above; whether a return's units are valued at the claimed price or the average (PC8 (4)).

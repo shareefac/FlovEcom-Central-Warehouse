@@ -125,6 +125,21 @@ final class Sections
                 ['key' => 'incidents', 'perm' => 'incidents.view', 'path' => '/ui/receiving/incidents', 'match' => ['/ui/receiving/incidents*'],
                     'badge' => 'incidents_open'],
             ]],
+            // --- Pack C (IM7, docs/decisions.md PC17): supplier invoices (the invoices, the "To match" list, the deliveries not invoiced
+            // yet, the supplier's credit notes) and returns to suppliers.
+            'invoices' => ['segments' => true, 'pages' => [
+                ['key' => 'invoices', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices',
+                    'match' => ['/ui/purchasing/invoices', '/ui/purchasing/invoices/{id}*', '/ui/purchasing/invoices/from-receipt'],
+                    'new' => ['perm' => 'doc.SINV.post', 'href' => '/ui/purchasing/invoices#new', 'label' => 'invoices']],
+                ['key' => 'to_match', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices/to-match', 'match' => ['/ui/purchasing/invoices/to-match*'],
+                    'badge' => 'invoices_to_match'],
+                ['key' => 'not_invoiced', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices/not-invoiced', 'match' => ['/ui/purchasing/invoices/not-invoiced*']],
+                ['key' => 'credit_notes', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/credit-notes', 'match' => ['/ui/purchasing/credit-notes*'],
+                    'new' => ['perm' => 'doc.SCN.post', 'href' => '/ui/purchasing/credit-notes#new', 'label' => 'credit_notes']],
+            ]],
+            'returns' => ['pages' => [['perm' => 'returns.view', 'path' => '/ui/purchasing/returns', 'match' => ['/ui/purchasing/returns*'],
+                'new' => ['perm' => 'doc.DN.post', 'href' => '/ui/purchasing/returns#new', 'label' => 'returns']]]],
+            // --- end of pack C
             'suppliers' => ['pages' => [['perm' => 'suppliers.view', 'path' => '/ui/purchasing/suppliers',
                 'match' => ['/ui/purchasing/suppliers*', '/ui/purchasing/supplier-items*'],
                 'new' => ['perm' => 'suppliers.manage', 'href' => '/ui/purchasing/suppliers/new', 'label' => 'suppliers']]]],

@@ -250,6 +250,11 @@ final class DocumentsController
             // cancellation: the sheet it cancels, which names it).
             'stockHref' => ($k = StockOps::kindOf($doc->docType)) !== null && $data['handler'] ? StockOps::PATHS[$k] . '/' . $doc->id
                 : ($doc->docType === CountSheets::TYPE && $data['handler'] ? CountSheets::PATH . '/' . ($doc->reversesId ?? $doc->id) : null),
+            // Pack C: a supplier invoice, credit note or return has its own page in Purchasing (its lines, its match, its claim).
+            'paperHref' => in_array($doc->docType, ['SINV', 'SCN', 'DN'], true) && $data['handler'] ? match ($doc->docType) {
+                'SINV' => \CW\Invoices\SupplierInvoices::PATHS['invoice'], 'SCN' => \CW\Invoices\SupplierInvoices::PATHS['credit_note'],
+                default => \CW\Invoices\SupplierReturns::PATH,
+            } . '/' . $doc->id : null,
             'decide' => $decide,
             'reverse' => $reverse,
             'cols' => $cols,

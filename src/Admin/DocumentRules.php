@@ -35,12 +35,17 @@ final class DocumentRules
      * type => the kind of its blocking approval (the only types that can have one). A stock in (pack A1) has the adjustment's: stock
      * put back without a supplier document (off for it by default, the owner's rule that extra approvals start off).
      */
-    public const APPROVAL_KIND = ['PO' => 'over_value', 'ADJ' => 'positive_without_supplier_doc', 'SIN' => 'positive_without_supplier_doc'];
+    public const APPROVAL_KIND = ['PO' => 'over_value', 'ADJ' => 'positive_without_supplier_doc', 'SIN' => 'positive_without_supplier_doc',
+        // --- Pack C (0032, docs/decisions.md PC6): a supplier invoice outside the match tolerances by more than the limit (whole
+        // pounds) waits for a reviewer's OK first (off by default).
+        'SINV' => 'over_difference'];
     /**
      * The types with the OK first for a big record (pack A1, docs/decisions.md SO5): more than size_units units, or more than size_value
      * whole pounds, waits for a reviewer before it is final. Off by default; at least one of the two sizes while it is on.
      */
-    public const SIZE_TYPES = ['ADJ', 'SIN', 'SOUT', 'TRF', 'REL', 'RPK']; // RPK: pack B's Repack (PB9), off by default
+    public const SIZE_TYPES = ['ADJ', 'SIN', 'SOUT', 'TRF', 'REL', 'RPK', // RPK: pack B's Repack (PB9), off by default
+        // --- Pack C (0032): supplier invoices, credit notes and returns to the supplier (off by default).
+        'SINV', 'SCN', 'DN'];
     public const LIMIT_MAX = 2_000_000_000;
     public const DAYS_MIN = 1;
     public const DAYS_MAX = 120;

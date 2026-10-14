@@ -26,6 +26,7 @@ use CW\Ui\Controller\DocumentsController;
 use CW\Ui\Controller\DuplicatesController;
 use CW\Ui\Controller\FilesController;
 use CW\Ui\Controller\IncidentsController;
+use CW\Ui\Controller\InvoicesController;
 use CW\Ui\Controller\ItemCardsController;
 use CW\Ui\Controller\ItemController;
 use CW\Ui\Controller\NewVariantsController;
@@ -52,6 +53,7 @@ use CW\Ui\Controller\StockController;
 use CW\Ui\Controller\StockOpsController;
 use CW\Ui\Controller\StoreProductsController;
 use CW\Ui\Controller\SupplierItemsController;
+use CW\Ui\Controller\SupplierReturnsController;
 use CW\Ui\Controller\SuppliersController;
 use CW\Ui\Controller\SystemController;
 use CW\Ui\Controller\WarehousesController;
@@ -656,6 +658,11 @@ final class Kernel
         $r->add('POST', RepackController::PATH . '/{id}/cancel', 'doc.RPK.post', $repack->cancel(...));
         $r->add('POST', RepackController::PATH . '/{id}/withdraw', 'doc.RPK.post', $repack->withdraw(...));
         // ---- end of pack B
+        // --- Pack C (IM7, docs/decisions.md PC17): Purchasing › Invoices (invoices, credit notes, "To match", not invoiced yet) and
+        // Purchasing › Returns. invoices.view / returns.view look; doc.SINV.post, doc.SCN.post, doc.DN.post keep the records (checked
+        // again by CW\Invoices\* and the document base, never admin); invoices.accept accepts an invoice's differences.
+        InvoicesController::routes($r);
+        SupplierReturnsController::routes($r);
         return $this->router = $r;
     }
 

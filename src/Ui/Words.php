@@ -56,7 +56,10 @@ final class Words
         // pack D (docs/decisions.md PD13)
         'SALE', 'SALE_STATE', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
         // Pack B
-        'ITEM_NEW', 'BY_HAND_STATE', 'ITEMS_NOTICE', 'ITEMS_ERROR', 'FAMILY', 'FAMILY_SKIP', 'PACKS', 'PACK_FLAG', 'PACK_LINK_FLAG', 'REPACK', 'REPACK_DIRECTION'];
+        'ITEM_NEW', 'BY_HAND_STATE', 'ITEMS_NOTICE', 'ITEMS_ERROR', 'FAMILY', 'FAMILY_SKIP', 'PACKS', 'PACK_FLAG', 'PACK_LINK_FLAG', 'REPACK', 'REPACK_DIRECTION',
+        // --- Pack C (IM7)
+        'INVOICES', 'INVOICE_KIND', 'INVOICE_LINE', 'MATCH_STATE', 'MATCH_LINE', 'MATCH_WHY', 'VALUE_EVENT', 'VALUE_BASIS', 'CREDIT_STATE', 'INVOICE_FILE',
+        'INVOICE_NOTICE', 'INVOICE_ERROR', 'RETURNS', 'RETURN_NOTICE', 'RETURN_ERROR'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -248,6 +251,9 @@ final class Words
         'packs' => 'Pack items',
         'pack_links' => 'Pack links',
         'repack' => 'Repack',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices' => 'Invoices',
+        'returns' => 'Returns',
     ];
 
     /** A segment of a tab (Sections::MAP `key` of a page in a tab with `segments`) => its name. */
@@ -280,6 +286,11 @@ final class Words
         // Pack B: Products › Multipacks
         'packs' => 'Pack items',
         'pack_links' => 'Pack links',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices' => 'Invoices',
+        'to_match' => 'To match',
+        'not_invoiced' => 'Not invoiced yet',
+        'credit_notes' => 'Credit notes',
     ];
 
     /** A page's create button (Sections::MAP `new`): a verb that names the result. */
@@ -301,6 +312,10 @@ final class Words
         'families' => 'New family',
         'packs' => 'New pack item',
         'repack' => 'New repack',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices' => 'New supplier invoice',
+        'credit_notes' => 'New credit note',
+        'returns' => 'New return to a supplier',
     ];
 
     /** The buying flow strip on Purchasing (Ui\FlowCounts): step => name, and the figures under the names. */
@@ -357,6 +372,9 @@ final class Words
         'families' => 'Group items into families: all the flavours or strengths of one product.',
         'multipacks' => 'Sealed multipacks kept in stock as packs, and the variants that sell several units a sale.',
         'repack' => 'Break sealed packs into singles, or make packs from singles.',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices' => 'Supplier invoices checked against the order and the delivery, the deliveries not invoiced yet, and credit notes.',
+        'returns' => 'Goods sent back to a supplier, each one our claim for a credit.',
     ];
 
     /** The phone's bottom bar: Dashboard and the sections take their SECTION names; the last tab opens the whole menu. */
@@ -379,6 +397,8 @@ final class Words
         'counts_open' => 'count differences waiting for your answer',
         // A sidebar section's count: everything in it that waits for this person.
         'section' => 'waiting for you',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices_to_match' => 'invoices that do not match, waiting for you',
     ];
 
     /** Permissions::COMING_LATER key => words for Home's "Coming later" line (no phase codes, no dates). */
@@ -559,6 +579,18 @@ final class Words
         'pack_links' => ['Every variant matched with more than 1 unit a sale, and what the pack items say of it.', 'Open a variant to change its match.'],
         'repack' => ['Break sealed packs into singles, or make packs from singles, with one record each time.',
             'Choose the pack item, which way and how many packs, then book it.'],
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices' => ['The invoices of our suppliers, each checked against the order and the delivery.',
+            'To book the invoice of a delivery, open "Not invoiced yet" and press "Book its invoice".'],
+        'credit_notes' => ['The credit notes our suppliers sent us.', 'Book one from the return it answers, or from the invoice it reduces.'],
+        'to_match' => ['Final invoices that do not match their order or delivery, oldest first.',
+            'Open one, see which line is off, then ask the supplier for a credit note or accept the difference with a reason.'],
+        'not_invoiced' => ['Deliveries booked in that wait for their supplier invoice, newest first.', 'Press "Book its invoice", type the totals from the paper, and make it final.'],
+        'returns' => ['Goods sent back to suppliers. Each return takes the stock out and is our claim for a credit (a debit note).',
+            'Start one from a delivery\'s damaged or unstamped goods, or by hand.'],
+        'supplier_invoice' => ['A supplier\'s paper as it was booked: what it bills, and how it matches the order and the delivery.',
+            'While it is a draft, check the lines against the paper, type the totals, then make it final.'],
+        'supplier_return' => ['Goods going back to a supplier, and what we claim for them.', 'While it is a draft, check the lines, then make it final: the stock goes out.'],
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2148,6 +2180,8 @@ final class Words
         'supplier_changed' => 'Supplier details changed',
         'all_documents' => 'Every order is checked',
         'company_changed' => 'Company details changed',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'over_difference' => 'Invoice does not match by more than the limit',
     ];
 
     /** review_task.kind. */
@@ -2277,6 +2311,14 @@ final class Words
         'items.family_bulk_max_rows' => 'Most items one change of a family takes',
         'items.repack_carry_cost' => 'A repack carries the cost to what it makes',
         'approvals.item_by_hand_check' => 'Items made by hand are checked by a second person',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices.price_tolerance_pct' => 'Invoice price may differ by (%)',
+        'invoices.price_tolerance_gbp' => 'Invoice price may differ by (£ a line)',
+        'invoices.qty_tolerance_pct' => 'Invoice may bill more units than received (%)',
+        'invoices.total_tolerance_per_line' => 'Invoice lines may differ from its total (£ a line)',
+        'invoices.freight_spread' => 'Freight spread over the goods by',
+        'invoices.duty_spread' => 'Duty spread over the goods by',
+        'approvals.invoice_accept_other' => 'Accepting an invoice\'s differences needs a second person',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2877,6 +2919,8 @@ final class Words
         'TRF' => 'Transfer',
         'REL' => 'Release',
         'RPK' => 'Repack', // Pack B
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'SCN' => 'Supplier credit note',
     ];
 
     /** document_type.code => many of that kind (lists, filters, sentences). */
@@ -2894,6 +2938,8 @@ final class Words
         'TRF' => 'Transfers',
         'REL' => 'Releases',
         'RPK' => 'Repacks', // Pack B
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'SCN' => 'Supplier credit notes',
     ];
 
     /** document.review_state, short (the "Reviewer check" filter and column). */
@@ -3058,6 +3104,9 @@ final class Words
         'closed_cancelled' => 'Closed: the record was cancelled (%s).',
         'closed_withdrawn' => 'Closed: the person who asked cancelled the request.',
         'closed' => 'Closed on %s.',
+        // --- Pack C: a supplier invoice, credit note or return opens on its own page in Purchasing.
+        'open_paper' => 'Open it in Purchasing',
+        'open_paper_note' => 'Its lines, how it matches, its credit notes and its files are there.',
     ];
 
     /** Notices after a click on a record page (DocumentsController::NOTICES). */
@@ -3315,6 +3364,8 @@ final class Words
         'mapping' => 'Matching products',
         'sales' => 'Sales and dispatch', // pack D (PD9)
         'items' => 'Items', // Pack B
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices' => 'Supplier invoices',
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -3416,6 +3467,14 @@ final class Words
         'items.repack_carry_cost' => 'On: what a repack makes carries the average cost of what it took apart (a box of 10 at £12 gives singles at £1.20). '
             . 'Off: what it makes has no cost of its own and is valued at the average cost later.',
         'approvals.item_by_hand_check' => 'A second person checks each item made by hand, afterwards, on Products › Add Item. The item can be used at once.',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices.price_tolerance_pct' => 'A line whose price differs from the order (else the delivery) by at most this percentage still matches "within the tolerance". 0: this test is off.',
+        'invoices.price_tolerance_gbp' => 'Or by at most this many pounds on the line. Either test is enough. With both at 0 the price must be exact.',
+        'invoices.qty_tolerance_pct' => 'An invoice may bill this percentage more units than were received and not invoiced yet. 0: the units must be exact.',
+        'invoices.total_tolerance_per_line' => 'How far, in pounds a line, the lines may be from the total the paper states (rounding). Beyond it the invoice cannot be made final.',
+        'invoices.freight_spread' => 'value: in proportion to what each delivered line costs; ml: in proportion to its liquid. Recorded for the stock value.',
+        'invoices.duty_spread' => 'ml: in proportion to the liquid of each delivered line; value: to what it costs. Recorded for the stock value.',
+        'approvals.invoice_accept_other' => 'On: someone other than the person who made an invoice final accepts its differences. Off by default.',
     ];
 
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */
@@ -7346,6 +7405,10 @@ final class Words
         'reject_record_only_cnt' => 'Not OK on a stock count only records it: a count is put right by counting the item again, or by answering its differences.',
         'agreed' => 'The owner has agreed this rule',
         'items' => 'Items', // Pack B
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices' => 'Supplier invoices',
+        'ok_limit_SINV' => 'Above this many pounds charged over the order and the delivery (whole pounds)',
+        'rule_difference' => 'An invoice that does not match by more than £%s waits for a reviewer\'s OK before it is final.',
     ];
 
     /** One switchable or numbered approval rule (Admin\ApprovalRules): its title and what it does on, off, or with its number. */
@@ -7407,6 +7470,12 @@ final class Words
             'title' => 'Items made by hand',
             'on' => 'A second person checks each item made by hand, afterwards, on Products › Add Item. The item can be used at once.',
             'off' => 'Off: nobody else checks an item made by hand.',
+        ],
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'approvals.invoice_accept_other' => [
+            'title' => 'Accepting the differences of an invoice',
+            'on' => 'The differences of an invoice that does not match are accepted by someone other than the person who made it final.',
+            'off' => 'Off: the person who made the invoice final may accept its differences, with a reason. Every acceptance is recorded.',
         ],
     ];
 
@@ -7723,6 +7792,10 @@ final class Words
         'family' => 'Families',
         'pack' => 'Pack items',
         'repack' => 'Repacks',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoice' => 'Supplier invoices',
+        'credit_note' => 'Supplier credit notes',
+        'return' => 'Returns to suppliers',
     ];
 
     /** audit_log.action => what was done, for the actions people look for most (the others: their kind, AUDIT_FAMILY). */
@@ -7795,6 +7868,24 @@ final class Words
         'pack.create' => 'Pack item defined',
         'pack.switch' => 'Pack item switched off or on',
         'repack.book' => 'Repack booked',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoice.create' => 'Supplier invoice started',
+        'invoice.header' => 'Supplier invoice\'s details changed',
+        'invoice.add_delivery' => 'Delivery added to a supplier invoice',
+        'invoice.add_order' => 'Order added to a supplier invoice',
+        'invoice.post' => 'Supplier invoice made final',
+        'invoice.reverse' => 'Supplier invoice cancelled',
+        'invoice.accept' => 'Differences of a supplier invoice accepted',
+        'invoice.accept_dropped' => 'Acceptance of a supplier invoice\'s differences dropped: its match changed',
+        'invoice.recheck' => 'Invoices checked again',
+        'credit_note.create' => 'Supplier credit note started',
+        'credit_note.header' => 'Supplier credit note\'s details changed',
+        'credit_note.post' => 'Supplier credit note made final',
+        'credit_note.reverse' => 'Supplier credit note cancelled',
+        'return.create' => 'Return to a supplier started',
+        'return.header' => 'Return\'s details changed',
+        'return.post' => 'Return to a supplier made final',
+        'return.reverse' => 'Return to a supplier cancelled',
     ];
 
     /** What each permission lets a person do (the "Who can do what" page; Permissions::MAP). */
@@ -7812,8 +7903,8 @@ final class Words
         'accounts.view' => 'Look at stock values for the accounts (coming later)',
         'doc.PO.post' => 'Make, confirm, send, cancel and correct purchase orders',
         'doc.GRN.post' => 'Book in deliveries and check them at the goods-in bench',
-        'doc.SINV.post' => 'Book supplier invoices (coming later)',
-        'doc.DN.post' => 'Send goods back to suppliers (coming later)',
+        'doc.SINV.post' => 'Book supplier invoices (Invoices)',
+        'doc.DN.post' => 'Send goods back to suppliers (Returns)',
         'doc.CNT.post' => 'Count stock on the shelves and answer count differences',
         'doc.ADJ.post' => 'Correct stock and write it off (Adjustments)',
         'doc.WO.post' => 'Write stock off (coming later)',
@@ -7845,6 +7936,11 @@ final class Words
         'items.create' => 'Add items by hand (Add Item)',
         'families.manage' => 'Make families and put items in them (Families)',
         'doc.RPK.post' => 'Break packs into singles and make packs (Repack)',
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'doc.SCN.post' => 'Book supplier credit notes (Invoices)',
+        'invoices.view' => 'Look at supplier invoices, credit notes and the deliveries not invoiced yet',
+        'invoices.accept' => 'Accept the differences of an invoice that does not match',
+        'returns.view' => 'Look at returns to suppliers',
     ];
 
     /** The "Who can do what" page (/ui/reference/access). */
@@ -8297,6 +8393,367 @@ final class Words
 
     // ---- end of pack B's groups
     // ==================================================================================================================
+    // ------------------------------------------------------------------------------------------------------------------
+    // --- Pack C (IM7, docs/decisions.md PC1-PC17): Purchasing › Invoices and Purchasing › Returns.
+
+    /** The supplier invoice and credit note pages: shared words. */
+    public const INVOICES = [
+        'search' => 'Number, their number or supplier',
+        'search_delivery' => 'Delivery number, their invoice number or supplier',
+        'supplier' => 'Supplier',
+        'any_supplier' => 'Every supplier',
+        'match' => 'Match',
+        'any_match' => 'Every match',
+        'record' => 'Record',
+        'credits' => 'Reduces the invoice',
+        'on_account' => 'No invoice (a credit on account)',
+        'debit_note' => 'Answers our return',
+        'no_return' => 'No return',
+        'reversal' => 'Cancellation record',
+        'posted' => 'Final',
+        'lines_off' => 'Lines off',
+        'difference' => 'Charged over',
+        'accepted_by' => 'Accepted by',
+        'net' => 'Total without VAT',
+        'net_hint' => 'Exactly as the paper says it.',
+        'vat' => 'VAT',
+        'vat_hint' => 'Exactly as the paper says it: the system never works VAT out.',
+        'gross_hint' => 'Optional: when typed, it must be the two above added up.',
+        'credited' => 'Credited by credit notes',
+        'owed' => 'Owed now',
+        'open_invoice' => 'The invoice it reduces',
+        'open_return' => 'The return it answers',
+        'rules_now' => 'Within the tolerance: a price up to %s%% or %s off a line, %s%% more units than received, the total up to %s a line off.',
+        'rules_link' => 'Change the tolerances',
+        'show_to_check' => 'Show the invoices to check',
+        'show_accepted' => 'Show the invoices whose differences were accepted',
+        'recheck' => 'Check these again',
+        'recheck_hint' => 'After a tolerance changed: works every listed invoice out again with the tolerances now.',
+        'none_to_match' => 'Every final invoice matches.',
+        'none_to_match_text' => 'An invoice that does not match its order or delivery shows here.',
+        'none_accepted' => 'No invoice has accepted differences.',
+        'none_waiting' => 'No delivery waits for its invoice.',
+        'none_waiting_text' => 'Every delivery booked in is invoiced.',
+        'waiting_total' => 'Waiting to be invoiced: %s at the deliveries\' prices.',
+        'delivery' => 'Delivery',
+        'arrived' => 'Arrived',
+        'units_left' => 'Units to invoice',
+        'value_left' => 'Worth',
+        'book_invoice' => 'Book its invoice',
+        'problems' => 'What stops it from being final',
+        'match_title' => 'How it matches',
+        'match_text' => 'Each goods line against its order and its delivery, as it is now.',
+        'match_preview' => 'Each goods line against its order and its delivery, if it were made final now.',
+        'match_off' => '%s lines are outside the tolerance: %s charged over what was ordered and received.',
+        'total_rounding' => 'The lines differ from the stated total by %s (rounding, within the tolerance).',
+        'accepted_line' => 'Differences accepted by %s on %s: %s',
+        'accept_title' => 'Accept the differences',
+        'accept_text' => 'Accept when the supplier is right (a price rise agreed, a delivery booked short by mistake). Otherwise ask the supplier for a credit note. If the invoice changes again, it needs a person again.',
+        'accept_why' => 'Why they are accepted',
+        'accept_button' => 'Accept the differences',
+        'lines' => 'Lines',
+        'no_lines' => 'No lines yet. Add a delivery, an item or a charge below.',
+        'line' => 'Line',
+        'line_kind' => 'Kind',
+        'packs' => 'Packs',
+        'pack_price' => 'Price of a pack in £',
+        'unit_price' => 'Price of a unit in £ (optional)',
+        'units' => 'Units',
+        'amount' => 'Amount without VAT',
+        'description' => 'What it is for',
+        'for' => 'Bills',
+        'for_delivery' => '%s line %s',
+        'for_order' => 'Order %s line %s',
+        'credits_line' => 'Credits line %s',
+        'lines_add_up' => 'The lines add up to %s without VAT.',
+        'add_title' => 'Add lines',
+        'add_delivery' => 'A delivery of this supplier still to invoice',
+        'add_delivery_button' => 'Add its lines',
+        'no_deliveries' => 'This supplier has no delivery left to invoice.',
+        'add_order' => 'An order (the goods have not come yet)',
+        'add_order_button' => 'Add its lines',
+        'add_order_hint' => 'Lines of an order without its delivery do not match until the goods are booked in: use the delivery when you can.',
+        'credit_line' => 'Line of the invoice it credits',
+        'credit_line_choice' => 'Line %s: %s (%s units left to credit)',
+        'credit_needs_invoice' => 'Choose the invoice it reduces in the details below to credit its lines.',
+        'delivery_choice' => '%s of %s: %s units to invoice',
+        'stop_text' => 'A stopped draft is kept, never deleted. Its number is free again.',
+        'credit_notes' => 'Credit notes',
+        'no_credit_notes' => 'No credit note reduces this invoice.',
+        'book_credit' => 'Book a credit note for this invoice',
+        'events_title' => 'For the stock value',
+        'events_text' => 'What this paper changes in the value of stock already booked in. It is kept for the stock value, which comes later: nothing is valued yet.',
+        'event_item' => 'Product',
+        'event_kind' => 'What',
+        'event_basis' => 'How it was worked out',
+        'billed' => '%s billed for %s',
+        'there' => '%s there to invoice',
+        'nothing_there' => 'no delivery',
+        'no_ref' => 'no price to compare',
+        'ref_order' => 'ordered at %s a unit',
+        'ref_delivery' => 'delivered at %s a unit',
+        'credited_units' => '%s units credited',
+        // A delivery's page (Purchasing › Goods In).
+        'receipt_invoices' => 'Its supplier invoice',
+        'receipt_none' => 'No supplier invoice bills this delivery yet.',
+        'receipt_left' => '%s items of it are still to invoice.',
+    ];
+
+    /** Words that differ between an invoice and a credit note (SupplierInvoices kinds). */
+    public const INVOICE_KIND = [
+        'invoice' => [
+            'tab' => 'Supplier invoices',
+            'one' => 'Supplier invoice',
+            'number' => 'Their invoice number',
+            'date' => 'Date on the invoice',
+            'gross' => 'Total to pay',
+            'start' => 'Book an invoice by hand',
+            'start_text' => 'For an invoice that came with a delivery, use "Not invoiced yet": it fills the lines for you.',
+            'start_button' => 'Start the invoice',
+            'none' => 'No supplier invoice yet.',
+            'none_text' => 'Book the first from "Not invoiced yet".',
+            'how' => ['Open "Not invoiced yet" and press "Book its invoice" on the delivery: its number, date, copy and lines come with it.',
+                'Check the lines against the paper. Several deliveries on one invoice: add each. Freight, duty: add a line.',
+                'Type the total without VAT and the VAT exactly as the paper says, then make it final.',
+                'The invoice is checked against the order and the delivery. One that does not match goes to "To match".'],
+            'details' => 'The invoice\'s number, date and totals',
+            'post_title' => 'Make it final',
+            'post_does' => 'It is checked against the order and the delivery: if it does not match, it shows on "To match". It moves no stock.',
+            'post_button' => 'Make the invoice final',
+            'cancel_text' => 'A final invoice is never changed or deleted. Cancelling it makes a cancellation record; its number is free again. An invoice with a credit note is cancelled after its credit note.',
+        ],
+        'credit_note' => [
+            'tab' => 'Credit notes',
+            'one' => 'Credit note',
+            'number' => 'Their credit note number',
+            'date' => 'Date on the credit note',
+            'gross' => 'Total credited',
+            'start' => 'Book a credit note by hand',
+            'start_text' => 'For a credit note that answers one of our returns, open the return and press "Book the supplier\'s credit note".',
+            'start_button' => 'Start the credit note',
+            'none' => 'No credit note yet.',
+            'none_text' => 'Book one from a return, or from the invoice it reduces.',
+            'how' => ['Open the return it answers and press "Book the supplier\'s credit note", or open the invoice it reduces.',
+                'Credit the units of each invoice line it covers; add duty or other lines for the rest.',
+                'Type the total without VAT and the VAT exactly as the paper says, then make it final.',
+                'It lowers what is owed on the invoice, and a line credited is billed less.'],
+            'details' => 'The credit note\'s number, date and totals',
+            'post_title' => 'Make it final',
+            'post_does' => 'It lowers what is owed on the invoice it reduces, and the invoice is checked again.',
+            'post_button' => 'Make the credit note final',
+            'cancel_text' => 'A final credit note is never changed or deleted. Cancelling it makes a cancellation record; what it took off the invoice comes back.',
+        ],
+    ];
+
+    /** sinv_line.kind */
+    public const INVOICE_LINE = [
+        'goods' => 'Goods',
+        'freight' => 'Freight',
+        'duty' => 'Duty',
+        'service' => 'Service',
+        'other' => 'Other',
+    ];
+
+    /** supplier_invoice.match_state: how a posted invoice matches its orders and deliveries. */
+    public const MATCH_STATE = [
+        'matched' => 'Matched',
+        'within_tolerance' => 'Within the tolerance',
+        'needs_review' => 'Needs review',
+        'accepted' => 'Differences accepted',
+    ];
+
+    /** One goods line's match. */
+    public const MATCH_LINE = [
+        'matched' => 'Matched',
+        'within' => 'Within the tolerance',
+        'off' => 'Off',
+    ];
+
+    /** Why a line does not match (InvoiceMath::WHY). */
+    public const MATCH_WHY = [
+        'no_delivery' => 'No delivery: nothing booked in to bill.',
+        'delivery_reversed' => 'Its delivery was cancelled.',
+        'qty_over' => 'Bills more units than are there to invoice.',
+        'price_over' => 'Dearer than ordered.',
+        'price_under' => 'Cheaper than ordered.',
+    ];
+
+    /** invoice_value_event.kind */
+    public const VALUE_EVENT = [
+        'price_difference' => 'Price differs from the delivery',
+        'freight' => 'Freight',
+        'duty' => 'Duty',
+        'credit' => 'Credited',
+    ];
+
+    /** invoice_value_event.basis */
+    public const VALUE_BASIS = [
+        'delivery_cost' => 'Against the delivery\'s price',
+        'value' => 'Shared by value',
+        'ml' => 'Shared by liquid',
+        'line' => 'The line itself',
+    ];
+
+    /** What the supplier's credit notes did to a return's claim. */
+    public const CREDIT_STATE = [
+        'open' => 'Not credited yet',
+        'part' => 'Part credited',
+        'credited' => 'Credited',
+    ];
+
+    /** The roles of a file kept with an invoice, a credit note or a return. */
+    public const INVOICE_FILE = [
+        'supplier_invoice' => 'The supplier\'s paper (PDF or photo)',
+        'delivery_note' => 'Delivery note',
+        'photo' => 'Photo',
+        'evidence' => 'Other evidence',
+    ];
+
+    /** After a change of an invoice or a credit note. */
+    public const INVOICE_NOTICE = [
+        'created' => 'Started. Add its lines, type the totals, then make it final.',
+        'from_receipt' => 'Started from the delivery: check the lines against the paper, type the total without VAT and the VAT, then make it final.',
+        'number_taken' => 'Started from the delivery. Its invoice number is already on %s: type this invoice\'s own number.',
+        'from_return' => 'Started from the return: type the supplier\'s credit note number, date and totals, then make it final.',
+        'header' => 'Saved.',
+        'lines' => 'Lines saved.',
+        'delivery_added' => 'The delivery\'s lines were added.',
+        'order_added' => 'The order\'s lines were added.',
+        'item_added' => 'Added.',
+        'charge_added' => 'Added.',
+        'credit_added' => 'Added.',
+        'posted' => 'Done: %s is final.',
+        'reversed' => 'Cancelled by %s.',
+        'submitted' => 'Sent to a reviewer: it is final when they say OK.',
+        'cancelled' => 'Stopped. It is kept, and its number is free again.',
+        'withdrawn' => 'Taken back: it is a draft again.',
+        'file' => 'File kept.',
+        'file_again' => 'This file was already kept with it.',
+        'accepted' => 'Accepted. The invoice leaves the "To match" list.',
+        'rechecked' => 'Checked again: %s changed.',
+    ];
+
+    /** A refused change of an invoice or a credit note, by error code (a code without words keeps the service's sentence). */
+    public const INVOICE_ERROR = [
+        'on_line' => 'Line %s: %s',
+        'supplier_required' => 'Choose the supplier.',
+        'delivery_not_posted' => 'That delivery is not booked in (or was cancelled).',
+        'return_not_posted' => 'Only a final return gets a credit note.',
+        'order_not_posted' => 'That order is not confirmed.',
+        'bad_packs' => 'Packs are a whole number above 0.',
+        'bad_units' => 'Units are a whole number above 0.',
+        'credit_line_mismatch' => 'That line of the invoice cannot be credited here: it is another item or another delivery.',
+        'credit_left' => 'Not that many: %s units are left to credit on that line.',
+        'duplicate_invoice' => 'The supplier\'s number %s is already booked as %s. A supplier\'s paper is booked once: cancel the other one first if it was keyed by mistake.',
+        'accept_note' => 'Say in a few words why the differences are accepted.',
+        'invoice_number_required' => 'Type the supplier\'s number from the paper.',
+        'invoice_date_required' => 'Type the date on the paper.',
+        'invoice_date_future' => 'The date on the paper is after today: check it.',
+        'totals_required' => 'Type the total without VAT and the VAT exactly as the paper says them.',
+        'credited_invoice_not_posted' => 'The invoice it reduces must be a final invoice of the same supplier.',
+        'debit_note_not_posted' => 'The return it answers must be a final return to the same supplier.',
+        'credited_invoice_required' => 'Choose the invoice it reduces before crediting its lines.',
+        'credit_line_required' => 'Goods on a credit note credit a line of the invoice it reduces: use an "other" line for anything else.',
+        'bad_cost' => 'A price is in pounds, not below 0, with at most 6 decimals.',
+        'invoice_line_missing' => 'A line lost its details: save the lines again.',
+        'bad_invoice_line' => 'A line is not complete: goods need packs and a price, other lines an amount.',
+        'delivery_other_supplier' => 'That delivery is another supplier\'s.',
+        'delivery_line_mismatch' => 'That delivery line is another item.',
+        'order_other_supplier' => 'That order is another supplier\'s.',
+        'order_line_mismatch' => 'That order line is another item.',
+        'has_credit_notes' => 'This invoice has a final credit note: cancel the credit note first, then the invoice.',
+        'has_credit_lines' => 'Remove the lines that credit the invoice first, then choose another invoice.',
+        'gross_mismatch' => 'The total to pay must be the total without VAT and the VAT added up: check the three figures on the paper.',
+        'nothing_to_invoice' => 'Everything of it is invoiced already (or went back to the supplier).',
+        'not_an_invoice' => 'This is not a supplier invoice or credit note.',
+        'own_invoice' => 'You made this invoice final: another person accepts its differences.',
+        'not_needs_review' => 'This invoice does not need review now: nothing to accept.',
+        'bad_amount' => 'An amount is in pounds with at most 2 decimals.',
+        'bad_price' => 'A price is in pounds with at most 4 decimals.',
+        'bad_line' => 'A line is not complete: check its numbers.',
+        'too_many_lines' => 'Too many lines for one paper.',
+        'total_negative' => 'The lines add up to less than £0.',
+        'reason_required' => 'Say why the goods go back.',
+        'reason_direction' => 'That reason puts stock up: a return takes it down.',
+        'bad_return_line' => 'A line is not complete: goods need units and a price, a claim an amount above £0 and what it is for.',
+        'return_line_missing' => 'A line lost its details: save the lines again.',
+        'warehouse_required' => 'Say which warehouse the goods leave.',
+        'warehouse_not_ours' => 'A return leaves one of our own warehouses that is switched on.',
+        'not_own_stock' => 'That warehouse holds another account\'s stock: only our own goes back to our supplier.',
+        'price_required' => 'Say the price per unit claimed back.',
+        'invoice_not_posted' => 'The invoice must be a final invoice of the same supplier.',
+        'nothing_to_return' => 'That delivery put nothing aside that has not gone back already.',
+        'not_a_return' => 'This is not a return to a supplier.',
+    ];
+
+    /** The returns pages. */
+    public const RETURNS = [
+        'how' => ['Damaged or unstamped goods of a delivery: use "Return what a delivery put aside". Other goods: start a return by hand.',
+            'Check the units, where they leave from, the price claimed and the duty paid on them (a retailer cannot reclaim duty on damaged stock).',
+            'Make it final: the goods leave the stock, and the return is our claim (a debit note).',
+            'When the supplier\'s credit note comes, book it from the return: it lowers what is owed.'],
+        'quick_title' => 'Return what a delivery put aside',
+        'quick_text' => 'Its damaged, wrong and over units, and its unstamped ones, at the delivery\'s price.',
+        'quick_button' => 'Start the return',
+        'start' => 'Start a return by hand',
+        'start_text' => 'Choose the supplier, where the goods leave from and why they go back.',
+        'start_button' => 'Start the return',
+        'delivery_choice' => '%s of %s: %s units put aside',
+        'from' => 'Leaves from',
+        'return_warehouse' => 'The return\'s warehouse',
+        'reason' => 'Why it goes back',
+        'reason_of_return' => 'The return\'s reason',
+        'ref' => 'Their return or collection reference',
+        'date' => 'Date it went back',
+        'delivery' => 'The delivery it came with',
+        'no_delivery' => 'No delivery',
+        'invoice' => 'The invoice it is about',
+        'no_invoice' => 'No invoice',
+        'claim' => 'Claimed back',
+        'credited' => 'Credited',
+        'none' => 'No return yet.',
+        'none_text' => 'A return takes goods out of the stock and claims a credit from the supplier.',
+        'is_debit_note' => 'Once final, this return is our debit note: what it claims is its lines\' amounts without VAT.',
+        'lines' => 'What goes back',
+        'no_lines' => 'Nothing yet. Add an item or a claim below.',
+        'price' => 'Price of a unit claimed in £',
+        'duty' => 'Duty claimed in £',
+        'price_hint' => 'Leave the price empty to take this supplier\'s last price, else the average cost so far.',
+        'claim_total' => 'Claimed: %s without VAT.',
+        'claim_amount' => 'Claim without goods, in £',
+        'claim_for' => 'What it is for (short delivery, overcharge)',
+        'claim_button' => 'Add the claim',
+        'details' => 'The return\'s details',
+        'post_title' => 'Make it final',
+        'post_does' => 'The goods leave the stock now, from where each line says, and the claim is our debit note.',
+        'post_button' => 'Make the return final',
+        'no_credit_notes' => 'No credit note answers this return yet.',
+        'book_credit' => 'Book the supplier\'s credit note',
+        'cancel_text' => 'A final return is never changed or deleted. Cancelling it makes a cancellation record and the goods come back into stock.',
+    ];
+
+    /** After a change of a return. */
+    public const RETURN_NOTICE = [
+        'created' => 'Started. Add what goes back, then make it final.',
+        'from_receipt' => 'Started from the delivery: check the units and the price claimed, choose why they go back, then make it final.',
+        'header' => 'Saved.',
+        'lines' => 'Lines saved.',
+        'item_added' => 'Added.',
+        'claim_added' => 'Added.',
+        'posted' => 'Done: %s is final and the goods left the stock.',
+        'reversed' => 'Cancelled by %s: the goods are back in stock.',
+        'reversal_submitted' => 'The cancellation puts many goods back: it waits for a reviewer\'s OK.',
+        'submitted' => 'Sent to a reviewer: it is final when they say OK.',
+        'cancelled' => 'Stopped. It is kept, never deleted.',
+        'withdrawn' => 'Taken back: it is a draft again.',
+        'file' => 'File kept.',
+        'file_again' => 'This file was already kept with it.',
+    ];
+
+    /** A refused change of a return (the rest: INVOICE_ERROR). */
+    public const RETURN_ERROR = [
+        'qty_positive' => 'Units are a whole number above 0.',
+    ];
 
     public const TONES = ['needs', 'done', 'waiting', 'blocked', 'info', 'off', 'review'];
 
@@ -8340,6 +8797,10 @@ final class Words
         'BY_HAND_STATE' => ['not_asked' => 'off', 'waiting' => 'review', 'checked' => 'done'],
         'PACK_FLAG' => ['single_sold' => 'done', 'sold_both_ways' => 'needs', 'pack_of_packs' => 'blocked', 'count_differs' => 'needs', 'suggest' => 'info'],
         'PACK_LINK_FLAG' => ['pack_item_exists' => 'needs', 'item_is_pack' => 'blocked'],
+        // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'MATCH_STATE' => ['matched' => 'done', 'within_tolerance' => 'info', 'needs_review' => 'needs', 'accepted' => 'review'],
+        'MATCH_LINE' => ['matched' => 'done', 'within' => 'info', 'off' => 'needs'],
+        'CREDIT_STATE' => ['open' => 'needs', 'part' => 'waiting', 'credited' => 'done'],
     ];
 
     // ==================================================================================================================
