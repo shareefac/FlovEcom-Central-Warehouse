@@ -91,7 +91,7 @@
 <?php endif; ?>
 <?php if ($c['recordOnly']): ?>
         <input type="hidden" name="reject_action" value="record">
-        <p class="muted"><?= $word('APPROVALS', 'reject_record_only') ?></p>
+        <p class="muted"><?= $e($c['recordOnlyText']) ?></p>
 <?php else: ?>
         <label><?= $word('APPROVALS', 'reject') ?>
           <select name="reject_action">

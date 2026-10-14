@@ -984,6 +984,8 @@ final class Words
         'line' => 'Above the limits',
         'count_after_movements' => 'Stock moved after the count',
         'count_near_ship' => 'A parcel left close to the count',
+        'ship_near_count' => 'A parcel left close to a count time',
+        'unship_near_count' => 'A parcel came back close to a count time',
     ];
 
     /** One line under each group's title: what it means and what the answers do. */
@@ -994,6 +996,10 @@ final class Words
             . 'already had that stock in it. Reject it and the count is put back.',
         'count_near_ship' => 'A parcel with this item left within ten minutes of the count, so the count may or may not have it. Accept it if the '
             . 'shelf figure is right. Reject it and the count is put back.',
+        'ship_near_count' => 'A parcel with this item was reported sent within ten minutes of the item\'s count time, so the shelf figure may take it '
+            . 'off once too often or too seldom. Look at the shelf. Accept it with a note if the figure is right; if not, count the item again.',
+        'unship_near_count' => 'A parcel with this item was reported back on the shelf within ten minutes of the item\'s count time, so the shelf figure '
+            . 'may have it twice. Look at the shelf. Accept it with a note if the figure is right; if not, count the item again.',
     ];
 
     /** The line filter of an open sheet. */
@@ -1211,8 +1217,12 @@ final class Words
         'tile_stale_sub' => 'counted again later on another sheet',
         'nothing_counted' => 'Nothing is counted on this sheet yet.',
         'nothing_counted_text' => 'Enter what you counted first.',
-        'too_many_times' => 'Too much stock moved while this sheet was counted for it to be booked in one go. Count some of the lines marked below '
-            . 'again.',
+        'too_many_times' => 'This sheet needs more count times than one record holds (%1$s, each up to %2$s minutes), so it cannot be made final as '
+            . 'it is. Nothing was booked. The %3$s lines marked "Count again" were counted earliest: count them again close together, one after the '
+            . 'other, and they share one time.',
+        'retime_chip' => 'Count again: too many count times',
+        'retime_all' => 'Count the marked lines again',
+        'retime_all_text' => 'Empties the marked lines. Then enter what you count on the sheet.',
         'holds_now' => 'System holds now',
         'what_happens' => 'What happens',
         'left_out' => 'left out',
@@ -1256,6 +1266,13 @@ final class Words
         'accept' => 'Accept the count',
         'reject' => 'Reject: put it back',
         'no_sheet' => 'not counted on a sheet',
+        'counted_again' => 'Counted again since: accept it. The newer count already set the shelf figure, so this one cannot be put back.',
+        'why_ship_near' => 'Order %s: a parcel left %s, close to the item\'s count time %s. %s',
+        'why_unship_near' => 'Order %s: a parcel came back %s, close to the item\'s count time %s. %s',
+        'near_taken_off' => 'It was taken off the shelf figure.',
+        'near_not_taken_off' => 'It was not taken off: the count had already left it out.',
+        'near_added' => 'It was added to the shelf figure.',
+        'near_not_added' => 'It was not added: the count already had it.',
     ];
 
     /** After a click on the counting pages: what happened and what comes next. */
@@ -1275,6 +1292,7 @@ final class Words
         'rejected_already' => 'Rejected. That count had been put back already, so nothing more was booked.',
         'recount' => 'The line is empty again. Go back to the sheet and enter the new count.',
         'as_counted' => 'Kept: this line will be booked as you counted it.',
+        'recount_times' => 'The %s marked lines are empty again. Go back to the sheet and enter their new counts, one after the other.',
     ];
 
     /** The counting pages' refusals, by the service's code ("Nothing was saved." where nothing was). */
@@ -1286,8 +1304,18 @@ final class Words
         'bad_counted_at' => 'The time it was counted must be a date and time that is not after now and not more than %s days ago. Nothing was saved.',
         'too_many_lines' => 'A count sheet holds at most %s items. Nothing was saved. Open another sheet for the rest.',
         'bad_next' => 'How many is a whole number from 1 to %s. Nothing was opened.',
-        'too_many_times' => 'Too much stock moved while this sheet was counted for it to be booked in one go (more than %s count times). Nothing was '
-            . 'booked. Count some of its lines again.',
+        'counted_again' => 'This item was counted again after this count, and the newer count already set the shelf figure. Nothing was put back. '
+            . 'Accept this difference with a note instead.',
+        'line_counted_again' => 'The item of line %s was counted again after this sheet, and the newer count already set its shelf figure. Nothing was '
+            . 'changed. Answer the sheet\'s differences one by one instead.',
+        'cancel_waiting' => 'A cancellation of this whole sheet waits for a reviewer\'s OK. Nothing was changed. Answer this difference once the reviewer '
+            . 'has decided.',
+        'accept_only' => 'This is about the time of a count, not a line of a count sheet, so there is nothing to put back. Nothing was changed. Accept '
+            . 'it with a note; if the shelf figure is wrong, count the item again.',
+        'bad_count_time' => 'The moment line %s was filled in is after now, or before the line was on the sheet. Nothing was saved, and what you '
+            . 'typed is still in the boxes. Press Enter again: it is saved with the time now.',
+        'too_many_times' => 'This sheet needs more count times than one record holds (more than %s). Nothing was booked. The lines to count again are '
+            . 'marked below: count them again close together.',
         'bad_quantity' => 'The quantity of line %s must be a whole number of units, 0 or more. Nothing was saved, and what you typed is still '
             . 'in the boxes. Correct it and press Enter again.',
         'barcode_in_quantity' => 'A barcode went into the quantity box of line %s. Nothing was saved, and what you typed is still in the boxes. '
@@ -1883,6 +1911,7 @@ final class Words
         'counts.sheet_shows_stock' => 'Count sheets show what the system holds',
         'counts.review_over_units' => 'Check a count difference above this many units',
         'counts.review_over_percent' => 'Check a count difference above this percent',
+        'counts.time_window_max_minutes' => 'Share a count time within this many minutes',
         'company.legal_name' => 'Company name (legal)',
         'company.trading_name' => 'Trading name',
         'company.address' => 'Registered address',
@@ -2890,6 +2919,12 @@ final class Words
         'rule_units' => 'Putting back more than %s items without a supplier document needs a reviewer\'s OK first.',
         'rule_record_po' => 'If the reviewer says not OK, the order stays and the buyer cancels or corrects it.',
         'rule_record' => 'If the reviewer says not OK, the record stays and the person who made it fixes it.',
+        // A stock count's rule since CT8 (review M-4, 14 Oct 2026): the second person who answers a count difference.
+        'rule_cnt_none' => 'no second person: whoever counted may answer their own count differences on Stock > Counts > Differences.',
+        'rule_cnt_over' => 'a count difference of more than %s units is answered by a second person, not the one who counted it.',
+        'rule_cnt_all' => 'every count difference is answered by a second person, not the one who counted it, and a reviewer also checks every count '
+            . 'record within %s days.',
+        'rule_record_cnt' => 'If the reviewer says not OK, the count stays: a count is put right by counting again.',
         'rule_reverse' => 'If the reviewer says not OK, a cancellation record is made.',
         'vat' => 'VAT codes',
         'code' => 'Code',
@@ -2974,6 +3009,10 @@ final class Words
             . 'Differences for a person to accept or reject it. 0: every difference waits.',
         'counts.review_over_percent' => 'After a count is made final, a difference of more than this percent of what the system held waits on Stock > '
             . 'Counts > Differences for a person to accept or reject it. 0: the percent is not used. Where the system held nothing, any difference waits.',
+        'counts.time_window_max_minutes' => 'When a count sheet is made final, a line may be booked under the count time of a line counted a little '
+            . 'earlier, when nothing moved in between: one record holds at most 20 count times. This is the most minutes a line\'s time may move back '
+            . '(0 to 60). Up to 10, a parcel sent or brought back in that gap and reported late is flagged on Stock > Counts > Differences; above 10 '
+            . 'it may not be. A sheet that needs more count times is refused, and the lines to count again are marked.',
         'po.terms' => 'The text printed under every purchase order.',
         'po.default_vat_code' => 'Used on a new order line when the supplier has no VAT code.',
         'po.over_delivery_tolerance_pct' => 'How much more than ordered goods in may still accept on a delivery.',
@@ -6873,7 +6912,8 @@ final class Words
         'unknown_setting' => 'We cannot find this setting. Nothing was changed.',
         'owner_not_empty' => 'This warehouse is not empty: %s. Nothing was saved. Whose stock it holds changes only while it is empty.',
         'loosen_needs_reviewer' => 'Only a Reviewer switches an approval rule off or makes it looser. Nothing was saved. Ask a Reviewer, or make the rule stricter instead.',
-        'reject_record_only' => 'Not OK on a purchase order only records it: an order with deliveries cannot be cancelled. Nothing was saved.',
+        'reject_record_only' => 'Not OK on a purchase order or a stock count only records it: an order with deliveries cannot be cancelled, and a count '
+            . 'is put right by counting again. Nothing was saved.',
     ];
 
     /** The page of one setting (/ui/reference/settings/setting). */
@@ -6968,6 +7008,7 @@ final class Words
         'not_release' => 'Switching a rule off does not let through work already waiting for an OK: that still waits for its OK.',
         'loosen_admin' => 'You can make a rule stricter here. To switch one off or make it looser, ask a Reviewer.',
         'reject_record_only' => 'Not OK on a purchase order only records it: the buyer then cancels or corrects the order. An order with deliveries cannot be cancelled.',
+        'reject_record_only_cnt' => 'Not OK on a stock count only records it: a count is put right by counting the item again, or by answering its differences.',
         'agreed' => 'The owner has agreed this rule',
     ];
 
@@ -7776,6 +7817,33 @@ final class Words
             return self::ERROR_TITLE[$status . '_post'];
         }
         return self::ERROR_TITLE[(string) $status] ?? ($status >= 500 ? self::ERROR_TITLE['500'] : self::ERROR_TITLE['400']);
+    }
+
+    /**
+     * The review rule of a kind of record in a sentence (Approval Rules, Settings): who checks what afterwards. A stock count's rule
+     * means the second person who answers a count difference (docs/decisions.md CT8; review M-4 of 14 Oct 2026), not a reviewer's check.
+     */
+    public static function reviewRule(string $code, string $rule, int $limit, int $days): string
+    {
+        $cnt = $code === 'CNT';
+        return match ($rule) {
+            'all' => self::say('SETTINGS_PAGE', $cnt ? 'rule_cnt_all' : 'rule_all', $days),
+            'over_limit' => $cnt ? self::say('SETTINGS_PAGE', 'rule_cnt_over', $limit) : self::say('SETTINGS_PAGE', 'rule_over', $limit, $days),
+            default => self::SETTINGS_PAGE[$cnt ? 'rule_cnt_none' : 'rule_none'],
+        };
+    }
+
+    /** What a reviewer's Not OK does to a kind of record, in a sentence. */
+    public static function rejectRule(string $code, string $action): string
+    {
+        if ($action !== 'record') {
+            return self::SETTINGS_PAGE['rule_reverse'];
+        }
+        return self::SETTINGS_PAGE[match ($code) {
+            'PO' => 'rule_record_po',
+            'CNT' => 'rule_record_cnt',
+            default => 'rule_record',
+        }];
     }
 
     /** One record of a kind ("Purchase order"), or many ("Purchase orders"); $fallback (document_type.name) for a kind without a word. */

@@ -223,6 +223,14 @@ final class CountsScreensTest extends KernelUiTestCase
         $r = $web->post($sheet . '/lines', ['q_2' => '5060000000017'] + $drawn);
         self::assertSame(422, $r->status);
         self::assertStringContainsString(Words::say('COUNT_ERROR', 'barcode_in_quantity', 2), $r->text());
+        // Also a shorter barcode CW knows (review M-5, 14 Oct 2026): an EAN-8 that starts with 0, or a short code of the shop's own.
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id, is_usable, units_per_scan) VALUES ('01234565', ?, 1, 1), ('4711', ?, 1, 1)", [$b, $b]);
+        foreach (['01234565', '4711'] as $code) {
+            $r = $web->post($sheet . '/lines', ['q_2' => $code] + $drawn);
+            self::assertSame(422, $r->status, $code);
+            self::assertStringContainsString(Words::say('COUNT_ERROR', 'barcode_in_quantity', 2), $r->text(), $code);
+        }
+        self::$db->exec("DELETE FROM sku_barcode WHERE barcode IN ('01234565', '4711')");
         $r = $web->post($sheet . '/lines', ['q_2' => '5', 'q_3' => '1.5'] + $drawn);
         self::assertSame(422, $r->status);
         self::assertStringContainsString(Words::say('COUNT_ERROR', 'bad_quantity', 3), $r->text());
@@ -389,6 +397,136 @@ final class CountsScreensTest extends KernelUiTestCase
         $r = $this->submit($web, $draft, $draft . '/cancel', ['reason' => 'opened by mistake']);
         self::assertSame(303, $r->status, $r->describe());
         self::assertStringContainsString(Words::COUNT_NOTICE['stopped'], $web->follow($r)->text());
+    }
+
+    public function testEachBoxBringsTheMomentItWasFilledIn(): void
+    {
+        // Review M-7 (14 Oct 2026): app.js writes the moment a box was first typed into (from the time the page was drawn, so the
+        // tablet's own clock does not matter) into at_<line>; the server keeps it when it is not after now and not before the line was
+        // put on the sheet. Without it (no script), the moment Enter was pressed, as before.
+        $a = $this->item('strict', 10, 'Alpha pod 2ml');
+        $b = $this->item('strict', 5, 'Beta liquid');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $sheet = $this->start($web, [$a, $b]);
+        $id = (int) basename($sheet);
+        self::$db->exec('UPDATE count_sheet_line SET added_at = added_at - INTERVAL 10 MINUTE WHERE document_id = ?', [$id]);
+        $page = $web->get($sheet);
+        $xp = new \DOMXPath($page->dom());
+        $drawnMs = (string) $xp->evaluate('string(//form[contains(@action, "/lines")]/@data-drawn)');
+        self::assertMatchesRegularExpression('/^[0-9]{13}$/', $drawnMs, 'the page says when it was drawn, in milliseconds');
+        self::assertLessThan(60_000, abs((int) $drawnMs - (int) Clock::now()->format('Uv')));
+        $drawn = $page->form($sheet . '/lines');
+        self::assertSame(['', ''], [$drawn['at_1'] ?? null, $drawn['at_2'] ?? null], 'each box has its moment, empty until it is typed into');
+        $filled = Clock::now()->modify('-3 minutes');
+        $ms = (int) $filled->format('Uv');
+        $r = $web->post($sheet . '/lines', ['q_1' => '9', 'at_1' => (string) $ms] + $drawn);
+        self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
+        self::assertSame(Clock::db(\DateTimeImmutable::createFromFormat('U.u', sprintf('%d.%06d', intdiv($ms, 1000), ($ms % 1000) * 1000))),
+            self::$db->value('SELECT counted_at FROM count_sheet_line WHERE document_id = ? AND line_no = 1', [$id]), 'the moment the box was filled in');
+        // A moment after now is refused: nothing is saved, the quantity stays in its box, and Enter again saves it with the time now.
+        $r = $web->post($sheet . '/lines', ['q_2' => '4', 'at_2' => (string) ((int) Clock::now()->format('Uv') + 120_000)] + $drawn);
+        self::assertSame(422, $r->status);
+        self::assertStringContainsString(Words::say('COUNT_ERROR', 'bad_count_time', 2), $r->text());
+        self::assertNull(self::$db->value('SELECT counted_qty FROM count_sheet_line WHERE document_id = ? AND line_no = 2', [$id]));
+        $again = $r->form($sheet . '/lines');
+        self::assertSame(['4', ''], [$again['q_2'] ?? null, $again['at_2'] ?? null]);
+        // Anything that is not a moment is ignored (the time now).
+        $r = $web->post($sheet . '/lines', ['q_2' => '4', 'at_2' => 'soon'] + $drawn);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertGreaterThan(Clock::db($filled->modify('+2 minutes')), (string) self::$db->value('SELECT counted_at FROM count_sheet_line WHERE document_id = ? AND line_no = 2', [$id]));
+    }
+
+    public function testADifferenceCountedAgainSinceIsForAcceptingOnlyAsIsAFlagAboutACountsTime(): void
+    {
+        // Review C-1 and I-1 (14 Oct 2026) on the page: an older difference of an item counted again since says "counted again since:
+        // accept it" instead of the reject button (a hand-made reject is refused); a flag about the time of a count (a parcel near a
+        // count) is listed, with accept only.
+        $a = $this->item('strict', 100, 'Alpha pod 2ml');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $first = $this->start($web, [$a]);
+        $web->post($first . '/lines', ['csrf' => $this->token($web), 'q_1' => '80']);
+        self::assertSame(303, $this->submit($web, $first . '/differences', $first . '/post')->status);
+        $second = $this->start($web, [$a]);
+        $web->post($second . '/lines', ['csrf' => $this->token($web), 'q_1' => '90']);
+        self::assertSame(303, $this->submit($web, $second . '/differences', $second . '/post')->status);
+        self::$db->exec("INSERT INTO count_review (warehouse_id, sku_id, source, ref, detail) VALUES (1, ?, 'ship_near_count', ?, ?)", [$a, '1:ORD-77:u9',
+            json_encode(['unit_id' => 'u9', 'dispatched_at' => Clock::db(Clock::now()->modify('-2 minutes')), 'counted_at' => Clock::db(Clock::now()), 'applied' => 'normal'])]);
+        $diffs = $web->get(self::PATH . '/differences');
+        self::assertSame(200, $diffs->status, $diffs->describe() . ' ' . implode(' | ', self::$log));
+        $xp = new \DOMXPath($diffs->dom());
+        $old = self::PATH . '/differences/line/' . basename($first) . '/1';
+        $new = self::PATH . '/differences/line/' . basename($second) . '/1';
+        self::assertSame([0, 1], [$xp->query('//form[@action="' . $old . '"]//button[@value="reject"]')->length, $xp->query('//form[@action="' . $new . '"]//button[@value="reject"]')->length]);
+        self::assertSame(1, $xp->query('//form[@action="' . $old . '"]//button[@value="accept"]')->length);
+        self::assertStringContainsString(Words::COUNTS['counted_again'], (string) $xp->evaluate('string(//form[@action="' . $old . '"]/..)'));
+        $r = $web->post($old, ['answer' => 'reject', 'note' => 'the first count was wrong'] + $diffs->form($old));
+        self::assertSame(409, $r->status);
+        self::assertStringContainsString(Words::COUNT_ERROR['counted_again'], $r->text());
+        self::assertSame(90, $this->onHand($a), 'nothing was put back');
+        // The flag about a count's time: its own group, the order it names, accept only.
+        self::assertStringContainsString(Words::COUNT_REVIEW['ship_near_count'], $diffs->text());
+        $review = (int) self::$db->value("SELECT id FROM count_review WHERE source = 'ship_near_count'");
+        $action = self::PATH . '/differences/review/' . $review;
+        self::assertSame([1, 0], [$xp->query('//form[@action="' . $action . '"]//button[@value="accept"]')->length, $xp->query('//form[@action="' . $action . '"]//button[@value="reject"]')->length]);
+        self::assertStringContainsString('ORD-77', (string) $xp->evaluate('string(//form[@action="' . $action . '"]/ancestor::tr)'));
+        $r = $web->post($action, ['answer' => 'accept', 'note' => 'the parcel had gone: the figure is right'] + $diffs->form($action));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('resolved', self::$db->value('SELECT status FROM count_review WHERE id = ?', [$review]));
+    }
+
+    public function testTooManyCountTimesMarksTheLinesToCountAgainAndOneButtonEmptiesThem(): void
+    {
+        // Review M-2 (14 Oct 2026): "too many count times" pointed at "the lines marked below", and none were. Now the lines of the
+        // earliest times are marked, each with "Count it again", and one button empties all of them.
+        $items = [];
+        for ($i = 1; $i <= 21; $i++) {
+            $items[] = $this->item('strict', 0, sprintf('Item %02d', $i));
+        }
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $sheet = $this->start($web, $items);
+        $id = (int) basename($sheet);
+        $fields = ['csrf' => $this->token($web)];
+        for ($i = 1; $i <= 21; $i++) {
+            $fields['q_' . $i] = '1';
+        }
+        self::assertSame(303, $web->post($sheet . '/lines', $fields)->status);
+        self::$db->exec('UPDATE count_sheet_line SET added_at = added_at - INTERVAL 300 MINUTE, counted_at = counted_at - INTERVAL ((21 - line_no) * 11) MINUTE, '
+            . 'entered_at = entered_at - INTERVAL ((21 - line_no) * 11) MINUTE WHERE document_id = ?', [$id]);
+        $before = $web->get($sheet . '/differences');
+        self::assertSame(200, $before->status, $before->describe() . ' ' . implode(' | ', self::$log));
+        self::assertStringContainsString(Words::say('COUNTS', 'too_many_times', 20, 10, 2), $before->text());
+        $xp = new \DOMXPath($before->dom());
+        self::assertSame(2, $xp->query('//tr[contains(@class, "retime")]')->length);
+        self::assertSame(['line-1', 'line-2'], array_map(static fn (\DOMElement $tr): string => $tr->getAttribute('id'), iterator_to_array($xp->query('//tr[contains(@class, "retime")]'))));
+        self::assertFalse($before->hasForm($sheet . '/post'));
+        $r = $this->submit($web, $sheet . '/differences', $sheet . '/recount', ['times' => '1']);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertStringContainsString(Words::say('COUNT_NOTICE', 'recount_times', 2), $web->follow($r)->text());
+        self::assertSame(['1', '2'], array_map('strval', self::$db->column('SELECT line_no FROM count_sheet_line WHERE document_id = ? AND counted_qty IS NULL ORDER BY line_no', [$id])));
+    }
+
+    public function testTheApprovalRulesSayWhatTheStockCountRuleMeans(): void
+    {
+        // Review M-4 (14 Oct 2026): the "Stock count" card said "a reviewer checks those over 10 items within N days". Since CT8 the rule
+        // is the second person who answers a count difference; and a stock count's Not OK only records it.
+        $web = $this->signIn($this->uiUser('reviewer'));
+        $page = $web->get('/ui/reference/approvals');
+        self::assertSame(200, $page->status, $page->describe());
+        $card = (new \DOMXPath($page->dom()))->query('//article[@id="rule-CNT"]')->item(0);
+        self::assertNotNull($card);
+        $text = (string) $card->textContent;
+        self::assertStringContainsString(ucfirst(Words::SETTINGS_PAGE['rule_cnt_none']), $text);
+        self::assertStringContainsString(Words::SETTINGS_PAGE['rule_record_cnt'], $text);
+        self::assertStringContainsString(Words::APPROVALS['reject_record_only_cnt'], $text);
+        self::assertStringNotContainsString('items within', $text);
+        self::assertSame(0, (new \DOMXPath($page->dom()))->query('//article[@id="rule-CNT"]//select[@name="reject_action"]')->length);
+        self::$db->exec("UPDATE document_type SET review_rule = 'over_limit' WHERE code = 'CNT'");
+        try {
+            $over = (string) (new \DOMXPath($web->get('/ui/reference/approvals')->dom()))->evaluate('string(//article[@id="rule-CNT"])');
+            self::assertStringContainsString(ucfirst(Words::say('SETTINGS_PAGE', 'rule_cnt_over', 10)), $over);
+        } finally {
+            self::$db->exec("UPDATE document_type SET review_rule = 'none' WHERE code = 'CNT'");
+        }
     }
 
     public function testTheDownloadTheUploadWithItsPreviewAndABlindCount(): void

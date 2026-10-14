@@ -218,6 +218,15 @@ final class GrantsTest extends IntegrationTestCase
         self::assertSame(['Select', 'Insert'], Grants::desired('staff_role_request'));
         // used_at: an approved reset carried out once (Y44).
         self::assertSame(['state', 'decided_by', 'decided_at', 'decision_note', 'used_at'], array_keys(Grants::desiredColumns('staff_role_request')));
+        // 0029 (pack A2a; review M-8 of 14 Oct 2026): a count sheet's header is written once; a line is filled in, emptied, booked and
+        // checked in place, but its sheet, its number, its item, what the system held when it was put on the sheet and when are frozen.
+        self::assertSame(['Select', 'Insert'], Grants::desired('count_sheet'));
+        self::assertSame([], Grants::desiredColumns('count_sheet'));
+        self::assertSame(['Select', 'Insert'], Grants::desired('count_sheet_line'));
+        $line = array_keys(Grants::desiredColumns('count_sheet_line'));
+        $columns = array_map('strval', self::$db->column(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'count_sheet_line' ORDER BY ORDINAL_POSITION"));
+        self::assertSame(array_values(array_diff($columns, ['document_id', 'line_no', 'sku_id', 'expected_qty', 'added_at'])), $line, 'every other column is a state column');
     }
 
     public function testApplyConvergesAndTheAppLoginIsLimited(): void

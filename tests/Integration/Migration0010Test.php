@@ -22,9 +22,10 @@ final class Migration0010Test extends IntegrationTestCase
         $by = array_column(self::$db->all('SELECT code, review_rule, review_limit_units, approval_rule, approval_limit_units, review_due_days, reject_action '
             . 'FROM document_type ORDER BY code'), null, 'code');
         self::assertSame(['all', null, 'over_value', 10000, 7, 'record'], array_values(array_diff_key($by['PO'], ['code' => 1])));
-        foreach (['ADJ', 'CNT', 'DN', 'GRN', 'SINV', 'TRD', 'WO'] as $code) {
+        foreach (['ADJ', 'DN', 'GRN', 'SINV', 'TRD', 'WO'] as $code) {
             self::assertSame('reverse', $by[$code]['reject_action'], "{$code}: a rejected review still reverses (I19)");
         }
+        self::assertSame('record', $by['CNT']['reject_action'], 'CNT: 0029 made a stock count\'s Not OK only record it (docs/decisions.md CT8)');
         self::assertSame(['positive_without_supplier_doc', 10], [$by['ADJ']['approval_rule'], $by['ADJ']['approval_limit_units']], 'ADJ unchanged');
         $enum = (string) self::$db->value("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_type' "
             . "AND COLUMN_NAME = 'approval_rule'");

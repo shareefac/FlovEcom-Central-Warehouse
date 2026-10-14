@@ -318,17 +318,32 @@
   });
 
   // A count sheet's lines (form[data-mark], Stock > Counts): a quantity is saved when Enter is pressed in its box (the form's own
-  // button; the server keeps only the lines changed on this page). The script only marks a box typed in and not saved yet, with the
+  // button; the server keeps only the lines changed on this page). The script marks a box typed in and not saved yet, with the
   // page's words (data-mark-text: Words::COUNTS); the guard above (data-unsaved) asks before the scan box or another form leaves.
+  // It also writes the moment a box was first typed into, into its hidden at_<line> (review M-7: a page saved once after Tab from
+  // box to box gave every line the moment Enter was pressed). The moment is the page's own drawn time (data-drawn, the server's clock,
+  // milliseconds) plus how long ago the page was loaded here, so the tablet's own clock does not matter; the server refuses one after
+  // now or before the line was on the sheet. A box put back to what it was drawn with loses its moment.
+  var loaded = Date.now();
   each(document.querySelectorAll('form[data-mark]'), function (form) {
     var prefix = form.getAttribute('data-mark') || '';
+    var drawn = parseInt(form.getAttribute('data-drawn') || '', 10);
     form.addEventListener('input', function (ev) {
       var input = ev.target;
       if (!input || !input.name || input.name.indexOf(prefix) !== 0) {
         return;
       }
-      var was = form.elements['was_' + input.name.slice(prefix.length)];
+      var line = input.name.slice(prefix.length);
+      var was = form.elements['was_' + line];
       var changed = !was || was.value !== input.value.trim();
+      var at = form.elements['at_' + line];
+      if (at && !isNaN(drawn)) {
+        if (!changed) {
+          at.value = '';
+        } else if (at.value === '') {
+          at.value = String(drawn + Math.max(0, Date.now() - loaded));
+        }
+      }
       var state = input.parentNode ? input.parentNode.querySelector('.save-state') : null;
       input.classList.toggle('unsaved', changed);
       if (state) {

@@ -96,6 +96,10 @@ final class Settings
         'counts.plan_days' => ['min' => 1, 'max' => 730],
         'counts.review_over_units' => ['min' => 0, 'max' => 1_000_000],
         'counts.review_over_percent' => ['min' => 0, 'max' => 1000],
+        // How far before its own time a sheet line may be booked under a shared count time (review I-1, 14 Oct 2026; CT3): minutes,
+        // 0 to 60. Up to 10 (the default, the engine's "near a count" time) a dispatch or a reset reported late in the gap is flagged on
+        // Differences; above it, it may not be.
+        'counts.time_window_max_minutes' => ['min' => 0, 'max' => 60],
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];

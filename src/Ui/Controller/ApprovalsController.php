@@ -200,18 +200,14 @@ final class ApprovalsController
     {
         $code = (string) $r['code'];
         $days = (int) $r['review_due_days'];
-        $review = match ($r['review_rule']) {
-            'all' => Words::say('SETTINGS_PAGE', 'rule_all', $days),
-            'over_limit' => Words::say('SETTINGS_PAGE', 'rule_over', (int) $r['review_limit_units'], $days),
-            default => Words::SETTINGS_PAGE['rule_none'],
-        };
+        $review = Words::reviewRule($code, (string) $r['review_rule'], (int) $r['review_limit_units'], $days);
         $limit = (int) ($r['approval_limit_units'] ?? 0);
         $approval = match ($r['approval_rule']) {
             'none' => $r['approval_kind'] === null ? null : Words::APPROVALS['no_ok'],
             'over_value' => Words::say('SETTINGS_PAGE', 'rule_value', $limit),
             default => Words::say('APPROVALS', 'units_cancel', $limit),
         };
-        $reject = $r['reject_action'] === 'record' ? Words::SETTINGS_PAGE[$code === 'PO' ? 'rule_record_po' : 'rule_record'] : Words::SETTINGS_PAGE['rule_reverse'];
+        $reject = Words::rejectRule($code, (string) $r['reject_action']);
         $sizeParts = array_filter([$r['size_units'] === null ? null : Words::say('APPROVALS', 'size_units_part', number_format((int) $r['size_units'])),
             $r['size_value'] === null ? null : Words::say('APPROVALS', 'size_value_part', number_format((int) $r['size_value']))]);
         $size = !$r['has_size'] ? null : ((int) $r['size_approval'] === 1 && $sizeParts !== []
@@ -225,6 +221,7 @@ final class ApprovalsController
             'seen' => (int) $r['version'],
             'hasApproval' => $r['approval_kind'] !== null,
             'recordOnly' => in_array($code, DocumentRules::REJECT_RECORD_ONLY, true),
+            'recordOnlyText' => Words::APPROVALS[$code === 'CNT' ? 'reject_record_only_cnt' : 'reject_record_only'],
             'okLabel' => Words::APPROVALS['ok_limit_' . $code] ?? Words::APPROVALS['number'],
             'form' => [
                 'review_rule' => (string) ($t['review_rule'] ?? $r['review_rule']),

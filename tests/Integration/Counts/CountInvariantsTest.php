@@ -9,7 +9,7 @@ use CW\Documents\Document;
 use CW\Invariants;
 
 /**
- * The nightly checks of stock counting, C1-C5 (pack A2a; docs/decisions.md CT16): clean after a sheet is counted, made final (a
+ * The nightly checks of stock counting, C1-C6 (pack A2a; docs/decisions.md CT16): clean after a sheet is counted, made final (a
  * counted line, a count of nothing, a line left out by a later count, a line not counted), a line put back by a record and another
  * sheet cancelled as a whole; then each kind of damage, written straight into the tables with the test's admin connection, is
  * reported. This class turns off the base's "clean after every test" check: it damages the data on purpose.
@@ -124,6 +124,30 @@ final class CountInvariantsTest extends CountsTestCase
         self::$db->exec("UPDATE count_sheet_line SET review = 'open', reviewed_by = NULL, reviewed_at = NULL, review_note = NULL, reversal_document_id = NULL, "
             . 'review_units = 5, review_percent = 10 WHERE document_id = ?', [$orig]);
         $this->assertReports("line {$line}: a difference waits on a sheet that is reversed");
+    }
+
+    public function testC6ACountPutBackAfterItsItemWasCountedAgain(): void
+    {
+        // Review C-1 (14 Oct 2026): the first version put a line back on top of a newer count of its item. The services refuse it now
+        // (409 counted_again); the nightly check says so if one is ever found: here a count of the item is written into the ledger
+        // between the sheet's count and the record that put it back (the record's row moved after it: no row points at a ledger id).
+        $sku = $this->sku['counted'];
+        $counted = $this->lineOf($this->sheet->id, $sku);
+        $backRow = (int) self::$db->value('SELECT id FROM stock_ledger WHERE document_id = ?', [$this->back->id]);
+        $top = (int) self::$db->value('SELECT MAX(id) FROM stock_ledger') + 10;
+        self::$db->exec('UPDATE stock_ledger SET id = ? WHERE id = ?', [$top, $backRow]);
+        self::$db->exec("INSERT INTO stock_ledger (id, warehouse_id, sku_id, bucket, qty_delta, balance_after, movement_type, actor, effective_at, note) "
+            . "VALUES (?, ?, ?, 'on_hand', 0, ?, 'count', 'staff:1', ?, 'a count from elsewhere')", [$backRow, self::warehouseId('MAIN'), $sku, $this->onHand($sku), $this->nowDb()]);
+        $this->assertReports("the record {$this->back->number} that puts back line {$counted} of count sheet {$this->sheet->number} was booked after item {$sku} was counted again");
+        // A whole sheet cancelled after one of its items was counted again: the same.
+        $other = $this->sku['other'];
+        $orig = (int) $this->cancelled->reversesId;
+        $revRow = (int) self::$db->value('SELECT id FROM stock_ledger WHERE document_id = ?', [$this->cancelled->id]);
+        self::$db->exec('UPDATE stock_ledger SET id = ? WHERE id = ?', [$top + 1, $revRow]);
+        self::$db->exec("INSERT INTO stock_ledger (id, warehouse_id, sku_id, bucket, qty_delta, balance_after, movement_type, actor, effective_at, note) "
+            . "VALUES (?, ?, ?, 'on_hand', 0, ?, 'count', 'staff:1', ?, 'a count from elsewhere')", [$revRow, self::warehouseId('MAIN'), $other, $this->onHand($other), $this->nowDb()]);
+        $number = (string) self::$db->value('SELECT number FROM document WHERE id = ?', [$orig]);
+        $this->assertReports("the cancellation {$this->cancelled->number} of count sheet {$number} was booked after item {$other} was counted again");
     }
 
     public function testC5ARecordThatPutsALineBackAndDoesNotMatchIt(): void

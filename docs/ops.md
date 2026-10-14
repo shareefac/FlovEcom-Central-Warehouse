@@ -2486,12 +2486,12 @@ from this page.
 ## Stock › Counts: stock counting (pack A2a; `docs/decisions.md` CT1–CT18)
 
 **Deploy.** It goes out with its code and ONE migration, `0029_stock_counts.sql` (`install_cron.sh --migrate`): two new tables
-(`count_sheet`, `count_sheet_line`; the migrator grants `cw_app` select, insert and update, never delete), two indexes built online
-(`stock_balance (warehouse_id, counted_at, sku_id)`, `count_review (status, source, id)`: INPLACE, LOCK=NONE, the stores' calls go on),
-four settings with their baselines, and the CNT rule on Settings › Approval Rules switched off as its next version (staging had it on
-from 0008: "only over 10 items"). Pre-flight, read only on `cw_staging` (checked 12 Oct 2026): the rule is `over_limit` 10 at version 1,
+(`count_sheet`, `count_sheet_line`; the migrator grants `cw_app` select and insert, and update of a line's state columns only, never
+delete), two indexes built online (`stock_balance (warehouse_id, counted_at, sku_id)`, `count_review (status, source, id)`: INPLACE,
+LOCK=NONE, the stores' calls go on), five settings with their baselines, and the CNT rule on Settings › Approval Rules switched off, with
+its Not OK only recording, as its next version (staging had it on from 0008: "only over 10 items"). Pre-flight, read only on `cw_staging` (checked 12 Oct 2026): the rule is `over_limit` 10 at version 1,
 no CNT document exists, no count review is open. After it: `php bin/migrate.php --status --db=cw_staging` lists 0029, and
-`php bin/invariants.php --db=cw_staging` says ok (it now runs the count checks C1–C5 too). No job, no timer.
+`php bin/invariants.php --db=cw_staging` says ok (it now runs the count checks C1–C6 too). No job, no timer.
 
 **Before the first real count on staging (read this first).** Vape and Go's opening figure is the duty-day estimate; its T0 rebase
 (above, "A site's T0") has not run. The rebase skips every item that was ever counted (`counted`: a balance with a count time, or a
@@ -2508,21 +2508,26 @@ Settings › Users first (an admin never counts).
    counted. Below, what to count next: never counted (best sellers first), then the longest ago. Tick items, or type how many and take
    "the next ones", or search a brand or a word and take all found, or open an empty sheet. "Change the days" leads to the setting.
 2. *The sheet* (a tablet with a scanner works best): scan an item (or type its CW number); its line is marked; type how many are on the
-   shelf and press Enter: it is saved at once. 0 means none found; leave an item empty if you did not count it. An item not on the sheet
+   shelf and press Enter: it is saved at once, with the moment you typed it as its count time. 0 means none found; leave an item empty if
+   you did not count it. An item not on the sheet
    is offered; a barcode on no item, or on two, is said and nothing changes. Or download the sheet, count on paper, upload the filled-in
    file: check it first (nothing is saved), then "Fill in the sheet" with the time it was counted.
 3. *Before you make it final*: every difference, the biggest first; lines above the limits are marked; a line whose stock moved after
-   you counted it (a parcel left, goods came in) needs your answer: count it again, or keep your count. Then "Make the count final": the
-   shelf figures are booked at once.
-4. *Differences*: the differences above the limits (and the counts the system itself asks someone to look at). Accept with a note: the
-   count stays. Reject with a note: that one count is put back by a new record; count the item again.
+   you counted it (a parcel left, goods came in) needs your answer: count it again, or keep your count. A sheet counted over many hours
+   may need more count times than one record holds: the earliest lines are marked "Count again", and one button empties them; count them
+   again close together. Then "Make the count final": the shelf figures are booked at once.
+4. *Differences*: the differences above the limits (and the counts the system itself asks someone to look at, and parcels sent or
+   brought back close to a count time). Accept with a note: the count stays. Reject with a note: that one count is put back by a new
+   record; count the item again. A difference of an item counted again since says "counted again since: accept it": the newer count
+   already set the figure. While a cancellation of the whole sheet waits for a reviewer, its lines wait too.
 5. *Count sheets*: every sheet, open, final, cancelled or stopped; a final sheet shows what each line booked. A wrong sheet is cancelled
    as a whole (a new record puts every figure back; more than 10 units back waits for a reviewer's OK on Approvals).
 
 **Settings** (Settings › System › Settings, topic "Stock counts"; each change with a reason): `counts.plan_days` 120,
-`counts.sheet_shows_stock` on, `counts.review_over_units` 5, `counts.review_over_percent` 10. The second person for a difference: the
-"Stock count" row on Settings › Approval Rules (off).
+`counts.sheet_shows_stock` on, `counts.review_over_units` 5, `counts.review_over_percent` 10, `counts.time_window_max_minutes` 10 (above
+10, a parcel reported late in the gap of a shared count time may not be flagged on Differences). The second person for a difference: the
+"Stock count" row on Settings › Approval Rules (off; a reviewer's Not OK on a count only records it).
 
 **If something looks wrong.** A sheet that will not become final says why on the page (a line moved, a line counted more than 90 days
-ago, the sheet changed in another tab). If the nightly check reports a `count sheet` line (C1–C5), tell Fazil: it is not fixed from a
-screen.
+ago, the sheet changed in another tab, too many count times). If the nightly check reports a `count sheet` line or a put back after a
+later count (C1–C6), tell Fazil: it is not fixed from a screen.

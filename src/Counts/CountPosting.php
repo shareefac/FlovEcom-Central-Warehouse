@@ -32,7 +32,9 @@ use DateTimeImmutable;
  *   over     the limits the difference is above (CountTolerance), against what the system holds now.
  *
  * The times the lines are booked under are CountTimes' groups: a line shares an earlier line's time only when nothing happened to
- * its stock in between.
+ * its stock in between, and at most the setting counts.time_window_max_minutes before its own time (review I-1, 14 Oct 2026: never
+ * wider). When the lines need more times than a posting has room for, the plan says so (too_many_times) and marks the lines that
+ * started the earliest times (`retime`): counted again close together, they share one time and the sheet fits (review M-2).
  */
 final class CountPosting
 {
@@ -40,12 +42,16 @@ final class CountPosting
     public const MOVED_ROWS = 5;
     /** The counted lines one statement reads the ledger for. */
     public const LINES_A_READ = 100;
+    /** The limit of the count times' window when the setting is missing (minutes: the engine's "near a count" time). */
+    public const WINDOW_MINUTES = 10;
 
     /**
-     * @return array{warehouse_id: int, warehouse: string, window: ?int, too_many_times: bool, units_limit: int, percent_limit: int,
+     * @return array{warehouse_id: int, warehouse: string, window: int, limit_minutes: int, too_many_times: bool, units_limit: int, percent_limit: int,
      *               groups: list<array{at: string, backdated: bool, lines: list<int>}>, lines: list<array<string, mixed>>}
+     *         window: the seconds the times were found with (the limit itself when there are too many); limit_minutes: the setting.
      *         lines in line order: line_no, sku_id, code, name, counted, counted_at, counted_by, expected, held, delta (null: stale),
-     *         stale, last_counted_at, ships_after, moved {n, ships, others, max_id, rows}, acked, needs_choice, too_old, over, group
+     *         stale, last_counted_at, ships_after, moved {n, ships, others, max_id, rows}, acked, needs_choice, too_old, over, group,
+     *         retime (too many times: this line started one of the earliest times, count it again)
      */
     public static function plan(Db $db, int $documentId, DateTimeImmutable $now): array
     {
@@ -54,8 +60,10 @@ final class CountPosting
         $wh = (int) $doc['warehouse_id'];
         $units = max(0, Settings::number($db, 'counts.review_over_units', 5));
         $percent = max(0, Settings::number($db, 'counts.review_over_percent', 10));
-        $out = ['warehouse_id' => $wh, 'warehouse' => (string) $doc['code'], 'window' => Stock::NEAR_COUNT_SEC, 'too_many_times' => false,
-            'units_limit' => $units, 'percent_limit' => $percent, 'groups' => [], 'lines' => []];
+        $minutes = max(0, Settings::number($db, 'counts.time_window_max_minutes', self::WINDOW_MINUTES));
+        $limit = $minutes * 60;
+        $out = ['warehouse_id' => $wh, 'warehouse' => (string) $doc['code'], 'window' => min(Stock::NEAR_COUNT_SEC, $limit), 'limit_minutes' => $minutes,
+            'too_many_times' => false, 'units_limit' => $units, 'percent_limit' => $percent, 'groups' => [], 'lines' => []];
         // The counted lines with the balance as it is.
         $rows = $db->all(
             'SELECT l.line_no, l.sku_id, l.counted_qty, l.counted_at, l.counted_by, l.expected_qty, l.ack_ledger_id, s.code, s.name, b.on_hand, '
@@ -113,12 +121,21 @@ final class CountPosting
                 'counted_at' => $at, 'counted_by' => $r['counted_by'] === null ? null : (int) $r['counted_by'], 'expected' => (int) $r['expected_qty'], 'held' => $held,
                 'delta' => $delta, 'stale' => $stale, 'last_counted_at' => $last, 'ships_after' => $m['ships'], 'moved' => $m,
                 'acked' => !$stale && $m['n'] > 0 && $acked, 'needs_choice' => !$stale && $m['n'] > 0 && !$acked, 'too_old' => $at < $oldest,
-                'over' => $delta === null ? [] : CountTolerance::over($held, $delta, $units, $percent), 'group' => 0,
+                'over' => $delta === null ? [] : CountTolerance::over($held, $delta, $units, $percent), 'group' => 0, 'retime' => false,
             ];
         }
-        $grouped = CountTimes::groups($times, Stock::NEAR_COUNT_SEC, Movements::MAX_DOCUMENT_MOVEMENTS);
+        $grouped = CountTimes::groups($times, Stock::NEAR_COUNT_SEC, Movements::MAX_DOCUMENT_MOVEMENTS, $limit);
         if ($grouped === null) {
+            // Never wider than the limit: refused (validate), and the lines of the earliest times are marked. Counted again close together
+            // they share one new time, which leaves room: the latest MAX - 1 times stay as they are.
             $out['too_many_times'] = true;
+            $out['window'] = $limit;
+            $within = CountTimes::groupsWithin($times, $limit);
+            foreach (array_slice($within, 0, count($within) - (Movements::MAX_DOCUMENT_MOVEMENTS - 1)) as $g) {
+                foreach ($g['lines'] as $no) {
+                    $lines[$no]['retime'] = true;
+                }
+            }
         } else {
             $out['window'] = $grouped['window'];
             foreach ($grouped['groups'] as $i => $g) {

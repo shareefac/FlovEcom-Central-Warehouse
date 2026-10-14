@@ -1,7 +1,8 @@
 <?php
 // One count record (docs/decisions.md CT1-CT5, CT14). An open sheet, for the person who opened it: the scan box, its lines 50 a page
 // (a quantity is saved when Enter is pressed in its box: the page's form goes, and only the lines changed on it are kept; app.js
-// marks a box typed in and not saved yet), the download and the upload with its preview, "Before you make it final", stop it. A final sheet: what was booked for each
+// marks a box typed in and not saved yet, and writes the moment it was filled in into at_<line>, counted from data-drawn: review M-7),
+// the download and the upload with its preview, "Before you make it final", stop it. A final sheet: what was booked for each
 // line and its check; cancel it as a whole. The record that puts a count back, or cancels a sheet: its facts and what it is about.
 ?>
 <p class="crumbs"><a href="<?= $e($listHref) ?>"><?= $word('SEGMENT', 'count_sheets') ?></a></p>
@@ -65,7 +66,7 @@
 <?php if ($lines === []): ?>
   <p class="muted"><?php if ($lines_n === 0): ?><?= $word('COUNTS', 'no_lines') ?><?php else: ?><?= $word('COUNTS', 'no_lines_shown') ?><?php endif; ?></p>
 <?php elseif ($editable): ?>
-  <form class="record count-lines" method="post" action="<?= $u($base . '/lines') ?>" data-mark="q_" data-mark-text="<?= $word('COUNTS', 'unsaved') ?>" data-unsaved="1" data-unsaved-text="<?= $word('COUNTS', 'unsaved_leave') ?>">
+  <form class="record count-lines" method="post" action="<?= $u($base . '/lines') ?>" data-drawn="<?= $e($drawnMs) ?>" data-mark="q_" data-mark-text="<?= $word('COUNTS', 'unsaved') ?>" data-unsaved="1" data-unsaved-text="<?= $word('COUNTS', 'unsaved_leave') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="page" value="<?= $e($page_no) ?>">
     <input type="hidden" name="show" value="<?= $e($show) ?>">
@@ -85,7 +86,7 @@
           <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name']) ?></a><span class="o-sub"><?= $say('COUNTS', 'line_no', $l['line_no']) ?> · <?= $e($l['code']) ?><?php if ($l['brand'] !== null): ?> · <?= $e($l['brand']) ?><?php endif; ?></span><?php if ($l['barcodes'] !== []): ?><span class="o-sub"><?= $say('COUNTS', 'barcodes', implode(', ', $l['barcodes'])) ?></span><?php endif; ?></th>
           <td data-label="<?= $word('COUNTS', 'mode') ?>"><?php if ($l['mode'] === null): ?><span class="muted"><?= $word('COUNTS', 'no_mode') ?></span><?php else: ?><?= $e($l['mode']) ?><?php if ($l['mode_meaning'] !== null): ?><span class="o-sub"><?= $e($l['mode_meaning']) ?></span><?php endif; ?><?php endif; ?></td>
           <td class="num" data-label="<?= $word('COUNTS', 'stock_now') ?>"><?php if ($l['shows_stock']): ?><?= $n($l['on_hand']) ?><?php if ($l['reserved'] > 0): ?><span class="o-sub"><?= $say('COUNTS', 'reserved', $l['reserved']) ?></span><?php endif; ?><?php else: ?><span class="muted"><?= $word('COUNTS', 'blind') ?></span><?php endif; ?></td>
-          <td class="num" data-label="<?= $word('COUNTS', 'counted') ?>"><input type="hidden" name="was_<?= $e($l['line_no']) ?>" value="<?= $e($l['counted_qty']) ?>"><input type="text" name="q_<?= $e($l['line_no']) ?>" value="<?= $e($l['typed'] ?? $l['counted_qty']) ?>" inputmode="numeric" maxlength="20" size="6" autocomplete="off" aria-label="<?= $say('COUNTS', 'counted_of_item', $l['name']) ?>"<?php if ($l['marked']): ?> autofocus<?php endif; ?>><span class="o-sub save-state" aria-live="polite"><?php if ($l['counted_at'] !== null): ?><?= $say('COUNTS', 'counted_when', \CW\Ui\Html::when($l['counted_at'])) ?><?php endif; ?></span></td>
+          <td class="num" data-label="<?= $word('COUNTS', 'counted') ?>"><input type="hidden" name="was_<?= $e($l['line_no']) ?>" value="<?= $e($l['counted_qty']) ?>"><input type="hidden" name="at_<?= $e($l['line_no']) ?>" value="<?= $e($l['typedAt']) ?>"><input type="text" name="q_<?= $e($l['line_no']) ?>" value="<?= $e($l['typed'] ?? $l['counted_qty']) ?>" inputmode="numeric" maxlength="20" size="6" autocomplete="off" aria-label="<?= $say('COUNTS', 'counted_of_item', $l['name']) ?>"<?php if ($l['marked']): ?> autofocus<?php endif; ?>><span class="o-sub save-state" aria-live="polite"><?php if ($l['counted_at'] !== null): ?><?= $say('COUNTS', 'counted_when', \CW\Ui\Html::when($l['counted_at'])) ?><?php endif; ?></span></td>
         </tr>
 <?php endforeach; ?>
       </tbody>

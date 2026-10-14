@@ -27,14 +27,19 @@ use CW\Movements;
  *                  posting whole (409 moved_meanwhile: the person looks at the differences again).
  *                  validate() refuses, with the lines named: a line whose stock moved after it was counted and that the person has
  *                  not chosen to post as counted (409 moved_since: the module plan's decision 6, warn first); a count older than the
- *                  engine takes (422 count_too_old); more count times than one posting has room for (409 too_many_times).
+ *                  engine takes (422 count_too_old); more count times than one posting has room for (409 too_many_times, the lines
+ *                  to count again named). post() works the plan out again and refuses the same way when stock moved in between
+ *                  (review M-3, 14 Oct 2026: a 409, never an error page).
  *   line_reversal  the record that puts back the count of ONE line of a posted sheet (a rejected difference: CountReviews). One line:
  *                  the item and minus what the count changed. It is booked as an `adjustment` of that many units (the engine can
  *                  only negate a whole record; a count movement would set a new count time). The sheet line names this record
- *                  (count_sheet_line.reversal_document_id, written by CountReviews before the posting), once.
+ *                  (count_sheet_line.reversal_document_id, written by CountReviews before the posting), once. Under the item's
+ *                  stock lock it is refused when the item was counted again after that line (409 counted_again, review C-1 of 14
+ *                  Oct 2026): a put back is relative, a later count absolute, so the difference would be added a second time.
  *   reversal       the cancellation of a whole posted sheet (Documents::reverse): the stock is negated by the document base
  *                  (Movements::reverseDocument); reverse() refuses it when a line of the sheet was already put back on its own (it
- *                  would be put back twice), gives the cancellation its header and closes the sheet's open checks.
+ *                  would be put back twice) or, under the stock locks, when an item of it was counted again after the sheet (409
+ *                  line_counted_again, review C-1), gives the cancellation its header and closes the sheet's open checks.
  *
  * Units for the document base's own "check after it is final" rule: always 0 (docs/decisions.md CT8). A count's differences are
  * checked one by one, by the rule read where a difference is cleared (CountReviews), so "only over N items" never opens a check of the
@@ -85,20 +90,7 @@ final class CountSheetHandler implements DocumentHandler
         }
         $plan = CountPosting::plan($db, $doc->id, $this->now());
         self::sameLines($plan, $lines);
-        $old = array_values(array_column(array_filter($plan['lines'], static fn (array $l): bool => $l['too_old']), 'line_no'));
-        if ($old !== []) {
-            throw new CwException('count_too_old', 'lines ' . implode(', ', $old) . ' were counted more than ' . intdiv(Movements::BACKDATED_MAX_AGE_SEC, 86_400)
-                . ' days ago: count them again', 422, ['lines' => $old, 'days' => intdiv(Movements::BACKDATED_MAX_AGE_SEC, 86_400)]);
-        }
-        $moved = array_values(array_column(array_filter($plan['lines'], static fn (array $l): bool => $l['needs_choice']), 'line_no'));
-        if ($moved !== []) {
-            throw new CwException('moved_since', 'stock of lines ' . implode(', ', $moved) . ' moved after they were counted: count them again, or choose to post '
-                . 'them as counted', 409, ['lines' => $moved]);
-        }
-        if ($plan['too_many_times']) {
-            throw new CwException('too_many_times', 'too much stock moved while this sheet was counted for one posting (' . Movements::MAX_DOCUMENT_MOVEMENTS
-                . ' count times): count some of its lines again', 409, ['max' => Movements::MAX_DOCUMENT_MOVEMENTS]);
-        }
+        self::refuseUnready($plan);
     }
 
     /** A count asks for no OK before it is posted: counts post at once, so the shelf figure is right straight away (IM2). */
@@ -113,6 +105,13 @@ final class CountSheetHandler implements DocumentHandler
         $ref = ['document_id' => $doc->id, 'doc_ref' => (string) $doc->number];
         if ($sheet['kind'] === 'line_reversal') {
             $line = self::lineToPutBack($db, $doc, $sheet, $lines);
+            // Under the item's stock lock (the engine takes it again below; nothing else is locked in between): a count of the item booked
+            // after the line's own replaced the figure the line changed, and putting the old difference back would add it a second time.
+            self::lockBalances($db, (int) $doc->warehouseId, [(int) $lines[0]['sku_id']]);
+            if (self::countedAgain($db, (int) $sheet['reverses_document_id'], (int) $doc->warehouseId, (int) $lines[0]['sku_id'])) {
+                throw new CwException('counted_again', 'this item was counted again after this count: the newer count set the shelf figure, so this one cannot be put back '
+                    . '(accept it instead)', 409);
+            }
             $code = (string) $db->value('SELECT code FROM warehouse WHERE id = ?', [$doc->warehouseId]);
             $this->moves->bookForDocument($caller, $ref, $opKey, [['type' => 'adjustment', 'warehouse' => $code,
                 'note' => 'puts back line ' . $line['line_no'] . ' of ' . $line['number'],
@@ -123,9 +122,8 @@ final class CountSheetHandler implements DocumentHandler
         $db->all('SELECT line_no FROM count_sheet_line WHERE document_id = ? AND counted_qty IS NOT NULL ORDER BY line_no FOR UPDATE', [$doc->id]);
         $plan = CountPosting::plan($db, $doc->id, $this->now());
         $docLine = self::sameLines($plan, $lines);
-        if ($plan['too_many_times'] || array_filter($plan['lines'], static fn (array $l): bool => $l['needs_choice'] || $l['too_old']) !== []) {
-            throw new \LogicException("count sheet {$doc->id} was not validated before its posting");
-        }
+        // Worked out again: stock may have moved since validate() (the posting may have waited on the number series). The same refusal.
+        self::refuseUnready($plan);
         $byNo = array_column($plan['lines'], null, 'line_no');
         foreach ($plan['lines'] as $l) {
             $open = $l['over'] !== [];
@@ -176,6 +174,83 @@ final class CountSheetHandler implements DocumentHandler
         // Its open checks are settled by the cancellation: the counts they were about are put back.
         $db->exec("UPDATE count_sheet_line SET review = 'rejected', reviewed_by = ?, reviewed_at = ?, review_note = ?, reversal_document_id = ? "
             . "WHERE document_id = ? AND review = 'open'", [$caller->staffUserId, $now, 'the whole sheet was cancelled by ' . $reversal->number, $reversal->id, $original->id]);
+        // Last, under the stock locks of its items (Movements::reverseDocument takes them again next; the rows above come first, I21): an
+        // item counted again after the sheet would get the sheet's difference back on top of the newer count.
+        $skus = array_map('intval', $db->column("SELECT sku_id FROM count_sheet_line WHERE document_id = ? AND outcome = 'counted'", [$original->id]));
+        self::lockBalances($db, (int) $original->warehouseId, $skus);
+        $again = self::linesCountedAgain($db, $original->id);
+        if ($again !== []) {
+            throw new CwException('line_counted_again', "the item of line {$again[0]} was counted again after this sheet: the newer count set the shelf figure, so the "
+                . 'sheet cannot be cancelled as a whole (answer its differences one by one)', 409, ['line' => $again[0], 'lines' => $again]);
+        }
+    }
+
+    /**
+     * Whether the item at that warehouse was counted again after the count a sheet booked of it: a `count` row of the ledger booked after
+     * the sheet's own (ledger ids of one balance follow its lock, so commit order: the rule of D42, as Reservations reads it for VERIFY).
+     * A cancellation's copy of another count also counts (the safe side). False when the sheet booked no count of the item.
+     * Every such row lies at or after the sheet's own count time (a count before it would have been left out; a copy is booked now), so
+     * the read is a range of the on-hand rows from that time on, by the ledger's (warehouse, item, bucket, time) index.
+     */
+    public static function countedAgain(Db $db, int $sheetId, int $warehouseId, int $skuId): bool
+    {
+        $own = $db->one("SELECT id, effective_at FROM stock_ledger FORCE INDEX (ix_stock_ledger_document) WHERE document_id = ? AND warehouse_id = ? AND sku_id = ? "
+            . "AND bucket = 'on_hand' AND movement_type = 'count' ORDER BY id LIMIT 1", [$sheetId, $warehouseId, $skuId]);
+        return $own !== null && $db->value("SELECT 1 FROM stock_ledger FORCE INDEX (ix_stock_ledger_effective) WHERE warehouse_id = ? AND sku_id = ? AND bucket = 'on_hand' "
+            . "AND effective_at >= ? AND id > ? AND movement_type = 'count' LIMIT 1", [$warehouseId, $skuId, (string) $own['effective_at'], (int) $own['id']]) !== null;
+    }
+
+    /** @return list<int> the lines of a sheet whose item was counted again after the sheet booked it (countedAgain()), in line order */
+    public static function linesCountedAgain(Db $db, int $sheetId): array
+    {
+        return array_map('intval', $db->column("SELECT l.line_no FROM count_sheet_line l JOIN stock_ledger g FORCE INDEX (ix_stock_ledger_document) "
+            . "ON g.document_id = l.document_id AND g.sku_id = l.sku_id AND g.bucket = 'on_hand' AND g.movement_type = 'count' "
+            . "WHERE l.document_id = ? AND l.outcome = 'counted' AND EXISTS (SELECT 1 FROM stock_ledger x FORCE INDEX (ix_stock_ledger_effective) "
+            . "WHERE x.warehouse_id = g.warehouse_id AND x.sku_id = g.sku_id AND x.bucket = 'on_hand' AND x.effective_at >= g.effective_at AND x.id > g.id "
+            . "AND x.movement_type = 'count') ORDER BY l.line_no", [$sheetId]));
+    }
+
+    /**
+     * The refusals of a sheet that is not ready to be booked (validate() and post() alike): a count too old for the engine (422), a
+     * line whose stock moved after it was counted and has no answer yet (409 moved_since), more count times than a posting has room for
+     * (409 too_many_times, the lines to count again named).
+     *
+     * @param array<string, mixed> $plan CountPosting::plan()
+     */
+    private static function refuseUnready(array $plan): void
+    {
+        $days = intdiv(Movements::BACKDATED_MAX_AGE_SEC, 86_400);
+        $old = array_values(array_column(array_filter($plan['lines'], static fn (array $l): bool => $l['too_old']), 'line_no'));
+        if ($old !== []) {
+            throw new CwException('count_too_old', 'lines ' . implode(', ', $old) . " were counted more than {$days} days ago: count them again", 422,
+                ['lines' => $old, 'days' => $days]);
+        }
+        $moved = array_values(array_column(array_filter($plan['lines'], static fn (array $l): bool => $l['needs_choice']), 'line_no'));
+        if ($moved !== []) {
+            throw new CwException('moved_since', 'stock of lines ' . implode(', ', $moved) . ' moved after they were counted: count them again, or choose to post '
+                . 'them as counted', 409, ['lines' => $moved]);
+        }
+        if ($plan['too_many_times']) {
+            $again = array_values(array_column(array_filter($plan['lines'], static fn (array $l): bool => $l['retime']), 'line_no'));
+            throw new CwException('too_many_times', 'this sheet needs more count times than one posting has room for (' . Movements::MAX_DOCUMENT_MOVEMENTS
+                . ", each at most {$plan['limit_minutes']} minutes): count lines " . implode(', ', $again) . ' again', 409,
+                ['max' => Movements::MAX_DOCUMENT_MOVEMENTS, 'minutes' => $plan['limit_minutes'], 'lines' => $again]);
+        }
+    }
+
+    /**
+     * Locks the stock balances of these items at a warehouse, in the engine's order (Stock::lock: by warehouse, then item; the engine
+     * takes them again in the same transaction). Only rows that exist: an item the sheet booked has its balance.
+     *
+     * @param list<int> $skuIds
+     */
+    private static function lockBalances(Db $db, int $warehouseId, array $skuIds): void
+    {
+        $skuIds = array_values(array_unique($skuIds));
+        sort($skuIds);
+        foreach ($skuIds as $sku) {
+            $db->value('SELECT on_hand FROM stock_balance WHERE warehouse_id = ? AND sku_id = ? FOR UPDATE', [$warehouseId, $sku]);
+        }
     }
 
     /** @return array<string, mixed> the record's count_sheet row (422 not_count_sheet: a CNT made around the sheet service) */

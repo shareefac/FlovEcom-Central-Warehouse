@@ -20,11 +20,14 @@ final class CountRulesTest extends TestCase
         return new \DateTimeImmutable('2026-10-12 ' . $time, Clock::utc());
     }
 
-    /** @param list<array{0: int, 1: string, 2?: ?string}> $lines [line, counted at, the last thing that happened to its stock before] */
-    private static function grouped(array $lines, int $window = 600, int $max = 20): ?array
+    /**
+     * @param list<array{0: int, 1: string, 2?: ?string}> $lines [line, counted at, the last thing that happened to its stock before]
+     * @param int $limit the most the window may grow to (the setting counts.time_window_max_minutes, in seconds)
+     */
+    private static function grouped(array $lines, int $window = 600, int $max = 20, int $limit = 600): ?array
     {
         $r = CountTimes::groups(array_map(static fn (array $l): array => ['line' => $l[0], 'at' => self::at($l[1]),
-            'since' => ($l[2] ?? null) === null ? null : self::at($l[2])], $lines), $window, $max);
+            'since' => ($l[2] ?? null) === null ? null : self::at($l[2])], $lines), $window, $max, $limit);
         return $r === null ? null : ['window' => $r['window'], 'groups' => array_map(static fn (array $g): array => [$g['at']->format('H:i:s'), $g['lines']], $r['groups'])];
     }
 
@@ -59,27 +62,59 @@ final class CountRulesTest extends TestCase
         }
     }
 
-    public function testMoreTimesThanAPostingHasRoomForWidenTheWindowAndWhenThatCannotHelpThereIsNoAnswer(): void
+    public function testMoreTimesThanAPostingHasRoomForWidenTheWindowOnlyUpToItsLimitAndThenThereIsNoAnswer(): void
     {
-        // Six lines an hour apart: six times at ten minutes; with room for three the window grows until three are enough.
+        // Six lines an hour apart: six times at ten minutes. With room for three and the limit at ten minutes (the default) the window
+        // is not widened at all: there is no answer, and the sheet is refused (review I-1 of 14 Oct 2026: never silently wider).
         $hourly = [[1, '01:00:00'], [2, '02:00:00'], [3, '03:00:00'], [4, '04:00:00'], [5, '05:00:00'], [6, '06:00:00']];
         self::assertCount(6, self::grouped($hourly)['groups']);
-        $three = self::grouped($hourly, 600, 3);
-        self::assertCount(3, $three['groups']);
-        self::assertGreaterThan(600, $three['window']);
-        self::assertSame([['01:00:00', [1, 2]], ['03:00:00', [3, 4]], ['05:00:00', [5, 6]]], $three['groups']);
+        self::assertNull(self::grouped($hourly, 600, 3));
+        // A limit the owner raised: the window doubles until three are enough, and never past the limit.
+        self::assertSame(['window' => 4800, 'groups' => [['01:00:00', [1, 2]], ['03:00:00', [3, 4]], ['05:00:00', [5, 6]]]], self::grouped($hourly, 600, 3, 7200));
+        self::assertSame(['window' => 3600, 'groups' => [['01:00:00', [1, 2]], ['03:00:00', [3, 4]], ['05:00:00', [5, 6]]]], self::grouped($hourly, 600, 3, 3600),
+            'the last try is the limit itself');
         // Stock that moved before every line keeps each line on its own time whatever the window: no answer with room for two.
         $busy = [[1, '01:00:00'], [2, '02:00:00', '01:30:00'], [3, '03:00:00', '02:30:00']];
-        self::assertNull(self::grouped($busy, 600, 2));
+        self::assertNull(self::grouped($busy, 600, 2, 86_400));
         self::assertCount(3, self::grouped($busy, 600, 3)['groups']);
-        // With room for one time only, the window grows until the first line's time serves them all.
-        self::assertSame(['window' => 19200, 'groups' => [['01:00:00', [1, 2, 3, 4, 5, 6]]]], self::grouped($hourly, 600, 1));
-        // Lines years apart: no window is kept at all (null), and lines whose stock never moved share the first time.
-        $far = CountTimes::groups([['line' => 1, 'at' => new \DateTimeImmutable('2024-01-01 10:00:00', Clock::utc()), 'since' => null],
-            ['line' => 2, 'at' => new \DateTimeImmutable('2026-10-12 10:00:00', Clock::utc()), 'since' => null]], 600, 1);
-        self::assertNotNull($far);
-        self::assertNull($far['window']);
-        self::assertSame([[1, 2]], array_column($far['groups'], 'lines'));
+        // With room for one time only: no answer at ten minutes (the builder's first version widened to 5 h 20 min here); a limit of five
+        // hours takes the first line's time for all six, exactly at the limit.
+        self::assertNull(self::grouped($hourly, 600, 1));
+        self::assertSame(['window' => 18000, 'groups' => [['01:00:00', [1, 2, 3, 4, 5, 6]]]], self::grouped($hourly, 600, 1, 18000));
+        // Lines years apart: the limit bounds the window, so there is never an answer without one.
+        self::assertNull(CountTimes::groups([['line' => 1, 'at' => new \DateTimeImmutable('2024-01-01 10:00:00', Clock::utc()), 'since' => null],
+            ['line' => 2, 'at' => new \DateTimeImmutable('2026-10-12 10:00:00', Clock::utc()), 'since' => null]], 600, 1, 3600));
+        // A limit below the ten minutes narrows the window itself.
+        self::assertSame(['window' => 120, 'groups' => [['10:00:00', [1]], ['10:04:00', [2]]]], self::grouped([[1, '10:00:00'], [2, '10:04:00']], 600, 20, 120));
+        self::assertSame(['window' => 0, 'groups' => [['10:00:00', [1, 2]], ['10:04:00', [3]]]], self::grouped([[1, '10:00:00'], [2, '10:00:00'], [3, '10:04:00']], 600, 20, 0),
+            'a limit of 0: only lines counted at the same moment share it');
+    }
+
+    public function testADaysSheetIsNeverBookedFurtherBeforeItsOwnTimeThanTheLimit(): void
+    {
+        // Review probe P4 (14 Oct 2026): 300 lines, one every 90 seconds (7.5 hours). The first version widened the window to 2,400 s
+        // and booked a line up to 2,340 s before its own time. At the ten-minute limit it is refused instead (the lines to count again
+        // are marked: CountPosting), and no grouping at that limit puts a line more than ten minutes before its own time.
+        $lines = [];
+        $start = self::at('09:00:00');
+        for ($i = 0; $i < 300; $i++) {
+            $lines[] = ['line' => $i + 1, 'at' => $start->modify('+' . (90 * $i) . ' seconds'), 'since' => null];
+        }
+        self::assertNull(CountTimes::groups($lines, 600, 20, 600), 'more than 20 times at ten minutes: refused, not widened');
+        $within = CountTimes::groupsWithin($lines, 600);
+        self::assertCount(43, $within, 'seven lines in each ten minutes');
+        $at = array_column($lines, 'at', 'line');
+        $gap = 0;
+        foreach ($within as $g) {
+            foreach ($g['lines'] as $no) {
+                $gap = max($gap, $at[$no]->getTimestamp() - $g['at']->getTimestamp());
+            }
+        }
+        self::assertLessThanOrEqual(600, $gap);
+        // The owner may raise the limit (the setting): then the probe's figures, and never more than the limit.
+        $wide = CountTimes::groups($lines, 600, 20, 2400);
+        self::assertNotNull($wide);
+        self::assertSame([2400, 12], [$wide['window'], count($wide['groups'])]);
     }
 
     public function testADifferenceIsOverTheUnitsLimitOnlyAboveItAndZeroMeansEveryDifference(): void

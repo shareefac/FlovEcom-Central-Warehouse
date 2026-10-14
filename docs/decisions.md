@@ -8505,22 +8505,42 @@ manager cannot prepare a sheet for a counter (each counter opens their own).
 **CT2. Entering quantities.** A quantity is saved the moment Enter is pressed in its box: the form's own button, no script (the house
 rule: app.js never talks to the network). Every box carries the value it was drawn with and the server keeps only the boxes changed on
 that page: a page left open in another tab never empties or overwrites what was entered since. A line whose quantity is the one it holds
-keeps the moment it was counted. A refused page saves nothing and shows what was typed again; nine or more digits in a box are refused as
-"a barcode went into the quantity box" (a scanner fired while a quantity box had the focus). app.js only marks a box typed in and not
-saved yet, and the unsaved-changes guard asks before the scan box, the upload or "stop" leaves the page. A sheet holds at most 500 items
+keeps the moment it was counted. A refused page saves nothing and shows what was typed again; nine or more digits in a box, or a value
+of 4 to 8 digits that is a barcode CW knows (as typed, or as its barcode key: an EAN-8 that starts with 0, a short code of the shop's
+own; review M-5 of 14 Oct 2026), are refused as "a barcode went into the quantity box" (a scanner fired while a quantity box had the
+focus). app.js marks a box typed in and not saved yet, and the unsaved-changes guard asks before the scan box, the upload or "stop"
+leaves the page. Each line keeps the moment its box was first typed into, not the moment Enter was pressed (review M-7: a counter who
+moves with Tab and presses Enter once gave every line that one moment, so a dispatch between the real count and the save read as before
+the count and the figure read high): app.js writes it into a hidden `at_<line>` as the page's drawn time (`data-drawn`, the server's
+clock) plus how long ago the page was loaded (so the tablet's own clock does not matter); CountSheets refuses a moment after now or
+before the line was put on the sheet (422 `bad_count_time`, nothing saved; Enter again saves with the time now); without one (no
+script) the moment of the save counts, as before. A sheet holds at most 500 items
 (`CountSheets::MAX_LINES`). Entering a quantity books nothing; every change moves the record's version, so "Before you make it final"
 drawn before a change cannot post (409 `version_conflict`).
 
 **CT3. Count times.** The engine takes ONE count time per movement and at most 20 movements a posting
 (`Movements::MAX_DOCUMENT_MOVEMENTS`); a sheet has a time per line. `CountTimes::groups` books a line under an EARLIER line's time only when
-nothing happened to its stock in between (no on-hand row, no later count) and the gap is at most the engine's "near a count" window
-(`Stock::NEAR_COUNT_SEC`, 10 minutes), widened only when more than 20 times would be needed; with no answer at all the posting is refused
-(409 `too_many_times`: count some lines again). The fewest such times are found (the textbook "fewest points that touch every interval").
-After booking, the engine's answer per line is compared with what `CountPosting::plan` worked out before (left out or not, the
-difference): a mismatch means stock moved in that instant, and the posting is refused whole (409 `moved_meanwhile`). Cost if wrong: a
-dispatch CW hears of only after the posting, made in the (at most 10-minute) gap before a line's own time, is taken off once too often (the
-figure reads low, the safe side), and the engine's own "parcel near a count" review shows it. A line counted more than a day before the
-posting is booked as a count typed in later (the engine's `backdated`, up to 90 days); older is refused (422 `count_too_old`).
+nothing happened to its stock in between (no on-hand row, no later count) and the gap is at most the setting
+`counts.time_window_max_minutes` (default 10, the engine's "near a count" window `Stock::NEAR_COUNT_SEC`; 0 to 60; review I-1 of 14 Oct
+2026). The fewest such times are found (the textbook "fewest points that touch every interval"). The window is NEVER widened past the
+setting: the first version doubled it until 20 times fitted (a day's sheet of 300 lines, one every 90 s, booked lines up to 39 minutes
+before their own time; no limit at all past 366 days). A sheet that needs more than 20 times at the setting is refused (409
+`too_many_times`, nothing booked), and "Before you make it final" marks the lines that started the earliest times (all but the newest 19):
+"Count it again" on each, or one button that empties them all; counted again close together they share one new time and the sheet fits
+(review M-2). At the moment of posting a shared time changes nothing the engine works out (no on-hand row lies in the gap). After booking,
+the engine's answer per line is compared with what `CountPosting::plan` worked out before (left out or not, the difference): a mismatch
+means stock moved in that instant, and the posting is refused whole (409 `moved_meanwhile`). What a shared time DOES change, afterwards:
+the item's count time (`stock_balance.counted_at`) is the shared time T, not the line's own time, so the engine judges every dispatch or
+reset reported LATER against T. Cost if wrong, both ways: a dispatch made in the gap (T, own time] and reported after the posting is taken
+off once too often (the figure reads one LOW); a reset (a parcel back on the shelf) made in the gap and reported late is ADDED although the
+count already had that unit (the figure reads one HIGH, the unsafe side). Both are within ten minutes of T while the setting is at most 10,
+so the engine's own `ship_near_count` / `unship_near_count` review flags each, and Stock › Counts › Differences now lists them (accept only:
+they are about a count's time, not a sheet line; whoever finds the figure wrong counts the item again). Above 10 minutes a late one in the
+gap may not be flagged (the setting's help says so). A second sheet's count of the same item made in the gap and made final later replaces
+this line's count (it is not "older than the last count"): usually the arithmetic is still right as of its time. A line counted more than
+a day before the posting is booked as a count typed in later (the engine's `backdated`, up to 90 days); older is refused (422
+`count_too_old`). post() works the plan out again and gives the same 409 or 422 when stock moved after validate() (review M-3; the first
+version threw an error page).
 
 **CT4. The sheet, for a tablet and a scanner.** Each line shows the item (name, CW number, brand, its barcodes), its selling mode and
 "stock now" (on hand at the sheet's warehouse, and how many are reserved for orders), and the quantity box. The setting
@@ -8555,7 +8575,16 @@ an `adjustment`; the engine can only negate a whole record, and a count movement
 transaction; the sheet and its other lines stand; the balance's count time stays (as the engine's own reversal leaves it): the item is
 counted again on a new sheet. A line is put back once (a UNIQUE key); putting it back settles every open review of the engine about that
 count. A sheet with a line put back cannot be cancelled as a whole afterwards (409 `line_put_back`: it would put that line back twice), and
-a line of a cancelled sheet cannot be rejected. An engine review of a count not made on a sheet can be accepted, not rejected. Cancelling
+a line of a cancelled sheet cannot be rejected. A line is not put back after its item was counted again (409 `counted_again`; review C-1
+of 14 Oct 2026): a put back is relative (minus what the count changed) and a later count is absolute (it set the figure again), so the old
+difference would be added a second time (counted 0 of 500, counted again 480, the first rejected: the figure read 980). "Counted again" is
+a `count` row of the item at that warehouse booked after the line's own (ledger ids of one balance follow its lock: D42's rule, as
+Reservations reads it for VERIFY; a cancellation's copy of another count counts too, the safe side). It is said at once and checked again
+by the handler under the item's stock lock, at the booking; the Differences row says "counted again since: accept it" instead of the reject
+button. A whole sheet is not cancelled when any of its items was counted again since (409 `line_counted_again`: said at once, before a
+cancellation waits for an OK, and again under the stock locks when a reviewer's OK books one that waited). Nor is a line put back while a
+cancellation of its whole sheet waits for a reviewer's OK (409 `cancel_waiting`; review M-1: the OK would be refused for ever after). An
+engine review of a count not made on a sheet can be accepted, not rejected. Cancelling
 a whole sheet closes its open checks as rejected, naming the cancellation; a cancellation that puts more than the "stock put back" limit
 back waits for a reviewer's OK first (the document base's rule, I32, as for any record): the person stays on the sheet, which links the
 waiting record on History; the record gets its count header when it is booked.
@@ -8568,7 +8597,13 @@ whole-sheet check: differences are checked one by one. `CountReviews::refusal` g
 and the tab's badge counts only what this person may answer. **0029 switches the rule off** (version N+1 of its history, `system:migrate`,
 only when it is not off already): 0008 seeded it on (over 10 units) for a type that had no handler, so no record loses a check it had;
 extra approvals start off (the owner's rule), and one person works on staging today, where a second-person rule would wait for ever. A
-build decision, for the owner; the limit of 10 is kept for when it is switched on.
+build decision, for the owner; the limit of 10 is kept for when it is switched on. The Approval Rules page and Settings say what the rule
+means for a count (a second person who answers a count difference; "every one" also a reviewer's check of every count record) instead of
+"a reviewer checks those over 10 items" (`Words::reviewRule`; review M-4 of 14 Oct 2026). **A stock count's Not OK only records it**
+(`reject_action` record, in `DocumentRules::REJECT_RECORD_ONLY` beside the purchase order; 0029 sets it in the same version as the rule
+switched off): with "every one" the base's own check of a record that puts a line back could not be said Not OK to (409 `not_reversible`)
+nor that of a sheet with a line put back (409 `line_put_back`), and cancelling a count at review is exactly the put back after a later
+count that CT7 refuses. A count is put right by counting again, or by answering its differences. A build decision, for the owner.
 
 **CT9. Who.** `doc.CNT.post` (stock controller, warehouse; never admin, I12) opens, enters, makes final and answers differences;
 `documents.view` looks (every GET). Each is checked again in the services inside the transaction (roles re-read). Staging, 12 Oct: nobody
@@ -8592,7 +8627,9 @@ counted" read `sku.counted_at`, which no count sets: it now shows the latest `st
 holding that quantity, empty, not on this sheet, cannot be read: no CW number, not a whole number, below zero, more than 10,000,000, the
 item twice), which writes nothing (the test compares CHECKSUM TABLE of seven tables before and after); "Fill in the sheet" fills exactly
 the sheet's own lines (nothing is added, nothing is made final). The upload asks when it was counted (default now; a UK date and time,
-not after now, not more than 90 days back): a paper count typed in later keeps its true time, so "warn first" sees what moved since.
+not after now, not even by a minute (review M-6 of 14 Oct 2026: the first version allowed the clock's 5 minutes, and a count time in the
+future keeps the next dispatches on the figure), not more than 90 days back): a paper count typed in later keeps its true time, so "warn
+first" sees what moved since.
 
 **CT13. Every list read keeps to an index.** 0029 adds two, online (`ALGORITHM = INPLACE, LOCK = NONE`, not a rebuild): `stock_balance
 (warehouse_id, counted_at, sku_id)` (the never counted, the oldest counts and the figures of one warehouse, from the index alone; a count
@@ -8611,7 +8648,10 @@ checks: 0.45 s); (2) the list of sheets sorted every header: now the ids first (
 the item index is named; (4) "Before you make it final" read every on-hand ledger entry of each line's balance (fine on staging
 today, seconds for a busy item after a year of sales): each line is now a range of (warehouse, item, bucket, time) with its own
 time as a value, 100 lines a statement. Known: the search by words (as Stock › Movements) reads the item names, 15,000 rows, 10-40
-ms.
+ms. Since the review of 14 Oct 2026 (CT7, CT16): "counted again since" reads the line's own count row by the ledger's document index,
+then a range of the item's on-hand rows from that count time on (`ix_stock_ledger_effective`), stopping at the first count; Differences
+does it per open row (at most 51 of each kind), the put back and the cancellation once per line; C6 only from the records that put
+something back.
 
 **CT14. The screens.** Stock › Counts is a tab with three segments: Next to count (CT10, with the split "New count sheet" button and a
 "How counting works" fold), Count sheets (every count record as a board: open sheets, final, cancelled, records that put a count back,
@@ -8631,8 +8671,10 @@ kind; C2 a final sheet's record lines are exactly its counted lines in order, ea
 sheet never made final holds nothing of a posting; C3 a line booked as counted has exactly one `count` movement of its item from that
 record, of the difference it names, a line left out has none, and the record books nothing else; C4 a difference waits only on a final
 sheet, and a rejected one names a final record that put it back; C5 a record that puts one line back is named by exactly that line, has
-one line, booked exactly one adjustment of minus the difference, and its sheet is final (never cancelled as a whole as well). They hold
-after every stock test.
+one line, booked exactly one adjustment of minus the difference, and its sheet is final (never cancelled as a whole as well); C6 nothing a
+count booked was put back after its item was counted again (between a sheet's count row of an item and the row of the record that puts
+it back, one line or the whole sheet, no other `count` row of that item and warehouse; review C-1 of 14 Oct 2026; from the few records
+that put something back, by the document and balance indexes). They hold after every stock test.
 
 **CT17. Tests.** `tests/Unit/CountRulesTest.php` (count times; the tolerance at, below and above each limit, 0 units, percent 0, an item
 that held nothing; the second-person rule), `tests/Unit/CountWordsTest.php`, `tests/Integration/Migration0029Test.php` (tables, indexes in
@@ -8640,14 +8682,18 @@ place, settings and their baselines, the rule switched off as a new version and 
 `tests/Integration/Counts/{CountsTestCase,CountSheetsTest,CountReviewsTest,CountInvariantsTest}.php` (a sheet books exactly its counted
 lines, skips blank ones, books a 0, posts once, cancels; times; warn first and both choices; a later count; yesterday's and too old a
 count; the scan box; the download, the upload and its preview; who; the checks, accept, reject, the second person; the engine's reviews;
-the plan; a cancellation that waits for a reviewer; C1-C5), `tests/Integration/UiKernel/CountsScreensTest.php` (the tab, a sheet from
+the plan; a cancellation that waits for a reviewer; C1-C6; the review fixes of 14 Oct 2026: no put back after a later count, none while a
+cancellation waits, the OK refused after a later count, the flags about a count's time, Not OK at review only records, too many count
+times marked and counted again, the 409 between check and booking, a moment per box), `tests/Integration/UiKernel/CountsScreensTest.php`
+(the review fixes on the pages too: a short barcode, a moment per box, "counted again since", the marked lines, the Approval Rules words;
+and the tab, a sheet from
 opening to its answered difference, warn first on the page, the upload, a blind count, the waiting cancellation, 403 for the wrong job,
 for admin, without the CSRF token and for someone who did not open the sheet). Pinned tests changed for Counts only: Sections, Menus,
 Home, Stock, StockOps, Reservations, Review and Reference screens, templates, Words, Permissions, Migration0008 (the rule off), UiSecurity
 (the new routes).
 
 **CT18. Provisional and left out.** Provisional (build decisions, for the owner; each a setting or a rule on a screen): 120 days; 5 units
-and 10 percent; "stock now" shown on a sheet; the second person off; a blank line is "not counted"; an upload never makes a sheet final;
+and 10 percent; count times shared within 10 minutes (CT3); a stock count's Not OK only records (CT8); "stock now" shown on a sheet; the second person off; a blank line is "not counted"; an upload never makes a sheet final;
 who may count (CT9); the opener alone enters a sheet (CT1). Left: (1) A2b: the Quality tab and IM2's "unstamped found" button on the count
 screen. (2) The count gate (`sku.counted_at`, `sell_policy`, "protected", plan §7.4): going live. (3) A count-programme scheduler with
 coverage targets, and "in transit" transfers (IM2 W2). (4) Places: a sheet names one optional place; `document_line.location_id` stays
@@ -8656,3 +8702,17 @@ a sheet cancelled afterwards, or a line put back), is skipped by Vape and Go's T
 figure; `docs/ops.md` says what to do before the first real count (the rebase is not changed). (6) The engine's reviews of a count made before this pack (none on staging) can be accepted,
 not put back. (7) A line put back keeps its item's count time: the plan sees it counted until it is counted again. Nothing was booked on
 `cw_staging` by this build.
+
+**CT19. The independent review of 14 Oct 2026 (`/root/cw_work/reviews/a2a/review.md`, verdict fix_first) and what changed.** C-1 (a
+difference put back after its item was counted again added it twice): refused, said on the Differences row, a nightly check C6 (CT7,
+CT16). I-1 (shared count times: the window grew far past 10 minutes; a late reset in the gap reads high; the flags had no screen): the
+window is capped by the setting `counts.time_window_max_minutes` (10) and never widened past it; the engine's `ship_near_count` and
+`unship_near_count` are listed on Differences, accept only; CT3 corrected. M-1 (a line put back while a whole-sheet cancellation waited):
+refused (`cancel_waiting`). M-2 ("too many count times" was a dead end): the lines to count again are marked, with one button. M-3 (an
+error page when stock moved between the check and the booking): the 409. M-4 (the Approval Rules words; a reviewer could not say Not OK):
+the words, and Not OK only records for a count (CT8). M-5 (a short barcode as a quantity) and M-7 (one moment for a whole page): CT2.
+M-6 (an upload's time up to 5 minutes ahead): CT12. M-8 (grants wider than the code needs): `count_sheet` is APPEND_ONLY (nothing updates
+it) and `count_sheet_line` UPDATE_COLUMNS without its identity (`document_id`, `line_no`, `sku_id`, `expected_qty`, `added_at`). M-9 (the
+deploy gap): no change (`install_cron.sh --migrate`, docs/ops.md). 0029 was not yet applied anywhere but the test schemas, so it was changed
+in place (the setting, CNT's Not OK). Left for the owner: a shared count time could also leave the line's own time as the item's count
+time after the posting, which would remove the cost CT3 names; not done (a change of what the engine's count time means).

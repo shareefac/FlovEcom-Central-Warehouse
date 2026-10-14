@@ -17,17 +17,22 @@
 --    inside a posting before the stock locks (it would lock the item before its balance, the order Stock::setPolicy reverses: 0017's
 --    incident table says the same), nor after them (nothing is locked after the feed clock, I21). A sheet's lines are locked by its
 --    posting before the stock and changed in place; they exist before the posting, so the posting adds no row at all.
---  * Four settings (provisional: each is a build decision put to the owner, changed on Settings › System › Settings with a reason):
+--  * Five settings (provisional: each is a build decision put to the owner, changed on Settings › System › Settings with a reason):
 --    counts.plan_days 120 (the owner's "every 4 months"; 1 to 730: Settings::RULES gives it its own range, a day count is 0 to 120
 --    otherwise); counts.sheet_shows_stock true (the module plan: each line shows stock now; off = a blind count);
 --    counts.review_over_units 5 (0 = every difference) and counts.review_over_percent 10 (0 = the percent is not used): a posted line
---    whose difference is above either is checked by a person. Limits in UNITS until costs exist (IM2).
+--    whose difference is above either is checked by a person. Limits in UNITS until costs exist (IM2). counts.time_window_max_minutes
+--    10 (0 to 60; review I-1 of 14 Oct 2026, docs/decisions.md CT3): a sheet line is booked under an earlier line's count time at most
+--    this many minutes before its own; a sheet that needs more count times than a posting has room for is refused, never widened.
 --  * document_type CNT: the reviewer check "only over 10 items" that 0008 seeded is switched OFF (review_rule none; the limit of 10 is
 --    kept for when it is switched on). A build decision, put to the owner: no count could be posted before this pack (the type had no
 --    handler), so no record loses a check it had; the owner's rule is that extra approvals start off; and today one person works on
 --    staging, where a second-person rule would wait for ever. It is switched on again on Settings › Approval Rules, where it now
---    means: a count difference above that many units is cleared by a second person (docs/decisions.md CT8). The change is version N+1
---    of the rule's history (docs/dev.md rule 5), written only when the rule was not already off.
+--    means: a count difference above that many units is cleared by a second person (docs/decisions.md CT8). And its Not OK only
+--    records (reject_action record, as a purchase order's; review M-4 of 14 Oct 2026): cancelling a count at review fails for a record
+--    that puts a line back and for a sheet with a line put back, and would put a difference back on top of a later count; a count is
+--    put right by counting again. Both are ONE change, version N+1 of the rule's history (docs/dev.md rule 5), written only when the
+--    rule was not already like that.
 --  * Two indexes for the lists (staging: 14,856 items, a 32 MB buffer pool; every list read keeps to an index, docs/decisions.md CT13):
 --    stock_balance (warehouse_id, counted_at, sku_id): "never counted" and "counted longest ago" of ONE warehouse, and how many items
 --    are inside the plan, read from the index alone. A count is the only thing that moves an entry (Stock::setCountedAt); a sale, a
@@ -36,7 +41,7 @@
 --    count_near_ship), newest first, without reading the open reviews of every other kind.
 --    Both are added in place and online (ALGORITHM = INPLACE, LOCK = NONE: reads and writes go on while they build; not a rebuild:
 --    tests/Integration/Migration0029Test.php holds the file to it, as 0027's test does).
--- Old code keeps working on the new schema: two new tables it does not know, two indexes, four setting rows, one rule switched off.
+-- Old code keeps working on the new schema: two new tables it does not know, two indexes, five setting rows, one rule changed.
 -- Applied together with the code of the same commit (install_cron.sh --migrate).
 
 CREATE TABLE count_sheet (
@@ -118,24 +123,27 @@ INSERT INTO app_setting (setting_key, value_type, value_json, provisional, decis
  ('counts.plan_days','int','120',1,'CT10','Every item should be counted at least once in this many days (the count plan); an item counted longer ago, or never, is overdue'),
  ('counts.sheet_shows_stock','bool','true',1,'CT4','A count sheet shows what the system holds beside each item; off: the counter does not see it (a blind count)'),
  ('counts.review_over_units','int','5',1,'CT6','A count difference of more than this many units is checked by a person after the count is made final (0: every difference)'),
- ('counts.review_over_percent','int','10',1,'CT6','A count difference of more than this percent of what the system held is checked by a person after the count is made final (0: the percent is not used)');
+ ('counts.review_over_percent','int','10',1,'CT6','A count difference of more than this percent of what the system held is checked by a person after the count is made final (0: the percent is not used)'),
+ ('counts.time_window_max_minutes','int','10',1,'CT3','A line of a count sheet is booked under an earlier line''s count time at most this many minutes before its own (0 to 60); a sheet that needs more count times is refused');
 
 INSERT INTO config_change (subject_type, subject_key, version, action, state, actor)
   SELECT 'setting', setting_key, 1, 'baseline', JSON_OBJECT('value', CAST(value_json AS CHAR), 'provisional', provisional), 'system:migrate'
-  FROM app_setting WHERE setting_key IN ('counts.plan_days', 'counts.sheet_shows_stock', 'counts.review_over_units', 'counts.review_over_percent');
+  FROM app_setting WHERE setting_key IN ('counts.plan_days', 'counts.sheet_shows_stock', 'counts.review_over_units', 'counts.review_over_percent',
+    'counts.time_window_max_minutes');
 
--- The reviewer check of a stock count: off (see the head of this file). The next version of the rule's history first, from the row as
--- it is (the tracked fields, as 0022 wrote ADJ's), only when the rule is not already off; then the row.
+-- The reviewer check of a stock count: off, and its Not OK only records (see the head of this file). The next version of the rule's
+-- history first, from the row as it is (the tracked fields, as 0022 wrote ADJ's), only when the rule is not already like that; then
+-- the row.
 INSERT INTO config_change (subject_type, subject_key, version, action, state, before_state, reason, actor)
   SELECT 'document_rule', t.code, c.version + 1, 'change',
       JSON_OBJECT('review_rule', 'none', 'review_limit_units', t.review_limit_units, 'review_due_days', t.review_due_days,
-          'approval_rule', CAST(t.approval_rule AS CHAR), 'approval_limit_units', t.approval_limit_units, 'reject_action', CAST(t.reject_action AS CHAR),
+          'approval_rule', CAST(t.approval_rule AS CHAR), 'approval_limit_units', t.approval_limit_units, 'reject_action', 'record',
           'size_approval', t.size_approval, 'size_units', t.size_units, 'size_value', t.size_value),
       c.state,
-      'Stock counts arrive (0029): the second-person check of a count starts switched off, as every extra approval does; its limit is kept',
+      'Stock counts arrive (0029): the second-person check of a count starts switched off, as every extra approval does; its limit is kept; Not OK only records it (a count is put right by counting again)',
       'system:migrate'
   FROM document_type t
   JOIN (SELECT subject_key, MAX(version) AS v FROM config_change WHERE subject_type = 'document_rule' GROUP BY subject_key) m ON m.subject_key = t.code
   JOIN config_change c ON c.subject_type = 'document_rule' AND c.subject_key = t.code AND c.version = m.v
-  WHERE t.code = 'CNT' AND t.review_rule <> 'none';
-UPDATE document_type SET review_rule = 'none' WHERE code = 'CNT' AND review_rule <> 'none';
+  WHERE t.code = 'CNT' AND (t.review_rule <> 'none' OR t.reject_action <> 'record');
+UPDATE document_type SET review_rule = 'none', reject_action = 'record' WHERE code = 'CNT' AND (review_rule <> 'none' OR reject_action <> 'record');

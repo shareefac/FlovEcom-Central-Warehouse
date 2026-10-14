@@ -89,19 +89,14 @@ final class ReferenceController
             $rules[$code] = [
                 'code' => $code,
                 'name' => Words::docType($code, true, (string) $r['name']),
-                'review' => match ($r['review_rule']) {
-                    'all' => Words::say('SETTINGS_PAGE', 'rule_all', (int) $r['review_due_days']),
-                    'over_limit' => Words::say('SETTINGS_PAGE', 'rule_over', (int) $r['review_limit_units'], (int) $r['review_due_days']),
-                    default => Words::SETTINGS_PAGE['rule_none'],
-                },
+                'review' => Words::reviewRule($code, (string) $r['review_rule'], (int) $r['review_limit_units'], (int) $r['review_due_days']),
                 'approval' => match ($r['approval_rule']) {
                     'none' => null,
                     'over_value' => Words::say('SETTINGS_PAGE', 'rule_value', $limit),
                     default => Words::say('SETTINGS_PAGE', 'rule_units', $limit),
                 },
-                // reject_action (0010, I49): 'reverse' (I19) or 'record' (PO: the rejection is recorded, the order stands).
-                'reject' => ($r['reject_action'] ?? 'reverse') === 'record' ? Words::SETTINGS_PAGE[$code === 'PO' ? 'rule_record_po' : 'rule_record']
-                    : Words::SETTINGS_PAGE['rule_reverse'],
+                // reject_action (0010, I49): 'reverse' (I19) or 'record' (PO: the rejection is recorded, the order stands; CNT since 0029).
+                'reject' => Words::rejectRule($code, (string) ($r['reject_action'] ?? 'reverse')),
             ];
         }
         uksort($rules, static fn (string $a, string $b): int => array_search($a, self::TYPE_ORDER, true) <=> array_search($b, self::TYPE_ORDER, true));

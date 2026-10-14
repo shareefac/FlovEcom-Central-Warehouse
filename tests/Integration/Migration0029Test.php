@@ -26,7 +26,7 @@ final class Migration0029Test extends IntegrationTestCase
 {
     private const FILE = '0029_stock_counts.sql';
     private const SETTINGS = ['counts.plan_days' => ['int', '120'], 'counts.sheet_shows_stock' => ['bool', 'true'], 'counts.review_over_units' => ['int', '5'],
-        'counts.review_over_percent' => ['int', '10']];
+        'counts.review_over_percent' => ['int', '10'], 'counts.time_window_max_minutes' => ['int', '10']];
     private const BAD_CHECK = 3819; // ER_CHECK_CONSTRAINT_VIOLATED
     private const DUPLICATE = 1062;
     /** @var array<string, string> scratch suffix => its migrations directory */
@@ -124,16 +124,18 @@ final class Migration0029Test extends IntegrationTestCase
         $db->exec("UPDATE stock_balance SET counted_at = '2026-10-01 09:00:00' WHERE warehouse_id = 1 AND sku_id = ?", [$sku[2]]);
         self::assertSame([$sku[0], $sku[2]], array_map('intval', $db->column($oldest, [1])), 'the oldest count first');
 
-        // The four settings, their baselines, and their ranges (the plan's days have a range of their own: a day count stops at 120).
+        // The five settings, their baselines, and their ranges (the plan's days have a range of their own: a day count stops at 120; the
+        // count times' limit is review I-1's of 14 Oct 2026, never hard-coded).
         foreach (self::SETTINGS as $key => [$type, $json]) {
             self::assertSame([$type, $json, 1], array_values((array) $db->one('SELECT value_type, CAST(value_json AS CHAR) AS v, provisional FROM app_setting WHERE setting_key = ?', [$key])), $key);
             self::assertSame(['baseline', 'system:migrate', 1], array_values((array) $db->one("SELECT action, actor, version FROM config_change WHERE subject_type = 'setting' "
                 . 'AND subject_key = ?', [$key])), "{$key}: its history starts with what the migration set");
         }
         $settings = new Settings($db);
-        self::assertSame([120, true, 5, 10], [$settings->get('counts.plan_days'), $settings->get('counts.sheet_shows_stock'), $settings->get('counts.review_over_units'),
-            $settings->get('counts.review_over_percent')]);
-        foreach ([['counts.plan_days', 1, 730, 0, 731], ['counts.review_over_units', 0, 1_000_000, -1, 1_000_001], ['counts.review_over_percent', 0, 1000, -1, 1001]] as [$key, $lo, $hi, $under, $over]) {
+        self::assertSame([120, true, 5, 10, 10], [$settings->get('counts.plan_days'), $settings->get('counts.sheet_shows_stock'), $settings->get('counts.review_over_units'),
+            $settings->get('counts.review_over_percent'), $settings->get('counts.time_window_max_minutes')]);
+        foreach ([['counts.plan_days', 1, 730, 0, 731], ['counts.review_over_units', 0, 1_000_000, -1, 1_000_001], ['counts.review_over_percent', 0, 1000, -1, 1001],
+            ['counts.time_window_max_minutes', 0, 60, -1, 61]] as [$key, $lo, $hi, $under, $over]) {
             $settings->checkRule($key, $lo);
             $settings->checkRule($key, $hi);
             foreach ([$under, $over] as $bad) {
@@ -146,13 +148,16 @@ final class Migration0029Test extends IntegrationTestCase
             }
         }
 
-        // The reviewer check of a stock count: off, its limit kept, as the next version of its history; the nightly K checks hold.
-        self::assertSame(['none', 10], array_values((array) $db->one("SELECT CAST(review_rule AS CHAR) AS r, review_limit_units FROM document_type WHERE code = 'CNT'")));
+        // The reviewer check of a stock count: off, its limit kept, and its Not OK only records (review M-4 of 14 Oct 2026: a count is
+        // put right by counting again), as ONE next version of its history; the nightly K checks hold.
+        self::assertSame(['none', 10, 'record'], array_values((array) $db->one("SELECT CAST(review_rule AS CHAR) AS r, review_limit_units, CAST(reject_action AS CHAR) AS a "
+            . "FROM document_type WHERE code = 'CNT'")));
         $v = (array) $db->one("SELECT version, action, actor, reason, JSON_UNQUOTE(JSON_EXTRACT(state, '$.review_rule')) AS after_rule, "
-            . "JSON_EXTRACT(state, '$.review_limit_units') AS after_limit, JSON_UNQUOTE(JSON_EXTRACT(before_state, '$.review_rule')) AS before_rule "
+            . "JSON_EXTRACT(state, '$.review_limit_units') AS after_limit, JSON_UNQUOTE(JSON_EXTRACT(before_state, '$.review_rule')) AS before_rule, "
+            . "JSON_UNQUOTE(JSON_EXTRACT(state, '$.reject_action')) AS after_reject, JSON_UNQUOTE(JSON_EXTRACT(before_state, '$.reject_action')) AS before_reject "
             . "FROM config_change WHERE subject_type = 'document_rule' AND subject_key = 'CNT' ORDER BY version DESC LIMIT 1");
-        self::assertSame([$rulesBefore + 1, 'change', 'system:migrate', 'none', 10, 'over_limit'],
-            [(int) $v['version'], $v['action'], $v['actor'], $v['after_rule'], (int) $v['after_limit'], $v['before_rule']]);
+        self::assertSame([$rulesBefore + 1, 'change', 'system:migrate', 'none', 10, 'over_limit', 'record', 'reverse'],
+            [(int) $v['version'], $v['action'], $v['actor'], $v['after_rule'], (int) $v['after_limit'], $v['before_rule'], $v['after_reject'], $v['before_reject']]);
         self::assertGreaterThanOrEqual(3, mb_strlen((string) $v['reason']));
         self::assertSame([], ConfigInvariants::check($db), 'every changed row equals the latest version of its history');
         // No other kind of record was touched.
@@ -192,9 +197,10 @@ final class Migration0029Test extends IntegrationTestCase
             . "VALUES (?, 'line_reversal', ?, 2)", [$again, $sheet])), 'a line is put back once');
         $db->exec("UPDATE count_sheet_line SET review = 'rejected', reviewed_by = ?, reviewed_at = UTC_TIMESTAMP(6), reversal_document_id = ? WHERE document_id = ? AND line_no = 2",
             [$staff, $back, $sheet]);
-        // The app login never deletes a sheet or a line.
-        self::assertContains('count_sheet', Grants::NO_DELETE);
-        self::assertContains('count_sheet_line', Grants::NO_DELETE);
+        // The app login never deletes a sheet or a line; a header is never changed, and a line's item, its place on the sheet and what
+        // the system held when it was put there are never changed either (review M-8 of 14 Oct 2026: GrantsTest).
+        self::assertContains('count_sheet', Grants::APPEND_ONLY);
+        self::assertArrayHasKey('count_sheet_line', Grants::UPDATE_COLUMNS);
     }
 
     public function testACountCheckAlreadySwitchedOffOnTheScreenGetsNoNewVersion(): void
@@ -202,11 +208,11 @@ final class Migration0029Test extends IntegrationTestCase
         /** @var Db $db */
         [$db, $dir] = MigrationFixture::upTo('m29b', self::before());
         $this->dirs['m29b'] = $dir;
-        // As the Approval Rules page writes it: the row, and the next version of its history.
-        $db->exec("UPDATE document_type SET review_rule = 'none' WHERE code = 'CNT'");
+        // As the Approval Rules page writes it: the row, and the next version of its history (the check off, Not OK only records).
+        $db->exec("UPDATE document_type SET review_rule = 'none', reject_action = 'record' WHERE code = 'CNT'");
         $db->exec("INSERT INTO config_change (subject_type, subject_key, version, action, state, before_state, reason, actor) "
-            . "SELECT 'document_rule', 'CNT', c.version + 1, 'change', JSON_SET(c.state, '$.review_rule', 'none'), c.state, 'one person works here', 'system:document_rules' "
-            . "FROM config_change c WHERE c.subject_type = 'document_rule' AND c.subject_key = 'CNT' ORDER BY c.version DESC LIMIT 1");
+            . "SELECT 'document_rule', 'CNT', c.version + 1, 'change', JSON_SET(c.state, '$.review_rule', 'none', '$.reject_action', 'record'), c.state, 'one person works here', "
+            . "'system:document_rules' FROM config_change c WHERE c.subject_type = 'document_rule' AND c.subject_key = 'CNT' ORDER BY c.version DESC LIMIT 1");
         $before = (int) $db->value("SELECT MAX(version) FROM config_change WHERE subject_type = 'document_rule' AND subject_key = 'CNT'");
         self::assertSame([self::FILE], MigrationFixture::migrateRest($db, $dir, self::FILE));
         self::assertSame($before, (int) $db->value("SELECT MAX(version) FROM config_change WHERE subject_type = 'document_rule' AND subject_key = 'CNT'"),

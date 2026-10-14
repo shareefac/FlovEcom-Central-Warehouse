@@ -1,7 +1,9 @@
 <?php
 // "Before you make it final" (docs/decisions.md CT5, CT6): every counted line of an open sheet with what making it final would do
 // now, the biggest difference first. A line whose stock moved after it was counted says what moved and asks for one of two answers
-// (the module plan's decision 6: warn first); a line a later count leaves out says so. The button at the bottom makes the sheet final.
+// (the module plan's decision 6: warn first); a line a later count leaves out says so. When the sheet needs more count times than a
+// record holds, the lines to count again are marked, each with "Count it again", and one button empties them all (review M-2). The
+// button at the bottom makes the sheet final.
 ?>
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $word('COUNTS', 'back_to_sheet') ?></a></p>
 <h1><?= $e($title) ?></h1>
@@ -20,8 +22,15 @@
 <?php if ($lines === []): ?>
 <?= $empty(\CW\Ui\Words::COUNTS['nothing_counted'], \CW\Ui\Words::COUNTS['nothing_counted_text'], $base, \CW\Ui\Words::COUNTS['back_to_sheet']) ?>
 <?php else: ?>
-<?php if ($diff['too_many_times']): ?>
-<p class="error" role="alert"><?= $word('COUNTS', 'too_many_times') ?></p>
+<?php if ($retimeWords !== null): ?>
+<p class="error" role="alert"><?= $e($retimeWords) ?></p>
+<?php if ($mine && $retime_n > 0): ?>
+<form class="inline" method="post" action="<?= $u($base . '/recount') ?>">
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="times" value="1">
+  <button type="submit" class="primary"><?= $word('COUNTS', 'retime_all') ?></button> <span class="muted"><?= $word('COUNTS', 'retime_all_text') ?></span>
+</form>
+<?php endif; ?>
 <?php endif; ?>
 <div class="table-wrap">
 <table class="stack list count-before">
@@ -36,7 +45,7 @@
   </thead>
   <tbody>
 <?php foreach ($lines as $l): ?>
-    <tr id="line-<?= $e($l['line_no']) ?>"<?php if ($l['needs_choice']): ?> class="needs"<?php endif; ?>>
+    <tr id="line-<?= $e($l['line_no']) ?>"<?php if ($l['needs_choice'] || $l['retime']): ?> class="needs<?php if ($l['retime']): ?> retime<?php endif; ?>"<?php endif; ?>>
       <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name']) ?></a><span class="o-sub"><?= $say('COUNTS', 'line_no', $l['line_no']) ?> · <?= $e($l['code']) ?> · <?= $say('COUNTS', 'counted_when', \CW\Ui\Html::when($l['counted_at'])) ?></span></th>
       <td class="num" data-label="<?= $word('COUNTS', 'counted') ?>"><?= $n($l['counted']) ?></td>
       <td class="num" data-label="<?= $word('COUNTS', 'holds_now') ?>"><?= $n($l['held']) ?></td>
@@ -47,6 +56,9 @@
 <?php endif; ?>
 <?php if ($l['too_old']): ?>
         <?= $chip('blocked', \CW\Ui\Words::COUNTS['too_old_chip']) ?> <span class="o-sub"><?= $say('COUNTS', 'too_old_text', $days) ?></span>
+<?php endif; ?>
+<?php if ($l['retime']): ?>
+        <?= $chip('blocked', \CW\Ui\Words::COUNTS['retime_chip']) ?>
 <?php endif; ?>
 <?php if ($l['movedWords'] !== []): ?>
         <span class="o-sub"><?= $word('COUNTS', 'moved_title') ?></span>
@@ -63,7 +75,7 @@
 <?php if ($l['acked']): ?>
         <?= $chip('done', \CW\Ui\Words::COUNTS['as_counted_chip']) ?>
 <?php endif; ?>
-<?php if ($mine && ($l['needs_choice'] || $l['acked'] || $l['stale'] || $l['too_old'])): ?>
+<?php if ($mine && ($l['needs_choice'] || $l['acked'] || $l['stale'] || $l['too_old'] || $l['retime'])): ?>
         <form class="inline" method="post" action="<?= $u($base . '/recount') ?>">
           <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
           <input type="hidden" name="line" value="<?= $e($l['line_no']) ?>">

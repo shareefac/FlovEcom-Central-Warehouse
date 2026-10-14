@@ -44,8 +44,11 @@ final class DocumentRules
     public const LIMIT_MAX = 2_000_000_000;
     public const DAYS_MIN = 1;
     public const DAYS_MAX = 120;
-    /** The kinds whose Not OK can only record it (ck_document_type_po_reject). */
-    public const REJECT_RECORD_ONLY = ['PO'];
+    /**
+     * The kinds whose Not OK can only record it: a purchase order (ck_document_type_po_reject) and a stock count (0029; review M-4 of 14
+     * Oct 2026: a count is put right by counting again or by answering its differences, never by cancelling it after a later count).
+     */
+    public const REJECT_RECORD_ONLY = ['PO', 'CNT'];
     /** The review rules from the strictest. */
     private const REVIEW_RANK = ['all' => 2, 'over_limit' => 1, 'none' => 0];
     /** The fields of a rule, in the order the CLI prints a change. */
@@ -246,8 +249,8 @@ final class DocumentRules
                 throw new CwException('bad_reject_action', 'what Not OK does is reverse or record', 400, ['field' => 'reject_action']);
             }
             if ($change['reject_action'] !== 'record' && in_array($type, self::REJECT_RECORD_ONLY, true)) {
-                throw new CwException('reject_record_only', "Not OK on a {$type} only records it: an order a delivery was booked against cannot be cancelled", 400,
-                    ['field' => 'reject_action']);
+                throw new CwException('reject_record_only', $type === 'PO' ? 'Not OK on a PO only records it: an order a delivery was booked against cannot be cancelled'
+                    : "Not OK on a {$type} only records it: a count is put right by counting again", 400, ['field' => 'reject_action']);
             }
             $after['reject_action'] = $change['reject_action'];
         }

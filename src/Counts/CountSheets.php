@@ -29,9 +29,10 @@ use DateTimeImmutable;
  * A sheet is a `document` of type CNT (the warehouse counted, the day it was opened, a note) with a `count_sheet` header (the optional
  * place) and its lines in `count_sheet_line`: one per item (an item is on a sheet once), with what the system held when the line was
  * put on the sheet, and the quantity counted. An empty quantity means "not counted yet": nothing is booked for it. 0 is a count of
- * nothing. A quantity is saved the moment it is entered, with that moment as the time the item was counted, and who entered it; an
- * upload says when its quantities were counted (a paper count typed in later keeps its true time). Entering a quantity books
- * nothing: only post() does, and only the counted lines.
+ * nothing. A quantity is saved the moment it is entered, with the moment its box was filled in as the time the item was counted
+ * (the page sends it; without it, the moment it is saved: review M-7 of 14 Oct 2026), and who entered it; an upload says when its
+ * quantities were counted (a paper count typed in later keeps its true time). Entering a quantity books nothing: only post() does,
+ * and only the counted lines.
  *
  * Every write: a staff caller allowed to post stock counts (doc.CNT.post, never admin; roles re-read inside the transaction), ONE
  * transaction (joining an open one), the document row locked first. A draft sheet is changed and posted only by the person who
@@ -144,12 +145,15 @@ final class CountSheets
     /**
      * Saves quantities of a draft sheet: line number => whole units from 0 to MAX_QTY, or null to empty the line again. A line whose
      * quantity is the one it already holds is left alone (it keeps the moment it was counted: a whole page saved again changes only
-     * what changed). A changed line takes $countedAt (default: now) as the moment it was counted, the caller as who entered it, and
-     * loses its "post as counted" mark. Opener only. 422 bad_quantity, 422 unknown_line. Returns how many lines changed.
+     * what changed). A changed line takes as the moment it was counted its own time in $times (the moment its box was filled in), else
+     * $countedAt, else now; the caller as who entered it; and it loses its "post as counted" mark. A time of $times may not be after now
+     * nor before the line was put on the sheet (422 bad_count_time, nothing saved). Opener only. 422 bad_quantity, 422 unknown_line.
+     * Returns how many lines changed.
      *
      * @param array<int, ?int> $quantities
+     * @param array<int, DateTimeImmutable> $times line number => the moment its box was filled in
      */
-    public function setQuantities(Caller $caller, int $id, array $quantities, ?DateTimeImmutable $countedAt = null, string $how = 'typed'): int
+    public function setQuantities(Caller $caller, int $id, array $quantities, ?DateTimeImmutable $countedAt = null, string $how = 'typed', array $times = []): int
     {
         if (!in_array($how, ['typed', 'upload'], true)) {
             throw new \InvalidArgumentException("unknown way of entering a quantity {$how}");
@@ -159,7 +163,7 @@ final class CountSheets
                 throw new CwException('bad_quantity', "line {$no}: a counted quantity is a whole number of units from 0 to " . self::MAX_QTY, 422, ['line' => (int) $no]);
             }
         }
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $quantities, $countedAt, $how): int {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $quantities, $countedAt, $how, $times): int {
             $this->lockDraft($caller, $id);
             if ($quantities === []) {
                 return 0;
@@ -168,9 +172,11 @@ final class CountSheets
             $at = Clock::db($countedAt ?? $now);
             $nos = array_map('intval', array_keys($quantities));
             $have = [];
-            foreach ($db->all('SELECT line_no, counted_qty FROM count_sheet_line WHERE document_id = ? AND line_no IN (' . implode(', ', array_fill(0, count($nos), '?'))
+            $added = [];
+            foreach ($db->all('SELECT line_no, counted_qty, added_at FROM count_sheet_line WHERE document_id = ? AND line_no IN (' . implode(', ', array_fill(0, count($nos), '?'))
                 . ') FOR UPDATE', [$id, ...$nos]) as $l) {
                 $have[(int) $l['line_no']] = $l['counted_qty'] === null ? null : (int) $l['counted_qty'];
+                $added[(int) $l['line_no']] = (string) $l['added_at'];
             }
             $changed = 0;
             foreach ($quantities as $no => $qty) {
@@ -185,8 +191,13 @@ final class CountSheets
                     $db->exec('UPDATE count_sheet_line SET counted_qty = NULL, counted_at = NULL, counted_by = NULL, entered_at = NULL, entered_how = NULL, ack_ledger_id = NULL, '
                         . 'ack_at = NULL WHERE document_id = ? AND line_no = ?', [$id, $no]);
                 } else {
+                    $own = $times[$no] ?? null;
+                    if ($own !== null && ($own > $now || Clock::db($own) < $added[$no])) {
+                        throw new CwException('bad_count_time', "line {$no}: the moment its box was filled in is after now or before the line was on the sheet", 422,
+                            ['line' => $no]);
+                    }
                     $db->exec('UPDATE count_sheet_line SET counted_qty = ?, counted_at = ?, counted_by = ?, entered_at = ?, entered_how = ?, ack_ledger_id = NULL, ack_at = NULL '
-                        . 'WHERE document_id = ? AND line_no = ?', [$qty, $at, $caller->staffUserId, Clock::db($now), $how, $id, $no]);
+                        . 'WHERE document_id = ? AND line_no = ?', [$qty, $own === null ? $at : Clock::db($own), $caller->staffUserId, Clock::db($now), $how, $id, $no]);
                 }
                 $changed++;
             }
@@ -201,6 +212,25 @@ final class CountSheets
     public function recount(Caller $caller, int $id, int $lineNo): void
     {
         $this->setQuantities($caller, $id, [$lineNo => null]);
+    }
+
+    /**
+     * "Count the marked lines again" (too many count times; review M-2, 14 Oct 2026): every line the plan marks (CountPosting: the lines
+     * that started the earliest count times) is empty again, worked out again inside the transaction. Counted again close together, they
+     * share one time and the sheet fits. Opener only. Returns how many lines were emptied (0: nothing is marked).
+     */
+    public function recountForTimes(Caller $caller, int $id): int
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $id): int {
+            $this->lockDraft($caller, $id);
+            $marked = [];
+            foreach (CountPosting::plan($db, $id, ($this->clock)())['lines'] as $l) {
+                if ($l['retime']) {
+                    $marked[$l['line_no']] = null;
+                }
+            }
+            return $marked === [] ? 0 : $this->setQuantities($caller, $id, $marked);
+        });
     }
 
     /**
@@ -271,9 +301,17 @@ final class CountSheets
             $this->lockSheet($id);
             // Said at once, also when the cancellation would first wait for a reviewer's OK (the handler says it again at the booking).
             $back = $db->value('SELECT line_no FROM count_sheet_line WHERE document_id = ? AND reversal_document_id IS NOT NULL ORDER BY line_no LIMIT 1', [$id]);
-            if ($back !== null && $this->docs->get($id)->status === 'posted') {
+            $posted = $this->docs->get($id)->status === 'posted';
+            if ($back !== null && $posted) {
                 throw new CwException('line_put_back', "line {$back} of this sheet was already put back on its own: the sheet cannot be cancelled as a whole "
                     . '(reject its other differences one by one)', 409, ['line' => (int) $back]);
+            }
+            // An item counted again after the sheet (review C-1): cancelling would put the sheet's difference back on top of the newer
+            // count. Said at once, before a cancellation waits for an OK (the handler says it again under the stock locks).
+            $again = $posted ? CountSheetHandler::linesCountedAgain($db, $id) : [];
+            if ($again !== []) {
+                throw new CwException('line_counted_again', "the item of line {$again[0]} was counted again after this sheet: the newer count set the shelf figure, so the "
+                    . 'sheet cannot be cancelled as a whole (answer its differences one by one)', 409, ['line' => $again[0], 'lines' => $again]);
             }
             return $this->docs->reverse($caller, $id, $reasonCode, $note);
         });
@@ -420,8 +458,9 @@ final class CountSheets
 
     /**
      * Fills the sheet from an uploaded file: exactly readUpload()'s `fill` rows, read again inside the transaction (the sheet's own
-     * lines only; nothing is added, nothing is posted). $countedAt: when the quantities were counted (default: now); not after now and
-     * not older than the engine takes (400 bad_counted_at). Rows that cannot be read are skipped and reported, the rest is filled.
+     * lines only; nothing is added, nothing is posted). $countedAt: when the quantities were counted (default: now); not after now (not
+     * even by a minute: review M-6, 14 Oct 2026, CT12) and not older than the engine takes (400 bad_counted_at). Rows that cannot be
+     * read are skipped and reported, the rest is filled.
      * Opener only. Audit count.upload.
      *
      * @return array<string, mixed> readUpload()'s report with applied true and `filled`
@@ -431,7 +470,7 @@ final class CountSheets
         return $this->db->transaction(function (Db $db) use ($caller, $id, $path, $countedAt, $fileName): array {
             $this->lockDraft($caller, $id);
             $now = ($this->clock)();
-            if ($countedAt !== null && (Clock::diff($now, $countedAt) > Clock::MAX_AHEAD_SEC || Clock::diff($countedAt, $now) > Movements::BACKDATED_MAX_AGE_SEC)) {
+            if ($countedAt !== null && ($countedAt > $now || Clock::diff($countedAt, $now) > Movements::BACKDATED_MAX_AGE_SEC)) {
                 throw new CwException('bad_counted_at', 'the time it was counted is not after now and not more than '
                     . intdiv(Movements::BACKDATED_MAX_AGE_SEC, 86_400) . ' days ago', 400, ['field' => 'counted_at', 'days' => intdiv(Movements::BACKDATED_MAX_AGE_SEC, 86_400)]);
             }
@@ -527,8 +566,8 @@ final class CountSheets
      * and how many lines need the person's choice (their stock moved after they were counted), are above the tolerance, or will be
      * left out (a later count of the item exists).
      *
-     * @return array{lines: list<array<string, mixed>>, needs_choice: int, over: int, stale: int, too_old: int, too_many_times: bool, window: ?int,
-     *               units_limit: int, percent_limit: int}
+     * @return array{lines: list<array<string, mixed>>, needs_choice: int, over: int, stale: int, too_old: int, retime: int, too_many_times: bool, window: int,
+     *               limit_minutes: int, units_limit: int, percent_limit: int}
      */
     public function differences(int $id): array
     {
@@ -537,8 +576,9 @@ final class CountSheets
         $lines = $plan['lines'];
         usort($lines, static fn (array $a, array $b): int => [abs((int) $b['delta']), $a['line_no']] <=> [abs((int) $a['delta']), $b['line_no']]);
         $n = static fn (string $k): int => count(array_filter($lines, static fn (array $l): bool => $l[$k] === true || (is_array($l[$k]) && $l[$k] !== [])));
-        return ['lines' => $lines, 'needs_choice' => $n('needs_choice'), 'over' => $n('over'), 'stale' => $n('stale'), 'too_old' => $n('too_old'),
-            'too_many_times' => $plan['too_many_times'], 'window' => $plan['window'], 'units_limit' => $plan['units_limit'], 'percent_limit' => $plan['percent_limit']];
+        return ['lines' => $lines, 'needs_choice' => $n('needs_choice'), 'over' => $n('over'), 'stale' => $n('stale'), 'too_old' => $n('too_old'), 'retime' => $n('retime'),
+            'too_many_times' => $plan['too_many_times'], 'window' => $plan['window'], 'limit_minutes' => $plan['limit_minutes'], 'units_limit' => $plan['units_limit'],
+            'percent_limit' => $plan['percent_limit']];
     }
 
     /**

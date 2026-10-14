@@ -368,6 +368,10 @@ final class CountSheetsTest extends CountsTestCase
             self::assertSame([[5, 3]], array_map(static fn (array $x): array => [$x['row'], $x['to']], $mixed['fill']));
             // A time in the future, or older than the engine takes, is refused before anything is filled.
             self::refusedWith('bad_counted_at', fn () => $this->sheets->applyUpload($sc, $sheet->id, $file, $this->now->modify('+1 hour')));
+            // Not a minute after now either (review M-6, 14 Oct 2026: CT12 says "not after now"; a count time in the future would keep the
+            // next dispatches on the shelf figure).
+            self::refusedWith('bad_counted_at', fn () => $this->sheets->applyUpload($sc, $sheet->id, $file, $this->now->modify('+1 minute')));
+            self::refusedWith('bad_counted_at', fn () => $this->sheets->applyUpload($sc, $sheet->id, $file, $this->now->modify('+1 second')));
             self::refusedWith('bad_counted_at', fn () => $this->sheets->applyUpload($sc, $sheet->id, $file, $this->now->modify('-91 days')));
             self::assertNull($this->sheetLine($sheet->id, $b)['counted_qty']);
             // A file that is no table of this kind is refused as a whole.
@@ -407,6 +411,107 @@ final class CountSheetsTest extends CountsTestCase
         self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ?', [$this->sheet($sc, [])->id]), 'an empty sheet: items come by the scan box');
         // Another kind of record is not a count sheet.
         self::refusedWith('not_count_sheet', fn () => $this->sheets->setQuantities($sc, 999_999, [1 => 1]));
+    }
+
+    public function testMoreCountTimesThanTheLimitAllowsAreRefusedTheEarliestLinesAreMarkedAndCountingThemAgainLetsTheSheetGoFinal(): void
+    {
+        // Review I-1, M-2 (14 Oct 2026): 21 lines, each counted 11 minutes after the one before. At the ten-minute limit (the setting
+        // counts.time_window_max_minutes) each needs a count time of its own: 21, one more than a posting has room for. The first
+        // version widened the window behind the person's back; now the sheet is refused, the lines to count again are marked (the two
+        // earliest groups: counted again close together, they share one time), and nothing is booked.
+        $sc = $this->staffUser('stock_controller');
+        $items = [];
+        for ($i = 0; $i < 21; $i++) {
+            $items[] = $this->item('strict', 0);
+        }
+        $sheet = $this->sheet($sc, $items);
+        foreach ($items as $i => $sku) {
+            if ($i > 0) {
+                $this->later('11 minutes');
+            }
+            $this->enter($sc, $sheet, $sku, 1);
+        }
+        $this->later('1 minute');
+        $ledger = $this->ledgerCount();
+        $e = self::refusedWith('too_many_times', fn () => $this->post($sc, $sheet));
+        self::assertSame([409, 20], [$e->httpStatus, $e->detail['max'] ?? null]);
+        self::assertSame([$ledger, 'draft'], [$this->ledgerCount(), $this->docs->get($sheet->id)->status], 'nothing was booked');
+        $d = $this->sheets->differences($sheet->id);
+        self::assertTrue($d['too_many_times']);
+        self::assertSame(600, $d['window'], 'never wider than the limit');
+        $marked = static fn (array $d): array => array_values(array_map(static fn (array $l): int => $l['line_no'],
+            array_filter($d['lines'], static fn (array $l): bool => $l['retime'])));
+        $mine = $marked($d);
+        sort($mine);
+        self::assertSame([1, 2], $mine, 'the lines of the two earliest times');
+        self::assertSame(2, $d['retime']);
+
+        // The owner may raise the limit (a setting, never hard-coded): 30 minutes fits these 21 lines in 11 times of 20 minutes.
+        $this->setting('counts.time_window_max_minutes', 30);
+        $wide = $this->sheets->differences($sheet->id);
+        self::assertSame([false, 1200, []], [$wide['too_many_times'], $wide['window'], $marked($wide)]);
+        $this->setting('counts.time_window_max_minutes', 10);
+
+        // "Count the marked lines again" empties exactly them; counted again one minute apart they share the newest line's time.
+        self::refusedWith('not_creator', fn () => $this->sheets->recountForTimes($this->staffUser('warehouse'), $sheet->id));
+        self::assertSame(2, $this->sheets->recountForTimes($sc, $sheet->id));
+        self::assertSame([null, null, 1], [$this->sheetLine($sheet->id, $items[0])['counted_qty'], $this->sheetLine($sheet->id, $items[1])['counted_qty'],
+            (int) $this->sheetLine($sheet->id, $items[2])['counted_qty']]);
+        self::assertSame(0, $this->sheets->recountForTimes($sc, $sheet->id), 'nothing is marked any more');
+        $this->enter($sc, $sheet, $items[0], 1);
+        $this->later('1 minute');
+        $this->enter($sc, $sheet, $items[1], 1);
+        $this->later('1 minute');
+        $doc = $this->post($sc, $sheet);
+        self::assertSame('posted', $doc->status);
+        self::assertCount(19, array_unique(array_column($this->ledgerOf($doc->id), 3)), '19 count times: 18 of their own, and the newest shared by three lines');
+    }
+
+    public function testStockThatMovesBetweenTheCheckAndTheBookingIsRefusedWith409AndNotAnError(): void
+    {
+        // Review M-3 (14 Oct 2026): post() works the plan out again; when a movement lands after validate() (the posting may wait on the
+        // CNT number series), it says the same 409 as validate(), not an error page.
+        $a = $this->item('strict', 5);
+        $sc = $this->staffUser('stock_controller');
+        $sheet = $this->sheet($sc, [$a]);
+        $this->enter($sc, $sheet, $a, 5);
+        $this->later('5 minutes');
+        $this->book('goods_in', $a, 2);
+        $handler = new \CW\Counts\CountSheetHandler(self::$db, fn (): \DateTimeImmutable => $this->now);
+        $lines = [['line_no' => 1, 'sku_id' => $a, 'qty' => 5, 'warehouse_id' => null, 'unit_cost' => null, 'reason_code' => null]];
+        $doc = $this->docs->get($sheet->id);
+        $e = self::refusedWith('moved_since', fn () => self::$db->transaction(fn () => $handler->post(self::$db, $doc, $lines, $sc, 'test:m3')));
+        self::assertSame([409, [1]], [$e->httpStatus, $e->detail['lines'] ?? null]);
+        self::assertSame([7, null], [$this->onHand($a), $this->sheetLine($sheet->id, $a)['outcome']], 'nothing was booked or written');
+    }
+
+    public function testEachLineKeepsTheMomentItsBoxWasFilledInAndATimeAfterNowOrBeforeTheLineIsRefused(): void
+    {
+        // Review M-7 (14 Oct 2026): a page saved once, after boxes were filled in one by one with Tab, gave every line the moment Enter
+        // was pressed. Each box now brings the moment it was filled in (app.js); the server keeps it when it is not after now and not
+        // before the line was put on the sheet.
+        $a = $this->item('strict', 5);
+        $b = $this->item('strict', 4);
+        $sc = $this->staffUser('stock_controller');
+        $sheet = $this->sheet($sc, [$a, $b]);
+        $opened = $this->now;
+        $this->later('10 minutes');
+        $filled = $this->now->modify('-6 minutes');
+        self::assertSame(2, $this->sheets->setQuantities($sc, $sheet->id, [$this->lineOf($sheet->id, $a) => 5, $this->lineOf($sheet->id, $b) => 3], null, 'typed',
+            [$this->lineOf($sheet->id, $a) => $filled]));
+        self::assertSame([Clock::db($filled), $this->nowDb(), $this->nowDb()], [$this->sheetLine($sheet->id, $a)['counted_at'], $this->sheetLine($sheet->id, $b)['counted_at'],
+            $this->sheetLine($sheet->id, $a)['entered_at']], 'line A keeps the moment its box was filled in; B, with none, takes now');
+        // After now, or before the line was on the sheet: refused, and nothing of the page is saved.
+        foreach ([$this->now->modify('+1 second'), $opened->modify('-1 second')] as $bad) {
+            $e = self::refusedWith('bad_count_time', fn () => $this->sheets->setQuantities($sc, $sheet->id, [$this->lineOf($sheet->id, $a) => 6, $this->lineOf($sheet->id, $b) => 4],
+                null, 'typed', [$this->lineOf($sheet->id, $b) => $bad]));
+            self::assertSame([422, $this->lineOf($sheet->id, $b)], [$e->httpStatus, $e->detail['line'] ?? null]);
+        }
+        self::assertSame([5, 3], [(int) $this->sheetLine($sheet->id, $a)['counted_qty'], (int) $this->sheetLine($sheet->id, $b)['counted_qty']]);
+        // The moment the line was put on the sheet, and now itself, are inside.
+        self::assertSame(2, $this->sheets->setQuantities($sc, $sheet->id, [$this->lineOf($sheet->id, $a) => 6, $this->lineOf($sheet->id, $b) => 4], null, 'typed',
+            [$this->lineOf($sheet->id, $a) => $opened, $this->lineOf($sheet->id, $b) => $this->now]));
+        self::assertSame([Clock::db($opened), $this->nowDb()], [$this->sheetLine($sheet->id, $a)['counted_at'], $this->sheetLine($sheet->id, $b)['counted_at']]);
     }
 
     private function ledgerCountOf(int $documentId): int

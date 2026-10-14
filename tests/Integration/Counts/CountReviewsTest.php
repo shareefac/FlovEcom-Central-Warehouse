@@ -206,6 +206,141 @@ final class CountReviewsTest extends CountsTestCase
         self::refusedWith('role_not_allowed', fn () => $this->reviews->acceptEngine($this->staffUser('buyer'), $engine[0]['id'], 'not my job'));
     }
 
+    public function testADifferenceIsNotPutBackAfterTheItemWasCountedAgainAndTheRowSaysAcceptIt(): void
+    {
+        // Review C-1, probe P1 (14 Oct 2026). A put back is relative (minus what the count changed); a later count is absolute (it set
+        // the figure again). The first version put the old difference back on top of the newer count: 980 on the shelf figure, 480
+        // on the shelf.
+        $x = $this->item('strict', 500);
+        $sc = $this->staffUser('stock_controller');
+        $first = $this->posted($sc, [$x => 0]);
+        self::assertSame([0, 'open'], [$this->onHand($x), $this->sheetLine($first->id, $x)['review']]);
+        $this->later('1 hour');
+        $second = $this->posted($sc, [$x => 480]);
+        self::assertSame(480, $this->onHand($x));
+        $ledger = $this->ledgerCount();
+        $e = self::refusedWith('counted_again', fn () => $this->reviews->rejectLine($sc, $first->id, $this->lineOf($first->id, $x), 'the first count was wrong'));
+        self::assertSame(409, $e->httpStatus);
+        self::assertSame([480, $ledger, 'open', null], [$this->onHand($x), $this->ledgerCount(), $this->sheetLine($first->id, $x)['review'],
+            $this->sheetLine($first->id, $x)['reversal_document_id']], 'nothing was booked or written');
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM count_sheet WHERE kind = 'line_reversal'"));
+        // Differences says so on the row: the older one is for accepting only.
+        $rows = array_column($this->reviews->open()['lines'], null, 'document_id');
+        self::assertSame([true, false], [$rows[$first->id]['counted_again'], $rows[$second->id]['counted_again']]);
+        // Nor is the first sheet cancelled as a whole: that would put 500 back on top of the newer count as well.
+        $e = self::refusedWith('line_counted_again', fn () => $this->sheets->reverse($sc, $first->id, 'entered_in_error', null));
+        self::assertSame([409, $this->lineOf($first->id, $x)], [$e->httpStatus, $e->detail['line'] ?? null]);
+        self::assertSame(['posted', 480, $ledger], [$this->docs->get($first->id)->status, $this->onHand($x), $this->ledgerCount()]);
+        // Accepting it is the answer; the newer count's own difference can still be put back (nothing was counted after it).
+        $this->reviews->acceptLine($sc, $first->id, $this->lineOf($first->id, $x), 'counted again on the second sheet');
+        self::assertSame('accepted', $this->sheetLine($first->id, $x)['review']);
+        $back = $this->reviews->rejectLine($sc, $second->id, $this->lineOf($second->id, $x), 'the second count was of the wrong shelf');
+        self::assertSame(['posted', 0], [$back->status, $this->onHand($x)]);
+    }
+
+    public function testALineIsNotPutBackWhileACancellationOfTheWholeSheetWaits(): void
+    {
+        // Review M-1, probe P3 (14 Oct 2026): a cancellation that waits for a reviewer's OK, then one line rejected on its own: the
+        // first version put the line back, and the reviewer's OK was refused for ever after (line_put_back).
+        $z = $this->item('strict', 100);
+        $sc = $this->staffUser('stock_controller');
+        $doc = $this->posted($sc, [$z => 80]);
+        $wait = $this->sheets->reverse($sc, $doc->id, 'entered_in_error', 'counted the wrong shelf');
+        self::assertSame('awaiting_approval', $wait->status, 'it puts 20 back: more than the limit');
+        $ledger = $this->ledgerCount();
+        $e = self::refusedWith('cancel_waiting', fn () => $this->reviews->rejectLine($sc, $doc->id, $this->lineOf($doc->id, $z), 'counted the wrong shelf'));
+        self::assertSame(409, $e->httpStatus);
+        self::assertSame([80, $ledger, 'open'], [$this->onHand($z), $this->ledgerCount(), $this->sheetLine($doc->id, $z)['review']]);
+        // The reviewer's OK goes through, and the cancellation settles the line.
+        $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'document' AND subject_id = ? AND kind = 'approval' AND state = 'open'", [$wait->id]);
+        $done = $this->docs->approve($this->staffUser('reviewer'), $task, 'the wrong shelf: checked');
+        self::assertSame(['posted', 100, 'rejected', $wait->id], [$done->status, $this->onHand($z), $this->sheetLine($doc->id, $z)['review'],
+            (int) $this->sheetLine($doc->id, $z)['reversal_document_id']]);
+    }
+
+    public function testACancellationWaitingWhileTheItemIsCountedAgainIsRefusedAtTheOkAndCanStillBeSaidNotOkTo(): void
+    {
+        // Review C-1 for a whole sheet: the reviewer's OK books the cancellation, so the check is made again then, under the stock locks.
+        $y = $this->item('strict', 30);
+        $sc = $this->staffUser('stock_controller');
+        $doc = $this->posted($sc, [$y => 10]);
+        $wait = $this->sheets->reverse($sc, $doc->id, 'entered_in_error', 'counted the wrong shelf');
+        self::assertSame('awaiting_approval', $wait->status);
+        $this->later('10 minutes');
+        $this->posted($sc, [$y => 25]);
+        $reviewer = $this->staffUser('reviewer');
+        $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'document' AND subject_id = ? AND kind = 'approval' AND state = 'open'", [$wait->id]);
+        $e = self::refusedWith('line_counted_again', fn () => $this->docs->approve($reviewer, $task, 'checked'));
+        self::assertSame(409, $e->httpStatus);
+        self::assertSame([25, 'awaiting_approval', 'posted'], [$this->onHand($y), $this->docs->get($wait->id)->status, $this->docs->get($doc->id)->status]);
+        $this->docs->reject($reviewer, $task, 'counted again since: the newer count stands');
+        self::assertSame(['cancelled', 'posted', 25], [$this->docs->get($wait->id)->status, $this->docs->get($doc->id)->status, $this->onHand($y)]);
+    }
+
+    public function testAFlagAboutACountsTimeIsListedForAcceptingOnly(): void
+    {
+        // Review I-1, probe P2 (14 Oct 2026). B is counted at 18:00 and A at 18:06; nothing moved on A in between, so A is booked
+        // under 18:00 (CT3: a shared count time, at most the ten-minute limit before its own). A parcel of A had left at 17:30 and came
+        // back at 18:03, before A was counted, but the reset is reported only after the sheet is final: judged against 18:00 it is
+        // added again, and the figure reads one high. That is the cost CT3 names; the engine flags it (a reset within ten minutes of
+        // the count), and the flag now has a screen: Differences lists it, to accept with a note (it is about a count's time, not a
+        // sheet line: nothing to put back).
+        $this->setting('counts.review_over_percent', 0); // the line's own difference (+1 of 9) waits on no limit here
+        $site = $this->site();
+        $a = $this->item('strict', 10);
+        $b = $this->item('strict', 4);
+        $this->listing($site, 'VA', $a);
+        $this->commit($site, '301', [self::line('VA', 'u1')]);
+        $this->ship($site, '301', ['u1'], '2026-09-26T17:30:00Z');
+        self::assertSame(9, $this->onHand($a));
+        $sc = $this->staffUser('stock_controller');
+        $sheet = $this->sheet($sc, [$b, $a]);
+        $this->enter($sc, $sheet, $b, 4);
+        $this->later('6 minutes');
+        $this->enter($sc, $sheet, $a, 10);
+        $this->later('1 minute');
+        $this->post($sc, $sheet);
+        self::assertSame(['2026-09-26 18:00:00.000000', 10], [$this->countedAt($a), $this->onHand($a)], 'A was booked under B\'s time, six minutes before its own');
+        $this->later('1 minute');
+        $this->ok($this->res->unship($site, '301', ['u1'], '2026-09-26T18:03:00Z', $this->key('unship')));
+        self::assertSame(11, $this->onHand($a), 'one high: the cost CT3 names, flagged below');
+        $engine = $this->reviews->open()['engine'];
+        self::assertSame([['unship_near_count', $a, null, false]], array_map(static fn (array $r): array => [$r['source'], $r['sku_id'], $r['document_id'], $r['canReject']],
+            $engine), 'listed, about no sheet line, and for accepting only');
+        self::assertSame('301', $engine[0]['order'], 'it names the order');
+        self::assertNull($this->reviews->refusal($sc->staffUserId, ['stock_controller'], $engine[0]));
+        self::assertSame(1, $this->reviews->openCount($sc->staffUserId, ['stock_controller']), 'the badge counts it');
+        $e = self::refusedWith('accept_only', fn () => $this->reviews->rejectEngine($sc, $engine[0]['id'], 'reject it please'));
+        self::assertSame(409, $e->httpStatus);
+        $this->reviews->acceptEngine($sc, $engine[0]['id'], 'recounted A: 10, written off the extra one');
+        self::assertSame(['resolved', 'accepted'], array_values((array) self::$db->one('SELECT status, resolution FROM count_review WHERE id = ?', [$engine[0]['id']])));
+        self::assertSame([], $this->reviews->open()['engine']);
+    }
+
+    public function testAReviewerSaysNotOkToARecordThatPutsACountBackAndToASheetWithALinePutBack(): void
+    {
+        // Review M-4 (14 Oct 2026): with the rule "every one", the document base opens its own check of every count record, and its
+        // Not OK cancelled the record: refused for a record that puts a line back (409 not_reversible) and for a sheet with a line put
+        // back (409 line_put_back), so the reviewer could only say OK. A stock count's Not OK now only records it (as a purchase
+        // order's): the count is put right by counting again, or by answering its differences.
+        $this->countRule('all');
+        $a = $this->item('strict', 100);
+        $sc = $this->staffUser('stock_controller');
+        $other = $this->staffUser('warehouse');
+        $reviewer = $this->staffUser('reviewer');
+        $doc = $this->posted($sc, [$a => 90]);
+        $back = $this->reviews->rejectLine($other, $doc->id, $this->lineOf($doc->id, $a), 'counted the wrong shelf');
+        self::assertSame(100, $this->onHand($a));
+        $task = fn (int $id): int => (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'document' AND subject_id = ? AND kind = 'review' AND state = 'open'", [$id]);
+        $ledger = $this->ledgerCount();
+        $this->docs->reject($reviewer, $task($back->id), 'the first count was right after all');
+        $this->docs->reject($reviewer, $task($doc->id), 'counted without the delivery note');
+        self::assertSame([['posted', 'rejected'], ['posted', 'rejected']], [[$this->docs->get($back->id)->status, $this->docs->get($back->id)->reviewState],
+            [$this->docs->get($doc->id)->status, $this->docs->get($doc->id)->reviewState]], 'recorded; nothing cancelled');
+        self::assertSame([100, $ledger], [$this->onHand($a), $this->ledgerCount()]);
+        self::assertSame('record', (string) self::$db->value("SELECT CAST(reject_action AS CHAR) FROM document_type WHERE code = 'CNT'"));
+    }
+
     public function testThePlanSaysWhatIsInsideAndOverdueAndWhatToCountNext(): void
     {
         $sc = $this->staffUser('stock_controller');

@@ -50,7 +50,7 @@ final class CountWordsTest extends TestCase
             self::assertTrue(Words::has('COUNTS', 'scan_' . $scan), $scan);
         }
         foreach (['opened', 'lines', 'lines_same', 'added', 'uploaded', 'posted', 'posted_check', 'stopped', 'cancelled', 'cancel_waits', 'accepted', 'rejected',
-            'rejected_already', 'recount', 'as_counted'] as $notice) {
+            'rejected_already', 'recount', 'recount_times', 'as_counted'] as $notice) {
             self::assertTrue(Words::has('COUNT_NOTICE', $notice), $notice);
         }
     }
@@ -68,7 +68,11 @@ final class CountWordsTest extends TestCase
         self::assertSame(['open', 'accepted', 'rejected'], array_keys(Words::COUNT_CHECK));
         self::assertSame(['counted', 'stale'], $enum('outcome'));
         self::assertSame(['booked', 'stale', 'put_back'], array_keys(Words::COUNT_LINE));
-        self::assertSame(['line', ...CountReviews::ENGINE_SOURCES], array_keys(Words::COUNT_REVIEW));
+        self::assertSame(['line', ...CountReviews::LISTED_SOURCES], array_keys(Words::COUNT_REVIEW));
+        self::assertSame([...CountReviews::ENGINE_SOURCES, ...CountReviews::NEAR_SOURCES], CountReviews::LISTED_SOURCES, 'the engine\'s two and the two about a count\'s time');
+        foreach (['counted_again', 'line_counted_again', 'cancel_waiting', 'accept_only', 'bad_count_time'] as $code) {
+            self::assertTrue(Words::has('COUNT_ERROR', $code), $code);
+        }
         self::assertSame(array_keys(Words::COUNT_REVIEW), array_keys(Words::COUNT_REVIEW_HELP));
         self::assertSame(CountsController::GROUPS, array_keys(Words::COUNT_SHEET_GROUP));
         self::assertSame(['never', 'overdue', 'inside'], array_keys(Words::COUNT_GROUP));
@@ -119,7 +123,7 @@ final class CountWordsTest extends TestCase
         foreach (['counts', 'count_sheets', 'count_differences', 'count_sheet_open', 'count_sheet', 'count_before'] as $page) {
             $all["PAGE_INTRO {$page}"] = implode(' ', Words::PAGE_INTRO[$page]);
         }
-        foreach (['counts.plan_days', 'counts.sheet_shows_stock', 'counts.review_over_units', 'counts.review_over_percent'] as $key) {
+        foreach (['counts.plan_days', 'counts.sheet_shows_stock', 'counts.review_over_units', 'counts.review_over_percent', 'counts.time_window_max_minutes'] as $key) {
             $all["SETTING {$key}"] = Words::SETTING[$key] . ' ' . Words::SETTING_HELP[$key];
             self::assertSame('Stock counts', Words::settingTopic($key));
         }
@@ -146,6 +150,12 @@ final class CountWordsTest extends TestCase
         self::assertSame(Words::say('COUNT_ERROR', 'too_many_lines', 500), CountsController::plain($e('too_many_lines', ['max' => 500], 422)));
         self::assertSame(Words::COUNT_ERROR['not_creator'], CountsController::plain($e('not_creator', [], 403)));
         self::assertSame(Words::COUNT_ERROR['own_count'], CountsController::plain($e('own_count', [], 403)));
+        // Review fixes of 14 Oct 2026 (C-1, M-1, M-7, I-1, M-2).
+        self::assertSame(Words::COUNT_ERROR['counted_again'], CountsController::plain($e('counted_again')));
+        self::assertSame(Words::say('COUNT_ERROR', 'line_counted_again', 3), CountsController::plain($e('line_counted_again', ['line' => 3])));
+        self::assertSame(Words::COUNT_ERROR['cancel_waiting'], CountsController::plain($e('cancel_waiting')));
+        self::assertSame(Words::say('COUNT_ERROR', 'bad_count_time', 2), CountsController::plain($e('bad_count_time', ['line' => 2], 422)));
+        self::assertSame(Words::say('COUNT_ERROR', 'too_many_times', 20), CountsController::plain($e('too_many_times', ['max' => 20])));
         self::assertSame(Words::STOCK_ERROR['warehouse_inactive'], CountsController::plain($e('warehouse_inactive', [], 422)), 'the stock records\' words where the refusal is theirs');
         self::assertSame('the service text', CountsController::plain($e('some_new_code')), 'a code without words: the service\'s message');
     }

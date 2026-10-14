@@ -1,7 +1,8 @@
 <?php
 // Stock › Counts › Differences (docs/decisions.md CT6-CT9): the count differences to check, as a board: the lines above the tolerance,
-// then the two kinds of review the count engine opens by itself. Each row: the item, the sheet, what CW held, what was
-// counted, the difference, who counted, why it waits, and the two answers (a note, then accept or reject).
+// then the two kinds of review the count engine opens by itself, then the flags about a count's time (accept only). Each row: the
+// item, the sheet, what CW held, what was counted, the difference, who counted, why it waits, and the two answers (a note, then accept
+// or reject). A difference of an item counted again since says so instead of the reject button (review C-1).
 ?>
 <div class="head-help">
   <h1><?= $word('PAGE_TITLE', 'count_differences') ?></h1>
@@ -55,6 +56,9 @@
             <button type="submit" name="answer" value="reject" class="danger"><?= $word('COUNTS', 'reject') ?></button>
 <?php endif; ?>
           </form>
+<?php if ($r['counted_again']): ?>
+          <span class="o-sub"><?= $word('COUNTS', 'counted_again') ?></span>
+<?php endif; ?>
 <?php endif; ?>
         </td>
       </tr>

@@ -23,8 +23,12 @@ use DateTimeImmutable;
  *   CountTolerance, the settings counts.review_over_units and counts.review_over_percent);
  *   a review the count ENGINE opened by itself (count_review, two sources): `count_after_movements` (stock was booked after the
  *   count's time and the count overwrote it) and `count_near_ship` (a parcel left within ten minutes of the count). They had no
- *   screen until this pack. Every other source of count_review (stock below zero, a recount after a merge, ...) is not a count
- *   difference and is not listed.
+ *   screen until this pack.
+ *   a flag about the TIME of a count (count_review, two sources Reservations opens): `ship_near_count` and `unship_near_count`, a
+ *   dispatch or a reset reported within ten minutes of an item's count time. A sheet line booked under a shared count time (CT3) is
+ *   judged by them (review I-1, 14 Oct 2026), so they are listed too: for accepting only (they are about no sheet line, and a
+ *   person who finds the figure wrong counts the item again).
+ *   Every other source of count_review (stock below zero, a recount after a merge, ...) is not a count difference and is not listed.
  *
  * The answers, each with a note of 3 to 500 characters:
  *   accept   the count stays. The row says who accepted it and why.
@@ -33,7 +37,10 @@ use DateTimeImmutable;
  *            sheet and its other lines stand. The balance's count time stays, as when the engine reverses a count: the item is
  *            counted again on a new sheet. A line is put back once: rejecting the engine's review of a line that was already put back
  *            only settles the review. An engine review of a count that was not made on a sheet can be accepted, not rejected.
- *            Putting a line back also settles everything else that waited about that line's count.
+ *            Putting a line back also settles everything else that waited about that line's count. It is refused (409) when the item
+ *            was counted again after that line (counted_again: the newer count already set the figure, review C-1 of 14 Oct 2026;
+ *            the list says so on the row), and while a cancellation of the whole sheet waits for a reviewer's OK (cancel_waiting,
+ *            review M-1).
  *
  * Who: someone who may post stock counts (doc.CNT.post; never admin), re-read inside the transaction. Whether it must be a SECOND
  * person is the rule of the kind of record "Stock count" on Settings > Approval Rules, read when the answer is given
@@ -45,8 +52,12 @@ use DateTimeImmutable;
  */
 final class CountReviews
 {
-    /** The sources of count_review this list shows: the two the count engine opens (Movements::count). */
+    /** The sources of count_review about a count of a sheet line: the two the count engine opens (Movements::count). */
     public const ENGINE_SOURCES = ['count_after_movements', 'count_near_ship'];
+    /** The sources about the time of a count: a dispatch or a reset near an item's count time (Reservations::ship/unship). Accept only. */
+    public const NEAR_SOURCES = ['ship_near_count', 'unship_near_count'];
+    /** Every source this list shows, in its order. */
+    public const LISTED_SOURCES = [...self::ENGINE_SOURCES, ...self::NEAR_SOURCES];
     public const NOTE_MIN = 3;
     public const NOTE_MAX = 500;
     public const PAGE = 50;
@@ -67,10 +78,12 @@ final class CountReviews
      * The open rows, the newest first, at most $size of each kind (with `more` when there are more).
      *   lines:  document_id, line_no, number (the sheet's), warehouse, sku_id, code, name, held (what the system held), counted, delta
      *           (the difference booked), counted_at, counted_by, counted_by_name, created_by, posted_by, posted_at, review_units,
-     *           review_percent, over (the limits it is above, by today's arithmetic of what it was opened under)
+     *           review_percent, over (the limits it is above, by today's arithmetic of what it was opened under), counted_again (the
+     *           item was counted again since: accept only), canReject
      *   engine: id, source, warehouse, sku_id, code, name, proposed_qty (the quantity counted), ref (the record's number), document_id
      *           and line_no of the sheet line it is about (null: the count was not made on a sheet), delta, counted_by, created_by,
-     *           posted_by, put_back (the line was already put back), detail (the engine's own: what it overwrote, which parcels), created_at
+     *           posted_by, put_back (the line was already put back), counted_again, canReject, order (the order a flag about a count's
+     *           time names), detail (the engine's own: what it overwrote, which parcels), created_at
      *
      * @param array{warehouse?: ?int} $f
      * @return array{lines: list<array<string, mixed>>, engine: list<array<string, mixed>>, more: bool}
@@ -87,10 +100,12 @@ final class CountReviews
             . "WHERE l.review = 'open'" . ($wh === null ? '' : ' AND d.warehouse_id = ?') . ' ORDER BY l.document_id DESC, l.line_no DESC LIMIT ' . ($size + 1),
             $wh === null ? [] : [(int) $wh],
         ) as $r) {
-            $lines[] = self::lineRow($r);
+            // Counted again since (review C-1): the newer count set the figure, so this one is for accepting only.
+            $again = CountSheetHandler::countedAgain($this->db, (int) $r['document_id'], (int) $r['warehouse_id'], (int) $r['sku_id']);
+            $lines[] = self::lineRow($r) + ['counted_again' => $again, 'canReject' => !$again];
         }
         $engine = [];
-        foreach (self::ENGINE_SOURCES as $source) {
+        foreach (self::LISTED_SOURCES as $source) {
             // One range of (status, source, id) per source, newest first; merged below.
             foreach ($this->db->all(
                 'SELECT r.id, r.source, r.warehouse_id, w.name AS warehouse, r.sku_id, s.code, s.name, r.proposed_qty, r.ref, CAST(r.detail AS CHAR) AS detail, r.created_at, '
@@ -100,7 +115,9 @@ final class CountReviews
                 . "WHERE r.status = 'open' AND r.source = ?" . ($wh === null ? '' : ' AND r.warehouse_id = ?') . ' ORDER BY r.id DESC LIMIT ' . ($size + 1),
                 $wh === null ? [$source] : [$source, (int) $wh],
             ) as $r) {
-                $engine[] = self::engineRow($r);
+                $row = self::engineRow($r);
+                $again = $row['document_id'] !== null && CountSheetHandler::countedAgain($this->db, (int) $row['document_id'], (int) $r['warehouse_id'], $row['sku_id']);
+                $engine[] = $row + ['counted_again' => $again, 'canReject' => $row['document_id'] !== null && !$row['put_back'] && (int) $row['delta'] !== 0 && !$again];
             }
         }
         usort($engine, static fn (array $a, array $b): int => $b['id'] <=> $a['id']);
@@ -133,7 +150,7 @@ final class CountReviews
         };
         $n = (int) $this->db->value("SELECT COUNT(*) FROM count_sheet_line l FORCE INDEX (ix_count_sheet_line_review) JOIN document d ON d.id = l.document_id "
             . "WHERE l.review = 'open'" . $second, $params);
-        foreach (self::ENGINE_SOURCES as $source) {
+        foreach (self::LISTED_SOURCES as $source) {
             $n += (int) $this->db->value("SELECT COUNT(*) FROM count_review r FORCE INDEX (ix_count_review_open) WHERE r.status = 'open' AND r.source = ?", [$source]);
         }
         return $n;
@@ -223,7 +240,8 @@ final class CountReviews
     /**
      * Rejects an open review of the count engine: the count of the sheet line it is about is put back by a new record (returned), and
      * the review is resolved. When that line was already put back, only the review is resolved (null). 409 not_from_sheet for a count
-     * that was not made on a count sheet; 409 nothing_to_put_back when the count changed nothing.
+     * that was not made on a count sheet; 409 nothing_to_put_back when the count changed nothing; 409 accept_only for a flag about a
+     * count's time (NEAR_SOURCES); 409 counted_again and cancel_waiting as rejectLine().
      */
     public function rejectEngine(Caller $caller, int $reviewId, string $note): ?Document
     {
@@ -231,6 +249,10 @@ final class CountReviews
         return $this->db->transaction(function (Db $db) use ($caller, $reviewId, $note): ?Document {
             $me = $this->me($caller);
             [$review, $doc, $line] = $this->lockEngine($reviewId);
+            if (in_array($review['source'], self::NEAR_SOURCES, true)) {
+                throw new CwException('accept_only', 'this is about the time of a count, not a count sheet line: it is accepted with a note (count the item again '
+                    . 'if its figure is wrong)', 409);
+            }
             if ($doc === null || $line === null) {
                 throw new CwException('not_from_sheet', 'this count was not made on a count sheet: it can be accepted with a note, not put back', 409);
             }
@@ -261,6 +283,16 @@ final class CountReviews
     {
         if ($doc['status'] !== 'posted' || $line['outcome'] !== 'counted' || (int) $line['booked_delta'] === 0 || $line['reversal_document_id'] !== null) {
             throw new CwException('nothing_to_put_back', 'that count changed nothing that can be put back (its sheet was cancelled, it booked no difference, or it was put back already)', 409);
+        }
+        // A cancellation of the whole sheet waits for a reviewer's OK (I32): putting one line back now would make that OK impossible
+        // (line_put_back). The sheet's row is locked, as Documents::reverse locks it to ask: this cannot race (review M-1).
+        if ($this->db->value("SELECT 1 FROM document WHERE reverses_id = ? AND status = 'awaiting_approval'", [(int) $doc['id']]) !== null) {
+            throw new CwException('cancel_waiting', 'a cancellation of the whole sheet waits for a reviewer\'s OK: no line of it is put back on its own meanwhile', 409);
+        }
+        // Said at once (CountSheetHandler checks it again under the stock lock, at the booking).
+        if (CountSheetHandler::countedAgain($this->db, (int) $doc['id'], (int) $doc['warehouse_id'], (int) $line['sku_id'])) {
+            throw new CwException('counted_again', 'this item was counted again after this count: the newer count set the shelf figure, so this one cannot be put back '
+                . '(accept it instead)', 409);
         }
         $now = ($this->clock)();
         $at = Clock::db($now);
@@ -339,10 +371,10 @@ final class CountReviews
      */
     private function lockEngine(int $reviewId): array
     {
-        $in = implode(', ', array_fill(0, count(self::ENGINE_SOURCES), '?'));
-        $peek = $this->db->one("SELECT r.ref, r.sku_id, r.warehouse_id FROM count_review r WHERE r.id = ? AND r.source IN ({$in})", [$reviewId, ...self::ENGINE_SOURCES])
+        $in = implode(', ', array_fill(0, count(self::LISTED_SOURCES), '?'));
+        $peek = $this->db->one("SELECT r.ref, r.source, r.sku_id, r.warehouse_id FROM count_review r WHERE r.id = ? AND r.source IN ({$in})", [$reviewId, ...self::LISTED_SOURCES])
             ?? throw new CwException('unknown_review', 'there is no such count difference', 404);
-        $docId = $peek['ref'] === null ? null : $this->db->value("SELECT d.id FROM document d JOIN count_sheet cs ON cs.document_id = d.id AND cs.kind = 'sheet' "
+        $docId = $peek['ref'] === null || in_array($peek['source'], self::NEAR_SOURCES, true) ? null : $this->db->value("SELECT d.id FROM document d JOIN count_sheet cs ON cs.document_id = d.id AND cs.kind = 'sheet' "
             . 'WHERE d.number = ? AND d.doc_type = ? AND d.warehouse_id = ?', [(string) $peek['ref'], CountSheets::TYPE, (int) $peek['warehouse_id']]);
         $doc = $docId === null ? null : $this->lockSheet((int) $docId);
         $review = $this->db->one('SELECT id, source, ref, sku_id, warehouse_id, CAST(status AS CHAR) AS status FROM count_review WHERE id = ? FOR UPDATE', [$reviewId])
@@ -405,11 +437,16 @@ final class CountReviews
     {
         $int = static fn (mixed $v): ?int => $v === null ? null : (int) $v;
         $detail = $r['detail'] === null ? [] : json_decode((string) $r['detail'], true);
-        $onLine = $r['line_no'] !== null;
-        return ['kind' => 'engine', 'id' => (int) $r['id'], 'source' => (string) $r['source'], 'warehouse' => (string) $r['warehouse'], 'sku_id' => (int) $r['sku_id'],
+        $near = in_array((string) $r['source'], self::NEAR_SOURCES, true);
+        $onLine = !$near && $r['line_no'] !== null;
+        // A flag about a count's time names a unit of an order: "<site>:<order>:<unit>" (Reservations).
+        $parts = $r['ref'] === null ? [] : explode(':', (string) $r['ref']);
+        $order = $near && count($parts) >= 3 ? implode(':', array_slice($parts, 1, -1)) : null;
+        return ['kind' => 'engine', 'id' => (int) $r['id'], 'source' => (string) $r['source'], 'warehouse' => (string) $r['warehouse'], 'sku_id' => (int) $r['sku_id'], 'order' => $order,
             'code' => (string) $r['code'], 'name' => (string) $r['name'], 'proposed_qty' => $int($r['proposed_qty']), 'ref' => $r['ref'] === null ? null : (string) $r['ref'],
-            'document_id' => $onLine ? (int) $r['document_id'] : null, 'line_no' => $int($r['line_no']), 'delta' => $int($r['booked_delta']), 'counted_by' => $int($r['counted_by']),
-            'created_by' => $onLine ? $int($r['created_by']) : null, 'posted_by' => $onLine ? $int($r['posted_by']) : null, 'put_back' => $r['reversal_document_id'] !== null,
+            'document_id' => $onLine ? (int) $r['document_id'] : null, 'line_no' => $onLine ? $int($r['line_no']) : null, 'delta' => $onLine ? $int($r['booked_delta']) : null,
+            'counted_by' => $onLine ? $int($r['counted_by']) : null,
+            'created_by' => $onLine ? $int($r['created_by']) : null, 'posted_by' => $onLine ? $int($r['posted_by']) : null, 'put_back' => $onLine && $r['reversal_document_id'] !== null,
             'detail' => is_array($detail) ? $detail : [], 'created_at' => (string) $r['created_at']];
     }
 }

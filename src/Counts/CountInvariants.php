@@ -24,6 +24,10 @@ use CW\Db;
  *  C5. a record that puts ONE line back (kind line_reversal, final) is named by exactly that line, has one line (the item and minus
  *      what the count changed), and booked exactly that as one adjustment of on hand; a sheet with a line put back that way was never
  *      cancelled as a whole as well.
+ *  C6. nothing a count booked was put back after its item was counted again (review C-1, 14 Oct 2026): between a sheet's count of an
+ *      item and the record that puts it back (one line, or the cancellation of the whole sheet) no other `count` row of that item
+ *      and warehouse was booked. A put back is relative and a later count absolute, so it would have added the difference twice.
+ *      The services refuse it (CountSheetHandler::countedAgain, the same rule); this says so if one is ever found.
  */
 final class CountInvariants
 {
@@ -32,7 +36,7 @@ final class CountInvariants
     /** @return list<string> */
     public static function check(Db $db): array
     {
-        return [...self::headers($db), ...self::lines($db), ...self::booked($db), ...self::reviews($db), ...self::putBack($db)];
+        return [...self::headers($db), ...self::lines($db), ...self::booked($db), ...self::reviews($db), ...self::putBack($db), ...self::countedAgain($db)];
     }
 
     /** @return list<string> C1 */
@@ -179,6 +183,36 @@ final class CountInvariants
             }
             if ((int) $r['dl_n'] !== 1 || (int) $r['dl_ok'] !== 1 || (int) $r['g_n'] !== 1 || (int) $r['g_ok'] !== 1) {
                 $v[] = "{$what}: it holds {$r['dl_n']} lines and booked {$r['g_n']} movements, expected one adjustment of " . (-(int) $r['booked_delta']) . " of item {$r['sku_id']}";
+            }
+        }
+        return $v;
+    }
+
+    /**
+     * C6, from the records that put something back (few: a line rejected, a sheet cancelled), each by the ledger's document index: its
+     * on-hand rows against the sheet's count rows of the same items; between the two, a count row of the item, read as the services read
+     * it (CountSheetHandler::countedAgain: the on-hand rows from the sheet's count time on).
+     *
+     * @return list<string>
+     */
+    private static function countedAgain(Db $db): array
+    {
+        $v = [];
+        foreach ($db->all("SELECT d.id, d.number, CAST(cs.kind AS CHAR) AS kind, cs.reverses_line_no, s.id AS sheet_id, s.number AS sheet_number "
+            . "FROM count_sheet cs JOIN document d ON d.id = cs.document_id JOIN document s ON s.id = COALESCE(cs.reverses_document_id, d.reverses_id) "
+            . "WHERE cs.kind IN ('line_reversal', 'reversal') AND d.status = 'posted' ORDER BY d.id") as $r) {
+            foreach ($db->column("SELECT g.sku_id FROM stock_ledger r FORCE INDEX (ix_stock_ledger_document) JOIN stock_ledger g FORCE INDEX (ix_stock_ledger_document) "
+                . "ON g.document_id = ? AND g.warehouse_id = r.warehouse_id AND g.sku_id = r.sku_id AND g.bucket = 'on_hand' AND g.movement_type = 'count' "
+                . "WHERE r.document_id = ? AND r.bucket = 'on_hand' AND EXISTS (SELECT 1 FROM stock_ledger x FORCE INDEX (ix_stock_ledger_effective) "
+                . "WHERE x.warehouse_id = g.warehouse_id AND x.sku_id = g.sku_id AND x.bucket = 'on_hand' AND x.effective_at >= g.effective_at "
+                . "AND x.id > g.id AND x.id < r.id AND x.movement_type = 'count') ORDER BY g.sku_id",
+                [(int) $r['sheet_id'], (int) $r['id']]) as $sku) {
+                $v[] = ($r['kind'] === 'line_reversal' ? "the record {$r['number']} that puts back line {$r['reverses_line_no']} of count sheet {$r['sheet_number']}"
+                    : "the cancellation {$r['number']} of count sheet {$r['sheet_number']}") . " was booked after item {$sku} was counted again: "
+                    . 'it put a difference back on top of a newer count';
+                if (count($v) >= self::MAX_PER_CHECK) {
+                    return $v;
+                }
             }
         }
         return $v;

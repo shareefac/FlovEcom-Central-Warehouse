@@ -12,6 +12,7 @@ use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
 use CW\Documents\Documents;
+use CW\Matching\Gtin;
 use CW\Movements;
 use CW\OpResult;
 use CW\Output\CsvWriter;
@@ -216,25 +217,23 @@ final class CountsController
         $open = $reviews->open(['warehouse' => $warehouse]);
         $n = $ctx->req->param('notice');
         $notice ??= $n !== null && isset(Words::COUNT_NOTICE[$n]) ? Words::say('COUNT_NOTICE', $n, (string) ($ctx->req->param('number') ?? '')) : null;
-        $groups = ['line' => [], 'count_after_movements' => [], 'count_near_ship' => []];
+        $groups = array_fill_keys(['line', ...CountReviews::LISTED_SOURCES], []);
         foreach ($open['lines'] as $r) {
             $no = $reviews->refusal($me->id, $me->roles, $r);
             $groups['line'][] = $r + ['href' => self::PATH . '/' . $r['document_id'], 'action' => self::PATH . '/differences/line/' . $r['document_id'] . '/' . $r['line_no'],
-                'why' => self::overWords($r['over'], $r['review_units'], $r['review_percent']), 'refusal' => $no === null ? null : self::refusalWords($no['code']), 'canReject' => true];
+                'why' => self::overWords($r['over'], $r['review_units'], $r['review_percent']), 'refusal' => $no === null ? null : self::refusalWords($no['code'])];
         }
         foreach ($open['engine'] as $r) {
             $no = $reviews->refusal($me->id, $me->roles, $r);
-            $why = $r['source'] === 'count_after_movements'
-                ? Words::say('COUNTS', 'why_after', (int) ($r['detail']['net'] ?? 0), count((array) ($r['detail']['rows'] ?? [])))
-                : Words::say('COUNTS', 'why_near', count((array) ($r['detail']['units'] ?? [])));
+            $near = in_array($r['source'], CountReviews::NEAR_SOURCES, true);
             $groups[$r['source']][] = $r + ['href' => $r['document_id'] === null ? null : self::PATH . '/' . $r['document_id'], 'action' => self::PATH . '/differences/review/' . $r['id'],
-                'why' => $why, 'refusal' => $no === null ? null : self::refusalWords($no['code']), 'canReject' => $r['document_id'] !== null && !$r['put_back'] && (int) $r['delta'] !== 0,
-                'number' => $r['ref'], 'held' => null, 'counted' => $r['proposed_qty'], 'counted_by_name' => null];
+                'why' => self::engineWhy($r), 'refusal' => $no === null ? null : self::refusalWords($no['code']),
+                'number' => $near ? null : $r['ref'], 'held' => null, 'counted' => $r['proposed_qty'], 'counted_by_name' => null];
         }
         $rule = $ctx->documents()->typeInfo(CountSheets::TYPE);
         return $ctx->page('stock_count_reviews', [
             'groups' => array_filter($groups),
-            'tones' => ['line' => 'needs', 'count_after_movements' => 'blocked', 'count_near_ship' => 'review'],
+            'tones' => ['line' => 'needs', 'count_after_movements' => 'blocked', 'count_near_ship' => 'review', 'ship_near_count' => 'review', 'unship_near_count' => 'review'],
             'rows_n' => count($open['lines']) + count($open['engine']),
             'more' => $open['more'],
             'page_size' => CountReviews::PAGE,
@@ -317,19 +316,28 @@ final class CountsController
      * POST {id}/lines: the quantities of a page of the sheet (`q_<line>`: whole units, or empty for "not counted"), sent when Enter is
      * pressed in a quantity box (the form's own button: no script needed, so a quantity is saved the moment it is entered). Each box
      * comes with the value the page was drawn with (`was_<line>`): only the boxes changed on this page are saved, so a page left open
-     * in another tab never empties or overwrites what was entered since (a hand-made form without `was_` saves what it sends). A
+     * in another tab never empties or overwrites what was entered since (a hand-made form without `was_` saves what it sends). Each box
+     * may also bring the moment it was filled in (`at_<line>`, milliseconds since 1970 UTC, written by app.js from the moment the page
+     * was drawn: review M-7, 14 Oct 2026); CountSheets refuses one after now or before the line was on the sheet, and without one the
+     * moment it is saved counts. A quantity that is a barcode CW knows, or 9 digits or more, is refused as a barcode (review M-5). A
      * refusal saves nothing of the page and shows it again with what was typed.
      */
     public function lines(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
         $typed = [];
+        $typedAt = [];
         try {
             $quantities = [];
+            $times = [];
             foreach ($ctx->req->fieldsMatching('/^q_[1-9][0-9]{0,9}$/D') as $name => $v) {
                 $no = (int) substr($name, 2);
                 $v = trim($v);
                 $typed[$no] = mb_substr($v, 0, 20);
+                $at = trim((string) ($ctx->req->field('at_' . $no) ?? ''));
+                if (preg_match('/^[0-9]{10,15}$/D', $at) === 1) {
+                    $typedAt[$no] = $at;
+                }
                 $was = $ctx->req->field('was_' . $no);
                 if ($was !== null && trim($was) === $v) {
                     continue;
@@ -341,10 +349,21 @@ final class CountsController
                     throw new CwException('bad_quantity', 'a counted quantity is a whole number of units', 422, ['line' => $no]);
                 }
                 $quantities[$no] = $v === '' ? null : (int) $v;
+                if ($v !== '' && isset($typedAt[$no])) {
+                    $ms = (int) $typedAt[$no];
+                    $times[$no] = \DateTimeImmutable::createFromFormat('U.u', sprintf('%d.%06d', intdiv($ms, 1000), ($ms % 1000) * 1000), Clock::utc())
+                        ?: throw new CwException('bad_count_time', 'not a moment', 422, ['line' => $no]);
+                }
             }
-            $changed = $ctx->countSheets()->setQuantities($ctx->caller(), $id, $quantities);
+            $barcode = self::barcodeIn($ctx->db, array_filter($typed, static fn (string $v, int $no): bool => array_key_exists($no, $quantities) && $quantities[$no] !== null,
+                ARRAY_FILTER_USE_BOTH));
+            if ($barcode !== null) {
+                throw new CwException('barcode_in_quantity', 'a barcode was typed into a quantity box', 422, ['line' => $barcode]);
+            }
+            $changed = $ctx->countSheets()->setQuantities($ctx->caller(), $id, $quantities, null, 'typed', $times);
         } catch (CwException $e) {
-            return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typedQ' => $typed]);
+            // The moments come back with the page, except after a refused moment: Enter again then saves with the time now.
+            return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typedQ' => $typed, 'typedAt' => $e->errorCode === 'bad_count_time' ? [] : $typedAt]);
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $changed === 0 ? 'lines_same' : 'lines', 'n' => $changed, 'page' => self::pageNo($ctx->req, 'field'),
             'show' => self::showOf($ctx->req, 'field')]));
@@ -454,6 +473,7 @@ final class CountsController
             ];
         }
         $blocked = $diff['needs_choice'] > 0 || $diff['too_old'] > 0 || $diff['too_many_times'];
+        $retime = $diff['too_many_times'] ? Words::say('COUNTS', 'too_many_times', Movements::MAX_DOCUMENT_MOVEMENTS, $diff['limit_minutes'], $diff['retime']) : null;
         return $ctx->page('stock_count_before', [
             'sheet' => $sheet,
             'title' => Words::say('COUNTS', 'before_title', Words::docTitle(CountSheets::TYPE, $doc->number)),
@@ -466,16 +486,31 @@ final class CountsController
             'mine' => $mine,
             'canPost' => $mine && !$blocked && $lines !== [],
             'blocked' => $blocked,
+            'retimeWords' => $retime,
+            'retime_n' => $diff['retime'],
             'version' => $doc->version,
             'lookOnly' => $mine ? null : Words::COUNTS['not_opener'],
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
-        ], $status, ['title' => Words::title('count_before'), 'notice' => $n !== null && isset(Words::COUNT_NOTICE[$n]) ? Words::COUNT_NOTICE[$n] : null]);
+        ], $status, ['title' => Words::title('count_before'), 'notice' => $n !== null && isset(Words::COUNT_NOTICE[$n])
+            ? Words::say('COUNT_NOTICE', $n, (int) ($ctx->req->param('n') ?? 0)) : null]);
     }
 
-    /** POST {id}/recount: "count it again": the line is empty again. */
+    /**
+     * POST {id}/recount: "count it again": the line is empty again. With `times` = 1 instead (too many count times: review M-2): every
+     * line the page marks is empty again (CountSheets::recountForTimes works them out again).
+     */
     public function recount(Context $ctx): HtmlResponse
     {
+        if ($ctx->req->field('times') === '1') {
+            $id = $ctx->id();
+            try {
+                $n = $ctx->countSheets()->recountForTimes($ctx->caller(), $id);
+            } catch (CwException $e) {
+                return $e->errorCode === 'not_count_sheet' ? $this->notFound($ctx) : $this->before($ctx, $e->httpStatus, $e);
+            }
+            return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id . '/differences', ['notice' => 'recount_times', 'n' => $n]));
+        }
         return $this->choose($ctx, static function (CountSheets $s, int $id, int $line) use ($ctx): string {
             $s->recount($ctx->caller(), $id, $line);
             return 'recount';
@@ -584,8 +619,9 @@ final class CountsController
             $mode = $modes[$l['sku_id']]['mode'] ?? null;
             $lines[] = $l + ['mode' => $mode, 'mode_meaning' => $mode === null ? null : (Words::has('MODE_MEANING', $mode) ? Words::of('MODE_MEANING', $mode) : null),
                 'marked' => $marked === $l['line_no'],
-                // After a refused page: what was typed in each box (nothing of that page was saved).
+                // After a refused page: what was typed in each box (nothing of that page was saved), and when it was filled in.
                 'typed' => isset($extra['typedQ'][$l['line_no']]) ? (string) $extra['typedQ'][$l['line_no']] : null,
+                'typedAt' => isset($extra['typedAt'][$l['line_no']]) ? (string) $extra['typedAt'][$l['line_no']] : '',
                 // A blind count: the system's figure is shown only once the line holds a quantity.
                 'shows_stock' => $showsStock || $l['counted_qty'] !== null,
                 'state' => $l['outcome'] === null ? null : ($l['outcome'] === 'stale' ? 'stale' : ($l['reversal_document_id'] !== null ? 'put_back' : 'booked')),
@@ -622,6 +658,8 @@ final class CountsController
             'showLinks' => array_map(static fn (string $s): array => ['key' => $s, 'href' => Html::url(self::PATH . '/' . $id, ['show' => $s === 'all' ? null : $s]), 'current' => $s === $show],
                 ['all', 'todo', 'done']),
             'editable' => $editable,
+            // When the page was drawn (milliseconds since 1970 UTC): app.js adds how long ago a box was filled in (M-7).
+            'drawnMs' => (int) Clock::now()->format('Uv'),
             'notOpener' => $kind === 'sheet' && $doc->status === 'draft' && $canCount && $doc->createdBy !== $me->id,
             'hasMarked' => $marked !== null && in_array($marked, array_column($lines, 'line_no'), true),
             'version' => $doc->version,
@@ -655,8 +693,8 @@ final class CountsController
             'count_too_old' => Words::say('COUNT_ERROR', 'count_too_old', $lines, (int) ($d['days'] ?? 0)),
             'bad_counted_at' => Words::say('COUNT_ERROR', 'bad_counted_at', (int) ($d['days'] ?? intdiv(Movements::BACKDATED_MAX_AGE_SEC, 86_400))),
             'too_many_lines', 'bad_next', 'too_many_times' => Words::say('COUNT_ERROR', $e->errorCode, (int) ($d['max'] ?? 0)),
-            'bad_quantity', 'barcode_in_quantity', 'unknown_line' => Words::say('COUNT_ERROR', $e->errorCode, (int) ($d['line'] ?? 0)),
-            'line_put_back' => Words::say('COUNT_ERROR', 'line_put_back', (int) ($d['line'] ?? 0)),
+            'bad_quantity', 'barcode_in_quantity', 'unknown_line', 'bad_count_time' => Words::say('COUNT_ERROR', $e->errorCode, (int) ($d['line'] ?? 0)),
+            'line_put_back', 'line_counted_again' => Words::say('COUNT_ERROR', $e->errorCode, (int) ($d['line'] ?? 0)),
             'too_large' => Words::say('RECEIPT_ERROR', 'too_large', intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576)),
             default => Words::COUNT_ERROR[$e->errorCode] ?? Words::STOCK_ERROR[$e->errorCode] ?? Words::RECEIPT_ERROR[$e->errorCode] ?? Words::error($e->errorCode, $e->getMessage()),
         };
@@ -692,6 +730,52 @@ final class CountsController
             $parts[] = Words::say('COUNTS', 'over_percent', (int) $percent);
         }
         return implode(' · ', $parts);
+    }
+
+    /** Why an engine review or a flag about a count's time waits, in words. @param array<string, mixed> $r a row of CountReviews::open()['engine'] */
+    private static function engineWhy(array $r): string
+    {
+        $d = $r['detail'];
+        $when = static fn (mixed $at): string => is_string($at) && $at !== '' ? Html::when($at) : '';
+        $normal = ($d['applied'] ?? 'normal') !== 'pre_count';
+        return match ((string) $r['source']) {
+            'count_after_movements' => Words::say('COUNTS', 'why_after', (int) ($d['net'] ?? 0), count((array) ($d['rows'] ?? []))),
+            'ship_near_count' => Words::say('COUNTS', 'why_ship_near', (string) ($r['order'] ?? ''), $when($d['dispatched_at'] ?? null), $when($d['counted_at'] ?? null),
+                Words::COUNTS[$normal ? 'near_taken_off' : 'near_not_taken_off']),
+            'unship_near_count' => Words::say('COUNTS', 'why_unship_near', (string) ($r['order'] ?? ''), $when($d['reset_at'] ?? null), $when($d['counted_at'] ?? null),
+                Words::COUNTS[$normal ? 'near_added' : 'near_not_added']),
+            default => Words::say('COUNTS', 'why_near', count((array) ($d['units'] ?? []))),
+        };
+    }
+
+    /**
+     * The first line whose quantity is a barcode CW knows (as typed, or as the barcode key: an EAN-8 that starts with 0, a short code of
+     * the shop's own; review M-5, 14 Oct 2026). Only 4 digits or more, as the scan box reads a barcode. One indexed read.
+     *
+     * @param array<int, string> $typed line => what was typed in its box (the changed, non-empty ones)
+     */
+    private static function barcodeIn(Db $db, array $typed): ?int
+    {
+        $forms = [];
+        foreach ($typed as $no => $v) {
+            if (preg_match('/^[0-9]{4,8}$/D', $v) === 1) {
+                $forms[$v][] = $no;
+                $key = Gtin::key($v);
+                if ($key !== null && $key !== $v) {
+                    $forms[$key][] = $no;
+                }
+            }
+        }
+        if ($forms === []) {
+            return null;
+        }
+        $codes = array_map('strval', array_keys($forms));
+        $found = $db->column('SELECT barcode FROM sku_barcode WHERE barcode IN (' . implode(', ', array_fill(0, count($codes), '?')) . ')', $codes);
+        $lines = [];
+        foreach ($found as $code) {
+            array_push($lines, ...($forms[(string) $code] ?? []));
+        }
+        return $lines === [] ? null : min($lines);
     }
 
     private static function refusalWords(string $code): string

@@ -55,11 +55,13 @@ final class Grants
      * result page and the batch page read them, so who asked for what, and why a row was skipped, is never rewritten.
      * other_account_entry: the running balance owed to another account (0022, pack A1): a release, a payment and their reversals are
      * rows of their own, never rewritten or removed, so the balance and how it came about stay readable.
+     * count_sheet: the header of a stock count record (0029, pack A2a): written once with its record (its kind, its place, the line a
+     * record puts back), never changed (review M-8, 14 Oct 2026: nothing updates it).
      */
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
         'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
         'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change', 'grn_posting', 'item_selling_mode_log', 'item_channel_mode_log',
-        'config_change', 'integrity_run', 'mapping_batch', 'mapping_batch_row', 'other_account_entry'];
+        'config_change', 'integrity_run', 'mapping_batch', 'mapping_batch_row', 'other_account_entry', 'count_sheet'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -70,7 +72,8 @@ final class Grants
      * creator, creation time, the document it reverses) is frozen and a document is never deleted (I17). A barcode review's
      * decision (0016, I107): what was found (the barcode, the items, the listing) is frozen, a row is never deleted. An incident's
      * resolution (0017, I131): what was found (the receipt line, the item, the units, where they went) is frozen, a row is never
-     * deleted.
+     * deleted. A count sheet's line (0029, pack A2a; review M-8 of 14 Oct 2026): filled in, emptied again, booked and checked in place;
+     * its sheet, its number, its item, what the system held when it was put on the sheet and when are frozen, a line is never deleted.
      */
     public const UPDATE_COLUMNS = [
         'match_proposal' => ['status'],
@@ -89,6 +92,8 @@ final class Grants
         'warehouse' => ['name', 'is_sellable', 'is_active', 'stock_owner', 'owner_entity', 'note', 'updated_at'],
         'warehouse_location' => ['name', 'is_active', 'note'],
         'staff_role_request' => ['state', 'decided_by', 'decided_at', 'decision_note', 'used_at'],
+        'count_sheet_line' => ['counted_qty', 'counted_at', 'counted_by', 'entered_at', 'entered_how', 'ack_ledger_id', 'ack_at', 'doc_line_no', 'system_qty',
+            'booked_delta', 'outcome', 'review', 'review_units', 'review_percent', 'reviewed_by', 'reviewed_at', 'review_note', 'reversal_document_id'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the
@@ -130,12 +135,11 @@ final class Grants
      * per site (item_channel_mode, 0018, I151).
      * grn_line keeps FULL rights: a draft's lines are replaced (its rows go with their document_line, ON DELETE CASCADE).
      * stock_op: the header of a stock record (0022, pack A1): changed while it is a draft, never removed (documents are never deleted).
-     * count_sheet / count_sheet_line: a count sheet's header and lines (0029, pack A2a): a line is filled in, emptied again, booked and
-     * checked in place, never removed (a sheet is the stocktake record; a line put on it by mistake stays, not counted).
+     * count_sheet / count_sheet_line (0029, pack A2a) are never removed either: since review M-8 (14 Oct 2026) they are APPEND_ONLY
+     * and UPDATE_COLUMNS (a sheet is the stocktake record; a line put on it by mistake stays, not counted).
      */
     public const NO_DELETE = ['channel_listing', 'listing_profile', 'sku', 'staff_user', 'supplier', 'supplier_item', 'import_run', 'purchase_order',
-        'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode', 'stock_op',
-        'count_sheet', 'count_sheet_line'];
+        'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode', 'stock_op'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */
