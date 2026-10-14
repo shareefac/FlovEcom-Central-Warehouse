@@ -44,8 +44,8 @@ final class ReferenceScreensTest extends KernelUiTestCase
         $series = $web->get('/ui/reference/series');
         self::assertSame(200, $series->status);
         self::assertSame(['PO-000001', 'GRN-000001', 'SIN-000001', 'SOUT-000001', 'ADJ-000001', 'TRF-000001', 'REL-000001', 'SINV-000001', 'DN-000001', 'CNT-000001',
-            'WO-000001', 'TRD-000001'], self::column($series, 4), 'in the kinds\' order, the stock records of pack A1 among them (SO12)');
-        self::assertSame(array_fill(0, 12, 'none yet'), self::column($series, 3));
+            'WO-000001', 'TRD-000001', 'RPK-000001'], self::column($series, 4), 'in the kinds\' order, the stock records of pack A1 among them (SO12), the repack of pack B last');
+        self::assertSame(array_fill(0, 13, 'none yet'), self::column($series, 3));
         self::assertSame('In use', self::column($series, 2)[0], 'PO since the I-2 pos task');
         self::assertSame('In use', self::column($series, 2)[1], 'GRN since the I-3 receiving task (IM6)');
         self::assertSame(['In use', 'In use', 'In use', 'In use', 'In use'], array_slice(self::column($series, 2), 2, 5), 'SIN, SOUT, ADJ, TRF, REL (pack A1)');

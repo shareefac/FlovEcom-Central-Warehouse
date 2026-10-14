@@ -172,6 +172,9 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
 <?php if ($target !== null): ?>
     <p class="title"><a href="/ui/items/<?= $e($target['id']) ?>"><?= $e($target['code']) ?></a> <?= $e($target['name']) ?></p>
     <dl>
+<?php if (($target['family'] ?? null) !== null): ?>
+      <dt><?= $word('FAMILY', 'item_box_short') ?></dt><dd><?= $e($target['family']) ?></dd>
+<?php endif; ?>
       <dt><?= $word('LISTING', 'stock_rule') ?></dt><dd><?= $stateChip('POLICY', $target['policy']) ?><?php if ($protected): ?> <span class="muted">(<?= $word('LISTING', 'protected') ?>)</span><?php endif; ?> <?= $explain('stock_rule', \CW\Ui\Words::LISTING['stock_rule']) ?></dd>
       <dt><?= $word('LISTING', 'barcodes') ?></dt><dd><?php if ($target_barcodes === []): ?><span class="muted"><?= $word('LISTING', 'none') ?></span><?php else: ?><?= $e(implode(', ', $target_barcodes)) ?><?php endif; ?></dd>
 <?php if ($pending !== null && $pending['action'] === 'merge_skus' && $pending['merge_from_id'] !== null): ?>

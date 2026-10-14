@@ -420,7 +420,7 @@ final class ByProductController
             }
             $name = self::s($p['name']);
             $parent = $parents[$id][1] ?? '';
-            $rows[] = ['id' => $id, 'code' => self::s($p['code']), 'name' => $name, 'brand' => self::s($p['brand']),
+            $rows[] = ['id' => $id, 'code' => self::s($p['code']), 'name' => $name, 'brand' => self::s($p['brand']), 'family' => self::s($p['family_name'] ?? null),
                 'parent' => $parent === '' || mb_strtolower($parent) === mb_strtolower(trim((string) $name)) ? null : mb_substr($parent, 0, 200),
                 'cells' => $out, 'on' => $on, 'tone' => $on === count($stores) ? 'done' : ($on > 0 ? 'needs' : 'waiting'), 'here' => false, 'pinned' => false];
         }

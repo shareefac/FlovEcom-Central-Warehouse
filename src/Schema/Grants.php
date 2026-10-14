@@ -61,7 +61,9 @@ final class Grants
     public const APPEND_ONLY = ['stock_ledger', 'audit_log', 'match_run', 'match_reject', 'stock_value_seq', 'stock_value_ledger',
         'stored_file', 'document_file', 'document_posting', 'supplier_item_price', 'po_posting', 'match_proposal_basis', 'key_sample',
         'key_sample_member', 'company_profile', 'key_bulk_hold', 'item_card_change', 'grn_posting', 'item_selling_mode_log', 'item_channel_mode_log',
-        'config_change', 'integrity_run', 'mapping_batch', 'mapping_batch_row', 'other_account_entry', 'count_sheet'];
+        'config_change', 'integrity_run', 'mapping_batch', 'mapping_batch_row', 'other_account_entry', 'count_sheet',
+        // ---- Pack B (0031): a Repack's header is written once, with its record (the cancellation's copy is a row of its own).
+        'repack'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -94,6 +96,10 @@ final class Grants
         'staff_role_request' => ['state', 'decided_by', 'decided_at', 'decision_note', 'used_at'],
         'count_sheet_line' => ['counted_qty', 'counted_at', 'counted_by', 'entered_at', 'entered_how', 'ack_ledger_id', 'ack_at', 'doc_line_no', 'system_qty',
             'booked_delta', 'outcome', 'review', 'review_units', 'review_percent', 'reviewed_by', 'reviewed_at', 'review_note', 'reversal_document_id'],
+        // ---- Pack B (0031): a pack item's definition is switched off or on, never rewritten (its items and units are frozen); an item
+        // made by hand keeps who made it and when, only its check afterwards is written later.
+        'item_pack' => ['is_active', 'switched_by', 'switched_actor', 'switched_at'],
+        'item_by_hand' => ['check_state', 'checked_by', 'checked_actor', 'checked_at', 'check_note'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the
@@ -139,7 +145,11 @@ final class Grants
      * and UPDATE_COLUMNS (a sheet is the stocktake record; a line put on it by mistake stays, not counted).
      */
     public const NO_DELETE = ['channel_listing', 'listing_profile', 'sku', 'staff_user', 'supplier', 'supplier_item', 'import_run', 'purchase_order',
-        'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode', 'stock_op'];
+        'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode', 'stock_op',
+        // ---- Pack B (0031): a family is renamed or switched off, never deleted; an item is taken out of its family (NULL), the row stays.
+        'item_family', 'item_family_member',
+        // a name's guard row (making an item by hand: written, never removed)
+        'item_name_guard'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

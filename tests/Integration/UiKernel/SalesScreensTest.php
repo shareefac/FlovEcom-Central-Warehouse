@@ -226,8 +226,8 @@ final class SalesScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('stock_controller'));
         $page = $this->page($web, self::ORDERS);
         self::assertSame(['Stock', 'Sales'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Transfers', 'Adjustments', 'Counts', 'Reservations', 'Sales', 'Quality'], self::tabLabels($page),
-            'Sales sits after Reservations');
+        self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Transfers', 'Adjustments', 'Counts', 'Reservations', 'Sales', 'Quality',
+            'Repack'], self::tabLabels($page), 'Sales sits after Reservations (Repack, pack B, last)');
         self::assertSame([[Words::SEGMENT['sales_orders'], self::ORDERS, true], [Words::SEGMENT['sales_dispatch'], self::DISPATCH, false],
             [Words::SEGMENT['sales_returns'], self::RETURNS, false]],
             array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($page)));

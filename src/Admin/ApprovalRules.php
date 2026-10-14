@@ -48,6 +48,8 @@ final class ApprovalRules
         'approvals.company_own_change' => true,
         'approvals.staff_grant' => false,
         'approvals.staff_reset' => false,
+        // ---- Pack B (0031, docs/decisions.md PB3): an item made by hand is checked afterwards by a second person (it never waits).
+        'approvals.item_by_hand_check' => false,
     ];
     /** number => its default. */
     public const NUMBERS = [
@@ -57,12 +59,15 @@ final class ApprovalRules
     /** The page: section => its rules, in reading order (`document` a kind of record, `switch` and `number` a setting). */
     public const PAGE = [
         'records' => [['document', 'PO'], ['document', 'GRN'], ['document', 'SIN'], ['document', 'SOUT'], ['document', 'ADJ'], ['document', 'TRF'],
-            ['document', 'REL'], ['document', 'CNT'], ['document', 'WO'], ['document', 'SINV'], ['document', 'DN'], ['document', 'TRD']],
+            ['document', 'REL'], ['document', 'CNT'], ['document', 'WO'], ['document', 'SINV'], ['document', 'DN'], ['document', 'TRD'],
+            ['document', 'RPK']], // pack B: Repack (PB9)
         'suppliers' => [['switch', 'approvals.supplier_activation'], ['switch', 'suppliers.change_review'], ['number', 'suppliers.approval_due_days']],
         'matching' => [['switch', 'approvals.match_multiple'], ['switch', 'approvals.match_counted'], ['switch', 'approvals.mapping_bulk_second_ok'],
             ['number', 'approvals.spot_check_size']],
         'company' => [['switch', 'approvals.company_own_change']],
         'staff' => [['switch', 'approvals.staff_grant'], ['switch', 'approvals.staff_reset']],
+        // ---- Pack B (PB3): items made by hand.
+        'items' => [['switch', 'approvals.item_by_hand_check']],
     ];
     /** The numbers whose lower value is the looser rule (a smaller spot check proves less). */
     public const LOWER_IS_LOOSER = ['approvals.spot_check_size'];

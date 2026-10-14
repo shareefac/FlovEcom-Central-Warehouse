@@ -32,7 +32,7 @@ final class ItemController
     public function show(Context $ctx): HtmlResponse
     {
         $notice = $ctx->req->param('notice') ?? '';
-        return $this->page($ctx, 200, null, self::NOTICES[$notice] ?? SellingModeController::NOTICES[$notice] ?? null);
+        return $this->page($ctx, 200, null, self::NOTICES[$notice] ?? SellingModeController::NOTICES[$notice] ?? Words::ITEMS_NOTICE[$notice] ?? null);
     }
 
     /**
@@ -129,6 +129,11 @@ final class ItemController
             if ($kind !== null) {
                 $ledger[count($ledger) - 1]['note'] = null;
             }
+            // Pack B (PB13): a repack's rows name their record (its own page is the record page).
+            if ($kind === null && ($r['doc_type'] ?? null) === \CW\Items\RepackHandler::TYPE) {
+                $ledger[count($ledger) - 1]['record'] = ['what' => Words::DOC_TYPE['RPK'], 'why' => null, 'given' => null, 'href' => '/ui/documents/' . (int) $r['document_id']];
+                $ledger[count($ledger) - 1]['note'] = null;
+            }
         }
         $mergedInto = $sku['merged_into_sku_id'] === null ? null : $q->sku((int) $sku['merged_into_sku_id']);
         $canEdit = $ctx->me()->can('catalogue.edit') && $sku['merged_into_sku_id'] === null;
@@ -190,7 +195,9 @@ final class ItemController
             ksort($dupGroups);
         }
         return $ctx->page('item', self::cardVars($ctx, $id, $canEdit) + [
-            'error' => $error === null ? null : ItemCardsController::plain($error),
+            // Pack B: the family and pack box, and its refusals in its words.
+            'groups' => self::groupVars($ctx, $id, $sku),
+            'error' => $error === null ? null : (isset(Words::ITEMS_ERROR[$error->errorCode]) ? FamiliesController::plain($error) : ItemCardsController::plain($error)),
             'errorCode' => $error?->errorCode,
             'errorDetail' => $error?->detail ?? [],
             'canEditBarcodes' => $canEdit,
@@ -227,6 +234,35 @@ final class ItemController
             // IM10 (I158): what CW writes on each website, and the selling-mode switch.
             'sellingMode' => SellingModeController::vars($ctx, $id, $sku, is_array($typed['selling_mode'] ?? null) ? $typed['selling_mode'] : []),
         ], $status, ['title' => trim(((string) $sku['name']) . ' (' . ((string) $sku['code']) . ')'), 'active' => 'search', 'notice' => $notice]);
+    }
+
+    /**
+     * Pack B (docs/decisions.md PB4-PB8, PB12): the item page's family and pack box: its family (and the form that puts it in one, moves it
+     * or takes it out, for families.manage), the pack item it is or the pack items made of it, and who made it when it was made by hand.
+     *
+     * @param array<string, mixed> $sku Queries::sku()
+     * @return array<string, mixed>
+     */
+    public static function groupVars(Context $ctx, int $id, array $sku): array
+    {
+        $family = \CW\Items\Families::ofItems($ctx->db, [$id])[$id] ?? null;
+        $canFamily = $ctx->me()->can('families.manage') && $sku['merged_into_sku_id'] === null;
+        $packs = (new \CW\Items\Packs($ctx->db))->ofItem($id);
+        $own = $packs['pack'];
+        $byHand = $ctx->db->one('SELECT h.check_state, h.created_at, u.display_name FROM item_by_hand h LEFT JOIN staff_user u ON u.id = h.created_by WHERE h.sku_id = ?', [$id]);
+        return [
+            'skuId' => $id,
+            'family' => $family,
+            'canFamily' => $canFamily,
+            'familyNames' => $canFamily ? (new \CW\Items\Families($ctx->db))->activeNames() : [],
+            'pack' => $own === null ? null : ['units' => (int) $own['units'], 'single' => ['id' => (int) $own['single_sku_id'], 'code' => (string) $own['single_code'],
+                'name' => (string) $own['single_name']], 'flags' => array_values(array_map(static fn (string $f): array => ['tone' => Words::tone('PACK_FLAG', $f),
+                'text' => Words::of('PACK_FLAG', $f)], array_filter($own['flags'], static fn (string $f): bool => $f !== 'suggest')))],
+            'packsOf' => array_map(static fn (array $p): array => ['id' => (int) $p['pack_sku_id'], 'code' => (string) $p['pack_code'], 'name' => (string) $p['pack_name'],
+                'units' => (int) $p['units']], $packs['packs']),
+            'byHand' => $byHand === null ? null : ['state' => (string) $byHand['check_state'],
+                'line' => Words::say('ITEM_NEW', 'on_item', (string) ($byHand['display_name'] ?? ''), Html::when((string) $byHand['created_at']))],
+        ];
     }
 
     /**

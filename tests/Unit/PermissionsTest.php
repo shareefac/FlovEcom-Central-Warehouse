@@ -45,7 +45,7 @@ final class PermissionsTest extends TestCase
     public function testEveryRoleOfTheMapIsKnownAndTheMappingRolesAreUnchanged(): void
     {
         foreach (Permissions::MAP as $perm => $roles) {
-            self::assertMatchesRegularExpression('/^[a-z]+\.[a-z]+$|^doc\.(PO|GRN|SINV|DN|CNT|ADJ|WO|TRD|SIN|SOUT|TRF|REL)\.post$/D', $perm);
+            self::assertMatchesRegularExpression('/^[a-z]+\.[a-z]+$|^doc\.(PO|GRN|SINV|DN|CNT|ADJ|WO|TRD|SIN|SOUT|TRF|REL|RPK)\.post$/D', $perm); // RPK: pack B
             self::assertNotSame([], $roles, $perm);
             self::assertSame([], array_values(array_diff($roles, Permissions::ROLES)), "{$perm}: unknown role");
             self::assertSame(array_values(array_unique($roles)), $roles, $perm);

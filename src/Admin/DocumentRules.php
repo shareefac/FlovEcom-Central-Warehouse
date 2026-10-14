@@ -40,7 +40,7 @@ final class DocumentRules
      * The types with the OK first for a big record (pack A1, docs/decisions.md SO5): more than size_units units, or more than size_value
      * whole pounds, waits for a reviewer before it is final. Off by default; at least one of the two sizes while it is on.
      */
-    public const SIZE_TYPES = ['ADJ', 'SIN', 'SOUT', 'TRF', 'REL'];
+    public const SIZE_TYPES = ['ADJ', 'SIN', 'SOUT', 'TRF', 'REL', 'RPK']; // RPK: pack B's Repack (PB9), off by default
     public const LIMIT_MAX = 2_000_000_000;
     public const DAYS_MIN = 1;
     public const DAYS_MAX = 120;

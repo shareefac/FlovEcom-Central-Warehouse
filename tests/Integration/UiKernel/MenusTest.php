@@ -63,13 +63,13 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Approval Rules', 'Reasons', 'System'], self::tabLabels($reviewer->get('/ui/reference/company')));
         self::assertSame('/ui/reference/access', array_column(self::sectionTabs($buyer->get('/ui/reference/company')), 'href', 'label')['Users']);
         // Products: the product list for everyone; the barcodes to check only for catalogue.edit (I109); no matching for these jobs.
-        self::assertSame(['All Products'], self::tabLabels($buyer->get('/ui/items/cards')));
+        self::assertSame(['All Products', 'Families', 'Multipacks'], self::tabLabels($buyer->get('/ui/items/cards')), 'pack B: families and pack items for everyone');
         // Stock: everyone who sees a product's stock; the stock records and the counts for the people who read records (packs A1, A2a); the
-        // screen not built yet (Quality) is a "Soon" tab, never a link.
+        // screen not built yet (Quality) is a "Soon" tab, never a link; Repack (pack B) for the people who read records.
         $stock = self::sectionTabs($desk->get('/ui/stock'));
         self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Stock In', '/ui/stock/in'], ['Stock Out', '/ui/stock/out'],
             ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', '/ui/stock/counts'], ['Reservations', '/ui/stock/reservations'],
-            ['Sales', '/ui/stock/sales'], ['Quality', null]],
+            ['Sales', '/ui/stock/sales'], ['Quality', null], ['Repack', '/ui/stock/repack']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], $stock));
 
         // The desk's screens of Phase I-4 to I-6 are named on the Dashboard, without phase codes.
@@ -125,7 +125,8 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($both->get('/ui/'))));
         self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Suppliers'], self::tabLabels($both->get('/ui/purchasing/orders')),
             'the stock controller reads the receipts and the issues (IM6, I141)');
-        self::assertSame([['All Products', '/ui/items/cards'], ['Barcodes', '/ui/items/barcodes']],
+        self::assertSame([['All Products', '/ui/items/cards'], ['Barcodes', '/ui/items/barcodes'], ['Add Item', '/ui/items/new'], ['Families', '/ui/items/families'],
+            ['Multipacks', '/ui/items/packs']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($both->get('/ui/items/cards'))));
 
         // A stock controller alone: the phone bar still starts with Products and Stock.
@@ -146,8 +147,9 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::HOME['progress'], $home->text(), 'no matching progress without linking.view');
         self::assertStringNotContainsString('coming in Phase', $home->text());
         $xp = new \DOMXPath($home->dom());
-        self::assertSame(['/ui/items/cards', '/ui/stock', '/ui/stock/movements', '/ui/stock/in', '/ui/stock/out', '/ui/stock/transfers', '/ui/stock/adjustments',
-            '/ui/stock/counts', '/ui/stock/reservations', '/ui/stock/sales', '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
+        self::assertSame(['/ui/items/cards', '/ui/items/families', '/ui/items/packs', '/ui/stock', '/ui/stock/movements', '/ui/stock/in', '/ui/stock/out',
+            '/ui/stock/transfers', '/ui/stock/adjustments', '/ui/stock/counts', '/ui/stock/reservations', '/ui/stock/sales', '/ui/stock/repack',
+            '/ui/purchasing/reorder', '/ui/purchasing/orders', '/ui/purchasing/suppliers',
             '/ui/documents', '/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals', '/ui/reference/reasons',
             '/ui/reference/settings'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
@@ -169,7 +171,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings'], array_keys(self::nav($dash)));
         $queue = $mapper->get('/ui/review', ['queue' => 'Key']);
         self::assertSame([['All Products', '/ui/items/cards'], ['Mapping', '/ui/review'], ['Store Products', '/ui/review/store'], ['By Item', '/ui/review/products'],
-            ['New Variants', '/ui/review/new-variants'], ['Duplicates', '/ui/review/duplicates']],
+            ['New Variants', '/ui/review/new-variants'], ['Duplicates', '/ui/review/duplicates'], ['Families', '/ui/items/families'], ['Multipacks', '/ui/items/packs']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($queue)));
         self::assertSame([['To review', '/ui/review', true], ['Spot check', '/ui/review/samples', false], ['Second approval', '/ui/review?queue=pending', false]],
             array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($queue)));
@@ -233,7 +235,8 @@ final class MenusTest extends KernelUiTestCase
         $auditor = $this->signIn($this->uiUser('auditor'));
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($auditor->get('/ui/'))),
             'the auditor reads everything');
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates'], self::tabLabels($auditor->get('/ui/review/duplicates')));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'],
+            self::tabLabels($auditor->get('/ui/review/duplicates')));
     }
 
     public function testTheOwnersAccountWithAdminSaysWhichJobsAreSwitchedOff(): void
@@ -275,7 +278,7 @@ final class MenusTest extends KernelUiTestCase
         $admin = $this->uiUser('admin');
         (new StaffAdmin(self::$db))->setRoles(Caller::staff($admin['id']), $u['id'], ['buyer'], null);
         self::assertSame(403, $web->get('/ui/review', ['queue' => 'Key'])->status, 'the same session, the next request');
-        self::assertSame(['All Products'], self::tabLabels($web->get('/ui/items/cards')), 'Mapping and Duplicates gone');
+        self::assertSame(['All Products', 'Families', 'Multipacks'], self::tabLabels($web->get('/ui/items/cards')), 'Mapping and Duplicates gone');
     }
 
     /** Old menu addresses still lead where they did (bookmarks): nothing was renamed in a URL. */

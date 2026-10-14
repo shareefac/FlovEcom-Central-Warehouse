@@ -52,6 +52,18 @@ final class Sections
             'duplicates' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/review/duplicates', 'match' => ['/ui/review/duplicates*'],
                 'badge' => 'linking_duplicates']]],
             'barcodes' => ['pages' => [['perm' => 'catalogue.edit', 'path' => '/ui/items/barcodes', 'match' => ['/ui/items/barcodes*'], 'badge' => 'barcodes_open']]],
+            // ---- Pack B (docs/decisions.md PB1-PB8): an item made by hand (Q10), product families (Q4), pre-packed multipacks and the pack
+            // links beside them (Q3). Families and pack items are read by everyone who sees products; the pack links are matching pages.
+            'add_item' => ['pages' => [['perm' => 'items.create', 'path' => '/ui/items/new', 'match' => ['/ui/items/new*'],
+                'new' => ['perm' => 'items.create', 'href' => '/ui/items/new#new', 'label' => 'add_item']]]],
+            'families' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/items/families', 'match' => ['/ui/items/families*'],
+                'new' => ['perm' => 'families.manage', 'href' => '/ui/items/families#new', 'label' => 'families']]]],
+            'multipacks' => ['segments' => true, 'pages' => [
+                ['key' => 'packs', 'perm' => 'catalogue.view', 'path' => '/ui/items/packs', 'match' => ['/ui/items/packs', '/ui/items/packs/{id}*'],
+                    'new' => ['perm' => 'catalogue.edit', 'href' => '/ui/items/packs#new', 'label' => 'packs']],
+                ['key' => 'pack_links', 'perm' => 'linking.view', 'path' => '/ui/items/packs/links', 'match' => ['/ui/items/packs/links*']],
+            ]],
+            // ---- end of pack B
         ]],
         // Overview and Movements: stock_balance and the stock ledger (the item page's own figures: catalogue.view). The stock records of
         // pack A1 (docs/decisions.md SO10): the people who read records (documents.view) see their lists; the create buttons are for the
@@ -93,6 +105,9 @@ final class Sections
             ]],
             // ---- end of pack D ----
             'quality' => ['soon' => true],
+            // ---- Pack B (PB9): a Repack breaks packs into singles or makes packs; documents.view reads, doc.RPK.post books.
+            'repack' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/repack', 'match' => ['/ui/stock/repack*'],
+                'new' => ['perm' => 'doc.RPK.post', 'href' => '/ui/stock/repack#new', 'label' => 'repack']]]],
         ]],
         'purchasing' => ['tabs' => [
             'reorder' => ['segments' => true, 'pages' => [

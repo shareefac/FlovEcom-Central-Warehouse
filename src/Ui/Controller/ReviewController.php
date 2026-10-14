@@ -1320,6 +1320,7 @@ final class ReviewController
             'line' => self::s($r['line']), 'form' => self::s($r['form']), 'flavour' => self::s($r['flavour']), 'volume_ml' => self::s($r['volume_ml']),
             'puffs' => self::s($r['puffs']), 'pack_units' => self::s($r['pack_units']),
             'merged' => ($r['merged_into_sku_id'] ?? null) !== null,
+            'family' => self::s($r['family_name'] ?? null), // pack B (PB12)
             // The first-match run (proposals.csv) names an item minted from a Vape and Go listing CWP-<its variant id>.
             'cwp' => isset($r['vpg_variant_id']) && $r['vpg_variant_id'] !== null ? 'CWP-' . $r['vpg_variant_id'] : null,
             'details' => implode(' · ', array_filter([self::s($r['brand']), $r['strength_mg'] === null ? null : Html::dec($r['strength_mg']) . 'mg', self::s($r['line']),

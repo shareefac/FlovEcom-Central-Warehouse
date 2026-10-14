@@ -1035,7 +1035,9 @@ final class Queries
         if ($ids === []) {
             return [];
         }
-        return $this->db->all('SELECT s.id, s.code, s.name, s.brand FROM sku s WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY s.id', $ids);
+        // Pack B (PB12): with the item's family (By Item names it), two primary-key joins.
+        return $this->db->all('SELECT s.id, s.code, s.name, s.brand, f.name AS family_name FROM sku s LEFT JOIN item_family_member fm ON fm.sku_id = s.id '
+            . 'LEFT JOIN item_family f ON f.id = fm.family_id WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY s.id', $ids);
     }
 
     /**
@@ -1274,8 +1276,11 @@ final class Queries
         $out = [];
         foreach ($this->db->all(
             'SELECT s.id, s.code, s.name, s.brand, s.sell_policy, s.strength_mg, s.nic_type, s.line, s.form, s.flavour, s.volume_ml, s.puffs, s.pack_units, '
-            . 's.merged_into_sku_id, s.origin, s.origin_listing_id, IF(s.origin = \'vpg_mint\', ol.external_variant_id, NULL) AS vpg_variant_id '
-            . 'FROM sku s LEFT JOIN channel_listing ol ON ol.id = s.origin_listing_id WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
+            . 's.merged_into_sku_id, s.origin, s.origin_listing_id, IF(s.origin = \'vpg_mint\', ol.external_variant_id, NULL) AS vpg_variant_id, '
+            // Pack B (PB12): the item's family, which the matching pages name (two primary-key joins).
+            . 'f.name AS family_name '
+            . 'FROM sku s LEFT JOIN channel_listing ol ON ol.id = s.origin_listing_id LEFT JOIN item_family_member fm ON fm.sku_id = s.id '
+            . 'LEFT JOIN item_family f ON f.id = fm.family_id WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
             $ids,
         ) as $r) {
             $out[(int) $r['id']] = $r;

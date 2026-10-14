@@ -55,6 +55,11 @@ use CW\Ui\Controller\SupplierItemsController;
 use CW\Ui\Controller\SuppliersController;
 use CW\Ui\Controller\SystemController;
 use CW\Ui\Controller\WarehousesController;
+// Pack B
+use CW\Ui\Controller\FamiliesController;
+use CW\Ui\Controller\HandMadeController;
+use CW\Ui\Controller\PacksController;
+use CW\Ui\Controller\RepackController;
 
 /**
  * The /ui staff screens (plan §7.1, §11): one request in, one HTML page out.
@@ -621,6 +626,36 @@ final class Kernel
         $r->add('GET', '/ui/stock/accounts', 'documents.view', $accounts->index(...));
         $r->add('POST', '/ui/stock/accounts/{id}/payments', 'accounts.pay', $accounts->pay(...));
         $r->add('POST', '/ui/stock/accounts/payments/{id}/reverse', 'accounts.pay', $accounts->reverse(...));
+        // ---- Pack B, Item Management (docs/decisions.md PB1-PB13). Products › Add Item: items.create makes an item by hand and checks
+        // another's (CW\Items\HandMade, never admin). Products › Families: everyone who sees products reads; families.manage changes
+        // (CW\Items\Families). Products › Multipacks: everyone who sees products reads the pack items, catalogue.edit defines them
+        // (CW\Items\Packs); the pack links are a matching page (linking.view). Stock › Repack: documents.view reads, doc.RPK.post books
+        // (CW\Items\Repacks and the document base). Every service checks the person again.
+        $hand = new HandMadeController();
+        $r->add('GET', HandMadeController::PATH, 'items.create', $hand->form(...));
+        $r->add('POST', HandMadeController::PATH, 'items.create', $hand->create(...));
+        $r->add('POST', HandMadeController::PATH . '/{id}/check', 'items.create', $hand->check(...));
+        $families = new FamiliesController();
+        $r->add('GET', FamiliesController::PATH, 'catalogue.view', $families->index(...));
+        $r->add('POST', FamiliesController::PATH, 'families.manage', $families->create(...));
+        $r->add('GET', FamiliesController::PATH . '/{id}', 'catalogue.view', $families->show(...));
+        $r->add('POST', FamiliesController::PATH . '/{id}/rename', 'families.manage', $families->rename(...));
+        $r->add('POST', FamiliesController::PATH . '/{id}/switch', 'families.manage', $families->switch(...));
+        $r->add('POST', FamiliesController::PATH . '/{id}/add', 'families.manage', $families->add(...));
+        $r->add('POST', FamiliesController::PATH . '/{id}/remove', 'families.manage', $families->remove(...));
+        $r->add('POST', '/ui/items/{id}/family', 'families.manage', $families->itemFamily(...));
+        $packs = new PacksController();
+        $r->add('GET', PacksController::PATH, 'catalogue.view', $packs->index(...));
+        $r->add('POST', PacksController::PATH, 'catalogue.edit', $packs->create(...));
+        $r->add('POST', PacksController::PATH . '/{id}/switch', 'catalogue.edit', $packs->switch(...));
+        $r->add('GET', PacksController::LINKS_PATH, 'linking.view', $packs->links(...));
+        $repack = new RepackController();
+        $r->add('GET', RepackController::PATH, 'documents.view', $repack->index(...));
+        $r->add('POST', RepackController::PATH, 'doc.RPK.post', $repack->book(...));
+        $r->add('POST', RepackController::PATH . '/{id}/post', 'doc.RPK.post', $repack->post(...));
+        $r->add('POST', RepackController::PATH . '/{id}/cancel', 'doc.RPK.post', $repack->cancel(...));
+        $r->add('POST', RepackController::PATH . '/{id}/withdraw', 'doc.RPK.post', $repack->withdraw(...));
+        // ---- end of pack B
         return $this->router = $r;
     }
 

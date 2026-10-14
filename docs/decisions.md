@@ -8854,3 +8854,142 @@ reference (Reservations searches the orders that hold a product now). (4) A days
 in Dispatch's "Sending undone" (they move no stock, so the ledger has no row of their reset). (5) A "late only" list (the waiting list is oldest first, so the late ones come
 first). (6) The week's first day as a setting (PD6). (7) Anything that changes an order or the stock (PD8).
 <!-- ---- end of pack D ---- -->
+
+## Pack B: Item Management — items by hand, product families, multipacks and repack (slot `packb`, 14 Oct 2026)
+
+The owner's 16-module list of 8 Oct 2026, module "Item Management", with the owner's answers of 7-8 Oct 2026: Q10 "create a product by hand
+(second lead approves): yes"; Q4 "product families: yes"; Q3 "repack: yes ... link such multipack listings to the single item with units per
+item 10 (two-person rule); add a multipack finder and relink step, plus the repack document", with the nuance of 8 Oct "suggest more than 1 unit
+only when the pack is made of a single product that is ALSO sold separately; otherwise default to its own product, 1 unit; a person decides";
+Q8 "leave it for now" (extra approvals off by default); Q9 "never delete". Built in parallel with packs C, D and E from main `a35ccff`.
+Code: `migrations/0031_items_families_repack.sql` (0030 is reserved for A2b; the integrator may renumber), `src/Items/{HandMade,Families,Packs,
+Repacks,RepackHandler,ItemsInvariants}.php` (new), `src/Mapping/DecisionService.php` (mintByHand), `src/Documents/DocumentHandlers.php`,
+`src/Invariants.php`, `src/Auth/Permissions.php`, `src/Admin/{ApprovalRules,DocumentRules}.php`, `src/Settings.php`, `src/Schema/Grants.php`,
+`src/Ui/{Sections,Words,Kernel,Queries}.php`, controllers `HandMade`, `Families`, `Packs`, `Repack` (new), `Item`, `ByProduct`, `Review`,
+`Reference`; templates `item_new`, `families`, `family`, `packs`, `pack_links`, `repacks`, `item_groups` (new), `item`, `by_product`, `listing`.
+Every number or rule a person may want changed is a setting with its baseline; every word is in `Ui\Words`; nothing is deleted.
+
+**PB1. An item made by hand (Q10).** Products › Add Item (`/ui/items/new`): the identity (name, the one field needed; brand, range, flavour,
+strength, nicotine type, kind, ml, puffs, pack size), the product card's fields (`ItemCards::FIELDS`, the box's brand and flavour apart from
+the identity's), one barcode with its units per scan, and a family. `CW\Items\HandMade::create` does it in ONE transaction, checks first and
+writes after: the barcode (refused, 409 `barcode_on_other_item`, when it is a barcode of another item in `sku_barcode` in any stored form, or
+carried by a variant MATCHED to another item: that item's barcode not copied to it yet; an unmatched variant's barcode is no item's), the
+same name AND the same identity (every identity field equal, an unknown equal only to an unknown, case and spaces ignored; items joined into
+another left out): 409 `same_item_exists` naming the other items, unless the person ticks "it is a different item" (`anyway`, audited with the
+items it named), the card's values (`ItemCards::check`), the family (switched on). Then the item through `DecisionService::mintByHand` — the
+code rule "only DecisionService makes an item" holds: origin `manual` (an ENUM value since 0004), no origin listing, its code `CW-%06d` of its
+id in the same transaction (the existing number series of items, D4) — its `item_by_hand` row, the barcode (`ItemBarcodes::add`), the family
+(`Families::assign`) and the card (`ItemCards::save`, version 0, kind `change`) last, because a card whose block changes writes the stock feed,
+the last lock of a transaction. Audit `item.create`. No listing, no link, no stock. The form carries a form key (one item however often it is
+sent; a refusal stores nothing, so the same key is sent again after a correction or the tick).
+
+**PB2. Who makes an item by hand (provisional, owner to confirm).** A new permission `items.create`, held by the catalogue team: exactly the
+holders of `catalogue.edit` (mapping lead, stock controller, purchasing manager), who also fill in its card and barcodes (`ItemCards::editor`
+checks each again). Never admin (I12: 403 `admin_cannot_edit`).
+
+**PB3. The second lead's OK of Q10 is a check afterwards, off by default.** The owner's Q10 answer carries "(second lead approves)"; Q8 says
+"leave it for now" and extra approvals start off. A build decision: a new approval switch `approvals.item_by_hand_check` (Approval rules ›
+Items; OFF in 0031). While it is on, an item made by hand is `waiting` for a second person holding `items.create` who did not make it (403
+`own_item`) to press "Checked: it is right" on Products › Add Item (`HandMade::check`, audit `item.check`); it is usable at once, so goods-in
+never waits. While it is off the row says `not_asked`. A blocking OK would need the item to be unusable until then: put to the owner.
+
+**PB4. Product families (Q4).** `item_family` (a name unique among the families switched on, ignoring case: `active_name`; a note; a version for
+the forms) and `item_family_member` (one row per item ever put in a family; `sku` is not altered). A family is created, renamed, switched off
+(it keeps its items, takes no new ones, leaves the choices) and on again (its name must be free); an item is put in, moved or taken out
+(`family_id` NULL: the row stays). Never deleted; every change audited (`family.*`). Who: a new permission `families.manage` (provisional): the
+catalogue team and the buyers (Q4 is about buyers seeing products together); never admin; everyone with `catalogue.view` reads. A move of
+one item names the family the form showed (409 `family_moved` otherwise). Lock order: the family row, then the members in sku id order.
+
+**PB5. A family's bulk change (the owner's skip-and-list rule).** On a family's page a pasted list of CW numbers or barcodes is put in at once,
+and ticked items are taken out; ONE transaction each, at most `items.family_bulk_max_rows` (a new setting, 200, 1 to 1,000; 422
+`too_many_rows`, nothing saved). Every sure line is done; a doubtful one is skipped and listed at the end with its reason: no item
+(`not_found`), joined into another (`merged`), named twice (`repeated`), already in this family (`already_here`), in ANOTHER family
+(`in_other_family`, named: moving it is a person's choice on the item's page, never done in bulk), and when taking out, no longer in this
+family (`not_in_family`).
+
+**PB6. Pack items (Q3).** `item_pack`: a pre-packed multipack item kept in stock as packs (a sealed box of 10 nic shots) = N x a single item.
+Defined by the catalogue team (`catalogue.edit`, like a barcode's units per scan); one definition switched on per pack item (`active_pack`);
+the two items differ and are not joined away; N is 2 to `DecisionService::MAX_UNITS`; no pack of packs either way (409 `pack_nested`). A
+definition is never changed or deleted: it is switched off (repacks cannot use it; the records that used it keep it) and a new one defined.
+The two item rows are locked FOR UPDATE in id order (after the definition's own row when one is switched) so two definitions of the same
+items made at once are decided one after the other.
+
+**PB7. The owner's rule "suggest more than 1 unit only when the single is sold separately" is a setting.** `items.pack_suggest_single_sold`
+(on in 0031). Products › Multipacks suggests a pack item's variants (matched with 1 unit a sale) as N singles a sale ONLY while the single is
+sold on its own — a variant is matched (mapped or quarantined) to the single with 1 unit a sale; off: for every pack item. A suggestion is a
+link to each variant's page with the single picked; a person decides there and a second matching lead says OK (`approvals.match_multiple`,
+unchanged). Nothing is relinked here, and nothing reads a pack from a name (the 8 Oct nuance: "pack of 3" coils are usually the maker's pack,
+one stock unit: such a pack item's variants say "its own product, 1 unit a sale").
+
+**PB8. The two ways of selling a pack, side by side; the matching unchanged.** A pack LINK (a variant matched with N units a sale: one sale
+takes N singles) and a pack ITEM (its own stock) are shown together: on each pack item `single_sold`, `sold_both_ways` (a variant also sells N
+singles a sale while the pack item keeps stock of its own: one pack's stock in two places), `pack_of_packs` (a variant sells more than one of
+the pack a sale), `count_differs` (the identity cards' pack counts break the matching's own rule, pack = N x single); Multipacks › Pack links
+lists every variant with more than 1 unit a sale (the range of the new index `ix_channel_listing_units`) with `pack_item_exists` (a pack item
+of that N exists for its item) or `item_is_pack`. Nothing in DecisionService's rules, the matching or the check on arrival changes: a link
+with units other than 1 still waits for a second matching lead, still sells N units a sale, and the arrival rules' pack answers are still "not
+sure" (`PackLinksUnchangedTest`, `ArrivalRulesTest`).
+
+**PB9. Repack, a document type (RPK, Stock › Repack).** 0031 seeds `RPK` (number series `RPK-000001`; no reviewer check, no blocking approval
+of its own, the OK first for a big record available and OFF: `DocumentRules::SIZE_TYPES`; each on the Approval rules page). A record names the
+pack definition, the way (`break` packs into singles, `make` packs from singles) and the packs (header `repack`, which also copies the units
+and both items); its two lines are exactly `break`: pack -k, single +k x N; `make`: single -k x N, pack +k (`RepackHandler::lines`), checked
+again at posting (422 `repack_lines`, `pack_off`). It books ONE `Movements::bookForDocument` call of signed `adjustment` rows — the movement a
+stock in already books; `Stock.php` and `Movements.php` are not changed, and `adjustment` is a cost-carrying type (ck_stock_ledger_cost) — so on
+hand moves on each item by exactly its line. Who: a new permission `doc.RPK.post` (provisional): the stock controller and the warehouse, who
+move stock (as a transfer, `doc.TRF.post`); never admin. The screen books in ONE step (`Repacks::book`: draft, header, lines and posting in
+one transaction, behind a form key); a draft left by an OK taken back is made final or stopped on the list.
+
+**PB10. A repack carries the cost (a setting).** `items.repack_carry_cost` (on in 0031): the line that comes in carries the average cost so
+far of the item taken apart (`CostHints::average`) times its units, divided by the units made, to 6 decimals, half up (a box of 10 at £12 ->
+singles at £1.20). With no average known, or the setting off, no cost (valued at the average later, IM8). Neither way changes how any
+existing record is valued.
+
+**PB11. Below zero.** The stock records' rule (SO3) unchanged: a repack that would leave a protected item (strict or stopped) with less
+available than nothing in its warehouse is refused (422 `below_zero`), checked before and again after booking on the locked balances; no
+reason can allow it (a repack carries none, as a transfer); a legacy item may go below zero, as on every stock record (a count review opens).
+
+**PB12. Where the family is shown.** The item page's new box "Family and packs" (the family with its form for `families.manage`, the pack
+item it is or the pack items made of it, who made it by hand); Products › By Item ("Family: …" under the item); the matching's variant page
+(the suggested or matched item's family). `Queries::skus()` and `productRows()` gain the family by two primary-key joins.
+
+**PB13. A repack's record and its cancellation.** It opens on the generic record page (Approvals › History), where it is cancelled once final
+(`Documents::reverse`: a new RPK record, the exact negation; `RepackHandler::reverse` copies the header). The document base's rule I32 applies
+unchanged: a cancellation that puts more units back on hand than the "stock put back without a supplier document" limit (ADJ's, 10 by default)
+waits for a reviewer's OK. On the item page a repack's rows link to their record.
+
+**PB14. The nightly checks** (`CW\Items\ItemsInvariants`, from `Invariants::check`): B1 every posted or reversed repack has its header and the
+header's items are its definition's; B2 its on-hand rows net, per item, to its lines and are all `adjustment` rows; B3 every `manual` item has
+its `item_by_hand` row and the other way round.
+
+**PB15. Grants.** `item_family`, `item_family_member`: no DELETE; `item_pack`: append-only but its switch columns; `item_by_hand`: append-only
+but its check columns; `repack`: append-only; `item_name_guard` (PB17): no DELETE.
+
+**PB16. Words that are provisional** (Ui\Words, the groups ITEM_NEW, ITEMS_NOTICE, ITEMS_ERROR, FAMILY, FAMILY_SKIP, PACKS, PACK_FLAG,
+PACK_LINK_FLAG, REPACK, REPACK_DIRECTION, BY_HAND_STATE, and the pack's keys at the end of the shared lists): the tab names "Add Item",
+"Families", "Multipacks" (segments "Pack items", "Pack links"), "Repack"; "pack item" for a sealed multipack kept as packs; "pack link" for a
+variant matched with more than 1 unit a sale. A list's page size (50; 100 on a family's page) and the repack list's 200 are display numbers,
+as on the other lists, not settings.
+
+**PB17. The review of b62c69f (14 Oct 2026; four findings, all four real, each shown by a failing test first).**
+(1) Two people making an item of the same name and identity at the same moment (no barcode) both passed the same-item check: neither
+item existed yet, so there was no row to lock and each read missed the other. Making an item by hand now writes the name's guard row first
+(`item_name_guard`, keyed by SHA2 of the name's `WEIGHT_STRING` under `utf8mb4_0900_ai_ci`, so case and accents compare as `sku.name`
+does): the second waits for the first, then reads it and is warned (409 `same_item_exists`). Another name never waits. One row per name
+ever made by hand; never deleted.
+(2) The same-item check read the first 50 items of the name and compared the identity afterwards: the 51st namesake was missed. It now
+compares every item of the name, read in pages of 500 on `ix_sku_name` (after the last id), and names at most 50 in the warning.
+(3) Two first assignments of one item at the same moment (no member row to lock under READ COMMITTED) both inserted; the second met the
+first's key and the error undid its whole list. The writes now go in item id order; an insert that meets another's key is undone alone, the
+line is skipped and listed (`already_here`, or `in_other_family` with that family's name) and the rest of the list is done. One item at a
+time: 409 `family_moved`.
+(4) A cancellation waiting for an OK (I32), refused or taken back has no repack header until it is posted, and the Repack list was driven by
+the headers, so it disappeared. The list is now read from the RPK records (`ix_document_type_status`, newest first), each with its own
+header or, while it has none, the header of the record it cancels.
+Tests: `tests/Integration/Items/ItemsRaceTest.php` (two worker processes, `items_worker.php`), `HandMadeTest` (60 items of one name),
+`RepackTest` (the cancellation waiting for an OK, then taken back).
+
+**Open, for the owner.** (1) PB2, PB4, PB9: who holds the three new permissions. (2) PB3: is the second lead's OK of Q10 a check afterwards
+(built, off) or a block until then? (3) PB7: is "sold separately" right as "a variant matched with 1 unit a sale", or must that variant be on
+sale (the website state of 0028)? (4) PB10: carry the cost, or value what a repack makes at the average later? (5) Families on the reorder
+list, the purchase order editor and the reports (Q4's "order and see reports by product") are not built here: they come with those screens.

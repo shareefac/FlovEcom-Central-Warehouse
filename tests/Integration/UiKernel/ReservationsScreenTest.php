@@ -182,7 +182,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         $home = $web->get('/ui/');
         self::assertContains(self::PATH, $home->hrefs());
         self::assertStringContainsString(Words::MENU_HELP['reservations'], $home->text());
-        self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Transfers', 'Adjustments', 'Counts', 'Reservations', 'Sales', 'Quality'],
+        self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Transfers', 'Adjustments', 'Counts', 'Reservations', 'Sales', 'Quality', 'Repack'],
             self::tabLabels($this->page($this->signIn($this->uiUser('stock_controller')))));
     }
 

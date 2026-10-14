@@ -73,6 +73,9 @@
 <?php if ($r['parent'] !== null): ?>
         <span class="o-sub parent"><?= $say('BY_PRODUCT', 'parent', $r['parent']) ?></span>
 <?php endif; ?>
+<?php if (($r['family'] ?? null) !== null): ?>
+        <span class="o-sub family"><?= $say('FAMILY', 'of_item', $r['family']) ?></span>
+<?php endif; ?>
 <?php if ($bulk && $r['too_many'] !== null): ?>
         <span class="o-sub"><?= $say('BY_ITEM_BULK', 'row_too_many', $r['too_many']) ?></span>
 <?php endif; ?>

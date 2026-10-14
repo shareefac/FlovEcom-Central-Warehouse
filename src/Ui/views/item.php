@@ -17,6 +17,8 @@
   <a href="<?= $u('/ui/items/' . (int) $errorDetail['sku_id']) ?>"><?= $say('BARCODE', 'open_other', (string) ($errorDetail['code'] ?? \CW\Ui\Words::BARCODE['that_product'])) ?></a><?php endif; ?></p>
 <?php endif; ?>
 
+<?= $partial('item_groups', $groups) ?>
+
 <section class="card item-card<?php if ($rules['level'] === 'block'): ?> blocked<?php elseif ($rules['level'] === 'warn'): ?> warned<?php endif; ?>" id="card" aria-labelledby="card-h">
   <h2 id="card-h"><?= $word('CARD', 'title') ?> <span class="hint"><?= $word('CARD', 'hint') ?></span></h2>
 <?php if ($card['state'] === 'none'): ?>

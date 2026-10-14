@@ -565,3 +565,20 @@ Document and file tests notes:
 - A test that books a receipt's PO receipts directly (`PurchaseOrders::applyReceipt`) is fine on a PO line no receipt line names:
   G7 checks only the PO lines that receipts receive.
 
+
+### Pack B: Item Management (items by hand, families, multipacks, repack; `docs/decisions.md` PB1-PB17)
+
+| Path | What |
+|---|---|
+| `migrations/0031_items_families_repack.sql` | `item_family`, `item_family_member`, `item_pack`, `item_by_hand`, `item_name_guard`, `repack`; document type RPK and its series; four settings with baselines; `ix_channel_listing_units` (online) |
+| `src/Items/HandMade.php` | an item made by hand (one transaction: checks, `DecisionService::mintByHand`, barcode, family, card), the check afterwards |
+| `src/Items/Families.php` | families: create, rename, switch, one item in / out / moved, a pasted list in and ticked items out with the skip list |
+| `src/Items/Packs.php` | pack items (N x a single), their flags beside the pack links, the owner's Q3 rule (`items.pack_suggest_single_sold`) |
+| `src/Items/Repacks.php`, `RepackHandler.php` | Repack records: book in one step, the RPK handler (two lines, `adjustment` rows, the carried cost, never below zero for a protected item) |
+| `src/Items/ItemsInvariants.php` | B1-B3, run by `Invariants::check` |
+| `src/Ui/Controller/{HandMade,Families,Packs,Repack}Controller.php` | Products › Add Item, Families, Multipacks (Pack items, Pack links); Stock › Repack |
+
+- Tests: `tests/Integration/Items/` (services against the real document base; `RepackTest` and `PackLinksUnchangedTest` extend
+  `StockOpsTestCase`; `ItemsRaceTest` races two `items_worker.php` processes), `tests/Integration/UiKernel/ItemManagementScreensTest.php` (the screens as `cw_app`, who may, the CSRF token on
+  every POST), `tests/Unit/ItemManagementUnitTest.php` (templates, words, permissions, tabs, settings). A test that changes one of the four
+  settings puts its VALUE back (never `updated_actor`).

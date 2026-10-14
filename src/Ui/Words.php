@@ -54,7 +54,9 @@ final class Words
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
         // pack D (docs/decisions.md PD13)
-        'SALE', 'SALE_STATE', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT'];
+        'SALE', 'SALE_STATE', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
+        // Pack B
+        'ITEM_NEW', 'BY_HAND_STATE', 'ITEMS_NOTICE', 'ITEMS_ERROR', 'FAMILY', 'FAMILY_SKIP', 'PACKS', 'PACK_FLAG', 'PACK_LINK_FLAG', 'REPACK', 'REPACK_DIRECTION'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -239,6 +241,13 @@ final class Words
         'system' => 'System',
         'settings' => 'Settings',
         'integrity' => 'System checks',
+        // Pack B: Products and Stock
+        'add_item' => 'Add Item',
+        'families' => 'Families',
+        'multipacks' => 'Multipacks',
+        'packs' => 'Pack items',
+        'pack_links' => 'Pack links',
+        'repack' => 'Repack',
     ];
 
     /** A segment of a tab (Sections::MAP `key` of a page in a tab with `segments`) => its name. */
@@ -268,6 +277,9 @@ final class Words
         'sales_dispatch' => 'Dispatch',
         'sales_returns' => 'Returns',
         // ---- end of pack D ----
+        // Pack B: Products › Multipacks
+        'packs' => 'Pack items',
+        'pack_links' => 'Pack links',
     ];
 
     /** A page's create button (Sections::MAP `new`): a verb that names the result. */
@@ -284,6 +296,11 @@ final class Words
         'releases' => 'New release',
         'adjustments' => 'New adjustment',
         'counts' => 'New count sheet',
+        // Pack B
+        'add_item' => 'Add an item',
+        'families' => 'New family',
+        'packs' => 'New pack item',
+        'repack' => 'New repack',
     ];
 
     /** The buying flow strip on Purchasing (Ui\FlowCounts): step => name, and the figures under the names. */
@@ -335,6 +352,11 @@ final class Words
         'approvals' => 'Which work waits for a second person, and the limits.',
         'reasons' => 'The reasons people choose when stock goes up or down outside a sale.',
         'system' => 'How the system is set up, how records are numbered, and the nightly checks.',
+        // Pack B
+        'add_item' => 'Make an item that no store sells yet, and see the items made by hand.',
+        'families' => 'Group items into families: all the flavours or strengths of one product.',
+        'multipacks' => 'Sealed multipacks kept in stock as packs, and the variants that sell several units a sale.',
+        'repack' => 'Break sealed packs into singles, or make packs from singles.',
     ];
 
     /** The phone's bottom bar: Dashboard and the sections take their SECTION names; the last tab opens the whole menu. */
@@ -392,6 +414,10 @@ final class Words
         'enrol' => 'Set up my sign-in',
         'staff_requests' => 'Staff requests',
         'new_code' => 'Your own sign-in code',
+        // Pack B
+        'item_new' => 'Add an item',
+        'packs' => 'Pack items',
+        'pack_links' => 'Pack links',
     ];
 
     /**
@@ -523,6 +549,16 @@ final class Words
         // ---- end of pack D ----
         'incidents' => ['Problems the goods-in bench found in deliveries that are booked in: short, extra, damaged, the wrong product, or no duty stamp.',
             'Close each one with what was done, for example a credit asked for or the goods sent back.'],
+        // Pack B
+        'item_new' => ['Make a warehouse item that no store sells yet: stock that arrives before its web page, or trade-only or sister-only stock.',
+            'Type its name and what you know, then press "Add the item". The rest can be added on its page later.'],
+        'families' => ['Families group items: all the flavours or strengths of one product.', 'Open a family to put items in it or take them out.'],
+        'family' => ['One family and the items in it.', 'Paste CW numbers or barcodes to put items in it, or tick items to take them out.'],
+        'packs' => ['Sealed multipacks kept in stock as packs, each with the single item it holds and how many.',
+            'Define a pack item, then book repacks on Stock › Repack. Check the lines that say something.'],
+        'pack_links' => ['Every variant matched with more than 1 unit a sale, and what the pack items say of it.', 'Open a variant to change its match.'],
+        'repack' => ['Break sealed packs into singles, or make packs from singles, with one record each time.',
+            'Choose the pack item, which way and how many packs, then book it.'],
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2236,6 +2272,11 @@ final class Words
         'sales.csv_max_rows' => 'Most rows in a Sales spreadsheet',
         'sales.scan_max_rows' => 'Most rows one Sales page reads',
         // ---- end of pack D ----
+        // Pack B
+        'items.pack_suggest_single_sold' => 'Suggest selling a pack as singles only when the single is sold on its own',
+        'items.family_bulk_max_rows' => 'Most items one change of a family takes',
+        'items.repack_carry_cost' => 'A repack carries the cost to what it makes',
+        'approvals.item_by_hand_check' => 'Items made by hand are checked by a second person',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2835,6 +2876,7 @@ final class Words
         'SOUT' => 'Stock out',
         'TRF' => 'Transfer',
         'REL' => 'Release',
+        'RPK' => 'Repack', // Pack B
     ];
 
     /** document_type.code => many of that kind (lists, filters, sentences). */
@@ -2851,6 +2893,7 @@ final class Words
         'SOUT' => 'Stock out records',
         'TRF' => 'Transfers',
         'REL' => 'Releases',
+        'RPK' => 'Repacks', // Pack B
     ];
 
     /** document.review_state, short (the "Reviewer check" filter and column). */
@@ -3271,6 +3314,7 @@ final class Words
         'staff' => 'Staff',
         'mapping' => 'Matching products',
         'sales' => 'Sales and dispatch', // pack D (PD9)
+        'items' => 'Items', // Pack B
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -3365,6 +3409,13 @@ final class Words
         'sales.scan_max_rows' => 'Some lists of Stock › Sales cannot find their rows directly, for example orders with a unit returned that came in '
             . 'without a reservation. Such a page reads at most this many rows, then says it stopped and offers to read on.',
         // ---- end of pack D ----
+        // Pack B
+        'items.pack_suggest_single_sold' => 'On: Products › Multipacks suggests selling a pack item\'s variants as that many singles a sale only when the single item is '
+            . 'sold on its own (a variant is matched to it with 1 unit a sale). Off: it suggests it for every pack item. A person always decides on the variant\'s page.',
+        'items.family_bulk_max_rows' => 'The most items one change of a family takes: a pasted list, or the ticked items taken out.',
+        'items.repack_carry_cost' => 'On: what a repack makes carries the average cost of what it took apart (a box of 10 at £12 gives singles at £1.20). '
+            . 'Off: what it makes has no cost of its own and is valued at the average cost later.',
+        'approvals.item_by_hand_check' => 'A second person checks each item made by hand, afterwards, on Products › Add Item. The item can be used at once.',
     ];
 
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */
@@ -7294,6 +7345,7 @@ final class Words
         'reject_record_only' => 'Not OK on a purchase order only records it: the buyer then cancels or corrects the order. An order with deliveries cannot be cancelled.',
         'reject_record_only_cnt' => 'Not OK on a stock count only records it: a count is put right by counting the item again, or by answering its differences.',
         'agreed' => 'The owner has agreed this rule',
+        'items' => 'Items', // Pack B
     ];
 
     /** One switchable or numbered approval rule (Admin\ApprovalRules): its title and what it does on, off, or with its number. */
@@ -7349,6 +7401,12 @@ final class Words
             'on' => 'A new sign-in code, a new password or a new sign-up sheet for someone with Admin or Reviewer waits for a reviewer\'s OK. '
                 . 'The admin then makes it, once. With only one Reviewer, a reset of that Reviewer is done on the server.',
             'off' => 'Off: the admin makes it at once. The admin still never holds both keys of anybody.',
+        ],
+        // Pack B
+        'approvals.item_by_hand_check' => [
+            'title' => 'Items made by hand',
+            'on' => 'A second person checks each item made by hand, afterwards, on Products › Add Item. The item can be used at once.',
+            'off' => 'Off: nobody else checks an item made by hand.',
         ],
     ];
 
@@ -7623,6 +7681,9 @@ final class Words
         'supplier_item' => 'Supplier\'s product',
         'warehouse' => 'Warehouse',
         'warehouse_location' => 'Place in a warehouse',
+        // Pack B
+        'item_family' => 'Family',
+        'item_pack' => 'Pack item',
     ];
 
     /** The first part of an audit action => what kind of thing was done (the audit log's filter and rows). */
@@ -7657,6 +7718,11 @@ final class Words
         'file' => 'Files',
         'stockop' => 'Stock records',
         'account' => 'Balance owed to another account',
+        // Pack B
+        'item' => 'Items made by hand',
+        'family' => 'Families',
+        'pack' => 'Pack items',
+        'repack' => 'Repacks',
     ];
 
     /** audit_log.action => what was done, for the actions people look for most (the others: their kind, AUDIT_FAMILY). */
@@ -7716,6 +7782,19 @@ final class Words
         'staff.reset_request' => 'Asked for a reviewer\'s OK to reset a sign-in',
         'staff.reset_request_approve' => 'Reset of a sign-in OK\'d',
         'supplier.alone_checked' => 'Supplier made usable alone: checked afterwards',
+        // Pack B
+        'item.create' => 'Item made by hand',
+        'item.check' => 'Item made by hand checked',
+        'family.create' => 'Family added',
+        'family.rename' => 'Family renamed',
+        'family.switch' => 'Family switched off or on',
+        'family.assign' => 'Item put in a family',
+        'family.unassign' => 'Item taken out of its family',
+        'family.bulk_assign' => 'Items put in a family together',
+        'family.bulk_remove' => 'Items taken out of a family together',
+        'pack.create' => 'Pack item defined',
+        'pack.switch' => 'Pack item switched off or on',
+        'repack.book' => 'Repack booked',
     ];
 
     /** What each permission lets a person do (the "Who can do what" page; Permissions::MAP). */
@@ -7762,6 +7841,10 @@ final class Words
         'system.view' => 'Look at the websites\' link and the system checks',
         'staff.approve' => 'Give the OK when someone is given Admin or Reviewer',
         'sales.view' => 'Look at each store\'s orders, dispatch and returns (Sales)', // pack D (PD2)
+        // Pack B
+        'items.create' => 'Add items by hand (Add Item)',
+        'families.manage' => 'Make families and put items in them (Families)',
+        'doc.RPK.post' => 'Break packs into singles and make packs (Repack)',
     ];
 
     /** The "Who can do what" page (/ui/reference/access). */
@@ -7895,6 +7978,326 @@ final class Words
     // ------------------------------------------------------------------------------------------------------------------
     // Status chip tones: needs (you act), done, waiting (someone else), blocked, info, off
 
+    // ==================================================================================================================
+    // ---- Pack B: Item Management (docs/decisions.md PB1-PB16): Products › Add Item, Families, Multipacks; Stock › Repack.
+    // The provisional words of these pages are listed in PB16. Every group below is new; the shared lists above carry this pack's keys
+    // at their end, each marked "Pack B".
+
+    /** Products › Add Item (/ui/items/new): the form and the items made by hand. */
+    public const ITEM_NEW = [
+        'what' => 'What it is',
+        'what_hint' => 'Only the name is needed. The rest helps the matching find this item\'s website variants later.',
+        'name_hint' => 'As on the box, for example "Nic shot 10ml 18mg".',
+        'not_known' => 'Not known',
+        'pack_hint' => 'How many units one box holds. Leave it empty for a single unit.',
+        'card' => 'Product card',
+        'card_hint' => 'The legal and buying details. You can also fill them in later on the item\'s page.',
+        'card_brand' => 'Brand on the box',
+        'card_flavour' => 'Flavour on the box',
+        'barcode' => 'Barcode',
+        'barcode_hint' => 'Scan or type the barcode on the box. A barcode another item has already is refused.',
+        'barcode_units' => 'Items per scan',
+        'barcode_units_hint' => '1 for a single; 10 for an outer case of ten.',
+        'family' => 'Family',
+        'family_hint' => 'All the flavours or strengths of one product. Type the family\'s name, or leave it empty.',
+        'add' => 'Add the item',
+        'add_does' => 'It gets the next CW number and can be used at once: in a delivery, a stock record or a match.',
+        'same_title' => 'An item of this name and with these details exists already:',
+        'same_text' => 'Open it to check. If yours is a different item, tick the box below and press "Add the item" again.',
+        'anyway' => 'It is a different item: add it anyway',
+        'card_errors' => 'Nothing was saved: some details of the product card need correcting:',
+        'made' => 'Made by hand',
+        'made_text' => 'The items made on this page, newest first.',
+        'made_none' => 'No item was made by hand yet.',
+        'made_none_text' => 'Add one with the form above.',
+        'waiting_none' => 'No item made by hand waits for a check.',
+        'waiting_none_text' => 'Show them all to see the ones already checked.',
+        'item' => 'Item',
+        'who' => 'Made by',
+        'when' => 'Made on',
+        'check' => 'Second check',
+        'check_button' => 'Checked: it is right',
+        'check_note' => 'Note (optional)',
+        'check_own' => 'Someone else checks it.',
+        'checked_by' => 'Checked by %s on %s.',
+        'show_waiting' => 'Only those waiting for a check',
+        'show_all' => 'All of them',
+        'check_on' => 'A second person checks each item made by hand afterwards. The item can be used at once.',
+        'check_off' => 'Nobody else checks the items made by hand: the rule is off on the Approval rules page.',
+        'page' => 'Page %s of %s',
+        'prev' => 'Newer',
+        'next' => 'Older',
+        'on_item' => 'Made by hand by %s on %s.',
+        'on_item_waiting' => 'A second person has not checked it yet.',
+    ];
+
+    /** The states of an item made by hand (item_by_hand.check_state). */
+    public const BY_HAND_STATE = [
+        'not_asked' => 'No check asked',
+        'waiting' => 'Waiting for a check',
+        'checked' => 'Checked',
+    ];
+
+    /** What the pages of pack B say after a button (?notice=<key>; never text from the address). */
+    public const ITEMS_NOTICE = [
+        'item_made' => 'The item is added. Its CW number is at the top. Fill in the rest of its card when you know it.',
+        'item_made_waiting' => 'The item is added and can be used now. A second person checks it on Products › Add Item.',
+        'checked' => 'Checked. The item no longer waits for a check.',
+        'family_made' => 'The family is added. Put its items in it below.',
+        'family_renamed' => 'The family is renamed.',
+        'family_off' => 'The family is switched off. Its items keep it; it takes no new ones.',
+        'family_on' => 'The family is switched on again.',
+        'family_set' => 'The item is in that family now.',
+        'family_out' => 'The item is taken out of its family.',
+        'unchanged' => 'Nothing changed: it was already so.',
+        'pack_made' => 'The pack item is saved. Stock › Repack can now break it into singles or make it from them.',
+        'pack_off' => 'The pack item is switched off. Repacks can no longer use it; the records that used it stay.',
+        'pack_on' => 'The pack item is switched on again.',
+    ];
+
+    /** A refusal on the pages of pack B, by error code (the services' messages stay the API's). */
+    public const ITEMS_ERROR = [
+        'bad_name' => 'Nothing was saved: a family\'s name is 2 to 255 letters on one line.',
+        'bad_note' => 'Nothing was saved: the note is too long.',
+        'family_exists' => 'Nothing was saved: a family of this name is in use already. Use that one, or choose another name.',
+        'family_changed' => 'Nothing was saved: someone changed this family while you had it open. Reload the page and try again.',
+        'family_moved' => 'Nothing was saved: this item changed family while you had the page open. Reload the page and check.',
+        'family_off' => 'Nothing was saved: this family is switched off. Switch it on first, or choose another.',
+        'unknown_family' => 'Nothing was saved: no family in use has that name. Check the spelling, or add the family first on Products › Families.',
+        'empty_list' => 'Nothing was saved: type or paste at least one CW number or barcode.',
+        'too_many_rows' => 'Nothing was saved: one change takes at most %s items. Split the list.',
+        'merged_item' => 'Nothing was saved: this item was joined into another one. Use that one.',
+        'unknown_item' => 'Nothing was saved: no item has that CW number or barcode.',
+        'same_item' => 'Nothing was saved: the pack item and its single are two different items.',
+        'bad_units' => 'Nothing was saved: check the number of units.',
+        'pack_exists' => 'Nothing was saved: this item is a pack item already. Switch that one off first.',
+        'pack_nested' => 'Nothing was saved: a pack is made of single items, never of other packs.',
+        'unknown_pack' => 'Nothing was saved: choose a pack item from the list.',
+        'pack_off' => 'Nothing was saved: this pack item is switched off. Switch it on again on Products › Multipacks.',
+        'bad_direction' => 'Nothing was saved: choose whether to break packs or to make packs.',
+        'bad_packs' => 'Nothing was saved: say how many packs, a whole number of 1 or more.',
+        'below_zero' => 'Nothing was saved: this would take a product the website sells from warehouse stock below zero. Check the shelf first, or repack fewer.',
+        'repack_lines' => 'Nothing was saved: this repack does not match its pack item. Stop it and book a new one.',
+        'warehouse_required' => 'Nothing was saved: choose the warehouse.',
+        'warehouse_inactive' => 'Nothing was saved: that warehouse is switched off.',
+        'barcode_on_other_item' => 'Nothing was saved: this barcode belongs to another item. Open it to check.',
+        'name_required' => 'Nothing was saved: type the item\'s name.',
+        'bad_card' => 'Nothing was saved: check what you typed in "What it is".',
+        'own_item' => 'Someone else checks this item: not the person who made it.',
+        'not_waiting' => 'This item does not wait for a check any more.',
+        'not_draft' => 'Nothing was changed: this repack is not a draft any more. Reload the page.',
+        'version_conflict' => 'Nothing was changed: this repack changed meanwhile. Reload the page.',
+        'not_awaiting_approval' => 'Nothing was changed: this repack does not wait for an OK any more.',
+        'bad_cancel_reason' => 'Nothing was changed: say in a few words why the repack is stopped.',
+        'admin_cannot_post' => 'Admins never book stock: ask someone who moves stock.',
+        'admin_cannot_edit' => 'Admins never change items: ask the catalogue team.',
+        'role_not_allowed' => 'Your jobs do not allow this. Nothing was saved.',
+    ];
+
+    /** Products › Families (/ui/items/families, a family's page, the item page's family box). */
+    public const FAMILY = [
+        'search' => 'Family name',
+        'show_off' => 'Show the switched-off ones too',
+        'clear' => 'Clear the search',
+        'name' => 'Family',
+        'items' => 'Items',
+        'state' => 'State',
+        'on' => 'In use',
+        'off' => 'Switched off',
+        'none' => 'No family yet.',
+        'none_text' => 'Add the first one with "New family".',
+        'none_filter' => 'No family has this name.',
+        'none_filter_text' => 'Clear the search to see them all.',
+        'add' => 'New family',
+        'add_name' => 'Name',
+        'add_name_hint' => 'What people call the product, for example "Elux Legend 3500".',
+        'note' => 'Note (optional)',
+        'add_button' => 'Add the family',
+        'count_one' => '1 family',
+        'count_many' => '%s families',
+        'page' => 'Page %s of %s',
+        'prev' => 'Previous page',
+        'next' => 'Next page',
+        'back' => 'Families',
+        'made' => 'Added by %s on %s.',
+        'changed' => 'Last changed by %s on %s.',
+        'rename' => 'Rename the family',
+        'rename_label' => 'New name',
+        'rename_button' => 'Save the new name',
+        'switch_off' => 'Switch the family off',
+        'switch_off_does' => 'Its items keep it. It takes no new items and is left out of the choices. Nothing is deleted.',
+        'switch_on' => 'Switch the family on again',
+        'is_off' => 'This family is switched off. Its items keep it; it takes no new ones.',
+        'members' => 'Items in this family',
+        'members_count' => '%s items',
+        'members_none' => 'No item is in this family yet.',
+        'members_none_text' => 'Add them with "Add items".',
+        'code' => 'CW number',
+        'item' => 'Item',
+        'brand' => 'Brand',
+        'flavour' => 'Flavour',
+        'strength' => 'Strength',
+        'on_hand' => 'In stock',
+        'since' => 'In it since',
+        'tick' => 'Tick %s',
+        'remove_button' => 'Take the ticked items out of the family',
+        'remove_does' => 'They stay items; they are only no longer in this family.',
+        'bulk' => 'Add items',
+        'bulk_label' => 'CW numbers or barcodes',
+        'bulk_hint' => 'Paste or type them one per line, or with commas. An item in another family, joined into another or not found is left out and listed.',
+        'bulk_button' => 'Put them in this family',
+        'result_added' => 'Put in the family (%s):',
+        'result_removed' => 'Taken out of the family (%s):',
+        'result_skipped' => 'Left out (%s), with the reason:',
+        'result_none' => 'No item was changed.',
+        'item_box' => 'Family and packs',
+        'item_box_short' => 'Family',
+        'of_item' => 'Family: %s',
+        'in_none' => 'In no family.',
+        'in_off' => 'switched off',
+        'open' => 'See every item of this family',
+        'put_label' => 'Family name',
+        'put_hint' => 'Type the name of a family in use. Empty: take the item out of its family.',
+        'put_button' => 'Save the family',
+        'look_only' => 'You can look; the catalogue team and the buyers change families.',
+    ];
+
+    /** Why a line of a bulk change of a family was left out (Items\Families::SKIPS). */
+    public const FAMILY_SKIP = [
+        'not_found' => 'No item has this CW number or barcode.',
+        'merged' => 'This item was joined into another one: use that one.',
+        'repeated' => 'This item is on the list more than once: done once.',
+        'already_here' => 'Already in this family.',
+        'in_other_family' => 'In another family: %s. Move it on its own page if you mean to.',
+        'not_in_family' => 'No longer in this family.',
+    ];
+
+    /** Products › Multipacks: the pack items, the pack links, the item page's pack box. */
+    public const PACKS = [
+        'pack_item' => 'Pack item',
+        'single' => 'Single item',
+        'equals' => '1 pack = %s singles',
+        'stock' => 'In stock',
+        'stock_line' => '%s packs · %s singles',
+        'state' => 'State',
+        'on' => 'In use',
+        'off' => 'Switched off',
+        'checks' => 'What to check',
+        'nothing' => 'Nothing to check.',
+        'add' => 'Define a pack item',
+        'add_text' => 'A pack item is a sealed multipack kept in stock as packs, for example a box of 10 nic shots. Say which item it is, which single it holds '
+            . 'and how many. Nothing is matched or moved: Stock › Repack breaks packs into singles or makes packs from singles.',
+        'pack_label' => 'Pack item (CW number or barcode)',
+        'single_label' => 'Single item (CW number or barcode)',
+        'units_label' => 'Singles in one pack',
+        'note' => 'Note (optional)',
+        'add_button' => 'Save the pack item',
+        'switch_off' => 'Switch off',
+        'switch_on' => 'Switch on again',
+        'switch_does' => 'A pack item is never deleted. Switched off, repacks cannot use it; the records that used it stay.',
+        'repack' => 'Repack it',
+        'none' => 'No pack item is defined yet.',
+        'none_text' => 'Define one when a multipack is kept in stock as packs.',
+        'none_filter' => 'No pack item fits this search.',
+        'clear' => 'Clear the search',
+        'search' => 'CW number or name',
+        'show_off' => 'Show the switched-off ones too',
+        'count_one' => '1 pack item',
+        'count_many' => '%s pack items',
+        'suggest_title' => 'Could be sold as singles:',
+        'suggest_text' => 'The single item is sold on its own, so each of these variants could take %s singles a sale instead of 1 pack. '
+            . 'A person decides on the variant\'s page, and a second matching lead says OK. Nothing changes by itself.',
+        'suggest_open' => 'Open the variant',
+        'own_product' => 'Its variants sell it as its own product, 1 unit a sale: the single item is not sold on its own.',
+        'rule_on' => 'A pack is suggested as singles only when its single is sold on its own.',
+        'rule_off' => 'A pack is suggested as singles even when its single is not sold on its own (the rule is off on the Settings page).',
+        'how' => 'Two ways of selling a pack',
+        'how_link' => 'A variant matched with more than 1 unit a sale: one sale takes that many singles from the single item\'s stock. Set on the variant\'s page.',
+        'how_item' => 'A pack item: the pack has its own stock, kept in packs. Stock › Repack breaks packs into singles or makes packs from them.',
+        'links_none' => 'No variant is matched with more than 1 unit a sale.',
+        'links_none_text' => 'A variant that sells a multipack of a single item (for example 10 x 10ml) gets its units on its own page.',
+        'variant' => 'Variant',
+        'store' => 'Store',
+        'item' => 'Item',
+        'per_sale' => 'Units a sale',
+        'links_count_one' => '1 variant',
+        'links_count_many' => '%s variants',
+        'pack_is' => 'This is a pack item: 1 pack = %s singles of',
+        'packs_of' => 'Pack items made of it:',
+        'item_box' => 'Packs',
+        'item_none' => 'Not a pack item, and no pack item is made of it.',
+        'page' => 'Page %s of %s',
+        'prev' => 'Previous page',
+        'next' => 'Next page',
+        'look_only' => 'You can look; the catalogue team defines pack items.',
+    ];
+
+    /** What the Multipacks page says of a pack item (Items\Packs::FLAGS). */
+    public const PACK_FLAG = [
+        'single_sold' => 'The single is sold on its own.',
+        'sold_both_ways' => 'Sold two ways: a variant also takes this many singles a sale, while the pack item keeps stock of its own.',
+        'pack_of_packs' => 'A variant sells more than one of this pack a sale.',
+        'count_differs' => 'The two product cards disagree on how many are in the pack.',
+        'suggest' => 'Could be sold as singles.',
+    ];
+
+    /** What the pack links list says of a variant matched with more than 1 unit a sale (Items\Packs::LINK_FLAGS). */
+    public const PACK_LINK_FLAG = [
+        'pack_item_exists' => 'A pack item of this many singles exists: %s. Its stock is kept apart from the singles.',
+        'item_is_pack' => 'Its item is a pack item itself: this sells packs of packs.',
+    ];
+
+    /** Stock › Repack (/ui/stock/repack). */
+    public const REPACK = [
+        'add' => 'Book a repack',
+        'add_text' => 'Break sealed packs into singles, or make packs from singles. Choose the pack item, which way, and how many packs.',
+        'warehouse' => 'Warehouse',
+        'pack' => 'Pack item',
+        'pack_choice' => '%s %s = %s x %s %s',
+        'direction' => 'Which way',
+        'packs' => 'How many packs',
+        'note' => 'Note (optional)',
+        'book' => 'Book the repack',
+        'book_does' => 'The stock changes at once on both items, by the same goods. A mistake is put right by cancelling the record.',
+        'no_packs' => 'No pack item is defined yet.',
+        'no_packs_link' => 'Define one on Products › Multipacks',
+        'record' => 'Repack',
+        'status' => 'State',
+        'what' => 'What',
+        'where' => 'Where',
+        'made_by' => 'Made by',
+        'line_break' => '%s packs of %s into %s singles of %s',
+        'line_make' => '%s singles of %s into %s packs of %s',
+        'none' => 'No repack yet.',
+        'none_text' => 'Book one above when packs are broken or made.',
+        'none_filter' => 'No repack fits this search.',
+        'search' => 'Repack number or CW number',
+        'state' => 'Show',
+        'any_state' => 'Every state',
+        'clear' => 'Clear the search',
+        'done_posted' => '%s is booked.',
+        'done_waiting' => 'The repack waits for a reviewer\'s OK: nothing is booked until then.',
+        'done_other' => 'The repack is saved as a draft.',
+        'open' => 'Open it',
+        'final' => 'Make it final',
+        'stop' => 'Stop it',
+        'stop_reason' => 'Why (a few words)',
+        'take_back' => 'Take the OK request back',
+        'cancel_how' => 'To cancel a final repack, open it and use the cancel box: a new record puts everything back.',
+        'limit' => 'The newest %s are shown: search to find older ones.',
+        'cancels' => 'Cancels %s',
+        'look_only' => 'You can look; the stock controllers and the warehouse book repacks.',
+    ];
+
+    /** Which way a repack goes (repack.direction). */
+    public const REPACK_DIRECTION = [
+        'break' => 'Break packs into singles',
+        'make' => 'Make packs from singles',
+    ];
+
+    // ---- end of pack B's groups
+    // ==================================================================================================================
+
     public const TONES = ['needs', 'done', 'waiting', 'blocked', 'info', 'off', 'review'];
 
     /** group => code => tone; a code not listed is `info`. */
@@ -7933,6 +8336,10 @@ final class Words
         'DISPATCH_CHIP' => ['late' => 'blocked', 'on_time' => 'waiting'],
         'SALE_RESTOCK' => ['yes' => 'done', 'no' => 'blocked', 'none' => 'off'],
         // ---- end of pack D ----
+        // Pack B: an item made by hand's check; a pack item's flags.
+        'BY_HAND_STATE' => ['not_asked' => 'off', 'waiting' => 'review', 'checked' => 'done'],
+        'PACK_FLAG' => ['single_sold' => 'done', 'sold_both_ways' => 'needs', 'pack_of_packs' => 'blocked', 'count_differs' => 'needs', 'suggest' => 'info'],
+        'PACK_LINK_FLAG' => ['pack_item_exists' => 'needs', 'item_is_pack' => 'blocked'],
     ];
 
     // ==================================================================================================================

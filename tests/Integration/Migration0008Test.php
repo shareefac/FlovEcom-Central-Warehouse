@@ -42,9 +42,9 @@ final class Migration0008Test extends IntegrationTestCase
             array_map('strval', self::$db->column("SELECT code FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 AND code NOT IN {$po} ORDER BY sort_order")));
 
         $types = self::$db->all('SELECT code, prefix, phase, review_rule, review_limit_units, approval_rule, approval_limit_units, review_due_days FROM document_type ORDER BY code');
-        self::assertCount(12, $types, '8 of 0008 and the 4 stock records of 0022 (SIN, SOUT, TRF, REL)');
+        self::assertCount(13, $types, '8 of 0008, the 4 stock records of 0022 (SIN, SOUT, TRF, REL) and the repack of 0031 (RPK, pack B)');
         $by = array_column($types, null, 'code');
-        self::assertSame(['ADJ', 'CNT', 'DN', 'GRN', 'PO', 'REL', 'SIN', 'SINV', 'SOUT', 'TRD', 'TRF', 'WO'], array_keys($by));
+        self::assertSame(['ADJ', 'CNT', 'DN', 'GRN', 'PO', 'REL', 'RPK', 'SIN', 'SINV', 'SOUT', 'TRD', 'TRF', 'WO'], array_keys($by));
         foreach ($by as $code => $t) {
             self::assertSame($code, $t['prefix']);
         }
@@ -56,7 +56,7 @@ final class Migration0008Test extends IntegrationTestCase
         self::assertSame(['all', 7, 'I-2'], [$by['PO']['review_rule'], $by['PO']['review_due_days'], $by['PO']['phase']]);
         self::assertSame(['I-3', 'I-4', 'I-4', 'I-6'], [$by['GRN']['phase'], $by['SINV']['phase'], $by['DN']['phase'], $by['TRD']['phase']]);
 
-        self::assertSame(array_fill_keys(['ADJ', 'CNT', 'DN', 'GRN', 'PO', 'REL', 'SIN', 'SINV', 'SOUT', 'TRD', 'TRF', 'WO'], [0, 6]),
+        self::assertSame(array_fill_keys(['ADJ', 'CNT', 'DN', 'GRN', 'PO', 'REL', 'RPK', 'SIN', 'SINV', 'SOUT', 'TRD', 'TRF', 'WO'], [0, 6]),
             array_map(static fn (array $r): array => [(int) $r['last_no'], (int) $r['pad']],
                 array_column(self::$db->all('SELECT prefix, last_no, pad FROM number_series ORDER BY prefix'), null, 'prefix')));
         foreach (['document', 'document_line', 'document_posting', 'review_task', 'stored_file', 'document_file'] as $t) {

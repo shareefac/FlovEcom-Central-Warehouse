@@ -110,6 +110,9 @@ final class Settings
         'sales.csv_max_rows' => ['min' => 100, 'max' => 50_000],
         'sales.scan_max_rows' => ['min' => 500, 'max' => 50_000],
         // ---- end of pack D ----
+        // ---- Pack B (0031, docs/decisions.md PB5): the most items one bulk change of a family takes (a list of CW numbers, or the ticks).
+        'items.family_bulk_max_rows' => ['min' => 1, 'max' => 1000],
+        // ---- end of pack B
     ];
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];

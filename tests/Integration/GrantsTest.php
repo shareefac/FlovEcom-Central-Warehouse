@@ -487,7 +487,7 @@ final class GrantsTest extends IntegrationTestCase
         Grants::apply(self::$db, TestDb::name(), self::$user);
         $app = $this->appSession();
         self::assertSame((int) self::$db->value('SELECT COUNT(*) FROM reason_code'), (int) $app->value('SELECT COUNT(*) FROM reason_code'), 'the app login reads them all');
-        self::assertSame(12, (int) $app->value('SELECT COUNT(*) FROM document_type'), '8 of 0008 and the 4 stock records of 0022');
+        self::assertSame(13, (int) $app->value('SELECT COUNT(*) FROM document_type'), '8 of 0008, the 4 stock records of 0022 and the repack of 0031 (pack B)');
         foreach ([
             'DELETE FROM reason_code',
             "INSERT INTO document_type (code, prefix, name, phase) VALUES ('XX', 'XX', 'x', 'I-9')",

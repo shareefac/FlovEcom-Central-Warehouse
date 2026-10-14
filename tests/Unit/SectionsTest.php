@@ -206,10 +206,12 @@ final class SectionsTest extends TestCase
         self::assertSame(['Waiting for me', 'History', 'Staff requests'], $tabs(['reviewer'], 'approvals'));
         self::assertNotSame(Sections::menu(['buyer']), Sections::menu(['purchasing_desk']));
         self::assertNotSame(Sections::menu(['purchasing_desk']), Sections::menu(['reviewer']));
-        self::assertSame(['All Products'], $tabs(['buyer'], 'products'), 'no matching and no barcodes to decide for a buyer');
-        self::assertSame(['All Products', 'Barcodes'], $tabs(['stock_controller'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates'], $tabs(['mapper'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Barcodes'], $tabs(['mapping_lead'], 'products'));
+        // Pack B: Families and Multipacks for everyone who sees products; Add Item for the catalogue team.
+        self::assertSame(['All Products', 'Families', 'Multipacks'], $tabs(['buyer'], 'products'), 'no matching and no barcodes to decide for a buyer');
+        self::assertSame(['All Products', 'Barcodes', 'Add Item', 'Families', 'Multipacks'], $tabs(['stock_controller'], 'products'));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'], $tabs(['mapper'], 'products'));
+        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Barcodes', 'Add Item', 'Families', 'Multipacks'],
+            $tabs(['mapping_lead'], 'products'));
         self::assertSame(['Overview', 'Movements', 'Reservations', 'Sales'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock; Sales (pack D, PD2)');
         // ---- Pack D (docs/decisions.md PD2): Sales is for the people who look at sales, not the matching jobs and not admin ----
         self::assertSame(['Overview', 'Movements', 'Reservations'], $tabs(['mapper'], 'stock'));
@@ -245,7 +247,7 @@ final class SectionsTest extends TestCase
         self::assertSame(Words::SECTION_DESC['products'], $f['pagebar']['desc']);
         self::assertFalse($f['pagebar']['flow']);
         self::assertSame([['All Products', false, 0], ['Mapping', true, 3], ['Store Products', false, 0], ['By Item', false, 0], ['New Variants', false, 0],
-            ['Duplicates', false, 2], ['Barcodes', false, 0]],
+            ['Duplicates', false, 2], ['Barcodes', false, 0], ['Add Item', false, 0], ['Families', false, 0], ['Multipacks', false, 0]],
             array_map(static fn (array $t): array => [$t['label'], $t['current'], $t['count']], $f['pagebar']['tabs']));
         self::assertSame([['To review', false, 0, '/ui/review'], ['Spot check', false, 0, '/ui/review/samples'], ['Second approval', true, 3, '/ui/review']],
             array_map(static fn (array $s): array => [$s['label'], $s['current'], $s['count'], $s['href']], $f['segments']));
@@ -285,7 +287,9 @@ final class SectionsTest extends TestCase
         $f = Sections::frame(['buyer'], [], '/ui/stock');
         self::assertSame([['Overview', '/ui/stock', true, false], ['Movements', '/ui/stock/movements', false, false], ['Stock In', '/ui/stock/in', false, false],
             ['Stock Out', '/ui/stock/out', false, false], ['Transfers', '/ui/stock/transfers', false, false], ['Adjustments', '/ui/stock/adjustments', false, false],
-            ['Counts', '/ui/stock/counts', false, false], ['Reservations', '/ui/stock/reservations', false, false], ['Sales', '/ui/stock/sales', false, false], ['Quality', null, false, true]],
+            ['Counts', '/ui/stock/counts', false, false], ['Reservations', '/ui/stock/reservations', false, false], ['Sales', '/ui/stock/sales', false, false],
+            ['Quality', null, false, true],
+            ['Repack', '/ui/stock/repack', false, false]],
             array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current'], $t['soon']], $f['pagebar']['tabs']));
         self::assertSame([], $f['segments']);
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column($f['phone'], 'label'), 'the phone bar the owner approved');

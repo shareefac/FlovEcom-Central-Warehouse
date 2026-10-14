@@ -308,6 +308,29 @@ final class DecisionService
         return $this->db->transaction(fn (Db $db): array => $this->run($caller, $r, 'vpg_mint'));
     }
 
+    // ---- Pack B (docs/decisions.md PB1): an item made by hand ---------------------------------------------------------------
+
+    /**
+     * An item made by hand (pack B, PB1; owner answer Q10: staff may create an item that has no website variant yet): minted with
+     * origin `manual` and no listing, its code from the item number series (CW-%06d of its id, set in the same transaction, as
+     * every mint, D4). Only the hand-made items service calls it (CW\Items\HandMade::create), inside its transaction and after its
+     * own checks (the barcode, the same name and identity); this method checks the person again: staff, active, never admin,
+     * holding items.create (403 otherwise). No listing, no link, no stock: nothing of the matching changes.
+     *
+     * @param array<string, mixed> $card CARD_FIELDS => value (cardFrom()'s checks: 400 bad_card, 422 name_required)
+     * @return array{id: int, code: string, card: array<string, mixed>}
+     */
+    public function mintByHand(Caller $caller, array $card): array
+    {
+        if (!$this->db->inTransaction()) {
+            throw new \LogicException('mintByHand() runs inside the transaction that makes the item (CW\\Items\\HandMade)');
+        }
+        \CW\Catalogue\ItemCards::editor($this->db, $caller, 'items.create');
+        $clean = self::cardFrom([], [], $card);
+        $sku = $this->mint($clean, 'manual', null);
+        return ['id' => $sku['id'], 'code' => $sku['code'], 'card' => $clean];
+    }
+
     /**
      * A mapping_lead other than the decider applies a pending_second decision. The listing must
      * still be at the map_version the decider saw (else 409: withdraw it and decide again).
@@ -1625,7 +1648,7 @@ final class DecisionService
      * @param array<string, mixed> $card
      * @return array{id: int, code: string, policy: string, merged_into: null}
      */
-    private function mint(array $card, string $origin, int $listingId): array
+    private function mint(array $card, string $origin, ?int $listingId): array
     {
         $id = $this->db->insert(
             'INSERT INTO sku (name, brand, strength_mg, nic_type, line, form, flavour, volume_ml, puffs, pack_units, origin, origin_listing_id) '

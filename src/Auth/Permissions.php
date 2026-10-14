@@ -142,6 +142,15 @@ final class Permissions
         'sales.view' => ['viewer', 'warehouse', 'manager', 'buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer',
             'accountant', 'auditor'],
         // ---- end of pack D ----
+        // ---- Pack B, Item Management (docs/decisions.md PB2, PB4, PB9; provisional, owner to confirm). Never admin (I12).
+        // items.create: an item made by hand (Q10), by the catalogue team (the holders of catalogue.edit), who also fill in its card
+        // and barcodes. families.manage: product families (Q4), by the catalogue team and the buyers (buyers think in products).
+        // doc.RPK.post: a Repack (Q3) is a stock move in the warehouse, by the people who move stock (as a transfer, doc.TRF.post).
+        // A pack item's definition (Products > Multipacks) is catalogue.edit's, like a barcode's units per scan.
+        'items.create' => ['mapping_lead', 'stock_controller', 'purchasing_manager'],
+        'families.manage' => ['mapping_lead', 'stock_controller', 'purchasing_manager', 'buyer'],
+        'doc.RPK.post' => ['stock_controller', 'warehouse'],
+        // ---- end of pack B
     ];
 
     /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
