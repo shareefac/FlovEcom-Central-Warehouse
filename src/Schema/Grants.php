@@ -65,7 +65,9 @@ final class Grants
         // ---- Pack B (0031): a Repack's header is written once, with its record (the cancellation's copy is a row of its own).
         'repack',
         // --- Pack C (0032): the posting anchor of a SINV, SCN or DN, and the value-only events of invoices waiting for IM8.
-        'purchase_doc_posting', 'invoice_value_event'];
+        'purchase_doc_posting', 'invoice_value_event',
+        // Pack F (0036, docs/decisions.md PF9): a person's note on a row of the stores' queues is added, never changed or removed.
+        'queue_note'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -102,6 +104,10 @@ final class Grants
         // made by hand keeps who made it and when, only its check afterwards is written later.
         'item_pack' => ['is_active', 'switched_by', 'switched_actor', 'switched_at'],
         'item_by_hand' => ['check_state', 'checked_by', 'checked_actor', 'checked_at', 'check_note'],
+        // Pack F (0036, docs/decisions.md PF1): a relayed document line is claimed once (its store, kind, document, line, content and key
+        // are frozen); what became of it is written in the same transaction. A line is never removed: it is booked once, however late
+        // it is sent again.
+        'relay_line' => ['outcome', 'sku_id', 'units', 'queue_id', 'reason'],
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the
@@ -155,7 +161,10 @@ final class Grants
         // --- Pack C (0032): the header of a supplier invoice or credit note, and of a return to the supplier (cancelled or reversed,
         // never deleted). sinv_line and dn_line keep FULL rights: a draft's lines are replaced (cascade with their document_line).
         // grn_invoice_left: what a delivery has left to invoice, rewritten by each posting (PC18).
-        'supplier_invoice', 'supplier_return', 'grn_invoice_left'];
+        'supplier_invoice', 'supplier_return', 'grn_invoice_left',
+        // Pack F (0036, docs/decisions.md PF5): the rows of the four queues are settled (resolved or dismissed, by whom, when, why), never
+        // removed (D17: "rows are never deleted, and state changes go through status columns").
+        'goods_in_suspense', 'count_review', 'policy_review', 'oversell_event'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

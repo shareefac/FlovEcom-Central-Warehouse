@@ -17,11 +17,16 @@ declare(strict_types=1);
  *   php bin/channel_set.php --code=vapeandgo --ips=none --apply                    # empty: every call refused
  *   php bin/channel_set.php --code=vapeandgo --writer=on --actor="Hari" --apply   # CW writes the site's stock, mode, threshold
  *   php bin/channel_set.php --code=vapeandgo --warehouse=MAIN2 --actor="Hari" --apply   # sell from another sellable warehouse (alone)
+ *   php bin/channel_set.php --code=vapeandgo --relay=on --actor="Hari" --apply     # give the ERPNext relay (pack F, PF4); off ends it
+ *   php bin/channel_set.php --code=vapeandgo --relay=goods_in,erp_sale --apply     # exactly these relay grants
  *       [--db=<schema>] [--admin]
  *
  * --warehouse moves the site to another sellable, switched-on warehouse (ChannelAdmin::moveWarehouse, G05; given alone: no --mode,
  * --ips or --writer in the same run); every listing of the site then sells from it (the site re-snapshots).
  * --ips REPLACES the allowlist (addresses or CIDR blocks; a /0 block is refused); `none` empties it.
+ * --relay gives or ends the store's ERPNext relay (channel.movement_types; R17 left it "SQL for now"): `on` = every relay grant (the three
+ *   stock kinds goods_in, supplier_return, erp_sale and the two queue kinds erp_reconciliation, erp_mode), `off` = none (CW then answers
+ *   403 to every relayed message and stores nothing), or a list of grants. Audited `channel.relay` {from, to, by}.
  * --actor names the person behind the change (default: the login running the tool, SUDO_USER first).
  * The site sees a new mode on its next call (X-CW-Channel-Mode). No key is read or printed.
  * Exit codes: 0 ok (dry run included) · 1 refused (unknown channel, bad mode/address) · 2 usage · 3 cannot run.
@@ -33,17 +38,17 @@ use CW\Ops\Cli;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-const USAGE = 'usage: php bin/channel_set.php --code=<channel> [--mode=off|shadow|live] [--ips=<a,b/24>|none] [--writer=on|off] [--actor=<who>] [--apply]'
+const USAGE = 'usage: php bin/channel_set.php --code=<channel> [--mode=off|shadow|live] [--ips=<a,b/24>|none] [--writer=on|off] [--relay=on|off|<grants>] [--actor=<who>] [--apply]'
     . "\n       php bin/channel_set.php --code=<channel> --warehouse=<CODE> [--actor=<who>] [--apply]";
 
-exit(Cli::main('channel_set', ['code:', 'mode:', 'ips:', 'writer:', 'warehouse:', 'actor:', 'apply'], USAGE, static function (Cli $cli, array $opts): int {
+exit(Cli::main('channel_set', ['code:', 'mode:', 'ips:', 'writer:', 'warehouse:', 'relay:', 'actor:', 'apply'], USAGE, static function (Cli $cli, array $opts): int {
     // getopt() silently drops "--ips=" and would take the next option as the value of "--ips": refuse both.
     foreach (array_slice($_SERVER['argv'] ?? [], 1) as $arg) {
-        if (in_array($arg, ['--code=', '--mode=', '--ips=', '--writer=', '--warehouse=', '--actor='], true)) {
+        if (in_array($arg, ['--code=', '--mode=', '--ips=', '--writer=', '--warehouse=', '--relay=', '--actor='], true)) {
             throw new InvalidArgumentException("{$arg} has no value (use --ips=none to empty the allowlist)");
         }
     }
-    foreach (['code', 'mode', 'ips', 'writer', 'warehouse', 'actor'] as $k) {
+    foreach (['code', 'mode', 'ips', 'writer', 'warehouse', 'relay', 'actor'] as $k) {
         $v = $opts[$k] ?? null;
         if (is_array($v)) {
             throw new InvalidArgumentException("--{$k} given more than once");
@@ -72,12 +77,20 @@ exit(Cli::main('channel_set', ['code:', 'mode:', 'ips:', 'writer:', 'warehouse:'
             default => throw new InvalidArgumentException('--writer is on or off'),
         };
     }
-    $warehouse = is_string($opts['warehouse'] ?? null) ? $opts['warehouse'] : null;
-    if ($warehouse !== null && ($mode !== null || $ips !== null || $writer !== null)) {
-        throw new InvalidArgumentException('give --warehouse alone (no --mode, --ips or --writer in the same run)');
+    $relay = null;
+    if (is_string($opts['relay'] ?? null)) {
+        $relay = match (strtolower(trim($opts['relay']))) {
+            'on' => ChannelAdmin::RELAY_GRANTS,
+            'off', 'none' => [],
+            default => explode(',', $opts['relay']),
+        };
     }
-    if ($mode === null && $ips === null && $writer === null && $warehouse === null) {
-        throw new InvalidArgumentException('give --mode, --ips, --writer, --warehouse or more; ' . USAGE);
+    $warehouse = is_string($opts['warehouse'] ?? null) ? $opts['warehouse'] : null;
+    if ($warehouse !== null && ($mode !== null || $ips !== null || $writer !== null || $relay !== null)) {
+        throw new InvalidArgumentException('give --warehouse alone (no --mode, --ips, --writer or --relay in the same run)');
+    }
+    if ($mode === null && $ips === null && $writer === null && $warehouse === null && $relay === null) {
+        throw new InvalidArgumentException('give --mode, --ips, --writer, --relay, --warehouse or more; ' . USAGE);
     }
     $actor = $opts['actor'] ?? null;
     if (!is_string($actor)) {
@@ -102,7 +115,7 @@ exit(Cli::main('channel_set', ['code:', 'mode:', 'ips:', 'writer:', 'warehouse:'
     }
 
     try {
-        $r = (new ChannelAdmin($cli->db))->configure($code, $mode, $ips, (string) $actor, $apply, $writer);
+        $r = (new ChannelAdmin($cli->db))->configure($code, $mode, $ips, (string) $actor, $apply, $writer, $relay);
     } catch (CwException $e) {
         $cli->error($e->getMessage());
         return Cli::PROBLEM;
@@ -119,6 +132,10 @@ exit(Cli::main('channel_set', ['code:', 'mode:', 'ips:', 'writer:', 'warehouse:'
     $out[] = in_array('site_writer', $r['changed'], true)
         ? 'site_writer: ' . $onOff($r['before']['site_writer']) . ' -> ' . $onOff($r['after']['site_writer'])
         : 'site_writer: ' . $onOff($r['before']['site_writer']) . ' (unchanged)';
+    $grants = static fn (array $g): string => $g === [] ? 'none' : implode(',', $g);
+    $out[] = in_array('relay', $r['changed'], true)
+        ? 'relay: ' . $grants($r['before']['relay']) . ' -> ' . $grants($r['after']['relay'])
+        : 'relay: ' . $grants($r['before']['relay']) . ' (unchanged)';
     foreach ($r['warnings'] as $w) {
         $out[] = "warning: {$w}";
     }
@@ -130,6 +147,7 @@ exit(Cli::main('channel_set', ['code:', 'mode:', 'ips:', 'writer:', 'warehouse:'
         $actions = array_map(static fn (string $c): string => match ($c) {
             'mode' => 'channel.mode',
             'allowed_ips' => 'channel.allowlist',
+            'relay' => 'channel.relay',
             default => 'channel.site_writer',
         }, $r['changed']);
         $out[] = 'applied by ' . trim((string) $actor) . '; audited: ' . implode(', ', $actions);

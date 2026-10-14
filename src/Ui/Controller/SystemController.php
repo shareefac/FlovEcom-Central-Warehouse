@@ -38,6 +38,9 @@ final class SystemController
                     : Words::say('SITES', 'feed_line', (int) $s['feed']['behind'], $s['feed']['applied_at'] === null ? Words::SITES['never'] : Html::when($s['feed']['applied_at'])),
                 'sells_text' => implode(', ', array_map(static fn (array $w): string => $w['name'], $s['warehouses']['selling'])),
                 'writer_text' => Words::SITES[$s['writer_live'] ? 'writer_on' : ($s['writer'] ? 'writer_waiting' : 'writer_off')],
+                // Pack F (PF4): what the store's ERPNext relay may send.
+                'relay_text' => $s['relay'] === [] ? Words::SITES['relay_none'] : (count($s['relay']) === count(\CW\ChannelAdmin::RELAY_GRANTS) ? Words::SITES['relay_all']
+                    : Words::say('SITES', 'relay_some', Words::andList(array_map(static fn (string $k): string => mb_strtolower(Words::of('RELAY_KIND', $k)), $s['relay'])))),
                 'commands' => array_map(static fn (array $c): array => ['what' => Words::of('SITE_COMMAND', $c['what']), 'command' => $c['command']], Sites::commands($s)),
             ];
         }

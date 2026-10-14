@@ -80,7 +80,8 @@ exit(Cli::main('settings', ['list', 'set:', 'value:', 'value-file:', 'reason:', 
             return Cli::USAGE;
         }
         $cli->log($r['changed']
-            ? sprintf('%s changed: %s -> %s', $key, str_replace("\n", '\n', Settings::display($r['before'])), str_replace("\n", '\n', Settings::display($r['after'])))
+            ? sprintf('%s changed: %s -> %s', $key, str_replace("\n", '\n', Settings::isSecret($key) ? Settings::masked($r['before']) : Settings::display($r['before'])),
+                str_replace("\n", '\n', Settings::isSecret($key) ? Settings::masked($r['after']) : Settings::display($r['after'])))
             : "{$key} unchanged");
         return Cli::OK;
     }, false));

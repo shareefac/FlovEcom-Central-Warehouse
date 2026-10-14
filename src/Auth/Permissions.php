@@ -162,6 +162,21 @@ final class Permissions
         'invoices.accept' => ['purchasing_desk', 'purchasing_manager', 'reviewer'],
         'returns.view' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'manager'],
         // --- end of pack C
+        // ---- Pack F (go-live; docs/decisions.md PF5; provisional, owner to confirm) -------------------------------------------------
+        // The stores' queues on Approvals › From the stores: what the ERPNext relay could not place, ERPNext's corrections and mode
+        // changes, and the oversold orders. Everyone who reads records looks (queues.view); the go-live plan names the purchasing desk
+        // with a stand-in, the stock controller and the reviewer for them (part 9, list A16). Each action is re-checked by its service
+        // (CW\Queues\*) inside its transaction; never admin (I12).
+        'queues.view' => ['buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer', 'auditor', 'manager', 'accountant'],
+        // A line to place: book it on the item a person picks (the people who book deliveries and stock today).
+        'queues.suspense' => ['purchasing_desk', 'purchasing_manager', 'stock_controller'],
+        // An ERPNext correction changes the stock figure without a count: the stock controller's.
+        'queues.corrections' => ['stock_controller'],
+        // A selling-mode change: the people who set modes (modes.set, I158).
+        'queues.modes' => ['purchasing_desk', 'purchasing_manager', 'stock_controller', 'manager'],
+        // An oversold order: the people who sort it out with the customer and the stock.
+        'queues.oversell' => ['purchasing_desk', 'purchasing_manager', 'stock_controller', 'manager'],
+        // ---- end of pack F -----------------------------------------------------------------------------------------------------------
     ];
 
     /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a; supplier invoices and returns since pack C): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */

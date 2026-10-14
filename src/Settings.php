@@ -122,7 +122,66 @@ final class Settings
         'invoices.freight_spread' => ['in' => ['value', 'ml']],
         'invoices.duty_spread' => ['in' => ['ml', 'value']],
         // --- end of pack C
+        // ---- Pack F (go-live, 0036; docs/decisions.md PF3, PF7, PF10, PF11) -----------------------------------------------------
+        // Where alerts go (an https address and an e-mail address; empty: nothing is sent), how often the same alert is sent again, one
+        // limit per check, the answer-time probe; how long the pruned tables keep their rows (idempotency at least the plan's 30 days,
+        // D14; the audit log at least 7 years, the plan's "year end + 6 years"), the chunk and the time a pruning run takes; the relay's
+        // map of an ERPNext selling mode to the stock rule it proposes for a protected item (plan §9).
+        'alerts.webhook_url' => ['pattern' => '#^https://[A-Za-z0-9.-]{1,200}(:[0-9]{1,5})?(/[\x21-\x7e]{0,200})?$#D',
+            'pattern_says' => 'an https address, like https://hooks.example.com/services/abc (empty: no alert is posted)'],
+        'alerts.email_to' => ['email' => true],
+        'alerts.repeat_minutes' => ['min' => 5, 'max' => 1440],
+        'alerts.heartbeat_late_seconds' => ['min' => 60, 'max' => 86400],
+        'alerts.outbox_max_depth' => ['min' => 1, 'max' => 1_000_000],
+        'alerts.outbox_max_age_seconds' => ['min' => 30, 'max' => 86400],
+        'alerts.dead_letters_max' => ['min' => 0, 'max' => 100_000],
+        'alerts.feed_lag_max_seconds' => ['min' => 5, 'max' => 86400],
+        'alerts.answer_max_ms' => ['min' => 50, 'max' => 60000],
+        'alerts.answer_probes' => ['min' => 1, 'max' => 10],
+        'alerts.invariants_max_age_hours' => ['min' => 25, 'max' => 168],
+        'alerts.send_timeout_seconds' => ['min' => 1, 'max' => 30],
+        'housekeeping.idempotency_keep_days' => ['min' => 30, 'max' => 3650],
+        'housekeeping.channel_health_keep_days' => ['min' => 7, 'max' => 3650],
+        'housekeeping.audit_keep_years' => ['min' => 7, 'max' => 50],
+        'housekeeping.chunk_rows' => ['min' => 100, 'max' => 10000],
+        'housekeeping.max_seconds' => ['min' => 10, 'max' => 3600],
+        'relay.mode_in_stock' => ['in' => ['strict', 'backorder', 'stopped']],
+        'relay.mode_from_warehouse' => ['in' => ['strict', 'backorder', 'stopped']],
+        'relay.mode_out_of_stock' => ['in' => ['strict', 'backorder', 'stopped']],
+        // ---- end of pack F ------------------------------------------------------------------------------------------------------
     ];
+    /**
+     * Settings whose value is a secret (review finding 6 of 14 Oct 2026: a chat channel's incoming address carries its token). get()
+     * gives the value whole, to the code that uses it; all() (the Settings pages, bin/settings.php) shows only its scheme and host
+     * (masked()); the setting's history (config_change) and the audit log keep a fingerprint, never the value (fingerprint(), applied by
+     * Admin\ConfigHistory to the live row and every version alike, so the nightly K checks still compare). A form sent back with the
+     * masked value as it was drawn keeps the value (change()).
+     */
+    public const SECRET = ['alerts.webhook_url'];
+
+    public static function isSecret(string $key): bool
+    {
+        return in_array($key, self::SECRET, true);
+    }
+
+    /** What a secret setting shows: "https://hooks.example.com/…" ('' when not set). */
+    public static function masked(mixed $value): string
+    {
+        $v = (string) ($value ?? '');
+        if ($v === '') {
+            return '';
+        }
+        $parts = parse_url($v);
+        $host = is_array($parts) && isset($parts['host']) ? (string) $parts['host'] : '';
+        return ($host === '' ? '' : ($parts['scheme'] ?? 'https') . '://' . $host) . '/…';
+    }
+
+    /** A secret setting's stored JSON text as the history keeps it: "" stays "", any other value its sha256 fingerprint. */
+    public static function fingerprint(string $json): string
+    {
+        return trim($json) === '""' ? $json : Idempotency::json('hidden:sha256:' . substr(hash('sha256', $json), 0, 16));
+    }
+
     /** The default rule of a day count (a key ending in `_days`). */
     public const DAYS_RULE = ['min' => 0, 'max' => 120];
 
@@ -176,8 +235,8 @@ final class Settings
             $out[] = [
                 'key' => $key,
                 'type' => (string) $r['value_type'],
-                'value' => $value,
-                'display' => self::display($value),
+                'value' => self::isSecret($key) && $value !== '' ? self::masked($value) : $value,
+                'display' => self::isSecret($key) && $value !== '' ? self::masked($value) : self::display($value),
                 'provisional' => (int) $r['provisional'] === 1,
                 'decision' => $r['decision'] === null ? null : (string) $r['decision'],
                 'description' => (string) $r['description'],
@@ -367,9 +426,12 @@ final class Settings
                 ?? throw new CwException('unknown_setting', 'there is no setting ' . mb_substr($key, 0, 64), 400);
             \CW\Admin\ConfigHistory::checkSeen($db, 'setting', $key, $seen);
             $type = (string) $row['value_type'];
+            $before = self::decode($type, (string) $row['value_json']);
+            if (self::isSecret($key) && $before !== '' && trim($raw) === self::masked($before)) {
+                $raw = (string) $before; // the form as it was drawn (the masked value): the secret stays as it is
+            }
             $after = self::parse($type, $raw);
             $this->checkRule($key, $after);
-            $before = self::decode($type, (string) $row['value_json']);
             $json = self::encode($type, $after);
             $was = (int) $row['provisional'];
             $provisional = $agreed === null ? $was : ($agreed ? 0 : 1);
@@ -387,7 +449,8 @@ final class Settings
             $new = \CW\Admin\ConfigHistory::state($db, 'setting', $key) ?? throw new \LogicException("setting {$key} vanished");
             $action = $before !== $after ? 'change' : ($provisional === 0 ? 'agree' : 'unagree');
             $v = \CW\Admin\ConfigHistory::record($db, $caller, 'setting', $key, $action, $old ?? $new, $new, $reason);
-            Audit::write($db, $caller, 'setting.change', 'app_setting', $key, null, ['key' => $key, 'before' => $before, 'after' => $after, 'reason' => $reason,
+            $shown = static fn (mixed $x): mixed => self::isSecret($key) ? json_decode(self::fingerprint(self::encode($type, $x)), true) : $x;
+            Audit::write($db, $caller, 'setting.change', 'app_setting', $key, null, ['key' => $key, 'before' => $shown($before), 'after' => $shown($after), 'reason' => $reason,
                 'version' => $v['version']] + ($provisional !== $was ? ($provisional === 0 ? ['confirmed' => true] : ['agreed' => false]) : [])
                 + ($loosened ? ['loosened' => true] : []));
             $this->rows = null;

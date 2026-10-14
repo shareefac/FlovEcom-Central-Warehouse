@@ -9171,3 +9171,176 @@ delivery lines (PC2); freight across invoices (IM8 W2); a foreign-currency invoi
 
 **Open for the owner:** PC3 ("or" in the price tolerance; the exact quantity); PC6 (no reviewer check after posting by default for invoices
 and returns); PC7 (who); the "last price" question above; whether a return's units are valued at the claimed price or the average (PC8 (4)).
+## Going live, the CW side: the stores' queues, the relay intake, alerts, clean-up (pack F, slot `packf`, 14 Oct 2026)
+
+Numbered PF1-PF14 (prefix PF: packs B-E, QC and arrival 2b are built at the same time). Source: the go-live plan part 6 ("The relay",
+"Staff queue screens and their actions", "Alerts to a person", "Housekeeping on CW") and part 9 (lists A16, C2), the approved plan §2.2,
+§3, §9, D14, D17, D18, H6, H8, R17, I144. Code: `migrations/0036_golive_queues_alerts.sql`, `src/Relay/{RelayLines,RelayIntake}.php`,
+`src/Movements.php` (the per-line claim and `bookInTransaction`), `src/Queues/*`, `src/Ops/{ChannelHealth,Alerts,AlertDispatch,AlertTransport,AlertSender,Housekeeping}.php`,
+`bin/{health_alert,housekeeping,channel_set}.php`, `src/ChannelAdmin.php` (relay grants), `src/Api/Controller/RelayController.php`,
+`src/Ui/Controller/StoreQueuesController.php`, views `queue_*.php`, `src/Admin/Sites.php` (the Stores page's relay line). `src/Stock.php`
+is not changed (its lock() and setPolicy steps are used as they are).
+
+**PF1. A relayed document line is booked once, whatever key it comes under.** The plan's key is "document name + line index, never per
+variant" (§9), but POST /v1/movements was idempotent per Idempotency-Key only: the same ERPNext purchase invoice re-sent under another key
+(the store's queue after a restore, a worker that lost its answer) booked again; only its suspense lines were deduplicated. New table
+`relay_line` (UNIQUE channel, kind, document, line). For a store's goods_in / supplier_return / erp_sale, `Movements::record` claims each
+line inside the call's transaction, after the key and BEFORE any stock lock (INSERT … ON DUPLICATE KEY UPDATE; claims in line order, so two
+calls never wait in a circle; a copy at the same moment waits for the first's commit and then finds it). A line already there is not booked:
+the answer says `already_recorded` with what became of it the first time (`booked`, `suspense`), or `conflict` when the same document line now
+carries other content (`line_hash`, the canonical line). What became of a claimed line (outcome, item, units, the suspense row) is written in
+the same transaction; the rest of a row is frozen (Grants: append-only plus those columns), and rows are never pruned. A suspended line sent
+again after its variant was matched stays in suspense: it is placed by a person, never booked twice. Staff movements are not keyed per line.
+The response of a call with only new lines is unchanged; the canonical request (the idempotency hash) is unchanged.
+
+**PF2. ERPNext's corrections go to the count-review queue (POST /v1/relay/reconciliations).** `{doc_ref, posted_at?, warehouse?, lines:
+[{line_index?, variant_id | erp_item_code, qty, description?}]}`; qty is the figure ERPNext set, in the variant's units. Each line opens one
+`count_review` (source `erp_reconciliation`, warehouse = the store's selling warehouse, `proposed_qty` = qty × units per item, `ref` = the
+document, `detail` = the line, its units, the store and `posted_at`: when ERPNext set it, default when CW received it, at most 90 days old);
+dedupe `erp_reconciliation:<channel>:<document>#<line>`. Nothing is booked ("ERPNext's pushes never become counts automatically"). A line CW
+cannot place goes to goods-in suspense with movement type `erp_reconciliation` (doc type `stock_reconciliation`): picking its item there opens
+the correction (PF6). The plan_final's "one queue entry per document" is not taken: a correction is answered per item (each line), which is
+what a person can check on a shelf; the screen shows the document on every row.
+
+**PF3. ERPNext's mode changes go to the policy-review queue, filtered (POST /v1/relay/modes).** `{doc_ref (the store's message id),
+changed_at?, lines: [{line_index?, variant_id | erp_item_code, mode, low_stock?, previous_mode?, previous_low_stock?}]}`. The go-live plan's
+queue filter (D14: "a push that changes nothing is logged and not shown"): a line is recorded as `no_change` when the store says the mode and
+low-stock level were already so (`same_on_store`), when CW already has that mode (and level) for the item on this store (a legacy item:
+`item_channel_mode`, else what `SellingModes::current` knows; `same_in_cw`), or when the stock rule it proposes is the item's already (a
+protected item; `same_rule`). A variant CW does not know or that is not matched is recorded as `skipped` (no item to apply it to). The others
+open a `policy_review` (source `erp_update_product`; `site_mode` = the ERPNext mode; `proposed_policy` from the settings `relay.mode_in_stock`
+backorder, `relay.mode_from_warehouse` strict, `relay.mode_out_of_stock` stopped: the plan's map, now settings). A newer change of the same
+variant replaces an older open one: settled `dismissed` / `superseded` with no person, never removed. Every line, queued or not, is in
+`relay_line` (the "logged" of the filter) and the call's audit row.
+
+**PF4. The relay permission: a tool, and the Stores page.** R17 left "changing it later is SQL for now". The grants are the store's
+`channel.movement_types`, extended to five (`ChannelAdmin::RELAY_GRANTS` = `RelayLines::KINDS`: goods_in, supplier_return, erp_sale,
+erp_reconciliation, erp_mode); `Movements::checkAllowed` is unchanged (only the three stock kinds may be sent as movements). `bin/channel_set.php
+--relay=on|off|<grants>` (dry run unless --apply, `--actor`, audited `channel.relay` {from, to, by}; ending it warns that CW then answers 403
+and stores nothing, the store keeps its messages). The Stores page shows "Messages from ERPNext: all received / none / received: …" and the
+command in its folded technical details, like the other channel switches (a screen button was not added: the channel's switches are server
+commands with the owner's sign-off, Y30). The two new routes answer 403 `relay_not_allowed` without their grant (not stored) and 409
+`channel_off` while the store is off (the go-live plan: the store keeps ERPNext's messages and sends them later).
+
+**PF5. Approvals › From the stores: one tab, four segments.** Lines to place (`goods_in_suspense`), ERPNext corrections (`count_review` of
+source `erp_reconciliation` only: the count engine's own reviews stay on Stock › Counts › Differences, CT6), Mode changes (`policy_review` of
+source `erp_update_product`), Oversold (`oversell_event`). Approvals because each is work waiting for a person's answer. Permissions
+(provisional, owner to confirm; never admin, I12): `queues.view` (everyone who reads records, the auditor and the accountant), `queues.suspense`
+(purchasing desk and manager, stock controller), `queues.corrections` (stock controller: it changes the figure without a count),
+`queues.modes` (the people who set modes, I158: desk, purchasing manager, stock controller, manager), `queues.oversell` (desk, purchasing
+manager, stock controller, manager). Each service re-reads the roles inside its transaction. Every answer needs a note (3-500 characters).
+A row is settled once: the row is locked first, an answer on a row that is no longer open is 409 `queue_settled`; the two answers that book
+stock run under the key `queue:<queue>:<id>`, so a second click replays the first answer and the same key with another item is 422
+`idempotency_key_reused`; the job is checked before the key too (a person without the job hears that, not someone else's stored answer).
+The four queue tables are NO_DELETE for the app login (D17: "rows are never deleted"). Badges count only what the
+person may answer. Lists: open rows oldest first, a page of 50; a status filter (waiting, done, closed, all). The v4 cards of the incident
+register (no new CSS, no script).
+
+**PF6. Lines to place.** A person types the item's code and how many of its units one unit of the line is (1 unless the document counts
+packs), and a note. A delivery, supplier return or ERPNext sale is booked NOW through the movement route (`Movements::bookInTransaction`: the
+same checks and booking as record(), one lock and one flush, in the queue action's transaction, staff only; the ledger carries the ERPNext
+document's name and the person) on the store's selling warehouse, and the row is resolved with the item, in one transaction. Locks: the row,
+the item's balance (`Stock::lock`), then the row's update naming the item (its foreign key reads the item row: balances before the item,
+`setPolicy`'s order), then the booking (the same balance, held) and the feed clock last. A relayed correction is not booked: its item opens
+the correction (PF7). Close without booking: a note. The break-glass of I144 (a lead books against a named purchase invoice during a relay
+outage, the later relay posts only the difference) is NOT built: it needs the shop-side relay.
+
+**PF7. ERPNext corrections: confirm books the difference at the correction's moment, as an adjustment, not a count.** The go-live plan's
+rule 1 (part 6, row 0.8): after a person confirms a correction, CW's figure for sale equals the number the shop was given at the moment it
+applied it, and the item is NOT marked as counted by it. So: the shelf figure ERPNext meant = its number in CW's units, plus the units CW kept
+then for paid orders not sent (`allocated`) when `relay.correction_is_for_sale` is on (on the website the number is the figure customers can
+buy; default on). What CW held then is read from the ledger as booked at that moment (the last row created by then, then each bucket's
+balance-after at or before it, `ix_stock_ledger_balance`). The difference is booked now as an `adjustment` (the ERPNext document's name on the
+ledger), so what moved since (deliveries, parcels sent) is kept on top; 0 books nothing (`no_difference`). A count (`type count`) was not used:
+it would set the balance's count time (the count plan's) and overwrite every movement since the correction (R13). The screen shows the
+figures and what confirming books before the person answers. Close: a note, nothing booked. Unheld units (`held`) are not added: the store
+takes stock off at payment.
+
+**PF8. Mode changes: accept applies it by the item's state now.** A legacy item (not counted): the selling mode CW writes on THAT store
+becomes ERPNext's mode, with the low-stock level when sent (`SiteModes::set`, IM10's switch, on the relaying store only, the person's note as
+the reason); its stock rule stays legacy (only the count gate protects an item, §7.4). A protected item: its stock rule becomes the proposed
+one, by `Stock::setPolicy`'s steps inside the review's transaction (its balances, then the item row, then the feed clock). The screen says
+which before the person answers. Keep what CW has: a note.
+
+**PF9. Oversold: mark handled, add notes.** Handled with how (sent later, refunded, nothing needed: `oversell_event.resolution`, the values
+0001 names) and a note; settled once. Notes (open or handled) are rows of the new append-only `queue_note`, never changed or removed; the
+card lists them with who and when.
+
+**PF10. Alerts to a person.** `bin/health_alert.php` (H8's stub) now checks, each limit a setting (`alerts.*`): per store in watching or live
+(its newest heartbeat): no report for `alerts.heartbeat_late_seconds` (180), outbox deeper than `alerts.outbox_max_depth` (500) or its oldest
+message older than `alerts.outbox_max_age_seconds` (300: the go-live trigger "oldest waiting message over 5 minutes"), more than
+`alerts.dead_letters_max` (0: "any") failed for good, `alerts.feed_lag_max_seconds` (60) or more behind CW's change feed (at its last
+heartbeat: from the first change after the seq it applied to the heartbeat), another mode than CW's; CW itself: its own answer time (a new
+connection and the reads of a health call, `alerts.answer_probes` (3) times, the middle above `alerts.answer_max_ms` (1500, the go-live
+"none over 1.5 s"); a probe that cannot connect is its own alert; measured on CW's server: what a store sees at Place order is read from its
+connector log on the store, not built here), and the nightly safety check (`integrity_run`: the newest failed, or none finished for
+`alerts.invariants_max_age_hours`, 36; a system where none ever ran is quiet, as Home is). `Ops\AlertDispatch` sends them to
+`alerts.webhook_url` (https only: a JSON POST whose `text` a chat channel shows; redirects not followed) and/or `alerts.email_to` (PHP mail():
+the server needs a mail transfer agent; staging has none known, so an e-mail address there reports "not taken"), BOTH EMPTY by default:
+nothing is sent and no transport is called. Once per window (`alerts.repeat_minutes`, 60) per problem (`alert_state`), at once when it comes
+back after clearing, and one "back to normal" line when a sent problem clears. A destination that fails is reported on stderr without its
+address and the problems are tried again next run. One message per run. The job takes its lock now (it records what it sent). Scheduled every
+2 minutes; `--no-send` checks and prints only (the installer's smoke). The CLI lines and the "ok" line are as before (OpsScriptsTest).
+The address is a secret setting since PF15: masked on the screens, a fingerprint in the history and the audit log; only https to a public
+server, pinned (PF15, 6 and 7).
+
+**PF11. Clean-up.** `bin/housekeeping.php` (nightly 03:37): `idempotency` older than `housekeeping.idempotency_keep_days` (30, the floor D14
+sets), `channel_health` older than `housekeeping.channel_health_keep_days` (30, D18) except each store's newest row (the Stores page and the
+alerts read it: a store silent for longer still reads "last contact <date>"), `audit_log` older than `housekeeping.audit_keep_years` (7, its
+floor: records are kept "year end + 6 years"; when unsure, 7). Chunks of `housekeeping.chunk_rows` (1000), each an autocommit DELETE … ORDER BY
+… LIMIT on the table's time index, until done or `housekeeping.max_seconds` (300; the rest the next night). A retention below its floor is
+never used, even if the row were changed by hand. The grants decide the audit part: the app login has no DELETE on `audit_log` (append-only),
+so with it (the cron) the database refuses and the run reports "kept"; only `--admin` (a person's decision) removes audit rows. A key pruned
+and sent again is still held by `relay_line` (PF1) or by its queue row's status (PF5). `--dry-run` counts only.
+
+**PF12. Cron.** `deploy/staging/cw-staging.cron`: health_alert every 2 minutes (it was commented out, H6), housekeeping at 03:37; the
+installer's smoke runs `health_alert.php --no-send` and `housekeeping.php --dry-run`. Not done: the jobs still run as root on staging (H6's
+"production should run them as a dedicated user": production is not provisioned).
+
+**PF13. Plans (EXPLAIN on a filled schema, `QueueListPlansTest`).** Every queue list (open rows) reads its (status, created_at) index, or
+count_review's (status, source, id), with no file sort; the badge counts the same indexes; the notes (queue_name, row_id, id); the alerts'
+latest heartbeat (channel_id, id) and feed-lag read (the primary key); the correction's ledger reads (created_at; (warehouse, item, id) forced);
+the clean-up's deletes (their time indexes; the heartbeat chunks read the primary key's range below each store's newest row: ids grow
+with time, so the oldest rows come first and a chunk stops at its LIMIT); the relay claim its unique key. The corrections and oversold lists
+join the item and the warehouse with STRAIGHT_JOIN: on a small item table the optimizer drove the join from `sku` and sorted the open rows in
+a temporary table (found by this test). Figures (3,000 rows per queue, 50 open): every list `ref` on its index, 50 rows examined, no file
+sort. No new index.
+
+**PF14. Not built, or left for the owner.** (1) The shop-side relay (the connector's part: sending these messages, its outbox while off, the
+company filter, the break-glass of I144). (2) The connector-log alerts (answer time at Place order, PHP errors naming the connector, the
+hourly order job, the e-mail count, an outside check of CW): the go-live plan's step 0.6, shop side. (3) An e-mail sender on the CW server.
+(4) A screen button to give or end the relay (a server command, like the other channel switches). (5) Every number above is provisional, a
+setting with a reason on Settings › System › Settings; the permissions are provisional (owner to confirm). (6) Production's jobs as a
+dedicated user (H6).
+
+**PF15. The Codex review of 14 Oct 2026 (`/root/cw_work/runs/packf_codex_review.txt`, nine findings, all real) and what changed.** Each was
+first shown by a failing test (`runs/packf_r1_red.log`: ten tests, all red on the unfixed code), then fixed.
+1. *Corrections confirmed late compounded* (20 -> 10 -> 8, both waiting, booked -10 and -12: -2; reproduced exactly). What CW held at a
+   correction's moment now also counts the corrections of the same item and place made at or before it and booked after it (their
+   delta and booking time are written on the row, `detail.booked`); an older correction confirmed after a newer one is refused (409
+   `newer_correction`, the screen says to close it). The item's balance is locked before the reading, so two confirmations queue (PF7).
+2. *Queue keys were cut at 191 bytes*, so a 191-byte document name dropped the line: two lines shared a key and the second was lost. A
+   key that does not fit is now the kind and a sha256 of the whole (store, kind, document, line) (`Movements::queueKey`; goods-in
+   suspense, corrections, mode changes).
+3. *A newer change that changes nothing left the older request open*: it now closes it (`superseded`) (PF3).
+4. *Arrival order, not change time, decided the supersession*: a change is compared by its `changed_at` (the relayed time, else when it
+   arrived); a change older than one already known for the variant (open, answered or replaced) is recorded `no_change` /
+   `older_than_known` and replaces nothing.
+5. *An item-only change of one store closed another store's request*: requests named by an ERPNext item alone are compared within their
+   store (detail.channel_id). The requests of one variant are locked while a message decides.
+6. *The web address (it can hold a token) showed on the settings pages, in the setting's history and in the audit log.* `Settings::SECRET`
+   (`alerts.webhook_url`): the pages and bin/settings.php show "https://host/…"; the history and the audit log keep a fingerprint
+   (`hidden:sha256:…`), applied alike to the live row and the versions, so the nightly K checks still compare; the form sent back with the
+   masked value keeps the address; the alert sender reads it whole.
+7. *The web address could reach a private service (SSRF).* `AlertSender::destination()`: https only, a server name (no IP literal), every
+   address it resolves to must be public (private, loopback, link-local, reserved, shared and benchmarking ranges refused), and the request
+   is pinned to the address checked (curl RESOLVE; without curl, the address itself with the name for TLS).
+8. *A "back to normal" that could not be sent was lost*: it is owed (`alert_state.clear_sent_at`, added to 0036, which no shared schema
+   has applied) and sent on a later run, once; a problem that comes back first makes it moot.
+9. *The clean-up's time limit was checked after a chunk*: it is checked before every chunk (each table and store included); an
+   injectable monotonic clock tests it.
+Tests: `StoreQueuesTest::testDelayedCorrectionsOfOneItemDoNotCompound`, `RelayIntakeTest::{testALongDocumentNameKeepsEveryLineApart,
+testANewerChangeThatChangesNothingClosesTheOlderRequest, testAnOlderChangeArrivingLateNeverReplacesANewerOne,
+testItemOnlyChangesOfTwoStoresStayApart}`, `AlertsTest::{testABackToNormalThatFailedIsSentOnTheNextRun,
+testTheWebAddressIsNeverShownOrKeptInHistory}`, `StoreQueuesScreensTest::testTheSettingsPagesNeverShowTheWebAddressWhole`,
+`GoLiveQueuesUnitTest::testTheWebAddressMustLeadToAPublicServer`, `HousekeepingTest::testTheTimeLimitIsCheckedBeforeEveryChunk`.

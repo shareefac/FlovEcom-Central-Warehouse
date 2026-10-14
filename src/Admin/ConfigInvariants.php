@@ -139,6 +139,9 @@ final class ConfigInvariants
         }
         $out = [];
         foreach ($db->all($sql) as $r) {
+            if ($type === 'setting' && \CW\Settings::isSecret((string) $r['k'])) {
+                $r['value'] = \CW\Settings::fingerprint((string) $r['value']); // as ConfigHistory::state() keeps a secret (Settings::SECRET)
+            }
             $out[(string) $r['k']] = ConfigHistory::normalise($type, $r);
         }
         return $out;

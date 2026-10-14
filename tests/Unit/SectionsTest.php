@@ -66,7 +66,9 @@ final class SectionsTest extends TestCase
                     }
                     if (isset($page['badge'])) {
                         self::assertContains($page['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open', 'counts_open',
-                            ...array_keys(\CW\Ui\Context::STOCK_BADGES), 'invoices_to_match'],
+                            ...array_keys(\CW\Ui\Context::STOCK_BADGES), 'invoices_to_match',
+                            // Pack F (PF5)
+                            'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'],
                             "{$where}: a count Ui\\Context::badges() computes");
                         self::assertArrayHasKey($page['badge'], Words::BADGE, "{$where}: the words a screen reader hears");
                     }
@@ -82,7 +84,8 @@ final class SectionsTest extends TestCase
             }
         }
         self::assertSame(['linking_pending', 'linking_duplicates', 'barcodes_open', 'stock_in_open', 'stock_out_open', 'transfers_open', 'releases_open',
-            'adjustments_open', 'counts_open', 'incidents_open', 'invoices_to_match', 'reviews_open'], Sections::badgeNames());
+            'adjustments_open', 'counts_open', 'incidents_open', 'invoices_to_match', 'reviews_open',
+            'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'], Sections::badgeNames());
     }
 
     /** Every staff page belongs to one section, tab and page: the current ones stay marked on a detail page (with its back link). */
@@ -216,8 +219,9 @@ final class SectionsTest extends TestCase
         self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], $tabs(['reviewer'], 'purchasing'));
         // Pack C: goods in and the stock controller read returns (they pack the goods), not invoices (money).
         self::assertSame(['Purchase Orders', 'Goods In', 'Returns', 'Suppliers'], $tabs(['goods_in'], 'purchasing'));
-        self::assertSame(['History'], $tabs(['buyer'], 'approvals'));
-        self::assertSame(['Waiting for me', 'History', 'Staff requests'], $tabs(['reviewer'], 'approvals'));
+        // Pack F (PF5): From the stores, for everyone who reads records.
+        self::assertSame(['History', 'From the stores'], $tabs(['buyer'], 'approvals'));
+        self::assertSame(['Waiting for me', 'History', 'Staff requests', 'From the stores'], $tabs(['reviewer'], 'approvals'));
         self::assertNotSame(Sections::menu(['buyer']), Sections::menu(['purchasing_desk']));
         self::assertNotSame(Sections::menu(['purchasing_desk']), Sections::menu(['reviewer']));
         // Pack B: Families and Multipacks for everyone who sees products; Add Item for the catalogue team.

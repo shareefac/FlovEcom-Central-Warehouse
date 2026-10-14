@@ -27,5 +27,13 @@ MAILTO=""
 # setting mapping.arrival_stores; it takes only the variants the listing intake marked, never the ones that were there before.
 */10 * * * *  root  cd /opt/cw-staging && php bin/check_arrivals.php --db=cw_staging --apply >> /var/log/cw/check_arrivals.log 2>&1
 
-# Not scheduled yet: bin/health_alert.php is a stub that only prints (no alert webhook yet, plan §6.3).
-# */5 * * * *  root  cd /opt/cw-staging && php bin/health_alert.php --db=cw_staging >> /var/log/cw/health_alert.log 2>&1
+# ---- Pack F (docs/decisions.md PF10-PF12) ----
+# The alerts to a person: every store's heartbeat, outbox, failed messages and feed lag, CW's own answer time and the nightly check,
+# each limit a setting (alerts.*). It sends to alerts.webhook_url / alerts.email_to once per alerts.repeat_minutes while a problem
+# lasts; both are EMPTY until someone fills one in (then nothing is sent; the log still lists the problems). Exit 1 = problems found.
+*/2 * * * *  root  cd /opt/cw-staging && php bin/health_alert.php --db=cw_staging >> /var/log/cw/health_alert.log 2>&1
+
+# The nightly clean-up: stored answers older than housekeeping.idempotency_keep_days, heartbeats older than
+# housekeeping.channel_health_keep_days (each store's newest one kept), in chunks within housekeeping.max_seconds. The app login cannot
+# delete audit rows (append-only): the audit log is kept (7 years at the least; only the admin login removes older ones, by hand).
+37 3 * * *  root  cd /opt/cw-staging && php bin/housekeeping.php --db=cw_staging >> /var/log/cw/housekeeping.log 2>&1

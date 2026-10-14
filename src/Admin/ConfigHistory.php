@@ -98,6 +98,9 @@ final class ConfigHistory
             'location' => self::locationRow($db, $key, $lock),
             default => throw new \InvalidArgumentException("unknown config subject type {$type}"),
         };
+        if ($row !== null && $type === 'setting' && \CW\Settings::isSecret($key)) {
+            $row['value'] = \CW\Settings::fingerprint((string) $row['value']); // a secret is kept as its fingerprint (Settings::SECRET)
+        }
         return $row === null ? null : self::normalise($type, $row);
     }
 

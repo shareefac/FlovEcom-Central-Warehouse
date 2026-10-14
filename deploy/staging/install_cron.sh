@@ -5,7 +5,9 @@
 #   /etc/cron.d/cw-staging     expire_reservations (every minute), prune_changes, invariants (nightly), the document
 #                              store's seal sweep (every minute) and verify_files (nightly; both idle until
 #                              install_file_store.sh has made /srv/cw-docs), the check on arrival (every 10 minutes;
-#                              it does nothing until a store is named in the setting mapping.arrival_stores)
+#                              it does nothing until a store is named in the setting mapping.arrival_stores), the alerts to a
+#                              person (every 2 minutes; nothing is sent until alerts.webhook_url or alerts.email_to is set) and
+#                              the nightly clean-up of stored answers and heartbeats (pack F, docs/decisions.md PF10-PF12)
 #   /etc/logrotate.d/cw-staging, /var/log/cw/
 # Then runs every job once, as cron will (app login), and prints what they said.
 # Run from this machine (remote.sh syncs the slot first, then this copies the slot):
@@ -67,7 +69,8 @@ say "installed /etc/cron.d/cw-staging, /etc/logrotate.d/cw-staging, /var/log/cw"
 # 4. Smoke: each job once, exactly as cron runs it.
 fail=0
 # (check_arrivals.php in its dry-run form: it reads and prints, and writes nothing, whatever the setting names)
-for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "check_arrivals.php" "health_alert.php"; do
+# (health_alert.php --no-send: the smoke checks and prints, and records or sends nothing; housekeeping.php --dry-run counts only)
+for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "check_arrivals.php" "health_alert.php --no-send" "housekeeping.php --dry-run"; do
     set +e
     out=$(php bin/$job --db="$schema" 2>&1)
     code=$?
@@ -75,7 +78,7 @@ for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.p
     sed 's/^/[install_cron]   /' <<<"$out"
     say "smoke: bin/$job -> exit $code"
     # health_alert exits 1 when a shadow/live channel is not reporting: expected on staging.
-    if [[ $code -ne 0 && ! ( $job == health_alert.php && $code -eq 1 ) ]]; then
+    if [[ $code -ne 0 && ! ( $job == health_alert.php* && $code -eq 1 ) ]]; then
         fail=1
     fi
 done

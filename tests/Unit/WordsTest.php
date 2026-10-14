@@ -86,7 +86,9 @@ final class WordsTest extends TestCase
                 'accounts', 'settings', 'series',
                 'integrity',
                 'counts', 'count_sheets', 'count_differences',
-                'sales_orders', 'sales_dispatch', 'sales_returns'], // the last three: pack D
+                'sales_orders', 'sales_dispatch', 'sales_returns', // the last three: pack D
+                // Pack F (PF5): Approvals › From the stores
+                'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'],
             'NEW' => ['orders', 'receiving', 'suppliers', 'people', 'warehouses', 'reasons', 'stock_in', 'stock_out', 'transfers', 'releases', 'adjustments',
                 'counts'],
             'DOC_TYPE' => array_values(\CW\StockOps\StockOpHandler::KINDS),
@@ -111,6 +113,10 @@ final class WordsTest extends TestCase
             'ERROR_TITLE' => ['400', '403', '404', '405', '409', '413', '422', '429', '500', '503'],
             'ERROR' => ['csrf', 'lead_only', 'not_found', 'method_not_allowed', 'too_large', 'form_truncated', 'bad_form_key', 'idempotency_key_reused',
                 'unavailable', 'busy', 'internal', 'unknown_staff', 'unknown_queue'],
+            // Pack F (PF1-PF9): the stores' queues and the relay
+            'QUEUE_STATE' => \CW\Queues\QueueRules::STATUSES,
+            'RELAY_KIND' => \CW\Relay\RelayLines::KINDS,
+            'OVERSELL_RESOLUTION' => \CW\Queues\Oversells::RESOLUTIONS,
         ];
     }
 
@@ -315,6 +321,7 @@ final class WordsTest extends TestCase
             '0033_sales_dispatch_views.sql', // pack D
             '0031_items_families_repack.sql', // pack B
             '0032_supplier_invoices.sql', // pack C
+            '0036_golive_queues_alerts.sql', // pack F
         ] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];

@@ -12,6 +12,7 @@ use CW\Api\Controller\ListingsController;
 use CW\Api\Controller\MovementsController;
 use CW\Api\Controller\OpeningOrdersController;
 use CW\Api\Controller\PurchasingController;
+use CW\Api\Controller\RelayController;
 use CW\Api\Controller\ReservationsController;
 use CW\Api\Controller\SnapshotController;
 use CW\Config;
@@ -134,6 +135,11 @@ final class Kernel
         $r->add('POST', '/v1/reservations/{ref}/return', $res->returnUnits(...), true);
         $r->add('POST', '/v1/opening_orders', (new OpeningOrdersController())->create(...), true);
         $r->add('POST', '/v1/movements', (new MovementsController())->create(...), true);
+        // Pack F (docs/decisions.md PF2, PF3): ERPNext's corrections and selling-mode changes, relayed by a store, to CW's queues.
+        // Refused while the store is off, like every relayed message (the store keeps them and sends them later).
+        $relay = new RelayController();
+        $r->add('POST', '/v1/relay/reconciliations', $relay->reconciliations(...), true);
+        $r->add('POST', '/v1/relay/modes', $relay->modes(...), true);
         $r->add('GET', '/v1/changes', (new ChangesController())->index(...));
         $r->add('GET', '/v1/availability', (new AvailabilityController())->index(...));
         $r->add('GET', '/v1/snapshot', (new SnapshotController())->index(...));

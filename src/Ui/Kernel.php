@@ -663,6 +663,9 @@ final class Kernel
         // again by CW\Invoices\* and the document base, never admin); invoices.accept accepts an invoice's differences.
         InvoicesController::routes($r);
         SupplierReturnsController::routes($r);
+        // ---- Pack F (docs/decisions.md PF5-PF9): Approvals › From the stores. queues.view looks; each answer needs its queue's permission
+        // (queues.suspense, queues.corrections, queues.modes, queues.oversell), checked again by CW\Queues\* (never admin). ----
+        \CW\Ui\Controller\StoreQueuesController::routes($r);
         return $this->router = $r;
     }
 

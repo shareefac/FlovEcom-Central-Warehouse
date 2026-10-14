@@ -24,6 +24,7 @@
     <dt><?= $word('SITES', 'feed') ?></dt><dd><?= $e($s['feed_text']) ?></dd>
     <dt><?= $word('SITES', 'sells_from') ?></dt><dd><?php if ($s['sells_text'] === ''): ?><span class="muted"><?= $word('WAREHOUSES', 'none') ?></span><?php else: ?><?= $e($s['sells_text']) ?><?php endif; ?></dd>
     <dt><?= $word('SITES', 'writer') ?></dt><dd><?= $e($s['writer_text']) ?></dd>
+    <dt><?= $word('SITES', 'relay') ?></dt><dd><?= $e($s['relay_text']) ?></dd>
   </dl>
   <details class="fold tech">
     <summary><?= $word('CONFIG', 'technical') ?></summary>

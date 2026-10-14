@@ -15,6 +15,11 @@ use CW\Api\IpAllowlist;
 final class ChannelAdmin
 {
     public const MODES = ['off', 'shadow', 'live'];
+    /**
+     * What a store's relay may be granted (channel.movement_types; R17, pack F PF4): the three stock kinds of POST /v1/movements and the
+     * two queue kinds of /v1/relay/* (ERPNext's corrections, its selling-mode changes). "--relay=on" grants them all, "off" none.
+     */
+    public const RELAY_GRANTS = [...Movements::CHANNEL_TYPES, 'erp_reconciliation', 'erp_mode'];
 
     public function __construct(private readonly Db $db)
     {
@@ -95,15 +100,20 @@ final class ChannelAdmin
      * Nothing changed means nothing written and nothing audited. The site sees a new mode on its next
      * call (X-CW-Channel-Mode, A13).
      *
+     * $relay (pack F, PF4: the tool R17 left as "SQL for now"): null = keep; a list = exactly these relay grants (RELAY_GRANTS; [] = none),
+     * audited `channel.relay` {from, to, by}. Ending the relay makes CW answer 403 to every relayed ERPNext message of the store.
+     *
      * @param list<string>|null $allowedIps null = keep; [] = empty (every call refused)
-     * @return array{id: int, code: string, before: array{mode: string, allowed_ips: list<string>, site_writer: bool},
-     *     after: array{mode: string, allowed_ips: list<string>, site_writer: bool}, changed: list<string>, applied: bool, warnings: list<string>}
+     * @param list<string>|null $relay
+     * @return array{id: int, code: string, before: array{mode: string, allowed_ips: list<string>, site_writer: bool, relay: list<string>},
+     *     after: array{mode: string, allowed_ips: list<string>, site_writer: bool, relay: list<string>}, changed: list<string>, applied: bool, warnings: list<string>}
      */
-    public function configure(string $code, ?string $mode, ?array $allowedIps, string $actor, bool $apply, ?bool $writer = null): array
+    public function configure(string $code, ?string $mode, ?array $allowedIps, string $actor, bool $apply, ?bool $writer = null, ?array $relay = null): array
     {
-        if ($mode === null && $allowedIps === null && $writer === null) {
-            throw new CwException('nothing_to_set', 'give a mode, an allowlist, the site writer switch or more', 400);
+        if ($mode === null && $allowedIps === null && $writer === null && $relay === null) {
+            throw new CwException('nothing_to_set', 'give a mode, an allowlist, the site writer switch, the relay grants or more', 400);
         }
+        $relay = $relay === null ? null : self::movementTypes($relay);
         if ($mode !== null && !in_array($mode, self::MODES, true)) {
             throw new CwException('bad_mode', 'mode must be one of ' . implode(', ', self::MODES), 400);
         }
@@ -112,23 +122,30 @@ final class ChannelAdmin
         if ($actor === '' || strlen($actor) > 64 || preg_match('/^[\x20-\x7e]+$/', $actor) !== 1) {
             throw new CwException('bad_actor', 'the actor must be 1-64 printable characters', 400);
         }
-        $plan = function (Db $db, bool $lock) use ($code, $mode, $ips, $writer): array {
-            $row = $db->one('SELECT c.id, c.mode, c.allowed_ips, c.site_writer, o.opening_orders_at FROM channel c '
+        $plan = function (Db $db, bool $lock) use ($code, $mode, $ips, $writer, $relay): array {
+            $row = $db->one('SELECT c.id, c.mode, c.allowed_ips, c.site_writer, c.movement_types, o.opening_orders_at FROM channel c '
                 . 'LEFT JOIN channel_opening o ON o.channel_id = c.id WHERE c.code = ?' . ($lock ? ' FOR UPDATE OF c' : ''), [$code]);
             if ($row === null) {
                 throw new CwException('unknown_channel', "no channel {$code}", 404);
             }
             $stored = json_decode((string) $row['allowed_ips'], true);
+            $granted = json_decode((string) $row['movement_types'], true);
+            $granted = is_array($granted) ? array_values(array_map('strval', array_filter($granted, 'is_string'))) : [];
+            sort($granted);
             $before = ['mode' => (string) $row['mode'],
                 'allowed_ips' => is_array($stored) ? array_values(array_map('strval', array_filter($stored, 'is_string'))) : [],
-                'site_writer' => (int) $row['site_writer'] === 1];
-            $after = ['mode' => $mode ?? $before['mode'], 'allowed_ips' => $before['allowed_ips'], 'site_writer' => $writer ?? $before['site_writer']];
+                'site_writer' => (int) $row['site_writer'] === 1, 'relay' => $granted];
+            $after = ['mode' => $mode ?? $before['mode'], 'allowed_ips' => $before['allowed_ips'], 'site_writer' => $writer ?? $before['site_writer'],
+                'relay' => $relay ?? $before['relay']];
             $changed = [];
             if ($after['mode'] !== $before['mode']) {
                 $changed[] = 'mode';
             }
             if ($after['site_writer'] !== $before['site_writer']) {
                 $changed[] = 'site_writer';
+            }
+            if ($after['relay'] !== $before['relay']) {
+                $changed[] = 'relay';
             }
             if ($ips !== null && self::sorted($ips) !== self::sorted($before['allowed_ips'])) {
                 $after['allowed_ips'] = $ips;
@@ -154,6 +171,10 @@ final class ChannelAdmin
                     $warnings[] = "the channel is {$after['mode']}: nothing is written on the site until it is live";
                 }
             }
+            if ($after['relay'] !== $before['relay'] && $after['relay'] === []) {
+                $warnings[] = 'relay ended: CW answers 403 relay_not_allowed / movement_not_allowed to every relayed ERPNext message of this site and stores '
+                    . 'nothing; the site keeps them (give the relay back to receive them)';
+            }
             if (!$after['site_writer'] && $before['site_writer']) {
                 $warnings[] = 'site writer off: the site keeps the figures CW wrote last and stops taking CW\'s; its own stock screens are the writers again';
             }
@@ -168,8 +189,9 @@ final class ChannelAdmin
             if ($p['changed'] === []) {
                 return $p;
             }
-            $db->exec('UPDATE channel SET mode = ?, allowed_ips = ?, site_writer = ? WHERE id = ?',
-                [$p['after']['mode'], json_encode($p['after']['allowed_ips'], JSON_THROW_ON_ERROR), $p['after']['site_writer'] ? 1 : 0, $p['id']]);
+            $db->exec('UPDATE channel SET mode = ?, allowed_ips = ?, site_writer = ?, movement_types = ? WHERE id = ?',
+                [$p['after']['mode'], json_encode($p['after']['allowed_ips'], JSON_THROW_ON_ERROR), $p['after']['site_writer'] ? 1 : 0,
+                    json_encode($p['after']['relay'], JSON_THROW_ON_ERROR), $p['id']]);
             $caller = Caller::system('channel_admin');
             if (in_array('mode', $p['changed'], true)) {
                 Audit::write($db, $caller, 'channel.mode', 'channel', $p['code'], null,
@@ -178,6 +200,10 @@ final class ChannelAdmin
             if (in_array('allowed_ips', $p['changed'], true)) {
                 Audit::write($db, $caller, 'channel.allowlist', 'channel', $p['code'], null,
                     ['before' => $p['before']['allowed_ips'], 'after' => $p['after']['allowed_ips'], 'by' => $actor]);
+            }
+            if (in_array('relay', $p['changed'], true)) {
+                Audit::write($db, $caller, 'channel.relay', 'channel', $p['code'], null,
+                    ['from' => $p['before']['relay'], 'to' => $p['after']['relay'], 'by' => $actor]);
             }
             if (in_array('site_writer', $p['changed'], true)) {
                 Audit::write($db, $caller, 'channel.site_writer', 'channel', $p['code'], null,
@@ -240,8 +266,8 @@ final class ChannelAdmin
     }
 
     /**
-     * The movement types a site may be granted: only the ERP relay's (R17). Counts, adjustments,
-     * write-offs and transfers are staff-only.
+     * The relay grants a site may hold: only the ERP relay's (R17), and since pack F its two queue kinds (RELAY_GRANTS, PF4). Counts,
+     * adjustments, write-offs and transfers are staff-only.
      *
      * @param list<string> $types
      * @return list<string> de-duplicated, sorted
@@ -254,8 +280,8 @@ final class ChannelAdmin
             if ($t === '') {
                 continue;
             }
-            if (!in_array($t, Movements::CHANNEL_TYPES, true)) {
-                throw new CwException('bad_movement_type', "{$t} cannot be granted to a site (only " . implode(', ', Movements::CHANNEL_TYPES) . ')', 400);
+            if (!in_array($t, self::RELAY_GRANTS, true)) {
+                throw new CwException('bad_movement_type', "{$t} cannot be granted to a site (only " . implode(', ', self::RELAY_GRANTS) . ')', 400);
             }
             $out[$t] = true;
         }

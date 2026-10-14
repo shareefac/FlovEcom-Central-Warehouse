@@ -154,6 +154,16 @@ final class Sections
             'reviews' => ['pages' => [['perm' => 'documents.review', 'path' => '/ui/documents/reviews', 'match' => ['/ui/documents/reviews*'], 'badge' => 'reviews_open']]],
             'documents' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/documents', 'match' => ['/ui/documents', '/ui/documents/*', '/ui/files/*']]]],
             'staff_requests' => ['pages' => [['perm' => 'staff.approve', 'path' => '/ui/staff-requests', 'match' => ['/ui/staff-requests*']]]],
+            // ---- Pack F (docs/decisions.md PF5): what the stores send that needs a person, one segment per queue. Everyone who reads
+            // records looks (queues.view); the counts are only what this person may answer (Ui\Context::badges).
+            'store_queues' => ['segments' => true, 'pages' => [
+                ['key' => 'queue_suspense', 'perm' => 'queues.view', 'path' => '/ui/queues/suspense', 'match' => ['/ui/queues/suspense*'], 'badge' => 'queue_suspense'],
+                ['key' => 'queue_corrections', 'perm' => 'queues.view', 'path' => '/ui/queues/corrections', 'match' => ['/ui/queues/corrections*'],
+                    'badge' => 'queue_corrections'],
+                ['key' => 'queue_modes', 'perm' => 'queues.view', 'path' => '/ui/queues/modes', 'match' => ['/ui/queues/modes*'], 'badge' => 'queue_modes'],
+                ['key' => 'queue_oversold', 'perm' => 'queues.view', 'path' => '/ui/queues/oversold', 'match' => ['/ui/queues/oversold*'], 'badge' => 'queue_oversold'],
+            ]],
+            // ---- end of pack F ----
         ]],
         'settings' => ['tabs' => [
             'company' => ['pages' => [['perm' => 'reference.view', 'path' => '/ui/reference/company', 'match' => ['/ui/reference/company*']]]],

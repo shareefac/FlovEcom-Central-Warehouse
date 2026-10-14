@@ -140,8 +140,9 @@ final class ChannelSetToolTest extends ApiKernelTestCase
         $dry = $admin->configure('vpg', 'live', null, 'tester', false);
         self::assertSame(['mode'], $dry['changed']);
         self::assertFalse($dry['applied']);
-        self::assertSame(['mode' => 'shadow', 'allowed_ips' => ['203.0.113.7'], 'site_writer' => false], $dry['before']);
-        self::assertSame(['mode' => 'live', 'allowed_ips' => ['203.0.113.7'], 'site_writer' => false], $dry['after']);
+        // Pack F (PF4): the relay grants are part of what configure() reads and writes.
+        self::assertSame(['mode' => 'shadow', 'allowed_ips' => ['203.0.113.7'], 'site_writer' => false, 'relay' => []], $dry['before']);
+        self::assertSame(['mode' => 'live', 'allowed_ips' => ['203.0.113.7'], 'site_writer' => false, 'relay' => []], $dry['after']);
         self::assertSame('shadow', self::$db->value("SELECT mode FROM channel WHERE code = 'vpg'"));
 
         $done = $admin->configure('vpg', 'live', [' 203.0.113.7 ', '203.0.113.7'], 'tester', true);

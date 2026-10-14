@@ -51,7 +51,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::CHECKS['none'], $queue->text());
         self::assertSame(Words::MENU['reviews'], trim((string) (new \DOMXPath($queue->dom()))->evaluate('string(//main//h1)')), 'the tab\'s name (F096)');
         self::assertSame(['href' => '/ui/documents/reviews', 'count' => 0], self::nav($queue)['Approvals']);
-        self::assertSame([['Waiting for me', true], ['History', false], ['Staff requests', false]],
+        self::assertSame([['Waiting for me', true], ['History', false], ['Staff requests', false], ['From the stores', false]],
             array_map(static fn (array $t): array => [$t['label'], $t['current']], self::sectionTabs($queue)));
 
         $poster = $this->uiUser(['stock_controller', 'reviewer']);

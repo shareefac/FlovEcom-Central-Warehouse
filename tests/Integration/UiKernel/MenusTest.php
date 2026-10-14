@@ -56,8 +56,9 @@ final class MenusTest extends KernelUiTestCase
         self::assertSame([['Reorder', true], ['Purchase Order', true], ['Goods In', false], ['Stock updated', true]], $flow($buyer->get('/ui/purchasing/orders')));
 
         // Approvals: the reviewer's queue; the others read the history.
-        self::assertSame(['History'], self::tabLabels($buyer->get('/ui/documents')));
-        self::assertSame(['Waiting for me', 'History', 'Staff requests'], self::tabLabels($reviewer->get('/ui/documents')));
+        // Pack F (PF5): From the stores, for everyone who reads records.
+        self::assertSame(['History', 'From the stores'], self::tabLabels($buyer->get('/ui/documents')));
+        self::assertSame(['Waiting for me', 'History', 'Staff requests', 'From the stores'], self::tabLabels($reviewer->get('/ui/documents')));
         // Settings: everyone reads; Stores (system.view) for the reviewer; Users leads the others to "Roles and permissions".
         self::assertSame(['Company', 'Warehouses', 'Users', 'Approval Rules', 'Reasons', 'System'], self::tabLabels($buyer->get('/ui/reference/company')));
         self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Approval Rules', 'Reasons', 'System'], self::tabLabels($reviewer->get('/ui/reference/company')));
@@ -152,8 +153,8 @@ final class MenusTest extends KernelUiTestCase
             '/ui/purchasing/reorder', '/ui/purchasing/orders',
             '/ui/purchasing/invoices', '/ui/purchasing/returns', // Pack C: Purchasing › Invoices and Returns (invoices.view, returns.view)
             '/ui/purchasing/suppliers',
-            '/ui/documents', '/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals', '/ui/reference/reasons',
-            '/ui/reference/settings'],
+            '/ui/documents', '/ui/queues/suspense', '/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals',
+            '/ui/reference/reasons', '/ui/reference/settings'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array($xp->query('//main//ul[@class="uses"]//a'))), '"What you can use": the tabs a buyer may open');
         self::assertStringContainsString(Words::MENU_HELP['suppliers'], $home->text(), 'each with one line on what it is for');

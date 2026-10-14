@@ -59,7 +59,10 @@ final class Words
         'ITEM_NEW', 'BY_HAND_STATE', 'ITEMS_NOTICE', 'ITEMS_ERROR', 'FAMILY', 'FAMILY_SKIP', 'PACKS', 'PACK_FLAG', 'PACK_LINK_FLAG', 'REPACK', 'REPACK_DIRECTION',
         // --- Pack C (IM7)
         'INVOICES', 'INVOICE_KIND', 'INVOICE_LINE', 'MATCH_STATE', 'MATCH_LINE', 'MATCH_WHY', 'VALUE_EVENT', 'VALUE_BASIS', 'CREDIT_STATE', 'INVOICE_FILE',
-        'INVOICE_NOTICE', 'INVOICE_ERROR', 'RETURNS', 'RETURN_NOTICE', 'RETURN_ERROR'];
+        'INVOICE_NOTICE', 'INVOICE_ERROR', 'RETURNS', 'RETURN_NOTICE', 'RETURN_ERROR',
+        // Pack F (PF5-PF10)
+        'QUEUE_STATE', 'QUEUES', 'RELAY_KIND', 'RELAY_REASON', 'SUSPENSE', 'CORRECTIONS', 'MODES', 'OVERSOLD', 'OVERSELL_KIND', 'OVERSELL_RESOLUTION',
+        'QUEUE_NOTICE', 'QUEUE_ERROR', 'ALERT'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -254,6 +257,8 @@ final class Words
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices' => 'Invoices',
         'returns' => 'Returns',
+        // Pack F (docs/decisions.md PF5): Approvals › From the stores.
+        'store_queues' => 'From the stores',
     ];
 
     /** A segment of a tab (Sections::MAP `key` of a page in a tab with `segments`) => its name. */
@@ -291,6 +296,11 @@ final class Words
         'to_match' => 'To match',
         'not_invoiced' => 'Not invoiced yet',
         'credit_notes' => 'Credit notes',
+        // Approvals › From the stores (pack F, PF5)
+        'queue_suspense' => 'Lines to place',
+        'queue_corrections' => 'ERPNext corrections',
+        'queue_modes' => 'Mode changes',
+        'queue_oversold' => 'Oversold',
     ];
 
     /** A page's create button (Sections::MAP `new`): a verb that names the result. */
@@ -375,6 +385,8 @@ final class Words
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices' => 'Supplier invoices checked against the order and the delivery, the deliveries not invoiced yet, and credit notes.',
         'returns' => 'Goods sent back to a supplier, each one our claim for a credit.',
+        // Pack F (PF5)
+        'store_queues' => 'What the stores sent from ERPNext that needs a person, and the orders sold without the stock.',
     ];
 
     /** The phone's bottom bar: Dashboard and the sections take their SECTION names; the last tab opens the whole menu. */
@@ -399,6 +411,11 @@ final class Words
         'section' => 'waiting for you',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices_to_match' => 'invoices that do not match, waiting for you',
+        // Pack F (PF5): Approvals › From the stores, only for the people who may answer.
+        'queue_suspense' => 'lines waiting for an item',
+        'queue_corrections' => 'ERPNext corrections waiting for your answer',
+        'queue_modes' => 'mode changes waiting for your answer',
+        'queue_oversold' => 'oversold orders not handled yet',
     ];
 
     /** Permissions::COMING_LATER key => words for Home's "Coming later" line (no phase codes, no dates). */
@@ -591,6 +608,15 @@ final class Words
         'supplier_invoice' => ['A supplier\'s paper as it was booked: what it bills, and how it matches the order and the delivery.',
             'While it is a draft, check the lines against the paper, type the totals, then make it final.'],
         'supplier_return' => ['Goods going back to a supplier, and what we claim for them.', 'While it is a draft, check the lines, then make it final: the stock goes out.'],
+        // Pack F (docs/decisions.md PF6-PF9): Approvals › From the stores.
+        'queue_suspense' => ['Lines of ERPNext deliveries, supplier returns, sales and corrections that the warehouse system could not match to an item.',
+            'Type the item\'s code and place the line, or close it with a note when there is nothing to book.'],
+        'queue_corrections' => ['Stock figures someone set in ERPNext. Nothing is booked until a person confirms one.',
+            'Read what confirming would book, then confirm it or close it, each with a note.'],
+        'queue_modes' => ['Selling-mode changes made in ERPNext that differ from what the warehouse system has.',
+            'Accept a change, or keep what the warehouse system has, each with a note.'],
+        'queue_oversold' => ['Paid orders the warehouse did not have the stock for.',
+            'Sort each one out with the customer, add notes as you go, then mark it handled.'],
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2319,6 +2345,28 @@ final class Words
         'invoices.freight_spread' => 'Freight spread over the goods by',
         'invoices.duty_spread' => 'Duty spread over the goods by',
         'approvals.invoice_accept_other' => 'Accepting an invoice\'s differences needs a second person',
+        // Pack F (0036; docs/decisions.md PF3, PF7, PF10, PF11).
+        'alerts.webhook_url' => 'Web address the alerts are sent to',
+        'alerts.email_to' => 'E-mail address the alerts go to',
+        'alerts.repeat_minutes' => 'Send the same alert again after this many minutes',
+        'alerts.heartbeat_late_seconds' => 'A store is late after this many seconds without a report',
+        'alerts.outbox_max_depth' => 'Most messages a store may have waiting',
+        'alerts.outbox_max_age_seconds' => 'Oldest a store\'s waiting message may be, in seconds',
+        'alerts.dead_letters_max' => 'Messages failed for good before an alert',
+        'alerts.feed_lag_max_seconds' => 'A store is behind the stock changes after this many seconds',
+        'alerts.answer_max_ms' => 'Slowest answer time of the warehouse system, in milliseconds',
+        'alerts.answer_probes' => 'How many times the answer time is measured',
+        'alerts.invariants_max_age_hours' => 'Hours without a nightly safety check before an alert',
+        'alerts.send_timeout_seconds' => 'Seconds sending one alert may take',
+        'housekeeping.idempotency_keep_days' => 'Days the stores\' stored answers are kept',
+        'housekeeping.channel_health_keep_days' => 'Days the stores\' reports are kept',
+        'housekeeping.audit_keep_years' => 'Years the audit log is kept',
+        'housekeeping.chunk_rows' => 'Rows removed at a time by the clean-up',
+        'housekeeping.max_seconds' => 'Longest one clean-up may take, in seconds',
+        'relay.correction_is_for_sale' => 'An ERPNext correction is the figure for sale',
+        'relay.mode_in_stock' => 'Stock rule an ERPNext change to In-Stock asks for',
+        'relay.mode_from_warehouse' => 'Stock rule an ERPNext change to From-Warehouse asks for',
+        'relay.mode_out_of_stock' => 'Stock rule an ERPNext change to Out-Of-Stock asks for',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -3366,6 +3414,10 @@ final class Words
         'items' => 'Items', // Pack B
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices' => 'Supplier invoices',
+        // Pack F (PF10, PF11, PF3, PF7)
+        'alerts' => 'Alerts',
+        'housekeeping' => 'Clean-up',
+        'relay' => 'Messages from ERPNext',
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -3475,6 +3527,37 @@ final class Words
         'invoices.freight_spread' => 'value: in proportion to what each delivered line costs; ml: in proportion to its liquid. Recorded for the stock value.',
         'invoices.duty_spread' => 'ml: in proportion to the liquid of each delivered line; value: to what it costs. Recorded for the stock value.',
         'approvals.invoice_accept_other' => 'On: someone other than the person who made an invoice final accepts its differences. Off by default.',
+        // Pack F (0036; docs/decisions.md PF3, PF7, PF10, PF11).
+        'alerts.webhook_url' => 'An https address of a chat channel (its incoming address). Every alert is sent there. Empty: nothing is sent there. '
+            . 'The screens show only its server; it must be a public server.',
+        'alerts.email_to' => 'One e-mail address that gets every alert. Empty: nothing is e-mailed. The warehouse server must be able to send e-mail '
+            . '(ask ' . self::ASK . ').',
+        'alerts.repeat_minutes' => 'While a problem lasts, the same alert is sent again at most once in this many minutes. A problem that clears and '
+            . 'comes back is sent at once.',
+        'alerts.heartbeat_late_seconds' => 'Each store that is watching or live reports every minute. No report for this many seconds is an alert.',
+        'alerts.outbox_max_depth' => 'More messages than this waiting on a store to reach the warehouse system is an alert.',
+        'alerts.outbox_max_age_seconds' => 'A store\'s oldest waiting message older than this many seconds is an alert.',
+        'alerts.dead_letters_max' => 'Messages a store gave up sending. More than this many is an alert (0: any is).',
+        'alerts.feed_lag_max_seconds' => 'A store this many seconds or more behind the warehouse system\'s stock changes is an alert.',
+        'alerts.answer_max_ms' => 'The warehouse system measures how long it takes to answer, on its own server. Above this many milliseconds is an '
+            . 'alert. What a store sees at Place order is measured on the store.',
+        'alerts.answer_probes' => 'How many times the answer time is measured in one run. The middle value counts.',
+        'alerts.invariants_max_age_hours' => 'The nightly safety check: an alert when the last one found a problem, or when none finished for this '
+            . 'many hours.',
+        'alerts.send_timeout_seconds' => 'How long sending one alert to the web address may take before it counts as failed (it is tried again '
+            . 'on the next run).',
+        'housekeeping.idempotency_keep_days' => 'Each store call\'s answer is kept this many days, so a call sent again gets the same answer. 30 at '
+            . 'the least: a store keeps its messages 14 days.',
+        'housekeeping.channel_health_keep_days' => 'The stores\' reports are kept this many days. Each store\'s newest report is always kept.',
+        'housekeeping.audit_keep_years' => 'The audit log is kept this many years, 7 at the least. Only a person removes older entries, never the '
+            . 'nightly clean-up.',
+        'housekeeping.chunk_rows' => 'The nightly clean-up removes old rows this many at a time, so the stores\' calls never wait long for it.',
+        'housekeeping.max_seconds' => 'The nightly clean-up stops after this many seconds; the rest goes the next night.',
+        'relay.correction_is_for_sale' => 'On: a figure set in ERPNext is what the website may sell, so the units kept for paid orders not sent '
+            . 'yet are added to get the shelf figure. Off: the figure is the shelf figure.',
+        'relay.mode_in_stock' => 'When ERPNext sets a counted, protected item to In-Stock, accepting the change gives it this stock rule.',
+        'relay.mode_from_warehouse' => 'When ERPNext sets a counted, protected item to From-Warehouse, accepting the change gives it this stock rule.',
+        'relay.mode_out_of_stock' => 'When ERPNext sets a counted, protected item to Out-Of-Stock, accepting the change gives it this stock rule.',
     ];
 
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */
@@ -7664,6 +7747,11 @@ final class Words
         'minutes' => '%s minutes',
         'hours' => '%s hours',
         'days' => '%s days',
+        // Pack F (PF4): the store's ERPNext relay.
+        'relay' => 'Messages from ERPNext',
+        'relay_all' => 'All received',
+        'relay_none' => 'None received',
+        'relay_some' => 'Received: %s',
     ];
 
     /** What each server command of the Websites page does (Admin\Sites::commands). */
@@ -7674,6 +7762,8 @@ final class Words
         'warehouse' => 'Sell from another warehouse',
         'key' => 'Make a new key',
         'health' => 'List the problems of every website',
+        // Pack F (PF4)
+        'relay' => 'Give or end the messages from ERPNext',
     ];
 
     /** The System checks page (/ui/system/checks). */
@@ -7753,6 +7843,12 @@ final class Words
         // Pack B
         'item_family' => 'Family',
         'item_pack' => 'Pack item',
+        // Pack F (PF5)
+        'goods_in_suspense' => 'ERPNext line to place',
+        'count_review' => 'Stock figure to check',
+        'policy_review' => 'Selling-mode change to check',
+        'oversell_event' => 'Oversold order',
+        'relay' => 'Message from ERPNext',
     ];
 
     /** The first part of an audit action => what kind of thing was done (the audit log's filter and rows). */
@@ -7796,6 +7892,14 @@ final class Words
         'invoice' => 'Supplier invoices',
         'credit_note' => 'Supplier credit notes',
         'return' => 'Returns to suppliers',
+        // Pack F (PF5)
+        'goods_in_suspense' => 'ERPNext lines to place',
+        'count_review' => 'Stock figures to check',
+        'policy_review' => 'Selling-mode changes to check',
+        'oversell_event' => 'Oversold orders',
+        'queue' => 'The stores\' queues',
+        'relay' => 'Messages from ERPNext',
+        'sku' => 'Warehouse products',
     ];
 
     /** audit_log.action => what was done, for the actions people look for most (the others: their kind, AUDIT_FAMILY). */
@@ -7886,6 +7990,19 @@ final class Words
         'return.header' => 'Return\'s details changed',
         'return.post' => 'Return to a supplier made final',
         'return.reverse' => 'Return to a supplier cancelled',
+        // Pack F (PF4-PF9)
+        'channel.relay' => 'Messages from ERPNext given or ended',
+        'relay.reconciliation' => 'ERPNext corrections received',
+        'relay.mode' => 'ERPNext selling-mode changes received',
+        'goods_in_suspense.book' => 'ERPNext line booked on an item',
+        'goods_in_suspense.correction' => 'ERPNext correction placed on an item',
+        'goods_in_suspense.dismiss' => 'ERPNext line closed without booking',
+        'count_review.confirm' => 'ERPNext correction confirmed',
+        'count_review.dismiss' => 'ERPNext correction closed',
+        'policy_review.accept' => 'ERPNext selling-mode change accepted',
+        'policy_review.dismiss' => 'ERPNext selling-mode change closed',
+        'oversell_event.handle' => 'Oversold order handled',
+        'oversell_event.note' => 'Note added to an oversold order',
     ];
 
     /** What each permission lets a person do (the "Who can do what" page; Permissions::MAP). */
@@ -7941,6 +8058,12 @@ final class Words
         'invoices.view' => 'Look at supplier invoices, credit notes and the deliveries not invoiced yet',
         'invoices.accept' => 'Accept the differences of an invoice that does not match',
         'returns.view' => 'Look at returns to suppliers',
+        // Pack F (PF5)
+        'queues.view' => 'Look at what the stores sent that needs a person',
+        'queues.suspense' => 'Place ERPNext lines the warehouse system could not match',
+        'queues.corrections' => 'Confirm or close ERPNext stock corrections',
+        'queues.modes' => 'Accept or close ERPNext selling-mode changes',
+        'queues.oversell' => 'Handle oversold orders and add notes',
     ];
 
     /** The "Who can do what" page (/ui/reference/access). */
@@ -8755,6 +8878,214 @@ final class Words
         'qty_positive' => 'Units are a whole number above 0.',
     ];
 
+    // ==================================================================================================================
+    // ---- Pack F: Approvals › From the stores, the relay and the alerts (docs/decisions.md PF1-PF14) -----------------
+
+    /** A row of the stores' queues (QueueRules::STATUSES). */
+    public const QUEUE_STATE = [
+        'open' => 'Waiting',
+        'resolved' => 'Done',
+        'dismissed' => 'Closed',
+    ];
+
+    /** The words every queue page of Approvals › From the stores shares. */
+    public const QUEUES = [
+        'show' => 'Show',
+        'all' => 'All',
+        'filter' => 'Show these',
+        'total_one' => 'One row.',
+        'total_many' => '%s rows.',
+        'more' => 'The first %s are shown. Answer these to see the rest.',
+        'note' => 'Note: what you did, or why',
+        'from' => 'From %s',
+        'store_unknown' => 'a store',
+        'someone' => 'someone',
+        'received' => 'Arrived %s.',
+        'closed' => '%s on %s by %s: %s',
+        'closed_cw' => '%s on %s by the warehouse system.',
+        'none_open' => 'Nothing is waiting here.',
+        'none' => 'Nothing matches this filter.',
+        'none_text' => 'Show what is waiting instead.',
+        'show_open' => 'Show what is waiting',
+    ];
+
+    /** What a relayed ERPNext line is (relay_line kinds and goods-in suspense's movement types). */
+    public const RELAY_KIND = [
+        'goods_in' => 'Delivery',
+        'supplier_return' => 'Return to a supplier',
+        'erp_sale' => 'ERPNext sale',
+        'erp_reconciliation' => 'ERPNext correction',
+        'erp_mode' => 'ERPNext selling-mode change',
+    ];
+
+    /** Why a relayed line could not be placed (goods_in_suspense.reason). */
+    public const RELAY_REASON = [
+        'unknown_listing' => 'the store\'s variant is not known here yet',
+        'unlinked_listing' => 'the store\'s variant is not matched to an item',
+        'unknown_erp_item' => 'the ERPNext item is not known here',
+        'unknown_sku' => 'the item is not known here',
+    ];
+
+    /** Approvals › From the stores › Lines to place. */
+    public const SUSPENSE = [
+        'title' => '%s: %s of "%s"',
+        'no_description' => 'no description',
+        'document' => 'ERPNext document %s, line %s.',
+        'variant' => 'variant %s',
+        'erp_item' => 'ERPNext item %s',
+        'names' => 'The store named it: %s.',
+        'why' => 'Why it waits: %s.',
+        'picked' => 'Placed on "%s" (%s).',
+        'pick_legend' => 'Place it on an item',
+        'item' => 'Item code',
+        'item_hint' => 'Like CW-000123. Find the item under Products.',
+        'units' => 'Item units in one unit of this line',
+        'units_hint' => 'Leave 1 unless the line counts packs.',
+        'book' => 'Book it on this item',
+        'book_hint' => 'This books the stock now, in the store\'s warehouse, with the ERPNext document\'s name.',
+        'to_corrections' => 'Send it to the ERPNext corrections',
+        'correction_hint' => 'This books nothing: the correction then waits under ERPNext corrections.',
+        'dismiss_legend' => 'Close it without booking',
+        'dismiss' => 'Nothing to book: close it',
+        'none_open_text' => 'New lines arrive when a store sends an ERPNext document with a product the warehouse system cannot match.',
+    ];
+
+    /** Approvals › From the stores › ERPNext corrections. */
+    public const CORRECTIONS = [
+        'title' => '"%s": ERPNext set %s',
+        'set_at' => 'Set in ERPNext on %s, for %s.',
+        'document' => 'ERPNext document %s.',
+        'then' => 'At that moment the warehouse held %s on the shelf, %s of them for paid orders not sent yet.',
+        'target_for_sale' => 'So the shelf figure ERPNext meant is %s: %s for sale and %s for paid orders.',
+        'target_shelf' => 'So the shelf figure ERPNext meant is %s.',
+        'will_add' => 'Confirming adds %s now.',
+        'will_take' => 'Confirming takes %s off now.',
+        'no_difference' => 'No difference: confirming books nothing.',
+        'not_count' => 'This is not a count: the item keeps the date it was last counted.',
+        'carried' => 'That counts %s from earlier ERPNext corrections of this item confirmed since.',
+        'newer' => 'A newer ERPNext correction of this item was confirmed already, so this one is out of date. Close it.',
+        'answer_legend' => 'Your answer',
+        'confirm' => 'Confirm: set the stock to this figure',
+        'dismiss' => 'Do not use it: close it',
+        'none_open_text' => 'A correction arrives when someone sets a stock figure in ERPNext.',
+    ];
+
+    /** Approvals › From the stores › Mode changes. */
+    public const MODES = [
+        'title' => '"%s": ERPNext set %s',
+        'variant' => 'variant %s',
+        'low_stock' => 'Low-stock level sent: %s.',
+        'cw_now' => 'The warehouse system has %s for this store now.',
+        'cw_none' => 'The warehouse system has no selling mode for this store yet.',
+        'will_mode' => 'Accepting sets %s on %s. The item is not counted yet, so its stock rule stays as it is.',
+        'will_policy' => 'The item is counted and protected, so accepting changes its stock rule to: %s.',
+        'answer_legend' => 'Your answer',
+        'accept' => 'Accept the change',
+        'dismiss' => 'Keep what the warehouse system has',
+        'superseded' => 'Replaced by a newer change from the store.',
+        'none_open_text' => 'A change arrives when someone changes a selling mode in ERPNext and it differs from what the warehouse system has.',
+    ];
+
+    /** Approvals › From the stores › Oversold. */
+    public const OVERSOLD = [
+        'title' => '%s short of "%s"',
+        'order' => 'Order %s, from %s.',
+        'no_order' => 'No order: a stock change left it below zero.',
+        'kind' => 'What happened: %s.',
+        'available' => 'Left for sale after it: %s.',
+        'notes' => 'Notes',
+        'note_by' => '%s, %s: %s',
+        'closed' => 'Handled on %2$s by %3$s (%1$s): %4$s',
+        'handle_legend' => 'Mark it handled',
+        'how' => 'How it was sorted out',
+        'handle' => 'Mark handled',
+        'note_legend' => 'Add a note',
+        'add_note' => 'Add the note',
+        'none_open_text' => 'An order arrives here when a store sells a protected item the warehouse does not have.',
+    ];
+
+    /** How an oversold order happened (oversell_event.kind; Reservations, Stock::flagShortfalls). */
+    public const OVERSELL_KIND = [
+        'commit_short' => 'paid when there was too little stock',
+        'commit_after_expiry' => 'paid after its hold ran out',
+        'outage_order' => 'ordered while the warehouse system could not be reached',
+        'opening_short' => 'an order from before the store was connected',
+        'stopped_sale' => 'sold while the item was stopped',
+        'quarantined_sale' => 'sold from a variant that was set aside',
+        'uncancel_short' => 'a cancelled order put back',
+        'count_short' => 'a count left too little',
+        'reset_short' => 'a dispatch was undone',
+        'adopt_short' => 'a variant was matched with orders on it',
+        'movement_short' => 'a stock change left too little',
+    ];
+
+    /** How an oversold order was sorted out (Oversells::RESOLUTIONS). */
+    public const OVERSELL_RESOLUTION = [
+        'backordered' => 'Sent later, when the stock came',
+        'refunded' => 'Refunded',
+        'no_action' => 'Nothing needed',
+    ];
+
+    /** The notice after an answer on Approvals › From the stores (the item's code where one was picked). */
+    public const QUEUE_NOTICE = [
+        'booked' => 'Booked on %s. The line is done.',
+        'booked_before' => 'This line was already booked on %s. Nothing more was booked.',
+        'sent_to_corrections' => 'Placed on %s. The correction now waits under ERPNext corrections.',
+        'closed' => 'Closed. Nothing was booked.',
+        'confirmed' => 'Confirmed. The difference is booked.',
+        'confirmed_nothing' => 'Confirmed. There was no difference, so nothing was booked.',
+        'confirmed_before' => 'This correction was already confirmed. Nothing more was booked.',
+        'accepted_mode' => 'Accepted. The store\'s selling mode is changed in the warehouse system.',
+        'accepted_policy' => 'Accepted. The item\'s stock rule is changed.',
+        'kept' => 'Closed. The warehouse system keeps what it had.',
+        'handled' => 'Marked handled.',
+        'noted' => 'The note is added.',
+    ];
+
+    /** A refused answer on Approvals › From the stores, by error code (the service's message otherwise: `other`). */
+    public const QUEUE_ERROR = [
+        'note_required' => 'Write a note of 3 to 500 characters: what you did, or why. Nothing was saved.',
+        'queue_settled' => 'Someone already answered this one. Nothing more was saved.',
+        'unknown_queue_row' => 'This row is not in the list any more. Nothing was saved.',
+        'unknown_item' => 'There is no item with that code. Check it under Products. Nothing was booked.',
+        'merged_item' => 'That item was joined into another one. Use the other item\'s code. Nothing was booked.',
+        'bad_item' => 'Type the item\'s code, like CW-000123. Nothing was booked.',
+        'bad_units' => 'Type how many of the item\'s units one unit of the line is: a whole number from 1. Nothing was booked.',
+        'role_not_allowed' => 'Your jobs do not allow this answer. Nothing was saved.',
+        'staff_required' => 'Only a person can answer this. Nothing was saved.',
+        'idempotency_key_reused' => 'This line was already booked on another item. Nothing more was booked.',
+        'out_of_range' => 'The figure is too big to book. Nothing was booked.',
+        'protected_item' => 'The item was counted meanwhile, so its stock rule decides now. Look at it again. Nothing was saved.',
+        'not_matched' => 'This change names no item. Close it. Nothing was saved.',
+        'newer_correction' => 'A newer ERPNext correction of this item was confirmed already. Close this one. Nothing was booked.',
+        'bad_field' => 'Choose how it was sorted out. Nothing was saved.',
+        'other' => 'This did not work: %s. Nothing was saved.',
+    ];
+
+    /** The alerts to a person (bin/health_alert.php, Ops\AlertDispatch): the message's lines. */
+    public const ALERT = [
+        'subject' => 'Warehouse system: %s to look at (%s)',
+        'subject_clear' => 'Warehouse system: back to normal (%2$s)',
+        'intro' => 'The warehouse system (%s) found this:',
+        'footer' => 'Sent by the warehouse system. The limits are on Settings, under Alerts.',
+        'heartbeat_late' => '%s has not reported for %s (the limit is %s seconds).',
+        'heartbeat_never' => '%s is switched on but has never reported.',
+        'outbox_deep' => '%s has %s messages waiting to reach the warehouse system (the limit is %s).',
+        'outbox_old' => '%s has a message that has waited %s (the limit is %s seconds).',
+        'dead_letters' => '%s has %s messages that failed for good (the limit is %s).',
+        'feed_lag' => '%s is %s behind the warehouse system\'s stock changes (the limit is %s seconds).',
+        'mode_mismatch' => '%s runs as %s, but the warehouse system has it as %s. The lower one applies.',
+        'answer_slow' => 'The warehouse system took %s milliseconds to answer (the middle of %s tries; the limit is %s).',
+        'answer_failed' => 'The warehouse system could not reach its database for the answer-time check.',
+        'invariants_failed' => 'The last nightly safety check found %s problems.',
+        'invariants_stale' => 'No nightly safety check has finished for %s hours.',
+        'cleared' => 'Back to normal: %s',
+        'seconds' => '%s seconds',
+        'minutes' => '%s minutes',
+        'hours' => '%s hours',
+    ];
+    // ---- end of pack F --------------------------------------------------------------------------------------------
+
     public const TONES = ['needs', 'done', 'waiting', 'blocked', 'info', 'off', 'review'];
 
     /** group => code => tone; a code not listed is `info`. */
@@ -8801,6 +9132,8 @@ final class Words
         'MATCH_STATE' => ['matched' => 'done', 'within_tolerance' => 'info', 'needs_review' => 'needs', 'accepted' => 'review'],
         'MATCH_LINE' => ['matched' => 'done', 'within' => 'info', 'off' => 'needs'],
         'CREDIT_STATE' => ['open' => 'needs', 'part' => 'waiting', 'credited' => 'done'],
+        // Pack F (PF5): waiting orange, done green, closed grey.
+        'QUEUE_STATE' => ['open' => 'needs', 'resolved' => 'done', 'dismissed' => 'off'],
     ];
 
     // ==================================================================================================================

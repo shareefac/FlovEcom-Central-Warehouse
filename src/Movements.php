@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CW;
 
+use CW\Relay\RelayLines;
+
 /**
  * Stock movements that are not sales (plan §3 POST /v1/movements, §8.2, §9):
  *
@@ -21,7 +23,9 @@ namespace CW;
  * goods_in_suspense (deduplicated by document + line index); for the other types an
  * unresolved line refuses the whole call (422, nothing booked).
  *
- * Idempotent per (channel or source, Idempotency-Key) through Idempotency.
+ * Idempotent per (channel or source, Idempotency-Key) through Idempotency; a store's goods_in / supplier_return / erp_sale lines are
+ * also booked once per document + line whatever the key (relay_line, pack F PF1: a line sent again answers `already_recorded`, or
+ * `conflict` with other content). bookInTransaction() books one movement for a person working the stores' queues (PF6, PF7).
  *
  * Who may send what (R17): a site (channel caller) may send only the ERP-relay types
  * (CHANNEL_TYPES) that its channel.movement_types grants (none by default): 403 otherwise.
@@ -98,14 +102,103 @@ final class Movements
                     // After the idempotency lookup, so a stored answer is still replayed (R5).
                     Clock::checkWindow($mv['counted_at'], 'counted_at', $this->now(), $mv['backdated'] ? self::BACKDATED_MAX_AGE_SEC : self::COUNT_MAX_AGE_SEC);
                 }
+                // Pack F (PF1): a store's relayed document line is booked once per document + line, whatever key it comes under. The
+                // claims are taken here, after the key and before any stock lock; a line sent before answers what became of it.
+                $relay = $caller->isChannel() && in_array($mv['type'], self::SUSPENSE, true) ? new RelayLines($db) : null;
+                $earlier = [];
+                if ($relay !== null) {
+                    $byIndex = $mv['lines'];
+                    usort($byIndex, static fn (array $a, array $b): int => $a['line_index'] <=> $b['line_index']);
+                    $fresh = [];
+                    foreach ($byIndex as $line) {
+                        $seen = $relay->claim($caller, $mv['type'], (string) $mv['doc_ref'], $line, $idemKey);
+                        if ($seen === null) {
+                            $fresh[(int) $line['line_index']] = true;
+                        } else {
+                            $earlier[] = $seen;
+                        }
+                    }
+                    $mv['lines'] = array_values(array_filter($mv['lines'], static fn (array $l): bool => isset($fresh[(int) $l['line_index']])));
+                    if ($mv['lines'] === []) {
+                        return OpResult::of(200, ['result' => 'recorded', 'type' => $mv['type'], 'doc_ref' => $mv['doc_ref'], 'lines' => $earlier]);
+                    }
+                }
                 $booked = $this->book($caller, [$mv], $idemKey, null, true);
                 if ($booked['unresolved'] !== []) {
                     $bad = array_map(static fn (array $u): array => ['line_index' => $u['line_index'], 'reason' => $u['reason']], $booked['unresolved']);
                     return OpResult::of(422, ['error' => 'unresolved_line', 'type' => $mv['type'], 'lines' => $bad]);
                 }
-                return OpResult::of(200, ['result' => 'recorded', 'type' => $mv['type'], 'doc_ref' => $mv['doc_ref'], 'lines' => $booked['movements'][0]['lines']]);
+                $lines = $booked['movements'][0]['lines'];
+                if ($relay !== null) {
+                    foreach ($lines as $l) {
+                        $idx = (int) $l['line_index'];
+                        if ($l['result'] === 'booked') {
+                            $sku = (int) $db->value('SELECT id FROM sku WHERE code = ?', [$l['sku_code']]);
+                            $relay->settle($caller, $mv['type'], (string) $mv['doc_ref'], $idx, 'booked', $sku, (int) $l['delta']);
+                        } else {
+                            $queue = $db->value('SELECT id FROM goods_in_suspense WHERE dedupe_key = ?', [self::suspenseKey($mv['type'], (string) $mv['doc_ref'], $idx)]);
+                            $relay->settle($caller, $mv['type'], (string) $mv['doc_ref'], $idx, 'suspense', null, null, $queue === null ? null : (int) $queue,
+                                (string) ($l['reason'] ?? ''));
+                        }
+                    }
+                    $lines = [...$lines, ...$earlier];
+                    usort($lines, static fn (array $a, array $b): int => $a['line_index'] <=> $b['line_index']);
+                }
+                return OpResult::of(200, ['result' => 'recorded', 'type' => $mv['type'], 'doc_ref' => $mv['doc_ref'], 'lines' => $lines]);
             },
         );
+    }
+
+    /**
+     * Books ONE movement inside the caller's transaction for a person working the stores' queues (pack F; docs/decisions.md PF6, PF7): a
+     * relayed line CW could not place, booked on the item the person picked (goods_in, supplier_return, erp_sale, with the ERPNext
+     * document's name), or a confirmed ERPNext correction (an adjustment). The same checks and the same booking as record() (one lock(),
+     * one flush()), in the caller's transaction and with no idempotency row of its own: the queue action's key and its row's status make
+     * it happen once. Staff only (403 staff_only); a line CW does not know refuses the whole call (422 unresolved_line, nothing booked).
+     *
+     * @param array<string, mixed> $req as record() takes it
+     * @return list<array<string, mixed>> record()'s per-line results
+     */
+    public function bookInTransaction(Caller $caller, array $req, string $opKey): array
+    {
+        if (!$this->db->inTransaction()) {
+            throw new \LogicException('bookInTransaction() runs inside the transaction of the queue action');
+        }
+        if ($caller->isChannel()) {
+            throw new CwException('staff_only', 'the stores\' queues are worked by staff', 403);
+        }
+        Idempotency::checkKey($opKey);
+        $mv = $this->prepare($caller, $req, false);
+        if (!in_array($mv['type'], [...self::SUSPENSE, 'adjustment'], true)) {
+            throw new \InvalidArgumentException("a queue action books goods_in, supplier_return, erp_sale or adjustment, not {$mv['type']}");
+        }
+        $booked = $this->book($caller, [$mv], $opKey, null, false);
+        if ($booked['unresolved'] !== []) {
+            throw new CwException('unresolved_line', 'the line names an item CW does not know: nothing was booked', 422,
+                ['lines' => array_map(static fn (array $u): array => ['line_index' => $u['line_index'], 'reason' => $u['reason']], $booked['unresolved'])]);
+        }
+        return $booked['movements'][0]['lines'];
+    }
+
+    /**
+     * The goods-in suspense key of a relayed line (D17: the document name + the line index, §9). Readable when it fits the column;
+     * otherwise a hash of the whole tuple (review finding 2 of 14 Oct 2026: cutting a 191-byte document name dropped the line, so two
+     * lines of one document shared a key and the second line was lost).
+     */
+    public static function suspenseKey(string $type, string $docRef, int $lineIndex): string
+    {
+        return self::queueKey("{$type}:{$docRef}#{$lineIndex}", "{$type}:#", [$type, $docRef, (string) $lineIndex]);
+    }
+
+    /**
+     * A queue row's dedupe key (191 bytes at most): $readable when it fits, else $prefix and the sha256 of every part (never a cut:
+     * a cut key can make two different lines one).
+     *
+     * @param list<string> $parts
+     */
+    public static function queueKey(string $readable, string $prefix, array $parts): string
+    {
+        return strlen($readable) <= 191 ? $readable : $prefix . hash('sha256', implode("\0", $parts));
     }
 
     /**
@@ -452,8 +545,7 @@ final class Movements
             . 'ON DUPLICATE KEY UPDATE id = id',
             [$caller->isChannel() ? 'erp_relay' : 'cw_screen', $caller->channelId, $mv['doc_type'] ?? $type, $mv['doc_ref'], $line['line_index'], $type,
                 $sign * abs($line['qty']), $line['variant_id'] ?? null, $line['erp_item_code'] ?? null, $line['barcode'] ?? null,
-                $line['description'] ?? null, $reason, Idempotency::json($line),
-                mb_strcut("{$type}:{$mv['doc_ref']}#{$line['line_index']}", 0, 191, 'UTF-8')],
+                $line['description'] ?? null, $reason, Idempotency::json($line), self::suspenseKey($type, (string) $mv['doc_ref'], (int) $line['line_index'])],
         );
         return ['line_index' => $line['line_index'], 'result' => 'suspense', 'reason' => $reason];
     }

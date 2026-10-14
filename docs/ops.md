@@ -2531,3 +2531,31 @@ Settings › Users first (an admin never counts).
 **If something looks wrong.** A sheet that will not become final says why on the page (a line moved, a line counted more than 90 days
 ago, the sheet changed in another tab, too many count times). If the nightly check reports a `count sheet` line or a put back after a
 later count (C1–C6), tell Fazil: it is not fixed from a screen.
+
+## Going live, the CW side: the stores' queues, the relay, alerts, clean-up (pack F; `docs/decisions.md` PF1–PF14)
+
+**Deploy.** With its code and ONE migration, `0036_golive_queues_alerts.sql` (`install_cron.sh --migrate`): three new tables
+(`relay_line`, `queue_note`, `alert_state`; online, nothing existing is altered), 21 settings with their baselines, and the four queue
+tables become no-delete for `cw_app` (the migrator converges the grants). The cron gains `health_alert.php` (every 2 minutes) and
+`housekeeping.php` (03:37). After it: `php bin/migrate.php --status --db=cw_staging` lists 0036; `php bin/invariants.php --db=cw_staging`
+says ok; `php bin/health_alert.php --db=cw_staging --no-send` prints the stores' state (on staging a store in watching or live that
+does not report is listed: expected). Nothing is sent until an alert address is set.
+
+**Alerts.** Settings › System › Settings, topic "Alerts": fill in `alerts.webhook_url` (an https incoming address of a chat channel on a
+public server; the screens show only "https://server/…", and saving the form unchanged keeps it) and/or `alerts.email_to` (the CW server needs a mail transfer agent for
+e-mail; staging has none set up: the run log then says "could not send to the e-mail"). Test: set the address, then on the CW server
+`php bin/health_alert.php --db=cw_staging --stale-after=1` with a store in watching or live: one message arrives; run it again within
+`alerts.repeat_minutes`: nothing more. The log is `/var/log/cw/health_alert.log` (one line per problem; exit 1 = problems).
+
+**The relay permission.** `php bin/channel_set.php --code=vapeandgo --relay=on --actor="<name>"` (a dry run; add `--apply`), `--relay=off`
+ends it (CW then answers 403 to every relayed ERPNext message and stores nothing; the store keeps them). The Stores page shows what each
+store's relay may send. Switch night's S2 ("the relay permission is given back on CW") is `--relay=on --apply`.
+
+**The queues (Approvals › From the stores).** Lines to place: type the item's code (and the units of one line unit when the document counts
+packs) and a note, then "Book it on this item"; a relayed correction goes on to ERPNext corrections instead. ERPNext corrections: the card
+says what the warehouse held when ERPNext set the figure and what confirming books now; confirm or close, with a note (it is not a count).
+Mode changes: accept (a not-counted item: the store's selling mode; a protected item: its stock rule) or keep CW's, with a note. Oversold:
+add notes as you go, then mark it handled with how. A second answer to the same row is refused and says so.
+
+**Clean-up.** `/var/log/cw/housekeeping.log`: one line per table, `removed=` and the cut-off. The audit log line always says "kept" (the
+app login cannot delete audit rows; 7 years at the least). A run that did not finish says so and goes on the next night.

@@ -24,7 +24,9 @@ final class UiSecurityTest extends UiTestCase
         '/ui/stock/counts/1/differences',
         '/ui/review/products', '/ui/review/products.csv', '/ui/review/products/1/map?channel=vpg', '/ui/review/new-variants', '/ui/review/new-variants.csv',
         '/ui/review/store', '/ui/review/batches/1',
-        '/ui/stock/sales', '/ui/stock/sales.csv', '/ui/stock/sales/1', '/ui/stock/sales/dispatch', '/ui/stock/sales/returns', '/ui/stock/sales/returns.csv']; // the last six: pack D
+        '/ui/stock/sales', '/ui/stock/sales.csv', '/ui/stock/sales/1', '/ui/stock/sales/dispatch', '/ui/stock/sales/returns', '/ui/stock/sales/returns.csv', // the last six: pack D
+        // Pack F (PF5): Approvals › From the stores
+        '/ui/queues/suspense', '/ui/queues/corrections', '/ui/queues/modes', '/ui/queues/oversold?status=all'];
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw', '/ui/review/bulk',
         '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',
         '/ui/review/duplicates/1/decide', '/ui/review/duplicates/1/split', '/ui/items/1/card', '/ui/items/1/card/accept', '/ui/items/1/card/confirm',
@@ -35,7 +37,10 @@ final class UiSecurityTest extends UiTestCase
         '/ui/stock/accounts/1/payments', '/ui/stock/accounts/payments/1/reverse', '/ui/review/products/bulk', '/ui/review/products/bulk/apply',
         '/ui/stock/counts', '/ui/stock/counts/1/lines', '/ui/stock/counts/1/scan', '/ui/stock/counts/1/add', '/ui/stock/counts/1/upload', '/ui/stock/counts/1/recount',
         '/ui/stock/counts/1/as-counted', '/ui/stock/counts/1/post', '/ui/stock/counts/1/cancel', '/ui/stock/counts/1/reverse',
-        '/ui/stock/counts/differences/line/1/1', '/ui/stock/counts/differences/review/1'];
+        '/ui/stock/counts/differences/line/1/1', '/ui/stock/counts/differences/review/1',
+        // Pack F (PF5)
+        '/ui/queues/suspense/1/pick', '/ui/queues/suspense/1/dismiss', '/ui/queues/corrections/1/confirm', '/ui/queues/corrections/1/dismiss',
+        '/ui/queues/modes/1/accept', '/ui/queues/modes/1/dismiss', '/ui/queues/oversold/1/handle', '/ui/queues/oversold/1/note'];
 
     public function testEveryScreenNeedsASignIn(): void
     {

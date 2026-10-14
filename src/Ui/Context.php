@@ -321,6 +321,20 @@ final class Context
         if ($this->who !== null && ($this->who->can('doc.SINV.post') || $this->who->can('invoices.accept'))) {
             $out['invoices_to_match'] = $this->supplierInvoices()->toMatchCount();
         }
+        // ---- Pack F (docs/decisions.md PF5): Approvals › From the stores, for the people who may answer each queue. ----
+        if ($this->who !== null && $this->who->can('queues.suspense')) {
+            $out['queue_suspense'] = (new \CW\Queues\Suspense($this->db))->openCount();
+        }
+        if ($this->who !== null && $this->who->can('queues.corrections')) {
+            $out['queue_corrections'] = (new \CW\Queues\Corrections($this->db))->openCount();
+        }
+        if ($this->who !== null && $this->who->can('queues.modes')) {
+            $out['queue_modes'] = (new \CW\Queues\ModeChanges($this->db))->openCount();
+        }
+        if ($this->who !== null && $this->who->can('queues.oversell')) {
+            $out['queue_oversold'] = (new \CW\Queues\Oversells($this->db))->openCount();
+        }
+        // ---- end of pack F ----
         $checks = $this->checks();
         if ($checks !== null) {
             $out['reviews_open'] = $checks['approval'] + $checks['review'];

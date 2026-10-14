@@ -41,6 +41,7 @@ final class Sites
         $out = [];
         foreach ($this->db->all(
             'SELECT c.id, c.code, c.name, CAST(c.mode AS CHAR) AS mode, c.site_writer, c.api_key_hash IS NOT NULL AS has_key, JSON_LENGTH(c.allowed_ips) AS ips, '
+            . 'CAST(c.movement_types AS CHAR) AS relay, '
             . 'h.received_at, CAST(h.site_mode AS CHAR) AS site_mode, h.outbox_depth, h.outbox_oldest_age_sec, h.dead_letters, h.last_seq, h.connector_version, '
             . 'TIMESTAMPDIFF(SECOND, h.received_at, ?) AS age, sc.created_at AS applied_at '
             . 'FROM channel c LEFT JOIN channel_health h ON h.id = (SELECT MAX(h2.id) FROM channel_health h2 WHERE h2.channel_id = c.id) '
@@ -66,9 +67,19 @@ final class Sites
                 'warehouses' => ['selling' => $wh[$id]['selling'] ?? [], 'other' => $wh[$id]['other'] ?? []],
                 'writer' => (int) $r['site_writer'] === 1, 'writer_live' => (int) $r['site_writer'] === 1 && $mode === 'live',
                 'has_key' => (int) $r['has_key'] === 1, 'ips' => (int) ($r['ips'] ?? 0),
+                // Pack F (PF4): what the store's ERPNext relay may send (channel.movement_types), in ChannelAdmin::RELAY_GRANTS order.
+                'relay' => self::relay((string) ($r['relay'] ?? '[]')),
             ];
         }
         return $out;
+    }
+
+    /** @return list<string> the relay grants a channel holds, in ChannelAdmin::RELAY_GRANTS order (unknown values left out) */
+    public static function relay(string $json): array
+    {
+        $g = json_decode($json, true);
+        $g = is_array($g) ? $g : [];
+        return array_values(array_filter(\CW\ChannelAdmin::RELAY_GRANTS, static fn (string $k): bool => in_array($k, $g, true)));
     }
 
     /**
@@ -77,7 +88,7 @@ final class Sites
      * details of the page only (the screens never tell staff to run a command: writing rule 12; the owner's 8 Oct instruction for
      * this page). Pure.
      *
-     * @param array{code: string, mode: string, writer: bool} $site
+     * @param array{code: string, mode: string, writer: bool, relay?: list<string>} $site
      * @return list<array{what: string, command: string}>
      */
     public static function commands(array $site): array
@@ -95,6 +106,8 @@ final class Sites
             ['what' => 'ips', 'command' => "{$base} --ips=<address>[,<address>/24] --apply"],
             ['what' => 'warehouse', 'command' => "{$base} --warehouse=<WAREHOUSE CODE> --actor=\"<your name>\"   # dry run; add --apply to move it"],
             ['what' => 'key', 'command' => 'php bin/rotate_key.php --code=' . $code],
+            // Pack F (PF4): give or end the store's ERPNext relay (R17's "SQL for now").
+            ['what' => 'relay', 'command' => "{$base} --relay=" . (($site['relay'] ?? []) === [] ? 'on' : 'off') . ' --actor="<your name>"   # dry run; add --apply to change it'],
             ['what' => 'health', 'command' => 'php bin/health_alert.php'],
         ];
     }
