@@ -7,7 +7,8 @@
 #                              install_file_store.sh has made /srv/cw-docs), the check on arrival (every 10 minutes;
 #                              it does nothing until a store is named in the setting mapping.arrival_stores), the alerts to a
 #                              person (every 2 minutes; nothing is sent until alerts.webhook_url or alerts.email_to is set) and
-#                              the nightly clean-up of stored answers and heartbeats (pack F, docs/decisions.md PF10-PF12)
+#                              the nightly clean-up of stored answers and heartbeats (pack F, docs/decisions.md PF10-PF12), and the report job (every
+#                              15 minutes; pack E: it writes only the reports' own tables)
 #   /etc/logrotate.d/cw-staging, /var/log/cw/
 # Then runs every job once, as cron will (app login), and prints what they said.
 # Run from this machine (remote.sh syncs the slot first, then this copies the slot):
@@ -69,8 +70,9 @@ say "installed /etc/cron.d/cw-staging, /etc/logrotate.d/cw-staging, /var/log/cw"
 # 4. Smoke: each job once, exactly as cron runs it.
 fail=0
 # (check_arrivals.php in its dry-run form: it reads and prints, and writes nothing, whatever the setting names)
-# (health_alert.php --no-send: the smoke checks and prints, and records or sends nothing; housekeeping.php --dry-run counts only)
-for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "check_arrivals.php" "health_alert.php --no-send" "housekeeping.php --dry-run"; do
+# (health_alert.php --no-send: the smoke checks and prints, and records or sends nothing; housekeeping.php --dry-run counts only;
+#  refresh_reports.php --status: it reads how far the reports are and writes nothing, the timer's first run does the work)
+for job in "expire_reservations.php" "prune_changes.php --dry-run" "invariants.php" "check_arrivals.php" "refresh_reports.php --status" "health_alert.php --no-send" "housekeeping.php --dry-run"; do
     set +e
     out=$(php bin/$job --db="$schema" 2>&1)
     code=$?

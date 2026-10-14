@@ -145,9 +145,13 @@ final class Sections
                 'new' => ['perm' => 'suppliers.manage', 'href' => '/ui/purchasing/suppliers/new', 'label' => 'suppliers']]]],
         ]],
         'reports' => ['tabs' => [
-            'stock_by_store' => ['soon' => true],
-            'sales_by_store' => ['soon' => true],
-            'low_stock' => ['soon' => true],
+            // ---- Pack E (docs/decisions.md PE1): the reports, read only, each with its CSV; Stock Value is money (values.view).
+            'stock_by_store' => ['pages' => [['perm' => 'reports.view', 'path' => '/ui/reports/stock-by-store', 'match' => ['/ui/reports/stock-by-store*']]]],
+            'sales_by_store' => ['pages' => [['perm' => 'reports.view', 'path' => '/ui/reports/sales-by-store', 'match' => ['/ui/reports/sales-by-store*']]]],
+            'low_stock' => ['pages' => [['perm' => 'reports.view', 'path' => '/ui/reports/low-stock', 'match' => ['/ui/reports/low-stock*']]]],
+            'stock_value' => ['pages' => [['perm' => 'values.view', 'path' => '/ui/reports/stock-value', 'match' => ['/ui/reports/stock-value*']]]],
+            'slow_stock' => ['pages' => [['perm' => 'reports.view', 'path' => '/ui/reports/slow-stock', 'match' => ['/ui/reports/slow-stock*']]]],
+            // ---- end Pack E
             'audit' => ['pages' => [['perm' => 'audit.view', 'path' => '/ui/system/audit', 'match' => ['/ui/system/audit*']]]],
         ]],
         'approvals' => ['tabs' => [

@@ -37,6 +37,7 @@ use CW\Ui\Controller\ReasonsController;
 use CW\Ui\Controller\ReceivingController;
 use CW\Ui\Controller\ReferenceController;
 use CW\Ui\Controller\ReorderController;
+use CW\Ui\Controller\ReportsController;
 use CW\Ui\Controller\ReservationsController;
 use CW\Ui\Controller\SalesController; // pack D
 use CW\Ui\Controller\DispatchController; // pack D
@@ -182,6 +183,8 @@ final class Kernel
         [$route, $params] = $this->router()->match($req->method, $req->path);
         try {
             $db = ($this->connect)();
+            // Pack E (PE2): the permission map in force (role_permission), read like the roles, on every request.
+            \CW\Auth\RoleMap::load($db);
             $key = ($this->secretKey)();
             if ($key === null || $key === '') {
                 ($this->log)("{$rid} ui_secret_key is not set in app.env (run bin/create_staff.php or deploy/staging/install_ui.sh)");
@@ -500,7 +503,17 @@ final class Kernel
         $r->add('POST', '/ui/reference/warehouses', 'settings.manage', $warehouses->add(...));
         $r->add('GET', '/ui/reference/warehouses/{id}', 'reference.view', $warehouses->show(...));
         $r->add('POST', '/ui/reference/warehouses/{id}', 'settings.manage', $warehouses->change(...));
-        $r->add('GET', '/ui/reference/access', 'reference.view', (new AccessController())->index(...));
+        $access = new AccessController();
+        $r->add('GET', '/ui/reference/access', 'reference.view', $access->index(...));
+        // ---- Pack E (PE2-PE8): which jobs can do a task, changed by an admin or a reviewer (Admin\RolePermissions re-checks every rule).
+        $r->add('POST', '/ui/reference/access', 'settings.manage', $access->save(...));
+        // ---- Pack E (PE1, PE8-PE11): the Reports tabs, read only (each also as a CSV of what the page lists).
+        $reports = new ReportsController();
+        foreach (ReportsController::PAGES as $slug => $perm) {
+            $r->add('GET', '/ui/reports/' . $slug, $perm, $reports->page(...));
+            $r->add('GET', '/ui/reports/' . $slug . '.csv', $perm, $reports->csv(...));
+        }
+        // ---- end Pack E
         $system = new SystemController();
         $r->add('GET', '/ui/system/sites', 'system.view', $system->sites(...));
         $r->add('GET', '/ui/system/checks', 'system.view', $system->checks(...));

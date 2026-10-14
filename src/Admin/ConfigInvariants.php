@@ -16,7 +16,7 @@ use CW\Db;
  *  K2. every row that has a history equals its latest version (the tracked fields, ConfigHistory::TRACKED), and every subject with
  *      a history still exists (nothing is ever deleted, Q9).
  *  K3. who: a version made by a person (`staff:<id>`) names that person in staff_user_id; one made by a job names nobody.
- *  K4. every live configuration row (setting, reason, kind of record, warehouse, place) has a history (review finding M8): the app
+ *  K4. every live configuration row (setting, reason, kind of record, warehouse, place, permission) has a history (review finding M8): the app
  *      login may INSERT warehouses, places and reasons, so a row added around the services (with no `add` version) is found; a
  *      migration that adds one writes its baseline (docs/dev.md rule 5).
  */
@@ -132,6 +132,9 @@ final class ConfigInvariants
             'warehouse' => 'SELECT code AS k, code, name, is_sellable, is_active, CAST(stock_owner AS CHAR) AS stock_owner, owner_entity, is_system, note FROM warehouse',
             'location' => "SELECT CONCAT(w.code, '/', l.code) AS k, w.code AS warehouse, l.code, l.name, l.is_active, l.note FROM warehouse_location l "
                 . 'JOIN warehouse w ON w.id = l.warehouse_id',
+            // A schema of before 0034 has no role_permission (the migration tests check older schemas): no rows of that type to compare.
+            'permission' => $db->value("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'role_permission'") === null
+                ? null : 'SELECT permission AS k, roles FROM role_permission',
             default => null,
         };
         if ($sql === null) {

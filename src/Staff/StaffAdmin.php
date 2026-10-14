@@ -307,7 +307,7 @@ final class StaffAdmin
                 . "totp_state, is_active) VALUES (?, ?, ?, ?, 0, NOW(6) + INTERVAL ? HOUR, ?, ?, 'signup', 1)",
                 [mb_substr($email, 0, 64), $name, $email, $hash, $hours, SetupCode::hash($code), $enc],
             );
-            $now = RoleRequests::applies($db, $caller, $roles) ? array_values(array_diff($roles, \CW\Admin\ApprovalRules::GUARDED_ROLES)) : $roles;
+            $now = RoleRequests::applies($db, $caller, $roles) ? array_values(array_diff($roles, \CW\Admin\ApprovalRules::guardedRoles($db))) : $roles;
             foreach ($now as $role) {
                 $db->exec('INSERT INTO staff_role (staff_user_id, role, granted_by) VALUES (?, ?, ?)', [$id, $role, $caller->staffUserId]);
             }

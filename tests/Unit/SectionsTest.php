@@ -211,8 +211,9 @@ final class SectionsTest extends TestCase
             }
             return [];
         };
-        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], $sections(['buyer']));
-        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], $sections(['purchasing_desk']));
+        // Pack E (PE1): the store reports are for buyers and the desk too (reports.view).
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], $sections(['buyer']));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], $sections(['purchasing_desk']));
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], $sections(['reviewer']));
         self::assertSame(['Reorder', 'Purchase Orders', 'Invoices', 'Returns', 'Suppliers'], $tabs(['buyer'], 'purchasing'));
         self::assertSame(['Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], $tabs(['purchasing_desk'], 'purchasing'), 'no Reorder for the desk');
@@ -343,7 +344,7 @@ final class SectionsTest extends TestCase
         self::assertSame('Products', $f['pagebar']['label']);
         self::assertSame([], array_filter(array_column($f['pagebar']['tabs'], 'current')));
         self::assertSame([], $f['segments']);
-        self::assertNull(Sections::frame(['buyer'], [], '/ui/system/audit')['pagebar'], 'no Reports for a buyer: no page bar');
+        self::assertNull(Sections::frame(['mapper'], [], '/ui/system/audit')['pagebar'], 'no Reports for a matcher: no page bar');
 
         // Admin's phone bar: no Purchasing, so the next sections it has.
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Reports', 'More'], array_column(Sections::frame(['admin'], [], '/ui/')['phone'], 'label'));

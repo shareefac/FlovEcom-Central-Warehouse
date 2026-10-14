@@ -122,6 +122,7 @@ final class ConfigWords
             'warehouse' => ['name' => Words::WAREHOUSES['wh_name'], 'note' => Words::WAREHOUSES['note'], 'is_sellable' => Words::WAREHOUSES['sold_from'],
                 'stock_owner' => Words::WAREHOUSES['owner'], 'owner_entity' => Words::WAREHOUSES['owner_name'], 'is_active' => Words::WAREHOUSES['status']],
             'location' => ['name' => Words::WAREHOUSES['place_name'], 'note' => Words::WAREHOUSES['note'], 'is_active' => Words::WAREHOUSES['status']],
+            'permission' => ['roles' => Words::ROLES_EDIT['jobs']], // Pack E
             default => throw new CwException('unknown_type', "no words for {$type}", 500),
         };
     }
@@ -148,6 +149,11 @@ final class ConfigWords
         if ($type === 'reason' && $field === 'applies_to') {
             $uses = array_values(array_filter(explode(',', (string) $v), static fn (string $u): bool => $u !== ''));
             return $uses === [] ? Words::CONFIG['not_set'] : ucfirst(implode(', ', array_map(static fn (string $u): string => Words::of('REASON_USE', $u), $uses)));
+        }
+        if ($type === 'permission' && $field === 'roles') {
+            // Pack E: the jobs that hold a permission, by their names ("Buyers, Purchasing managers"), or "Nobody".
+            $jobs = array_values(array_filter(explode(',', (string) $v), static fn (string $r): bool => $r !== ''));
+            return $jobs === [] ? Words::ROLES_EDIT['none'] : implode(', ', array_map(static fn (string $r): string => Words::of('ROLE_PLURAL', $r), $jobs));
         }
         if ($type === 'warehouse' && $field === 'stock_owner') {
             return Words::WAREHOUSES[(string) $v === 'other' ? 'owner_other' : 'owner_ours'];

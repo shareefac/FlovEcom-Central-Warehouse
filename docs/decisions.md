@@ -9344,3 +9344,151 @@ testANewerChangeThatChangesNothingClosesTheOlderRequest, testAnOlderChangeArrivi
 testItemOnlyChangesOfTwoStoresStayApart}`, `AlertsTest::{testABackToNormalThatFailedIsSentOnTheNextRun,
 testTheWebAddressIsNeverShownOrKeptInHistory}`, `StoreQueuesScreensTest::testTheSettingsPagesNeverShowTheWebAddressWhole`,
 `GoLiveQueuesUnitTest::testTheWebAddressMustLeadToAPublicServer`, `HousekeepingTest::testTheTimeLimitIsCheckedBeforeEveryChunk`.
+
+
+
+<!-- ==== Pack E (worktree cw-packe, branch pack-e; migration 0034, may be renumbered at merge) ==== -->
+## Pack E: Reports, and who can do what changed on the screen (slot `packe`, 14 Oct 2026)
+
+The owner's module list of 8 Oct 2026: "Reports & Analytics: Stock by Store, Sales by Store, Low Stock (threshold setting), stock value,
+slow / dead stock"; "Inventory Valuation: stock value report (average cost, £)"; "Inventory Settings: an editable Roles and permissions
+screen". Code: `migrations/0034_reports_roles.sql`; `src/Auth/{Permissions,RoleMap}.php`, `src/Admin/RolePermissions.php`;
+`src/Reports/{ReportRefresh,ReportViews}.php`, `bin/refresh_reports.php`, `deploy/staging/cw-staging.cron`;
+`src/Ui/Controller/{ReportsController,AccessController}.php`, views `report_{store,sales,low,value,slow}`, `access_permission`, `access`;
+the marked blocks of `Words`, `Settings`, `Sections`, `Permissions`. Tests: `tests/Unit/{RoleMapTest,ReportsUnitTest}.php`,
+`tests/Integration/Admin/RolePermissionsTest.php`, `tests/Integration/Reports/ReportRefreshTest.php`,
+`tests/Integration/UiKernel/{RolesScreenTest,ReportsScreenTest}.php`; `tests/perf/report_explain.php` (EXPLAIN on a filled schema).
+Every decision below is a build decision put to the owner, not the owner's.
+
+**PE1. Two new permissions, both read only.** `reports.view` (Stock by Store, Sales by Store, Low Stock, Slow Stock: stock and sales
+figures, no money): warehouse, manager, buyer, purchasing_manager, goods_in, purchasing_desk, stock_controller, reviewer, accountant,
+auditor. `values.view` (Stock Value: pounds): purchasing_manager, reviewer, accountant, auditor; Slow Stock shows its value column only to
+them. Never admin (I12: admin manages people), never the matching-only jobs. The five reports are tabs of the existing Reports section,
+before the Audit Log, each a GET page and the same list as a CSV (`/ui/reports/<page>.csv`, the CsvWriter's safe cells); no POST route.
+
+**PE2. Who holds each permission is kept in the database.** `role_permission`, one row per permission, the jobs in `Permissions::ROLES`
+order, comma-separated; 0034 seeds it from `Permissions::MAP` exactly as the code had it (RoleMapTest holds the seed and the code
+together), so nothing changes on deploy. It is read on every /ui request (`Auth\RoleMap::load` in `Ui\Kernel`, before the session's
+roles are checked) and again wherever a service re-reads a person's roles inside its transaction (`Staff\StaffRoles::active`), so a
+permission taken away stops working on the next page and the next action, as a role taken away does (I11). `Permissions::can()` and
+every caller are unchanged: they read the map in force (`Permissions::map()`); `Permissions::MAP` stays the code's list of permissions
+and the default of a permission that has no row. The app login may read, add and change rows, never delete them (`Grants::NO_DELETE`).
+
+**PE3. A permission another pack adds to the code works at once, with its safe default.** A key in `MAP` without a row reads as MAP
+says (sanitised, PE4): a pack that adds `items.create => [...]` needs no migration of its own for it, and the screen lists it as "as the
+system was delivered". The first change on the screen inserts its row, with version 1 a baseline of MAP's holders and version 2 the
+change (`ConfigHistory::record`), so the nightly checks hold. Two guards for the merge: RoleMapTest fails (a) if a pack changes the
+holders of a permission 0034 seeds (update 0034's seed while it is not applied anywhere, or add a migration), and (b) if a permission in
+the code breaks a rule of PE4 (for example an acting permission given to the auditor). Once a row exists it wins over MAP: a later change
+of MAP for that permission needs a migration.
+
+**PE4. The rules hold whatever the table says** (`Permissions::sanitise`, read fail-closed; `Permissions::problems`, the screen's
+refusals): (1) LOCKED, never changed on the screen and read as MAP whatever the row: `catalogue.view`, `reference.view` (every job: Home
+and the settings pages), `staff.manage`, `settings.manage` (stays admin plus reviewer, Y1), `staff.approve` (only a Reviewer loosens a
+rule, I1), `mapping.decide`, `mapping.approve` (DecisionService and KeySample read the matching leads by job name), `company.edit`,
+`company.confirm` (CompanyDetails and CompanyInvariants read their holders by job name); (2) a permission is read-only exactly when its
+key ends in ".view"; one that changes anything is never held by admin or by the look-only jobs admin may be combined with (viewer,
+accountant, auditor), so "admin never holds a working job" (I12) cannot be undone through the map; (3) REQUIRED: admin always keeps
+`staff.view`, the reviewer always keeps `documents.review`, `documents.approve` and `suppliers.approve`; (4) an unknown job in a row is
+dropped; a row emptied by SQL means nobody (except the required jobs).
+
+**PE5. Who changes it, and only a Reviewer gives.** An admin or a reviewer (`settings.manage`, re-read inside the transaction), as every
+setting (Y1). Giving a job a permission is loosening and needs a Reviewer (`staff.approve`, `ApprovalRules::authoriseLoosening`, I1,
+Y45); taking one away is tightening and needs `settings.manage` only. A change that gives one job and takes another is a give. The
+owner's staging account (Admin + Reviewer + Matching lead) cannot give, because its Reviewer job is off while it holds Admin.
+
+**PE6. Nobody gives a permission to a job they hold** (403 `own_job`): the editor's live jobs (all of them, switched off or not) are
+re-read inside the transaction; a change that gives any of them is refused whole. So a person never grants themselves more rights.
+Consequence: every person who may give holds the Reviewer job, so on the screen the reviewer job can lose permissions but never gain
+one; a server tool (a system caller) can (the break-glass; no tool is built for it, PE14).
+
+**PE7. Every task keeps at least one job** (422 `no_holders`): an empty list is never what a person means; to stop a task, leave it with
+the fewest jobs. Every page refusal says what went wrong and that nothing was saved, with the ticks kept (`Words::ROLES_ERROR`).
+
+**PE8. Audited like the settings.** `config_change` gains the subject type `permission` (the ENUM member added at the end, in place):
+one version per change with the jobs before and after, the reason (3-500 characters) and who; the form carries the version it was
+drawn with (409 `changed_meanwhile`); `audit_log` gets `permission.change` {permission, before, after, added, removed, reason, version,
+loosened}. The nightly K1-K4 cover the new subject. The task's page (Settings › Users › Roles and permissions › a task) shows its
+history. The sentences that name the jobs of a task (`Words::whoCan`) keep the code's order, so they read as before until someone
+changes the map.
+
+**PE9. Low Stock.** A product is low when the units the stores can sell (the sellable warehouses' on hand less reserved) are at or
+below its own "least stock to keep" (`item_reorder.min_stock`, set on its reorder page: the per-item level that already exists; the item
+card has none, so none was added), else the setting `reports.low_stock_default` (5 units). The websites' own low-stock level that
+the stock writer sends (`item_channel_mode.low_stock_threshold`, IM10) is per store and is what a website shows its customers; it is
+not used here, because this list is per product across the stores. Only products a store sells (matched on a
+store), not merged into another, not marked discontinued on their card. Two lists: Low (above zero) and None left (zero or less).
+
+**PE10. Stock Value at average cost.** The average cost of an item is the existing estimate of the value engine,
+`StockOps\CostHints::average`: the weighted average of every unit that came in with a cost (an on-hand rise with `unit_cost`), rounded
+half up to 6 decimals; the report job keeps its two sums per item (`report_item.in_units`, `in_value`) from the item's value sequence,
+never by scanning the ledger. The value of an item in a warehouse is its units there (above zero) times that cost, rounded half up to
+pennies; a product, a brand, a warehouse and the whole stock are sums of those, so they add up exactly. Another account's warehouses are
+shown apart and never in our value; items with stock and no cost are counted and listed. **The value at a past date is not built**: the
+value ledger (`stock_value_ledger`, IM8) is still empty, so the engine has no valuation at a date to read.
+
+**PE11. Slow and dead stock.** Two settings: `reports.slow_after_days` (60) and `reports.dead_after_days` (180, at least the slow days).
+A sale is a paid store order (a unit allocated, sent or returned), a sale booked through ERPNext or to a trade customer (the value
+sequence), or a day of the sales history loaded from the websites (Reorder's import, so the report is useful before the stores are
+live); a product never sold counts from the first day its stock came in. A product the job has not read yet is left out.
+
+**PE12. The report job: on by default, because it writes only its own tables.** `bin/refresh_reports.php`, every 15 minutes
+(`deploy/staging/cw-staging.cron`, one line; the installer's smoke runs `--status`, which writes nothing), the Cli job lock (one run at a
+time), switched by `reports.refresh_on` (true). It writes only `report_item`, `report_sales_day` and `report_refresh`, which nothing else
+reads and `--rebuild` empties; each run reads at most `reports.refresh_max_rows` value-sequence rows (50,000) and
+`reports.refresh_max_days` days of store sales (31). Exact whatever was read before: (A) per item, from its value sequence (gap-free per
+item, in commit order, I3) up to its clock; (B) per UK day and store, each day worked out whole again (orders paid by
+`reservation.committed_at`, served by the new index `ix_reservation_committed (status, committed_at, channel_id)`; sends, cancels and
+returns by the ledger's `created_at`, read as one range of ids found through `ix_stock_ledger_created`), from the day of the last run
+less an hour (a transaction that began before a run and committed after it) to today; (C) the imported sales history batch by batch in
+id order, stopping at a batch still loading.
+
+**PE13. Sales by Store.** Per UK day and store: orders paid that day; units sold (warehouse units: a pack of 3 counts 3; every unit of a
+paid order, also one cancelled later); units sent, cancelled and returned, each on the day the store told CW. A store product not
+matched to a warehouse product moves no stock: its units count as sold but never as sent, cancelled or returned. Sales booked through
+ERPNext are not store orders and are not here (they count as a last sale, PE11). The period: last 7 or 30 days, this or last month, or
+chosen days, at most `reports.sales_max_days` (366) at once (the last days are kept, and the page says so).
+
+**PE15. Measured on a filled schema** (`tests/perf/report_explain.php`, slot `packe`, 14 Oct 2026; logs `runs/packe_explain.log`, `runs/packe_explain2.log`:
+20,000 items, 28,666 store products, 335,000 ledger rows, 165,000 value-sequence rows, 100,000 paid orders with 200,000 units, 100,000
+days of sales history, on the staging cluster with its 32 MB buffer pool). No page reads the ledger. Each list is read ONCE: the page's
+rows and the list's counts come from one statement (window functions over the inner query), as the EXPLAIN ANALYZE shows. Times of a
+page's reads: Stock by Store 0.36-0.76 s for the list plus 0.42 s for the three stores' figures (every matched product of every store
+and its balance: the heaviest page, the same kind of read as Stock › Overview); Low Stock 0.43-0.47 s; Stock Value 0.11-0.29 s; Slow
+Stock 0.12 s; Sales by Store 5-10 ms (the summary table's primary key, a year at once); the map of permissions 10 ms. The job: a quiet
+run (nothing new but today's orders) 0.2-0.44 s, served by indexes throughout (`ix_reservation_committed` covering the day's paid
+orders, `ix_stock_ledger_created` with the id range for the day's ledger rows); the catch-up from nothing took 8 runs of at most 35 s.
+
+**PE14. Not done in pack E** (each would be a decision for the owner): the stock value at a past date (PE10); an editable list of the
+guarded jobs (`ApprovalRules::GUARDED_ROLES`: making it shorter would loosen the staff-grant rule; admin and reviewer stay its floor); a
+server tool to change the map (the break-glass is SQL with the admin login, which the read fail-closes, PE4); new jobs (the job list is
+the `staff_role` ENUM: a new job needs a migration); low levels per store; plain-words column names in the CSV files (they use column
+names, as the other CSV downloads do); the per-store figures of Stock by Store kept by the job (they are read live, PE15); the People form's
+one-line job descriptions (`Permissions::DESCRIPTIONS`) stay code text and do not follow a change of the map (the Roles and permissions
+page does).
+### The Codex review of pack E (on `71b8fc0`; `runs/packe_codex_review.txt`): three findings, all real, each fixed test-first
+
+**PE16. A job given a Reviewer's or an Admin's power is guarded like them** (finding 1, high). With `approvals.staff_grant` on, a
+Reviewer could give `documents.approve` to Warehouse staff on the Roles and permissions page, and an admin could then give Warehouse to
+anyone at once: the staff-grant and staff-reset rules guarded the two job names only. Now `ApprovalRules::guardedRoles()` reads the
+guarded jobs from the map in force (re-read inside the transaction): Admin and Reviewer, plus every job that holds one of the powers the
+code keeps for them (`Permissions::guardedPowers()`: every permission whose holders in MAP are Admin and Reviewer only; today
+staff.manage, settings.manage, staff.approve, documents.review, documents.approve, suppliers.approve, company.edit, company.confirm, and
+any such permission a later pack adds). It is used for giving a job (setRoles), setting a person up (enrol), the request's guarded list,
+and resets. With the map as delivered the set is Admin and Reviewer, as before. Not every job holding any acting permission: that would
+make nearly every job's grant wait (buyers, matchers) whenever the owner switches the rule on, which is not the rule's meaning (the
+second person's powers). The rule's words now say so.
+
+**PE17. The map is never guessed** (finding 2, high). A missing `role_permission` table read as the code's defaults, which would give back
+a permission someone took away on the screen. Now any failure of the read (a missing table included) puts "nothing allowed" in force
+(`Permissions::denyAll`) and fails the request: a page answers 503, a service's action fails. The application has no pre-migration mode (the
+jobs refuse a schema that is behind; a page served in the seconds of a deploy before `--migrate` gets 503 instead of guessed rights).
+The one explicit way to run today's code without the table is `RoleMap::runWithoutTable(true)`, which the migration tests call for
+their scratch schemas of before 0034 (`Migration0013Test`); it is never inferred from an error. The nightly configuration check
+compares no `permission` rows on a schema that has no such table (K2 still finds the baselines of a table gone missing).
+
+**PE18. A failed history batch holds the later ones back** (finding 3, medium). The import retries a failed export under the same batch
+id, so passing a failed batch over skipped its days for good. The job now stops at a batch that is still loading or failed, and its run
+note says which batch it waits for ("history waits for batch N (failed)"). The cost: a failed batch that is never retried holds the
+history back until it is retried (`bin/refresh_reports.php --status` shows it); the stock and sales parts of the job are not held.
+<!-- ==== end Pack E ==== -->

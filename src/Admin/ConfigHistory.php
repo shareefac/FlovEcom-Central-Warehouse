@@ -22,7 +22,7 @@ use CW\Idempotency;
  */
 final class ConfigHistory
 {
-    public const TYPES = ['setting', 'reason', 'document_rule', 'warehouse', 'location'];
+    public const TYPES = ['setting', 'reason', 'document_rule', 'warehouse', 'location', 'permission'];
 
     /** subject type => tracked field => its type (int, ?int, string, ?string): what a version's `state` holds. */
     public const TRACKED = [
@@ -36,6 +36,8 @@ final class ConfigHistory
         'warehouse' => ['code' => 'string', 'name' => 'string', 'is_sellable' => 'int', 'is_active' => 'int', 'stock_owner' => 'string',
             'owner_entity' => '?string', 'is_system' => 'int', 'note' => '?string'],
         'location' => ['warehouse' => 'string', 'code' => 'string', 'name' => 'string', 'is_active' => 'int', 'note' => '?string'],
+        // Pack E (0034, PE2): who holds a permission, as role_permission.roles (the jobs in Permissions::ROLES order, comma-separated).
+        'permission' => ['roles' => 'string'],
     ];
 
     /** The reason every change needs (audited with it). */
@@ -96,6 +98,7 @@ final class ConfigHistory
             'warehouse' => $db->one('SELECT code, name, is_sellable, is_active, CAST(stock_owner AS CHAR) AS stock_owner, owner_entity, is_system, note '
                 . 'FROM warehouse WHERE code = ?' . $for, [$key]),
             'location' => self::locationRow($db, $key, $lock),
+            'permission' => $db->one('SELECT roles FROM role_permission WHERE permission = ?' . $for, [$key]),
             default => throw new \InvalidArgumentException("unknown config subject type {$type}"),
         };
         if ($row !== null && $type === 'setting' && \CW\Settings::isSecret($key)) {

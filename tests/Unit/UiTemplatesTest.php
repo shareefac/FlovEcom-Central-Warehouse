@@ -336,7 +336,7 @@ final class UiTemplatesTest extends TestCase
             . '<span class="nav-label">Products</span><span class="count" title="3 waiting for you">3<span class="visually-hidden"> waiting for you</span></span></a>',
             $nav, 'the current section, with what waits in it');
         self::assertStringContainsString('<span class="nav-label">Purchasing</span>', $nav);
-        self::assertSame(6, substr_count($nav, 'class="nav-item"'), 'Dashboard, Products, Stock, Purchasing, Approvals, Settings: no Reports for these jobs');
+        self::assertSame(7, substr_count($nav, 'class="nav-item"'), 'Dashboard, Products, Stock, Purchasing, Reports (pack E: the store reports), Approvals, Settings');
         self::assertStringNotContainsString('menu-group', $nav, 'no folding sections, no sub-items');
         self::assertStringContainsString('<span class="role">Buyer · Matching lead</span>', $nav, 'the jobs in words, not role codes');
         self::assertStringContainsString('href="/ui/password"', $nav, 'Change password at the bottom of the sidebar');

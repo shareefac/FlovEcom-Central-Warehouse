@@ -177,6 +177,12 @@ final class Permissions
         // An oversold order: the people who sort it out with the customer and the stock.
         'queues.oversell' => ['purchasing_desk', 'purchasing_manager', 'stock_controller', 'manager'],
         // ---- end of pack F -----------------------------------------------------------------------------------------------------------
+        // ---- Pack E (docs/decisions.md PE1; provisional, owner to confirm): the Reports tabs. reports.view reads Stock by Store, Sales by
+        // Store, Low Stock and Slow stock (figures of stock and sales, no money); values.view reads Stock Value (pounds). Both read only.
+        'reports.view' => ['warehouse', 'manager', 'buyer', 'purchasing_manager', 'goods_in', 'purchasing_desk', 'stock_controller', 'reviewer',
+            'accountant', 'auditor'],
+        'values.view' => ['purchasing_manager', 'reviewer', 'accountant', 'auditor'],
+        // ---- end Pack E
     ];
 
     /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a; supplier invoices and returns since pack C): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
@@ -193,10 +199,8 @@ final class Permissions
      */
     public static function can(array $roles, string $perm): bool
     {
-        if (!isset(self::MAP[$perm])) {
-            throw new \InvalidArgumentException("unknown permission {$perm}");
-        }
-        return array_intersect(self::effective($roles), self::MAP[$perm]) !== [];
+        $holders = self::map()[$perm] ?? throw new \InvalidArgumentException("unknown permission {$perm}");
+        return array_intersect(self::effective($roles), $holders) !== [];
     }
 
     /** @param list<string> $roles @return list<string> every permission the roles hold, in MAP order */
@@ -204,7 +208,7 @@ final class Permissions
     {
         $have = self::effective($roles);
         $out = [];
-        foreach (self::MAP as $perm => $holders) {
+        foreach (self::map() as $perm => $holders) {
             if (array_intersect($have, $holders) !== []) {
                 $out[] = $perm;
             }
@@ -280,6 +284,180 @@ final class Permissions
         $off = self::switchedOff($roles);
         return $off !== [] && !self::can($roles, $perm) && self::can($off, $perm);
     }
+
+    // ---- Pack E: the map in the database (role_permission, 0034; docs/decisions.md PE2-PE8) ---------------------------------------------
+    //
+    // Who holds what is kept in role_permission (one row per permission), changed on Settings › Users › Roles and permissions
+    // (Admin\RolePermissions) and read on every request (Auth\RoleMap::load, from Ui\Kernel and Staff\StaffRoles::active). MAP above is
+    // what 0034 seeded, and the DEFAULT of a permission that has no row yet: a permission another change adds to MAP later works at once
+    // with the holders written there, and gets its row the first time someone changes it on the screen (PE3). A permission's row, once
+    // there, wins over MAP. The rules below hold whatever the table says (sanitise(): read fail-closed) and are what the screen refuses
+    // (problems()). A permission is read-only when its key ends in ".view" (isReadOnly(): a key that changes anything never does).
+
+    /**
+     * Never changed on the screen (MAP wins over any row): what every job needs (Home, the settings pages), the security core (who
+     * manages people, settings and the reviewer's OK), and the permissions other code reads by job name (the matching leads of
+     * DecisionService and KeySample; the company checks of CompanyDetails and CompanyInvariants).
+     */
+    public const LOCKED = ['catalogue.view', 'reference.view', 'staff.manage', 'settings.manage', 'staff.approve', 'mapping.decide', 'mapping.approve',
+        'company.edit', 'company.confirm'];
+    /** The guarded jobs keep these whatever the screen says: an admin sees the people; a reviewer can give the checks and the OKs. */
+    public const REQUIRED = ['staff.view' => ['admin'], 'documents.review' => ['reviewer'], 'documents.approve' => ['reviewer'],
+        'suppliers.approve' => ['reviewer']];
+
+    /** @var array<string, list<string>>|null the map read from the database (null: MAP) */
+    private static ?array $live = null;
+    /** @var array<string, list<string>>|null MAP, each permission's holders in ROLES order */
+    private static ?array $defaults = null;
+
+    /** Whether a permission only lets a person look (its key ends in ".view"). */
+    public static function isReadOnly(string $perm): bool
+    {
+        return str_ends_with($perm, '.view');
+    }
+
+    /** @return array<string, list<string>> the map in force: permission => its holders in ROLES order, in MAP's order */
+    public static function map(): array
+    {
+        return self::$live ?? self::defaults();
+    }
+
+    /** @return array<string, list<string>> MAP (what 0034 seeded, and the default of a permission with no row), holders in ROLES order */
+    public static function defaults(): array
+    {
+        if (self::$defaults === null) {
+            self::$defaults = [];
+            foreach (self::MAP as $perm => $holders) {
+                self::$defaults[$perm] = self::ordered($holders);
+            }
+        }
+        return self::$defaults;
+    }
+
+    /** @return list<string> the jobs that hold $perm now, in ROLES order; an unknown permission throws */
+    public static function holders(string $perm): array
+    {
+        return self::map()[$perm] ?? throw new \InvalidArgumentException("unknown permission {$perm}");
+    }
+
+    /**
+     * Puts the map read from role_permission in force for this process (Auth\RoleMap::load); null puts MAP back (tests). Every
+     * permission of MAP is kept, in MAP's order: one without a row reads as MAP says, a row for a permission MAP does not have is
+     * ignored, and every permission's holders are sanitised.
+     *
+     * @param array<string, list<string>>|null $stored permission => the jobs its row names
+     */
+    public static function useStored(?array $stored): void
+    {
+        if ($stored === null) {
+            self::$live = null;
+            return;
+        }
+        $map = [];
+        foreach (self::MAP as $perm => $default) {
+            $map[$perm] = self::sanitise($perm, $stored[$perm] ?? $default);
+        }
+        self::$live = $map;
+    }
+
+    /**
+     * Nothing allowed: every permission of MAP held by no job (Auth\RoleMap after a failed read, review finding 2, PE17). Even a caller
+     * that went on after the failure gets no permission from the code's defaults.
+     */
+    public static function denyAll(): void
+    {
+        self::$live = array_fill_keys(array_keys(self::MAP), []);
+    }
+
+    /**
+     * The powers the code keeps for the guarded jobs (Admin and Reviewer, Admin\ApprovalRules::GUARDED_ROLES): every permission whose
+     * holders in MAP are among them only (managing people and settings, the reviewer's OKs and checks). A job given one of these on
+     * the screen is guarded like them (ApprovalRules::guardedRoles, review finding 1, PE16).
+     *
+     * @return list<string>
+     */
+    public static function guardedPowers(): array
+    {
+        return array_keys(array_filter(self::MAP, static fn (array $holders): bool => array_diff($holders, ['admin', 'reviewer']) === []));
+    }
+
+    /**
+     * The holders a permission may have, fail-closed (what the table says is never more than the screen allows): unknown jobs are
+     * dropped; a LOCKED permission is held as MAP says; a permission that acts is never held by admin or by the look-only jobs admin
+     * may be combined with (I12); the REQUIRED holders are always there.
+     *
+     * @param list<mixed> $holders
+     * @return list<string> in ROLES order
+     */
+    public static function sanitise(string $perm, array $holders): array
+    {
+        if (in_array($perm, self::LOCKED, true)) {
+            return self::ordered(self::MAP[$perm] ?? []);
+        }
+        $set = array_values(array_filter($holders, static fn (mixed $r): bool => is_string($r) && in_array($r, self::ROLES, true)));
+        if (!self::isReadOnly($perm)) {
+            $set = array_values(array_diff($set, ['admin'], self::ADMIN_COMPATIBLE));
+        }
+        return self::ordered([...$set, ...(self::REQUIRED[$perm] ?? [])]);
+    }
+
+    /**
+     * What is wrong with giving $perm to exactly $holders (the screen's refusals, Admin\RolePermissions), as codes in this order:
+     * `unknown_permission`, `locked` (never changed on the screen), `bad_role` (not a job), `no_holders` (every task needs a job that
+     * does it), `acting_job` (admin or a look-only job given a permission that changes something: I12), `required` (a guarded job's
+     * own permission taken away). [] when it is allowed.
+     *
+     * @param list<mixed> $holders
+     * @return list<string>
+     */
+    public static function problems(string $perm, array $holders): array
+    {
+        if (!isset(self::MAP[$perm])) {
+            return ['unknown_permission'];
+        }
+        if (in_array($perm, self::LOCKED, true)) {
+            return ['locked'];
+        }
+        $out = [];
+        foreach ($holders as $r) {
+            if (!is_string($r) || !in_array($r, self::ROLES, true)) {
+                return ['bad_role'];
+            }
+        }
+        if ($holders === []) {
+            $out[] = 'no_holders';
+        }
+        if (!self::isReadOnly($perm) && array_intersect($holders, ['admin', ...self::ADMIN_COMPATIBLE]) !== []) {
+            $out[] = 'acting_job';
+        }
+        if (array_diff(self::REQUIRED[$perm] ?? [], $holders) !== []) {
+            $out[] = 'required';
+        }
+        return $out;
+    }
+
+    /**
+     * $holders of $perm in the order the code lists them (MAP), then any other job in ROLES order: the sentences that name the jobs
+     * (Ui\Words::whoCan) read as they always did while the map is unchanged.
+     *
+     * @param list<string> $holders
+     * @return list<string>
+     */
+    public static function inCodeOrder(string $perm, array $holders): array
+    {
+        $code = self::MAP[$perm] ?? [];
+        $rank = static fn (string $r): int => ($i = array_search($r, $code, true)) !== false ? (int) $i : 100 + (int) array_search($r, self::ROLES, true);
+        $out = self::ordered($holders);
+        usort($out, static fn (string $a, string $b): int => $rank($a) <=> $rank($b));
+        return $out;
+    }
+
+    /** @param list<mixed> $roles @return list<string> the known jobs among $roles, once each, in ROLES order */
+    public static function ordered(array $roles): array
+    {
+        return array_values(array_filter(self::ROLES, static fn (string $r): bool => in_array($r, $roles, true)));
+    }
+    // ---- end Pack E
 
     /**
      * The roles that count: all of them, except that a set holding admin together with a role outside

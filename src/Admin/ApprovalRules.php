@@ -81,8 +81,28 @@ final class ApprovalRules
     public const LOWER_IS_LOOSER = ['approvals.spot_check_size'];
     /** The permission that loosens a rule (I1): a Reviewer's. */
     public const LOOSEN_PERMISSION = 'staff.approve';
-    /** The jobs whose grant waits for a reviewer's OK while approvals.staff_grant is on. */
+    /** The jobs whose grant waits for a reviewer's OK while approvals.staff_grant is on, at the least (guardedRoles() adds to them). */
     public const GUARDED_ROLES = ['admin', 'reviewer'];
+
+    /**
+     * The jobs guarded now (review finding 1, PE16): Admin and Reviewer, and every job that holds, in the map in force (re-read here),
+     * one of the powers the code keeps for them (Permissions::guardedPowers: managing people and settings, the reviewer's OKs and
+     * checks). A Reviewer who gives such a power to another job on the Roles and permissions page makes that job guarded too, so giving
+     * it to a person, setting a person up with it and resetting the sign-in of a person who holds it wait for a reviewer's OK while
+     * approvals.staff_grant / approvals.staff_reset are on. With the map as delivered: Admin and Reviewer only, as before. In
+     * Permissions::ROLES order.
+     *
+     * @return list<string>
+     */
+    public static function guardedRoles(Db $db): array
+    {
+        \CW\Auth\RoleMap::load($db);
+        $jobs = self::GUARDED_ROLES;
+        foreach (\CW\Auth\Permissions::guardedPowers() as $perm) {
+            $jobs = [...$jobs, ...\CW\Auth\Permissions::holders($perm)];
+        }
+        return \CW\Auth\Permissions::ordered($jobs);
+    }
 
     /** Whether a switch is on now (read from the database on every call). */
     public static function on(Db $db, string $key): bool

@@ -12,6 +12,7 @@
     <li><?= $say('ACCESS', 'rule_admin', $adminCompatible) ?></li>
     <li><?= $word('ACCESS', 'rule_settings') ?></li>
     <li><?= $word('ACCESS', 'rule_approvals') ?></li>
+    <li><?= $word('ACCESS', 'rule_give') ?></li>
   </ul>
 </section>
 <h2><?= $word('ACCESS', 'by_job') ?></h2>
@@ -36,6 +37,7 @@
     <tr>
       <th scope="col"><?= $word('ACCESS', 'task') ?></th>
       <th scope="col"><?= $word('ACCESS', 'who') ?></th>
+      <th scope="col"><?= $word('ACCESS', 'change') ?></th>
     </tr>
   </thead>
   <tbody>
@@ -43,6 +45,7 @@
     <tr>
       <th scope="row" class="c-head"><?= $e($t['what']) ?></th>
       <td data-label="<?= $word('ACCESS', 'who') ?>"><?= $e($t['who']) ?></td>
+      <td data-label="<?= $word('ACCESS', 'change') ?>"><?php if ($t['fixed']): ?><?= $chip('info', \CW\Ui\Words::ACCESS['fixed']) ?><?php elseif ($canChange): ?><a href="<?= $u($t['href']) ?>"><?= $word('ACCESS', 'change_who') ?></a><?php else: ?><a href="<?= $u($t['href']) ?>"><?= $word('CONFIG', 'history') ?></a><?php endif; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

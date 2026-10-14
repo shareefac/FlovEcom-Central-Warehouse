@@ -151,6 +151,8 @@ final class Grants
      * stock_op: the header of a stock record (0022, pack A1): changed while it is a draft, never removed (documents are never deleted).
      * count_sheet / count_sheet_line (0029, pack A2a) are never removed either: since review M-8 (14 Oct 2026) they are APPEND_ONLY
      * and UPDATE_COLUMNS (a sheet is the stocktake record; a line put on it by mistake stays, not counted).
+     * role_permission: who holds each permission (0034, pack E, PE2): changed on the screen, and a permission the code added later gets
+     * its row on its first change (INSERT); never removed (the nightly K2 would find a row with a history gone).
      */
     public const NO_DELETE = ['channel_listing', 'listing_profile', 'sku', 'staff_user', 'supplier', 'supplier_item', 'import_run', 'purchase_order',
         'sales_import_batch', 'demand_anomaly', 'item_card', 'goods_receipt', 'item_selling_mode', 'item_channel_mode', 'stock_op',
@@ -164,7 +166,9 @@ final class Grants
         'supplier_invoice', 'supplier_return', 'grn_invoice_left',
         // Pack F (0036, docs/decisions.md PF5): the rows of the four queues are settled (resolved or dismissed, by whom, when, why), never
         // removed (D17: "rows are never deleted, and state changes go through status columns").
-        'goods_in_suspense', 'count_review', 'policy_review', 'oversell_event'];
+        'goods_in_suspense', 'count_review', 'policy_review', 'oversell_event',
+        // ---- Pack E (0034, PE2)
+        'role_permission'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

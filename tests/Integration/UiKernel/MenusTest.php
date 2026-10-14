@@ -27,8 +27,9 @@ final class MenusTest extends KernelUiTestCase
         $reviewer = $this->signIn($this->uiUser('reviewer'));
 
         $deskHome = $desk->get('/ui/');
-        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($buyer->get('/ui/'))));
-        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($deskHome)));
+        // Pack E (PE1): the store reports are for buyers and the desk too (reports.view).
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($buyer->get('/ui/'))));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($deskHome)));
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($reviewer->get('/ui/'))));
         self::assertSame(['href' => '/ui/', 'count' => 0], self::nav($deskHome)['Dashboard'], 'the Dashboard first, for everyone');
         self::assertSame('Dashboard', self::currentSection($deskHome));
@@ -101,11 +102,12 @@ final class MenusTest extends KernelUiTestCase
             self::assertStringContainsString('This page is for ' . Words::whoCan($perm) . '. You work as: Buyer. If you need it for your work, ask '
                 . Words::ASK_ROLE . '.', $page->text());
             self::assertStringNotContainsString('role_not_allowed', $page->text(), 'the code is not printed (plan F041)');
-            self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($page)), 'the error page keeps the menu');
+            self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($page)), 'the error page keeps the menu');
             self::assertSame($tab, self::currentTab($page), "{$path}: the tab marked is one of theirs, or none");
         }
         self::assertSame('Products', self::currentSection($buyer->get('/ui/review', ['queue' => 'Key'])), 'a refused page stays in its section');
-        self::assertSame([], self::sectionTabs($buyer->get('/ui/system/audit')), 'no Reports for a buyer: no tabs of a section they do not have');
+        self::assertSame([Words::MENU['stock_by_store'], Words::MENU['sales_by_store'], Words::MENU['low_stock'], Words::MENU['slow_stock']],
+            array_column(self::sectionTabs($buyer->get('/ui/system/audit')), 'label'), 'pack E: a buyer has Reports, without the audit log and the money');
         self::assertSame('This page is for Admins and Auditors. You work as: Buyer. If you need it for your work, ask Fazil (the admin).',
             \CW\Ui\Kernel::refusal('staff.view', new \CW\Auth\StaffIdentity($u['id'], $u['email'], 'Buyer', ['buyer'], false, 'x')), 'the words, once in full');
         self::assertSame(200, $buyer->get('/ui/search', ['q' => 'Menu'])->status);
@@ -123,7 +125,7 @@ final class MenusTest extends KernelUiTestCase
         $page = $both->get('/ui/review', ['queue' => 'Key']);
         self::assertSame(403, $page->status);
         self::assertStringContainsString('You work as: Buyer · Stock controller.', $page->text());
-        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($both->get('/ui/'))));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($both->get('/ui/'))), 'pack E: the store reports');
         self::assertSame(['Reorder', 'Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($both->get('/ui/purchasing/orders')),
             'the stock controller reads the receipts and the issues (IM6, I141)');
         self::assertSame([['All Products', '/ui/items/cards'], ['Barcodes', '/ui/items/barcodes'], ['Add Item', '/ui/items/new'], ['Families', '/ui/items/families'],
@@ -133,7 +135,7 @@ final class MenusTest extends KernelUiTestCase
         // A stock controller alone: the phone bar still starts with Products and Stock.
         $stock = $this->signIn($this->uiUser('stock_controller'));
         $home = $stock->get('/ui/');
-        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Approvals', 'Settings'], array_keys(self::nav($home)));
+        self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($home)), 'pack E: the store reports');
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'More'], array_column(self::tabs($home), 'label'));
     }
 
@@ -153,6 +155,7 @@ final class MenusTest extends KernelUiTestCase
             '/ui/purchasing/reorder', '/ui/purchasing/orders',
             '/ui/purchasing/invoices', '/ui/purchasing/returns', // Pack C: Purchasing › Invoices and Returns (invoices.view, returns.view)
             '/ui/purchasing/suppliers',
+            '/ui/reports/stock-by-store', '/ui/reports/sales-by-store', '/ui/reports/low-stock', '/ui/reports/slow-stock', // pack E
             '/ui/documents', '/ui/queues/suspense', '/ui/reference/company', '/ui/reference/warehouses', '/ui/reference/access', '/ui/reference/approvals',
             '/ui/reference/reasons', '/ui/reference/settings'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),

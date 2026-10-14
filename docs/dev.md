@@ -297,6 +297,28 @@ EXPLAIN ANALYZE of the N slowest SELECTs. `--fixed` times what every request pay
 handshake, `Db::connect`, one round trip. Numbers move with the cluster's load (its buffer pool is 32 MB: a page's first read after
 another big page comes from disk), so compare runs made back to back, with no PHPUnit suite running.
 
+<!-- ==== Pack E ==== -->
+## Who can do what, and the reports (pack E; `docs/decisions.md` PE1-PE14)
+
+- **The permission map lives in `role_permission`** (0034), one row per permission. `Permissions::MAP` is what 0034 seeded and the
+  default of a permission with no row; `Permissions::map()` / `can()` read the map in force, which `Auth\RoleMap::load()` puts there
+  on every /ui request and inside `StaffRoles::active()`. To **add a permission**: add it to `MAP` (and `Words::PERMISSION`) as before;
+  it works at once with those holders, and `RoleMapTest` checks it obeys the rules (a key that only lets people look ends in `.view`;
+  admin and viewer/accountant/auditor never hold one that changes anything). To **change who holds an existing permission**: on the
+  screen (Settings › Users › Roles and permissions), or a migration that updates the row and writes its next `config_change` version
+  (rule 5 above); editing `MAP` alone no longer changes a permission that has a row. `Permissions::LOCKED` are never changed on the
+  screen; `Permissions::REQUIRED` always stay with their guarded job. Only `Admin\RolePermissions` writes the table.
+- A test that changes the map puts the rows back itself (`role_permission` is a seed table `TestDb::clean` keeps) and calls
+  `Permissions::useStored(null)` in its tear-down (the map in force is a static of the process).
+- **The reports** read `stock_balance` as it is (like Stock › Overview) and the report job's own tables (`report_item`,
+  `report_sales_day`, `report_refresh`), never the ledger. The job: `php bin/refresh_reports.php [--force] [--rebuild] [--status]`
+  (every 15 minutes on staging; `--rebuild` empties its tables and the next runs read everything again, bounded by the settings
+  `reports.refresh_max_rows` and `reports.refresh_max_days`).
+- **EXPLAIN on a filled schema:** `CW_RUN_SLOT=<slot> scripts/remote.sh <slot> php tests/perf/report_explain.php` re-creates the slot's
+  own test schema (it refuses any other), fills it (about 20,000 items, 335,000 ledger rows, 100,000 paid orders), runs the job to the
+  end, then prints every report page's statements with their EXPLAIN ANALYZE. Run it only when no PHPUnit runs on the staging box.
+<!-- ==== end Pack E ==== -->
+
 ## Where things are
 
 | Path | What |

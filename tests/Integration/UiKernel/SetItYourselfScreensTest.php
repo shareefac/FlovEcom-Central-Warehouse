@@ -625,7 +625,7 @@ final class SetItYourselfScreensTest extends KernelUiTestCase
             '/ui/reference/reasons', '/ui/reference/settings'], array_column(self::sectionTabs($web->get('/ui/reference/company')), 'href'));
         self::assertSame(['Settings', 'Numbering', 'System checks'], array_column(self::segments($web->get('/ui/system/checks')), 'label'));
         self::assertSame([['Audit Log', '/ui/system/audit', true]], array_values(array_filter(array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']],
-            self::sectionTabs($web->get('/ui/system/audit'))), static fn (array $t): bool => $t[1] !== null)), 'Reports › Audit Log; the store reports are "Soon"');
+            self::sectionTabs($web->get('/ui/system/audit'))), static fn (array $t): bool => $t[0] === 'Audit Log')), 'Reports › Audit Log (pack E: the store reports are real tabs now)');
         foreach (['/ui/reference/approvals', '/ui/reference/warehouses', '/ui/system/sites', '/ui/system/checks', '/ui/system/audit', '/ui/reference/access',
             '/ui/reference/reasons'] as $path) {
             $r = $web->get($path);

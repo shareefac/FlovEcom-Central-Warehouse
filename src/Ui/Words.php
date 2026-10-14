@@ -62,7 +62,9 @@ final class Words
         'INVOICE_NOTICE', 'INVOICE_ERROR', 'RETURNS', 'RETURN_NOTICE', 'RETURN_ERROR',
         // Pack F (PF5-PF10)
         'QUEUE_STATE', 'QUEUES', 'RELAY_KIND', 'RELAY_REASON', 'SUSPENSE', 'CORRECTIONS', 'MODES', 'OVERSOLD', 'OVERSELL_KIND', 'OVERSELL_RESOLUTION',
-        'QUEUE_NOTICE', 'QUEUE_ERROR', 'ALERT'];
+        'QUEUE_NOTICE', 'QUEUE_ERROR', 'ALERT',
+        'ROLES_EDIT', 'ROLES_ERROR', 'REPORTS', // Pack E
+    ];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -232,6 +234,10 @@ final class Words
         'stock_by_store' => 'Stock by Store',
         'sales_by_store' => 'Sales by Store',
         'low_stock' => 'Low Stock',
+        // ---- Pack E
+        'stock_value' => 'Stock Value',
+        'slow_stock' => 'Slow Stock',
+        // ---- end Pack E
         'audit' => 'Audit Log',
         // Approvals
         'reviews' => 'Waiting for me',
@@ -366,6 +372,13 @@ final class Words
         'orders' => 'The orders we send to suppliers.',
         'goods_in' => 'Book in each delivery against its supplier invoice, check it, and deal with what was wrong.',
         'suppliers' => 'The companies we buy from.',
+        // ---- Pack E
+        'stock_by_store' => 'What each store can sell now, product by product.',
+        'sales_by_store' => 'Orders and units each store sold, day by day.',
+        'low_stock' => 'Products a store can sell only a few of, or none.',
+        'stock_value' => 'What the stock is worth at its average cost, by product, brand and warehouse.',
+        'slow_stock' => 'Products in stock that have not sold for a long time.',
+        // ---- end Pack E
         'audit' => 'Everything that was changed, by whom and when.',
         'reviews' => 'Other people\'s work that needs your OK or your check.',
         'documents' => 'Every final record, by number.',
@@ -455,6 +468,9 @@ final class Words
         'item_new' => 'Add an item',
         'packs' => 'Pack items',
         'pack_links' => 'Pack links',
+        // ---- Pack E
+        'permission' => 'Who can do this',
+        // ---- end Pack E
     ];
 
     /**
@@ -617,6 +633,15 @@ final class Words
             'Accept a change, or keep what the warehouse system has, each with a note.'],
         'queue_oversold' => ['Paid orders the warehouse did not have the stock for.',
             'Sort each one out with the customer, add notes as you go, then mark it handled.'],
+        // ---- Pack E
+        'stock_by_store' => ['What each store can sell now, from the warehouse it sells from.', 'Choose a store. Open a product to see every change to its stock.'],
+        'sales_by_store' => ['Orders and units each store sold, day by day.', 'Choose the days. The figures come from the orders the stores send to CW.'],
+        'low_stock' => ['Products the stores can sell only a few of, or none.',
+            'Order more, or check the shelf. A product\'s own "least stock to keep" is set on its reorder page.'],
+        'stock_value' => ['What the stock is worth at its average cost, in pounds.', 'Look by product, by brand or by warehouse.'],
+        'slow_stock' => ['Products in stock that have not sold for a long time.', 'Think about a promotion, a return to the supplier, or no more orders.'],
+        'permission' => ['Which jobs can do one thing in this system.', 'Tick the jobs, say why, then save. Every change is kept with who, when and why.'],
+        // ---- end Pack E
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2323,6 +2348,15 @@ final class Words
         'mapping.arrival_max_seconds' => 'Longest one run of the check may take, in seconds',
         'mapping.arrival_queue_alarm' => 'Most waiting variants the timer takes by itself',
         'mapping.arrival_state_max_days' => 'How old the website\'s state may be',
+        // ---- Pack E
+        'reports.low_stock_default' => 'Low stock: units left',
+        'reports.slow_after_days' => 'Slow stock: days without a sale',
+        'reports.dead_after_days' => 'Dead stock: days without a sale',
+        'reports.sales_max_days' => 'Longest period of Sales by Store',
+        'reports.refresh_on' => 'Keep the reports up to date',
+        'reports.refresh_max_rows' => 'Stock changes read in one report run',
+        'reports.refresh_max_days' => 'Days of sales worked out in one report run',
+        // ---- end Pack E
         'staff.setup_hours' => 'Hours to set up a sign-in',
         'staff.min_reviewers' => 'Reviewers needed',
         // ---- Pack D (docs/decisions.md PD9) ----
@@ -3418,6 +3452,9 @@ final class Words
         'alerts' => 'Alerts',
         'housekeeping' => 'Clean-up',
         'relay' => 'Messages from ERPNext',
+        // ---- Pack E
+        'reports' => 'Reports',
+        // ---- end Pack E
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -3471,8 +3508,10 @@ final class Words
         'approvals.match_counted' => 'Joining (or undoing a join of) products whose stock was counted waits for a second matching lead.',
         'approvals.company_own_change' => 'A reviewer who confirms their own change of our name, numbers, purchasing e-mail or delivery address gets another '
             . 'reviewer\'s check afterwards.',
-        'approvals.staff_grant' => 'Giving someone the Admin or Reviewer job waits for a reviewer\'s OK. Off: the admin\'s change works at once.',
-        'approvals.staff_reset' => 'A new sign-in code, password or sign-up sheet for someone with Admin or Reviewer waits for a reviewer\'s OK. Off: the admin makes it at once.',
+        'approvals.staff_grant' => 'Giving someone the Admin or Reviewer job, or a job given one of their powers on the Roles and permissions page, '
+            . 'waits for a reviewer\'s OK. Off: the admin\'s change works at once.',
+        'approvals.staff_reset' => 'A new sign-in code, password or sign-up sheet for someone with Admin or Reviewer, or with a job given one of their '
+            . 'powers on the Roles and permissions page, waits for a reviewer\'s OK. Off: the admin makes it at once.',
         'staff.setup_max_fails' => 'After this many wrong tries, a sign-in set-up closes: the person cannot try again until the admin makes a new sheet, and the Dashboard says so.',
         'staff.sign_in_address' => 'The address staff open to sign in, for example https://warehouse.example.com. The sign-up sheets print it. Leave it empty until you know it.',
         'approvals.spot_check_size' => 'How many strong matches a spot check holds. A smaller spot check never confirms the rest together.',
@@ -3558,6 +3597,16 @@ final class Words
         'relay.mode_in_stock' => 'When ERPNext sets a counted, protected item to In-Stock, accepting the change gives it this stock rule.',
         'relay.mode_from_warehouse' => 'When ERPNext sets a counted, protected item to From-Warehouse, accepting the change gives it this stock rule.',
         'relay.mode_out_of_stock' => 'When ERPNext sets a counted, protected item to Out-Of-Stock, accepting the change gives it this stock rule.',
+        // ---- Pack E
+        'reports.low_stock_default' => 'In units. Low Stock lists a product when the stores can sell this many or fewer. A product with its own '
+            . '"least stock to keep" on its reorder page uses that number instead.',
+        'reports.slow_after_days' => 'Slow Stock lists a product in stock that has had no sale for this many days.',
+        'reports.dead_after_days' => 'Slow Stock calls a product dead when it has had no sale for this many days. At least the slow-stock days.',
+        'reports.sales_max_days' => 'The most days Sales by Store shows at once.',
+        'reports.refresh_on' => 'Yes: every 15 minutes the reports read the new stock changes and orders. No: the reports keep the figures of the last run.',
+        'reports.refresh_max_rows' => 'The most stock changes one run of the reports reads. A big backlog is read over several runs.',
+        'reports.refresh_max_days' => 'The most days of store sales one run of the reports works out. The first run catches up over several runs.',
+        // ---- end Pack E
     ];
 
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */
@@ -7539,12 +7588,14 @@ final class Words
         ],
         'approvals.staff_grant' => [
             'title' => 'Giving someone Admin or Reviewer',
-            'on' => 'Giving someone the Admin or Reviewer job waits for a reviewer\'s OK. Nothing changes until then.',
+            'on' => 'Giving someone the Admin or Reviewer job waits for a reviewer\'s OK. Nothing changes until then. '
+                . 'So does a job that was given one of their powers on the Roles and permissions page.',
             'off' => 'Off: the admin\'s change works at once.',
         ],
         'approvals.staff_reset' => [
             'title' => 'Resetting the sign-in of an Admin or a Reviewer',
             'on' => 'A new sign-in code, a new password or a new sign-up sheet for someone with Admin or Reviewer waits for a reviewer\'s OK. '
+                . 'So does one for someone whose job was given one of their powers on the Roles and permissions page. '
                 . 'The admin then makes it, once. With only one Reviewer, a reset of that Reviewer is done on the server.',
             'off' => 'Off: the admin makes it at once. The admin still never holds both keys of anybody.',
         ],
@@ -7900,11 +7951,15 @@ final class Words
         'queue' => 'The stores\' queues',
         'relay' => 'Messages from ERPNext',
         'sku' => 'Warehouse products',
+        // ---- Pack E
+        'permission' => 'Who can do what',
+        // ---- end Pack E
     ];
 
     /** audit_log.action => what was done, for the actions people look for most (the others: their kind, AUDIT_FAMILY). */
     public const AUDIT_ACTION = [
         'setting.change' => 'Setting changed',
+        'permission.change' => 'Changed which jobs can do a task', // Pack E
         'document_type.change' => 'Rule of a kind of record changed',
         'reason.add' => 'Reason added',
         'reason.rename' => 'Reason renamed',
@@ -8064,6 +8119,10 @@ final class Words
         'queues.corrections' => 'Confirm or close ERPNext stock corrections',
         'queues.modes' => 'Accept or close ERPNext selling-mode changes',
         'queues.oversell' => 'Handle oversold orders and add notes',
+        // ---- Pack E
+        'reports.view' => 'Look at the reports: stock and sales by store, low and slow stock',
+        'values.view' => 'Look at what the stock is worth in pounds',
+        // ---- end Pack E
     ];
 
     /** The "Who can do what" page (/ui/reference/access). */
@@ -8079,6 +8138,166 @@ final class Words
         'who' => 'Who',
         'can' => 'Can:',
         'people' => 'Users',
+        // ---- Pack E: the map can be changed on this page
+        'rule_give' => 'Only a Reviewer gives a job something new to do, and never to a job they have themselves. Admins and Reviewers can take things away.',
+        'change' => 'Change',
+        'change_who' => 'Change who can',
+        'fixed' => 'Fixed',
+        'fixed_why' => 'This never changes here: every job needs it, or it guards staff and settings.',
+        // ---- end Pack E
+    ];
+
+    // ---- Pack E (docs/decisions.md PE1-PE14): changing who can do what, and the Reports tabs -----------------------------------------
+
+    /** One permission's page (/ui/reference/access?perm=…): who can do it, and the form that changes it. */
+    public const ROLES_EDIT = [
+        'now' => 'Who can do this now',
+        'jobs' => 'Jobs that can do this',
+        'jobs_hint' => 'Tick every job that should be able to do this.',
+        'admin_never' => 'Admin never does other work.',
+        'looks_only' => 'This job can only look.',
+        'always' => 'This job always keeps it.',
+        'yours' => 'You have this job.',
+        'give_rule' => 'Giving a job this needs a Reviewer. Nobody gives it to a job they have themselves.',
+        'take_rule' => 'Admins and Reviewers can take it away from a job.',
+        'read_only' => 'This only lets people look.',
+        'acts' => 'This lets people change things.',
+        'from_code' => 'As the system was delivered: nobody has changed it yet.',
+        'save' => 'Save who can do this',
+        'look_only' => 'You can look; Admins and Reviewers change who can do what.',
+        'back' => 'Back to Roles and permissions',
+        'none' => 'Nobody',
+        'saved' => 'Saved. The jobs you ticked can do this from their next page.',
+        'unchanged' => 'Nothing changed: the same jobs were ticked.',
+    ];
+
+    /** The refusals of a change of who can do what, by the service's error code (the service messages stay the API's). */
+    public const ROLES_ERROR = [
+        'own_job' => 'You cannot give this to a job you have yourself (%s). Nothing was saved. Ask another Reviewer.',
+        'loosen_needs_reviewer' => 'Only a Reviewer gives a job something new to do. Nothing was saved. You can take things away.',
+        'permission_locked' => 'This never changes on this page. Nothing was saved.',
+        'acting_job' => 'Admin and the look-only jobs can never do this. Nothing was saved.',
+        'required_job' => '%s always keep this. Nothing was saved.',
+        'no_holders' => 'At least one job must be able to do this. Nothing was saved.',
+        'bad_role' => 'Choose jobs from the list. Nothing was saved.',
+        'unknown_permission' => 'There is no such task. Nothing was saved.',
+    ];
+
+    /** The Reports tabs (Reports › Stock by Store, Sales by Store, Low Stock, Stock Value, Slow Stock). */
+    public const REPORTS = [
+        'csv' => 'Download as CSV',
+        'find' => 'Find a product',
+        'store' => 'Store',
+        'all_stores' => 'All stores',
+        'show' => 'Show',
+        'clear' => 'Clear the filter',
+        'product' => 'Product',
+        'brand' => 'Brand',
+        'status' => 'Status',
+        'units' => 'Units',
+        'page' => 'Page %s of %s.',
+        'older' => 'Next page',
+        'newer' => 'Previous page',
+        'figures_at' => 'Sales and costs were last brought up to date %s.',
+        'never_run' => 'The reports have not been brought up to date yet. That happens every 15 minutes.',
+        'job_off' => 'Keeping the reports up to date is switched off in the settings, so these are the figures of its last run.',
+        // Stock by Store
+        'sells_from' => 'Sells from %s',
+        'no_warehouse' => 'This store sells from no warehouse yet.',
+        'matched' => 'Products matched',
+        'in_stock' => 'In stock',
+        'out_of_stock' => 'Out of stock',
+        'can_sell' => 'Units it can sell',
+        'show_all' => 'All matched products',
+        'show_in' => 'In stock',
+        'show_out' => 'Out of stock',
+        'warehouse_units' => 'Warehouse units',
+        'store_units' => 'The store can sell',
+        'pack' => '1 sale = %s units',
+        'own_stock' => 'The website still uses its own stock figure for this product.',
+        'stopped' => 'Stopped',
+        'no_matched' => 'This store has no matched products yet.',
+        'no_matched_text' => 'Products are matched under Products › Mapping.',
+        'none_filtered' => 'Nothing fits the filter.',
+        'none_filtered_text' => 'Clear the filter to see every product.',
+        'no_stores' => 'There is no store yet.',
+        // Sales by Store
+        'period' => 'Days',
+        'last_7' => 'Last 7 days',
+        'last_30' => 'Last 30 days',
+        'this_month' => 'This month',
+        'last_month' => 'Last month',
+        'choose' => 'Choose the days',
+        'from' => 'From',
+        'to' => 'To',
+        'apply' => 'Show',
+        'period_says' => 'From %s to %s.',
+        'too_long' => 'At most %s days at once: the last days of your choice are shown.',
+        'bad_dates' => 'Those days are not real dates: the last 30 days are shown.',
+        'orders' => 'Orders',
+        'units_sold' => 'Units sold',
+        'units_sent' => 'Units sent',
+        'units_cancelled' => 'Units cancelled',
+        'units_returned' => 'Units returned',
+        'by_store' => 'By store',
+        'by_day' => 'Day by day',
+        'day' => 'Day',
+        'total' => 'All stores',
+        'no_sales' => 'No store sent CW an order in these days.',
+        'no_sales_text' => 'Stores send their orders to CW once they are switched on.',
+        'sales_note' => 'A unit is one warehouse product: a sale of a pack of 3 counts 3. Each figure is counted on the day the store told CW.',
+        // Low Stock
+        'low' => 'Low',
+        'out' => 'Out of stock',
+        'show_low' => 'Low',
+        'show_none' => 'None left',
+        'low_at' => 'Low at',
+        'own_level' => 'its own',
+        'default_level' => 'A product is low at %s units or fewer, unless it has its own level.',
+        'reorder' => 'Reorder page',
+        'no_low' => 'No product is low.',
+        'no_low_text' => 'Every product the stores sell has more than its low level.',
+        'no_out' => 'No product has run out.',
+        'no_out_text' => 'Every product that has had stock still has some to sell.',
+        // Stock Value
+        'by_product' => 'By product',
+        'by_brand' => 'By brand',
+        'by_warehouse' => 'By warehouse',
+        'value' => 'Value',
+        'avg_cost' => 'Average cost',
+        'products' => 'Products',
+        'no_cost' => 'Units without a cost',
+        'no_cost_list' => 'Products without a cost',
+        'our_value' => 'Our stock value',
+        'our_value_sub' => 'At average cost, our warehouses',
+        'units_costed' => 'Units with a cost',
+        'units_not_costed' => 'Units without a cost',
+        'units_not_costed_sub' => 'Not in the value until a price is known',
+        'theirs' => 'Another account\'s stock',
+        'theirs_sub' => 'Not ours: left out of our value',
+        'warehouse' => 'Warehouse',
+        'whose' => 'Whose',
+        'ours' => 'Ours',
+        'not_ours' => 'Another account\'s',
+        'no_brand' => 'No brand',
+        'cost_note' => 'The average cost is worked out from every delivery and stock record that had a price.',
+        'past_date' => 'The value on a past date is not available yet.',
+        'below_zero' => 'Products below zero are left out of the value.',
+        'no_value' => 'There is no stock to value.',
+        'no_value_text' => 'Stock comes in through deliveries and stock records.',
+        // Slow Stock
+        'slow' => 'Slow',
+        'dead' => 'Dead',
+        'show_slow' => 'Slow',
+        'show_dead' => 'Dead',
+        'slow_says' => 'Slow: no sale for %s days or more. Dead: no sale for %s days or more.',
+        'last_sale' => 'Last sale',
+        'never_sold' => 'No sale known',
+        'days_since' => 'Days without a sale',
+        'in_stock_since' => 'Stock since',
+        'sale_means' => 'A sale is a paid store order, a sale booked through ERPNext, or a day of the sales history loaded from the websites.',
+        'no_slow' => 'No slow product.',
+        'no_slow_text' => 'Every product in stock has sold lately.',
     ];
 
     /** Setting up one's own sign-in (/ui/enrol, public). */
@@ -9233,7 +9452,8 @@ final class Words
     /** Who holds $perm, as jobs ("Reviewers", "Buyers and Purchasing managers"; "everyone with a job" for all). */
     public static function whoCan(string $perm): string
     {
-        $holders = Permissions::MAP[$perm] ?? throw new \InvalidArgumentException("unknown permission {$perm}");
+        // The map in force (pack E: it can be changed on the screen), the code's order first so an unchanged map reads as it always did.
+        $holders = Permissions::inCodeOrder($perm, Permissions::holders($perm));
         if (count($holders) === count(Permissions::ROLES)) {
             return 'everyone with a job';
         }

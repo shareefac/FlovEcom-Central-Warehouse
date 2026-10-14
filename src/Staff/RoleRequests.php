@@ -34,13 +34,14 @@ final class RoleRequests
     }
 
     /**
-     * Whether a change of jobs by $caller waits for a reviewer: a person at a screen, adding a guarded job, while the rule is on.
+     * Whether a change of jobs by $caller waits for a reviewer: a person at a screen, adding a guarded job (Admin, Reviewer, or a job
+     * given one of their powers on the Roles and permissions page: ApprovalRules::guardedRoles, PE16), while the rule is on.
      *
      * @param list<string> $added
      */
     public static function applies(Db $db, Caller $caller, array $added): bool
     {
-        return $caller->staffUserId !== null && array_intersect($added, ApprovalRules::GUARDED_ROLES) !== []
+        return $caller->staffUserId !== null && array_intersect($added, ApprovalRules::guardedRoles($db)) !== []
             && ApprovalRules::on($db, 'approvals.staff_grant');
     }
 
@@ -55,7 +56,7 @@ final class RoleRequests
      */
     public static function resetApplies(Db $db, Caller $caller, array $roles): bool
     {
-        return $caller->staffUserId !== null && array_intersect($roles, ApprovalRules::GUARDED_ROLES) !== []
+        return $caller->staffUserId !== null && array_intersect($roles, ApprovalRules::guardedRoles($db)) !== []
             && ApprovalRules::on($db, 'approvals.staff_reset');
     }
 
@@ -101,7 +102,7 @@ final class RoleRequests
         if ($db->value("SELECT id FROM staff_role_request WHERE staff_user_id = ? AND state = 'open'", [$staffUserId]) !== null) {
             throw new CwException('request_open', 'a request about this person is already waiting for a reviewer: withdraw it first', 409);
         }
-        $guarded = array_values(array_intersect($roles, ApprovalRules::GUARDED_ROLES));
+        $guarded = array_values(array_intersect($roles, ApprovalRules::guardedRoles($db)));
         $json = json_encode(array_values($roles), JSON_THROW_ON_ERROR);
         $id = $db->insert('INSERT INTO staff_role_request (staff_user_id, kind, roles_before, roles_after, guarded, requested_by, requested_actor) '
             . 'VALUES (?, ?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), ?, ?)',
@@ -121,7 +122,7 @@ final class RoleRequests
         if ($db->value("SELECT id FROM staff_role_request WHERE staff_user_id = ? AND state = 'open'", [$staffUserId]) !== null) {
             throw new CwException('request_open', 'a change of this person\'s jobs is already waiting for a reviewer: withdraw it first', 409);
         }
-        $guarded = array_values(array_intersect(array_diff($after, $before), ApprovalRules::GUARDED_ROLES));
+        $guarded = array_values(array_intersect(array_diff($after, $before), ApprovalRules::guardedRoles($db)));
         $id = $db->insert('INSERT INTO staff_role_request (staff_user_id, roles_before, roles_after, guarded, requested_by, requested_actor) '
             . 'VALUES (?, CAST(? AS JSON), CAST(? AS JSON), CAST(? AS JSON), ?, ?)',
             [$staffUserId, json_encode(array_values($before), JSON_THROW_ON_ERROR), json_encode(array_values($after), JSON_THROW_ON_ERROR),

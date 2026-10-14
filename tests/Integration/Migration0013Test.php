@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration;
 
+use CW\Auth\RoleMap;
 use CW\Company\CompanyDetails;
 use CW\Db;
 use CW\Schema\Migrator;
@@ -28,6 +29,7 @@ final class Migration0013Test extends IntegrationTestCase
 
     protected function tearDown(): void
     {
+        RoleMap::runWithoutTable(false); // pack E (PE17): a schema of before 0034 has no role_permission; this test says so explicitly
         if ($this->dir !== null) {
             MigrationFixture::drop('m13', $this->dir);
             $this->dir = null;
@@ -38,6 +40,7 @@ final class Migration0013Test extends IntegrationTestCase
     private function before(array $json): Db
     {
         [$db, $this->dir] = MigrationFixture::upTo('m13', '0012_key_bulk.sql');
+        RoleMap::runWithoutTable(true); // today's services on a schema of before 0034: the code's map, by choice (PE17)
         self::assertSame(self::KEYS, array_map('strval', $db->column("SELECT setting_key FROM app_setting WHERE setting_key LIKE 'company.%' ORDER BY setting_key")),
             'the nine placeholders of 0009');
         self::assertSame(['9'], array_values(array_unique(array_map('strval', $db->column("SELECT decision FROM app_setting WHERE setting_key LIKE 'company.%'")))));

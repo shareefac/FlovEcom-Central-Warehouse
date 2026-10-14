@@ -16,7 +16,8 @@ final class StaffRoles
 {
     /**
      * The live roles of an ACTIVE person, sorted: what a service checks before it acts for them (services re-read
-     * the roles inside their own transaction, I11). 403 staff_not_allowed for an unknown or inactive person.
+     * the roles inside their own transaction, I11), with the permission map in force re-read too (Auth\RoleMap, pack E).
+     * 403 staff_not_allowed for an unknown or inactive person.
      *
      * @return list<string>
      */
@@ -30,6 +31,8 @@ final class StaffRoles
         if ($u === null || (int) $u['is_active'] !== 1) {
             throw new CwException('staff_not_allowed', 'unknown or inactive staff user', 403);
         }
+        // Pack E (PE2): what the roles may do is re-read with them, so the service's check uses the permissions in force now.
+        \CW\Auth\RoleMap::load($db);
         return self::split($u['roles']);
     }
 

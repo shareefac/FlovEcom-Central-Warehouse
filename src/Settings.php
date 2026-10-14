@@ -149,6 +149,15 @@ final class Settings
         'relay.mode_from_warehouse' => ['in' => ['strict', 'backorder', 'stopped']],
         'relay.mode_out_of_stock' => ['in' => ['strict', 'backorder', 'stopped']],
         // ---- end of pack F ------------------------------------------------------------------------------------------------------
+        // ---- Pack E (0034; docs/decisions.md PE8-PE12): the Reports tabs and the job that keeps them up to date. The slow and dead days
+        // hold each other (dead at least slow); the job's two bounds keep one run small on the staging cluster.
+        'reports.low_stock_default' => ['min' => 0, 'max' => 100_000],
+        'reports.slow_after_days' => ['min' => 7, 'max' => 730, 'at_most' => ['reports.dead_after_days']],
+        'reports.dead_after_days' => ['min' => 7, 'max' => 1095, 'at_least' => ['reports.slow_after_days']],
+        'reports.sales_max_days' => ['min' => 7, 'max' => 1830],
+        'reports.refresh_max_rows' => ['min' => 1000, 'max' => 1_000_000],
+        'reports.refresh_max_days' => ['min' => 1, 'max' => 366],
+        // ---- end Pack E
     ];
     /**
      * Settings whose value is a secret (review finding 6 of 14 Oct 2026: a chat channel's incoming address carries its token). get()
