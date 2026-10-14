@@ -77,6 +77,16 @@ final class Sections
                 'badge' => 'stock_in_open', 'new' => ['perm' => 'doc.SIN.post', 'href' => '/ui/stock/in#new', 'label' => 'stock_in']]]],
             'stock_out' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/stock/out', 'match' => ['/ui/stock/out', '/ui/stock/out.csv', '/ui/stock/out/*'],
                 'badge' => 'stock_out_open', 'new' => ['perm' => 'doc.SOUT.post', 'href' => '/ui/stock/out#new', 'label' => 'stock_out']]]],
+            // ---- Pack H (0038; docs/decisions.md PH13): hand-overs to sister shops, our shop units and trade customers (IM11), the
+            // customers with their remembered prices, and what each owes us. The people who read records look (documents.view). ----
+            'handovers' => ['segments' => true, 'pages' => [
+                ['key' => 'handovers', 'perm' => 'documents.view', 'path' => '/ui/stock/handovers', 'match' => ['/ui/stock/handovers', '/ui/stock/handovers.csv',
+                    '/ui/stock/handovers/{id}*'], 'new' => ['perm' => 'doc.TRD.post', 'href' => '/ui/stock/handovers#new', 'label' => 'handovers']],
+                ['key' => 'handover_customers', 'perm' => 'documents.view', 'path' => '/ui/stock/handovers/customers', 'match' => ['/ui/stock/handovers/customers*'],
+                    'new' => ['perm' => 'handovers.customers', 'href' => '/ui/stock/handovers/customers#new', 'label' => 'handover_customers']],
+                ['key' => 'handover_balances', 'perm' => 'documents.view', 'path' => '/ui/stock/handovers/balances', 'match' => ['/ui/stock/handovers/balances*']],
+            ]],
+            // ---- end of pack H ----
             'transfers' => ['segments' => true, 'pages' => [
                 ['key' => 'transfers', 'perm' => 'documents.view', 'path' => '/ui/stock/transfers', 'match' => ['/ui/stock/transfers*'], 'badge' => 'transfers_open',
                     'new' => ['perm' => 'doc.TRF.post', 'href' => '/ui/stock/transfers#new', 'label' => 'transfers']],
@@ -128,6 +138,8 @@ final class Sections
                 ['key' => 'bench', 'perm' => 'doc.GRN.post', 'path' => '/ui/receiving/bench', 'match' => ['/ui/receiving/bench', '/ui/receiving/{id}/bench']],
                 ['key' => 'incidents', 'perm' => 'incidents.view', 'path' => '/ui/receiving/incidents', 'match' => ['/ui/receiving/incidents*'],
                     'badge' => 'incidents_open'],
+                // Pack H (0038; docs/decisions.md PH15): the vaping duty register built from the receipts (IM13), read only.
+                ['key' => 'duty', 'perm' => 'duty.view', 'path' => '/ui/receiving/duty', 'match' => ['/ui/receiving/duty*']],
             ]],
             // --- Pack C (IM7, docs/decisions.md PC17): supplier invoices (the invoices, the "To match" list, the deliveries not invoiced
             // yet, the supplier's credit notes) and returns to suppliers.

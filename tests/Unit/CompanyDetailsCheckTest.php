@@ -43,8 +43,8 @@ final class CompanyDetailsCheckTest extends TestCase
         $r = CompanyDetails::check(self::good(['legal_name' => "  Example\tVapes   Ltd ", 'company_number' => ' sc 12 34-56 ', 'vat_number' => 'gb 123 4567 82',
             'address' => "\r\n 1  High Street \r\n\r\nLeeds\rLS1 1AA\n\n", 'phone' => ' +44 (0)113  496 0000 ', 'email' => ' buying@example.co.uk ']), '  owner\'s details,  3 Oct ');
         self::assertSame(['legal_name' => 'Example Vapes Ltd', 'trading_name' => 'Vape and Go', 'company_number' => 'SC123456', 'address' => "1 High Street\nLeeds\nLS1 1AA",
-            'vat_registered' => true, 'vat_number' => 'GB123456782', 'phone' => '+44 (0)113 496 0000', 'email' => 'buying@example.co.uk',
-            'delivery_address' => "Unit 4, Example Park\nLeeds LS2 2BB"], $r['values']);
+            'vat_registered' => true, 'vat_number' => 'GB123456782', 'vat_code' => '', 'currency' => 'GBP', 'phone' => '+44 (0)113 496 0000',
+            'email' => 'buying@example.co.uk', 'delivery_address' => "Unit 4, Example Park\nLeeds LS2 2BB"], $r['values'], 'pack H: the VAT code (not said) and the currency (pounds)');
         self::assertSame("owner's details, 3 Oct", $r['reason']);
         self::assertNull(CompanyDetails::check(self::good(), '   ')['reason'], 'an empty reason is no reason');
 
@@ -63,7 +63,7 @@ final class CompanyDetailsCheckTest extends TestCase
         // Everything may be empty (saved bit by bit; a confirmation needs more: missing()).
         $empty = CompanyDetails::check([])['values'];
         self::assertSame(['legal_name' => '', 'trading_name' => '', 'company_number' => '', 'address' => '', 'vat_registered' => null, 'vat_number' => '',
-            'phone' => '', 'email' => '', 'delivery_address' => ''], $empty);
+            'vat_code' => '', 'currency' => 'GBP', 'phone' => '', 'email' => '', 'delivery_address' => ''], $empty, 'pack H: no VAT code yet, pounds');
 
         // Western European letters, £ and € print (Windows-1252), so they are kept; a decomposed é is composed when intl is there.
         $r = CompanyDetails::check(self::good(['legal_name' => 'Café Zoë Vapes £ € Ltd', 'delivery_address' => "Straße 1\nGöteborg – Øst"]))['values'];

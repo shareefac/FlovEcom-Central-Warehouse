@@ -68,6 +68,8 @@ final class ReviewsController
                     'GRN' => '/ui/receiving/' . ($doc->reversesId ?? $doc->id),
                     // Pack C: a supplier invoice, credit note or return on its own page in Purchasing.
                     'SINV', 'SCN', 'DN' => self::purchasingPath($doc->docType, $doc->id),
+                    // Pack H: a hand-over, and a cancellation of one, on its own page in Stock > Hand-overs.
+                    'TRD' => \CW\Handovers\Handovers::PATH . '/' . $doc->id,
                     // A stock record (pack A1), and a cancellation of one, on its own page in Stock.
                     default => StockOps::kindOf($doc->docType) !== null ? StockOps::PATHS[(string) StockOps::kindOf($doc->docType)] . '/' . $doc->id
                         : '/ui/documents/' . $doc->id,
@@ -191,6 +193,10 @@ final class ReviewsController
         }
         if (in_array($task['doc_type'], ['SINV', 'SCN', 'DN'], true)) {
             return HtmlResponse::redirect(Html::url(self::purchasingPath((string) $task['doc_type'], $docId), ['notice' => $notice]));
+        }
+        if ($task['doc_type'] === 'TRD') {
+            // Pack H: a hand-over's check comes back to the hand-over's page.
+            return HtmlResponse::redirect(Html::url(\CW\Handovers\Handovers::PATH . '/' . $docId, ['notice' => $notice]));
         }
         if ($po) {
             return HtmlResponse::redirect(Html::url('/ui/purchasing/orders/' . ($task['reverses_id'] ?? $docId), ['notice' => $notice]));

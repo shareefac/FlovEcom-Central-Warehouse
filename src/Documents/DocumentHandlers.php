@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Documents;
 
 use CW\Counts\CountSheetHandler;
+use CW\Handovers\HandoverHandler;
 use CW\Db;
 use CW\Invoices\SupplierInvoiceHandler;
 use CW\Invoices\SupplierReturnHandler;
@@ -22,7 +23,8 @@ use CW\StockOps\StockOpHandler;
  *   - I-3: GRN (receive + invoice with the duty-stamp checks; IM6: CW\Receiving\GoodsReceiptHandler, I125-I147) — LIVE;
  *   - I-4: SINV, DN (supplier invoices, credit/debit notes, supplier returns; IM7), CNT, ADJ, WO (counts,
  *          adjustments, write-offs; IM2);
- *   - I-6: TRD (trade, inter-site and shop-unit issues; IM11).
+ *   - I-6: TRD (trade, inter-site and shop-unit issues; IM11) — LIVE since pack H (14 Oct 2026): hand-overs
+ *          (CW\Handovers\HandoverHandler, docs/decisions.md PH1-PH14).
  *   - pack A1 (8 Oct 2026, the owner's module list): SIN stock in, SOUT stock out, ADJ adjustments (write-offs included), TRF
  *          transfers, REL releases from another account's warehouse (CW\StockOps\StockOpHandler, docs/decisions.md SO1-SO16) — LIVE.
  *   - pack A2a (12 Oct 2026): CNT stock counts, booked through the count engine (CW\Counts\CountSheetHandler, docs/decisions.md CT1-CT18) — LIVE.
@@ -45,6 +47,8 @@ final class DocumentHandlers
             // ---- Pack B (docs/decisions.md PB9): RPK, a Repack (break packs into singles, make packs from singles).
             + ['RPK' => new \CW\Items\RepackHandler($db, $clock)]
             // --- Pack C (IM7, docs/decisions.md PC1-PC18): supplier invoices, the supplier's credit notes, returns to the supplier.
-            + SupplierInvoiceHandler::all($db, $clock) + ['DN' => new SupplierReturnHandler($db, $clock)];
+            + SupplierInvoiceHandler::all($db, $clock) + ['DN' => new SupplierReturnHandler($db, $clock)]
+            // Pack H (0038, docs/decisions.md PH1): TRD hand-overs to sister shops, our shop units and trade customers (IM11).
+            + [HandoverHandler::TYPE => new HandoverHandler($db, $clock)];
     }
 }

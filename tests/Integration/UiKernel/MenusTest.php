@@ -45,8 +45,8 @@ final class MenusTest extends KernelUiTestCase
             [self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($buyer->get('/ui/'))['Purchasing']['href']],
             'a section links to its first tab the person may open');
         // Goods In's segments: the bench is for the people who receive.
-        self::assertSame(['To receive', 'Checking', 'Issues'], array_column(self::segments($desk->get('/ui/receiving')), 'label'));
-        self::assertSame(['To receive', 'Issues'], array_column(self::segments($reviewer->get('/ui/receiving')), 'label'));
+        self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register'], array_column(self::segments($desk->get('/ui/receiving')), 'label'));
+        self::assertSame(['To receive', 'Issues', 'Duty register'], array_column(self::segments($reviewer->get('/ui/receiving')), 'label'));
         // The buying flow: every step for the reviewer; a step the buyer cannot open has no link.
         $flow = static function ($page): array {
             $xp = new \DOMXPath($page->dom());
@@ -70,12 +70,12 @@ final class MenusTest extends KernelUiTestCase
         // screen not built yet (Quality) is a "Soon" tab, never a link; Repack (pack B) for the people who read records.
         $stock = self::sectionTabs($desk->get('/ui/stock'));
         self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Stock In', '/ui/stock/in'], ['Stock Out', '/ui/stock/out'],
-            ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', '/ui/stock/counts'], ['Reservations', '/ui/stock/reservations'],
+            ['Hand-overs', '/ui/stock/handovers'], ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', '/ui/stock/counts'], ['Reservations', '/ui/stock/reservations'],
             ['Sales', '/ui/stock/sales'], ['Quality', null], ['Repack', '/ui/stock/repack']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], $stock));
 
         // The desk's screens of Phase I-4 to I-6 are named on the Dashboard, without phase codes.
-        self::assertStringContainsString(Words::UI['coming_later'] . ' trade sales.', $deskHome->text(), 'supplier invoices and returns are built (pack C)');
+        self::assertStringNotContainsString(Words::UI['coming_later'], $deskHome->text(), 'supplier invoices and returns are built (pack C), hand-overs (pack H)');
         self::assertStringNotContainsString('receiving deliveries', $deskHome->text(), 'receiving is built (IM6)');
         self::assertStringNotContainsString('Phase', $deskHome->text());
         self::assertStringNotContainsString('coming_later', $deskHome->text());
@@ -150,7 +150,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::HOME['progress'], $home->text(), 'no matching progress without linking.view');
         self::assertStringNotContainsString('coming in Phase', $home->text());
         $xp = new \DOMXPath($home->dom());
-        self::assertSame(['/ui/items/cards', '/ui/items/families', '/ui/items/packs', '/ui/stock', '/ui/stock/movements', '/ui/stock/in', '/ui/stock/out',
+        self::assertSame(['/ui/items/cards', '/ui/items/families', '/ui/items/packs', '/ui/stock', '/ui/stock/movements', '/ui/stock/in', '/ui/stock/out', '/ui/stock/handovers',
             '/ui/stock/transfers', '/ui/stock/adjustments', '/ui/stock/counts', '/ui/stock/reservations', '/ui/stock/sales', '/ui/stock/repack',
             '/ui/purchasing/reorder', '/ui/purchasing/orders',
             '/ui/purchasing/invoices', '/ui/purchasing/returns', // Pack C: Purchasing › Invoices and Returns (invoices.view, returns.view)

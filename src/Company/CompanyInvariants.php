@@ -29,7 +29,9 @@ final class CompanyInvariants
     private const MAX_PER_CHECK = 50;
     /** Seconds of tolerance between the app's clock (saved_at) and the database's (staff_role.granted_at). */
     private const CLOCK_SLACK = 300;
-    private const FIELDS = ['legal_name', 'trading_name', 'company_number', 'vat_registered', 'vat_number', 'address', 'phone', 'email', 'delivery_address'];
+    private const FIELDS = ['legal_name', 'trading_name', 'company_number', 'vat_registered', 'vat_number', 'address', 'phone', 'email', 'delivery_address',
+        // Pack H (0038, PH3): the VAT code of our invoices and the currency are details like the others.
+        'vat_code', 'currency'];
 
     /** @return list<string> */
     public static function check(Db $db): array

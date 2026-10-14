@@ -195,6 +195,8 @@ final class Invariants
         array_push($v, ...Items\ItemsInvariants::check($db)); // pack B: repacks and items made by hand (B1-B3)
         // --- Pack C (docs/decisions.md PC11): supplier invoices, credit notes and returns V1-V7.
         array_push($v, ...Invoices\InvoiceInvariants::check($db));
+        // Pack H (0038): hand-overs, what each customer owes, the remembered prices (H1-H5, docs/decisions.md PH14).
+        array_push($v, ...Handovers\HandoverInvariants::check($db));
         return $v;
     }
 

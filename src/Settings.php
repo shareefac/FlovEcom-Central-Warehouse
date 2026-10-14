@@ -182,6 +182,18 @@ final class Settings
         'reorder.fold_days_per_run' => ['min' => 1, 'max' => 400],
         'reorder.low_stock_bulk_max' => ['min' => 1, 'max' => 200],
         // --- end of Pack G ---------------------------------------------------------------------------------------------------------------
+        // ---- Pack H (0038; docs/decisions.md PH1-PH20): hand-overs, the company's VAT code, the duty register. ----
+        // A new hand-over line's price when the customer has none remembered: typed by the person, or the cost hint (PH6); the most rows
+        // of one file of past prices (PH7); the warehouses whose stock is unstamped, as warehouse codes (PH16); the duty register's page
+        // and download sizes (PH17).
+        'handovers.price_fallback' => ['in' => ['none', 'cost']],
+        'handovers.price_import_max_rows' => ['min' => 1, 'max' => 100000],
+        'duty.register_lines' => ['in' => ['stamp', 'all']],
+        'duty.unstamped_warehouses' => ['pattern' => '/^[A-Z][A-Z0-9_]{0,15}(,[A-Z][A-Z0-9_]{0,15})*$/D',
+            'pattern_says' => 'warehouse codes separated by commas, like UNSTAMPED (empty: none)'],
+        'duty.page_rows' => ['in' => [50, 100, 200, 500]],
+        'duty.export_max_rows' => ['min' => 100, 'max' => 100000],
+        // ---- end of pack H ----
     ];
     /**
      * Settings whose value is a secret (review finding 6 of 14 Oct 2026: a chat channel's incoming address carries its token). get()

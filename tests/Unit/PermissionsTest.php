@@ -213,7 +213,7 @@ final class PermissionsTest extends TestCase
     /** What the Dashboard's "Coming later" names for each job (the screens not built yet). */
     public function testComingLaterNamesTheScreensNotBuiltYet(): void
     {
-        self::assertSame(['trade'], Permissions::comingLater(['purchasing_desk']), 'named on the Dashboard; receiving is built, supplier invoices and returns since pack C');
+        self::assertSame([], Permissions::comingLater(['purchasing_desk']), 'receiving is built, supplier invoices and returns since pack C, hand-overs since pack H');
         self::assertSame([], Permissions::comingLater(['goods_in']));
         self::assertSame([], Permissions::comingLater(['buyer']));
         self::assertSame([], Permissions::comingLater(['stock_controller']), 'adjustments are built (pack A1), stock counts too (pack A2a)');

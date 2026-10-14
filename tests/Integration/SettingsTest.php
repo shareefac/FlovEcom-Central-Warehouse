@@ -62,7 +62,7 @@ final class SettingsTest extends IntegrationTestCase
         self::assertTrue($s->get('suppliers.change_review'));
         self::assertFalse($s->get('costs.site_writeback'));
         self::assertSame(['legal_name' => '', 'trading_name' => '', 'address' => '', 'company_number' => '', 'vat_number' => '', 'phone' => '', 'email' => '',
-            'delivery_address' => '', 'confirmed' => false, 'vat_registered' => null, 'version' => 0], $s->company(),
+            'delivery_address' => '', 'confirmed' => false, 'vat_registered' => null, 'version' => 0, 'vat_code' => '', 'currency' => 'GBP'], $s->company(),
             'empty placeholders while company_profile has no version (TestDb::clean empties it; 0013 seeds version 1)');
         self::assertCount((int) self::$db->value('SELECT COUNT(*) FROM app_setting'), $s->all(), 'every row (0009: 3 after 0013; 0010 adds po.*; 0011 reorder.*)');
         $writeback = array_values(array_filter($s->all(), static fn (array $r): bool => $r['key'] === 'costs.site_writeback'))[0];

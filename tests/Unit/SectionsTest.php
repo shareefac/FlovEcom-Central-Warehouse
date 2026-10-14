@@ -305,7 +305,7 @@ final class SectionsTest extends TestCase
         // records; Reservations (read only) is for everyone who sees the stock.
         $f = Sections::frame(['buyer'], [], '/ui/stock');
         self::assertSame([['Overview', '/ui/stock', true, false], ['Movements', '/ui/stock/movements', false, false], ['Stock In', '/ui/stock/in', false, false],
-            ['Stock Out', '/ui/stock/out', false, false], ['Transfers', '/ui/stock/transfers', false, false], ['Adjustments', '/ui/stock/adjustments', false, false],
+            ['Stock Out', '/ui/stock/out', false, false], ['Hand-overs', '/ui/stock/handovers', false, false], ['Transfers', '/ui/stock/transfers', false, false], ['Adjustments', '/ui/stock/adjustments', false, false],
             ['Counts', '/ui/stock/counts', false, false], ['Reservations', '/ui/stock/reservations', false, false], ['Sales', '/ui/stock/sales', false, false],
             ['Quality', null, false, true],
             ['Repack', '/ui/stock/repack', false, false]],
@@ -328,9 +328,9 @@ final class SectionsTest extends TestCase
         self::assertSame([['label' => 'Receive delivery', 'href' => '/ui/receiving#new']], Sections::frame(['goods_in'], [], '/ui/receiving')['actions']);
         self::assertSame(['/ui/people#new', '/ui/reference/warehouses#new', '/ui/reference/reasons#new'], array_column(Sections::frame(['admin'], [], '/ui/people')['actions'], 'href'));
         self::assertSame([], Sections::frame(['auditor'], [], '/ui/people')['actions']);
-        self::assertSame(['To receive', 'Checking', 'Issues'], array_column(Sections::frame(['goods_in'], ['incidents_open' => 1], '/ui/receiving/12/bench')['segments'], 'label'));
+        self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register'], array_column(Sections::frame(['goods_in'], ['incidents_open' => 1], '/ui/receiving/12/bench')['segments'], 'label'));
         self::assertTrue(Sections::frame(['goods_in'], [], '/ui/receiving/12/bench')['segments'][1]['current'], 'a delivery\'s bench check is Checking');
-        self::assertSame(['To receive', 'Issues'], array_column(Sections::frame(['reviewer'], [], '/ui/receiving')['segments'], 'label'), 'the bench is for the people who receive');
+        self::assertSame(['To receive', 'Issues', 'Duty register'], array_column(Sections::frame(['reviewer'], [], '/ui/receiving')['segments'], 'label'), 'the bench is for the people who receive');
 
         // The Dashboard has no page bar (its title is the page's own); a page outside every section has none either.
         self::assertNull(Sections::frame(['buyer'], [], '/ui/')['pagebar']);

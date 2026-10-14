@@ -646,6 +646,11 @@ final class Kernel
         // Stock > Counts (pack A2a; docs/decisions.md CT14): documents.view looks; doc.CNT.post opens a sheet, enters its quantities,
         // posts it and clears count differences (checked again by CW\Counts\CountSheets, CountReviews and the document base, never admin).
         CountsController::routes($r);
+        // ---- Pack H (0038; docs/decisions.md PH13): Stock > Hand-overs (documents.view looks; doc.TRD.post keeps hand-overs,
+        // handovers.customers the customer list and its prices, handovers.pay the payments received) and Purchasing > Goods in > Duty
+        // register (duty.view, read only). Checked again by CW\Handovers\* and the document base, never admin. ----
+        \CW\Ui\Controller\HandoversController::routes($r);
+        \CW\Ui\Controller\DutyController::routes($r);
         $accounts = new OtherAccountsController();
         $r->add('GET', '/ui/stock/accounts', 'documents.view', $accounts->index(...));
         $r->add('POST', '/ui/stock/accounts/{id}/payments', 'accounts.pay', $accounts->pay(...));

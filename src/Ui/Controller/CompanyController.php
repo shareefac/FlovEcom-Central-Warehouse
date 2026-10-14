@@ -34,7 +34,9 @@ final class CompanyController
     /** notice key => text (Ui\Words). Only these can be shown: a notice never comes from the URL as text. */
     public const NOTICES = Words::COMPANY_NOTICE;
     /** The form's fields (CompanyDetails::FIELDS with vat_registered as yes / no / ''), and the reason. */
-    public const FORM_FIELDS = ['legal_name', 'trading_name', 'company_number', 'address', 'vat_registered', 'vat_number', 'phone', 'email', 'delivery_address'];
+    public const FORM_FIELDS = ['legal_name', 'trading_name', 'company_number', 'address', 'vat_registered', 'vat_number', 'phone', 'email', 'delivery_address',
+        // Pack H (0038, docs/decisions.md PH3): the VAT code of our own invoices (the currency is pounds only: shown, never typed).
+        'vat_code'];
     /** How the history names the set-up's actors (people never see system:*). */
     private const ACTORS = ['system:migrate' => Words::COMPANY['set_up'], 'system:settings' => Words::COMPANY['old_settings']];
 
@@ -202,7 +204,7 @@ final class CompanyController
         $lookOnly = $canEdit ? null : Words::COMPANY[Permissions::blockedByAdmin($me->roles, 'company.edit') ? 'look_admin' : 'look_reviewer'];
         return $ctx->page('company', [
             'p' => $p,
-            'show' => self::shownValues($p),
+            'show' => self::shownValues($p, array_column((new \CW\Handovers\Counterparties($ctx->db))->vatCodes(), 'label', 'code')),
             'savedLabel' => self::actor($p['saved_by_name'], $p['saved_actor']),
             'confirmedLabel' => self::actor($p['confirmed_by_name'], $p['confirmed_actor']),
             'missing' => $missing,
@@ -254,6 +256,8 @@ final class CompanyController
                 'lines' => CompanyDetails::ADDRESS_LINES, 'line' => CompanyDetails::ADDRESS_LINE_MAX, 'reason' => CompanyDetails::REASON_MAX,
                 'address' => CompanyDetails::ADDRESS_LINES * (CompanyDetails::ADDRESS_LINE_MAX + 1)],
             'help' => ['company_number' => CompanyDetails::COMPANY_NUMBER_HELP, 'vat' => CompanyDetails::VAT_HELP, 'phone' => CompanyDetails::PHONE_HELP],
+            // Pack H (PH3): the VAT codes in use for the "VAT code of our invoices" choice.
+            'vatCodes' => (new \CW\Handovers\Counterparties($ctx->db))->vatCodes(),
         ], $status, ['title' => Words::title('company_edit'), 'active' => 'company']);
     }
 
@@ -288,8 +292,12 @@ final class CompanyController
         return $out;
     }
 
-    /** @param array<string, mixed> $p @return array<string, string> the details as the page shows them ('' = not given) */
-    private static function shownValues(array $p): array
+    /**
+     * @param array<string, mixed> $p
+     * @param array<string, string> $vatLabels VAT code => its name (pack H)
+     * @return array<string, string> the details as the page shows them ('' = not given)
+     */
+    private static function shownValues(array $p, array $vatLabels = []): array
     {
         return [
             'legal_name' => $p['legal_name'], 'trading_name' => $p['trading_name'], 'company_number' => $p['company_number'],
@@ -299,6 +307,9 @@ final class CompanyController
                 default => '',
             },
             'address' => $p['address'], 'phone' => $p['phone'], 'email' => $p['email'], 'delivery_address' => $p['delivery_address'],
+            // Pack H (PH3).
+            'vat_code' => $p['vat_code'] === '' ? '' : $p['vat_code'] . (isset($vatLabels[$p['vat_code']]) ? ' · ' . $vatLabels[$p['vat_code']] : ''),
+            'currency' => Words::COMPANY['currency_gbp'],
         ];
     }
 

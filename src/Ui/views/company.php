@@ -139,7 +139,7 @@
 <section aria-labelledby="details-h">
   <h2 id="details-h"><?= $word('COMPANY', 'details') ?></h2>
   <dl class="wide company">
-<?php foreach (['legal_name', 'trading_name', 'company_number', 'vat', 'address', 'phone', 'email', 'delivery_address'] as $f): ?>
+<?php foreach (['legal_name', 'trading_name', 'company_number', 'vat', 'address', 'phone', 'email', 'delivery_address', 'vat_code', 'currency'] as $f): ?>
     <dt><?= $word('COMPANY', $f) ?></dt>
     <dd<?php if ($f === 'address' || $f === 'delivery_address'): ?> class="pre"<?php endif; ?>><?php if ($show[$f] === ''): ?><span class="muted"><?php if ($f === 'trading_name'): ?><?= $word('COMPANY', 'none') ?><?php else: ?><?= $word('COMPANY', 'not_given') ?><?php endif; ?></span><?php else: ?><?= $e($show[$f]) ?><?php endif; ?></dd>
 <?php endforeach; ?>

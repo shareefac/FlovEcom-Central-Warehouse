@@ -77,7 +77,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertStringNotContainsString('UTC', $queue->text());
         // Pack C: + supplier invoices, returns to suppliers and supplier credit notes (SINV, DN, SCN).
         self::assertSame(['Everything', 'Purchase orders', 'Deliveries', 'Stock in records', 'Stock out records', 'Adjustments', 'Transfers', 'Releases',
-            'Supplier invoices', 'Returns to suppliers', 'Supplier credit notes', 'Stock counts', 'Repacks', 'Suppliers', 'Company details'],
+            'Supplier invoices', 'Returns to suppliers', 'Supplier credit notes', 'Stock counts', 'Hand-overs', 'Repacks', 'Suppliers', 'Company details'],
             array_map(static fn (\DOMNode $o): string => trim((string) $o->textContent), iterator_to_array($xp->query('//select[@name="type"]/option'))),
             'the filter offers the kinds in use (F102): PO, GRN (IM6), the stock records (pack A1; ADJ is the fixture here) and the stock counts (pack A2a), never the kinds still to come');
         self::assertSame(3, self::nav($queue)['Approvals']['count'], 'the count is what this reviewer may decide');
@@ -245,8 +245,9 @@ final class ReviewScreensTest extends KernelUiTestCase
         $sku = self::makeSku('PDF item');
         $doc = $this->post($poster, [['sku_id' => $sku, 'qty' => 4, 'unit_cost' => '2.25'], ['sku_id' => $sku, 'qty' => -1, 'warehouse' => 'VERIFY']],
             ['external_ref' => 'SUP-PDF', 'note' => 'Café delivery £12.50']);
-        // A type without screens yet (PO is live since the I-2 pos task, GRN since IM6 in I-3, SINV and DN since pack C: TRD arrives in I-6).
-        $draftGrn = self::$db->insert("INSERT INTO document (doc_type, created_actor, external_ref) VALUES ('TRD', 'staff:1', 'TRD-DRAFT-REF')");
+        // A type without screens yet (PO is live since the I-2 pos task, GRN since IM6 in I-3, SINV and DN since pack C, TRD since pack H:
+        // WO is the one left).
+        $draftGrn = self::$db->insert("INSERT INTO document (doc_type, created_actor, external_ref) VALUES ('WO', 'staff:1', 'WO-DRAFT-REF')");
         $web = $this->signIn($this->uiUser('auditor'));
 
         $list = $web->get('/ui/documents');
@@ -254,22 +255,22 @@ final class ReviewScreensTest extends KernelUiTestCase
         self::assertStringContainsString('2 records, newest first.', $list->text());
         self::assertContains('/ui/documents/' . $doc->id, $list->hrefs());
         self::assertStringContainsString('Today this list holds purchase orders, deliveries, stock in records, stock out records, adjustments, transfers, releases, '
-            . 'supplier invoices, returns to suppliers, supplier credit notes, stock counts and repacks, and their cancellations.', $list->text(),
+            . 'supplier invoices, returns to suppliers, supplier credit notes, stock counts, hand-overs and repacks, and their cancellations.', $list->text(),
             'the fixture ADJ in tests, GRN since IM6, the stock records since pack A1, the supplier invoices and returns since pack C, the stock counts since '
-            . 'pack A2a, repacks since pack B');
+            . 'pack A2a, repacks since pack B, hand-overs since pack H');
         self::assertSame(Words::MENU['documents'], trim((string) (new \DOMXPath($list->dom()))->evaluate('string(//main//h1)')));
         $lxp = new \DOMXPath($list->dom());
         self::assertSame(1, $lxp->query('//table[contains(@class, "stack")]')->length, 'one card per record on a phone');
         self::assertSame(['Final', 'Draft'], [trim((string) $lxp->evaluate('string(//tbody/tr[2]/td[contains(@class, "c-status")])')),
             trim((string) $lxp->evaluate('string(//tbody/tr[1]/td[contains(@class, "c-status")])'))], 'status words (F407)');
         self::assertStringNotContainsString('posted', $list->text());
-        self::assertStringContainsString(Words::RECORDS['total_one'], $web->get('/ui/documents', ['type' => 'TRD'])->text());
+        self::assertStringContainsString(Words::RECORDS['total_one'], $web->get('/ui/documents', ['type' => 'WO'])->text());
         self::assertStringContainsString(Words::RECORDS['total_one'], $web->get('/ui/documents', ['q' => 'SUP-PDF'])->text());
         self::assertStringContainsString(Words::RECORDS['none_filter'], $web->get('/ui/documents', ['status' => 'reversed'])->text());
         self::assertSame(200, $web->get('/ui/documents', ['type' => '<script>', 'status' => 'nope', 'page' => '999'])->status, 'unknown filters are ignored');
 
         $grn = $web->get('/ui/documents/' . $draftGrn);
-        self::assertStringContainsString(Words::say('RECORD', 'later', 'trade sales'), $grn->text());
+        self::assertStringContainsString(Words::say('RECORD', 'later', 'write-offs'), $grn->text());
         self::assertSame(404, $web->get('/ui/documents/999999')->status);
 
         $pdf = $web->get('/ui/documents/' . $doc->id . '/pdf');
@@ -290,7 +291,7 @@ final class ReviewScreensTest extends KernelUiTestCase
         $plain->cookies = $web->cookies;
         $live = $plain->get('/ui/documents');
         self::assertStringContainsString('Today this list holds purchase orders, deliveries, stock in records, stock out records, adjustments, transfers, releases, '
-            . 'supplier invoices, returns to suppliers, supplier credit notes, stock counts and repacks, and their cancellations. Write-offs and trade sales will '
+            . 'supplier invoices, returns to suppliers, supplier credit notes, stock counts, hand-overs and repacks, and their cancellations. Write-offs will '
             . 'appear here when those screens are added.',
             $live->text(), 'F406: no phase codes');
         self::assertStringNotContainsString('Phase', $live->text());

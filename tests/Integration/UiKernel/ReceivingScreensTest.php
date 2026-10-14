@@ -105,7 +105,8 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $list = $desk->get('/ui/receiving');
         self::assertSame(200, $list->status, $list->describe());
         self::assertSame(['Purchasing', 'Goods In'], [self::currentSection($list), self::currentTab($list)], 'Purchasing › Goods In');
-        self::assertSame([['To receive', '/ui/receiving', true], ['Checking', '/ui/receiving/bench', false], ['Issues', '/ui/receiving/incidents', false]],
+        self::assertSame([['To receive', '/ui/receiving', true], ['Checking', '/ui/receiving/bench', false], ['Issues', '/ui/receiving/incidents', false],
+            ['Duty register', '/ui/receiving/duty', false]],
             array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($list)));
         self::assertSame(['Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($list), 'the desk has no Reorder');
         self::assertStringContainsString(Words::RECEIVING['none'], $list->text());

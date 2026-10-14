@@ -61,6 +61,17 @@
 <?php if (isset($errors['vat_number'])): ?>
     <p class="field-error" id="e-vat_number"><?= $e($errors['vat_number']) ?></p>
 <?php endif; ?>
+    <label for="f-vat_code"><?= $word('COMPANY', 'vat_code') ?> <span class="muted"><?= $word('COMPANY', 'vat_code_hint') ?></span></label>
+    <select id="f-vat_code" name="vat_code"<?php if (isset($errors['vat_code'])): ?> aria-invalid="true" aria-describedby="e-vat_code"<?php endif; ?>>
+      <option value=""><?= $word('COMPANY', 'vat_code_none') ?></option>
+<?php foreach ($vatCodes as $c): ?>
+      <option value="<?= $e($c['code']) ?>"<?php if ($v['vat_code'] === $c['code']): ?> selected<?php endif; ?>><?= $e($c['code']) ?> &middot; <?= $e($c['label']) ?></option>
+<?php endforeach; ?>
+    </select>
+<?php if (isset($errors['vat_code'])): ?>
+    <p class="field-error" id="e-vat_code"><?= $e($errors['vat_code']) ?></p>
+<?php endif; ?>
+    <p class="muted"><?= $word('COMPANY', 'currency_line') ?></p>
   </fieldset>
   <fieldset>
     <legend><?= $word('COMPANY', 'contact') ?></legend>

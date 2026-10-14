@@ -9867,3 +9867,192 @@ first (`runs/packg_fix_red.log`), then fixed.**
 - Rebased onto main `8083465` (packs A2a, B, C, D, E, F): the shared lists kept both sides; 0037 stays; no permission key was added (pack E's
   `role_permission` takes the defaults).
 <!-- ===== end of Pack G ===== -->
+## Pack H: hand-overs, the company's VAT code and currency, the duty register (slot `packh`, 14 Oct 2026)
+
+<!-- ---- Pack H (0038): PH1-PH20. ---- -->
+The ERPNext functions E26 and E47 (the staff sales invoices that move stock to Electrofag, Vape Big, the shop units and trade customers,
+and the selling price list behind their rates; module IM11), E34 (the company, its VAT code and currency on CW's orders and invoices) and
+E45 (the vaping duty register built from the receipts; module IM13), from `/root/cw_work/golive/plan_final.md` part 3b. Built from main
+`8c54425` in `/root/cw-packh` (branch `pack-h`), migration `0038_handovers_company_duty.sql`. Code: `src/Handovers/{Handovers,
+HandoverHandler,HandoverMath,Counterparties,CounterpartyAccounts,HandoverPdf,HandoverInvariants}.php`, `src/Duty/DutyRegister.php`,
+`src/Ui/Controller/{Handovers,Duty}Controller.php`, views `handovers`, `handover`, `handover_fields`, `handover_customers`,
+`handover_customer`, `handover_customer_fields`, `handover_balances`, `duty_register` (new); changed: `src/Company/{CompanyDetails,
+CompanyInvariants}.php`, `src/Ui/Controller/{Company,Reviews}Controller.php`, views `company`, `company_form`, `src/Documents/
+DocumentHandlers.php`, `src/Invariants.php`, and one marked block each in `Words`, `Settings`, `Sections`, `Permissions`, `Grants`, `Kernel`.
+Every number below is a setting or a rule on a screen unless it says otherwise; every setting is a build decision put to the owner.
+
+**PH1. A hand-over is a TRD document (0008's "Trade / inter-site issue", never live until now).** Draft -> make it final (a reviewer's OK
+first only when a rule on the Approval Rules page asks) -> cancelled by a new record that puts everything back; a draft is stopped, never
+deleted (the document base, I17-I21, SO1). Its header extension `handover` names the customer and the VAT code chosen; its lines are an
+item, units above zero and the price of a unit before VAT (`document_line.unit_cost`, as the release keeps its agreed price, SO1). Posting
+(`HandoverHandler`) writes the module rows first (the invoice's sums and snapshots, the remembered prices, what the customer owes) and
+books the stock last, ONE `Movements::bookForDocument` of `trade_sale` (0006, I8: on hand down, no cost: issued at the average) from the
+hand-over's warehouse (ours, switched on; MAIN by default). Stock.php is not touched. A protected item (strict, stopped) never goes below
+zero (the stock out's rule, SO3; a hand-over carries no reason that could allow it), checked in validate() and again after booking on the
+balances the posting holds. The same form sent twice books once: the second posting finds no draft (409 `not_draft`); the create form is
+FormOnce (one draft however often it is sent). A cancellation that puts more units back than the "stock put back" limit waits for an OK
+(the document base's I32, unchanged).
+
+**PH2. The customers (`counterparty`).** One list for the three kinds the plan names: a sister shop (another company: Electrofag, Vape Big
+-- Vape Big without a connector is "treated as a trade customer", decision 5, which this is), one of our shop units (Unit 6, Unit 7,
+Ashton: decision 10, "shop units handled as issues"), a trade customer. Name (printed on the invoice, unique whatever its case),
+address (8 lines of 100), company and VAT numbers (the company details' rules), an optional VAT code of their own, e-mail, phone, note.
+Switched off, never deleted; the form carries the version (409 `customer_changed`); every change audited with what changed. No rows are
+seeded: the plan names the customers but not their legal names or addresses, and CW invents none.
+
+**PH3. The company details gain the VAT code of our invoices and the currency (E34).** Two more fields on every `company_profile`
+version (0038, ALTER of a small table): `vat_code` (a code of `vat_code`; NULL = not said yet, which every existing version keeps --
+nobody confirmed a code, so none is put into a confirmed version) and `currency` (pounds only, owner answer Q13; a CHECK, as
+`purchase_order.currency`). They are fields like the others: changing one makes the details unconfirmed again, so every PO PDF says "do
+not send" and every hand-over invoice waits until a reviewer confirms them (I94 unchanged). The VAT code is not needed to CONFIRM the
+details (a company that is not VAT registered has none; and the PO's lines carry their own codes): it is needed to print a hand-over
+invoice of a VAT registered company (PH8). C2 compares the two new fields too. The PO's snapshot now carries them; its PDF is unchanged.
+
+**PH4. Which VAT code a hand-over is invoiced with.** The one chosen on the hand-over, else the customer's, else our company's. None when
+our company said it is not VAT registered (no VAT is charged). When none is known and the company is, or may be, VAT registered, making
+it final is refused (422 `vat_code_required`): the balance owed needs the total. A code no longer in use is refused (422 `vat_code_off`).
+One code per hand-over (ERPNext's sales invoice had one taxes template); per-line codes are not built.
+
+**PH5. The sums.** Each line: units x price to the penny, half up (`CostHints::amount`, the release's rule). Net: their sum. VAT: net x
+rate / 100 to the penny, half up, ONCE on the invoice (not per line). Gross = net + VAT: what the customer owes. A cancellation's sums are
+the original's negated (never computed again). Pounds only. Whether invoice-level rounding suits the accountant is put to them.
+
+**PH6. Prices remembered (E47; setting `handovers.price_fallback`, `none`).** `counterparty_price` holds the price a customer last paid for
+an item: written when a hand-over is made final (each item's last line), unless a price from a later day is there already (the hand-over's
+date decides, so a back-dated hand-over does not overwrite a newer price). A cancelled hand-over leaves the price (a price agreed is still
+the price). A new line takes the customer's remembered price; when there is none, `none` leaves it empty for the person (making it final
+refuses a line without a price, 422 `price_required`), `cost` fills the last supplier price, else the average cost so far (CostHints, the
+release's default). No FK to `sku` (written inside the posting before the stock locks, as `incident`, I127); H5 checks the ids.
+
+**PH7. The past trade-invoice prices from a file (setting `handovers.price_import_max_rows`, 5,000).** Customers > "Load the prices of old
+trade invoices": a CSV with the columns customer, item, price and, if there, date and invoice (ERPNext's export spellings accepted: Item
+Code, Rate, Posting Date, Sales Invoice). The customer by its exact name (case does not matter; the import never creates one: the 12
+are typed with their addresses). The item by its CW number, a usable barcode of ONE unit, an ERPNext item code's override
+(`sku_erp_item`, one unit), else the one item every mapped website variant with that code points at (one unit each). The owner's rule:
+a row that cannot be read for sure (unknown customer or item, a case barcode or a pack, two items, a bad price or date) is skipped and
+listed with its reason; the rest are loaded. For one customer and item the newest row wins; a price remembered from a later day is kept.
+Audit `counterparty.price_import` with the file's sha256 and the counts.
+
+**PH8. The invoice PDF waits for confirmed company details (setting `handovers.pdf_needs_confirmed_company`, true).** The task's "the PDF is
+refused until the company details are confirmed", and the plan's gate (step 0.2b) for E34: while on, the invoice PDF is refused (409
+`company_not_confirmed`, in words on the hand-over's page, which says so beside the link before anyone presses it) when the details it
+prints were not confirmed: a draft prints the details in use; a final hand-over the snapshot its posting took (`company_snapshot`,
+`company_version`, `company_confirmed`). A hand-over made final before the confirmation therefore never prints under the rule: it is
+copied into a new draft ("Make it again": the same customer, warehouse, VAT code, lines and prices) and cancelled -- the purchase order's
+"cancel and copy" (I96), so a final invoice never changes its seller's details. Also refused while on: a VAT registered company with no VAT
+code that applies (409 `vat_code_missing`). Off: it prints, with "COMPANY DETAILS NOT CONFIRMED -- DO NOT SEND", as a purchase order does.
+Making a hand-over final never waits for the company details: stock flow is not stopped by paperwork.
+
+**PH9. What the invoice says, and what it does not.** "Invoice TRD-000123": from (our company as printed, "[to be confirmed]" for an
+empty field), to (the customer as printed), its number and date, the customer's reference, the currency (pounds), each line (CW number,
+item, units, price, VAT code, amount), the units, the total before VAT, the VAT at its rate and the total; a draft says "DRAFT -- NOT AN
+INVOICE", a cancelled one "CANCELLED -- see TRD-x". CW invents no legal wording (the owner's rule): it does not call it a "VAT invoice",
+prints no tax point and no payment terms of its own; `handovers.invoice_terms` (empty) holds the words the owner or the accountant
+types. TO BE CONFIRMED with the accountant (decision 13, open): whether this invoice serves as the VAT invoice; whether a cancellation
+needs a credit note (a cancellation record prints nothing of its own: 409 `no_invoice`); the rounding of PH5. The delivery-note PDF IM11
+also names is not built (the invoice lists the items and units).
+
+**PH10. What each customer owes (the VPG 2 release's pattern, SO8, the other way round).** `counterparty_entry` (append-only): + a
+hand-over's gross, - its cancellation's, - a payment received, + a payment's reversal; the balance is their sum, per customer.
+Hand-overs > Balances shows each customer's balance (a credit when negative), what was handed over this UK month, the last payment and
+every entry with links. The receivables stay with the accountant (IM11: "in ERPNext they were never settled: Alectrofag GBP 169k, Vape Big
+GBP 125k"): the page says this is CW's own record of hand-overs and the payments people tell it about. Nothing is brought across from
+ERPNext's unsettled balances.
+
+**PH11. Payments received and their locks.** "Record a payment received" (amount, the day it arrived, up to today; the bank reference; a
+note) and "Reverse this payment" (a reason; once) by `handovers.pay`. A payment locks the customer's row FOR UPDATE; a hand-over's posting
+reads it FOR SHARE (after the document and the number series, before the stock), so a payment's "more than owed" sees a hand-over made
+final at the same moment. No cycle: no payment path touches a document or the stock.
+
+**PH12. A payment more than owed (setting `handovers.allow_overpayment`, false).** Refused (409 `more_than_owed`, "nothing_owed" when
+nothing is), so a zero too many is caught (SO8's rule). On: recorded, and the customer has a credit.
+
+**PH13. Who and where (provisional, owner to confirm).** `doc.TRD.post` (0007: the purchasing desk and manager, who key trade sales
+today) makes, finishes, cancels and copies hand-overs; `handovers.customers` (the same two jobs) keeps the customer list and loads old
+prices; `handovers.pay` (the same two jobs) records payments received; `duty.view` (goods in, the purchasing desk and manager, the stock
+controller, the reviewer, the accountant, the auditor, the stock manager) reads the duty register. Everyone with `documents.view` reads
+hand-overs, customers and balances. Never admin (I12): every service re-checks the roles inside its transaction. Screens: Stock >
+Hand-overs (a new tab after Stock Out, the v4 look) with the segments Hand-overs, Customers, Balances; Purchasing > Goods In > Duty
+register (a segment after Issues). A hand-over's check, when a rule asks one, is decided on its own page (Approvals > Waiting for me links
+there, and the decision comes back). Home no longer names trade sales as "coming later". Not built: a badge on the tab (the check is off).
+
+**PH14. The nightly checks H1-H5 (`HandoverInvariants`, in `Invariants::check`).** H1 every TRD has its header; a final hand-over its sums
+and exactly one `handover` entry of its gross on its customer; a posted cancellation the negated header and exactly one
+`handover_reversal` entry; a draft or a stopped one neither. H2 every entry names a final hand-over or a posted cancellation of one, of
+the right kind. H3 net = the lines' units x price to the penny, VAT = net x rate to the penny, gross = net + VAT. H4 a final hand-over
+books only `trade_sale` on hand at its warehouse, per item the negation of its lines. H5 a payment reversal mirrors a payment of its
+customer; a remembered price names an item, and one from a hand-over a final one of the same customer.
+
+**PH15. The duty register is built from the receipts, at read time (IM13; setting `duty.register_lines`, `stamp`).** No table: each line of
+the register IS a line of a final goods receipt (`goods_receipt` + `grn_line` + `document_line`, the posted fields of I127-I135), so the
+register can never disagree with the receipts. Listed: the lines that needed the duty-stamp check (`stamp_required`, I134; `all`: every
+line). Per line: when the goods arrived (UK), the receipt, the supplier, their invoice and delivery note, the item, its CW number and
+barcode, the units on the paperwork and where they went (in, held back in UNSTAMPED, refused), the liquid per unit and the expected duty
+(for information, I135), the bench's stamp check (on the outer pack and sealing it, its type, a scanned code, who checked), the unstamped
+units and what happened to them, the supplier's declaration that unstamped stock was made or brought in before 1 Oct 2026 (the bench's
+`pre_october_evidence`) and whether a file of it is kept with the delivery, the incidents. The stamp state: stamped, unstamped (held back
+or refused), declared made before 1 Oct 2026, not checked, no stamp needed. A reversed receipt stays listed, marked "cancelled" (a filter
+leaves it out). Filters: the arrival days, the supplier, the stamp state, booked in or cancelled, words. The columns follow the owner's
+spreadsheet register (`/root/cw_work/duty/Vaping_Duty_Goods-In_Register_v2.xlsx`, "Goods-in register" tab); its "Duty on invoice" and
+"Supplier checked" columns have no source in CW yet (IM7, IM4).
+
+**PH16. The unstamped stock and where it is (settings `duty.unstamped_warehouses`, `UNSTAMPED`; `duty.unstamped_zero_from`, 2027-04-01).**
+The register's page shows what the named warehouses hold now (item, units, warehouse) and the units taken in unstamped on a supplier's
+declaration (per item: the units, the receipts, the last arrival, the warehouse they went into and what it holds of the item now; the
+page says CW cannot tell how many of those are sold since: they are counted, plan §6.2 point 4). From `duty.unstamped_zero_from` anything
+held in those warehouses is a red alarm ("holding them is an offence"), before it a note ("must be empty by"): the date and the words are
+the plan's (§6.1, §6.2 point 8: "the UNSTAMPED location must be empty ... from 1 Apr 2027"). The plan's "unstamped found" alarm from a count
+and the supplier-checks-due list are not built (left, PH20).
+
+**PH17. Page and download sizes (settings `duty.page_rows`, 200 in 50/100/200/500; `duty.export_max_rows`, 20,000 in 100-100,000).** The
+register pages newest first; the download (CSV, formula-safe, UTC times as every CW file) holds at most the setting's lines, read 1,000 at a
+time. EXPLAIN of every new list read on the slot's scratch schema filled like a busy year (`/root/cw_work/runs/packh_scratch/
+packh_explain.php`; 15,000 items, 300 customers, 3,000 hand-overs of 10 lines, 30,000 remembered prices, 5,000 receipts of 10 lines; on
+cw-test, MySQL 8.4.8, a 2 GB buffer pool, so staging's small managed database is slower): the first run found three reads that computed
+every row before sorting: the duty register page (1.2 s), the hand-overs list (0.2 s) and "taken in unstamped" (0.2 s, every receipt
+line). Now the two lists read the page's keys first and then those rows only (0.15 s and 0.04 s), the unstamped lines come through a new
+index `grn_line (unstamped_action, document_id)` (0.04 s; added in place, online), and the balances page reads every customer's last
+payment at once (300 customers: 0.4 s -> 0.06 s). The rest keep to their indexes (`runs/packh_explain2.txt`); the word search of the
+register (LIKE over the item names, 0.4 s) and the nightly H1-H5 (1.1 s at 3,000 hand-overs) are left as they are.
+
+**PH18. Words.** Every word on the new screens is in `Ui\Words` (HANDOVER, HANDOVER_HOW, HANDOVER_NOTICE, HANDOVER_ERROR, HANDOVER_PDF,
+CUSTOMER, CUSTOMER_KIND, CUSTOMER_FIELD_ERROR, CUSTOMER_ERROR, CUSTOMER_NOTICE, PRICE_SKIP, BALANCE, BALANCE_KIND, BALANCE_NOTICE,
+BALANCE_ERROR, DUTY, DUTY_STAMP; additions to MENU, SEGMENT, NEW, MENU_HELP, PAGE_INTRO, SETTING, SETTING_HELP, SETTING_TOPIC, PERMISSION,
+AUDIT_ACTION, AUDIT_RECORD, AUDIT_FAMILY, TONE, COMPANY). DOC_TYPE TRD is now "Hand-over" (was "Trade sale": the owner's E26 words are
+"hand-over documents"); the purchasing desk's job line no longer says trade sales are coming later. The service's field problems are
+codes (`detail.errors`), worded by the screens (CUSTOMER_FIELD_ERROR). Legal words: none invented (PH9); the duty words are the plan's.
+
+**PH19. The hand-over's reviewer check starts off.** 0008 seeded TRD with the check `all`; no TRD could be made before this pack (no
+handler), so no record loses a check. 0038 switches it to `none` (the owner's rule: extra approvals start off; 0029 did the same for CNT)
+and sets the sizes of the "OK first for a big record" (500 units / GBP 2,000, as TRF and REL; still off): ONE change, version N+1 of the
+rule's history, written only when the rule was not already like that. Both are switched on the Approval Rules page.
+
+**PH20. Provisional and left out.** Provisional: every setting above; the jobs of PH13; one VAT code per hand-over; invoice-level VAT
+rounding; a back-dated hand-over keeps the newer remembered price; the overpayment refusal. Left: (1) IM11's "allocation" (moving the site
+figure of a legacy item from Vape and Go to a sister site with nothing moving in the building): it needs the per-site figures of the site
+writer (IM10) and I-0's answer on Electrofag's hand-typed stock-ins. (2) The delivery-note PDF; a credit note for a cancellation (PH9). (3)
+The monthly inter-company statement (IM11 W2: the hand-overs list filtered by customer, and its CSV, cover it now). (4) IM13's
+supplier-checks-due list, the "unstamped found" alarm from a count (pack A2b), the free-gift report, an HMRC export format (none is
+known: the CSV has every column of the owner's spreadsheet register that CW holds). (5) Bringing ERPNext's past trade invoices across as
+hand-overs (IM15): their prices load through PH7. (6) A badge on the Hand-overs tab.
+**PH21. The review of `094b20c` (Codex, 14 Oct 2026; six findings, all MEDIUM, each proved first by a test that failed on that commit).**
+(1) An older price import could overwrite a newer price written meanwhile by another session: under READ COMMITTED a locking read
+locks nothing where no row is yet. The day is now compared inside the write (`INSERT ... ON DUPLICATE KEY UPDATE` keeps a price from a
+later day, as the hand-over's own write does), and the row it leaves says whether the import's price was taken
+(`HandoversTest::testAnOlderImportNeverOverwritesANewerPriceWrittenMeanwhile`, the other session's write put between the import's
+read and write with `tests/Support/HookedStatement`). (2) A deadlock retry could not read the file again (its rows were a generator,
+empty on the second run): the whole file, bounded by `handovers.price_import_max_rows`, is read before the transaction, and the prices
+are written in one order (customer, then item) so two imports lock the same rows in the same order (`testAnImportIsRetriedWholeAfterA
+Deadlock`). (3) `/ui/documents/{id}/pdf` printed a final hand-over's generic record PDF, prices included, while its company details were
+not confirmed: a hand-over now prints there only as its invoice, through the same rule (PH8;
+`HandoverScreensTest::testTheRecordsPdfOfAHandoverWaitsForTheCompanyDetailsToo`). (4) The register counted an unstamped delivery's
+damaged units as stamped and left its unstamped extras out: stamped and unstamped are now counted as the receipt booked them
+(`DutyRegister::stampUnits`, `ReceiptMath::extras`, I167: 100 on paper, 10 damaged, 5 over, 20 unstamped quarantined = 70 stamped, 35
+unstamped; `DutyRegisterTest::testTheDamagedAndOverUnitsOfAnUnstampedDeliveryAreUnstamped`); the page and the download show the whole
+unstamped figure. (5) An item code longer than the key it is compared with matched its first 140 (ERPNext item code) or 64 (website
+variant id) characters: a longer text names no item, and a match must be the same text exactly (the columns' collation ignores case;
+the import compares the text itself), and an invoice number over 100 characters skips the row instead of being cut
+(`testOnlyAWholeIdentifierNamesAnItem`; PRICE_SKIP `bad_reference`). (6) The total taken in on a declaration added up only the 500
+items listed: it is now summed over every line, the page says when a list stops at its limit, and shows both totals
+(`testTheDeclarationTotalCountsEveryLineNotOnlyTheListedItems`).
+<!-- ---- end of pack H ---- -->

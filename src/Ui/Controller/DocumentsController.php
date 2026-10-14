@@ -146,6 +146,11 @@ final class DocumentsController
         if (($no = self::poRefusal($ctx, $data['doc'])) !== null) {
             return $no;
         }
+        if ($data['doc']->docType === \CW\Handovers\Handovers::TYPE) {
+            // Pack H (review finding 3 of 14 Oct): a hand-over prints only as its invoice, under the same rule (the company details
+            // confirmed, docs/decisions.md PH8): never as this generic record PDF with its prices.
+            return (new HandoversController())->pdf($ctx);
+        }
         /** @var Document $doc */
         $doc = $data['doc'];
         $pdf = new PdfWriter("{$data['type']['name']} {$doc->label()}", 'Status: ' . self::statusText($doc)

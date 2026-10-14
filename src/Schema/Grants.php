@@ -67,7 +67,9 @@ final class Grants
         // --- Pack C (0032): the posting anchor of a SINV, SCN or DN, and the value-only events of invoices waiting for IM8.
         'purchase_doc_posting', 'invoice_value_event',
         // Pack F (0036, docs/decisions.md PF9): a person's note on a row of the stores' queues is added, never changed or removed.
-        'queue_note'];
+        'queue_note',
+        // Pack H (0038): what each customer owes us (hand-overs, payments received and their reversals), never rewritten or removed.
+        'counterparty_entry'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -178,7 +180,9 @@ final class Grants
         // nothing of the reorder engine is ever deleted by the app login.
         'reorder_sales_day', 'reorder_fold_day', 'reorder_line', 'reorder_line_detail', 'reorder_job', 'reorder_supplier',
         // --- end of Pack G
-    ];
+        // Pack H (0038): a customer (switched off, never deleted), the price it last paid for an item (changed, never removed) and the
+        // header of a hand-over (changed while it is a draft; documents are never deleted).
+        'counterparty', 'counterparty_price', 'handover'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

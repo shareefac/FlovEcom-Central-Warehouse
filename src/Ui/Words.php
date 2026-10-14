@@ -67,7 +67,9 @@ final class Words
         // --- Pack G (the reorder engine)
         'REORDER_ENGINE', 'REORDER_ENGINE_ERROR', 'REORDER_ENGINE_NOTICE', 'REORDER_SUPPLIERS', 'REORDER_LOW', 'REORDER_LOW_SKIP',
         // --- end of Pack G
-    ];
+        // Pack H (0038): hand-overs, customers and their balances, the duty register.
+        'HANDOVER', 'HANDOVER_NOTICE', 'HANDOVER_ERROR', 'HANDOVER_PDF', 'CUSTOMER', 'CUSTOMER_KIND', 'CUSTOMER_FIELD_ERROR', 'CUSTOMER_ERROR',
+        'CUSTOMER_NOTICE', 'PRICE_SKIP', 'BALANCE', 'BALANCE_KIND', 'BALANCE_NOTICE', 'BALANCE_ERROR', 'DUTY', 'DUTY_STAMP'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -150,7 +152,7 @@ final class Words
         'buyer' => 'Suppliers, purchase orders and what to buy.',
         'purchasing_manager' => 'What a Buyer does, plus deliveries. Supplier invoices are coming later.',
         'goods_in' => 'Checks deliveries at the goods-in bench and books them in.',
-        'purchasing_desk' => 'Books in deliveries with their invoices. Supplier invoices, returns and trade sales are coming later.',
+        'purchasing_desk' => 'Books in deliveries with their invoices, and hands stock to sister shops and trade customers. Supplier invoices and returns are coming later.',
         'stock_controller' => 'Product cards and barcodes now. Stock counts and corrections later.',
         'reviewer' => 'Checks and approves other people\'s work. Never their own.',
         'accountant' => 'Stock values and files for the accounts (coming later).',
@@ -268,6 +270,8 @@ final class Words
         'returns' => 'Returns',
         // Pack F (docs/decisions.md PF5): Approvals › From the stores.
         'store_queues' => 'From the stores',
+        // Pack H (0038): Stock > Hand-overs.
+        'handovers' => 'Hand-overs',
     ];
 
     /** A segment of a tab (Sections::MAP `key` of a page in a tab with `segments`) => its name. */
@@ -314,6 +318,11 @@ final class Words
         'reorder_suppliers' => 'Suppliers',
         'low_stock_levels' => 'Low-stock warnings',
         // --- end of Pack G
+        // Pack H (0038): Stock > Hand-overs, and the duty register in Purchasing > Goods In.
+        'handovers' => 'Hand-overs',
+        'handover_customers' => 'Customers',
+        'handover_balances' => 'Balances',
+        'duty' => 'Duty register',
     ];
 
     /** A page's create button (Sections::MAP `new`): a verb that names the result. */
@@ -339,6 +348,9 @@ final class Words
         'invoices' => 'New supplier invoice',
         'credit_notes' => 'New credit note',
         'returns' => 'New return to a supplier',
+        // Pack H (0038).
+        'handovers' => 'New hand-over',
+        'handover_customers' => 'New customer',
     ];
 
     /** The buying flow strip on Purchasing (Ui\FlowCounts): step => name, and the figures under the names. */
@@ -407,6 +419,8 @@ final class Words
         'returns' => 'Goods sent back to a supplier, each one our claim for a credit.',
         // Pack F (PF5)
         'store_queues' => 'What the stores sent from ERPNext that needs a person, and the orders sold without the stock.',
+        // Pack H (0038).
+        'handovers' => 'Stock handed to sister shops, our shop units and trade customers, with prices and an invoice.',
     ];
 
     /** The phone's bottom bar: Dashboard and the sections take their SECTION names; the last tab opens the whole menu. */
@@ -659,6 +673,18 @@ final class Words
         'slow_stock' => ['Products in stock that have not sold for a long time.', 'Think about a promotion, a return to the supplier, or no more orders.'],
         'permission' => ['Which jobs can do one thing in this system.', 'Tick the jobs, say why, then save. Every change is kept with who, when and why.'],
         // ---- end Pack E
+        // Pack H (0038; docs/decisions.md PH13, PH15).
+        'handovers' => ['Stock we hand to a sister shop, one of our shop units or a trade customer, with a price on every line.',
+            'Start a hand-over, add the items and make it final: the stock leaves the warehouse and the customer owes the amount.'],
+        'handover' => ['One hand-over: who gets the stock, the items, the prices and the invoice.',
+            'Add the items, check the prices, then make it final.'],
+        'handover_customers' => ['The sister shops, shop units and trade customers we hand stock to, and the prices they paid last.',
+            'Add a customer before its first hand-over. Load old prices from a file once.'],
+        'handover_customer' => ['One customer: its details, the prices it paid last and its hand-overs.', 'Change the details when they change.'],
+        'handover_balances' => ['What each customer owes us for the stock handed to it, less the payments received.',
+            'Record a payment when the money arrives.'],
+        'duty' => ['The vaping duty register: every delivery line that needed the duty stamp check, from the deliveries booked in.',
+            'Filter it and download it when someone asks for the records.'],
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2439,6 +2465,17 @@ final class Words
         'erp_opening.cw_warehouse' => 'Warehouse the opening stock is put in',
         'erp_opening.require_pending_sales' => 'Opening stock waits for the list of sales not yet in ERPNext',
         // ---- end of pack I ----
+        // Pack H (0038; docs/decisions.md PH6-PH17).
+        'handovers.pdf_needs_confirmed_company' => 'Hand-over invoices wait for confirmed company details',
+        'handovers.invoice_terms' => 'Words printed under hand-over invoices',
+        'handovers.price_fallback' => 'Price of a new hand-over line without a remembered price',
+        'handovers.allow_overpayment' => 'Accept a payment that is more than the customer owes',
+        'handovers.price_import_max_rows' => 'Most rows in one file of old prices',
+        'duty.register_lines' => 'Lines the duty register lists',
+        'duty.unstamped_warehouses' => 'Warehouses that hold unstamped stock',
+        'duty.unstamped_zero_from' => 'Unstamped stock must be gone from',
+        'duty.page_rows' => 'Lines of the duty register on a page',
+        'duty.export_max_rows' => 'Most lines in one download of the duty register',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -3033,7 +3070,7 @@ final class Words
         'CNT' => 'Stock count',
         'ADJ' => 'Adjustment',
         'WO' => 'Write-off',
-        'TRD' => 'Trade sale',
+        'TRD' => 'Hand-over',
         'SIN' => 'Stock in',
         'SOUT' => 'Stock out',
         'TRF' => 'Transfer',
@@ -3052,7 +3089,7 @@ final class Words
         'CNT' => 'Stock counts',
         'ADJ' => 'Adjustments',
         'WO' => 'Write-offs',
-        'TRD' => 'Trade sales',
+        'TRD' => 'Hand-overs',
         'SIN' => 'Stock in records',
         'SOUT' => 'Stock out records',
         'TRF' => 'Transfers',
@@ -3354,6 +3391,13 @@ final class Words
         'changed_confirmed' => 'Someone changed the company details while you had them open (%s saved them on %s). Nothing was confirmed.',
         'changed_same_time' => 'Someone else saved the company details at the same moment. Nothing was saved.',
         'not_reviewer' => 'Only Reviewers change or check the company details. Nothing was changed.',
+        // Pack H (0038; docs/decisions.md PH3): the VAT code of our own invoices and the currency.
+        'vat_code' => 'VAT code of our invoices',
+        'vat_code_hint' => '(the VAT code a hand-over invoice charges, unless the customer has its own)',
+        'vat_code_none' => 'Not said yet',
+        'currency' => 'Currency',
+        'currency_gbp' => 'Pounds (GBP)',
+        'currency_line' => 'Every amount is in pounds (GBP): the only currency the warehouse uses.',
     ];
 
     /** Notices after a click on the company details (CompanyController::NOTICES). */
@@ -3495,6 +3539,9 @@ final class Words
         // ---- end Pack E
         // Pack I (0039).
         'erp_opening' => 'Opening stock from ERPNext',
+        // Pack H (0038).
+        'handovers' => 'Hand-overs',
+        'duty' => 'Vaping duty',
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -3676,6 +3723,23 @@ final class Words
             . 'is only put in together with the list of those sales, which are taken off; an empty list says there are none. Off: it is put in '
             . 'without, and the summary says that correction is still to do.',
         // ---- end of pack I ----
+        // Pack H (0038; docs/decisions.md PH6-PH17).
+        'handovers.pdf_needs_confirmed_company' => 'On: the invoice PDF of a hand-over is not printed until a reviewer has confirmed the company details printed on it. '
+            . 'Off: it prints, with "do not send" on it, as a purchase order does.',
+        'handovers.invoice_terms' => 'The words printed under every hand-over invoice, such as payment terms. Empty: nothing is printed. The system '
+            . 'never writes legal words by itself: ask your accountant what an invoice must say.',
+        'handovers.price_fallback' => 'A new line gets the price the customer paid last. When there is none: "none" leaves it empty for the person to '
+            . 'type; "cost" fills in the last supplier price, else the average cost so far.',
+        'handovers.allow_overpayment' => 'Off: a payment received that is more than the customer owes is refused, so a zero too many is caught. On: it is '
+            . 'recorded and the customer has a credit.',
+        'handovers.price_import_max_rows' => 'The most rows one file of old trade-invoice prices may have (1 to 100,000).',
+        'duty.register_lines' => '"stamp": the duty register lists the delivery lines that needed the duty stamp check. "all": every delivery line.',
+        'duty.unstamped_warehouses' => 'The warehouses that hold unstamped stock, by their codes, separated by commas. The duty register shows what they '
+            . 'hold. Empty: none.',
+        'duty.unstamped_zero_from' => 'From this day the duty register shows an alarm while those warehouses hold anything. Holding unstamped vaping '
+            . 'liquid is an offence from 1 Apr 2027.',
+        'duty.page_rows' => 'How many lines of the duty register one page shows.',
+        'duty.export_max_rows' => 'The most lines one download of the duty register holds (100 to 100,000), newest first.',
     ];
 
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */
@@ -8099,6 +8163,10 @@ final class Words
         'policy_review' => 'Selling-mode change to check',
         'oversell_event' => 'Oversold order',
         'relay' => 'Message from ERPNext',
+        // Pack H (0038).
+        'counterparty' => 'Customer',
+        'counterparty_entry' => 'What a customer owes',
+        'counterparty_price' => 'Price a customer paid',
     ];
 
     /** The first part of an audit action => what kind of thing was done (the audit log's filter and rows). */
@@ -8153,6 +8221,9 @@ final class Words
         // ---- Pack E
         'permission' => 'Who can do what',
         // ---- end Pack E
+        // Pack H (0038).
+        'handover' => 'Hand-overs',
+        'counterparty' => 'Customers of hand-overs',
     ];
 
     /** audit_log.action => what was done, for the actions people look for most (the others: their kind, AUDIT_FAMILY). */
@@ -8257,6 +8328,17 @@ final class Words
         'policy_review.dismiss' => 'ERPNext selling-mode change closed',
         'oversell_event.handle' => 'Oversold order handled',
         'oversell_event.note' => 'Note added to an oversold order',
+        // Pack H (0038).
+        'handover.create' => 'Hand-over started',
+        'handover.header' => 'Hand-over\'s details changed',
+        'handover.copy' => 'Hand-over copied',
+        'counterparty.add' => 'Customer added',
+        'counterparty.change' => 'Customer changed',
+        'counterparty.switch_off' => 'Customer switched off',
+        'counterparty.switch_on' => 'Customer switched on again',
+        'counterparty.price_import' => 'Old prices of customers loaded',
+        'counterparty.payment' => 'Payment received from a customer recorded',
+        'counterparty.payment_reverse' => 'Payment received from a customer reversed',
     ];
 
     /** What each permission lets a person do (the "Who can do what" page; Permissions::MAP). */
@@ -8279,7 +8361,7 @@ final class Words
         'doc.CNT.post' => 'Count stock on the shelves and answer count differences',
         'doc.ADJ.post' => 'Correct stock and write it off (Adjustments)',
         'doc.WO.post' => 'Write stock off (coming later)',
-        'doc.TRD.post' => 'Trade sales (coming later)',
+        'doc.TRD.post' => 'Hand stock to sister shops, our shop units and trade customers (Hand-overs)',
         'doc.SIN.post' => 'Book stock in without a supplier delivery (Stock In)',
         'doc.SOUT.post' => 'Book stock out without a website sale (Stock Out)',
         'doc.TRF.post' => 'Move stock between warehouses and places (Transfers)',
@@ -8322,6 +8404,10 @@ final class Words
         'reports.view' => 'Look at the reports: stock and sales by store, low and slow stock',
         'values.view' => 'Look at what the stock is worth in pounds',
         // ---- end Pack E
+        // Pack H (0038; docs/decisions.md PH13).
+        'handovers.customers' => 'Add and change the customers of hand-overs and their prices',
+        'handovers.pay' => 'Record payments received from customers (Hand-overs > Balances)',
+        'duty.view' => 'Look at the duty register',
     ];
 
     /** The "Who can do what" page (/ui/reference/access). */
@@ -9503,6 +9589,489 @@ final class Words
         'hours' => '%s hours',
     ];
     // ---- end of pack F --------------------------------------------------------------------------------------------
+    // ------------------------------------------------------------------------------------------------------------------
+    // ---- Pack H (0038; docs/decisions.md PH1-PH20): hand-overs, their customers and balances, the duty register. ----
+
+    /** Stock > Hand-overs (HandoversController, views handovers / handover / handover_fields). */
+    public const HANDOVER = [
+        'how' => 'How a hand-over works',
+        'search' => 'Find a hand-over by its number, the customer, their reference or a note',
+        'state' => 'Status',
+        'any_state' => 'Any status',
+        'customer' => 'Customer',
+        'any_customer' => 'Any customer',
+        'stopped' => 'Show stopped drafts too',
+        'clear' => 'Clear the filter',
+        'download' => 'Download this list as a spreadsheet file',
+        'start' => 'Start a hand-over',
+        'start_text' => 'Choose who gets the stock. You add the items on the next page.',
+        'start_button' => 'Start the hand-over',
+        'no_customers' => 'There are no customers yet',
+        'no_customers_text' => 'A hand-over goes to a customer: a sister shop, one of our shop units or a trade customer. Add one first.',
+        'no_customers_link' => 'Add a customer',
+        'none' => 'No hand-overs yet',
+        'none_text' => 'When stock goes to a sister shop, a shop unit or a trade customer, start a hand-over here.',
+        'none_filter' => 'No hand-over fits your filter',
+        'none_filter_text' => 'Your filter hides every hand-over.',
+        'group_reversal' => 'Cancellation records',
+        'group_count' => '%s records',
+        'record' => 'Hand-over',
+        'status' => 'Status',
+        'products' => 'Items',
+        'units' => 'Units',
+        'value' => 'Amount',
+        'before_vat' => 'before VAT, so far',
+        'made_by' => 'Made by',
+        'next' => 'What happens next',
+        'next_draft' => 'Add the items, then make it final.',
+        'next_waiting' => 'Waits for a reviewer\'s OK.',
+        'next_check' => 'Final. A reviewer checks it.',
+        'next_done' => 'Nothing: it is final.',
+        'next_stopped' => 'Nothing: it was stopped.',
+        'next_reversal' => 'Puts back %s.',
+        'no_number' => 'Draft',
+        'started' => 'Started %s',
+        'dated' => 'Dated %s',
+        'limit' => 'Only the newest %s are shown: use the filter to find older ones.',
+        'f_customer' => 'Customer',
+        'f_warehouse' => 'Stock leaves from',
+        'f_vat_code' => 'VAT code',
+        'f_vat_hint' => '(leave it to use the customer\'s, else the company\'s)',
+        'f_vat_not_registered' => '(the company details say we are not VAT registered: no VAT is charged)',
+        'f_vat_default' => 'The customer\'s, else the company\'s (%s)',
+        'f_vat_default_none' => 'The customer\'s, else the company\'s (none set yet)',
+        'f_their_ref' => 'Their reference',
+        'f_date' => 'Date',
+        'f_note' => 'Note',
+        'optional' => '(optional)',
+        'choose' => 'Choose…',
+        'customer_link' => 'This customer',
+        'balance_link' => 'What this customer owes',
+        'pdf' => 'Invoice (PDF)',
+        'company_link' => 'Open the company details',
+        'not_creator' => 'Only the person who started this draft changes it. You can look.',
+        'facts' => 'About this hand-over',
+        'warehouse' => 'Stock leaves from',
+        'vat_code' => 'VAT code',
+        'vat_default' => 'The customer\'s, else the company\'s',
+        'no_vat' => 'No VAT (not VAT registered)',
+        'their_ref' => 'Their reference',
+        'date' => 'Date',
+        'note' => 'Note',
+        'made' => 'Started',
+        'asked' => 'Sent for an OK',
+        'final' => 'Made final',
+        'stopped_at' => 'Stopped',
+        'by' => '%s by %s',
+        'cancelled_by' => 'Cancelled by',
+        'cancel_waiting' => 'A cancellation waiting for an OK',
+        'lines' => 'Items',
+        'add_q' => 'Scan a barcode, or type a CW number or words of the name',
+        'add_qty' => 'Units',
+        'add_price' => 'Price of a unit before VAT (£)',
+        'add_price_hint' => 'Leave the price empty to use what this customer paid last.',
+        'add_button' => 'Add',
+        'choices' => 'Several items match "%s". Choose one:',
+        'choose_this' => 'Add this one',
+        'no_lines' => 'No items yet.',
+        'line_item' => 'Item',
+        'line_units' => 'Units',
+        'line_price' => 'Price of a unit (£)',
+        'line_amount' => 'Amount',
+        'line_stock' => 'Stock here now',
+        'line_remove' => 'Remove',
+        'line_remembered' => 'Paid last: %s',
+        'line_no_price' => 'No price yet',
+        'line_stock_text' => '%s on the shelf, %s free',
+        'save_lines' => 'Save the items',
+        'total_units' => '%s units',
+        'net_so_far' => '%s before VAT',
+        'net' => 'Before VAT',
+        'vat_at' => 'VAT %s (%s%%)',
+        'gross' => 'Total the customer owes',
+        'net_draft' => 'Before VAT, so far',
+        'missing_prices' => '%s lines have no price yet: type them before you make it final.',
+        'details' => 'Change the customer, the warehouse, the VAT code or the note',
+        'save_details' => 'Save the details',
+        'final_title' => 'Make it final',
+        'final_does' => 'The stock leaves the warehouse now, the prices are kept for this customer, and the total is added to what the customer owes.',
+        'final_waits' => 'A rule on the Approval Rules page may ask a reviewer\'s OK first.',
+        'final_button' => 'Make it final: the stock goes out',
+        'stop_title' => 'Stop this draft',
+        'stop_text' => 'A stopped draft moves no stock and stays in the list.',
+        'stop_why' => 'Why it is stopped',
+        'stop_button' => 'Stop the draft',
+        'cancel_title' => 'Cancel this hand-over',
+        'cancel_text' => 'A new record puts the stock back and takes the amount off what the customer owes. This one stays, marked cancelled.',
+        'cancel_why' => 'Why it is cancelled',
+        'cancel_note' => 'Note',
+        'cancel_button' => 'Cancel it: put the stock back',
+        'copy_title' => 'Make it again',
+        'copy_text' => 'A new draft with the same customer, items and prices. Use it for a stopped or cancelled one, or one made before the company details were confirmed.',
+        'copy_button' => 'Copy into a new draft',
+    ];
+
+    /** How a hand-over works (the fold on the list). */
+    public const HANDOVER_HOW = [
+        'Start a hand-over and choose the customer: a sister shop, one of our shop units or a trade customer.',
+        'Scan or type the items. Each line takes the price this customer paid last; change it if needed.',
+        'Make it final. The stock leaves the warehouse, and the total is added to what the customer owes.',
+        'Print the invoice once the company details are confirmed.',
+        'A mistake is put right by cancelling it: a new record puts the stock back. Nothing is ever deleted.',
+    ];
+
+    /** The notices of a hand-over's page. */
+    public const HANDOVER_NOTICE = [
+        'created' => 'The hand-over is started. Add the items below.',
+        'header' => 'The details are saved.',
+        'lines' => 'The items are saved.',
+        'added' => '%s units added on line %s.',
+        'incremented' => '%s more units on line %s.',
+        'posted' => 'Hand-over %s is final. The stock has left the warehouse.',
+        'submitted' => 'The hand-over waits for a reviewer\'s OK. Nothing has moved yet.',
+        'cancelled' => 'The draft is stopped. Nothing moved.',
+        'reversed' => 'Cancellation %s is final: the stock is back and the amount is off what the customer owes.',
+        'reversal_submitted' => 'The cancellation waits for a reviewer\'s OK. Nothing has moved yet.',
+        'copied' => 'This is a new draft copied from the other hand-over. Check it, then make it final.',
+    ];
+
+    /** A hand-over's refusals, by code (the services' messages stay theirs). */
+    public const HANDOVER_ERROR = [
+        'customer_required' => 'Choose the customer. Nothing was saved.',
+        'unknown_customer' => 'That customer does not exist. Nothing was saved.',
+        'customer_off' => 'That customer is switched off. Switch it on again on the Customers page, or choose another. Nothing was saved.',
+        'warehouse_required' => 'Choose the warehouse the stock leaves from. Nothing was saved.',
+        'unknown_warehouse' => 'That warehouse does not exist. Nothing was saved.',
+        'warehouse_inactive' => 'That warehouse is switched off. Choose another. Nothing was saved.',
+        'not_own_stock' => 'That warehouse holds another account\'s stock. Only our own stock is handed over. Nothing was saved.',
+        'bad_line' => 'Line %s needs an item and a number of units above zero. Nothing was saved.',
+        'line_warehouse' => 'Line %s is in another warehouse. Nothing was saved.',
+        'price_required' => 'Line %s has no price. Type the price of a unit, then make it final again. Nothing moved.',
+        'vat_code_required' => 'No VAT code applies. Choose one on this hand-over, or give the customer or the company details one. Nothing moved.',
+        'vat_code_off' => 'That VAT code is not in use. Choose another. Nothing was saved.',
+        'below_zero' => 'Line %s: %s would go below zero (%s free, %s handed over). Nothing moved.',
+        'qty_positive' => 'The units are a whole number above zero. Nothing was saved.',
+        'too_many_lines' => 'A hand-over has at most %s lines. Start another one. Nothing was saved.',
+        'not_handover' => 'This is not a hand-over.',
+        'merged_item' => 'That item was joined into another one. Use that one. Nothing was saved.',
+        'unknown_sku' => 'That item does not exist. Nothing was saved.',
+        'company_not_confirmed' => 'The invoice is not printed: the company details are not confirmed yet. A reviewer confirms them on the Company page.',
+        'company_not_confirmed_posted' => 'The invoice is not printed: the company details were not confirmed when this hand-over was made final. Copy it into a new draft once they are confirmed, and cancel this one.',
+        'vat_code_missing' => 'The invoice is not printed: no VAT code applies. Give the company details a VAT code for our invoices.',
+        'no_invoice' => 'A cancellation record has no invoice. Open the hand-over it cancels.',
+        'bad_field' => 'Something on the form was not right. Check it and try again. Nothing was saved.',
+        'version_conflict' => 'Someone changed this hand-over while you had it open. Look at it again. Nothing was saved.',
+        'role_not_allowed' => 'Your job does not keep hand-overs. Nothing was saved.',
+        'admin_cannot_post' => 'Admin does not keep hand-overs. Nothing was saved.',
+        'no_lines' => 'Add at least one item before you make it final. Nothing moved.',
+        'not_draft' => 'This hand-over is not a draft any more: it was made final or stopped already. Nothing was done twice.',
+    ];
+
+    /** The words printed on a hand-over's invoice PDF (HandoverPdf). Legal wording is not written here (PH9): handovers.invoice_terms holds it. */
+    public const HANDOVER_PDF = [
+        'title' => 'Invoice %s',
+        'draft_number' => 'DRAFT',
+        'not_an_invoice' => 'DRAFT — NOT AN INVOICE',
+        'do_not_send' => 'COMPANY DETAILS NOT CONFIRMED — DO NOT SEND',
+        'cancelled' => 'cancelled by %s',
+        'cancelled_banner' => 'CANCELLED — see %s',
+        'seller' => 'From',
+        'buyer' => 'To',
+        'details' => 'Invoice',
+        'name' => 'Name',
+        'trading_as' => 'Trading as',
+        'address' => 'Address',
+        'company_number' => 'Company number',
+        'vat_number' => 'VAT number',
+        'tbc' => '[to be confirmed]',
+        'number' => 'Number',
+        'date' => 'Date',
+        'their_ref' => 'Your reference',
+        'currency' => 'Currency',
+        'pounds' => 'Pounds (GBP)',
+        'note' => 'Note',
+        'line' => '#',
+        'code' => 'CW number',
+        'item' => 'Item',
+        'units' => 'Units',
+        'price' => 'Price',
+        'vat_code' => 'VAT',
+        'amount' => 'Amount',
+        'total_units' => 'Units',
+        'net' => 'Total before VAT',
+        'vat_at' => 'VAT %s at %s%%',
+        'no_vat' => 'No VAT',
+        'gross' => 'Total',
+    ];
+
+    /** Stock > Hand-overs > Customers (views handover_customers / handover_customer / handover_customer_fields). */
+    public const CUSTOMER = [
+        'search' => 'Find a customer by name, company number, VAT number or e-mail',
+        'kind' => 'Kind',
+        'any_kind' => 'Any kind',
+        'show_off' => 'Show switched-off customers too',
+        'clear' => 'Clear the filter',
+        'add' => 'Add a customer',
+        'add_button' => 'Add the customer',
+        'none' => 'No customers yet',
+        'none_text' => 'Add the sister shops, shop units and trade customers you hand stock to.',
+        'none_filter' => 'No customer fits your filter',
+        'none_filter_text' => 'Your filter hides every customer.',
+        'name' => 'Name',
+        'vat_code' => 'VAT code',
+        'vat_company' => 'The company\'s',
+        'handovers' => 'Hand-overs',
+        'balance' => 'Owes us',
+        'last' => 'Last hand-over',
+        'state' => 'Status',
+        'on' => 'In use',
+        'off' => 'Switched off',
+        'details' => 'Details',
+        'not_given' => 'Not given',
+        'changed' => 'Last changed',
+        'by' => '%s by %s',
+        'balance_link' => 'Balances',
+        'its_handovers' => 'Its hand-overs',
+        'change' => 'Change the details',
+        'save' => 'Save the details',
+        'switch_off' => 'Switch this customer off',
+        'switch_off_text' => 'A switched-off customer gets no new hand-overs. Its hand-overs, prices and balance stay.',
+        'switch_on' => 'Switch this customer on again',
+        'f_kind' => 'Kind of customer',
+        'f_name' => 'Name',
+        'f_name_hint' => '(as printed on the invoice)',
+        'f_address' => 'Address',
+        'f_address_hint' => '(one line per line, at most 8 lines)',
+        'f_company_number' => 'Company number',
+        'f_vat_number' => 'VAT number',
+        'f_vat_code' => 'VAT code of their invoices',
+        'f_vat_code_hint' => '(only when it differs from the company\'s)',
+        'f_vat_code_company' => 'The company\'s',
+        'f_email' => 'E-mail',
+        'f_phone' => 'Phone',
+        'f_note' => 'Note',
+        'optional' => '(optional)',
+        'prices' => 'Prices this customer paid last',
+        'prices_text' => 'A new hand-over line takes the price this customer paid last for the item. A later hand-over replaces it.',
+        'no_prices' => 'No prices yet.',
+        'price_item' => 'Item',
+        'price' => 'Price of a unit before VAT',
+        'price_day' => 'Day',
+        'price_from' => 'From',
+        'price_imported' => 'An old invoice %s',
+        'recent' => 'Its latest hand-overs',
+        'no_handovers' => 'No hand-overs yet.',
+        'import' => 'Load the prices of old trade invoices',
+        'import_text' => 'A spreadsheet file (CSV) with one row per old invoice line: customer, item (CW number, barcode or ERPNext item code), '
+            . 'price of a unit before VAT, and if you have them, date and invoice. Rows that cannot be read for sure are skipped and listed.',
+        'import_file' => 'The file',
+        'import_hint' => 'A CSV file, at most %s MB.',
+        'import_button' => 'Load the prices',
+        'import_done' => 'The prices are loaded',
+        'import_counts' => '%s rows read: %s prices loaded, %s kept because a newer price was there, %s rows skipped.',
+        'import_skipped' => 'These rows were skipped. Correct them in the file and load it again, or type the price on the hand-over.',
+        'import_row' => 'Row of the file',
+        'import_row_no' => 'Row %s',
+        'import_value' => 'What it said',
+        'import_why' => 'Why it was skipped',
+    ];
+
+    /** The kinds of customer (counterparty.kind). */
+    public const CUSTOMER_KIND = [
+        'sister' => 'Sister shop',
+        'unit' => 'Our shop unit',
+        'trade' => 'Trade customer',
+    ];
+
+    /** A customer form's field problems, by the service's code (Counterparties::check). */
+    public const CUSTOMER_FIELD_ERROR = [
+        'kind' => 'Choose the kind of customer.',
+        'name_short' => 'Type the name: at least 2 characters.',
+        'name_long' => 'This is too long.',
+        'not_text' => 'This is not valid text: type it again.',
+        'control' => 'This contains a hidden control character: type it again.',
+        'unprintable' => 'This has a letter or sign the invoice cannot print. Use Western European letters only, such as é, ü, ß, £ and €.',
+        'lines_many' => 'An address has at most 8 lines.',
+        'line_long' => 'A line of the address is longer than 100 characters: split it over two lines.',
+        'company_number' => 'A company number has 8 characters: 8 digits (keep the leading zeros) or 2 letters and 6 digits.',
+        'vat_number' => 'A UK VAT number is GB and 9 digits (or 12 for a branch); XI instead of GB in Northern Ireland.',
+        'vat_code' => 'Choose a VAT code of the list.',
+        'email' => 'This is not an e-mail address (for example orders@example.co.uk).',
+        'phone' => 'A phone number is digits with spaces and + ( ) - . only, 7 to 15 digits.',
+        'note_long' => 'The note is at most 500 characters.',
+        'other' => 'Check this field.',
+    ];
+
+    /** The customer list's refusals, by code. */
+    public const CUSTOMER_ERROR = [
+        'customer_invalid' => 'Some details need correcting: see the fields below. Nothing was saved.',
+        'customer_exists' => 'There is a customer with this name already. Nothing was saved.',
+        'customer_changed' => 'Someone changed this customer while you had it open. What you typed is kept below: check it and save again. Nothing was saved.',
+        'unknown_customer' => 'That customer does not exist.',
+        'import_columns' => 'The file needs the columns customer, item and price (date and invoice may be there too). Nothing was loaded.',
+        'bad_file' => 'The file could not be read as a spreadsheet file (CSV). Nothing was loaded.',
+        'too_many_rows' => 'The file has more rows than the setting allows. Split it into smaller files. Nothing was loaded.',
+        'role_not_allowed' => 'Your job does not keep the customer list. Nothing was saved.',
+        'admin_cannot_post' => 'Admin does not keep the customer list. Nothing was saved.',
+    ];
+
+    /** The customer pages' notices. */
+    public const CUSTOMER_NOTICE = [
+        'added' => 'The customer is added. Hand-overs can name it now.',
+        'saved' => 'The details are saved.',
+        'unchanged' => 'Nothing changed, so nothing was saved.',
+        'switched_off' => 'The customer is switched off. Its hand-overs and balance stay.',
+        'switched_on' => 'The customer is in use again.',
+    ];
+
+    /** Why a row of a file of old prices was skipped (Counterparties::importPrices). */
+    public const PRICE_SKIP = [
+        'unknown_customer' => 'No customer has this exact name: add it first, or correct the name.',
+        'unknown_item' => 'No item has this CW number, barcode or ERPNext item code.',
+        'item_doubtful' => 'It could be more than one item, or a pack of several units: not loaded, to be safe.',
+        'bad_price' => 'This is not a price in pounds (for example 2.45).',
+        'bad_date' => 'This is not a date (2026-10-14 or 14/10/2026), or it is in the future.',
+        'bad_reference' => 'The invoice number is longer than 100 characters.',
+    ];
+
+    /** Stock > Hand-overs > Balances (view handover_balances). */
+    public const BALANCE = [
+        'accountant' => 'The accountant keeps the real accounts. This page is the warehouse\'s own record of hand-overs and the payments you tell it about.',
+        'none' => 'No customers yet',
+        'none_text' => 'A customer appears here once it is added.',
+        'none_link' => 'Add a customer',
+        'tile_balance' => 'Owes us now',
+        'balance_sub' => 'hand-overs less payments received',
+        'credit' => 'a credit: we owe the customer',
+        'tile_month' => 'Handed over this month',
+        'handovers_sub' => '%s hand-overs in all',
+        'last_paid' => 'Last payment: %s on %s (reference %s).',
+        'pay' => 'Record a payment received',
+        'pay_text' => 'Type the amount that arrived, the day and the bank reference. A payment recorded by mistake is reversed, never deleted.',
+        'amount' => 'Amount (£)',
+        'paid_on' => 'Day it arrived',
+        'reference' => 'Bank reference',
+        'note' => 'Note',
+        'pay_button' => 'Record the payment',
+        'history' => 'Every entry',
+        'no_history' => 'Nothing yet.',
+        'what' => 'What',
+        'when' => 'When',
+        'amount_col' => 'Amount',
+        'ref_col' => 'Reference',
+        'who' => 'Who',
+        'reversed_mark' => 'Reversed',
+        'reverse' => 'Reverse this payment',
+        'reverse_why' => 'Why it is reversed',
+        'reverse_button' => 'Reverse the payment',
+    ];
+
+    /** An entry of what a customer owes (counterparty_entry.kind). */
+    public const BALANCE_KIND = [
+        'handover' => 'Hand-over %s',
+        'handover_reversal' => 'Cancellation %s',
+        'payment' => 'Payment received',
+        'payment_reversal' => 'Payment reversed',
+    ];
+
+    /** The balances page's notices (%s: the balance now). */
+    public const BALANCE_NOTICE = [
+        'paid' => 'The payment is recorded. The customer now owes %s.',
+        'payment_reversed' => 'The payment is reversed. The customer now owes %s.',
+    ];
+
+    /** The balances page's refusals, by code. */
+    public const BALANCE_ERROR = [
+        'more_than_owed' => 'The payment is more than the %s the customer owes. Check the amount. Nothing was saved.',
+        'nothing_owed' => 'This customer owes nothing. Nothing was saved.',
+        'bad_amount' => 'Type the amount in pounds, for example 1250.00. Nothing was saved.',
+        'bad_date' => 'Type the day the money arrived, today or before. Nothing was saved.',
+        'bad_reference' => 'Type the bank reference. Nothing was saved.',
+        'bad_reason' => 'Say in a few words why the payment is reversed. Nothing was saved.',
+        'already_reversed' => 'This payment is reversed already. Nothing was saved.',
+        'not_a_payment' => 'Only a payment is reversed here. A hand-over is cancelled on its own page.',
+        'unknown_entry' => 'That payment does not exist.',
+        'unknown_customer' => 'That customer does not exist.',
+        'role_not_allowed' => 'Your job does not record payments. Nothing was saved.',
+        'admin_cannot_post' => 'Admin does not record payments. Nothing was saved.',
+    ];
+
+    /** Purchasing > Goods In > Duty register (DutyController, view duty_register). */
+    public const DUTY = [
+        'lines_stamp' => 'It lists the lines of the deliveries booked in that needed the duty stamp check.',
+        'lines_all' => 'It lists every line of the deliveries booked in.',
+        'search' => 'Find by item, CW number, delivery number, supplier invoice or delivery note',
+        'from' => 'Arrived on or after',
+        'to' => 'Arrived on or before',
+        'supplier' => 'Supplier',
+        'any_supplier' => 'Any supplier',
+        'stamp' => 'Stamp',
+        'any_stamp' => 'Any',
+        'state' => 'Delivery',
+        'any_state' => 'Any',
+        'state_posted' => 'Booked in',
+        'state_reversed' => 'Cancelled',
+        'clear' => 'Clear the filter',
+        'download' => 'Download as a spreadsheet file (at most %s lines)',
+        'register' => 'Delivery lines',
+        'count' => '%s lines',
+        'none' => 'Nothing in the register yet',
+        'none_text' => 'The register fills itself from the deliveries booked in.',
+        'none_link' => 'Go to Goods In',
+        'none_filter' => 'No line fits your filter',
+        'none_filter_text' => 'Your filter hides every line.',
+        'arrived' => 'Arrived',
+        'item' => 'Item',
+        'units' => 'Units',
+        'check' => 'Stamp check',
+        'unstamped' => 'Unstamped',
+        'declaration' => 'Supplier\'s declaration',
+        'expected' => 'Expected duty',
+        'invoice' => 'Invoice %s',
+        'delivery_note' => 'delivery note %s',
+        'ml' => '%s ml',
+        'went' => '%s in, %s held back, %s refused',
+        'not_checked' => 'Not checked',
+        'on_pack_yes' => 'On the outer pack and sealing it',
+        'on_pack_no' => 'Not on the outer pack',
+        'checked_by' => 'Checked by %s',
+        'none_unstamped' => 'None',
+        'incidents' => '%s incidents',
+        'no_declaration' => 'None',
+        'evidence_file' => 'A file of it is kept with the delivery.',
+        'prev' => 'Newer',
+        'next' => 'Older',
+        'page' => 'Page %s of %s',
+        'alarm' => '%s unstamped units are still held. From %s holding them is an offence: they must be sold, sent back, exported or destroyed.',
+        'must_empty' => '%s unstamped units are held. The place must be empty by %s.',
+        'held_title' => 'Unstamped stock and where it is',
+        'held_text' => 'What the unstamped places hold now. The settings name these places.',
+        'no_unstamped_place' => 'No place is named for unstamped stock in the settings.',
+        'held_none' => 'Nothing unstamped is held',
+        'where' => 'Where',
+        'on_hand' => 'Units',
+        'accepted_title' => 'Taken in unstamped on a supplier\'s declaration',
+        'accepted_text' => 'These units arrived unstamped with the supplier\'s word that they were made or brought in before 1 Oct 2026. They '
+            . 'went to the shelf with the rest. The system cannot tell how many are sold since: count them.',
+        'accepted_none' => 'None.',
+        'accepted_units' => 'Units taken in',
+        'last_arrived' => 'Last arrived',
+        'on_hand_now' => 'Units of the item there now',
+        'list_more' => 'Only the first %s items are listed here. The totals count them all.',
+        'held_total' => '%s units held unstamped in all.',
+        'accepted_total' => '%s units taken in this way in all.',
+    ];
+
+    /** The stamp state of a line of the duty register (DutyRegister::STAMP_STATES). */
+    public const DUTY_STAMP = [
+        'stamped' => 'Stamped',
+        'unstamped' => 'Unstamped',
+        'declaration' => 'Unstamped, declared made before 1 Oct 2026',
+        'not_checked' => 'Not checked',
+        'not_needed' => 'No stamp needed',
+    ];
+
+    // ---- end of pack H ----
 
     public const TONES = ['needs', 'done', 'waiting', 'blocked', 'info', 'off', 'review'];
 
@@ -9552,6 +10121,8 @@ final class Words
         'CREDIT_STATE' => ['open' => 'needs', 'part' => 'waiting', 'credited' => 'done'],
         // Pack F (PF5): waiting orange, done green, closed grey.
         'QUEUE_STATE' => ['open' => 'needs', 'resolved' => 'done', 'dismissed' => 'off'],
+        // Pack H (0038): a line of the duty register.
+        'DUTY_STAMP' => ['stamped' => 'done', 'unstamped' => 'blocked', 'declaration' => 'needs', 'not_checked' => 'review', 'not_needed' => 'off'],
     ];
 
     // ==================================================================================================================

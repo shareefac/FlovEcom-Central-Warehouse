@@ -51,6 +51,9 @@ final class CompanyDetails
         'address' => 'registered address',
         'vat_registered' => 'VAT registration',
         'vat_number' => 'VAT number',
+        // Pack H (0038, docs/decisions.md PH3): the VAT code our own invoices (hand-overs) charge, and the currency (pounds only, Q13).
+        'vat_code' => 'VAT code of our invoices',
+        'currency' => 'currency',
         'phone' => 'phone',
         'email' => 'purchasing e-mail',
         'delivery_address' => 'delivery address',
@@ -79,7 +82,9 @@ final class CompanyDetails
     public const PHONE_HELP = 'A phone number is digits with spaces and + ( ) - . only, 7 to 15 digits, for example 0113 496 0000 or +44 113 496 0000.';
 
     private const EMPTY = ['legal_name' => '', 'trading_name' => '', 'company_number' => '', 'address' => '', 'vat_registered' => null, 'vat_number' => '',
-        'phone' => '', 'email' => '', 'delivery_address' => ''];
+        'vat_code' => '', 'currency' => 'GBP', 'phone' => '', 'email' => '', 'delivery_address' => ''];
+    /** The currencies the details may name (pack H, PH3): pounds only (owner answer Q13; company_profile's CHECK says the same). */
+    public const CURRENCIES = ['GBP'];
 
     private readonly \Closure $clock;
 
@@ -117,7 +122,9 @@ final class CompanyDetails
         $p = $this->current();
         return ['legal_name' => $p['legal_name'], 'trading_name' => $p['trading_name'], 'address' => $p['address'], 'company_number' => $p['company_number'],
             'vat_number' => $p['vat_number'], 'phone' => $p['phone'], 'email' => $p['email'], 'delivery_address' => $p['delivery_address'],
-            'confirmed' => $p['confirmed'], 'vat_registered' => $p['vat_registered'], 'version' => $p['version']];
+            'confirmed' => $p['confirmed'], 'vat_registered' => $p['vat_registered'], 'version' => $p['version'],
+            // Pack H (PH3): what the hand-over invoices print and charge.
+            'vat_code' => $p['vat_code'], 'currency' => $p['currency']];
     }
 
     /**
@@ -133,6 +140,11 @@ final class CompanyDetails
     public function save(Caller $caller, int $expectedVersion, array $input, ?string $reason = null): array
     {
         ['values' => $v, 'reason' => $reason] = self::check($input, $reason);
+        if ($v['vat_code'] !== '' && $this->db->value('SELECT 1 FROM vat_code WHERE code = ? AND is_active = 1', [$v['vat_code']]) === null) {
+            // Pack H (PH3): a VAT code must be one in use (vat_code).
+            throw new CwException('company_invalid', 'Some details need correcting: The VAT code is not one in use: choose one of the list.', 422,
+                ['errors' => ['vat_code' => 'The VAT code is not one in use: choose one of the list.'], 'values' => $v]);
+        }
         return $this->db->transaction(function (Db $db) use ($caller, $expectedVersion, $v, $reason): array {
             $this->staff($caller, 'company.edit');
             $cur = $this->current();
@@ -532,6 +544,23 @@ final class CompanyDetails
         }
         $v['vat_registered'] = $registered;
         $v['vat_number'] = $vn;
+        // Pack H (PH3): the VAT code of our own invoices (empty: not said yet) and the currency (empty: pounds).
+        $raw = $text('vat_code');
+        $code = mb_check_encoding($raw, 'UTF-8') ? strtoupper(trim($raw)) : '';
+        if ($code !== '' && preg_match('/^[A-Z]{1,4}$/D', $code) !== 1) {
+            $errors['vat_code'] = 'The VAT code is one of the list (for example S for the standard rate).';
+            $code = '';
+        }
+        $v['vat_code'] = $code;
+        $currency = strtoupper(trim($text('currency')));
+        if ($currency === '') {
+            $currency = self::CURRENCIES[0];
+        }
+        if (!in_array($currency, self::CURRENCIES, true)) {
+            $errors['currency'] = 'The currency is pounds (GBP): the only currency the warehouse uses.';
+            $currency = self::CURRENCIES[0];
+        }
+        $v['currency'] = $currency;
 
         $raw = $text('phone');
         $phone = mb_check_encoding($raw, 'UTF-8') ? trim((string) preg_replace('/\s+/u', ' ', $raw)) : '';
@@ -734,6 +763,9 @@ final class CompanyDetails
         if ($field === 'vat_number') {
             return self::formatVat((string) $v);
         }
+        if ($field === 'currency') {
+            return $v === 'GBP' ? 'pounds (GBP)' : (string) $v;
+        }
         return (string) $v;
     }
 
@@ -925,6 +957,8 @@ final class CompanyDetails
         }
         $r['version'] = (int) $r['version'];
         $r['vat_registered'] = $r['vat_registered'] === null ? null : (int) $r['vat_registered'] === 1;
+        $r['vat_code'] = ($r['vat_code'] ?? null) === null ? '' : (string) $r['vat_code'];
+        $r['currency'] = (string) ($r['currency'] ?? self::CURRENCIES[0]);
         $r['confirmed'] = (int) $r['confirmed'] === 1;
         $r['baseline_version'] = ($r['baseline_version'] ?? null) === null ? null : (int) $r['baseline_version'];
         return $r;
@@ -951,11 +985,12 @@ final class CompanyDetails
         $now = Clock::db(($this->clock)());
         try {
             $db->exec(
-                'INSERT INTO company_profile (version, kind, legal_name, trading_name, company_number, vat_registered, vat_number, address, phone, email, '
-                . 'delivery_address, confirmed, confirmed_by, confirmed_actor, confirmed_at, baseline_version, reason, saved_by, saved_actor, saved_at) '
-                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO company_profile (version, kind, legal_name, trading_name, company_number, vat_registered, vat_number, vat_code, currency, address, phone, '
+                . 'email, delivery_address, confirmed, confirmed_by, confirmed_actor, confirmed_at, baseline_version, reason, saved_by, saved_actor, saved_at) '
+                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [$version, $kind, $v['legal_name'], $v['trading_name'], $v['company_number'], $v['vat_registered'] === null ? null : ($v['vat_registered'] ? 1 : 0),
-                    $v['vat_number'], $v['address'], $v['phone'], $v['email'], $v['delivery_address'], $confirmer !== null ? 1 : 0, $confirmer?->staffUserId,
+                    $v['vat_number'], ($v['vat_code'] ?? '') === '' ? null : $v['vat_code'], $v['currency'] ?? self::CURRENCIES[0],
+                    $v['address'], $v['phone'], $v['email'], $v['delivery_address'], $confirmer !== null ? 1 : 0, $confirmer?->staffUserId,
                     $confirmer?->actor, $confirmer !== null ? $now : null, $baseline, $reason, $caller->staffUserId, $caller->actor, $now],
             );
         } catch (\PDOException $e) {

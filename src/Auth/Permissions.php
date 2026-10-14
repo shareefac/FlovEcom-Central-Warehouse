@@ -183,11 +183,19 @@ final class Permissions
             'accountant', 'auditor'],
         'values.view' => ['purchasing_manager', 'reviewer', 'accountant', 'auditor'],
         // ---- end Pack E
+        // ---- Pack H (0038; docs/decisions.md PH13, provisional, owner to confirm). Hand-overs (TRD, IM11): doc.TRD.post above (the
+        // purchasing desk and manager key trade sales today) makes, finishes and cancels them; documents.view reads them. The customer
+        // list and its remembered prices (handovers.customers) and the payments received from a customer (handovers.pay): the same two
+        // jobs. The duty register (IM13, duty.view): who reads receipts and incidents, and the accountant. Never admin (I12). ----
+        'handovers.customers' => ['purchasing_desk', 'purchasing_manager'],
+        'handovers.pay' => ['purchasing_desk', 'purchasing_manager'],
+        'duty.view' => ['goods_in', 'purchasing_desk', 'purchasing_manager', 'stock_controller', 'reviewer', 'accountant', 'auditor', 'manager'],
+        // ---- end of pack H ----
     ];
 
     /** The screens not built yet (Phase I-4 to I-6; receiving is built, IM6; stock counts since pack A2a; supplier invoices and returns since pack C): Home names the ones the person's jobs will use (Ui\Words::COMING_LATER). */
     public const COMING_LATER = [
-        ['key' => 'trade', 'perm' => 'doc.TRD.post'],
+        // Pack H: 'trade' (doc.TRD.post) is built: Stock > Hand-overs.
         ['key' => 'values', 'perm' => 'accounts.view'],
     ];
 
