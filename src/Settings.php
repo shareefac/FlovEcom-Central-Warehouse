@@ -158,6 +158,16 @@ final class Settings
         'reports.refresh_max_rows' => ['min' => 1000, 'max' => 1_000_000],
         'reports.refresh_max_days' => ['min' => 1, 'max' => 366],
         // ---- end Pack E
+        // ---- Pack I (0039, the ERPNext opening import; docs/decisions.md PI1-PI6) ----
+        // What an item below zero opens at; the valuation rates that are only placeholders (pounds, comma-separated); the store whose
+        // variant numbers ERPNext's items carry; the CW warehouse the opening is booked at. The warehouse, company and blocked-name lists
+        // are texts, one name per line (ErpOpeningRules refuses a list that names a blocked name).
+        'erp_opening.below_zero' => ['in' => ['zero', 'carry']],
+        'erp_opening.placeholder_costs' => ['pattern' => '/^(0|[1-9][0-9]{0,7})(\.[0-9]{1,6})?(,(0|[1-9][0-9]{0,7})(\.[0-9]{1,6})?)*$/D',
+            'pattern_says' => 'amounts in pounds separated by commas, like 0,1 (empty: no placeholder amount; a blank rate always is one)'],
+        'erp_opening.listing_store' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}$/D', 'pattern_says' => 'one channel code, like vapeandgo (empty: none)'],
+        'erp_opening.cw_warehouse' => ['pattern' => '/^[A-Z][A-Z0-9_]{0,31}$/D', 'pattern_says' => 'a CW warehouse code in capitals, like MAIN'],
+        // ---- end of pack I ----
     ];
     /**
      * Settings whose value is a secret (review finding 6 of 14 Oct 2026: a chat channel's incoming address carries its token). get()

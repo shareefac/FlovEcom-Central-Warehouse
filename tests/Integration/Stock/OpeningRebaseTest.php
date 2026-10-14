@@ -57,7 +57,8 @@ final class OpeningRebaseTest extends StockTestCase
     /** @param array<int, int> $lines @return array{booked_items: int, booked_units: int, replayed_items: int} */
     private function bookRebase(array $lines, string $doc = self::REBASE): array
     {
-        return $this->op()->apply($this->sys(), $lines, $doc, 'opening rebase (not a count): test', 'MAIN', null, OpeningRebase::DOC_TYPE);
+        // A rebase builds on its estimate: the in-booking re-check (pack I, PI17) is told so, as bin/import_opening_estimate.php does.
+        return $this->op()->apply($this->sys(), $lines, $doc, 'opening rebase (not a count): test', 'MAIN', null, OpeningRebase::DOC_TYPE, [self::EST]);
     }
 
     private function code(callable $fn): string

@@ -9492,3 +9492,175 @@ id, so passing a failed batch over skipped its days for good. The job now stops 
 note says which batch it waits for ("history waits for batch N (failed)"). The cost: a failed batch that is never retried holds the
 history back until it is retried (`bin/refresh_reports.php --status` shows it); the stock and sales parts of the job are not held.
 <!-- ==== end Pack E ==== -->
+
+## Pack I: the opening stock and opening cost migrated FROM ERPNext (slot `packi`, 14 Oct 2026)
+
+The owner's decision of 14 Oct 2026: CW's opening stock is migrated FROM ERPNext, not taken from the stores' own figures (it replaces the
+opening of D40a, `bin/import_opening_estimate.php`, as the source of the figure). This pack is the import, for the quantity and the opening
+average cost (the opening-cost half of IM8 / E16: "opening average cost from ERPNext's Stock Balance rates; blank and £1 placeholder costs
+re-costed"). Code: `bin/import_erp_opening.php`, `src/Ops/{ErpOpening,ErpOpeningFiles,ErpOpeningRules,ErpItemResolver}.php` (new),
+`migrations/0039_erp_opening_import.sql` (numbered 0039: 0030-0038 are other packs'), marked blocks in `src/Movements.php`
+(`recordOpening`), `src/Output/CsvReader.php` (`records`), `src/Output/XlsxReader.php` (`$maxRowIndex`), `src/Settings.php` (RULES),
+`src/Ui/Words.php` (SETTING, SETTING_TOPIC, SETTING_HELP), `src/Schema/Grants.php` (UPDATE_COLUMNS); tests
+`tests/Integration/Stock/ErpOpeningTest.php`, `tests/Unit/ErpOpeningFilesTest.php`, `tests/Integration/Migration0039Test.php`; the staff
+steps in `docs/ops.md` "The opening stock from ERPNext". Every rule below that the owner may want otherwise is an `erp_opening.*` setting
+(provisional, a build decision put to the owner).
+
+**PI1. Where and how it is booked.** One `adjustment` per CW item at the warehouse `erp_opening.cw_warehouse` (baseline MAIN), through the
+one stock writer (Movements → Stock; Stock.php's locks and buckets untouched), actor `system:opening_estimate` (the actor of every opening,
+D40a: so the stores' estimate tool sees an ERPNext-opened item as an `earlier_opening` and never books it again, and the T0 rebase sees it as
+`other_opening`), cost source `estimate` (PI7), Idempotency-Key `<doc_ref>:<sku_id>`, the as-of moment, the file hash, the source, the
+below-zero rule, whether the sales on their way were taken off and who approved in the note. The doc_ref is given (`--doc-ref`,
+compared byte for byte), e.g. `erp-opening:vapeandgo:2026-10-31`. An opening is not a count: `counted_at` is never touched.
+
+**PI2. Which ERPNext rows are read: the main warehouse only, never VPG 2.** `erp_opening.warehouses` (baseline `Stores - VPG`, one name per
+line) and, when the file has a Company column, `erp_opening.companies` (baseline `VAPE AND GO`; empty: the company is not checked).
+`erp_opening.blocked_names` (baseline `VPG 2`): a company or warehouse whose name CONTAINS one of them, spaces and case ignored, is never
+read, whatever the two lists say (`VPG 2 Main warehouse - VPG2` and `Stores - VPG2` both stop); a list that names one is refused as a
+setting mistake (409 `bad_setting`), and a file exported for such a company (its own `company` filter line) is refused whole
+(`wrong_company`). Rows left out are counted per reason (`blocked`, `other_company`, `other_warehouse`) with their units and names. Names are
+compared as ERPNext compares them (case and runs of spaces ignored).
+
+**PI3. An ERPNext item reaches a CW item by one route or not at all (`ErpItemResolver`).** First CW's own ERPNext link (`sku_erp_item`, ×
+its `units_per_item`; plan §5 keeps it as the override); else the item list's Product ID (the custom Item field that holds the Vape and Go
+variant number, docs/ops.md "ERPNext open POs") names a listing of the store `erp_opening.listing_store` (baseline `vapeandgo`), which must
+be `mapped`: its item × the listing's `units_per_item` (plan §9: ERPNext resolves through Vape and Go's link). Otherwise the line is
+UNRESOLVED, counted and listed with its reason, never guessed: `no_item_code`, `bad_qty`, `fractional_qty`, `no_item_list`, `no_product_id`,
+`ambiguous_product_id` (the item list gives two), `no_listing_store`, `unknown_listing`, `unlinked_listing`, `quarantined_listing`,
+`merged_item`. Two ERPNext items of one CW item (the `P47074` / `47074` naming split, a single and a pack) are summed and counted
+(`fed_by_several_erp_items`). **Assumption, to be confirmed on the first real export:** one unit of an ERPNext item's stock UOM is one unit
+of the variant its Product ID names (the summary lists the stock UOMs seen).
+
+**PI4. Below zero (the plan's D36; about 707 ERPNext items).** Per CW item, after the sales on their way are taken off: `erp_opening.below_zero`
+`zero` (baseline: open at nothing, as D40b's max(S, 0) and D36 A) or `carry` (book the minus, as D36 B; CW allows an uncounted item below
+zero, D1, SO3). The summary gives the lines below zero (rows, units), the items below zero (items, units), what the rule did (units not
+carried, or carried) and the items one by one.
+
+**PI5. The opening cost: ERPNext's Valuation Rate, never a placeholder.** A central unit's cost = the line's rate ÷ u, averaged over the
+item's lines weighted by their central units: the lines on the side of the item's figure (above zero for a plus), else any line with a real
+rate. A blank rate, one that is not a number or below zero, and one of `erp_opening.placeholder_costs` (baseline `0,1`: £0 and the £1
+placeholder Vape and Go's cost field holds, I1) are never used: the summary counts those lines, an item with no other rate opens WITHOUT a
+cost and is listed for re-costing (items, units, its lines), and an item costed from its other lines only is counted (`mixed`). Rates keep 6
+decimals (half up). The summary gives the opening's value at these costs and, for comparison, ERPNext's own Balance Value of the resolved
+lines. A carried minus carries its cost too (value below zero).
+
+**PI6. The sales still on their way to ERPNext.** Website sales reach ERPNext through a queue (pending and failed rows), so ERPNext's figure
+still holds units a store has sold. An optional file lists them (Variant ID or Product ID, or Item Code; Qty, or one row a unit); each row
+resolves like PI3 (a variant directly through the store's link) and its central units are taken off the item; rows that do not resolve are
+listed, not taken off. Without the file the summary says in capitals that the correction is still OPEN. `erp_opening.require_pending_sales`
+(baseline on): `--apply` refuses to book without it; an empty file (its header only) says there are none. Writing that file from the
+website's queue is the integrator's (the query is not part of this pack).
+
+**PI7. `Movements::recordOpening`.** record() for a system job, `adjustment` only, whose line costs are stored with cost source `estimate` (I1
+reserved it for the opening cost load; until now nothing wrote it). The canonical request carries `cost_source`, so a key used by record()
+is never replayed by it nor the other way round (422), and every request record() hashes is unchanged (I6, MovementHashCompatTest). Staff
+and sites never reach it (LogicException).
+
+**PI8. The files are what staff download; CW never connects to ERPNext.** Never its stock feed (`get_product_stock_sync` marks pending
+purchase invoices Synced: 200 units on 5 Oct). The stock file is the Stock Balance report (CSV or Excel), read by its column names (Item,
+Warehouse, Balance Qty, Valuation Rate required; Company, Balance Value, Stock UOM, Item Name used when present); a Report-view export of the
+Bin list (Item Code, Warehouse, Actual Quantity, Valuation Rate, Stock Value) reads the same way. An export made with "Include filters"
+starts with its filter lines: kept, and the `company` and `to_date` ones are checked (PI2, PI9). The report's Total line is checked against
+the sum of the lines (`total_mismatch`: edited, filtered in the grid or cut short) and left out; a line after it, the same item and
+warehouse twice, or no line at all refuse the file. Quantities are whole numbers (`12.0` is 12; a fraction is the line's `fractional_qty`).
+
+**PI9. What CW already knows about an item wins.** Skipped and listed (with the figure ERPNext gives): `counted` (a count replaced any
+opening), `earlier_opening` (any opening row under another doc_ref, or at another warehouse), `moved_before_as_of` (an on-hand row of
+anyone else before `--as-of`: ERPNext's figure already holds it). On-hand rows after `--as-of` are fine: the opening sits under them. When
+the file carries its To Date, `--as-of` must fall on that UK day (`as_of_mismatch`). An item already booked under this doc_ref with the same
+figure AND cost is left alone; another figure or cost under the same doc_ref refuses the whole run before anything is booked
+(`opening_conflict`): a second `--apply` of the same files books nothing, a different file needs a deliberate new doc_ref.
+
+**PI10. Two additions to shared readers.** `CsvReader::records()` gives every record with no header rule (the filter lines come first);
+`XlsxReader::read()` takes an optional `$maxRowIndex` (an ERPNext stock export runs past row 10,000). Neither changes what an existing caller
+reads.
+
+**PI11. `--replaces=<doc_ref>`: replacing the stores' estimate.** Where the stores' estimate of D40a was already booked (cw_staging holds
+`opening:vapeandgo:2026-10-01T00:00+01:00`), the ERPNext figure can replace exactly that one opening: the item's row then holds two lines,
+the earlier opening taken back (line 1, no cost) and the ERPNext figure with its cost (line 0), so the item's openings add up to the ERPNext
+figure and the value is the ERPNext figure × its cost. An item of the replaced opening that the ERPNext file does not lead to is skipped
+(`not_in_erp_file`), never written down to nothing. Without `--replaces` such items are `earlier_opening`.
+
+**PI12. The dry run writes nothing.** The default; it reads, plans and prints the summary (and `--report=<csv>`, one row per stock line
+and what became of it, when asked). `--apply` (with `--sha256` of the archived stock file and `--approved-by`) books and records the run in
+`erp_opening_run` (0039: what the run was on, frozen; its status, summary and end the only columns the app login may change; never
+removed). The command line is read strictly (a misspelt option ends it before anything is read) and one run at a time (the job lock).
+
+**PI13. The value engine has no route yet: what exactly is missing.** IM8 is not built: nothing writes `stock_value_ledger` (I5: IM8's
+`Valuation.php` is to be its only writer; this pack does not write it). What is in place: the opening cost on the ledger row (`unit_cost`,
+`cost_source = 'estimate'`), numbered in the item's value sequence (`stock_value_seq`, I3) like every on-hand row, and read today by the
+screens' "average cost so far" (`CostHints::average`, SO6). Missing, for IM8: (1) the consumer that walks each item's value sequence; (2)
+its rule that an on-hand row of actor `system:opening_estimate` with cost source `estimate` is the item's `opening` entry (qty, unit cost,
+value, `effective_at` the as-of moment written in the note, pool `default`); (3) the value of an item opened without a cost (PI5: it waits
+for a cost typed by a person or the first delivery at a price); (4) the value of a carried minus (plan §15.3 "true-up at the next
+receipt"); (5) the opening valuation saved on the switch day for the accountant (plan part 2). None of these needs a change here.
+
+**PI14. A store's T0 after an ERPNext opening: the units-only rebase (built in the review round of 14 Oct 2026).** ERPNext's figure, once
+the sales on their way are taken off, is free stock: every sale is out of it, as the store's own figure was in D40a. At the store's T0,
+`/v1/opening_orders` puts the open paid units into `allocated` only, so on-hand needs them added (D40a). The rebase of D40b would also reset
+the figure to the store's own (against the owner's decision), or skip every ERPNext-opened item as `other_opening`. So
+`bin/import_opening_estimate.php --rebase --units-only --estimate-doc-ref=<the ERPNext opening's doc_ref>` (`OpeningRebase::plan(...,
+unitsOnly: true)`): target = the item's rows under that doc_ref + the units term of D40b (the channel's committed `origin = opening` units ×
+u); delta = the units term. No file is read (no `--csv`, no `--sha256`; giving one is a usage error), the T0 checks and `--as-of` for a real
+run stay. The skips that judge the store's figure (`no_t0_figure`, `quarantined_listing`, `no_mapped_listing`) do not apply; every other one
+does (`counted`, `other_opening`, `moved`, `units_elsewhere`, `merged_item`; a conflict under the same doc_ref refuses). An item ERPNext opened
+at zero (below zero) gets its open units, as max(S, 0) + units in D40b. The summary says how many items carry the named opening. After it,
+available = the ERPNext figure (× u) and, once the opening units have shipped, on-hand = the ERPNext figure. Still to confirm: that the
+website's sales invoice reaches ERPNext at payment (read in the code 14 Oct: payment completed sets `ord_is_syncable`, PI20), so ERPNext's
+figure is free stock and not on-hand.
+
+**PI15. Not built.** The small Stock screen of the last import's summary (optional in the brief): left out to keep this pack off the shared
+screen files that six packs change at once; `ErpOpening::lastRun()` gives what it would show.
+
+**PI16. Tests.** `ErpOpeningTest`: only the main warehouse is read and VPG 2 never is (also when a list names it, and a file exported for
+it); unresolved lines listed by reason with nothing guessed (and without the item list); below zero by both rules; blank, £0 and £1 costs
+flagged and passed over, the weighted average over a single and a 10-pack; the same file again books nothing, other figures or another cost
+under the same doc_ref are refused, the same file under another doc_ref books nothing; the sales on their way taken off (a 10-pack variant ×
+10), listed when they do not resolve, and reported open when not given; the dry run through the command line leaves every table's row
+count as it was, `--apply` refuses without the hash or the pending-sales file, books once and records its run, and the same command again
+books nothing; `--replaces` of a D40a estimate; counted and moved items skipped; an XLSX export, an edited Total line, a doubled line, no
+rate column, the To Date check; `recordOpening`'s cost source and refusals. `ErpOpeningFilesTest` (unit): numbers, rates, the filter lines,
+the Bin export, the item list, the pending-sales file, the rules, the words of the eight settings. `Migration0039Test`: the settings, their
+versions and rules, the run table and its grants.
+
+**PI17. One opening lock, and a re-check inside each booking (review of 14 Oct 2026, finding 1).** The estimate tool and the ERPNext
+import had their own job locks, so both could plan the same item and both book it (an estimate of 8 and ERPNext's 11 made 19). Now (1)
+every real run of either tool (estimate, T0 rebase, ERPNext opening) takes ONE named lock per schema (`OpeningLock`, `cw_opening:<schema>`)
+from before its plan to its last booking; a dry run reads only and needs none; a run that finds it held books nothing and says so; and (2)
+each item is checked again INSIDE its booking transaction, after its balance is locked (`OpeningGuard`, through a new optional `$guard` of
+`Movements::record()`/`recordOpening()`, called after `Stock::lock()` and before anything is booked; not part of the request hash, never
+called on a replay): an opening under any other doc_ref than the run's own and the one it builds on (the rebase's estimate, `--replaces`), or
+a count, refuses the item (409 `opening_changed`, nothing stored under its key) and stops the run there, whole items only. Stock.php is
+unchanged.
+
+**PI18. ERPNext item codes keep their inner spaces (finding 2).** Item codes were compared with the name key that also folds runs of spaces,
+so the CW links `ABC DEF` and `ABC  DEF` overwrote each other and either could win. Now `ErpOpeningRules::itemKey()` ignores letter case and
+the spaces at the ends only (ERPNext's own rule for names); the warehouse and company names keep the folding key. Two CW links that still
+read the same (`TRAIL` and `TRAIL `) are never one picked: the line is unresolved, `ambiguous_erp_link`. The item list and the stock file's
+"same item twice" check use the same key.
+
+**PI19. A re-run that leaves out a booked item is refused (finding 3).** The history read now loads every item already booked under the
+doc_ref, not only the planned ones, so a file under the same doc_ref without an item booked earlier (left out of the file or of the item
+list) is `opening_conflict`, nothing booked.
+
+**PI20. The sales not yet in ERPNext: `bin/erp_pending_sales.php` (`SitePendingSales`).** Read in App/App_proto on 14 Oct 2026: payment
+completed sets `orders_master.ord_is_syncable = 1`; `salesorder.php` makes one `data_sync` row per order (`ds_type = 'sales_invoice'`,
+PENDING; `items[]` = one `{item_code: ordi_prodt_id, qty: 1}` per `orders_items` row, none left out) and sets
+`ord_generate_prepare_to_sync = 1`; the processor makes it SUCCESS or FAILED (retried while `retry_count < 5`). ERPNext answers 200 when the
+invoice is in its own queue, before the stock moves. Units on their way, per variant: the items of every `sales_invoice` row that is
+PENDING or FAILED (any retry count: a stuck one is surely not in ERPNext), or SUCCESS within `--success-grace-minutes` (10, as the store's own
+reconciler), and is its order's newest such row (`source_ord_id`: a re-queued order counts once); plus the `orders_items` of orders paid but
+not queued yet. Cancel and refund rows still on their way put units BACK in ERPNext: counted and printed as "NOT NETTED", never guessed
+into the figure. Read only: SELECT statements only (checked before each runs), `SET SESSION TRANSACTION READ ONLY` and `START TRANSACTION
+READ ONLY`, `MAX_EXECUTION_TIME` on the session and in every statement (`--max-ms`, 30,000 by default, 100 to 600,000), rolled back at the end;
+the connection comes from an env file (`--site-env`, KEY=VALUE, parsed never sourced, refused unless chmod 600, nothing of it printed),
+TLS required as every CW connection. Output: the pending-sales file `variant_id,qty` (`--out`, made 0600) and a summary on stderr. Tested
+only on made-up tables in a scratch schema; never run against a live database by the build.
+
+**PI21. Tests of the review round.** `ErpOpeningTest`: an opening booked by the other tool, or a count, between a run's plan and its apply
+stops the item (both directions); the tools share one lock (both refused while it is held, the dry run not); item codes with inner spaces
+and an ambiguous link; a re-run that leaves out a booked item, through the file and through the item list. `ErpOpeningT0Test`: the
+units-only rebase with the opening_orders flow (ERPNext opening, open paid units, a ship before the rebase, available = the ERPNext figure,
+on-hand = it once shipped, a 10-pack, an item opened at zero, a re-run, the refusals), the skips, and the command line without a file.
+`SitePendingSalesTest`: the figures on made-up tables, the read-only session (a write refused, 1792), the statements, the grace, the script,
+its env-file rules and the file the opening import reads. The three findings' tests were run first on the unfixed tree and failed.

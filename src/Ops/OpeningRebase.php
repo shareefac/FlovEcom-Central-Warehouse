@@ -119,11 +119,23 @@ final class OpeningRebase
      * @param iterable<array{0: string, 1: int}> $rows   (site variant id, site stock in the T0 snapshot)
      * @param ?string $estimateDocRef  the doc_ref of this site's estimate, compared byte for byte (null: none was booked)
      * @param ?string $warehouse       warehouse code; default the channel's sellable warehouse (where its opening units are)
+     * @param bool $unitsOnly           pack I (PI14): the opening came FROM ERPNext (free stock, every sale out of it): keep it and add only
+     *                                  the units term (target = the rows under $estimateDocRef + the units term; no site figure, $rows
+     *                                  empty, $estimateDocRef required). The site-figure skips (no_t0_figure, quarantined_listing,
+     *                                  no_mapped_listing) do not apply; every other one does.
      * @return array{lines: array<int, int>, report: array<string, mixed>, opening: array<string, mixed>}
      *         lines: sku_id => signed central units still to book
      */
-    public function plan(string $channelCode, iterable $rows, string $docRef, ?string $estimateDocRef, ?string $warehouse = null): array
+    public function plan(string $channelCode, iterable $rows, string $docRef, ?string $estimateDocRef, ?string $warehouse = null, bool $unitsOnly = false): array
     {
+        if ($unitsOnly) {
+            if ($estimateDocRef === null) {
+                throw new CwException('bad_mode', 'the units-only rebase keeps an opening: name it (the ERPNext opening\'s doc_ref)', 422);
+            }
+            foreach ($rows as $unused) {
+                throw new CwException('bad_mode', 'the units-only rebase reads no site figures: the opening\'s own figure stays', 422);
+            }
+        }
         $op = $this->opening($channelCode);
         if ($estimateDocRef !== null && strcasecmp($docRef, $estimateDocRef) === 0) {
             throw new CwException('bad_doc_ref', 'the rebase needs a new doc_ref, not the estimate\'s (in any letter case)', 422);
@@ -162,16 +174,17 @@ final class OpeningRebase
                 $report['zero_or_negative_rows']++;
             }
         }
-        if ($report['rows'] === 0) {
+        if ($report['rows'] === 0 && !$unitsOnly) {
             throw new CwException('empty_input', 'the input has no data rows', 422);
         }
+        $report['units_only'] = $unitsOnly;
 
         // ---- site term: the channel's linked listings ----------------------------------------------
         $siteTerm = [];
         $skip = [];
         $listed = [];
         $report['listings'] = ['mapped' => 0, 'mapped_missing_from_file' => 0, 'quarantined' => 0];
-        foreach ($this->db->all('SELECT external_variant_id v, sku_id, units_per_item u, status FROM channel_listing WHERE channel_id = ?', [$channelId]) as $l) {
+        foreach ($unitsOnly ? [] : $this->db->all('SELECT external_variant_id v, sku_id, units_per_item u, status FROM channel_listing WHERE channel_id = ?', [$channelId]) as $l) {
             $v = (string) $l['v'];
             $listed[$v] = true;
             $qty = $site[$v] ?? null;
@@ -249,6 +262,7 @@ final class OpeningRebase
         $earlier = [];
         $booked = [];
         $otherOpening = [];
+        $openingItems = [];
         foreach ($this->db->all(
             "SELECT sku_id, warehouse_id, doc_ref COLLATE utf8mb4_0900_bin AS d, SUM(qty_delta) q FROM stock_ledger "
             . "WHERE actor = ? AND bucket = 'on_hand' GROUP BY sku_id, warehouse_id, d",
@@ -259,6 +273,7 @@ final class OpeningRebase
             $here = (int) $r['warehouse_id'] === $whId;
             if ($here && $estimateDocRef !== null && $d === $estimateDocRef) {
                 $earlier[$sku] = ($earlier[$sku] ?? 0) + (int) $r['q'];
+                $openingItems[$sku] = true;
             } elseif ($here && $d === $docRef) {
                 $booked[$sku] = ($booked[$sku] ?? 0) + (int) $r['q'];
             } else {
@@ -309,7 +324,7 @@ final class OpeningRebase
             // estimate went with the merge (earlier rows net 0) has nothing to rebase; one that still holds exactly what its
             // opening units in flight need (earlier rows = units term) neither (delta 0, M42); one that holds anything else is
             // `merged_item`, never no_mapped_listing (whose advice, relink it, would undo the merge).
-            if (!isset($siteTerm[$sku]) && (($earlier[$sku] ?? 0) !== 0 || isset($unitsTerm[$sku]))) {
+            if (!$unitsOnly && !isset($siteTerm[$sku]) && (($earlier[$sku] ?? 0) !== 0 || isset($unitsTerm[$sku]))) {
                 if (!isset($merged[$sku])) {
                     $skip[$sku]['no_mapped_listing'] = true;
                 } elseif (($earlier[$sku] ?? 0) !== ($unitsTerm[$sku] ?? 0)) {
@@ -377,9 +392,11 @@ final class OpeningRebase
         $report['no_change'] = 0;
         $report['already_rebased'] = ['items' => 0, 'units' => 0];
         $report['skipped'] = ['items' => 0, 'why' => [], 'details' => []];
+        $report['opening_items'] = count($openingItems);
         foreach ($items as $sku) {
-            $target = ($siteTerm[$sku] ?? 0) + ($unitsTerm[$sku] ?? 0);
             $before = $earlier[$sku] ?? 0;
+            // Units only (PI14): the opening's own figure stays; only the open paid units are added.
+            $target = ($unitsOnly ? $before : ($siteTerm[$sku] ?? 0)) + ($unitsTerm[$sku] ?? 0);
             $delta = $target - $before;
             if (isset($booked[$sku])) {
                 // Rebased by this doc_ref already: judged on its figure only.

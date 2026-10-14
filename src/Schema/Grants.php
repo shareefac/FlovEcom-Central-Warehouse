@@ -108,6 +108,10 @@ final class Grants
         // are frozen); what became of it is written in the same transaction. A line is never removed: it is booked once, however late
         // it is sent again.
         'relay_line' => ['outcome', 'sku_id', 'units', 'queue_id', 'reason'],
+        // ---- Pack I (0039; docs/decisions.md PI12): a run of the ERPNext opening import is written once and finished once (its status,
+        // its summary, when it finished); what it was run on (doc_ref, as-of, the files and their hashes, who) is frozen; never removed.
+        'erp_opening_run' => ['status', 'summary', 'finished_at'],
+        // ---- end of pack I ----
     ];
     /**
      * Tables the app login may INSERT into naming only the listed columns (column-level INSERT instead of a table-level one; the

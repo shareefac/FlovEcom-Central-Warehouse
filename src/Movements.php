@@ -37,7 +37,8 @@ use CW\Relay\RelayLines;
  * at most 6 decimals); it is stored on the ledger row (cost_source `manual`) and enters the canonical
  * request only when sent, so the hash of every request without one is unchanged (I6). Sites cannot
  * send costs. Document postings (I-2 onwards) book through bookForDocument()/reverseDocument() inside
- * their own transaction, with the document's id and line numbers on every row (I2, I7).
+ * their own transaction, with the document's id and line numbers on every row (I2, I7). An opening load (pack I, PI7) books
+ * through recordOpening(): record() with every line cost stored as cost_source `estimate`.
  */
 final class Movements
 {
@@ -92,12 +93,51 @@ final class Movements
     /**
      * @param array{type?: mixed, doc_ref?: mixed, doc_type?: mixed, warehouse?: mixed, counted_at?: mixed, backdated?: mixed, note?: mixed, lines?: mixed} $req
      */
-    public function record(Caller $caller, array $req, string $idemKey): OpResult
+    public function record(Caller $caller, array $req, string $idemKey, ?\Closure $guard = null): OpResult
+    {
+        return $this->recordWith($caller, $req, $idemKey, null, $guard);
+    }
+
+    // ---- Pack I (0039, the ERPNext opening import; docs/decisions.md PI7) -------------------------------------------------------
+    /**
+     * record() for an OPENING LOAD (pack I, docs/decisions.md PI7): a system job's `adjustment` whose line costs are opening costs, stored
+     * with cost_source `estimate` (I1: the source reserved for the opening cost load) instead of `manual`. The canonical request carries
+     * `cost_source`, so an Idempotency-Key used by record() is never replayed here (422 idempotency_key_reused), nor the other way round;
+     * every request record() hashes is unchanged (I6). A job's entry point only: staff and sites never reach it (\LogicException).
+     *
+     * @param array{type?: mixed, doc_ref?: mixed, doc_type?: mixed, warehouse?: mixed, note?: mixed, lines?: mixed} $req
+     */
+    public function recordOpening(Caller $caller, array $req, string $idemKey, ?\Closure $guard = null): OpResult
+    {
+        if ($caller->isChannel() || $caller->staffUserId !== null || !str_starts_with($caller->actor, 'system:')) {
+            throw new \LogicException('recordOpening() is the entry point of a system job (an opening load)');
+        }
+        if (($req['type'] ?? null) !== 'adjustment') {
+            throw new \LogicException('an opening load books adjustments');
+        }
+        return $this->recordWith($caller, $req, $idemKey, 'estimate', $guard);
+    }
+    // ---- end of pack I ----------------------------------------------------------------------------------------------------------
+
+    /**
+     * record() and recordOpening(): $costSource null = record()'s own (`manual`), else the source every line cost is stored with.
+     * $guard (pack I, review of 14 Oct 2026, PI17): called inside the transaction right after the balances are locked, with the item ids
+     * the movement touches, and before anything is booked; it throws (a CwException) to refuse the whole call, which then stores
+     * nothing (an opening tool re-checks there that no other opening or count reached the item since it planned). Not part of the
+     * request: it never changes a hash, and a replay never calls it.
+     *
+     * @param array<string, mixed> $req
+     * @param ?\Closure(list<int>): void $guard
+     */
+    private function recordWith(Caller $caller, array $req, string $idemKey, ?string $costSource, ?\Closure $guard = null): OpResult
     {
         $mv = $this->prepare($caller, $req, false);
+        if ($costSource !== null) {
+            $mv['request']['cost_source'] = $costSource;
+        }
         return $this->idem->run(
             $caller, $idemKey, 'movement.' . $mv['type'], '/v1/movements', $mv['request'], 'movement', $mv['doc_ref'] ?? $mv['type'],
-            function (Db $db) use ($caller, $mv, $idemKey): OpResult {
+            function (Db $db) use ($caller, $mv, $idemKey, $costSource, $guard): OpResult {
                 if ($mv['counted_at'] !== null) {
                     // After the idempotency lookup, so a stored answer is still replayed (R5).
                     Clock::checkWindow($mv['counted_at'], 'counted_at', $this->now(), $mv['backdated'] ? self::BACKDATED_MAX_AGE_SEC : self::COUNT_MAX_AGE_SEC);
@@ -123,7 +163,7 @@ final class Movements
                         return OpResult::of(200, ['result' => 'recorded', 'type' => $mv['type'], 'doc_ref' => $mv['doc_ref'], 'lines' => $earlier]);
                     }
                 }
-                $booked = $this->book($caller, [$mv], $idemKey, null, true);
+                $booked = $this->book($caller, [$mv], $idemKey, null, true, $costSource, $guard);
                 if ($booked['unresolved'] !== []) {
                     $bad = array_map(static fn (array $u): array => ['line_index' => $u['line_index'], 'reason' => $u['reason']], $booked['unresolved']);
                     return OpResult::of(422, ['error' => 'unresolved_line', 'type' => $mv['type'], 'lines' => $bad]);
@@ -410,10 +450,13 @@ final class Movements
      *
      * @param list<array<string, mixed>> $movements prepare() results
      * @param array{document_id: int, doc_ref: string}|null $doc the posting document (bookForDocument), null for record()
+     * @param ?string $costSource the source line costs are stored with (null: `document` for a document, else `manual`; recordOpening: `estimate`)
+     * @param ?\Closure(list<int>): void $guard record()'s and recordOpening()'s check after the lock (PI17)
      * @return array{movements: list<array{type: string, lines: list<array<string, mixed>>}>,
      *               unresolved: list<array{movement: int, line_index: int, reason: string}>}
      */
-    private function book(Caller $caller, array $movements, string $opKey, ?array $doc, bool $allowSuspense): array
+    private function book(Caller $caller, array $movements, string $opKey, ?array $doc, bool $allowSuspense, ?string $costSource = null,
+        ?\Closure $guard = null): array
     {
         $resolved = [];
         $unresolved = [];
@@ -466,8 +509,12 @@ final class Movements
             }
         }
         $this->stock->lock($pairs);
+        if ($guard !== null) {
+            // Pack I (PI17): the caller's own check, on balances this transaction now holds, before anything is booked.
+            $guard(array_values(array_unique(array_map(static fn (array $p): int => (int) $p[1], $pairs))));
+        }
         $now = Clock::db($this->now());
-        $costSource = $doc === null ? 'manual' : 'document';
+        $costSource ??= $doc === null ? 'manual' : 'document';
         $result = [];
         foreach ($movements as $j => $mv) {
             $type = $mv['type'];

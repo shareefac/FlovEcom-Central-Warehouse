@@ -2401,6 +2401,16 @@ final class Words
         'relay.mode_in_stock' => 'Stock rule an ERPNext change to In-Stock asks for',
         'relay.mode_from_warehouse' => 'Stock rule an ERPNext change to From-Warehouse asks for',
         'relay.mode_out_of_stock' => 'Stock rule an ERPNext change to Out-Of-Stock asks for',
+        // ---- Pack I (0039, the ERPNext opening import; docs/decisions.md PI1-PI6) ----
+        'erp_opening.warehouses' => 'ERPNext warehouses the opening stock comes from',
+        'erp_opening.companies' => 'ERPNext companies the opening stock comes from',
+        'erp_opening.blocked_names' => 'Names never read from ERPNext',
+        'erp_opening.below_zero' => 'What an item below zero in ERPNext opens at',
+        'erp_opening.placeholder_costs' => 'ERPNext costs that are only placeholders',
+        'erp_opening.listing_store' => 'The store whose variant numbers ERPNext items carry',
+        'erp_opening.cw_warehouse' => 'Warehouse the opening stock is put in',
+        'erp_opening.require_pending_sales' => 'Opening stock waits for the list of sales not yet in ERPNext',
+        // ---- end of pack I ----
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -3455,6 +3465,8 @@ final class Words
         // ---- Pack E
         'reports' => 'Reports',
         // ---- end Pack E
+        // Pack I (0039).
+        'erp_opening' => 'Opening stock from ERPNext',
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -3607,6 +3619,24 @@ final class Words
         'reports.refresh_max_rows' => 'The most stock changes one run of the reports reads. A big backlog is read over several runs.',
         'reports.refresh_max_days' => 'The most days of store sales one run of the reports works out. The first run catches up over several runs.',
         // ---- end Pack E
+        // ---- Pack I (0039, the ERPNext opening import; docs/decisions.md PI1-PI6) ----
+        'erp_opening.warehouses' => 'The opening stock is taken from ERPNext\'s stock report. Only the rows of these ERPNext warehouses are read, '
+            . 'one name per line, written as ERPNext writes them. Rows of other warehouses are left out and counted in the summary.',
+        'erp_opening.companies' => 'When ERPNext\'s stock report has a company column, only the rows of these companies are read, one name per '
+            . 'line. Empty: the company is not checked and the warehouse list alone decides.',
+        'erp_opening.blocked_names' => 'A company or warehouse whose name contains one of these words is never read, whatever the two lists above '
+            . 'say: another account\'s stock never becomes ours by mistake. Spaces and capitals do not matter. One per line.',
+        'erp_opening.below_zero' => 'ERPNext shows some items below zero. "zero": such an item opens at nothing in the warehouse. "carry": the '
+            . 'minus is carried into the warehouse as it is, so it is put right by the next delivery or a count. Either way the summary lists them.',
+        'erp_opening.placeholder_costs' => 'Costs in ERPNext that only fill the field and are not what the item cost, in pounds, separated by '
+            . 'commas. They are never used. An item whose only cost is one of them, or blank, opens without a cost and is listed to be costed.',
+        'erp_opening.listing_store' => 'ERPNext items carry the variant number of one store. An ERPNext item becomes a warehouse item through '
+            . 'that store\'s match. Items matched in the warehouse to an ERPNext item directly do not need it.',
+        'erp_opening.cw_warehouse' => 'The warehouse the opening stock from ERPNext is put in, by its short code.',
+        'erp_opening.require_pending_sales' => 'Website sales reach ERPNext through a queue, so some are not in ERPNext yet. On: the opening stock '
+            . 'is only put in together with the list of those sales, which are taken off; an empty list says there are none. Off: it is put in '
+            . 'without, and the summary says that correction is still to do.',
+        // ---- end of pack I ----
     ];
 
     /** Staff and access (/ui/people, /ui/people/{id}; plan §6.35, 6.36). */

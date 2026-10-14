@@ -63,8 +63,11 @@ final class XlsxReader
     /**
      * @return array<int, list<string>> spreadsheet row number => cell values (trailing empty cells removed; empty rows left out)
      */
-    public static function read(string $path, int $maxRows = self::MAX_ROWS, int $maxColumns = self::MAX_COLUMNS, int $maxSheetBytes = self::MAX_SHEET_BYTES): array
+    public static function read(string $path, int $maxRows = self::MAX_ROWS, int $maxColumns = self::MAX_COLUMNS, int $maxSheetBytes = self::MAX_SHEET_BYTES,
+        ?int $maxRowIndex = null): array
     {
+        // Pack I (PI10): an ERPNext stock export runs past row 10,000 (one row per item and warehouse); its reader passes a higher limit.
+        $maxRowIndex ??= self::MAX_ROW_INDEX;
         self::guard($path, $maxSheetBytes);
         $options = new Options();
         $options->SHOULD_PRESERVE_EMPTY_ROWS = true;
@@ -75,8 +78,8 @@ final class XlsxReader
             $reader->open($path);
             foreach ($reader->getSheetIterator() as $sheet) {
                 foreach ($sheet->getRowIterator() as $index => $row) {
-                    if ($index > self::MAX_ROW_INDEX) {
-                        throw new CwException('too_many_rows', 'the sheet has rows beyond row ' . number_format(self::MAX_ROW_INDEX), 413);
+                    if ($index > $maxRowIndex) {
+                        throw new CwException('too_many_rows', 'the sheet has rows beyond row ' . number_format($maxRowIndex), 413);
                     }
                     $cells = array_map(self::value(...), $row->getCells());
                     while ($cells !== [] && trim((string) end($cells)) === '') {

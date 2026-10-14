@@ -181,19 +181,24 @@ final class OpeningEstimate
      * Books the plan, one item per call (Idempotency-Key "<doc_ref>:<sku_id>"). The rebase (D40b) books its
      * signed plan through here too, with $docType OpeningRebase::DOC_TYPE; booked_units is then the net.
      *
+     * Each item is re-checked inside its own transaction, after its balance is locked (OpeningGuard, pack I PI17): an item another
+     * opening or a count reached since the plan is refused (409 opening_changed) and the run stops there.
+     *
      * @param array<int, int> $lines  sku_id => units (signed for a rebase; never 0)
      * @param ?\Closure(int, int): void $progress  called with (items done, items total)
+     * @param list<string> $alsoOwn  openings the run builds on besides $docRef (a rebase: the estimate it rebases)
      * @return array{booked_items: int, booked_units: int, replayed_items: int}
      */
     public function apply(Caller $caller, array $lines, string $docRef, string $note, string $warehouse = 'MAIN', ?\Closure $progress = null,
-        string $docType = 'opening_estimate'): array
+        string $docType = 'opening_estimate', array $alsoOwn = []): array
     {
         $out = ['booked_items' => 0, 'booked_units' => 0, 'replayed_items' => 0];
+        $guard = OpeningGuard::closure($this->db, [$docRef, ...$alsoOwn]);
         $n = 0;
         foreach ($lines as $sku => $units) {
             $r = $this->moves->record($caller, ['type' => self::MOVEMENT_TYPE, 'doc_ref' => $docRef, 'doc_type' => $docType,
                 'warehouse' => $warehouse, 'note' => $note, 'lines' => [['sku_id' => (int) $sku, 'qty' => (int) $units, 'line_index' => 0]]],
-                $docRef . ':' . $sku);
+                $docRef . ':' . $sku, $guard);
             if (!$r->ok()) {
                 throw new CwException((string) ($r->body['error'] ?? 'opening_failed'),
                     sprintf('item %d (after %d booked): %s', $sku, $out['booked_items'], (string) ($r->body['message'] ?? json_encode($r->body))), $r->status);

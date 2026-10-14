@@ -30,6 +30,17 @@ declare(strict_types=1);
  *   match it; a real run needs --as-of (a dry run without it says so). --warehouse defaults to the channel's
  *   sellable warehouse.
  *
+ * --rebase --units-only (pack I, PI14): the opening came FROM ERPNext (bin/import_erp_opening.php), which is free stock: every sale
+ * is out of it. At the store's T0 the rebase then keeps that figure and adds only the open paid units the final opening_orders batch
+ * put into `allocated`: target = the item's rows under --estimate-doc-ref (the ERPNext opening's doc_ref, required) + those units x u.
+ * No file is read (no --csv, no --sha256); a real run still names its T0 with --as-of.
+ *
+ *   php bin/import_opening_estimate.php --rebase --units-only --estimate-doc-ref=<the ERPNext opening's doc_ref> --source=<text>
+ *       --as-of=<T0> [--doc-ref=<new id>] [--approved-by=<who>] [--channel=vapeandgo] [--warehouse=<code>] [--dry-run]
+ *
+ * A real run of any mode takes the one opening lock the ERPNext opening takes too (CW\Ops\OpeningLock, PI17), and each item is
+ * checked again inside its booking (CW\Ops\OpeningGuard): another opening or a count since the plan stops the run at that item.
+ *
  * The CSV: a header whose first column names the variant ("...variant...") and whose second names
  * the figure ("...qty..." or "...stock..."), then one row per variant: digits, integer (may be
  * negative). Further columns (the connector's T0 file has prodt_stock_mode, prodt_allow_backorders)
@@ -47,6 +58,7 @@ use CW\CwException;
 use CW\Movements;
 use CW\Ops\Cli;
 use CW\Ops\OpeningEstimate;
+use CW\Ops\OpeningLock;
 use CW\Ops\OpeningRebase;
 use CW\Stock;
 
@@ -57,10 +69,12 @@ ini_set('memory_limit', '512M');
 const USAGE = "usage: php bin/import_opening_estimate.php --csv=<file> --as-of=<ISO time> --doc-ref=<id> --source=<text> --sha256=<hex> "
     . "[--approved-by=<who>] [--channel=vapeandgo] [--warehouse=MAIN] [--dry-run]\n"
     . "       php bin/import_opening_estimate.php --rebase --csv=<T0 file> --sha256=<hex> --source=<text> --estimate-doc-ref=<id>|none "
-    . '--as-of=<T0> [--doc-ref=<id>] [--approved-by=<who>] [--channel=vapeandgo] [--warehouse=<code>] [--dry-run]';
+    . '--as-of=<T0> [--doc-ref=<id>] [--approved-by=<who>] [--channel=vapeandgo] [--warehouse=<code>] [--dry-run]' . "\n"
+    . '       php bin/import_opening_estimate.php --rebase --units-only --estimate-doc-ref=<the ERPNext opening> --source=<text> --as-of=<T0> '
+    . '[--doc-ref=<id>] [--approved-by=<who>] [--channel=vapeandgo] [--warehouse=<code>] [--dry-run]';
 
 exit(Cli::main('import_opening_estimate',
-    ['csv:', 'as-of:', 'doc-ref:', 'source:', 'sha256:', 'approved-by:', 'channel:', 'warehouse:', 'dry-run', 'rebase', 'estimate-doc-ref:'],
+    ['csv:', 'as-of:', 'doc-ref:', 'source:', 'sha256:', 'approved-by:', 'channel:', 'warehouse:', 'dry-run', 'rebase', 'estimate-doc-ref:', 'units-only'],
     USAGE,
     static function (Cli $cli, array $opts): int {
         foreach (['csv', 'as-of', 'doc-ref', 'source', 'sha256', 'approved-by', 'channel', 'warehouse', 'estimate-doc-ref'] as $k) {
@@ -69,6 +83,7 @@ exit(Cli::main('import_opening_estimate',
             }
         }
         $rebase = array_key_exists('rebase', $opts);
+        $unitsOnly = array_key_exists('units-only', $opts);
         $file = $opts['csv'] ?? null;
         $docRef = $opts['doc-ref'] ?? null;
         $source = $opts['source'] ?? null;
@@ -80,7 +95,22 @@ exit(Cli::main('import_opening_estimate',
                 throw new InvalidArgumentException("--{$opt}: up to 160 of A-Z a-z 0-9 : . _ + -");
             }
         };
-        if ($rebase) {
+        if ($unitsOnly && !$rebase) {
+            throw new InvalidArgumentException('--units-only is a mode of --rebase');
+        }
+        if ($unitsOnly) {
+            // Pack I (PI14): the opening came from ERPNext; the rebase keeps it and adds only the open paid units. No file is read.
+            if ($file !== null || array_key_exists('sha256', $opts)) {
+                throw new InvalidArgumentException('--units-only reads no file: give no --csv and no --sha256');
+            }
+            if (!is_string($source) || trim($source) === '' || !is_string($estimateRef) || strtolower($estimateRef) === 'none') {
+                throw new InvalidArgumentException('--rebase --units-only needs --source and --estimate-doc-ref=<the ERPNext opening\'s doc_ref>');
+            }
+            $checkRef($estimateRef, 'estimate-doc-ref');
+            if (is_string($docRef)) {
+                $checkRef($docRef, 'doc-ref');
+            }
+        } elseif ($rebase) {
             if (!is_string($file) || !is_string($source) || trim($source) === '' || !is_string($estimateRef)) {
                 throw new InvalidArgumentException('--rebase needs --csv, --source and --estimate-doc-ref (the estimate\'s doc_ref, or none)');
             }
@@ -104,23 +134,26 @@ exit(Cli::main('import_opening_estimate',
         if ($asOf !== null && $asOf > Clock::now()) {
             throw new InvalidArgumentException('--as-of is in the future');
         }
-        if (!is_readable($file)) {
-            throw new InvalidArgumentException("cannot read {$file}");
-        }
-        $have = hash_file('sha256', $file);
-        $want = $opts['sha256'] ?? null;
-        if (!is_string($want) && !$dry) {
-            throw new InvalidArgumentException('--sha256 is required for a real run (the hash of the archived file)');
-        }
-        if (is_string($want) && !hash_equals(strtolower($want), $have)) {
-            $cli->error("{$file}: sha256 {$have} is not the expected {$want}; nothing booked");
-            return 1;
+        $have = '';
+        if (!$unitsOnly) {
+            if (!is_readable($file)) {
+                throw new InvalidArgumentException("cannot read {$file}");
+            }
+            $have = hash_file('sha256', $file);
+            $want = $opts['sha256'] ?? null;
+            if (!is_string($want) && !$dry) {
+                throw new InvalidArgumentException('--sha256 is required for a real run (the hash of the archived file)');
+            }
+            if (is_string($want) && !hash_equals(strtolower($want), $have)) {
+                $cli->error("{$file}: sha256 {$have} is not the expected {$want}; nothing booked");
+                return 1;
+            }
         }
         $channel = is_string($opts['channel'] ?? null) ? $opts['channel'] : 'vapeandgo';
         $warehouse = is_string($opts['warehouse'] ?? null) ? $opts['warehouse'] : null;
         $approved = is_string($opts['approved-by'] ?? null) ? '; approved by ' . $opts['approved-by'] : '';
 
-        $rows = (static function () use ($file): Generator {
+        $rows = $unitsOnly ? [] : (static function () use ($file): Generator {
             $fh = fopen($file, 'r');
             $header = fgetcsv($fh, null, ',', '"', '');
             if (is_array($header) && isset($header[0])) {
@@ -147,10 +180,15 @@ exit(Cli::main('import_opening_estimate',
             fclose($fh);
         })();
 
+        // Pack I (PI17): every opening tool takes the one opening lock for a real run, from before its plan to its last booking.
+        if (!$dry && !OpeningLock::take($cli->db, $cli->schema)) {
+            $cli->error(OpeningLock::BUSY);
+            return 1;
+        }
         $moves = new Movements($cli->db, new Stock($cli->db));
         $op = new OpeningEstimate($cli->db, $moves);
         if ($rebase) {
-            return rebase($cli, $op, $rows, $file, $have, $channel, $warehouse, $docRef, $estimateRef, $asOf, (string) $source, $approved, $dry);
+            return rebase($cli, $op, $rows, (string) $file, $have, $channel, $warehouse, $docRef, $estimateRef, $asOf, (string) $source, $approved, $dry, $unitsOnly);
         }
 
         $note = mb_strcut(sprintf('opening estimate (not a count) as of %s: %s; file sha256 %s; negatives as 0; excludes open paid units%s',
@@ -181,8 +219,13 @@ exit(Cli::main('import_opening_estimate',
             $cli->log('nothing to book');
             return 0;
         }
-        $done = $op->apply(Caller::system(OpeningEstimate::ACTOR_JOB), $plan['lines'], $docRef, $note, $warehouse,
-            static fn (int $n, int $of) => $cli->log("  ... {$n} of {$of} items"));
+        try {
+            $done = $op->apply(Caller::system(OpeningEstimate::ACTOR_JOB), $plan['lines'], $docRef, $note, $warehouse,
+                static fn (int $n, int $of) => $cli->log("  ... {$n} of {$of} items"));
+        } catch (CwException $e) {
+            $cli->error("stopped: {$e->errorCode}: {$e->getMessage()} (whole items only; what is booked is left alone)");
+            return 1;
+        }
         $cli->log(sprintf('booked %d items, %d units%s', $done['booked_items'], $done['booked_units'],
             $done['replayed_items'] ? " ({$done['replayed_items']} replayed)" : ''));
         return 0;
@@ -194,7 +237,7 @@ exit(Cli::main('import_opening_estimate',
  * @param iterable<array{0: string, 1: int}> $rows
  */
 function rebase(Cli $cli, OpeningEstimate $op, iterable $rows, string $file, string $sha, string $channel, ?string $warehouse, ?string $docRef,
-    ?string $estimateRef, ?DateTimeImmutable $asOf, string $source, string $approved, bool $dry): int
+    ?string $estimateRef, ?DateTimeImmutable $asOf, string $source, string $approved, bool $dry, bool $unitsOnly = false): int
 {
     $rb = new OpeningRebase($cli->db);
     try {
@@ -209,7 +252,7 @@ function rebase(Cli $cli, OpeningEstimate $op, iterable $rows, string $file, str
         $cli->error('--as-of ' . $asOf->setTimezone(Clock::utc())->format('Y-m-d\TH:i:s\Z') . " is not the T0 CW recorded for {$channel} ({$t0Iso}); nothing booked");
         return 1;
     }
-    $named = preg_match('/t0_site_stock_(\d{8}T\d{6}Z)\.csv$/', basename($file), $m) === 1 ? $m[1] : null;
+    $named = !$unitsOnly && preg_match('/t0_site_stock_(\d{8}T\d{6}Z)\.csv$/', basename($file), $m) === 1 ? $m[1] : null;
     if ($named !== null && $named !== $t0->format('Ymd\THis\Z')) {
         $cli->error(basename($file) . " is the stock of another T0 than the one CW recorded for {$channel} ({$t0Iso}); nothing booked");
         return 1;
@@ -221,7 +264,7 @@ function rebase(Cli $cli, OpeningEstimate $op, iterable $rows, string $file, str
     }
     $docRef ??= OpeningRebase::defaultDocRef($channel, $opening['t0_at']);
     try {
-        $plan = $rb->plan($channel, $rows, $docRef, $estimateRef, $warehouse);
+        $plan = $rb->plan($channel, $rows, $docRef, $estimateRef, $warehouse, $unitsOnly);
     } catch (CwException $e) {
         $cli->error("{$e->errorCode}: {$e->getMessage()}");
         foreach (array_slice((array) ($e->detail['items'] ?? []), 0, 20) as $i) {
@@ -231,16 +274,21 @@ function rebase(Cli $cli, OpeningEstimate $op, iterable $rows, string $file, str
     }
     $r = $plan['report'];
     $wh = $plan['opening']['warehouse_code'];
-    $cli->log(sprintf('rebase of %s at T0 %s (final opening batch %s) at %s; doc_ref %s; estimate %s',
-        $channel, $t0Iso, $r['opening_orders_at'], $wh, $docRef, $estimateRef ?? '(none)'));
-    $cli->log(sprintf('  T0 check: --as-of %s; the file name %s', $asOf === null ? 'not given (a real run needs it)' : 'matches',
-        $named === null ? 'names no T0' : 'names T0 ' . $named . ' (matches)'));
-    $cli->log(sprintf('%s: %d rows (sha256 %s); %d with stock > 0 (%d units), %d at or below zero',
-        basename($file), $r['rows'], substr($sha, 0, 16), $r['positive_rows'], $r['positive_units'], $r['zero_or_negative_rows']));
-    $cli->log(sprintf('  listings: %d mapped (%d not in the file), %d quarantined; no listing %d rows (%d units)',
-        $r['listings']['mapped'], $r['listings']['mapped_missing_from_file'], $r['listings']['quarantined'], $r['no_listing']['rows'], $r['no_listing']['units']));
-    foreach ($r['not_linked_by_status'] as $status => $s) {
-        $cli->log(sprintf('  not linked (%s): %d rows (%d units)', $status, $s['rows'], $s['units']));
+    $cli->log(sprintf('rebase of %s at T0 %s (final opening batch %s) at %s; doc_ref %s; %s %s',
+        $channel, $t0Iso, $r['opening_orders_at'], $wh, $docRef, $unitsOnly ? 'units only, keeping the opening' : 'estimate', $estimateRef ?? '(none)'));
+    if ($unitsOnly) {
+        $cli->log(sprintf('  T0 check: --as-of %s; no file is read: the opening\'s own figure stays (PI14), %d items carry it',
+            $asOf === null ? 'not given (a real run needs it)' : 'matches', $r['opening_items']));
+    } else {
+        $cli->log(sprintf('  T0 check: --as-of %s; the file name %s', $asOf === null ? 'not given (a real run needs it)' : 'matches',
+            $named === null ? 'names no T0' : 'names T0 ' . $named . ' (matches)'));
+        $cli->log(sprintf('%s: %d rows (sha256 %s); %d with stock > 0 (%d units), %d at or below zero',
+            basename($file), $r['rows'], substr($sha, 0, 16), $r['positive_rows'], $r['positive_units'], $r['zero_or_negative_rows']));
+        $cli->log(sprintf('  listings: %d mapped (%d not in the file), %d quarantined; no listing %d rows (%d units)',
+            $r['listings']['mapped'], $r['listings']['mapped_missing_from_file'], $r['listings']['quarantined'], $r['no_listing']['rows'], $r['no_listing']['units']));
+        foreach ($r['not_linked_by_status'] as $status => $s) {
+            $cli->log(sprintf('  not linked (%s): %d rows (%d units)', $status, $s['rows'], $s['units']));
+        }
     }
     $cli->log(sprintf('  opening units: %d linked (%d central units), %d unlinked, %d released and %d never committed (not counted)',
         $r['opening_units']['units'], $r['opening_units']['central_units'], $r['opening_units']['unlinked'], $r['opening_units']['released'],
@@ -267,10 +315,18 @@ function rebase(Cli $cli, OpeningEstimate $op, iterable $rows, string $file, str
         $cli->log('nothing to book');
         return 0;
     }
-    $note = mb_strcut(sprintf('opening rebase (not a count) to T0 %s (D40b): %s; file sha256 %s; max(site stock,0) x u + opening units x u - estimate%s',
-        $t0Iso, $source, substr($sha, 0, 16), $approved), 0, 255, 'UTF-8');
-    $done = $op->apply(Caller::system(OpeningEstimate::ACTOR_JOB), $plan['lines'], $docRef, $note, $wh,
-        static fn (int $n, int $of) => $cli->log("  ... {$n} of {$of} items"), OpeningRebase::DOC_TYPE);
+    $note = $unitsOnly
+        ? mb_strcut(sprintf('opening rebase (not a count), units only, to T0 %s (PI14): %s; keeps the opening %s and adds the open paid units x u%s',
+            $t0Iso, $source, (string) $estimateRef, $approved), 0, 255, 'UTF-8')
+        : mb_strcut(sprintf('opening rebase (not a count) to T0 %s (D40b): %s; file sha256 %s; max(site stock,0) x u + opening units x u - estimate%s',
+            $t0Iso, $source, substr($sha, 0, 16), $approved), 0, 255, 'UTF-8');
+    try {
+        $done = $op->apply(Caller::system(OpeningEstimate::ACTOR_JOB), $plan['lines'], $docRef, $note, $wh,
+            static fn (int $n, int $of) => $cli->log("  ... {$n} of {$of} items"), OpeningRebase::DOC_TYPE, $estimateRef === null ? [] : [$estimateRef]);
+    } catch (CwException $e) {
+        $cli->error("stopped: {$e->errorCode}: {$e->getMessage()} (whole items only; what is booked is left alone)");
+        return 1;
+    }
     $cli->log(sprintf('booked %d items, net %+d units%s', $done['booked_items'], $done['booked_units'],
         $done['replayed_items'] ? " ({$done['replayed_items']} replayed)" : ''));
     return 0;

@@ -79,6 +79,43 @@ final class CsvReader
         return ['header' => $header, 'delimiter' => $delimiter, 'rows' => self::rows($stream, $delimiter, $header, $maxRows)];
     }
 
+    // ---- Pack I (0039, the ERPNext opening import; docs/decisions.md PI10) ------------------------------------------------------
+    /**
+     * Every record of the file as it stands, with no header rule: an ERPNext report exported "with filters" starts with its filter
+     * lines and a blank line before the column names (pack I, PI10), so the caller finds the header itself. The same bytes, encoding,
+     * delimiter (detected on the first line) and quoting rules as table(); blank records are left out; keys are the 1-based record
+     * numbers (a record spanning lines counts once). Cells are strings ('' for an empty one).
+     *
+     * @return \Generator<int, list<string>>
+     */
+    public static function records(string $path, int $maxBytes = self::DEFAULT_MAX_BYTES): \Generator
+    {
+        $text = self::text(self::bytes($path, $maxBytes));
+        $stream = fopen('php://temp', 'w+b');
+        if ($stream === false) {
+            throw new \RuntimeException('cannot open a temporary stream');
+        }
+        fwrite($stream, $text);
+        rewind($stream);
+        $delimiter = self::delimiter($text);
+        unset($text);
+        return (static function () use ($stream, $delimiter): \Generator {
+            try {
+                $n = 0;
+                while (($rec = self::record($stream, $delimiter)) !== false) {
+                    $n++;
+                    if (self::blank($rec)) {
+                        continue;
+                    }
+                    yield $n => array_map(static fn (?string $c): string => (string) $c, $rec);
+                }
+            } finally {
+                fclose($stream);
+            }
+        })();
+    }
+    // ---- end of pack I ----------------------------------------------------------------------------------------------------------
+
     /**
      * @param resource $stream
      * @param list<string> $header

@@ -2559,3 +2559,59 @@ add notes as you go, then mark it handled with how. A second answer to the same 
 
 **Clean-up.** `/var/log/cw/housekeeping.log`: one line per table, `removed=` and the cut-off. The audit log line always says "kept" (the
 app login cannot delete audit rows; 7 years at the least). A run that did not finish says so and goes on the next night.
+
+## The opening stock from ERPNext (pack I; `docs/decisions.md` PI1–PI16)
+
+CW's opening stock and its opening cost come FROM ERPNext (the owner's decision of 14 Oct 2026). CW never connects to ERPNext and never
+calls its stock feed: staff download two files from ERPNext's own screens, the integrator writes a third from the website's sync queue, and
+`bin/import_erp_opening.php` reads them. A dry run (the default) writes nothing; `--apply` books, and only after the owner said yes to the
+dry run's summary.
+
+### The files, step by step (at the cut-off moment, all three together)
+
+1. **Stock Balance (required).** In ERPNext: Stock › Reports › Stock Balance.
+   - Filters: **Company** = the main company (`VAPE AND GO`; never `VPG 2`). **From Date** = any earlier day (it changes only the
+     Opening/In/Out columns, not the balance). **To Date** = the cut-off day (today when the export is taken at the cut-off).
+     **Warehouse** = `Stores - VPG` (or blank: the import reads only the warehouses of `erp_opening.warehouses` and counts the rest).
+     Item Group, Item: blank. Valuation Field Type: Currency (the default). Leave "Include UOM" blank; the variant, ageing and closing-balance
+     ticks off.
+   - Let it finish loading (if ERPNext says the report is being prepared, wait and open it when ready). Do not sort or filter in the grid.
+   - Menu (⋯) › Export: File Type **CSV** (Excel works too), tick **Include filters**, Export. Write down the time you clicked Export: it is
+     `--as-of`. Do not open and re-save the CSV in Excel (keep the file as downloaded; its sha256 is recorded).
+   - Columns the import reads: Item, Warehouse, Balance Qty, Valuation Rate (required), Company, Balance Value, Stock UOM, Item Name.
+   - The alternative (the live figures, no date): `/app/bin/view/report`, columns Item Code, Warehouse, Actual Quantity, Valuation Rate,
+     Stock Value, filter Warehouse = `Stores - VPG`, Menu › Export, all rows, CSV.
+2. **The item list (needed for every item CW has no ERPNext link for).** ERPNext: Stock › Item, switch to **Report view**
+   (`/app/item/view/report`), remove every filter (disabled items too: they may hold stock), Pick Columns: **ID** and **Product ID**
+   (the custom field with the Vape and Go variant number), Menu › Export, **all** rows, CSV.
+3. **The sales not yet in ERPNext (required for `--apply` while `erp_opening.require_pending_sales` is on).** Read from the website's own
+   database at the same moment by `bin/erp_pending_sales.php` (read only: SELECTs in a read-only transaction, each capped in time):
+   ```
+   php bin/erp_pending_sales.php --site-env=/path/site_readonly.env --out=pending.csv   # chmod 600 the env file first
+   ```
+   It counts the website's `sales_invoice` queue rows that are PENDING or FAILED (or SUCCESS in the last 10 minutes: still in ERPNext's
+   own queue), each order's newest row once, plus paid orders not queued yet; cancel and refund rows still on their way are printed as
+   "NOT NETTED" (they put units back in ERPNext: look at them). Use a read-only database login. Output `variant_id,qty`.
+
+### The commands (the integrator)
+
+```
+php bin/import_erp_opening.php --file=stock_balance.csv --item-list=items.csv --pending-sales=pending.csv \
+    --as-of=2026-10-31T23:58:00+00:00 --doc-ref=erp-opening:vapeandgo:2026-10-31 \
+    --source="ERPNext Stock Balance, VAPE AND GO, To Date 2026-10-31, exported by <name>" --report=lines.csv --db=<schema>
+# read the summary with the owner: what was left out (VPG 2 and other warehouses), UNRESOLVED lines (lines.csv has them all),
+# BELOW ZERO and what the rule does, COSTS to re-cost, SKIPPED items, TO BOOK, THE OPENING units and value.
+sha256sum stock_balance.csv      # archive the three files first
+php bin/import_erp_opening.php ...the same... --apply --sha256=<that hash> --approved-by="<owner>, <date>"
+```
+
+- Where the stores' estimate (D40a) is already booked, add `--replaces=<its doc_ref>` (cw_staging: `opening:vapeandgo:2026-10-01T00:00+01:00`);
+  without it those items are listed as `earlier_opening` and left alone.
+- A stop mid-way: run the same `--apply` again; booked items are left alone. A second `--apply` of the same files books nothing.
+- The rules are settings (Settings › Opening stock from ERPNext): the warehouses, companies and blocked names, below zero (`zero` | `carry`),
+  the placeholder costs (`0,1`), the store, the CW warehouse, whether the pending-sales file is required.
+- Only one opening run at a time: the ERPNext import, the stores' estimate and the T0 rebase share one lock (PI17).
+- At a store's T0 (after its final opening_orders batch), add the open paid orders to on-hand while keeping the ERPNext figure (PI14):
+  `php bin/import_opening_estimate.php --rebase --units-only --estimate-doc-ref=erp-opening:vapeandgo:2026-10-31 --channel=vapeandgo
+  --source="T0 of vapeandgo" --as-of=<T0>` (no file; a dry run first). Never the plain `--rebase` on these items: it would put the store's
+  own figure back.
