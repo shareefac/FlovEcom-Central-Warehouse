@@ -52,14 +52,17 @@ final class ReorderItemCardTest extends ReorderTestCase
         self::assertSame([0, 'blocked by its item card: tank or pod over 2 ml'], [$all[$s['c']]['packs'], $all[$s['c']]['never']]);
         self::assertContains('card_blocked', $all[$s['c']]['flags']);
 
-        // "Create draft PO": the buyer may still order a discontinued item on purpose; a blocked one is skipped.
-        $r = (new DraftPos(self::$db, $this->pos, $this->reorderList()))->create($s['buyer'], [['sku_id' => $s['b'], 'packs' => 1], ['sku_id' => $s['c'], 'packs' => 2]],
-            'cw', str_repeat('c', 32));
+        // "Create draft PO" (pack G, PG8, amends I105): a ticked discontinued item is doubtful and skipped with the reason, as a blocked
+        // one is; the rest is drafted. The buyer who means it adds it to an order in the order editor, which warns.
+        $r = (new DraftPos(self::$db, $this->pos, $this->reorderList()))->create($s['buyer'], [['sku_id' => $s['a'], 'packs' => 1], ['sku_id' => $s['b'], 'packs' => 1],
+            ['sku_id' => $s['c'], 'packs' => 2]], 'cw', str_repeat('c', 32));
         self::assertSame([(int) $s['s1']['id']], array_column($r['drafts'], 'supplier_id'));
-        self::assertSame([[$s['c'], 'blocked by its item card: tank or pod over 2 ml: it cannot be ordered (correct the item card and confirm it again if it is wrong)']],
+        self::assertSame([[$s['b'], 'never suggested (discontinued (item card)): add it to an order in the order editor if you mean it'],
+            [$s['c'], 'blocked by its item card: tank or pod over 2 ml: it cannot be ordered (correct the item card and confirm it again if it is wrong)']],
             array_map(static fn (array $x): array => [$x['sku_id'], $x['reason']], $r['skipped']));
+        $byHand = $this->draftPo($s['buyer'], (int) $s['s1']['id'], [['supplier_item_id' => (int) $s['si']['b']['id'], 'packs' => 1]]);
         self::assertStringContainsString(sprintf('%s is marked discontinued on its item card.', self::$db->value('SELECT code FROM sku WHERE id = ?', [$s['b']])),
-            implode("\n", $this->pos->warnings($r['drafts'][0]['document_id'])));
+            implode("\n", $this->pos->warnings($byHand->id)));
 
         // A purchase order with the blocked item is not approved; its warnings say why. Corrected, the block is lifted.
         $po = $this->draftPo($s['buyer'], (int) $s['s2']['id'], [['supplier_item_id' => (int) $s['si']['c']['id'], 'packs' => 2]]);

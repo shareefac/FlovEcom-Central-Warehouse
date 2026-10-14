@@ -585,6 +585,15 @@ final class Kernel
         $r->add('POST', '/ui/purchasing/reorder/anomalies/{id}/end', 'reorder.manage', $reorder->endAnomaly(...));
         $r->add('GET', '/ui/purchasing/sales-history', 'reorder.view', $sales->index(...));
         $r->add('GET', '/ui/purchasing/sales-history/unlinked.csv', 'reorder.view', $sales->unlinkedCsv(...));
+        // --- Pack G: the reorder engine (docs/decisions.md PG6, PG7, PG9): the suppliers' spare days, the low-stock warnings CW keeps for the
+        // websites, and "work out the list again" (reorder.view looks; reorder.manage changes, checked again by CW\Reorder\ReorderSettings).
+        $reorderEngine = new Controller\ReorderEngineController();
+        $r->add('GET', '/ui/purchasing/reorder/suppliers', 'reorder.view', $reorderEngine->suppliers(...));
+        $r->add('POST', '/ui/purchasing/reorder/suppliers', 'reorder.manage', $reorderEngine->saveSupplier(...));
+        $r->add('GET', '/ui/purchasing/reorder/low-stock', 'reorder.view', $reorderEngine->lowStock(...));
+        $r->add('POST', '/ui/purchasing/reorder/low-stock', 'reorder.manage', $reorderEngine->saveLowStock(...));
+        $r->add('POST', '/ui/purchasing/reorder/refresh', 'reorder.manage', $reorderEngine->refresh(...));
+        // --- end of Pack G
         // Receiving (IM6, I-3; I125-I147): receiving.view looks; doc.GRN.post (goods_in, purchasing_desk, purchasing_manager) keys,
         // checks at the bench and posts, checked again by CW\Receiving\GoodsReceipts (the creator-only rule of a draft's lines);
         // reviewers decide on the receipt's page through /ui/documents/reviews/{id}/*; incidents.view / incidents.resolve the register.

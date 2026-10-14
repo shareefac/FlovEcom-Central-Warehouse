@@ -11,7 +11,9 @@ use CW\Clock;
 use CW\CwException;
 use CW\Db;
 use CW\Settings;
+use CW\SiteWriter\SiteModes;
 use CW\Staff\StaffRoles;
+use CW\Stock;
 
 /**
  * The reorder settings people change (spec §7.5; docs/decisions.md I66): per item (item_reorder), per brand (reorder_brand),
@@ -21,11 +23,21 @@ use CW\Staff\StaffRoles;
  * Db::transaction; item and brand rows carry a version (0 = "no row yet"; 409 version_conflict when the row moved since the
  * form was drawn); nothing changed writes nothing. Audit reorder.item_settings / reorder.brand_settings {before, after},
  * reorder.anomaly_add / reorder.anomaly_end. These tables take no lock but their own row (spec §6.9).
+ *
+ * Pack G (docs/decisions.md PG6, PG7): per main supplier (reorder_supplier: spare days, between the brand's and the normal setting;
+ * audit reorder.supplier_settings), the item's low-stock figure (item_reorder.low_stock_level, a field of the item's settings; a
+ * change writes the item's feed row LAST, so every linked variant is sent again and the site writer writes it), and engine() for
+ * the pack's settings.
  */
 final class ReorderSettings
 {
-    public const ITEM_FIELDS = ['safety_days', 'lead_days_override', 'min_stock', 'max_stock', 'demand_factor', 'pack_rounding', 'do_not_reorder', 'note'];
+    public const ITEM_FIELDS = ['safety_days', 'lead_days_override', 'min_stock', 'max_stock', 'demand_factor', 'pack_rounding', 'do_not_reorder', 'note',
+        'low_stock_level'];
     public const BRAND_FIELDS = ['demand_factor', 'safety_days', 'note'];
+    /** Pack G (PG6): a main supplier's reorder settings. */
+    public const SUPPLIER_FIELDS = ['safety_days', 'note'];
+    /** The feed row's reason when an item's low-stock figure changes (Stock::skuChanged). */
+    public const FEED_REASON = 'low_stock';
     public const ANOMALY_MAX_DAYS = 92;
     public const MAX_STOCK = 2_000_000_000;
 
@@ -80,6 +92,39 @@ final class ReorderSettings
         ];
     }
 
+    /**
+     * Pack G's settings (0037; docs/decisions.md PG1-PG8), checked like params() (500 bad_setting outside Settings::RULES).
+     *
+     * @return array{own_stores: list<string>, refresh_minutes: int, chunk: int, inline_max: int, demand_hour: int, refold_days: int,
+     *   fold_days_per_run: int, low_stock_bulk_max: int, skip_no_price: bool}
+     */
+    public static function engine(Settings $s): array
+    {
+        $int = static function (string $key) use ($s): int {
+            $v = $s->get($key);
+            $rule = Settings::RULES[$key] ?? Settings::DAYS_RULE;
+            if (!is_int($v) || $v < (int) $rule['min'] || $v > (int) $rule['max']) {
+                throw new CwException('bad_setting', "the setting {$key} must be a whole number from {$rule['min']} to {$rule['max']}", 500);
+            }
+            return $v;
+        };
+        $stores = trim((string) $s->get('reorder.own_sales_stores'));
+        if ($stores !== '' && preg_match((string) Settings::RULES['reorder.own_sales_stores']['pattern'], $stores) !== 1) {
+            throw new CwException('bad_setting', 'the setting reorder.own_sales_stores must be channel codes separated by commas', 500);
+        }
+        return [
+            'own_stores' => $stores === '' ? [] : array_values(array_unique(explode(',', $stores))),
+            'refresh_minutes' => $int('reorder.refresh_minutes'),
+            'chunk' => $int('reorder.refresh_chunk_items'),
+            'inline_max' => $int('reorder.refresh_inline_max_items'),
+            'demand_hour' => $int('reorder.demand_hour'),
+            'refold_days' => $int('reorder.fold_refold_days'),
+            'fold_days_per_run' => $int('reorder.fold_days_per_run'),
+            'low_stock_bulk_max' => $int('reorder.low_stock_bulk_max'),
+            'skip_no_price' => $s->get('reorder.draft_skip_no_price') === true,
+        ];
+    }
+
     // ------------------------------------------------------------------------------------------
     // Items
     // ------------------------------------------------------------------------------------------
@@ -115,17 +160,20 @@ final class ReorderSettings
             }
             $now = Clock::db(($this->clock)());
             if ($row === null) {
-                $db->exec('INSERT INTO item_reorder (sku_id, safety_days, lead_days_override, min_stock, max_stock, demand_factor, pack_rounding, do_not_reorder, note, '
-                    . 'version, updated_by, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)',
-                    [$skuId, $new['safety_days'], $new['lead_days_override'], $new['min_stock'], $new['max_stock'], $new['demand_factor'], $new['pack_rounding'],
-                        $new['do_not_reorder'], $new['note'], $caller->staffUserId, $caller->actor, $now]);
+                $db->exec('INSERT INTO item_reorder (sku_id, safety_days, lead_days_override, min_stock, max_stock, low_stock_level, demand_factor, pack_rounding, '
+                    . 'do_not_reorder, note, version, updated_by, updated_actor, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)',
+                    [$skuId, $new['safety_days'], $new['lead_days_override'], $new['min_stock'], $new['max_stock'], $new['low_stock_level'], $new['demand_factor'],
+                        $new['pack_rounding'], $new['do_not_reorder'], $new['note'], $caller->staffUserId, $caller->actor, $now]);
             } else {
-                $db->exec('UPDATE item_reorder SET safety_days = ?, lead_days_override = ?, min_stock = ?, max_stock = ?, demand_factor = ?, pack_rounding = ?, '
-                    . 'do_not_reorder = ?, note = ?, version = version + 1, updated_by = ?, updated_actor = ?, updated_at = ? WHERE sku_id = ?',
-                    [$new['safety_days'], $new['lead_days_override'], $new['min_stock'], $new['max_stock'], $new['demand_factor'], $new['pack_rounding'],
-                        $new['do_not_reorder'], $new['note'], $caller->staffUserId, $caller->actor, $now, $skuId]);
+                $db->exec('UPDATE item_reorder SET safety_days = ?, lead_days_override = ?, min_stock = ?, max_stock = ?, low_stock_level = ?, demand_factor = ?, '
+                    . 'pack_rounding = ?, do_not_reorder = ?, note = ?, version = version + 1, updated_by = ?, updated_actor = ?, updated_at = ? WHERE sku_id = ?',
+                    [$new['safety_days'], $new['lead_days_override'], $new['min_stock'], $new['max_stock'], $new['low_stock_level'], $new['demand_factor'],
+                        $new['pack_rounding'], $new['do_not_reorder'], $new['note'], $caller->staffUserId, $caller->actor, $now, $skuId]);
             }
             Audit::write($db, $caller, 'reorder.item_settings', 'sku', (string) $skuId, null, ['item' => $sku['code'], 'before' => $before, 'after' => $new]);
+            if (($before['low_stock_level'] ?? null) !== $new['low_stock_level']) {
+                (new Stock($db))->skuChanged($skuId, self::FEED_REASON); // LAST: the feed clock (D39); the site writer sends the new figure
+            }
             return (array) $db->one('SELECT * FROM item_reorder WHERE sku_id = ?', [$skuId]);
         });
     }
@@ -177,6 +225,67 @@ final class ReorderSettings
             Audit::write($db, $caller, 'reorder.brand_settings', 'brand', mb_substr($name, 0, 64), null, ['brand' => $name, 'before' => $before, 'after' => $new]);
             return (array) $db->one('SELECT * FROM reorder_brand WHERE brand = ?', [$name]);
         });
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Suppliers (pack G, PG6)
+    // ------------------------------------------------------------------------------------------
+
+    /** @return array<string, mixed>|null the reorder_supplier row */
+    public function supplier(int $supplierId): ?array
+    {
+        return $this->db->one('SELECT * FROM reorder_supplier WHERE supplier_id = ?', [$supplierId]);
+    }
+
+    /**
+     * Saves a supplier's spare days of stock (an empty value clears it): they count for the items this supplier is the main
+     * supplier of, when neither the item nor its brand says. $version: the row's version the form was drawn with (0: none yet).
+     *
+     * @param array<string, mixed> $fields safety_days, note
+     * @return array<string, mixed> the row
+     */
+    public function saveSupplier(Caller $caller, int $supplierId, int $version, array $fields): array
+    {
+        $new = self::supplierFields($fields);
+        return $this->db->transaction(function (Db $db) use ($caller, $supplierId, $version, $new): array {
+            $this->manager($caller);
+            $sup = $db->one('SELECT id, code, name FROM supplier WHERE id = ?', [$supplierId])
+                ?? throw new CwException('unknown_supplier', 'there is no such supplier', 404);
+            $row = $db->one('SELECT * FROM reorder_supplier WHERE supplier_id = ? FOR UPDATE', [$supplierId]);
+            self::checkVersion($row, $version);
+            $before = $row === null ? null : self::pick($row, self::SUPPLIER_FIELDS);
+            if ($before !== null && $before == $new) {
+                return $row;
+            }
+            $now = Clock::db(($this->clock)());
+            if ($row === null) {
+                $db->exec('INSERT INTO reorder_supplier (supplier_id, safety_days, note, version, updated_by, updated_actor, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)',
+                    [$supplierId, $new['safety_days'], $new['note'], $caller->staffUserId, $caller->actor, $now]);
+            } else {
+                $db->exec('UPDATE reorder_supplier SET safety_days = ?, note = ?, version = version + 1, updated_by = ?, updated_actor = ?, updated_at = ? '
+                    . 'WHERE supplier_id = ?', [$new['safety_days'], $new['note'], $caller->staffUserId, $caller->actor, $now, $supplierId]);
+            }
+            Audit::write($db, $caller, 'reorder.supplier_settings', 'supplier', (string) $supplierId, null, ['supplier' => $sup['code'], 'before' => $before,
+                'after' => $new]);
+            return (array) $db->one('SELECT * FROM reorder_supplier WHERE supplier_id = ?', [$supplierId]);
+        });
+    }
+
+    /**
+     * @param array<string, mixed> $in
+     * @return array{safety_days: ?int, note: ?string}
+     */
+    public static function supplierFields(array $in): array
+    {
+        foreach (array_keys($in) as $k) {
+            if (!in_array($k, self::SUPPLIER_FIELDS, true)) {
+                throw new CwException('bad_field', 'supplier settings are ' . implode(', ', self::SUPPLIER_FIELDS), 400, ['field' => mb_substr((string) $k, 0, 40)]);
+            }
+        }
+        return [
+            'safety_days' => self::int($in['safety_days'] ?? null, 0, 90, 'safety_days'),
+            'note' => self::text($in['note'] ?? null, 500, 'note'),
+        ];
     }
 
     // ------------------------------------------------------------------------------------------
@@ -256,7 +365,8 @@ final class ReorderSettings
 
     /**
      * @param array<string, mixed> $in
-     * @return array{safety_days: ?int, lead_days_override: ?int, min_stock: ?int, max_stock: ?int, demand_factor: ?string, pack_rounding: ?string, do_not_reorder: int, note: ?string}
+     * @return array{safety_days: ?int, lead_days_override: ?int, min_stock: ?int, max_stock: ?int, demand_factor: ?string, pack_rounding: ?string, do_not_reorder: int,
+     *   note: ?string, low_stock_level: ?int}
      */
     public static function itemFields(array $in): array
     {
@@ -274,6 +384,7 @@ final class ReorderSettings
             'pack_rounding' => null,
             'do_not_reorder' => 0,
             'note' => self::text($in['note'] ?? null, 500, 'note'),
+            'low_stock_level' => self::int($in['low_stock_level'] ?? null, 0, SiteModes::THRESHOLD_MAX, 'low_stock_level'),
         ];
         $r = $in['pack_rounding'] ?? null;
         if ($r !== null && $r !== '') {

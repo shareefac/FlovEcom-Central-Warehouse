@@ -168,6 +168,20 @@ final class Settings
         'erp_opening.listing_store' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}$/D', 'pattern_says' => 'one channel code, like vapeandgo (empty: none)'],
         'erp_opening.cw_warehouse' => ['pattern' => '/^[A-Z][A-Z0-9_]{0,31}$/D', 'pattern_says' => 'a CW warehouse code in capitals, like MAIN'],
         // ---- end of pack I ----
+        // --- Pack G: the reorder engine (0037; docs/decisions.md PG1-PG16) ------------------------------------------------------------
+        // The stores whose sales come from CW's own record (empty: none, the imported history only); how often the list is worked out
+        // again, in what steps, and up to how many items at once after a click; the UK hour of the nightly sales work-out; how many
+        // days of the own record are folded again and at most per run; the most products one low-stock click changes (a page's 200).
+        'reorder.own_sales_stores' => ['pattern' => '/^[a-z][a-z0-9_]{0,31}(,[a-z][a-z0-9_]{0,31})*$/D',
+            'pattern_says' => 'channel codes separated by commas, like vapeandgo,electrofag (empty: the imported sales only)'],
+        'reorder.refresh_minutes' => ['min' => 1, 'max' => 1440],
+        'reorder.refresh_chunk_items' => ['min' => 50, 'max' => 5000],
+        'reorder.refresh_inline_max_items' => ['min' => 0, 'max' => 50000],
+        'reorder.demand_hour' => ['min' => 0, 'max' => 23],
+        'reorder.fold_refold_days' => ['min' => 1, 'max' => 31],
+        'reorder.fold_days_per_run' => ['min' => 1, 'max' => 400],
+        'reorder.low_stock_bulk_max' => ['min' => 1, 'max' => 200],
+        // --- end of Pack G ---------------------------------------------------------------------------------------------------------------
     ];
     /**
      * Settings whose value is a secret (review finding 6 of 14 Oct 2026: a chat channel's incoming address carries its token). get()

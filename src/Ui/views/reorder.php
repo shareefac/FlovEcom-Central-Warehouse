@@ -32,6 +32,7 @@
         </select>
       </label>
       <label class="choice"><input type="checkbox" name="urgent" value="1"<?php if ($filters['urgent']): ?> checked<?php endif; ?>> <?= $word('REORDER', 'urgent') ?></label>
+      <label class="choice"><input type="checkbox" name="below" value="1"<?php if ($filters['below']): ?> checked<?php endif; ?>> <?= $word('REORDER_ENGINE', 'below') ?> <span class="hint"><?= $word('REORDER_ENGINE', 'below_hint') ?></span></label>
       <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/purchasing/reorder"><?= $word('REORDER', 'clear') ?></a><?php endif; ?><button type="submit" class="btn primary sm"><?= $word('UI', 'apply') ?></button></div>
     </div>
   </details>
@@ -86,7 +87,19 @@
   </ul>
   <p class="hint"><?= $word('REORDER', 'demand') ?></p>
 <?php endif; ?>
+<?php foreach ($history['own'] as $o): ?>
+  <p><?php if ($o['to'] === null): ?><?= $say('REORDER_ENGINE', 'own_from', $channelNames[$o['code']] ?? $o['code'], \CW\Ui\Html::day($o['from'])) ?><?php else: ?><?= $say('REORDER_ENGINE', 'own_to', $channelNames[$o['code']] ?? $o['code'], \CW\Ui\Html::day($o['from']), \CW\Ui\Html::day($o['to'])) ?><?php endif; ?></p>
+<?php endforeach; ?>
+<?php if ($filters['stock'] === 'cw'): ?>
+  <p class="hint"><?php if ($figures['at'] === null): ?><?= $word('REORDER_ENGINE', 'figures_none') ?><?php else: ?><?= $say('REORDER_ENGINE', 'figures_at', \CW\Ui\Html::when($figures['at'])) ?> <?= $say('REORDER_ENGINE', 'figures_every', $figures['minutes']) ?><?php endif; ?><?php if ($figures['failed']): ?> <?= $chip('needs', \CW\Ui\Words::REORDER_ENGINE['figures_failed']) ?><?php endif; ?></p>
+<?php endif; ?>
 <?php if ($canManage): ?>
+  <form class="inline" method="post" action="/ui/purchasing/reorder/refresh">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="items" value="<?= $e(implode(',', array_column($rows, 'sku_id'))) ?>">
+    <button type="submit"><?= $word('REORDER_ENGINE', 'refresh') ?></button>
+    <span class="hint"><?= $word('REORDER_ENGINE', 'refresh_hint') ?></span>
+  </form>
   <form class="inline" method="post" action="/ui/purchasing/reorder/recalculate">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <button type="submit"><?= $word('REORDER', 'recalculate') ?></button>
@@ -119,6 +132,7 @@
   <input type="hidden" name="q" value="<?= $e($filters['q']) ?>">
   <input type="hidden" name="show" value="<?= $e($filters['show']) ?>">
   <input type="hidden" name="urgent" value="<?= $e($filters['urgent'] ? '1' : '') ?>">
+  <input type="hidden" name="below" value="<?= $e($filters['below'] ? '1' : '') ?>">
   <input type="hidden" name="page" value="<?= $e($page) ?>">
 <?php endif; ?>
 <div class="table-wrap">
@@ -151,7 +165,7 @@
       <td data-label="<?= $word('REORDER', 'buy') ?>"><label class="choice"><input type="checkbox" name="pick_<?= $e($r['sku_id']) ?>" value="1"<?php if ($r['packs'] > 0 && (int) $r['in_drafts'] === 0): ?> checked<?php endif; ?>> <span class="visually-hidden"><?= $say('REORDER', 'buy_label', $r['name']) ?></span></label></td>
 <?php endif; ?>
       <td class="num" data-label="<?= $word('REORDER', 'sells_a_day') ?>"><?= $e($r['per_day']) ?></td>
-      <td class="num" data-label="<?php if ($filters['stock'] === 'site'): ?><?= $word('REORDER', 'have_site') ?><?php else: ?><?= $word('REORDER', 'have') ?><?php endif; ?>"><?= $say('REORDER', 'have_line', $r['available'], $r['on_order']) ?> <span class="o-sub"><?= $say('REORDER', 'days_left', $r['days_left']) ?></span></td>
+      <td class="num" data-label="<?php if ($filters['stock'] === 'site'): ?><?= $word('REORDER', 'have_site') ?><?php else: ?><?= $word('REORDER', 'have') ?><?php endif; ?>"><?= $say('REORDER', 'have_line', $r['available'], $r['on_order']) ?> <span class="o-sub"><?= $say('REORDER', 'days_left', $r['days_left']) ?></span><?php if ((int) ($r['safety_stock'] ?? 0) > 0): ?> <span class="o-sub"><?= $say('REORDER_ENGINE', 'safety_stock', (int) $r['safety_stock']) ?></span><?php endif; ?></td>
       <td class="num" data-label="<?= $word('REORDER', 'suggest') ?>"><?php if ($canDraft): ?><input class="packs" type="number" name="packs_<?= $e($r['sku_id']) ?>" value="<?= $e($r['packs']) ?>" min="0" max="1000000" step="1" aria-label="<?= $say('REORDER', 'packs_label', $r['name']) ?>"><?php else: ?><?= $n($r['packs']) ?><?php endif; ?>
 <?php if ($r['upp'] > 1): ?>
         <span class="o-sub"><?= $say('REORDER', 'pack_of', $r['upp']) ?></span>

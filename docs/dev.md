@@ -492,6 +492,10 @@ another big page comes from disk), so compare runs made back to back, with no PH
 | `src/Ops/{Alerts,AlertDispatch,AlertTransport,AlertSender,Housekeeping}.php`, `bin/health_alert.php`, `bin/housekeeping.php` | the alerts to a person (checks, once per window, webhook and e-mail, both empty by default; tests inject a transport and an answer-time probe) and the nightly clean-up (chunked, retention settings; the app login keeps the audit log) (PF10-PF12) |
 | `bin/channel_set.php --relay=on\|off\|<grants>` | give or end a store's ERPNext relay (`ChannelAdmin::RELAY_GRANTS`; audited `channel.relay`, PF4) |
 | `tests/Integration/{Relay,Queues}/`, `tests/Integration/Ops/{Alerts,Housekeeping}Test.php`, `tests/Integration/ApiKernel/RelayRoutesTest.php`, `tests/Integration/UiKernel/StoreQueuesScreensTest.php`, `tests/Unit/GoLiveQueuesUnitTest.php` | pack F's tests; `QueueListPlansTest` fills a schema and checks every new read's plan (PF13) |
+| `migrations/0037_reorder_engine.sql` | Pack G, the reorder engine (PG1-PG16): `reorder_sales_day` (CW's own record of each store's sales by variant and UK day) and `reorder_fold_day`, `reorder_supplier` (spare days), `item_reorder.low_stock_level`, `reorder_line` (the stored list's compact columns, indexes in list order) and `reorder_line_detail` (each whole line as JSON), `reorder_job` (each step's last run), nine settings with their baselines |
+| `src/Reorder/{SalesFold,ReorderRefresh,ReorderLines,ReorderJobs,LowStockLevels}.php`, `bin/reorder_refresh.php` | the fold of the stock ledger into the own record by UK day; the list worked out in chunks into the stored list (changed lines only, `read_at` keeps the later read, never deletes); the reader of the list's pages and download; the schedule (fold daily, demand once a UK day from `reorder.demand_hour`, list every `reorder.refresh_minutes`; cron every 5 minutes); the low-stock click (safety stock or each website's own, skip-and-list, feed rows last) |
+| `src/Ui/Controller/ReorderEngineController.php`, views `reorder_suppliers`, `reorder_low_stock` | Purchasing › Reorder › Suppliers (spare days) and Low-stock warnings, and "Work out the list again now" |
+| `tests/Unit/ReorderEngineUnitTest.php`, `tests/Integration/Migration0037Test.php`, `tests/Integration/Reorder/{ReorderEngine,SalesFold,LowStockLevels,ReorderJobs,ReorderToReceipt}Test.php`, `tests/Integration/UiKernel/ReorderEngineScreensTest.php` | worked examples and the safety stock, the own record by UK day and the demand's split, the stored list and its refresh, the low-stock figure on each variant, the schedule, packs to single items on the shelf, the screens, roles and CSRF |
 
 Document and file tests notes:
 - `TestDb::clean()` keeps the seeded `reason_code` and `document_type` rows (a test that changes one restores it) and sets
@@ -568,6 +572,10 @@ Document and file tests notes:
 - PO tests (`tests/Integration/PurchaseOrders/PurchaseOrderTestCase`): suppliers made active by a second person through
   `SupplierTestCase`, `approvedPo()`, `draftPo()`; receipts are applied inside `self::$db->transaction(...)` (they refuse to run
   outside one). Lines files and open-PO CSVs are written to temporary directories (`*.csv` is git-ignored).
+- Pack G: the list's pages and download read the STORED list (`reorder_line`), so a test that changes stock, orders or settings
+  behind the services' back calls `ReorderFixtures::refreshLines()` before it looks (`listScenario()` ends with one); the services
+  that change a line (drafts, item / brand / supplier settings, the low-stock click) refresh their own items. `SalesFold` and
+  `ReorderJobs` take a clock: the own-record tests move ledger rows to chosen UK days with an UPDATE of `created_at` (admin login).
 - Reorder tests (`tests/Integration/Reorder/ReorderFixtures`, used by `ReorderTestCase` and the screen tests): sales history is
   written straight into the tables (`history()`: one loaded batch and its rows) or as export files in a temporary directory
   (`exportFiles()`: gzip CSV + manifest, as the export tool writes them); `demand_anomaly` is NOT a seed table (the

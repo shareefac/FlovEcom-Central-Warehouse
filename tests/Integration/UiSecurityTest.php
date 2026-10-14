@@ -26,7 +26,11 @@ final class UiSecurityTest extends UiTestCase
         '/ui/review/store', '/ui/review/batches/1',
         '/ui/stock/sales', '/ui/stock/sales.csv', '/ui/stock/sales/1', '/ui/stock/sales/dispatch', '/ui/stock/sales/returns', '/ui/stock/sales/returns.csv', // the last six: pack D
         // Pack F (PF5): Approvals › From the stores
-        '/ui/queues/suspense', '/ui/queues/corrections', '/ui/queues/modes', '/ui/queues/oversold?status=all'];
+        '/ui/queues/suspense', '/ui/queues/corrections', '/ui/queues/modes', '/ui/queues/oversold?status=all',
+        // --- Pack G
+        '/ui/purchasing/reorder/suppliers', '/ui/purchasing/reorder/low-stock',
+        // --- end of Pack G
+        ];
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw', '/ui/review/bulk',
         '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',
         '/ui/review/duplicates/1/decide', '/ui/review/duplicates/1/split', '/ui/items/1/card', '/ui/items/1/card/accept', '/ui/items/1/card/confirm',
@@ -40,7 +44,11 @@ final class UiSecurityTest extends UiTestCase
         '/ui/stock/counts/differences/line/1/1', '/ui/stock/counts/differences/review/1',
         // Pack F (PF5)
         '/ui/queues/suspense/1/pick', '/ui/queues/suspense/1/dismiss', '/ui/queues/corrections/1/confirm', '/ui/queues/corrections/1/dismiss',
-        '/ui/queues/modes/1/accept', '/ui/queues/modes/1/dismiss', '/ui/queues/oversold/1/handle', '/ui/queues/oversold/1/note'];
+        '/ui/queues/modes/1/accept', '/ui/queues/modes/1/dismiss', '/ui/queues/oversold/1/handle', '/ui/queues/oversold/1/note',
+        // --- Pack G
+        '/ui/purchasing/reorder/suppliers', '/ui/purchasing/reorder/low-stock', '/ui/purchasing/reorder/refresh',
+        // --- end of Pack G
+        ];
 
     public function testEveryScreenNeedsASignIn(): void
     {

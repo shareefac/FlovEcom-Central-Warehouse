@@ -32,8 +32,10 @@ final class ReorderDraftPoTest extends ReorderTestCase
             'cw', str_repeat('a', 32));
         self::assertSame([[(int) $s['s1']['id'], 2, 4 * 24 + 3 * 10, '204.00', false], [(int) $s['s2']['id'], 1, 120, '240.00', true]],
             array_map(static fn (array $d): array => [$d['supplier_id'], $d['lines'], $d['units'], $d['net'], $d['below_minimum']], $r['drafts']));
-        self::assertSame([[$s['d'], 'no preferred supplier: mark one of its supplier items as preferred'], [$s['e'], 'no preferred supplier: mark one of its supplier items as preferred'],
-            [$s['a'] + 1000, 'not on the reorder list']], array_map(static fn (array $x): array => [$x['sku_id'], $x['reason']], $r['skipped']));
+        self::assertSame([[$s['d'], 'no preferred supplier: mark one of its supplier items as preferred'],
+            [$s['e'], 'never suggested (marked "do not reorder"): add it to an order in the order editor if you mean it'],
+            [$s['a'] + 1000, 'not on the reorder list']], array_map(static fn (array $x): array => [$x['sku_id'], $x['reason']], $r['skipped']),
+            'pack G (PG8): an item never suggested is skipped as doubtful before the missing supplier is named');
         self::assertSame(['The draft for ' . $s['s2']['code'] . ' is £240.00 net, below its minimum order of £1,000.00.'], $r['warnings']);
         $first = $r['drafts'][0]['document_id'];
         self::assertSame(['draft', 'PO', $s['buyer']->staffUserId, 'reorder', (int) $s['s1']['id']], array_values((array) self::$db->one(

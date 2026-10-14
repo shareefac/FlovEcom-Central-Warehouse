@@ -115,6 +115,10 @@ final class Sections
                 ['key' => 'brands', 'perm' => 'reorder.view', 'path' => '/ui/purchasing/reorder/brands', 'match' => ['/ui/purchasing/reorder/brands*']],
                 ['key' => 'anomalies', 'perm' => 'reorder.view', 'path' => '/ui/purchasing/reorder/anomalies', 'match' => ['/ui/purchasing/reorder/anomalies*']],
                 ['key' => 'sales_history', 'perm' => 'reorder.view', 'path' => '/ui/purchasing/sales-history', 'match' => ['/ui/purchasing/sales-history*']],
+                // --- Pack G (docs/decisions.md PG9): the suppliers' spare days and the low-stock warnings CW keeps for the websites.
+                ['key' => 'reorder_suppliers', 'perm' => 'reorder.view', 'path' => '/ui/purchasing/reorder/suppliers', 'match' => ['/ui/purchasing/reorder/suppliers*']],
+                ['key' => 'low_stock_levels', 'perm' => 'reorder.view', 'path' => '/ui/purchasing/reorder/low-stock', 'match' => ['/ui/purchasing/reorder/low-stock*']],
+                // --- end of Pack G
             ]],
             'orders' => ['pages' => [['perm' => 'purchasing.view', 'path' => '/ui/purchasing/orders', 'match' => ['/ui/purchasing/orders*'],
                 'new' => ['perm' => 'doc.PO.post', 'href' => '/ui/purchasing/orders#new', 'label' => 'orders']]]],

@@ -172,7 +172,13 @@ final class Grants
         // removed (D17: "rows are never deleted, and state changes go through status columns").
         'goods_in_suspense', 'count_review', 'policy_review', 'oversell_event',
         // ---- Pack E (0034, PE2)
-        'role_permission'];
+        'role_permission',
+        // --- Pack G (0037; docs/decisions.md PG1-PG7): CW's own sales record and its folded days (a day folded again sets its rows to 0 and
+        // writes them again), the stored reorder list (an item that leaves it is unlisted), the jobs' last runs, the suppliers' spare days:
+        // nothing of the reorder engine is ever deleted by the app login.
+        'reorder_sales_day', 'reorder_fold_day', 'reorder_line', 'reorder_line_detail', 'reorder_job', 'reorder_supplier',
+        // --- end of Pack G
+    ];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

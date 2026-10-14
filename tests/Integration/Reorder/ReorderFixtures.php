@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\Reorder;
 
 use CW\Caller;
+use CW\Documents\DocumentHandlers;
+use CW\Documents\Documents;
+use CW\PurchaseOrders\PurchaseOrders;
 use CW\Reorder\DemandBuilder;
 use CW\Reorder\DemandMath;
 use CW\Reorder\ReorderList;
+use CW\Reorder\ReorderRefresh;
 use CW\Suppliers\SupplierItems;
 use CW\Suppliers\Suppliers;
 
@@ -140,6 +144,16 @@ trait ReorderFixtures
         return new DemandBuilder(self::$db);
     }
 
+    /**
+     * Pack G: the stored reorder list worked out again (the screens and the download read it; the schedule does this on staging).
+     *
+     * @return array{items: int, changed: int, unlisted: int, chunks: int, ms: int}
+     */
+    protected function refreshLines(): array
+    {
+        return (new ReorderRefresh(self::$db, new PurchaseOrders(self::$db, new Documents(self::$db, DocumentHandlers::all(self::$db)))))->all();
+    }
+
     /** @return array<string, mixed> the reorder_demand row of an item (detail and monthly decoded) */
     protected function demandOf(int $sku): array
     {
@@ -255,6 +269,7 @@ trait ReorderFixtures
         }
         $this->history($vpg, '2026-06-01', '2026-10-01', $rows);
         (new DemandBuilder(self::$db))->rebuild();
+        $this->refreshLines(); // pack G: the list the screens read
         return ['buyer' => $buyer, 's1' => $s1, 's2' => $s2, 'a' => $a, 'b' => $b, 'c' => $c, 'd' => $d, 'e' => $e, 'vpg' => $vpg, 'si' => $si];
     }
 }

@@ -75,7 +75,7 @@ final class SalesHistoryScreenTest extends KernelUiTestCase
         self::assertNotContains('/ui/review/listing/' . $l['unlinked'], $page->hrefs(), 'no link without linking.view');
         self::assertSame(['Reorder', 'Purchase Orders', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($page));
         self::assertSame(['Purchasing', 'Reorder'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([['Suggestions', false], ['Brands', false], ['Anomalies', false], ['Sales history', true]],
+        self::assertSame([['Suggestions', false], ['Brands', false], ['Anomalies', false], ['Sales history', true], ['Suppliers', false], ['Low-stock warnings', false]],
             array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($page)));
 
         $auditor = $this->signIn($this->uiUser('auditor'));

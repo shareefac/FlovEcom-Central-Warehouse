@@ -11,7 +11,8 @@ namespace CW\Reorder;
  * coverage without a row):
  *   first(ℓ) = the earliest t in the history read (the 365 days to E_c) with q(t) > 0; none -> the listing contributes nothing.
  *   D_L = [E_c - W_L + 1, E_c], D_S = [E_c - W_S + 1, E_c]. A day of D_L takes the FIRST matching exclusion:
- *     1 nodata        t < S_c
+ *     1 nodata        t < S_c, or a day inside the coverage no source has (pack G, PG2: the import ended before CW's own record
+ *                     of the store began; `$gap`)
  *     2 before_first  t < first(ℓ)
  *     3 anomaly       an active demand_anomaly covers it (channel NULL or c, brand NULL or the item's)
  *     4 promo         PromoDetector flagged (c, brand, t)
@@ -73,12 +74,13 @@ final class DemandMath
      * @param array<int, true> $snapshot days the channel's stock snapshot covered
      * @param array<int, true> $unsellable days the listing was unsellable on the snapshot
      * @param bool $withDays also return `days`: every day of D_L => [q, reason or null, capped]
+     * @param array<int, true> $gap days inside [S_c, E_c] without data (pack G): excluded as nodata, their units never read
      * @return array<string, mixed>|null null when the listing has no sale in [max(S_c, E_c - 364), E_c]: it contributes nothing.
      *         Keys: first, last (days), valid_short, valid_long, excluded / excluded_short (reason => days), anomalies (id =>
      *         [short, long] days), cap (?int), capped, r_short_e4 (?int), r_long_e4 (?int), rate_e4, method, sum_raw30, units_365
      */
     public function listing(int $end, int $start, array $q, array $anomaly = [], array $promo = [], array $snapshot = [], array $unsellable = [],
-        bool $withDays = false): ?array
+        bool $withDays = false, array $gap = []): ?array
     {
         $histFrom = max($start, $end - self::HISTORY_DAYS + 1);
         $first = null;
@@ -86,7 +88,7 @@ final class DemandMath
         $units365 = 0;
         $sumRaw = 0;
         foreach ($q as $day => $units) {
-            if ($units <= 0 || $day > $end || $day < $start) {
+            if ($units <= 0 || $day > $end || $day < $start || isset($gap[$day])) {
                 continue;
             }
             if ($day >= $histFrom) {
@@ -111,7 +113,7 @@ final class DemandMath
         for ($t = $longFrom; $t <= $end; $t++) {
             $qt = $q[$t] ?? 0;
             $reason = match (true) {
-                $t < $start => 'nodata',
+                $t < $start, isset($gap[$t]) => 'nodata',
                 $t < $first => 'before_first',
                 isset($anomaly[$t]) => 'anomaly',
                 isset($promo[$t]) => 'promo',

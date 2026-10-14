@@ -50,6 +50,16 @@ final class ReorderWhy
         }
         $site = ($l['stock_source'] ?? 'cw') === 'site';
         $out[] = Words::say('WHY', $site ? 'have_site' : 'have', (int) $l['available'], (int) $l['on_order']);
+        // Pack G (PG5): the safety stock, and whether the stock now is below it.
+        if (isset($l['safety_stock']) && (int) $l['safety_stock'] > 0 && ($l['never'] ?? null) === null) {
+            $ss = (int) $l['safety_stock'];
+            $out[] = ($l['min_stock'] ?? null) !== null && $ss === (int) $l['min_stock'] && $ss > \CW\Reorder\DemandMath::ceilDiv((int) ($l['d_e6'] ?? 0) * (int) $l['safety'], 1_000_000)
+                ? Words::say('WHY', 'safety_stock_min', $ss)
+                : Words::say('WHY', 'safety_stock', (int) $l['safety'], Explain::rate($perDay), $ss);
+            if (!empty($l['below_safety'])) {
+                $out[] = Words::say('WHY', 'below_safety', (int) $l['available']);
+            }
+        }
         if ($site && !empty($l['site_unreliable'])) {
             $out[] = Words::WHY['site_unsure'];
         }

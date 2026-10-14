@@ -15,6 +15,9 @@ namespace CW\Reorder;
  *   k0  = N / upp;  k = ⌈k0⌉, or ⌊k0 + ½⌋ when pack_rounding = 'nearest';  N = 0 or k = 0 -> k = 0, otherwise
  *         k = max(k, moq) and k = ⌈k / mult⌉ · mult                                          (packs)
  *   suggested units = k·upp; value = k·last_pack_price;  urgent ⇔ P < ROP;  cover_now = P / d (∞ when d = 0).
+ *   SS  = max(⌈d·S⌉, min_stock ?? 0), then min(SS, max_stock) when set                      (safety stock; pack G, PG5)
+ *   below_safety ⇔ A < SS (stock available now, orders not counted: ERPNext's "Items Below Safety Stock"), never for an item never
+ *   suggested.
  * An item never suggested (do_not_reorder, merged) gets k = 0 whatever its need.
  */
 final class ReorderMath
@@ -23,7 +26,8 @@ final class ReorderMath
      * @param array{rate_e4: int, factor_e2: int, lead: int, review: int, safety: int, min_stock: ?int, max_stock: ?int, available: int,
      *   on_order: int, in_drafts: int, upp: int, moq: int, mult: int, rounding: string, never: bool, pack_price_e4: ?int} $in
      * @return array{d_e6: int, cover_days: int, target: int, target_raw: int, min_applied: bool, max_applied: bool, rop: int, position: int,
-     *   need: int, packs_raw: int, packs: int, moq_applied: bool, mult_applied: bool, units: int, value_e4: ?int, urgent: bool, cover_now_e1: ?int}
+     *   need: int, packs_raw: int, packs: int, moq_applied: bool, mult_applied: bool, units: int, value_e4: ?int, urgent: bool, cover_now_e1: ?int,
+     *   safety_stock: int, below_safety: bool}
      */
     public static function line(array $in): array
     {
@@ -52,6 +56,10 @@ final class ReorderMath
         $rop = max(DemandMath::ceilDiv($d * ($in['lead'] + $in['safety']), 1_000_000), $in['min_stock'] ?? 0);
         if ($in['max_stock'] !== null) {
             $rop = min($rop, $target); // a maximum below the cover: never "urgent" with nothing to order (review finding, I80)
+        }
+        $safetyStock = max(DemandMath::ceilDiv($d * $in['safety'], 1_000_000), $in['min_stock'] ?? 0);
+        if ($in['max_stock'] !== null) {
+            $safetyStock = min($safetyStock, $in['max_stock']);
         }
         $position = $in['available'] + $in['on_order'];
         $need = max(0, $target - $position);
@@ -89,6 +97,8 @@ final class ReorderMath
             'value_e4' => $in['pack_price_e4'] === null ? null : $packs * $in['pack_price_e4'],
             'urgent' => $position < $rop,
             'cover_now_e1' => $d === 0 ? null : DemandMath::halfUpDiv($position * 10_000_000, $d),
+            'safety_stock' => $safetyStock,
+            'below_safety' => !$in['never'] && $in['available'] < $safetyStock,
         ];
     }
 

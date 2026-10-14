@@ -9664,3 +9664,206 @@ units-only rebase with the opening_orders flow (ERPNext opening, open paid units
 on-hand = it once shipped, a 10-pack, an item opened at zero, a re-run, the refusals), the skips, and the command line without a file.
 `SitePendingSalesTest`: the figures on made-up tables, the read-only session (a write refused, 1792), the statements, the grace, the script,
 its env-file rules and the file the opening import reads. The three findings' tests were run first on the unfixed tree and failed.
+<!-- ===== Pack G: the reorder engine (decisions PG1-PG16) ===== -->
+## Purchasing › Reorder: the full reorder engine and the buying data around it, pack G (slot `packg`, 14 Oct 2026)
+
+Pack G replaces ERPNext's E4 (the PO "Fetch Item" suggestion and "Download Items"), E10 (pack sizes), E11 (the monthly average-sales
+and safety-stock job, about 17,600 variants), E12 ("Items Below Safety Stock", the Item Management page), E22 (enable / disable) and
+E23 (brand as a filter) (`/root/cw_work/golive/plan_final.md` part 3b; `docs/inventory-modules-plan.md` IM9, IM4, IM5). The basic
+engine of I60-I89 stays as it was built; this pack adds what the "full engine" needed. Numbered PG1-PG16. Code: `migrations/0037_reorder_engine.sql`;
+`src/Reorder/{SalesFold,ReorderRefresh,ReorderLines,ReorderJobs,LowStockLevels}.php` (new); changed `src/Reorder/{DemandBuilder,DemandMath,
+ReorderMath,ReorderList,ReorderSettings,DraftPos}.php`, `src/SiteWriter/SiteView.php` and `src/Availability.php` (one field passed),
+`src/Ui/{Controller/ReorderController,Controller/SellingModeController,ReorderWhy,Kernel,Sections,Words}.php`, `src/Ui/Controller/ReorderEngineController.php`
+(new), views `reorder_suppliers`, `reorder_low_stock` (new), `reorder`, `reorder_item`, `item`; `src/Settings.php`, `src/Schema/Grants.php`;
+`bin/reorder_refresh.php` and its cron line; tests below (PG14).
+
+**PG1. CW's own record of each store's sales (`reorder_sales_day`, `SalesFold`).** Once a store is connected, its orders reach CW through
+the connector, and the stock ledger holds every sale. The fold reads the ledger by UK day and writes one row per (store, variant, UK day)
+in the variant's own units, so the demand build and every page read a small table, never the ledger. What counts: the ledger rows on the
+`allocated` bucket of a sale (`commit`, +u), a cancellation (`cancel`, -u) and an uncancellation (`uncancel`, +u), joined through the sold
+unit (`reservation_unit`, primary key) to its order and its variant (both by primary key), divided by the units per sale the unit was sold
+with. Left out: an opening order (placed before the store connected: the imported history has it), and a sale of a variant that was not
+linked (it moved no stock, so it has no ledger row; the import also counts it as unlinked). The day is the UK date of the ledger row: a
+cancellation lands on the day it happened (a day may go below 0; it reads as nothing sold). Each UK day is read in ledger-id ranges (its
+first id from `ix_stock_ledger_created`, then the primary key in steps of 20,000) and written in ONE short transaction: the day's rows set
+to 0, then the new figures upserted. Nothing is ever deleted. The days due: every UK day from the first (the UK date of the earliest
+store connect moment `channel_opening.t0_at`, at most a year back) to yesterday that was never folded, and each of the last
+`reorder.fold_refold_days` days once more on a later UK day (a late write lands); at most `reorder.fold_days_per_run` days a run, oldest
+first. `reorder_fold_day` says what was folded, when, how often and how much. *Why by day and not by a ledger-id watermark:* ids are not
+promised in commit order, so a watermark can skip a row written by a slower transaction; a day folded again cannot.
+
+**PG2. Which sales the demand uses (`DemandBuilder::channels()`).** For a store named in the setting `reorder.own_sales_stores`
+(channel codes; **empty by default: the imported history only, as before**) that has connected, its days from the first whole UK day
+after its connect moment come from CW's own record, up to the newest day folded; its earlier days come from the imported history. A day
+inside the store's span that neither source has (the import ended before the record began) is "no data" (`DemandMath::listing`'s new
+`$gap`), never a day without sales. All the rest of I62 holds (windows, exclusions, spike cap, blend). *Build decision, provisional:* the
+setting is empty until the owner names a store; the go-live list gets one step: name Vape and Go on its switch day, and Electrofag and
+Vape Big when their connectors go live. Known limits on the record's days, for the owner: promotions are not detected there (the
+connector's sale message carries no price yet, D41/F1-lite), and sold-out days are not left out there (CW holds no daily site snapshot);
+anomaly windows apply as before.
+
+**PG3. The list is worked out ahead of the page (`reorder_line`, `reorder_line_detail`, `ReorderLines`).** E11's job, ahead of time: every
+item of the list (demand, a smallest stock, or a low-stock figure) has its line stored. `reorder_line` holds the few columns the list
+filters and sorts by (listed, to buy, urgent, below the safety stock, never suggested, days left, value, brand, main supplier, safety
+stock, stock, low-stock figure) with an index in list order (`ix_reorder_line_need`, `ix_reorder_line_all`, DESC parts); `reorder_line_detail`
+the whole line as JSON. A page reads the 200 ids of its page from the compact rows, then those 200 lines by primary key: never the whole
+list, never the ledger, never every PO line. The download reads the ids in list order, then the lines a thousand at a time. The
+website-stock view (`stock=site`, before go-live only) is still worked out on the page as before.
+
+**PG4. The refresh and the schedule (`ReorderRefresh`, `ReorderJobs`, `bin/reorder_refresh.php`).** The refresh works the lines out in
+chunks of `reorder.refresh_chunk_items` (500) items in id order, each chunk read and then written in one short transaction, and writes
+only lines whose sha1 changed. An item that left the list is unlisted (`listed = 0`), never deleted. Each row keeps when its figures were
+read (`read_at`): a write of figures read earlier never overwrites later ones (a long run that read a chunk before a draft was made cannot
+undo the draft's line). One full run at a time (`GET_LOCK('cw_reorder_lines:<schema>', 0)`: 409 `refresh_running`). The schedule: one
+cron line every 5 minutes runs what is due: the fold when a UK day waits; the demand once a UK day from the hour `reorder.demand_hour`
+(4, UK time), again after a failure only after `reorder.refresh_minutes`; the list after the demand and every `reorder.refresh_minutes`
+(15). Each step's last run (start, end, last good end, time, result, error) is kept in `reorder_job`; the list says "Figures worked out on
+...", and says so when the last run went wrong. At once, without waiting: after "create draft orders" (its items, in its transaction),
+after an item's settings, after a brand's or a supplier's spare days (their items, up to `reorder.refresh_inline_max_items`, 2,000; more
+wait for the schedule), after a low-stock click, after "Work out sales again", and with the new button "Work out the list again now"
+(reorder.manage; above the same number it works out the products of the page shown, the rest at the next run).
+`bin/reorder_demand.php` still rebuilds the demand alone.
+
+**PG5. The safety stock and "below the safety stock" (`ReorderMath`).** Safety stock = ⌈sales a day × spare days⌉, at least the item's
+smallest stock, at most its largest. An item is below it when its stock available now is below it; what is on order does not count
+(ERPNext's "Items Below Safety Stock" reads the stock now). An item never suggested is never below. The filter "Below safety stock only"
+shows those items whatever there is to buy (it overrides "Products to buy" / "Every product"), on the list, in its download and on
+Low-stock warnings. Each line says its safety stock, and the "Why" says how it is made.
+
+**PG6. Spare days per supplier (`reorder_supplier`).** A supplier's spare days count for the items it is the main supplier of. Order:
+the item's, else its brand's, else its main supplier's, else `reorder.default_safety_days` (*build decision, provisional*: the brand
+before the supplier, so nothing set before this pack changes). Delivery days and the order cycle stay where I64 put them (the item's
+override, the supplier item's, the supplier's, the setting) and are changed on the supplier's own page. New segment Purchasing › Reorder
+› Suppliers lists every supplier in use with its delivery days, order cycle and spare days; reorder.manage changes the spare days (a
+version: 409 redraws; audit `reorder.supplier_settings`; 0-90 days).
+
+**PG7. The low-stock figure is CW's (`item_reorder.low_stock_level`, `LowStockLevels`).** Plan part 3b row E11 and "five rows" (b): ERPNext
+no longer refreshes the shops' low-stock levels; "the buyer owns them, or you accept them as they stand". The figure is per item, in
+single items; **empty for every item until a person sets one: each website keeps the figure it has** (accept them as they stand). The site
+writer writes floor(figure ÷ units per sale) on each linked variant (`SiteView`: a box of 10 gets a tenth), unless the selling-mode
+switch set a figure for that one website (the more specific one wins, I156). A change writes the item's feed row last (reason
+`low_stock`), so every linked variant is sent again. It is set on the item's reorder page (one field), or on the new segment Purchasing ›
+Reorder › Low-stock warnings: every listed product with its sales, safety stock, stock and figure (filters brand, supplier, words, below
+the safety stock, set by CW / each website's own), ticks, and two buttons: "Use the safety stock as the warning" (ERPNext's monthly job,
+by a person's click) and "Let each website keep its own figure". At most `reorder.low_stock_bulk_max` (200, a page) a click; FormOnce
+(the same form twice is one change); the owner's rule: skipped and listed are a product not on the list, a merged one, one never
+suggested, a safety stock of 0, one above 100,000, and one that has that figure already. ONE transaction, rows FOR UPDATE in item order,
+one audit row `reorder.low_stock`, the feed rows last, then the stored lines. The product page shows the figure each website gets.
+*Build decision:* no job overwrites the figures by itself (a monthly overwrite would undo a buyer's own figure).
+
+**PG8. "Create draft orders" skips the doubtful lines (E4; amends I105).** The owner's rule. Skipped and listed besides I67's: a product
+never suggested that was ticked anyway (discontinued on its item card, marked "do not reorder": I105 let a buyer order it from the list;
+now the buyer adds it in the order editor, which warns), a main supplier not approved yet (draft or waiting for its OK), and, while
+`reorder.draft_skip_no_price` is on (the default), a supplier item without a price (a £0 line). A line already on a draft is still drafted
+when ticked: the list never ticks it (I79), so a tick is the buyer's own. The same form twice makes the drafts once (FormOnce, as before).
+The drafted items' stored lines are worked out again in the same transaction, so the list shows them on their drafts at once.
+
+**PG9. The screens.** Purchasing › Reorder gets two segments after Sales history: Suppliers and Low-stock warnings (Sections, no new
+permission: reorder.view looks, reorder.manage changes, doc.PO.post drafts). Suggestions reads the stored list and shows: the time the
+figures were worked out and how often, the button "Work out the list again now" (reorder.manage), the filter "Below safety stock only",
+each line's safety stock and a "Below safety stock" chip, the "Why" with the safety stock; the stores whose days come from CW's own record
+are named beside the sales data. The item's reorder page shows its safety stock and low-stock figure and takes the figure. Every word is in
+`Words` (groups REORDER_ENGINE, REORDER_ENGINE_ERROR, REORDER_ENGINE_NOTICE, REORDER_SUPPLIERS, REORDER_LOW, REORDER_LOW_SKIP, and marked
+entries in SEGMENT, PAGE_TITLE, PAGE_INTRO, SETTING, SETTING_HELP, REORDER_NOTICE, WHY, REORDER_ITEM); no script; the v4 look of the
+neighbouring Brands page and the list.
+
+**PG10. Pack sizes, discontinued, brand (E10, E22, E23): what was there, and the test that holds it.** Pack sizes are per supplier item
+(`units_per_pack`, purchase unit, smallest order, steps: I43, I74) and Receive turns packs into single items (I129, I140: never "boxes for
+units"); nothing was missing, so nothing was added but `ReorderToReceiptTest` (the suggestion in boxes of 24, the draft's packs and units,
+the receipt's packs × 24 on the shelf, the list after it). Discontinued is the item card's flag (I105): left out of the suggestions, the
+safety-stock list, the drafts and the low-stock click. Brand is `sku.brand`: a filter of the list, its download and Low-stock warnings
+(the column ignores case).
+
+**PG11. Settings (0037, each with its version 1; all provisional, owner to confirm; `Settings::RULES` gives each its range).**
+
+| Setting | Default | |
+|---|---|---|
+| `reorder.own_sales_stores` | empty | the stores whose days come from CW's own record (PG2); a go-live step |
+| `reorder.refresh_minutes` | 15 | 1-1,440 |
+| `reorder.refresh_chunk_items` | 500 | 50-5,000 |
+| `reorder.refresh_inline_max_items` | 2,000 | 0-50,000 |
+| `reorder.demand_hour` | 4 (UK) | 0-23 |
+| `reorder.fold_refold_days` | 3 | 1-31 |
+| `reorder.fold_days_per_run` | 31 | 1-400 |
+| `reorder.low_stock_bulk_max` | 200 | 1-200 (a page) |
+| `reorder.draft_skip_no_price` | on | PG8 |
+
+The figure's maximum (100,000) is the site writer's existing threshold limit (`SiteModes::THRESHOLD_MAX`, I156), not a new number.
+
+**PG12. EXPLAIN on a filled schema, and what it changed (`/root/cw_work/runs/packg_explain.php`; outputs `packg_explain{1,2_before_hints,3}.txt`).**
+The slot's test schema on the staging database server (MySQL 8.4.8, **32 MB buffer pool**) filled like the live catalogue: 17,600
+items of 300 brands, 26,600 store variants, 8,200 balances, 15,000 preferred supplier items, 150 open POs and 50 drafts of 20 lines,
+1,500 item settings, Vape and Go connected 3 UK days ago with 30,000 sold units a day (90,000 ledger rows through orders and sold units)
+and 300,000 other ledger rows. Every statement of every read and write of the pack was EXPLAINed and timed. Three things changed:
+- *Stale statistics:* a table filled or rewritten a moment before (`reorder_line_detail` after the first refresh, `reorder_demand` after
+  the nightly rebuild) was estimated at one row, and the page's 200-line read and every refresh chunk's demand join became whole-table
+  scans (a page 0.7-2.0 s). Now those reads name their index (`FORCE INDEX (PRIMARY)`: the detail read, the refresh's own-row read
+  and unlisting, `reorder_demand` and `item_reorder` in `ReorderList::lines`, the own record's read), and `ANALYZE TABLE` runs after the
+  nightly demand and after a refresh that rewrites a tenth of the list.
+- *The list's ids read for every chunk:* `ReorderList::lines` for some items now tests the item's own rows (demand, smallest stock, low-stock
+  figure) instead of building the whole list's id set per chunk (5 s of a 12 s refresh).
+- *The fold:* the day's reset names its date index (the optimizer chose the whole primary key), and rows are written in key order.
+  "Below the safety stock" got its own index in list order (`ix_reorder_line_below`).
+Final figures (`packg_explain3.txt`, warm runs after the first): the fold 10.8 s for 3 UK days (3.6 s a day, mostly its upserts);
+the demand with the own record 11.7 s for 17,600 items; the first full refresh 27 s (every line written: the nightly run after the
+demand), a refresh with nothing changed **5.2-7.1 s** (36 chunks), 20 items after a draft 21-48 ms; a page of the list 31-47 ms
+(products to buy, every product, below the safety stock), a brand 13 ms, words 128-186 ms, "Set by CW" 262-436 ms (no index: rare),
+the "Why" of 200 lines 68 ms, the download's ids 50-70 ms; a low-stock click on 200 items 1.1 s; the site writer's figures of 1,000
+items 9-15 ms; the suppliers page 91-131 ms. The page reads touch 200 rows and an index; the refresh never reads the ledger; the fold
+reads one UK day's ledger ids by primary key. Left as it was: `DemandBuilder`'s listing read uses `ix_channel_listing_status` (2 s of the
+nightly build, I-2 code).
+
+**PG13. Test runs.** Test-first: the new tests on the 8c54425 tree with no pack code (`runs/packg_red2.log`): 27 tests, 20 errors, 7
+failures, every one red. Green on the pack's code (`runs/packg_green4.log`, the pack's classes and every class it touches: reorder,
+sales history, buying words, selling mode, site writer, the feed, grants, settings, words, sections, menus, templates, deploy, home):
+178 tests OK. The final sequence on the commit (unit, the classes, slot ui, one full run): `runs/packg_final.status.txt`.
+
+**PG14. The tests.** `ReorderEngineUnitTest` (worked examples of the suggestion and the safety stock, a day without data,
+the UK day across the clock change, the low-stock figure per variant, the settings' ranges and words, the pages' words and CSRF fields,
+the cron line); `Migration0037Test` (scratch schema: tables, the column kept and checked, the list's index, the settings and baselines);
+`ReorderEngineTest` (the stored list is the worked-out list; spare days item > brand > supplier > normal; discontinued left out; open
+orders counted; drafts idempotent and the doubtful lines skipped and listed; the refresh in chunks, changed lines only, unlisting, the
+later read wins, one run at a time; a bad setting recorded); `SalesFoldTest` (the fold by UK day: sale, cancellation on its own day,
+uncancellation, units per sale, no opening order, the refold, the record and the import split with "no data" between, the item page);
+`LowStockLevelsTest` (the click, its skips, feed rows, audit; the item form; the site writer's figure per variant, the website's own
+setting winning, the switch off); `ReorderJobsTest` (each step when due, a failure kept and tried again); `ReorderToReceiptTest` (packs
+to single items from the suggestion to the shelf); `ReorderEngineScreensTest` (the stored list and its time, "work out again" for the list
+and for a page, below the safety stock, the download, who may open and change each page, the CSRF token on every POST of the pack, a
+supplier's spare days with 409/422, the low-stock click idempotent with its skipped list, the product page's figure). Changed:
+`ReorderFixtures` (`refreshLines()`), `ReorderDraftPoTest`, `ReorderItemCardTest` (PG8), `ReorderListTest` (the filter's default),
+`ReorderScreensTest`, `SalesHistoryScreenTest` (the two segments), `Migration0011Test` (its own settings), `WordsTest` (0037, the segments),
+`UiSecurityTest` (the pack's routes need a sign-in).
+
+**PG15. Provisional, for the owner (build decisions; each a setting or a word on a screen).** The nine settings and their defaults
+(PG11); the store list for CW's own record starts empty (PG2: a go-live step); the brand's spare days before the supplier's (PG6); the
+safety stock floored by the smallest stock and "below" read on the stock now (PG5); no job overwrites low-stock figures by itself, and a
+product's figure is single items written as floor(figure ÷ units per sale) on a multipack (PG7); a ticked discontinued or "do not
+reorder" product is skipped from "create draft orders" (PG8, amends I105); a £0 line is skipped while `reorder.draft_skip_no_price` is on.
+
+**PG16. Left out, and why.** (1) CW's own record has no prices yet (D41/F1-lite) and no daily site snapshot: promotions and sold-out
+days are not left out on its days (PG2). (2) Stock moved out by hand-overs and trade issues (pack H, IM11) is not demand here: whether
+a sister store's hand-overs are its demand, or double count its own sales, is a question for the owner. (3) The stored list follows a
+delivery, a stock record or an order changed elsewhere at the next scheduled run (at most `reorder.refresh_minutes`), not at once; drafts,
+settings and low-stock clicks refresh their items at once. (4) The sales-history import rebuilds the demand but leaves the list to the
+schedule. (5) No new permission: reorder.view / reorder.manage / doc.PO.post as before (pack E's editable roles take the defaults).
+(6) The website-stock view (`stock=site`, before go-live only) still works its lines out on the page. (7) A PO "Fetch items" button inside
+the order editor (ERPNext's E4 button) was not built: the reorder list's supplier filter and "create draft orders" replace it.
+
+**PG17. The independent review of 14 Oct 2026 (Codex, `runs/packg_codex_review.txt`): three findings, each shown by a test that failed
+first (`runs/packg_fix_red.log`), then fixed.**
+- *Finding 1 (an unchanged read was not recorded):* a refresh that found a line unchanged wrote nothing, so a slower refresh that had read
+  older figures could still put them over it. Now each chunk locks its items' stored rows in item order and decides every line against
+  them: a row read later wins; an unchanged line moves its `read_at` on (its `changed_at` stays); the rest is written, both tables
+  together. Test `ReorderEngineTest::testALineReadEarlierNeverOverwritesOneFoundUnchangedLater`. Cost: one UPDATE of the read time per
+  chunk of unchanged lines.
+- *Finding 2 (the full run's clean-up hid an item added while it ran):* the clean-up now unlists only lines read before the run read the
+  list's ids (`$baseAt`), and only items still off the list when it unlists them. Test
+  `ReorderEngineTest::testAnItemAddedDuringAFullRefreshStaysListed` (the item is added and refreshed between two chunks).
+- *Finding 3 (the demand built on a part-folded record, then not again that day):* while the fold has days left after
+  `reorder.fold_days_per_run`, or another run is folding, the demand step says "waiting for the fold"; the run that finishes the fold
+  builds it, the same day. Test `ReorderJobsTest::testTheDemandWaitsUntilTheFoldHasCaughtUp`.
+- Also: the low-stock click now works its items' stored lines out before it writes the feed rows, so the feed clock stays the last lock
+  and is held for the shortest time.
+- Rebased onto main `8083465` (packs A2a, B, C, D, E, F): the shared lists kept both sides; 0037 stays; no permission key was added (pack E's
+  `role_permission` takes the defaults).
+<!-- ===== end of Pack G ===== -->

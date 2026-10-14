@@ -33,6 +33,7 @@ final class ReorderScreensTest extends KernelUiTestCase
         $s = $this->listScenario();
         $this->stockpiling();
         $this->builder()->rebuild();
+        $this->refreshLines(); // pack G: the list reads the stored lines
         return $s;
     }
 
@@ -67,7 +68,7 @@ final class ReorderScreensTest extends KernelUiTestCase
         self::assertSame([['Reorder', '/ui/purchasing/reorder', true], ['Purchase Orders', '/ui/purchasing/orders', false], ['Invoices', '/ui/purchasing/invoices', false],
             ['Returns', '/ui/purchasing/returns', false], ['Suppliers', '/ui/purchasing/suppliers', false]],
             array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']], self::sectionTabs($page)), 'Purchasing › Reorder');
-        self::assertSame(['Suggestions', 'Brands', 'Anomalies', 'Sales history'], array_column(self::segments($page), 'label'));
+        self::assertSame(['Suggestions', 'Brands', 'Anomalies', 'Sales history', 'Suppliers', 'Low-stock warnings'], array_column(self::segments($page), 'label'));
         self::assertSame('Suggestions', self::segments($page)[0]['current'] ? 'Suggestions' : null);
         $form = $page->form('/ui/purchasing/reorder/draft');
         self::assertSame('3', $form['row_count']);

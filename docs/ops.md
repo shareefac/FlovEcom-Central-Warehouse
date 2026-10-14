@@ -1702,6 +1702,21 @@ run. Every run, dry runs included, is an `import_run` row (kind `item_cards`; `s
 OS user); each changed card has its history row and `item_card.change` audit row (kind `import`); a real run is audited
 `item_card.import` (with the origin). A file the screen refuses as a whole on "Save the changes" is recorded too (I120).
 
+### The reorder engine (pack G, `bin/reorder_refresh.php`, `docs/decisions.md` PG1-PG16)
+
+- **Schedule:** one cron line, every 5 minutes (`deploy/staging/cw-staging.cron`, log `/var/log/cw/reorder_refresh.log`): it folds CW's
+  own record of each store's sales from the stock ledger (the UK days not folded yet; the last `reorder.fold_refold_days` once more a
+  day), works the sales out again once a UK day from `reorder.demand_hour` (UK time), and works the list out again every
+  `reorder.refresh_minutes`. A step not due does nothing; a step another run holds says "already running". Each step's last run is in
+  `reorder_job` (the list shows "Figures worked out on ..." and says when the last run went wrong). By hand:
+  `php bin/reorder_refresh.php --force --db=cw_staging` (every step now; it only reads the ledger, the orders and the stock).
+- **Go-live step (owner's word, PG2):** CW's own record replaces the imported sales of a store only when the store is named in
+  `reorder.own_sales_stores` (Settings › System › Settings, with a reason). Name `vapeandgo` on its switch day (its days from the first
+  whole UK day after its connect moment then come from CW's own record; earlier days from the loaded sales history), and the sister
+  stores when their connectors go live. Until then the list uses the loaded sales history only, as before.
+- **Low-stock warnings (PG7):** every product starts with no figure (each website keeps its own). A buyer sets figures on Purchasing ›
+  Reorder › Low-stock warnings (or the product's reorder page); the site writer writes them once a website's stock link is on.
+
 ### The check on arrival (`bin/check_arrivals.php`, `docs/decisions.md` M64, M65, U144, U145)
 
 A computer check with no AI: a variant nobody has looked at gets a suggestion when its barcode, or a web address copied from the

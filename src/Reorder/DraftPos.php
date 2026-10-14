@@ -11,6 +11,7 @@ use CW\CwException;
 use CW\Db;
 use CW\PurchaseOrders\PoMath;
 use CW\PurchaseOrders\PurchaseOrders;
+use CW\Settings;
 
 /**
  * "Create draft PO" from the reorder list (spec §7.4; docs/decisions.md I67): the picked items, grouped by their PREFERRED
@@ -19,12 +20,20 @@ use CW\PurchaseOrders\PurchaseOrders;
  * VAT code the supplier's (PurchaseOrders::saveDraft defaults). Items without a preferred supplier, with an inactive
  * supplier, merged or blocked by their item card (IM3, I103) are skipped and listed. Everything runs in ONE transaction (the caller's FormOnce transaction: the
  * same form sent twice replays the same drafts). A draft whose net is below the supplier's minimum order is warned about.
+ *
+ * Pack G (docs/decisions.md PG8; the owner's rule "skip anything doubtful, finish the rest, show the skipped ones with the reason"):
+ * also skipped and listed: an item never suggested (discontinued on its item card, marked "do not reorder"; amends I105: a buyer who
+ * means it adds it to an order in the order editor), a main supplier not approved yet (draft, waiting for its OK), and, while
+ * reorder.draft_skip_no_price is on, a supplier item without a price. A line already on a draft is not skipped: the list does not
+ * tick it, so a tick is the buyer's own (I79). After the drafts the lines of the picked items are worked out again (ReorderRefresh),
+ * so the list shows them on their drafts at once.
  */
 final class DraftPos
 {
     public const MAX_PICKS = 2000;
 
-    public function __construct(private readonly Db $db, private readonly PurchaseOrders $pos, private readonly ReorderList $list)
+    public function __construct(private readonly Db $db, private readonly PurchaseOrders $pos, private readonly ReorderList $list,
+        private readonly ?ReorderRefresh $refresh = null, private readonly ?Settings $settings = null)
     {
     }
 
@@ -54,7 +63,8 @@ final class DraftPos
         if ($want === []) {
             throw new CwException('nothing_picked', 'tick at least one line with more than 0 packs', 422);
         }
-        return $this->db->transaction(function (Db $db) use ($caller, $want, $stock, $formKey): array {
+        $skipNoPrice = ReorderSettings::engine($this->settings ?? new Settings($this->db))['skip_no_price'];
+        return $this->db->transaction(function (Db $db) use ($caller, $want, $stock, $formKey, $skipNoPrice): array {
             $f = ReorderList::filters(['show' => 'all', 'stock' => $stock]);
             $lines = [];
             foreach ($this->list->lines($f, array_keys($want)) as $l) {
@@ -68,12 +78,16 @@ final class DraftPos
                 $reason = match (true) {
                     $l === null => 'not on the reorder list',
                     in_array('merged', $l['flags'], true) => (string) $l['never'] . ': order that item instead',
-                    // A confirmed item card that breaks a TRPR or the single-use rule blocks ordering (IM3, I103); a discontinued item may
-                    // still be ordered on purpose (the buyer typed the packs).
+                    // A confirmed item card that breaks a TRPR or the single-use rule blocks ordering (IM3, I103).
                     in_array('card_blocked', $l['flags'], true) => 'blocked by its item card: ' . ItemRules::labels($l['card_blocked'])
                         . ': it cannot be ordered (correct the item card and confirm it again if it is wrong)',
+                    // Pack G (PG8): an item the list never suggests is doubtful when ticked; the order editor takes it on purpose.
+                    in_array('discontinued', $l['flags'], true) || in_array('do_not_reorder', $l['flags'], true) => 'never suggested ('
+                        . (string) $l['never'] . '): add it to an order in the order editor if you mean it',
                     $l['supplier_item_id'] === null => 'no preferred supplier: mark one of its supplier items as preferred',
                     $l['supplier_status'] === 'inactive' => "its preferred supplier {$l['supplier']} is inactive",
+                    $l['supplier_status'] !== 'active' => "its preferred supplier {$l['supplier']} is not approved yet",
+                    $skipNoPrice && $l['pack_price'] === null => "no price yet for its supplier item at {$l['supplier']}: record the price first",
                     default => null,
                 };
                 if ($reason !== null) {
@@ -104,6 +118,9 @@ final class DraftPos
             Audit::write($db, $caller, 'reorder.draft_pos', 'document', $drafts === [] ? null : (string) $drafts[0]['document_id'], null,
                 ['drafts' => array_column($drafts, 'document_id'), 'items' => count($want), 'skipped' => array_column($skipped, 'sku_id'), 'stock' => $stock]
                 + ($formKey === null ? [] : ['form_key' => $formKey]));
+            if ($drafts !== [] && $this->refresh !== null) {
+                $this->refresh->items(array_keys($want)); // in this transaction: the stored lines show the new drafts with the drafts
+            }
             return ['drafts' => $drafts, 'skipped' => $skipped, 'warnings' => $warnings];
         });
     }

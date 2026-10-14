@@ -22,6 +22,8 @@
     <dt><?= $word('REORDER_ITEM', 'delivery') ?></dt><dd><?= $say('REORDER_ITEM', 'n_days', $line['lead']) ?></dd>
     <dt><?= $word('REORDER_ITEM', 'every') ?></dt><dd><?= $say('REORDER_ITEM', 'n_days', $line['review']) ?></dd>
     <dt><?= $word('REORDER_ITEM', 'spare') ?></dt><dd><?= $say('REORDER_ITEM', 'n_days', $line['safety']) ?></dd>
+    <dt><?= $word('REORDER_ITEM', 'safety_stock') ?></dt><dd><?= $n($line['safety_stock'] ?? 0) ?><?php if (!empty($line['below_safety'])): ?> <?= $chip('needs', \CW\Ui\Words::say('REORDER_ENGINE', 'below_chip', (int) $line['safety_stock'])) ?><?php endif; ?></dd>
+    <dt><?= $word('REORDER_ITEM', 'low') ?></dt><dd><?php if (($line['low_stock_level'] ?? null) === null): ?><span class="muted"><?= $word('REORDER_LOW', 'own') ?></span><?php else: ?><?= $n($line['low_stock_level']) ?><?php endif; ?></dd>
     <dt><?= $word('REORDER_ITEM', 'aim') ?></dt><dd><?= $n($line['target']) ?></dd>
     <dt><?= $word('REORDER_ITEM', 'urgent_below') ?></dt><dd><?= $n($line['rop']) ?></dd>
     <dt><?= $word('REORDER_ITEM', 'in_stock') ?></dt><dd><?= $say('REORDER_ITEM', 'in_stock_line', $line['available'], $line['on_order'], $line['in_drafts']) ?></dd>
@@ -97,6 +99,7 @@
       <label><?= $word('REORDER_ITEM', 'lead') ?> <span class="hint"><?= $word('REORDER_ITEM', 'lead_hint') ?></span> <input type="number" name="lead_days_override" value="<?= $e($v['lead_days_override'] ?? '') ?>" min="0" max="120" class="short"></label>
       <label><?= $word('REORDER_ITEM', 'min') ?> <input type="number" name="min_stock" value="<?= $e($v['min_stock'] ?? '') ?>" min="0" class="short"></label>
       <label><?= $word('REORDER_ITEM', 'max') ?> <input type="number" name="max_stock" value="<?= $e($v['max_stock'] ?? '') ?>" min="0" class="short"></label>
+      <label><?= $word('REORDER_ITEM', 'low') ?> <span class="hint"><?= $word('REORDER_ITEM', 'low_hint') ?></span> <input type="number" name="low_stock_level" value="<?= $e($v['low_stock_level'] ?? '') ?>" min="0" max="100000" class="short"></label>
       <label><?= $word('REORDER_ITEM', 'rounding') ?>
         <select name="pack_rounding">
           <option value=""><?= $word('REORDER_ITEM', 'rounding_default') ?></option>
@@ -127,6 +130,9 @@
 <?php endif; ?>
 <?php if ($settings['max_stock'] !== null): ?>
     <li><?= $say('REORDER_ITEM', 'set_max', (int) $settings['max_stock']) ?></li>
+<?php endif; ?>
+<?php if (($settings['low_stock_level'] ?? null) !== null): ?>
+    <li><?= $say('REORDER_ITEM', 'set_low', (int) $settings['low_stock_level']) ?></li>
 <?php endif; ?>
 <?php if (($settings['pack_rounding'] ?? null) === 'nearest'): ?>
     <li><?= $word('REORDER_ITEM', 'set_rounding') ?></li>

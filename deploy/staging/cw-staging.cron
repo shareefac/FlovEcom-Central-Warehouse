@@ -42,3 +42,8 @@ MAILTO=""
 # the paid orders and the ledger's sends, cancels and returns. It reads at most the settings' bounds a run and writes nothing else;
 # while the setting reports.refresh_on is off it does nothing (exit 0).
 */15 * * * *  root  cd /opt/cw-staging && php bin/refresh_reports.php --db=cw_staging >> /var/log/cw/refresh_reports.log 2>&1
+
+# --- Pack G: the reorder engine (docs/decisions.md PG4). Every 5 minutes it does what is due and nothing else: CW's own record of each
+# store's sales folded from the stock ledger (the days not folded yet, the last days once more a day), the sales worked out once a UK
+# day from the setting reorder.demand_hour, the reorder list worked out every reorder.refresh_minutes. It writes only the reorder tables.
+*/5 * * * *  root  cd /opt/cw-staging && php bin/reorder_refresh.php --db=cw_staging >> /var/log/cw/reorder_refresh.log 2>&1

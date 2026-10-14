@@ -64,6 +64,9 @@ final class Words
         'QUEUE_STATE', 'QUEUES', 'RELAY_KIND', 'RELAY_REASON', 'SUSPENSE', 'CORRECTIONS', 'MODES', 'OVERSOLD', 'OVERSELL_KIND', 'OVERSELL_RESOLUTION',
         'QUEUE_NOTICE', 'QUEUE_ERROR', 'ALERT',
         'ROLES_EDIT', 'ROLES_ERROR', 'REPORTS', // Pack E
+        // --- Pack G (the reorder engine)
+        'REORDER_ENGINE', 'REORDER_ENGINE_ERROR', 'REORDER_ENGINE_NOTICE', 'REORDER_SUPPLIERS', 'REORDER_LOW', 'REORDER_LOW_SKIP',
+        // --- end of Pack G
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -307,6 +310,10 @@ final class Words
         'queue_corrections' => 'ERPNext corrections',
         'queue_modes' => 'Mode changes',
         'queue_oversold' => 'Oversold',
+        // --- Pack G (Purchasing › Reorder) ---
+        'reorder_suppliers' => 'Suppliers',
+        'low_stock_levels' => 'Low-stock warnings',
+        // --- end of Pack G
     ];
 
     /** A page's create button (Sections::MAP `new`): a verb that names the result. */
@@ -460,6 +467,10 @@ final class Words
         'supplier_new' => 'New supplier',
         'reorder_brands' => 'Brands',
         'reorder_anomalies' => 'Anomalies',
+        // --- Pack G
+        'reorder_suppliers' => 'Suppliers: spare days',
+        'reorder_low_stock' => 'Low-stock warnings',
+        // --- end of Pack G
         'access' => 'Roles and permissions',
         'enrol' => 'Set up my sign-in',
         'staff_requests' => 'Staff requests',
@@ -525,6 +536,12 @@ final class Words
         'reorder_item' => ['Why the list suggests this amount.', 'Buyers can change this product\'s settings below.'],
         'reorder_brands' => ['Make the list buy more or less of a whole brand.', ''],
         'reorder_anomalies' => ['Days with unusual sales (for example stockpiling before the duty) that should be left out when CW works out what to buy.', ''],
+        // --- Pack G
+        'reorder_suppliers' => ['Spare days of stock for the products each supplier is the main supplier of.',
+            'Press "Change" next to a supplier to set its spare days.'],
+        'reorder_low_stock' => ['The low-stock warning each website shows, kept by CW for each product.',
+            'Tick products, then use their safety stock, or let each website keep its own figure.'],
+        // --- end of Pack G
         'sales_history' => ['Daily website sales that Reorder uses. ' . self::ASK . ' loads them from the websites.',
             'If a website product is not matched to a warehouse product, its sales are not used: the list below shows the biggest ones.'],
         'orders' => ['Every order to a supplier.', 'Start a new one below, or open one to see where it is.'],
@@ -2322,6 +2339,17 @@ final class Words
         'reorder.promo_units_uplift' => 'Promotion check: sold more',
         'reorder.promo_min_units' => 'Promotion check: at least this many sold',
         'reorder.stale_history_days' => 'Sales data is old after (days)',
+        // --- Pack G
+        'reorder.own_sales_stores' => 'Stores whose sales come from CW\'s own record',
+        'reorder.refresh_minutes' => 'Work out the reorder list every N minutes',
+        'reorder.refresh_chunk_items' => 'Products worked out together in one step',
+        'reorder.refresh_inline_max_items' => 'Most products worked out at once after a click',
+        'reorder.demand_hour' => 'Hour (UK) of the nightly sales work-out',
+        'reorder.fold_refold_days' => 'Days of own sales read again each night',
+        'reorder.fold_days_per_run' => 'Most days of own sales read in one run',
+        'reorder.low_stock_bulk_max' => 'Most products in one low-stock click',
+        'reorder.draft_skip_no_price' => 'Draft orders leave out products without a price',
+        // --- end of Pack G
         'receiving.unstamped_refusal_from' => 'Unstamped goods refused from',
         'receiving.duty_pence_per_ml' => 'Vaping duty (pence per ml)',
         'receiving.backdate_max_days' => 'Days back a delivery may be dated',
@@ -3513,6 +3541,17 @@ final class Words
         'reorder.promo_units_uplift' => 'Second promotion check: it sold at least this many times its normal amount (1.5 = one and a half times).',
         'reorder.promo_min_units' => 'Third promotion check: the brand sold at least this many items that day.',
         'reorder.stale_history_days' => 'Warn when a website\'s loaded sales end more than this many days ago.',
+        // --- Pack G
+        'reorder.own_sales_stores' => 'For these stores, sales from the day after they connected come from CW\'s own record. Before that day, and for other stores, the loaded sales are used. Empty: loaded sales only.',
+        'reorder.refresh_minutes' => 'Stock, orders and suggestions on Reorder are worked out again this often.',
+        'reorder.refresh_chunk_items' => 'The list is worked out in steps of this many products, so no step holds the database long.',
+        'reorder.refresh_inline_max_items' => 'After a click or a settings change, up to this many products are worked out at once. More wait for the next time.',
+        'reorder.demand_hour' => 'From this hour, UK time, sales are worked out again once a day.',
+        'reorder.fold_refold_days' => 'The last days of CW\'s own sales are read again each night, so a late cancellation is counted.',
+        'reorder.fold_days_per_run' => 'One run reads at most this many days of CW\'s own sales. The next run goes on.',
+        'reorder.low_stock_bulk_max' => 'One click on Low-stock warnings changes at most this many products.',
+        'reorder.draft_skip_no_price' => 'When on, "Create draft orders" leaves out a product with no price yet and lists it.',
+        // --- end of Pack G
         'company.confirmed' => 'Until the owner confirms the company details, every purchase order PDF says DO NOT SEND.',
         'approvals.supplier_activation' => 'A new supplier, a supplier used again, and an overseas supplier\'s duty-stamp arrangement wait for a reviewer\'s OK. '
             . 'Off: a buyer\'s request makes the supplier usable at once, marked "approved alone".',
@@ -5725,6 +5764,11 @@ final class Words
         'nearest' => 'rounded to the nearest pack',
         'urgent' => 'Urgent: you will run out before the next delivery.',
         'drafts' => '%s are on draft orders already (not included above).',
+        // --- Pack G
+        'safety_stock' => 'Safety stock: %s spare days × %s = %s.',
+        'safety_stock_min' => 'Safety stock: %s (the smallest stock you set).',
+        'below_safety' => 'You have %s now: below the safety stock.',
+        // --- end of Pack G
     ];
 
     /** Why this amount (/ui/purchasing/reorder/items/{id}, plan §6.23). */
@@ -5804,6 +5848,12 @@ final class Words
         'set_rounding' => 'Packs: rounded to the nearest',
         'set_never' => 'Never suggested',
         'set_note' => 'Note: %s',
+        // --- Pack G
+        'safety_stock' => 'Safety stock',
+        'low' => 'Low-stock warning on the websites',
+        'low_hint' => 'Single items. Empty = each website keeps its own figure.',
+        'set_low' => 'Low-stock warning: %s',
+        // --- end of Pack G
     ];
 
     /** Brand settings (/ui/purchasing/reorder/brands, plan §6.24). */
@@ -5871,7 +5921,126 @@ final class Words
         'brand_saved' => 'Saved: Reorder uses the brand\'s settings at once.',
         'anomaly_added' => 'Saved: these days are left out the next time sales are worked out ("Work out sales again" on Reorder).',
         'anomaly_ended' => 'Saved: these days are used again the next time sales are worked out.',
+        // --- Pack G
+        'recalculated_later' => 'Done: sales were worked out again. The list is long, so its figures follow within minutes.',
+        'refreshed' => 'Done: the list was worked out again with the stock and orders of now.',
+        'refreshed_page' => 'Done: the products of that page were worked out again. The rest follow within minutes.',
+        // --- end of Pack G
     ];
+
+    // --- Pack G: the reorder engine (docs/decisions.md PG1-PG16) --------------------------------------------------------------------
+
+    /** Reorder's suggestions with the stored list (pack G): the figures' time, the safety-stock filter, the skipped lines. */
+    public const REORDER_ENGINE = [
+        'below' => 'Below safety stock only',
+        'below_hint' => 'Every product whose stock now is below its safety stock, even when more is on order.',
+        'below_chip' => 'Below safety stock (%s)',
+        'safety_stock' => 'Safety stock %s',
+        'figures_at' => 'Figures worked out on %s.',
+        'figures_every' => 'They are worked out again every %s minutes, and at once after you make draft orders or change settings.',
+        'figures_none' => 'The list has not been worked out yet.',
+        'figures_failed' => 'The last time the list was worked out it went wrong. Ask ' . self::ASK . '.',
+        'refresh' => 'Work out the list again now',
+        'refresh_hint' => 'Use it after a delivery or an order, when you cannot wait. A long list: the products of this page.',
+        'refresh_later' => 'The list has %s products: too many to work out now. It is worked out again within %s minutes.',
+        'own_from' => '%s: sales from %s come from CW\'s own record of its orders.',
+        'own_to' => '%s: sales from %s to %s come from CW\'s own record of its orders.',
+        'skip_discontinued' => 'not sold any more (product card): add it to an order by hand if you mean it',
+        'skip_never' => 'marked "never suggest": add it to an order by hand if you mean it',
+        'skip_supplier_waiting' => 'its main supplier, %s, is not approved yet',
+        'skip_no_price' => 'no price yet at its main supplier: record the price first',
+    ];
+
+    /** The pack's refusals in the page's words (ReorderController::plain, by error code). */
+    public const REORDER_ENGINE_ERROR = [
+        'refresh_running' => 'The list is being worked out right now. Nothing was changed. Try again in a minute.',
+        'build_running' => 'Sales are being worked out right now. Nothing was changed. Try again in a minute.',
+        'too_many_lines' => 'Too many products are ticked for one click. Nothing was changed. Tick fewer and try again.',
+        'bad_action' => 'Choose one of the two buttons. Nothing was changed.',
+        'unknown_supplier' => 'That supplier was not found. Nothing was saved.',
+    ];
+
+    /** Notices of the pack's pages (ReorderEngineController::NOTICES). */
+    public const REORDER_ENGINE_NOTICE = [
+        'supplier_saved' => 'Saved: Reorder uses the supplier\'s spare days at once.',
+        'low_saved' => 'Done: the low-stock warnings of the ticked products were changed. Products left out are listed below.',
+        'refreshed' => 'Done: the list was worked out again with the stock and orders of now.',
+        'refreshed_page' => 'Done: the products of that page were worked out again. The rest follow within minutes.',
+    ];
+
+    /** Suppliers: spare days (/ui/purchasing/reorder/suppliers). */
+    public const REORDER_SUPPLIERS = [
+        'intro' => 'Spare days set here count for the products a supplier is the main supplier of. A product\'s or its brand\'s spare days win. '
+            . 'Otherwise the normal %s days are used.',
+        'lead_note' => 'Delivery days and how often you order are set on the supplier\'s own page.',
+        'how' => 'Press "Change" next to a supplier to set its spare days.',
+        'title_supplier' => 'Change %s',
+        'spare' => 'Spare days',
+        'spare_hint' => '0 to 90; empty = the normal %s',
+        'note' => 'Note',
+        'save' => 'Save',
+        'none' => 'No supplier yet.',
+        'none_text' => 'Suppliers show here once they are added on Purchasing › Suppliers.',
+        'supplier' => 'Supplier',
+        'status' => 'State',
+        'products' => 'Main supplier of',
+        'delivery' => 'Delivery days',
+        'every' => 'Order every',
+        'n_days' => '%s days',
+        'normal_days' => 'normal (%s)',
+        'changed' => 'Changed',
+        'changed_line' => '%s by %s',
+        'change' => 'Change',
+        'open' => 'Supplier page',
+    ];
+
+    /** Low-stock warnings (/ui/purchasing/reorder/low-stock). */
+    public const REORDER_LOW = [
+        'intro' => 'Each website warns when a product\'s stock falls to its low-stock figure. ERPNext no longer sets it. CW keeps it here.',
+        'how' => 'Empty means each website keeps the figure it has. A figure is in single items; a pack of 10 on a website gets a tenth of it.',
+        'site_wins' => 'A figure set for one website on the product\'s page wins over this one.',
+        'writers_none' => 'No website takes CW\'s figures yet. They are kept here and written when a website\'s stock link is switched on.',
+        'writers_on' => 'Written on: %s.',
+        'filter_low' => 'Low-stock warning',
+        'low_any' => 'Any',
+        'low_set' => 'Set by CW',
+        'low_own' => 'Each website\'s own',
+        'product' => 'Product',
+        'sells' => 'Sells a day',
+        'safety' => 'Safety stock',
+        'safety_line' => '%s spare days × %s',
+        'have' => 'In stock now',
+        'figure' => 'Low-stock warning',
+        'own' => 'website\'s own',
+        'item_figure' => 'the product\'s figure',
+        'tick' => 'Change?',
+        'tick_label' => 'Change %s',
+        'use_safety' => 'Use the safety stock as the warning',
+        'keep_own' => 'Let each website keep its own figure',
+        'buttons_hint' => 'At most %s products in one click. Products where it does not make sense are left out and listed.',
+        'total_one' => '1 product.',
+        'total_many' => '%s products.',
+        'none' => 'No product is on Reorder yet.',
+        'none_text' => 'Products show here once their sales are worked out.',
+        'none_filter' => 'No product matches these filters.',
+        'none_filter_text' => 'Clear the filters to see every product.',
+        'clear' => 'Show every product',
+        'done_changed' => 'Changed: %s products.',
+        'left_out' => 'Left out',
+        'and_more' => 'and %s more',
+    ];
+
+    /** Why a ticked product was left out of a low-stock click (LowStockLevels::SKIP). */
+    public const REORDER_LOW_SKIP = [
+        'not_listed' => 'not on Reorder',
+        'merged' => 'joined into another product: change that one',
+        'never' => 'never suggested, so no warning is set for it',
+        'zero' => 'its safety stock is 0 (no sales, no smallest stock)',
+        'too_big' => 'its safety stock is too high: set it by hand',
+        'already' => 'it has that figure already',
+    ];
+
+    // --- end of Pack G -------------------------------------------------------------------------------------------------------------
 
     /** Sales data (/ui/purchasing/sales-history, plan §6.26). */
     public const SALES = [

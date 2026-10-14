@@ -201,7 +201,7 @@ final class Availability
                 }
             }
             $site = SiteWriter\SiteView::blocks($this->db, $channelId, array_map(static fn (array $v): array => ['status' => $v['status'], 'sku_id' => $v['sku_id'],
-                'policy' => $v['policy'], 'qty' => $v['sku_id'] === null ? null : Reservations::listingUnits($v['avail'], $v['u'])], $values));
+                'policy' => $v['policy'], 'qty' => $v['sku_id'] === null ? null : Reservations::listingUnits($v['avail'], $v['u']), 'u' => $v['u']], $values));
             foreach ($values as $id => $val) {
                 $out[] = self::view($val, $versions[$id] ?? 0, $site[$id] ?? ['writer' => false, 'why' => 'writer_off']);
             }

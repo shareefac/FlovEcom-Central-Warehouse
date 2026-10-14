@@ -81,7 +81,8 @@ final class ReorderListTest extends ReorderTestCase
         self::assertSame([$s['a']], array_keys($this->lines(['show' => 'all'], [$s['a']])), 'the draft form reads its items only');
         self::assertSame([], $this->lines([], []));
         $f = ReorderList::filters(['brand' => ' ', 'supplier' => 'x', 'show' => 'everything', 'stock' => 'erp', 'urgent' => 'yes']);
-        self::assertSame(['brand' => null, 'supplier' => null, 'q' => '', 'urgent' => false, 'show' => 'need', 'stock' => 'cw'], $f, 'unknown values: the defaults');
+        self::assertSame(['brand' => null, 'supplier' => null, 'q' => '', 'urgent' => false, 'show' => 'need', 'stock' => 'cw', 'below' => false], $f,
+            'unknown values: the defaults (pack G: below the safety stock only, off)');
         $list = $this->reorderList();
         self::assertSame(['Elux', 'Lost Mary'], $list->brands());
         self::assertSame([(int) $s['s1']['id'], (int) $s['s2']['id']], array_column($list->suppliers(), 'id'));

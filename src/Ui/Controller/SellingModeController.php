@@ -86,6 +86,7 @@ final class SellingModeController
         foreach ($db->all('SELECT id, display_name FROM staff_user WHERE id IN (SELECT updated_by FROM item_channel_mode WHERE sku_id = ? AND updated_by IS NOT NULL)', [$id]) as $p) {
             $names[(int) $p['id']] = (string) $p['display_name'];
         }
+        $level = SiteView::levels($db, [$id])[$id] ?? null; // pack G (PG7): the product's own low-stock figure, where no site has its own
         $sites = [];
         foreach ($db->all('SELECT id, code, name, mode, site_writer FROM channel ORDER BY id') as $c) {
             $cid = (int) $c['id'];
@@ -103,6 +104,7 @@ final class SellingModeController
                 'receipts' => isset($receiptSites[$cid]), 'listings' => $ls,
                 'mode' => $w['writer'] ? $w['mode'] : null, 'backorders' => $w['backorders'] ?? null, 'why' => $w['why'], 'meaning' => $w['meaning'] ?? null,
                 'threshold' => $row['threshold'] ?? null, 'previous' => $row['previous'] ?? null,
+                'level' => ($row['threshold'] ?? null) === null && $level !== null ? intdiv($level, max(1, (int) ($ls[0]['units'] ?? 1))) : null,
                 'set_by' => $row === null ? null : ($names[(int) $row['updated_by']] ?? $row['updated_actor']),
                 'set_source' => $row['source'] ?? null,
                 'set_document' => $row['document_id'] ?? null,

@@ -88,7 +88,11 @@ final class WordsTest extends TestCase
                 'counts', 'count_sheets', 'count_differences',
                 'sales_orders', 'sales_dispatch', 'sales_returns', // the last three: pack D
                 // Pack F (PF5): Approvals › From the stores
-                'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'],
+                'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold',
+                // --- Pack G
+                'reorder_suppliers', 'low_stock_levels',
+                // --- end of Pack G
+                ],
             'NEW' => ['orders', 'receiving', 'suppliers', 'people', 'warehouses', 'reasons', 'stock_in', 'stock_out', 'transfers', 'releases', 'adjustments',
                 'counts'],
             'DOC_TYPE' => array_values(\CW\StockOps\StockOpHandler::KINDS),
@@ -323,7 +327,10 @@ final class WordsTest extends TestCase
             '0032_supplier_invoices.sql', // pack C
             '0036_golive_queues_alerts.sql', // pack F
             '0034_reports_roles.sql', // Pack E
-        ] as $file) {
+            // --- Pack G
+            '0037_reorder_engine.sql',
+            // --- end of Pack G
+            ] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
         }

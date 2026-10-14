@@ -22,6 +22,11 @@ use CW\Settings;
  *   5. ONE transaction: DELETE FROM reorder_demand, then 500-row INSERTs.
  *
  * Reads only, except reorder_demand (spec §6.9: it takes no other lock). Nothing books stock.
+ *
+ * Pack G (docs/decisions.md PG2): a store named in reorder.own_sales_stores that has connected (channel_opening.t0_at) takes its days
+ * from the first whole UK day after its connect moment from CW's own record (reorder_sales_day, SalesFold) up to the newest day
+ * folded; its earlier days come from the imported history as before. A day inside the store's span that neither source covers (the
+ * import ended before the record began) is "no data" (DemandMath's gap), never a day without sales.
  */
 final class DemandBuilder
 {
@@ -116,19 +121,51 @@ final class DemandBuilder
     }
 
     /**
-     * Coverage per channel with loaded history: id => {id, code, start, end} (day numbers).
+     * Coverage per channel with loaded history or CW's own record: id => {id, code, start, end, imp_start, imp_end, own_from, own_end}
+     * (day numbers; imp_* null without imported history, own_* null when the store's days do not come from CW's own record).
      *
-     * @return array<int, array{id: int, code: string, start: int, end: int}>
+     * @return array<int, array{id: int, code: string, start: int, end: int, imp_start: ?int, imp_end: ?int, own_from: ?int, own_end: ?int}>
      */
     public function channels(): array
     {
         $out = [];
         foreach ($this->db->all("SELECT b.channel_id, c.code, MIN(b.date_from) AS s, MAX(b.date_to) AS e FROM sales_import_batch b JOIN channel c ON c.id = b.channel_id "
             . "WHERE b.status = 'loaded' GROUP BY b.channel_id, c.code ORDER BY c.code") as $r) {
-            $out[(int) $r['channel_id']] = ['id' => (int) $r['channel_id'], 'code' => (string) $r['code'], 'start' => DemandMath::day((string) $r['s']),
-                'end' => DemandMath::day((string) $r['e'])];
+            $s = DemandMath::day((string) $r['s']);
+            $e = DemandMath::day((string) $r['e']);
+            $out[(int) $r['channel_id']] = ['id' => (int) $r['channel_id'], 'code' => (string) $r['code'], 'start' => $s, 'end' => $e, 'imp_start' => $s, 'imp_end' => $e,
+                'own_from' => null, 'own_end' => null];
+        }
+        $fold = new SalesFold($this->db, $this->settings, $this->clock);
+        $last = $fold->lastDay();
+        if ($last !== null) {
+            foreach ($fold->starts() as $id => $st) {
+                if ($last < $st['from']) {
+                    continue; // nothing folded since the store connected yet: the import alone
+                }
+                $c = $out[$id] ?? ['id' => $id, 'code' => $st['code'], 'imp_start' => null, 'imp_end' => null];
+                $c['own_from'] = $st['from'];
+                $c['own_end'] = $last;
+                $c['start'] = min($c['imp_start'] ?? $st['from'], $st['from']);
+                $c['end'] = max($c['imp_end'] ?? $last, $last);
+                $out[$id] = $c;
+            }
+            uasort($out, static fn (array $a, array $b): int => strcmp($a['code'], $b['code']));
         }
         return $out;
+    }
+
+    /**
+     * Whether a day of a channel has sales data (from the import or CW's own record; channels() explains the split).
+     *
+     * @param array{start: int, end: int, imp_start: ?int, imp_end: ?int, own_from: ?int, own_end: ?int} $c
+     */
+    public static function covered(array $c, int $day): bool
+    {
+        if ($c['own_from'] !== null && $day >= $c['own_from']) {
+            return $day <= (int) $c['own_end'];
+        }
+        return $c['imp_start'] !== null && $day >= $c['imp_start'] && $day <= (int) $c['imp_end'];
     }
 
     /**
@@ -176,7 +213,7 @@ final class DemandBuilder
     /**
      * Promotion days per channel and brand: channel id => brand key => day => true.
      *
-     * @param array<int, array{id: int, code: string, start: int, end: int}> $channels
+     * @param array<int, array<string, mixed>> $channels channels()
      * @param list<array<string, mixed>> $anomalies
      * @param array<string, mixed> $p
      * @return array<int, array<string, array<int, true>>>
@@ -245,7 +282,7 @@ final class DemandBuilder
      * first, last, monthly, listings (detail), min_stock}.
      *
      * @param array<string, mixed> $p
-     * @param array<int, array{id: int, code: string, start: int, end: int}> $channels
+     * @param array<int, array<string, mixed>> $channels channels()
      * @param list<array<string, mixed>> $anomalies
      * @param array<int, array<string, array<int, true>>> $promo
      * @param list<int> $skus
@@ -275,13 +312,24 @@ final class DemandBuilder
             $readFrom = max($c['start'], $c['end'] - self::READ_DAYS + 1);
             $q = [];
             $unsellable = [];
+            // Pack G (PG2): the imported days end the day before CW's own record of the store begins; the record's days follow.
+            $impEnd = $c['imp_end'] === null ? null : ($c['own_from'] === null ? $c['imp_end'] : min($c['imp_end'], $c['own_from'] - 1));
             // The variant ids as strings: a numeric one is an int as an array key, and a VARCHAR compared with an int is cast on every
             // row, so MySQL read all of the site's sales history (600,000 rows) instead of the variants' own rows.
             foreach (array_chunk(array_map('strval', array_keys($variants)), self::CHUNK) as $vchunk) {
                 $vin = implode(', ', array_fill(0, count($vchunk), '?'));
-                foreach ($this->db->all("SELECT external_variant_id, sale_date, units_online + units_office AS q FROM sales_history_day WHERE channel_id = ? "
-                    . "AND external_variant_id IN ({$vin}) AND sale_date BETWEEN ? AND ?", [$cid, ...$vchunk, DemandMath::date($readFrom), DemandMath::date($c['end'])]) as $h) {
-                    $q[(string) $h['external_variant_id']][DemandMath::day((string) $h['sale_date'])] = (int) $h['q'];
+                if ($impEnd !== null && $impEnd >= $readFrom) {
+                    foreach ($this->db->all("SELECT external_variant_id, sale_date, units_online + units_office AS q FROM sales_history_day WHERE channel_id = ? "
+                        . "AND external_variant_id IN ({$vin}) AND sale_date BETWEEN ? AND ?", [$cid, ...$vchunk, DemandMath::date($readFrom), DemandMath::date($impEnd)]) as $h) {
+                        $q[(string) $h['external_variant_id']][DemandMath::day((string) $h['sale_date'])] = (int) $h['q'];
+                    }
+                }
+                if ($c['own_from'] !== null) {
+                    foreach ((new SalesFold($this->db, $this->settings, $this->clock))->history($cid, $vchunk, max($readFrom, $c['own_from']), (int) $c['own_end']) as $v => $days) {
+                        foreach ($days as $day => $units) {
+                            $q[(string) $v][$day] = $units;
+                        }
+                    }
                 }
                 foreach ($this->db->all("SELECT external_variant_id, stock_date FROM listing_stock_day WHERE channel_id = ? AND external_variant_id IN ({$vin}) "
                     . 'AND stock_date BETWEEN ? AND ?', [$cid, ...$vchunk, DemandMath::date($longFrom), DemandMath::date($c['end'])]) as $s) {
@@ -293,13 +341,19 @@ final class DemandBuilder
                 [$cid, DemandMath::date($longFrom), DemandMath::date($c['end'])]) as $d) {
                 $snapshot[DemandMath::day((string) $d)] = true;
             }
+            $gap = [];
+            for ($t = max($c['start'], $longFrom); $t <= $c['end']; $t++) {
+                if (!self::covered($c, $t)) {
+                    $gap[$t] = true;
+                }
+            }
             $anomalyCache = [];
             foreach ($variants as $v => $l) {
                 $brand = $items[$l['sku']]['brand'] ?? null;
                 $akey = $brand ?? "\0";
                 $anomalyCache[$akey] ??= self::anomalyDays($anomalies, $cid, $brand, $longFrom, $c['end']);
                 $r = $math->listing($c['end'], $c['start'], $q[$v] ?? [], $anomalyCache[$akey], $brand === null ? [] : ($promo[$cid][$brand] ?? []), $snapshot,
-                    $unsellable[$v] ?? [], $withDays);
+                    $unsellable[$v] ?? [], $withDays, $gap);
                 if ($r === null) {
                     continue;
                 }

@@ -28,7 +28,9 @@ use CW\Db;
  *                        (plan §6.5 for the counted items, one policy for every site, §7.4; IM10 "mode is per site for legacy
  *                        items"). null = leave the site's own value; after a forced Out-Of-Stock (FORCED) that is the value the
  *                        site had before the force, which the site's writer restores (I178).
- *   low_stock_threshold  prodt_low_stock_threshold from the site's item_channel_mode row; null = leave the site's own.
+ *   low_stock_threshold  prodt_low_stock_threshold from the site's item_channel_mode row; else (pack G, docs/decisions.md PG7) the item's
+ *                        low-stock figure CW keeps (item_reorder.low_stock_level, single items) in the variant's units: floor(level / u);
+ *                        null = leave the site's own.
  *   meaning              CW's meaning of the label, for the screens ("sold while there is stock", ...).
  *   moves                (changes pages only, writer on) the item's stock movements behind this change that the site does not log
  *                        itself: type, ref (document or order), units (effect on availability, central units), last_id (the newest
@@ -56,7 +58,7 @@ final class SiteView
      * The block of one listing (pure).
      *
      * @param array{writer_on: bool, linked: bool, status: string, policy: ?string, qty: ?int, blocked: list<string>,
-     *     site: ?array{mode: string, threshold: ?int}} $l
+     *     site: ?array{mode: string, threshold: ?int}, level?: ?int} $l `level`: the item's low-stock figure in the variant's units (pack G)
      * @return array{writer: bool, why: string, qty?: ?int, mode?: ?string, backorders?: ?int, low_stock_threshold?: ?int, meaning?: string}
      */
     public static function rule(array $l): array
@@ -68,7 +70,7 @@ final class SiteView
             return ['writer' => false, 'why' => 'unlinked'];
         }
         $site = $l['site'];
-        $threshold = $site['threshold'] ?? null;
+        $threshold = $site['threshold'] ?? ($l['level'] ?? null);
         [$mode, $backorders, $why] = match (true) {
             $l['blocked'] !== [] => ['Out-Of-Stock', 0, 'blocked'],
             $l['status'] === 'quarantined' => ['Out-Of-Stock', 0, 'quarantined'],
@@ -98,10 +100,10 @@ final class SiteView
     }
 
     /**
-     * The blocks of a channel's listings. $rows: listing id => ['status', 'sku_id' (null: not linked), 'policy', 'qty'].
-     * One query for the switch; while it is off nothing else is read.
+     * The blocks of a channel's listings. $rows: listing id => ['status', 'sku_id' (null: not linked), 'policy', 'qty', 'u' (units per
+     * sale; 1 when absent)]. One query for the switch; while it is off nothing else is read.
      *
-     * @param array<int, array{status: string, sku_id: ?int, policy: ?string, qty: ?int}> $rows
+     * @param array<int, array{status: string, sku_id: ?int, policy: ?string, qty: ?int, u?: int}> $rows
      * @return array<int, array<string, mixed>>
      */
     public static function blocks(Db $db, int $channelId, array $rows): array
@@ -117,6 +119,7 @@ final class SiteView
         $skus = array_values(array_unique(array_filter(array_column($rows, 'sku_id'), static fn ($s): bool => $s !== null)));
         $blocked = $skus === [] ? [] : (new ItemCompliance($db))->selling($skus); // the 'sell' check (I160): blocked -> Out-Of-Stock
         $modes = $skus === [] ? [] : (new SiteModes($db))->current($skus, [$channelId]);
+        $levels = $skus === [] ? [] : self::levels($db, $skus);
         foreach ($rows as $id => $r) {
             $sku = $r['sku_id'];
             $m = $sku === null ? null : ($modes[SiteModes::key($sku, $channelId)] ?? null);
@@ -124,7 +127,26 @@ final class SiteView
                 'writer_on' => true, 'linked' => $sku !== null, 'status' => $r['status'], 'policy' => $r['policy'], 'qty' => $r['qty'],
                 'blocked' => $sku === null ? [] : ($blocked[$sku] ?? []),
                 'site' => $m === null ? null : ['mode' => $m['mode'], 'threshold' => $m['threshold']],
+                'level' => $sku === null || !isset($levels[$sku]) ? null : intdiv($levels[$sku], max(1, (int) ($r['u'] ?? 1))),
             ]);
+        }
+        return $out;
+    }
+
+    /**
+     * The low-stock figures CW keeps for some items (pack G, PG7): sku id => single items (only the items that have one).
+     *
+     * @param list<int> $skus
+     * @return array<int, int>
+     */
+    public static function levels(Db $db, array $skus): array
+    {
+        $out = [];
+        foreach (array_chunk(array_values(array_unique($skus)), 1000) as $chunk) {
+            foreach ($db->all('SELECT sku_id, low_stock_level FROM item_reorder WHERE low_stock_level IS NOT NULL AND sku_id IN ('
+                . implode(', ', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+                $out[(int) $r['sku_id']] = (int) $r['low_stock_level'];
+            }
         }
         return $out;
     }

@@ -20,7 +20,7 @@ use CW\Settings;
  * For item s with preferred supplier item p (none: packs of 1, MOQ 1, flag no_supplier):
  *   L = item.lead_days_override ?? p.lead_days ?? supplier.default_lead_days ?? reorder.default_lead_days
  *   R = supplier.review_days ?? reorder.default_review_days
- *   S = item.safety_days ?? brand.safety_days ?? reorder.default_safety_days
+ *   S = item.safety_days ?? brand.safety_days ?? reorder_supplier.safety_days (the main supplier's; pack G, PG6) ?? reorder.default_safety_days
  *   φ = item.demand_factor ?? brand.demand_factor ?? 1.00;  d = rate(s) × φ
  * then ReorderMath. Available A: `cw` = Σ sellable warehouses (on_hand - allocated - held); `site` = Σ over the item's
  * vapeandgo listings of u × its usable site stock (sellable: max(0, stock); unsellable: 0; In-Stock mode or negative
@@ -29,6 +29,11 @@ use CW\Settings;
  * do_not_reorder, merged items, and from the item card (IM3, docs/decisions.md I103, I105, I113): a discontinued item and an item
  * its card BLOCKS (a person confirmed it breaks a TRPR or the single-use rule; until a person confirms the card again). A rule
  * no confirmation stands behind is flagged `card_warning` and the item is still suggested.
+ *
+ * Pack G (docs/decisions.md PG5-PG7): each line also carries its safety stock and whether the stock available now is below it
+ * (ReorderMath), the item's low-stock figure (item_reorder.low_stock_level), and the source of its spare days. The list's items
+ * include those with a low-stock figure. The screens read the stored lines (ReorderRefresh -> reorder_line, ReorderLines); this
+ * class works them out (the refresh, one item's page, "create draft orders", the website-stock view).
  */
 final class ReorderList
 {
@@ -59,8 +64,9 @@ final class ReorderList
     /**
      * The filters of the screen and the CSV from a query string (unknown values fall back to the defaults).
      *
-     * @param array<string, ?string> $q brand, supplier, q, urgent, show, stock
-     * @return array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string}
+     * @param array<string, ?string> $q brand, supplier, q, urgent, show, stock, below (pack G: below the safety stock only, whatever
+     *   there is to buy)
+     * @return array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string, below: bool}
      */
     public static function filters(array $q): array
     {
@@ -73,6 +79,7 @@ final class ReorderList
             'urgent' => ($q['urgent'] ?? null) === '1',
             'show' => in_array($q['show'] ?? null, self::SHOW, true) ? (string) $q['show'] : 'need',
             'stock' => in_array($q['stock'] ?? null, self::STOCK, true) ? (string) $q['stock'] : 'cw',
+            'below' => ($q['below'] ?? null) === '1',
         ];
     }
 
@@ -80,7 +87,7 @@ final class ReorderList
      * Every line matching the filters, in list order (urgent, cover now, value). $skus limits the list to those items (the
      * draft-PO form); $withExplain adds `explain` (the "Why" text) to each line.
      *
-     * @param array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string} $f
+     * @param array{brand: ?string, supplier: ?int, q: string, urgent: bool, show: string, stock: string, below?: bool} $f
      * @param list<int>|null $skus
      * @return list<array<string, mixed>>
      */
@@ -113,20 +120,27 @@ final class ReorderList
                 return [];
             }
             $where[] = 's.id IN (' . implode(', ', array_fill(0, count($skus), '?')) . ')';
+            $where[] = '(d.sku_id IS NOT NULL OR r.min_stock IS NOT NULL OR r.low_stock_level IS NOT NULL)';
             array_push($params, ...array_map('intval', $skus));
         }
         $rows = $this->db->all(
             'SELECT s.id, s.code, s.name, s.brand, s.merged_into_sku_id, m.code AS merged_code, d.rate, d.rate_raw_30, d.computed_at, '
-            . 'r.safety_days, r.lead_days_override, r.min_stock, r.max_stock, r.demand_factor, r.pack_rounding, r.do_not_reorder, '
+            . 'r.safety_days, r.lead_days_override, r.min_stock, r.max_stock, r.demand_factor, r.pack_rounding, r.do_not_reorder, r.low_stock_level, rs.safety_days AS supplier_safety, '
             . 'rb.demand_factor AS brand_factor, rb.safety_days AS brand_safety, si.id AS si_id, si.supplier_id, si.supplier_code, si.purchase_unit, si.units_per_pack, '
             . 'si.moq_packs, si.order_multiple_packs, si.lead_days AS si_lead, si.last_pack_price, sup.code AS supplier_code_cw, sup.name AS supplier_name, '
             . 'sup.status AS supplier_status, sup.default_lead_days, sup.review_days, ic.product_type AS card_type, ic.liquid_ml AS card_ml, '
             . 'ic.nicotine_mg AS card_mg, ic.single_use AS card_single_use, ic.discontinued AS card_discontinued, ic.first_confirmed_at AS card_first_confirmed, '
             . 'ic.confirmed_at AS card_confirmed_at, ic.confirmed_breaches AS card_confirmed_breaches '
-            . 'FROM (SELECT sku_id FROM reorder_demand UNION SELECT sku_id FROM item_reorder WHERE min_stock IS NOT NULL) base '
-            . 'JOIN sku s ON s.id = base.sku_id LEFT JOIN sku m ON m.id = s.merged_into_sku_id LEFT JOIN reorder_demand d ON d.sku_id = s.id '
-            . 'LEFT JOIN item_reorder r ON r.sku_id = s.id LEFT JOIN reorder_brand rb ON rb.brand = s.brand '
-            . 'LEFT JOIN supplier_item si ON si.preferred_sku_id = s.id LEFT JOIN supplier sup ON sup.id = si.supplier_id LEFT JOIN item_card ic ON ic.sku_id = s.id'
+            // The list's items: with demand, a smallest stock or a low-stock figure. For some items (the refresh's chunks, a draft, one
+            // item's page) the same test on the item's own rows, so the whole list's ids are not read for every chunk (pack G, PG12).
+            . ($skus === null ? 'FROM (SELECT sku_id FROM reorder_demand UNION SELECT sku_id FROM item_reorder WHERE min_stock IS NOT NULL OR low_stock_level IS NOT NULL) base '
+                . 'JOIN sku s ON s.id = base.sku_id ' : 'FROM sku s ')
+            // Index hints (pack G, PG12): reorder_demand is rewritten nightly, and right after it its statistics can say "one row": the
+            // optimizer then read the whole table for every chunk of the refresh (EXPLAIN on a filled schema).
+            . 'LEFT JOIN sku m ON m.id = s.merged_into_sku_id LEFT JOIN reorder_demand d FORCE INDEX (PRIMARY) ON d.sku_id = s.id '
+            . 'LEFT JOIN item_reorder r FORCE INDEX (PRIMARY) ON r.sku_id = s.id LEFT JOIN reorder_brand rb ON rb.brand = s.brand '
+            . 'LEFT JOIN supplier_item si ON si.preferred_sku_id = s.id LEFT JOIN supplier sup ON sup.id = si.supplier_id LEFT JOIN item_card ic ON ic.sku_id = s.id '
+            . 'LEFT JOIN reorder_supplier rs ON rs.supplier_id = si.supplier_id'
             . ($where === [] ? '' : ' WHERE ' . implode(' AND ', $where)),
             $params,
         );
@@ -146,7 +160,8 @@ final class ReorderList
             $factorE2 = intdiv(DemandMath::toE4((string) ($r['demand_factor'] ?? $r['brand_factor'] ?? '1.00')), 100);
             $lead = $r['lead_days_override'] ?? $r['si_lead'] ?? $r['default_lead_days'] ?? $p['lead'];
             $review = $r['review_days'] ?? $p['review'];
-            $safety = $r['safety_days'] ?? $r['brand_safety'] ?? $p['safety'];
+            $safety = $r['safety_days'] ?? $r['brand_safety'] ?? $r['supplier_safety'] ?? $p['safety'];
+            $safetySource = $r['safety_days'] !== null ? 'item' : ($r['brand_safety'] !== null ? 'brand' : ($r['supplier_safety'] !== null ? 'supplier' : 'default'));
             $card = ItemRules::status(['product_type' => $r['card_type'], 'liquid_ml' => $r['card_ml'], 'nicotine_mg' => $r['card_mg'],
                 'single_use' => $r['card_single_use'], 'first_confirmed_at' => $r['card_first_confirmed'], 'confirmed_at' => $r['card_confirmed_at'],
                 'confirmed_breaches' => $r['card_confirmed_breaches']]);
@@ -216,6 +231,7 @@ final class ReorderList
                 'pack_price' => $r['last_pack_price'] === null ? null : (string) $r['last_pack_price'],
                 'rate_e4' => $rate, 'rate_raw_30_e4' => $r['rate_raw_30'] === null ? 0 : DemandMath::toE4((string) $r['rate_raw_30']),
                 'factor_e2' => $factorE2, 'factor_source' => $factorSource, 'lead' => (int) $lead, 'review' => (int) $review, 'safety' => (int) $safety,
+                'safety_source' => $safetySource, 'low_stock_level' => $r['low_stock_level'] === null ? null : (int) $r['low_stock_level'],
                 'min_stock' => $r['min_stock'] === null ? null : (int) $r['min_stock'], 'max_stock' => $r['max_stock'] === null ? null : (int) $r['max_stock'],
                 'available' => $a, 'on_order' => $onOrder[$id] ?? 0, 'in_drafts' => $inDrafts[$id] ?? 0, 'stock_source' => $f['stock'],
                 'site_date' => $stock[$id]['date'] ?? null, 'site_unreliable' => $stock[$id]['unreliable'] ?? false, 'site_channel' => self::SITE_CHANNEL, 'never' => $never, 'no_supplier' => !$hasSupplier, 'flags' => $flags,
@@ -225,7 +241,10 @@ final class ReorderList
             if ($f['urgent'] && !$row['urgent']) {
                 continue;
             }
-            if ($f['show'] === 'need' && $row['packs'] === 0) {
+            if (($f['below'] ?? false) && !$row['below_safety']) {
+                continue;
+            }
+            if ($f['show'] === 'need' && $row['packs'] === 0 && !($f['below'] ?? false)) {
                 continue;
             }
             $out[] = $row;
@@ -285,7 +304,8 @@ final class ReorderList
      * Each channel's loaded history and the demand's age, for the list's header: channels (code, from, to, stale), computed_at,
      * demand_stale (an import finished after the demand was computed).
      *
-     * @return array{channels: list<array{code: string, from: string, to: string, stale: bool, days_ago: int}>, computed_at: ?string, demand_stale: bool, stale_days: int}
+     * @return array{channels: list<array{code: string, from: string, to: string, stale: bool, days_ago: int}>, computed_at: ?string, demand_stale: bool, stale_days: int,
+     *   own: list<array{code: string, from: string, to: ?string}>}
      */
     public function header(): array
     {
@@ -301,8 +321,15 @@ final class ReorderList
         }
         $computed = $this->db->value('SELECT MAX(computed_at) FROM reorder_demand');
         $computed = $computed === null ? null : (string) $computed;
+        // Pack G (PG2): the stores whose days come from CW's own record, from the first whole day after they connected.
+        $fold = new SalesFold($this->db, $this->settings, $this->clock);
+        $last = $fold->lastDay();
+        $own = [];
+        foreach ($fold->starts() as $st) {
+            $own[] = ['code' => $st['code'], 'from' => DemandMath::date($st['from']), 'to' => $last === null || $last < $st['from'] ? null : DemandMath::date($last)];
+        }
         return ['channels' => $channels, 'computed_at' => $computed, 'demand_stale' => $lastImport !== null && ($computed === null || $computed < $lastImport),
-            'stale_days' => $p['stale_days']];
+            'stale_days' => $p['stale_days'], 'own' => $own];
     }
 
     /** @return list<string> the brands of the items on the list (the brand filter) */
