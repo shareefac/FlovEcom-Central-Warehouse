@@ -165,6 +165,30 @@
 <?php endif; ?>
 </section>
 <?php endif; ?>
+<?php if (($arrivalBox ?? null) !== null): ?>
+<section aria-labelledby="receipt-arrival-h" id="arrival">
+  <h2 id="receipt-arrival-h"><?= $word('ARRIVALS', 'missing_title') ?></h2>
+  <p><?= $word('ARRIVALS', 'against') ?> <a href="<?= $u('/ui/purchasing/invoices/' . $arrivalBox['invoice']['id']) ?>"><?= $e($arrivalBox['invoice']['number']) ?></a></p>
+<?php if ($doc->status === 'posted' && $arrivalBox['missing'] === []): ?>
+  <p class="muted"><?= $word('ARRIVALS', 'nothing_missing') ?></p>
+<?php elseif ($arrivalBox['missing'] !== []): ?>
+  <p class="muted"><?= $word('ARRIVALS', 'missing_text') ?></p>
+  <ul>
+<?php foreach ($arrivalBox['missing'] as $m): ?>
+    <li><?= $say('ARRIVALS', 'missing_line', $m['units'], $m['code'], $m['name'], $m['line_no'], $m['amount_text']) ?></li>
+<?php endforeach; ?>
+  </ul>
+<?php if ($arrivalBox['claim'] !== null): ?>
+  <p><a class="button" href="<?= $u('/ui/purchasing/returns/' . $arrivalBox['claim']) ?>"><?= $word('ARRIVALS', 'claim_open') ?></a></p>
+<?php elseif ($arrivalBox['canClaim']): ?>
+  <form class="inline" method="post" action="<?= $u('/ui/receiving/' . $doc->id . '/claim') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <button type="submit" class="primary"><?= $word('ARRIVALS', 'claim') ?></button>
+  </form>
+<?php endif; ?>
+<?php endif; ?>
+</section>
+<?php endif; ?>
 
 <section class="where-units" aria-labelledby="where-h">
   <div class="head-help">

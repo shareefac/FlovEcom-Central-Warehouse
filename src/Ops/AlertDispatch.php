@@ -147,6 +147,7 @@ final class AlertDispatch
             'answer_failed' => Words::ALERT['answer_failed'],
             'invariants_failed' => Words::say('ALERT', 'invariants_failed', $n('problems')),
             'invariants_stale' => Words::say('ALERT', 'invariants_stale', $n('hours')),
+            'invoice_submit_failed' => Words::say('ALERT', 'invoice_submit_failed', $n('count'), (string) ($d['invoices'] ?? '')), // pack J (PJ11)
             default => (string) ($p['detail'] ?? $p['kind']),
         };
     }

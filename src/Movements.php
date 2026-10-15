@@ -16,6 +16,8 @@ use CW\Relay\RelayLines;
  *   adjustment                                   on_hand + qty x u     (signed, non-zero)
  *   count (counted_at required)                  on_hand = counted - net ships already applied
  *                                                that were dispatched after counted_at (§8.2)
+ *   incoming / arrive (documents only, pack J)   incoming + |qty| / incoming - |qty|: a supplier invoice's units on their
+ *                                                way (sold on the sites before they land), and the receipt that takes them in
  *
  * A line names its item by exactly one of: sku_id, sku_code, erp_item_code (the sku_erp_item
  * override, falling back to variant_id when given too) or variant_id (the calling channel's
@@ -56,7 +58,14 @@ final class Movements
      * pack A1, docs/decisions.md SO2) are document-only: record() refuses them with 400 bad_type (I8). Neither carries a cost: what
      * goes out is valued at the average cost (IM8).
      */
-    public const DOCUMENT_TYPES = ['goods_in', 'supplier_return', 'adjustment', 'count', 'write_off', 'transfer_out', 'transfer_in', 'trade_sale', 'stock_out'];
+    public const DOCUMENT_TYPES = ['goods_in', 'supplier_return', 'adjustment', 'count', 'write_off', 'transfer_out', 'transfer_in', 'trade_sale', 'stock_out',
+        'incoming', 'arrive'];
+    /**
+     * Pack J (0041; docs/decisions.md PJ1): the document types that move the `incoming` bucket instead of on_hand, with their sign: a
+     * final supplier invoice's units on their way (`incoming`, its posting), taken out by the receipt against it (`arrive`). Never a
+     * cost (IM8 values on_hand), never from a site.
+     */
+    private const INCOMING_TYPES = ['incoming' => 1, 'arrive' => -1];
     /** The largest unit cost stock_ledger.unit_cost (DECIMAL(14,6)) holds. */
     public const MAX_COST = '99999999.999999';
     /** Movements per document posting (bookForDocument). */
@@ -254,10 +263,12 @@ final class Movements
      * @param array{document_id: int, doc_ref: string} $doc   doc_ref = the document number
      * @param list<array{type: string, warehouse?: string, counted_at?: string, backdated?: bool, note?: string,
      *                   lines: list<array{document_line: int, sku_id?: int, sku_code?: string, qty: int, unit_cost?: mixed, warehouse?: string}>}> $movements
+     * @param int $maxLines the rows all movements may book together: MAX_LINES, or a handler's own bound when one document line books
+     *                      several rows (a receipt: each line to on hand, set aside and quarantine, and out of Incoming; pack J)
      * @return list<array{type: string, lines: list<array<string, mixed>>}> per movement, record()'s per-line results
      *         (line_index = document_line)
      */
-    public function bookForDocument(Caller $caller, array $doc, string $opKey, array $movements): array
+    public function bookForDocument(Caller $caller, array $doc, string $opKey, array $movements, int $maxLines = self::MAX_LINES): array
     {
         if (!$this->db->inTransaction()) {
             throw new \LogicException('bookForDocument() runs inside the transaction that posts the document');
@@ -288,8 +299,8 @@ final class Movements
             $lines += count($p['lines']);
             $prepared[] = $p;
         }
-        if ($lines > self::MAX_LINES) {
-            throw new CwException('bad_lines', 'a document posting books at most ' . self::MAX_LINES . " lines ({$lines} sent)", 400);
+        if ($lines > $maxLines) {
+            throw new CwException('bad_lines', 'a document posting books at most ' . $maxLines . " lines ({$lines} sent)", 400);
         }
         $booked = $this->book($caller, $prepared, $opKey, $doc, false);
         if ($booked['unresolved'] !== []) {
@@ -556,13 +567,14 @@ final class Movements
                     $delta = match (true) {
                         in_array($type, self::PLUS, true) => abs($q),
                         in_array($type, self::MINUS, true) => -abs($q),
+                        isset(self::INCOMING_TYPES[$type]) => self::INCOMING_TYPES[$type] * abs($q),
                         default => $q, // adjustment: signed
                     };
                     $row = ['note' => self::lineNote($mv['note'], $lines[$i]['line_index'])] + self::costOf($lines[$i]['unit_cost'] ?? null, $costSource)
                         + ($doc === null ? [] : ['document_line' => $lines[$i]['line_index']]) + $m;
-                    $after = $this->stock->apply($r['warehouse_id'], $r['sku_id'], 'on_hand', $delta, $row);
+                    $after = $this->stock->apply($r['warehouse_id'], $r['sku_id'], isset(self::INCOMING_TYPES[$type]) ? 'incoming' : 'on_hand', $delta, $row);
                     $out[] = ['line_index' => $lines[$i]['line_index'], 'result' => 'booked', 'sku_code' => $r['code'],
-                        'delta' => $delta, 'on_hand' => $after];
+                        'delta' => $delta] + (isset(self::INCOMING_TYPES[$type]) ? ['incoming' => $after] : ['on_hand' => $after]);
                 }
             }
             foreach ($unresolved[$j] as $i => $reason) {

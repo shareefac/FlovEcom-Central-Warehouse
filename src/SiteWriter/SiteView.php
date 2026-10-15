@@ -170,7 +170,7 @@ final class SiteView
             $in = implode(', ', array_fill(0, count($chunk), '?'));
             $rows = $db->all(
                 'SELECT l.id, l.sku_id, l.movement_type, COALESCE(l.doc_ref, l.order_ref) AS ref, '
-                . "IF(l.bucket = 'on_hand', l.qty_delta, -l.qty_delta) AS effect FROM stock_ledger l "
+                . "IF(l.bucket IN ('on_hand', 'incoming'), l.qty_delta, -l.qty_delta) AS effect FROM stock_ledger l "
                 . 'JOIN channel_warehouse cw ON cw.warehouse_id = l.warehouse_id AND cw.channel_id = ? AND cw.is_sellable = 1 '
                 . 'WHERE l.created_at >= CAST(? AS DATETIME(6)) - INTERVAL ' . self::MOVES_MARGIN_SEC . " SECOND AND l.created_at <= CAST(? AS DATETIME(6)) AND l.sku_id IN ({$in}) "
                 . "AND l.movement_type NOT IN ({$sale}) ORDER BY l.id LIMIT " . self::MOVES_MAX_ROWS,

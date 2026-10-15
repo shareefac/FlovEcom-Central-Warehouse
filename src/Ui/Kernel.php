@@ -14,6 +14,7 @@ use CW\Db;
 use CW\Ops\TestRefPurge;
 use CW\Ui\Controller\AccessController;
 use CW\Ui\Controller\ApprovalsController;
+use CW\Ui\Controller\ArrivalsController;
 use CW\Ui\Controller\AuthController;
 use CW\Ui\Controller\BarcodesController;
 use CW\Ui\Controller\BulkController;
@@ -690,6 +691,10 @@ final class Kernel
         // again by CW\Invoices\* and the document base, never admin); invoices.accept accepts an invoice's differences.
         InvoicesController::routes($r);
         SupplierReturnsController::routes($r);
+        // --- Pack J (0041, docs/decisions.md PJ14): Goods In › Arriving and "Receive", a receipt's claim, Purchasing › Invoices › Timed, a
+        // supplier's arrival choices (receiving.view / doc.GRN.post / doc.DN.post / invoices.view / suppliers.manage; checked again by
+        // CW\Arrivals\Arrivals and the services, never admin).
+        ArrivalsController::routes($r);
         // ---- Pack F (docs/decisions.md PF5-PF9): Approvals › From the stores. queues.view looks; each answer needs its queue's permission
         // (queues.suspense, queues.corrections, queues.modes, queues.oversell), checked again by CW\Queues\* (never admin). ----
         \CW\Ui\Controller\StoreQueuesController::routes($r);

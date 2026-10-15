@@ -47,3 +47,9 @@ MAILTO=""
 # store's sales folded from the stock ledger (the days not folded yet, the last days once more a day), the sales worked out once a UK
 # day from the setting reorder.demand_hour, the reorder list worked out every reorder.refresh_minutes. It writes only the reorder tables.
 */5 * * * *  root  cd /opt/cw-staging && php bin/reorder_refresh.php --db=cw_staging >> /var/log/cw/reorder_refresh.log 2>&1
+
+# ---- Pack J (docs/decisions.md PJ10, PJ11) ----
+# Supplier invoices made final at the time a person set on each (no fixed time): as that person, once; a failure is kept on the
+# invoice, listed on Purchasing > Invoices > Timed and named by the alerts (health_alert), and not tried again until its time is set
+# again. Exit 1 = some failed.
+* * * * *  root  cd /opt/cw-staging && php bin/submit_invoices.php --db=cw_staging >> /var/log/cw/submit_invoices.log 2>&1

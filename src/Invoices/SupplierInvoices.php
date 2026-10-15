@@ -105,10 +105,11 @@ final class SupplierInvoices
             $h = $this->header($kind, $supplierId, $header, null);
             $doc = $this->docs->createDraft($caller, $type, ['external_ref' => $h['invoice_number'], 'doc_date' => $h['invoice_date'], 'note' => $h['note']]);
             try {
+                // Pack J (PJ6): an invoice's goods come in the way its supplier chose (else the setting) until the person chooses otherwise.
                 $db->exec('INSERT INTO supplier_invoice (document_id, kind, supplier_id, invoice_key, net_total, vat_total, gross_total, credits_document_id, '
-                    . 'debit_note_document_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    . 'debit_note_document_id, receive_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [$doc->id, $kind, $supplierId, self::key($h['invoice_number']), $h['net_total'], $h['vat_total'], $h['gross_total'], $h['credits_id'], $h['debit_note_id'],
-                        $this->nowDb(), $this->nowDb()]);
+                        $kind === 'invoice' ? (new \CW\Arrivals\Arrivals($db))->prefsOf($supplierId)['mode'] : null, $this->nowDb(), $this->nowDb()]);
             } catch (\PDOException $e) {
                 throw $this->duplicate($e, $kind, $supplierId, (string) self::key($h['invoice_number']), $doc->id);
             }
@@ -261,6 +262,12 @@ final class SupplierInvoices
             [$kind, $cur] = $this->current($id);
             self::mayPost($db, $caller, self::KINDS[$kind]);
             $norm = $this->normaliseLines($kind, $cur, $lines);
+            // Pack J (PJ9): the duty stamp answered for "book as received" stays with a line whose item is unchanged.
+            $answers = [];
+            foreach ($db->all('SELECT sl.line_no, dl.sku_id, sl.stamp_answer FROM sinv_line sl JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no '
+                . 'WHERE sl.document_id = ? AND sl.stamp_answer IS NOT NULL', [$id]) as $a) {
+                $answers[(int) $a['line_no']] = [(int) $a['sku_id'], (string) $a['stamp_answer']];
+            }
             $doc = $this->docs->setLines($caller, $id, $version, array_map(static fn (array $n): array => $n['doc'], $norm));
             foreach (array_chunk($norm, 300, true) as $chunk) {
                 $params = [];
@@ -272,6 +279,12 @@ final class SupplierInvoices
                 $db->exec('INSERT INTO sinv_line (document_id, line_no, kind, grn_document_id, grn_line_no, po_document_id, po_line_no, credit_of_line_no, supplier_code, '
                     . 'purchase_unit, units_per_pack, packs, pack_price, entry) VALUES ' . implode(', ', array_fill(0, count($chunk), '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')),
                     $params);
+            }
+            foreach ($norm as $i => $n) {
+                [$sku, $answer] = $answers[$i + 1] ?? [null, null];
+                if ($answer !== null && $n['ext']['kind'] === 'goods' && (int) ($n['doc']['sku_id'] ?? 0) === $sku) {
+                    $db->exec('UPDATE sinv_line SET stamp_answer = ? WHERE document_id = ? AND line_no = ?', [$answer, $id, $i + 1]);
+                }
             }
             return $doc;
         });
@@ -492,6 +505,154 @@ final class SupplierInvoices
         });
     }
 
+    // ------------------------------------------------------------------------------------------
+    // Pack J (0041; docs/decisions.md PJ6-PJ11): how an invoice's goods come in, and when it is made final
+    // ------------------------------------------------------------------------------------------
+
+    public const RECEIVE_MODES = ['count', 'received'];
+    public const STAMP_ANSWERS = ['digital', 'transitional'];
+
+    /**
+     * How a draft invoice's goods not received yet come in when it is made final (count: "count on arrival", they wait in Arriving and
+     * Goods In receives them; received: "book as received", a receipt is booked at once) and, for "book as received", the duty stamp on
+     * the pack of each goods line ($stamps line_no => digital | transitional | '' for none given). Creator only (Documents::updateDraft:
+     * version + 1); audit invoice.receiving.
+     *
+     * @param array<int, string> $stamps
+     */
+    public function setReceiving(Caller $caller, int $id, int $version, string $mode, array $stamps): Document
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $mode, $stamps): Document {
+            [$kind] = $this->current($id);
+            self::mayPost($db, $caller, 'SINV');
+            if ($kind !== 'invoice') {
+                throw new CwException('not_an_invoice', 'only an invoice brings goods in', 409);
+            }
+            if (!in_array($mode, self::RECEIVE_MODES, true)) {
+                throw new CwException('bad_mode', 'choose how its goods come in: count on arrival, or book as received', 400, ['field' => 'receive_mode']);
+            }
+            $doc = $this->docs->updateDraft($caller, $id, $version, []);
+            $goods = array_map('intval', $db->column("SELECT line_no FROM sinv_line WHERE document_id = ? AND kind = 'goods'", [$id]));
+            $set = [];
+            foreach ($stamps as $no => $answer) {
+                $answer = $answer === null ? '' : trim((string) $answer);
+                if (!is_int($no) || !in_array($no, $goods, true)) {
+                    throw new CwException('bad_line', "line {$no}: only a goods line has a duty stamp", 422, ['line' => $no]);
+                }
+                if ($answer !== '' && !in_array($answer, self::STAMP_ANSWERS, true)) {
+                    throw new CwException('bad_stamp', "line {$no}: the stamp is digital or transitional", 400, ['line' => $no]);
+                }
+                $db->exec('UPDATE sinv_line SET stamp_answer = ? WHERE document_id = ? AND line_no = ?', [$answer === '' ? null : $answer, $id, $no]);
+                $set[$no] = $answer === '' ? null : $answer;
+            }
+            $db->exec('UPDATE supplier_invoice SET receive_mode = ?, updated_at = ? WHERE document_id = ?', [$mode, $this->nowDb(), $id]);
+            Audit::write($db, $caller, 'invoice.receiving', 'document', (string) $id, null, ['mode' => $mode, 'stamps' => $set, 'version' => $doc->version]);
+            return $doc;
+        });
+    }
+
+    /**
+     * Sets (or, with null, takes off) the time a draft invoice is made final by the job (bin/submit_invoices.php, every minute), as the
+     * person who sets it (their posting: their roles are checked again then). The time is in the future (422 bad_submit_at); there is no
+     * fixed time, each invoice gets its own. Until then the draft is changed, re-timed or stopped as any draft; a failed attempt is kept
+     * and not tried again until the time is set again. Creator only (version + 1); audit invoice.schedule.
+     */
+    public function schedule(Caller $caller, int $id, int $version, ?\DateTimeImmutable $at): Document
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $at): Document {
+            [$kind] = $this->current($id);
+            self::mayPost($db, $caller, 'SINV');
+            if ($kind !== 'invoice') {
+                throw new CwException('not_an_invoice', 'a credit note is made final by hand', 409);
+            }
+            $now = ($this->clock)();
+            if ($at !== null && $at <= $now) {
+                throw new CwException('bad_submit_at', 'choose a time still to come (or make it final now)', 422, ['field' => 'submit_at']);
+            }
+            $doc = $this->docs->updateDraft($caller, $id, $version, []);
+            if ($at === null) {
+                $db->exec('UPDATE supplier_invoice SET submit_at = NULL, submit_by = NULL, submit_actor = NULL, submit_failed_at = NULL, submit_error = NULL, updated_at = ? '
+                    . 'WHERE document_id = ?', [Clock::db($now), $id]);
+            } else {
+                $db->exec('UPDATE supplier_invoice SET submit_at = ?, submit_by = ?, submit_actor = ?, submit_failed_at = NULL, submit_error = NULL, updated_at = ? '
+                    . 'WHERE document_id = ?', [Clock::db($at), $caller->staffUserId, $caller->actor, Clock::db($now), $id]);
+            }
+            Audit::write($db, $caller, 'invoice.schedule', 'document', (string) $id, null, ['submit_at' => $at === null ? null : Clock::iso(Clock::db($at)),
+                'version' => $doc->version]);
+            return $doc;
+        });
+    }
+
+    /**
+     * Makes a draft invoice final now (the "Make it final" button and the timed job). "Count on arrival" (and a credit note, and an
+     * invoice whose goods all came on deliveries): Documents::post (SupplierInvoiceHandler books what is on its way). "Book as received"
+     * with goods no delivery names: (1) every problem refuses first, nothing booked; (2) its receipt is booked and posted in a
+     * transaction of its own (Arrivals::bookAsReceived: once, submit_receipt_id); (3) its lines are linked to that receipt and it is
+     * posted. A failure after (2) leaves the receipt booked and the invoice a draft that names it: the next attempt goes on at (3).
+     */
+    public function submit(Caller $caller, int $id, int $version): Document
+    {
+        $h = SupplierInvoiceHandler::header($this->db, $id) ?? throw new CwException('unknown_document', 'there is no such supplier invoice', 404);
+        if (($h['receive_mode'] ?? null) !== 'received' || $h['kind'] !== 'invoice') {
+            return $this->post($caller, $id, $version);
+        }
+        $doc = $this->docs->get($id);
+        if ($doc->status !== 'draft') {
+            throw new CwException('not_draft', "{$doc->label()} is " . str_replace('_', ' ', $doc->status) . ': only a draft is made final', 409, ['status' => $doc->status]);
+        }
+        if ($doc->version !== $version) {
+            throw new CwException('version_conflict', 'this invoice was changed meanwhile: reload it', 409, ['version' => $doc->version]);
+        }
+        // Review finding 3 (Codex, 15 Oct): the right to make it final is checked before its receipt is booked (again under the lock).
+        self::mayPost($this->db, $caller, 'SINV');
+        if ($h['submit_receipt_id'] === null) {
+            if (SupplierInvoiceHandler::notReceived($this->db, $id) === []) {
+                return $this->post($caller, $id, $version); // every goods line came on a delivery already
+            }
+            SupplierInvoiceHandler::refuse($this->problems($id)); // nothing is booked while anything stops it
+        }
+        // Review finding 2 (Codex, 15 Oct): the version checked above is checked again under the invoice's lock before the receipt is booked.
+        $grnId = (new \CW\Arrivals\Arrivals($this->db, $this->docs, $this->files, $this->clock))->bookAsReceived($caller, $id, $version)->id;
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $grnId): Document {
+            $this->current($id);
+            $open = SupplierInvoiceHandler::notReceived($db, $id);
+            $grnLines = $db->all('SELECT line_no, sku_id FROM document_line WHERE document_id = ? ORDER BY line_no', [$grnId]);
+            if (count($open) > count($grnLines)) {
+                throw new CwException('receipt_mismatch', 'the invoice\'s lines changed after its receipt was booked: cancel that receipt or put the lines back', 409);
+            }
+            $skus = [];
+            foreach ($db->all('SELECT line_no, sku_id FROM document_line WHERE document_id = ?', [$id]) as $l) {
+                $skus[(int) $l['line_no']] = (int) $l['sku_id'];
+            }
+            $taken = array_map('intval', $db->column('SELECT grn_line_no FROM sinv_line WHERE document_id = ? AND grn_document_id = ?', [$id, $grnId]));
+            $free = array_values(array_filter($grnLines, static fn (array $g): bool => !in_array((int) $g['line_no'], $taken, true)));
+            foreach ($open as $i => $no) {
+                $g = $free[$i] ?? null;
+                if ($g === null || (int) $g['sku_id'] !== ($skus[$no] ?? -1)) {
+                    throw new CwException('receipt_mismatch', "line {$no} is not the item its receipt booked: put the line back, or cancel that receipt", 409, ['line' => $no]);
+                }
+                $db->exec('UPDATE sinv_line SET grn_document_id = ?, grn_line_no = ? WHERE document_id = ? AND line_no = ?', [$grnId, (int) $g['line_no'], $id, $no]);
+            }
+            return $this->docs->post($caller, $id, $version);
+        });
+    }
+
+    /**
+     * The timed drafts: those whose last attempt failed first (with why), then by time. Failed ones are what the alerts name.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function scheduled(?int $supplierId = null): array
+    {
+        return $this->db->all(
+            'SELECT d.id, d.external_ref, d.version, si.supplier_id, s.name AS supplier_name, si.submit_at, si.submit_failed_at, si.submit_error, si.receive_mode, '
+            . "u.display_name AS submit_by_name FROM supplier_invoice si JOIN document d ON d.id = si.document_id AND d.status = 'draft' JOIN supplier s ON s.id = si.supplier_id "
+            . 'LEFT JOIN staff_user u ON u.id = si.submit_by WHERE si.submit_at IS NOT NULL' . ($supplierId === null ? '' : ' AND si.supplier_id = ?')
+            . ' ORDER BY si.submit_failed_at IS NULL, si.submit_at, d.id LIMIT ' . self::LIST_LIMIT,
+            $supplierId === null ? [] : [$supplierId],
+        );
+    }
+
     /** Stops a draft before it is posted ($reason 3-500 characters); its number is free again (SupplierInvoiceHandler::cancelled). */
     public function cancel(Caller $caller, int $id, int $version, string $reason): Document
     {
@@ -663,12 +824,14 @@ final class SupplierInvoices
         $r = $this->db->one(
             'SELECT d.*, si.kind, si.supplier_id, si.net_total, si.vat_total, si.gross_total, si.credits_document_id, si.debit_note_document_id, si.match_state, '
             . 'si.match_lines_off, si.match_difference, si.match_checked_at, si.accepted_at, si.accept_note, s.code AS supplier_code, s.name AS supplier_name, '
+            . 'si.receive_mode, si.submit_at, si.submit_by, si.submit_failed_at, si.submit_error, si.submit_receipt_id, tb.display_name AS submit_by_name, '
             . 'ci.number AS credits_number, dn.number AS debit_note_number, ab.display_name AS accepted_by_name, '
             . 'cb.display_name AS created_by_name, sb.display_name AS submitted_by_name, pb.display_name AS posted_by_name, xb.display_name AS cancelled_by_name, '
             . 'od.number AS reverses_number, rv.id AS reversed_by_id, rv.number AS reversed_by_number, rv.status AS reversed_by_status '
             . 'FROM document d LEFT JOIN supplier_invoice si ON si.document_id = COALESCE(d.reverses_id, d.id) LEFT JOIN supplier s ON s.id = si.supplier_id '
             . 'LEFT JOIN document ci ON ci.id = si.credits_document_id LEFT JOIN document dn ON dn.id = si.debit_note_document_id '
             . 'LEFT JOIN staff_user ab ON ab.id = si.accepted_by LEFT JOIN staff_user cb ON cb.id = d.created_by LEFT JOIN staff_user sb ON sb.id = d.submitted_by '
+            . 'LEFT JOIN staff_user tb ON tb.id = si.submit_by '
             . 'LEFT JOIN staff_user pb ON pb.id = d.posted_by LEFT JOIN staff_user xb ON xb.id = d.cancelled_by LEFT JOIN document od ON od.id = d.reverses_id '
             . "LEFT JOIN document rv ON rv.reverses_id = d.id AND rv.status IN ('posted', 'awaiting_approval') WHERE d.id = ?",
             [$id],
@@ -704,7 +867,7 @@ final class SupplierInvoices
         $src = $doc !== null && $doc['reverses_id'] !== null ? (int) $doc['reverses_id'] : $id;
         $rows = $this->db->all(
             'SELECT dl.line_no, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, dl.description, sl.kind, sl.grn_document_id, sl.grn_line_no, sl.po_document_id, sl.po_line_no, '
-            . 'sl.credit_of_line_no, sl.supplier_code, sl.purchase_unit, sl.units_per_pack, sl.packs, sl.pack_price, sl.entry, s.code, s.name, '
+            . 'sl.credit_of_line_no, sl.supplier_code, sl.purchase_unit, sl.units_per_pack, sl.packs, sl.pack_price, sl.entry, sl.stamp_answer, s.code, s.name, '
             . 'g.number AS grn_number, p.number AS po_number FROM document_line dl LEFT JOIN sinv_line sl ON sl.document_id = ? AND sl.line_no = dl.line_no '
             . 'LEFT JOIN sku s ON s.id = dl.sku_id LEFT JOIN document g ON g.id = sl.grn_document_id LEFT JOIN document p ON p.id = sl.po_document_id '
             . 'WHERE dl.document_id = ? ORDER BY dl.line_no',

@@ -1513,7 +1513,8 @@ final class Queries
     public function stockOf(int $skuId): array
     {
         return $this->db->all(
-            'SELECT w.id AS warehouse_id, w.code, w.name, w.is_sellable, sb.on_hand, sb.allocated, sb.held, sb.on_hand - sb.allocated - sb.held AS available, sb.counted_at '
+            'SELECT w.id AS warehouse_id, w.code, w.name, w.is_sellable, sb.on_hand, sb.allocated, sb.held, sb.incoming, '
+            . 'sb.on_hand + sb.incoming - sb.allocated - sb.held AS available, sb.counted_at '
             . 'FROM stock_balance sb JOIN warehouse w ON w.id = sb.warehouse_id WHERE sb.sku_id = ? ORDER BY w.id',
             [$skuId],
         );

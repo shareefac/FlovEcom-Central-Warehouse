@@ -2630,3 +2630,17 @@ php bin/import_erp_opening.php ...the same... --apply --sha256=<that hash> --app
   `php bin/import_opening_estimate.php --rebase --units-only --estimate-doc-ref=erp-opening:vapeandgo:2026-10-31 --channel=vapeandgo
   --source="T0 of vapeandgo" --as-of=<T0>` (no file; a dry run first). Never the plain `--rebase` on these items: it would put the store's
   own figure back.
+
+<!-- ---- Pack J (0041) ---- -->
+## Goods on their way and timed supplier invoices (pack J; `docs/decisions.md` PJ1–PJ16)
+
+- **Applying 0041:** it copies `stock_ledger` and `stock_balance` once (ALGORITHM=COPY, LOCK=SHARED): reads go on, every stock write
+  (a sale, a movement) waits until it ends. About 40 microseconds a ledger row on the test server (7.6 s for 200,000 rows, 41.5 s for
+  1,000,000). Count the ledger first (`SELECT COUNT(*) FROM stock_ledger`) and apply it before go-live, or out of trading hours.
+- **Schedule:** `bin/submit_invoices.php`, one cron line every minute (`deploy/staging/cw-staging.cron`, log
+  `/var/log/cw/submit_invoices.log`; a line only when something was due). It makes final the draft supplier invoices whose time a person
+  set, as that person. Exit 1 = some failed: each is listed on Purchasing › Invoices › Timed with its reason, named by the alerts
+  (`invoice_submit_failed`) and not tried again until a person sets its time again. By hand: `php bin/submit_invoices.php
+  --db=cw_staging` (it only posts what is due).
+- **Checks:** `bin/invariants.php` runs J1–J4 (incoming against the invoices on their way).
+<!-- ---- end of pack J ---- -->

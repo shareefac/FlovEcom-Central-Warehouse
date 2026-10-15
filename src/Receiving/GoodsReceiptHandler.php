@@ -50,6 +50,11 @@ use CW\Stock;
 final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
 {
     public const MAX_LINES = GoodsReceipts::MAX_LINES;
+    /**
+     * Review finding 5 (Codex, 15 Oct; pack J): the ledger rows one receipt may book: each of its lines to on hand, set aside to check
+     * and the unstamped quarantine, and each invoice line it takes out of Incoming (an invoice has at most SupplierInvoices::MAX_LINES).
+     */
+    public const MAX_BOOKED_LINES = 3 * self::MAX_LINES + \CW\Invoices\SupplierInvoices::MAX_LINES;
 
     private readonly Settings $settings;
     /** @var \Closure(): \DateTimeImmutable */
@@ -190,6 +195,12 @@ final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
             'verify' => $t['verify'], 'quarantine' => $t['quarantine'], 'refused' => $t['refused'], 'short' => $t['short'], 'incidents' => $incidents,
             'expected_duty' => ReceiptMath::decimal($t['expected_duty_pence']), 'received_at' => $gr['received_at']]);
 
+        // 5b. Pack J (docs/decisions.md PJ3, PJ8): a receipt made from a supplier invoice closes what that invoice put on its way: its
+        //     arrival rows are received (linked to this receipt's line of each item), the invoice's match is worked out again, and the
+        //     units it put in Incoming come out (`arrive`, booked with this receipt's goods_in below: what came is on hand, what did not
+        //     is gone at once). FK rows before the stock (I21).
+        $arrival = \CW\Arrivals\ArrivalBooking::receiptPosted($db, $doc, $plan['lines'], $now);
+
         // 6. LAST: the stock, in one bookForDocument (one lock(), one flush(): I7).
         $moves = [];
         foreach (['MAIN' => 'accepted', 'VERIFY' => 'verify', 'UNSTAMPED' => 'quarantine'] as $code => $part) {
@@ -205,8 +216,12 @@ final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
                     'lines' => $mvLines];
             }
         }
+        if ($arrival['lines'] !== []) {
+            $moves[] = ['type' => 'arrive', 'warehouse' => $arrival['warehouse'], 'note' => 'arrived: ' . $arrival['number'], 'lines' => $arrival['lines']];
+        }
         if ($moves !== []) {
-            (new Movements($db, null, $this->clock))->bookForDocument($caller, ['document_id' => $doc->id, 'doc_ref' => (string) $doc->number], $opKey, $moves);
+            (new Movements($db, null, $this->clock))->bookForDocument($caller, ['document_id' => $doc->id, 'doc_ref' => (string) $doc->number], $opKey, $moves,
+                self::MAX_BOOKED_LINES);
         }
         // 7. After the stock (its flush took the feed clock, or this takes it: nothing is locked after it, D39): a feed row for each item
         //    whose selling mode changed on a receipt site, so the site writer sends the mode even when no stock moved (IM10).
@@ -242,6 +257,9 @@ final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
         $dismissed = $db->exec("UPDATE incident SET status = 'dismissed', resolution = ?, resolved_by = ?, resolved_actor = ?, resolved_at = ? WHERE document_id = ? AND status = 'open'",
             ["the receipt was reversed by {$reversal->number}", $caller->staffUserId, $caller->actor, $now, $original->id]);
         $db->exec('UPDATE goods_receipt SET invoice_key = NULL, updated_at = ? WHERE document_id = ?', [$now, $original->id]);
+        // Pack J (docs/decisions.md PJ3): what this receipt took in from an invoice's Arriving is on its way again (the generic negation
+        // puts the units back in Incoming), and that invoice is worked out again.
+        \CW\Arrivals\ArrivalBooking::receiptReversed($db, $original, $now);
         // Pack C (docs/decisions.md PC10): the supplier invoices that bill this delivery are worked out again (it has nothing to invoice
         // now); after this receipt's own rows, before the stock.
         \CW\Invoices\InvoiceMatch::afterReceiptReversed($db, $original->id);

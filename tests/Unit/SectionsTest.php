@@ -67,6 +67,7 @@ final class SectionsTest extends TestCase
                     if (isset($page['badge'])) {
                         self::assertContains($page['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open', 'counts_open',
                             ...array_keys(\CW\Ui\Context::STOCK_BADGES), 'invoices_to_match',
+                            'arrivals_late', 'invoices_timed_failed', // Pack J (PJ10, PJ14)
                             // Pack F (PF5)
                             'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'],
                             "{$where}: a count Ui\\Context::badges() computes");
@@ -84,7 +85,7 @@ final class SectionsTest extends TestCase
             }
         }
         self::assertSame(['linking_pending', 'linking_duplicates', 'barcodes_open', 'stock_in_open', 'stock_out_open', 'transfers_open', 'releases_open',
-            'adjustments_open', 'counts_open', 'incidents_open', 'invoices_to_match', 'reviews_open',
+            'adjustments_open', 'counts_open', 'incidents_open', 'arrivals_late', 'invoices_to_match', 'invoices_timed_failed', 'reviews_open', // Pack J: 2 badges
             'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'], Sections::badgeNames());
     }
 
@@ -328,9 +329,9 @@ final class SectionsTest extends TestCase
         self::assertSame([['label' => 'Receive delivery', 'href' => '/ui/receiving#new']], Sections::frame(['goods_in'], [], '/ui/receiving')['actions']);
         self::assertSame(['/ui/people#new', '/ui/reference/warehouses#new', '/ui/reference/reasons#new'], array_column(Sections::frame(['admin'], [], '/ui/people')['actions'], 'href'));
         self::assertSame([], Sections::frame(['auditor'], [], '/ui/people')['actions']);
-        self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register'], array_column(Sections::frame(['goods_in'], ['incidents_open' => 1], '/ui/receiving/12/bench')['segments'], 'label'));
+        self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register', 'Arriving'], array_column(Sections::frame(['goods_in'], ['incidents_open' => 1], '/ui/receiving/12/bench')['segments'], 'label')); // Pack J: Arriving
         self::assertTrue(Sections::frame(['goods_in'], [], '/ui/receiving/12/bench')['segments'][1]['current'], 'a delivery\'s bench check is Checking');
-        self::assertSame(['To receive', 'Issues', 'Duty register'], array_column(Sections::frame(['reviewer'], [], '/ui/receiving')['segments'], 'label'), 'the bench is for the people who receive');
+        self::assertSame(['To receive', 'Issues', 'Duty register', 'Arriving'], array_column(Sections::frame(['reviewer'], [], '/ui/receiving')['segments'], 'label'), 'the bench is for the people who receive'); // Pack J: Arriving
 
         // The Dashboard has no page bar (its title is the page's own); a page outside every section has none either.
         self::assertNull(Sections::frame(['buyer'], [], '/ui/')['pagebar']);

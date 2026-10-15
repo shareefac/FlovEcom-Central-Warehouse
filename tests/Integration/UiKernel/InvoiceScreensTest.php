@@ -120,7 +120,7 @@ final class InvoiceScreensTest extends KernelUiTestCase
         $list = $desk->get('/ui/purchasing/invoices/not-invoiced');
         self::assertSame(200, $list->status, $list->describe());
         self::assertSame(['Purchasing', 'Invoices'], [self::currentSection($list), self::currentTab($list)]);
-        self::assertSame([['Invoices', false], ['To match', false], ['Not invoiced yet', true], ['Credit notes', false]],
+        self::assertSame([['Invoices', false], ['To match', false], ['Not invoiced yet', true], ['Credit notes', false], ['Timed', false]], // Pack J: Timed
             array_map(static fn (array $g): array => [$g['label'], $g['current']], self::segments($list)));
         self::assertStringContainsString($x['number'], $list->text());
         $r = $desk->post('/ui/purchasing/invoices/from-receipt', $list->form('/ui/purchasing/invoices/from-receipt'));

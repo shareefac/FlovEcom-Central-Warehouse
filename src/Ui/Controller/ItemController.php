@@ -75,11 +75,11 @@ final class ItemController
             ];
         }
         $stock = [];
-        $totals = ['on_hand' => 0, 'allocated' => 0, 'held' => 0, 'available' => 0];
+        $totals = ['on_hand' => 0, 'incoming' => 0, 'allocated' => 0, 'held' => 0, 'available' => 0];
         foreach ($q->stockOf($id) as $b) {
             $stock[] = [
                 'code' => self::s($b['code']), 'name' => self::s($b['name']), 'sellable' => (bool) $b['is_sellable'], 'on_hand' => $b['on_hand'],
-                'allocated' => $b['allocated'], 'held' => $b['held'], 'available' => $b['available'], 'counted_at' => self::s($b['counted_at']),
+                'allocated' => $b['allocated'], 'held' => $b['held'], 'incoming' => $b['incoming'], 'available' => $b['available'], 'counted_at' => self::s($b['counted_at']),
             ];
             if ($b['is_sellable']) {
                 foreach (array_keys($totals) as $k) {

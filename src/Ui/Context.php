@@ -321,6 +321,17 @@ final class Context
         if ($this->who !== null && ($this->who->can('doc.SINV.post') || $this->who->can('invoices.accept'))) {
             $out['invoices_to_match'] = $this->supplierInvoices()->toMatchCount();
         }
+        // --- Pack J (docs/decisions.md PJ10, PJ14): timed invoices that could not be made final (for the people who make invoices final),
+        // and final invoices whose goods are late on their way (for the people who see Goods In).
+        if ($this->who !== null && $this->who->can('doc.SINV.post')) {
+            $out['invoices_timed_failed'] = (int) $this->db->value("SELECT COUNT(*) FROM supplier_invoice si JOIN document d ON d.id = si.document_id AND d.status = 'draft' "
+                . 'WHERE si.submit_at IS NOT NULL AND si.submit_failed_at IS NOT NULL');
+        }
+        if ($this->who !== null && $this->who->can('receiving.view')) {
+            $late = $this->settings()->has('arrivals.late_hours') ? (int) $this->settings()->get('arrivals.late_hours') : 24;
+            $out['arrivals_late'] = (int) $this->db->value("SELECT COUNT(DISTINCT a.sinv_document_id) FROM invoice_arrival a JOIN document d ON d.id = a.sinv_document_id "
+                . "WHERE a.state = 'open' AND d.posted_at < UTC_TIMESTAMP(6) - INTERVAL ? HOUR", [$late]);
+        }
         // ---- Pack F (docs/decisions.md PF5): Approvals › From the stores, for the people who may answer each queue. ----
         if ($this->who !== null && $this->who->can('queues.suspense')) {
             $out['queue_suspense'] = (new \CW\Queues\Suspense($this->db))->openCount();

@@ -69,7 +69,9 @@ final class Grants
         // Pack F (0036, docs/decisions.md PF9): a person's note on a row of the stores' queues is added, never changed or removed.
         'queue_note',
         // Pack H (0038): what each customer owes us (hand-overs, payments received and their reversals), never rewritten or removed.
-        'counterparty_entry'];
+        'counterparty_entry',
+        // --- Pack J (0041): the receipt made from a supplier invoice (written once).
+        'goods_receipt_invoice'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -182,7 +184,10 @@ final class Grants
         // --- end of Pack G
         // Pack H (0038): a customer (switched off, never deleted), the price it last paid for an item (changed, never removed) and the
         // header of a hand-over (changed while it is a draft; documents are never deleted).
-        'counterparty', 'counterparty_price', 'handover'];
+        'counterparty', 'counterparty_price', 'handover',
+        // --- Pack J (0041; docs/decisions.md PJ2, PJ5): a final invoice's goods on their way (opened, received, cancelled: never removed),
+        // and a supplier's own arrival choices (changed with audit).
+        'invoice_arrival', 'supplier_arrival_pref'];
     public const FULL = ['Select', 'Insert', 'Update', 'Delete'];
 
     /** @return list<string> privileges (mysql.tables_priv spelling) the app login should hold on $table */

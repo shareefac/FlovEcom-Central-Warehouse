@@ -69,7 +69,9 @@ final class Words
         // --- end of Pack G
         // Pack H (0038): hand-overs, customers and their balances, the duty register.
         'HANDOVER', 'HANDOVER_NOTICE', 'HANDOVER_ERROR', 'HANDOVER_PDF', 'CUSTOMER', 'CUSTOMER_KIND', 'CUSTOMER_FIELD_ERROR', 'CUSTOMER_ERROR',
-        'CUSTOMER_NOTICE', 'PRICE_SKIP', 'BALANCE', 'BALANCE_KIND', 'BALANCE_NOTICE', 'BALANCE_ERROR', 'DUTY', 'DUTY_STAMP'];
+        'CUSTOMER_NOTICE', 'PRICE_SKIP', 'BALANCE', 'BALANCE_KIND', 'BALANCE_NOTICE', 'BALANCE_ERROR', 'DUTY', 'DUTY_STAMP',
+        // --- Pack J (0041): goods on their way
+        'ARRIVALS', 'ARRIVAL_STATE', 'RECEIVE_MODE', 'STAMP_ANSWER', 'ARRIVAL_ERROR'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -309,6 +311,8 @@ final class Words
         'to_match' => 'To match',
         'not_invoiced' => 'Not invoiced yet',
         'credit_notes' => 'Credit notes',
+        'timed' => 'Timed', // pack J (PJ10)
+        'arriving' => 'Arriving', // pack J (PJ14)
         // Approvals › From the stores (pack F, PF5)
         'queue_suspense' => 'Lines to place',
         'queue_corrections' => 'ERPNext corrections',
@@ -445,6 +449,8 @@ final class Words
         'section' => 'waiting for you',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices_to_match' => 'invoices that do not match, waiting for you',
+        'arrivals_late' => 'deliveries late on their way', // pack J
+        'invoices_timed_failed' => 'timed invoices that could not be made final', // pack J
         // Pack F (PF5): Approvals › From the stores, only for the people who may answer.
         'queue_suspense' => 'lines waiting for an item',
         'queue_corrections' => 'ERPNext corrections waiting for your answer',
@@ -650,6 +656,9 @@ final class Words
         'to_match' => ['Final invoices that do not match their order or delivery, oldest first.',
             'Open one, see which line is off, then ask the supplier for a credit note or accept the difference with a reason.'],
         'not_invoiced' => ['Deliveries booked in that wait for their supplier invoice, newest first.', 'Press "Book its invoice", type the totals from the paper, and make it final.'],
+        // pack J (PJ10, PJ14)
+        'timed' => ['Draft invoices waiting for the time a person set: each becomes final by itself then.', 'Those that could not be made final come first: open one, put it right, set its time again.'],
+        'arriving' => ['The goods of final supplier invoices that have not arrived yet, oldest first.', 'When a delivery comes, press "Receive" on its invoice: check it at the bench, then book it in.'],
         'returns' => ['Goods sent back to suppliers. Each return takes the stock out and is our claim for a credit (a debit note).',
             'Start one from a delivery\'s damaged or unstamped goods, or by hand.'],
         'supplier_invoice' => ['A supplier\'s paper as it was booked: what it bills, and how it matches the order and the delivery.',
@@ -899,6 +908,7 @@ final class Words
         'on_hand' => 'In the building',
         'allocated' => 'Sold, waiting to ship',
         'held' => 'Reserved (not paid)',
+        'incoming' => 'On its way', // pack J (PJ1): units of final supplier invoices not arrived yet that the websites may sell
         'available' => 'Free to sell',
         'total' => 'Total we can sell from',
         'warehouse_MAIN' => 'Main warehouse',
@@ -2427,6 +2437,10 @@ final class Words
         'approvals.item_by_hand_check' => 'Items made by hand are checked by a second person',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices.check_price' => 'Check invoice prices against the order', // PC19 (0040)
+        // --- Pack J (0041): goods on a final supplier invoice that have not arrived yet.
+        'arrivals.late_hours' => 'Late after (hours)',
+        'arrivals.sell_before_default' => 'Sell before it arrives (suppliers without their own choice)',
+        'arrivals.default_mode' => 'How invoices come in (suppliers without their own choice)',
         'invoices.price_tolerance_pct' => 'Invoice price may differ by (%)',
         'invoices.price_tolerance_gbp' => 'Invoice price may differ by (£ a line)',
         'invoices.qty_tolerance_pct' => 'Invoice may bill more units than received (%)',
@@ -3533,6 +3547,7 @@ final class Words
         'items' => 'Items', // Pack B
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices' => 'Supplier invoices',
+        'arrivals' => 'Goods on their way', // pack J (PJ5, PJ6, PJ12)
         // Pack F (PF10, PF11, PF3, PF7)
         'alerts' => 'Alerts',
         'housekeeping' => 'Clean-up',
@@ -3660,6 +3675,12 @@ final class Words
             . 'Off: what it makes has no cost of its own and is valued at the average cost later.',
         'approvals.item_by_hand_check' => 'A second person checks each item made by hand, afterwards, on Products › Add Item. The item can be used at once.',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        // --- Pack J (0041)
+        'arrivals.late_hours' => 'An invoice\'s goods that have not arrived this many hours after it was made final show as late on Goods In › Arriving.',
+        'arrivals.sell_before_default' => 'On: the goods on a final invoice of a supplier without its own choice are sold on the websites before they arrive '
+            . '(customers can order overnight; the orders go out when the goods land). Off: they are sold once received. Each supplier can choose on its page.',
+        'arrivals.default_mode' => 'count: the goods are counted on arrival by Goods In (they wait in Arriving). received: they are booked as received the moment '
+            . 'the invoice is final, without a count. For a supplier without its own choice; each invoice can still choose.',
         'invoices.check_price' => 'Off (as the owner chose on 15 Oct 2026): the price on the supplier\'s invoice is the right price. A line whose price differs from '
             . 'the order is still matched; the difference is shown on the invoice and recorded for the stock value. On: a price outside the two price tolerances '
             . 'below needs a person on "To match". The units are checked either way: billing more than arrived always needs a person.',
@@ -4024,6 +4045,9 @@ final class Words
         'merge_out' => 'Moved to the product it was joined into',
         'split_in' => 'Join undone: came back',
         'split_out' => 'Join undone: moved back',
+        // pack J (PJ1): a supplier invoice's units on their way, and the receipt that takes them in.
+        'incoming' => 'On its way (supplier invoice final)',
+        'arrive' => 'Arrived (received against its invoice)',
     ];
 
     /** How a warehouse product was made (sku.origin). */
@@ -6429,6 +6453,8 @@ final class Words
 
     /** Notices after a click on a supplier (SuppliersController::NOTICES). */
     public const SUPPLIER_NOTICE = [
+        'arrivals_saved' => 'Saved: what happens to the goods of its invoices on their way.', // pack J
+        'arrivals_refused' => 'Not saved: choose how its invoices come in.', // pack J
         'created' => 'Supplier saved as a draft. Add the background check, then press "Ask a reviewer to approve".',
         'saved' => 'Saved.',
         'saved_review' => 'Saved. You can still order from it: a reviewer checks the change within 7 days.',
@@ -7454,6 +7480,7 @@ final class Words
 
     /** Notices after a click on a delivery (ReceivingController::NOTICES, IncidentsController::NOTICES). */
     public const RECEIPT_NOTICE = [
+        'from_invoice' => 'Started from the supplier invoice: everything still on its way. Attach the invoice if it is not here, check the goods at the bench, then book them in.', // pack J
         'created' => 'Delivery started. Now add its products (copy the order, import the supplier\'s sheet or scan them) and attach the invoice. The goods-in bench then checks it.',
         'saved' => 'Saved.',
         'added' => 'Added (and every change in the table saved).',
@@ -9253,6 +9280,10 @@ final class Words
     public const INVOICE_NOTICE = [
         'created' => 'Started. Add its lines, type the totals, then make it final.',
         'from_receipt' => 'Started from the delivery: check the lines against the paper, type the total without VAT and the VAT, then make it final.',
+        // Pack J (PJ6, PJ10)
+        'receiving_saved' => 'Saved: how its goods come in.',
+        'timed' => 'The time is set: it becomes final by itself then.',
+        'untimed' => 'The time is taken off: it stays a draft.',
         'number_taken' => 'Started from the delivery. Its invoice number is already on %s: type this invoice\'s own number.',
         'from_return' => 'Started from the return: type the supplier\'s credit note number, date and totals, then make it final.',
         'header' => 'Saved.',
@@ -9374,6 +9405,7 @@ final class Words
 
     /** After a change of a return. */
     public const RETURN_NOTICE = [
+        'claim_started' => 'The claim of what did not come is started: check it, then make it final (no stock moves).', // pack J
         'created' => 'Started. Add what goes back, then make it final.',
         'from_receipt' => 'Started from the delivery: check the units and the price claimed, choose why they go back, then make it final.',
         'header' => 'Saved.',
@@ -9596,6 +9628,7 @@ final class Words
         'answer_failed' => 'The warehouse system could not reach its database for the answer-time check.',
         'invariants_failed' => 'The last nightly safety check found %s problems.',
         'invariants_stale' => 'No nightly safety check has finished for %s hours.',
+        'invoice_submit_failed' => '%s timed supplier invoices could not be made final (%s): see Purchasing › Invoices › Timed.', // pack J (PJ11)
         'cleared' => 'Back to normal: %s',
         'seconds' => '%s seconds',
         'minutes' => '%s minutes',
@@ -10086,10 +10119,133 @@ final class Words
 
     // ---- end of pack H ----
 
+    // ==================================================================================================================
+    // ---- Pack J (0041; docs/decisions.md PJ1-PJ16): goods on a final supplier invoice that have not arrived yet: how an invoice's goods
+    // come in, when it becomes final, Goods In › Arriving, the claim of what did not come, a supplier's choices.
+
+    /** How an invoice's goods not received yet come in when it is made final (supplier_invoice.receive_mode). */
+    public const RECEIVE_MODE = [
+        'count' => 'Count on arrival',
+        'received' => 'Book as received (no count)',
+    ];
+
+    /** The duty stamp "book as received" asks on the invoice (sinv_line.stamp_answer). */
+    public const STAMP_ANSWER = [
+        'digital' => 'Digital stamp on the pack',
+        'transitional' => 'Transitional stamp on the pack',
+    ];
+
+    /** A line of a final invoice on its way (invoice_arrival.state). */
+    public const ARRIVAL_STATE = [
+        'open' => 'On its way',
+        'received' => 'Received',
+        'cancelled' => 'Cancelled',
+    ];
+
+    /** The words of the arrival screens: the invoice's boxes, Goods In › Arriving, Purchasing › Invoices › Timed, a receipt's claim, a supplier's box. */
+    public const ARRIVALS = [
+        // The invoice: how its goods come in
+        'how_title' => 'How its goods come in',
+        'how_count' => 'Count on arrival: when the invoice is final, its goods are on their way (Goods In › Arriving). Goods In receives them against the invoice and counts them.',
+        'how_received' => 'Book as received: when the invoice is final, its goods are booked into stock at once, without a count. Say the duty stamp of each duty-liable line.',
+        'sells_before' => 'This supplier\'s goods are sold on the websites before they arrive: customers can order tonight, the orders go out when the goods land.',
+        'sells_after' => 'This supplier\'s goods are sold on the websites once they are received.',
+        'stamp' => 'Duty stamp',
+        'stamp_choose' => 'Choose the stamp',
+        'stamp_not_needed' => 'No stamp needed',
+        'save_how' => 'Save how its goods come in',
+        'lines_on_delivery' => 'Every goods line of this invoice came on a delivery already: nothing comes in with it.',
+        // The invoice: when it becomes final
+        'when_title' => 'Make it final later',
+        'when_text' => 'Set the date and time this invoice becomes final by itself (UK time). Until then you can change it, set another time or stop it.',
+        'at' => 'Becomes final at',
+        'set_time' => 'Set the time',
+        'take_off' => 'Take the time off',
+        'clock_title' => 'Which %s?',
+        'clock_bst' => '%s BST: the first one, before the clocks go back',
+        'clock_gmt' => '%s GMT: the second one, an hour later, after the clocks go back',
+        'timed' => 'It becomes final by itself on %s (set by %s).',
+        'failed' => 'It could not be made final at its time: %s Put it right, then set the time again.',
+        // The invoice once final
+        'on_way_title' => 'Its goods',
+        'on_way_none' => 'Nothing of it is on its way.',
+        'line' => 'Line',
+        'item' => 'Item',
+        'units' => 'Units',
+        'state' => 'Where it is',
+        'sold_before' => 'Sold before it arrives',
+        'yes' => 'Yes',
+        'no' => 'No',
+        'receipt' => 'Receipt',
+        'booked_received' => 'Booked as received; its receipt:',
+        // Goods In › Arriving
+        'none' => 'Nothing is on its way.',
+        'none_text' => 'Goods of final supplier invoices counted on arrival show here until Goods In receives them.',
+        'invoice' => 'Invoice',
+        'supplier' => 'Supplier',
+        'since' => 'Final since',
+        'units_on_way' => 'Units on their way',
+        'units_sold' => 'Of them sold before they arrive',
+        'late' => 'Late',
+        'hours' => '%s hours',
+        'receive' => 'Receive',
+        'open_receipt' => 'Open its receipt',
+        'more' => 'Only the first %s are shown.',
+        // Purchasing › Invoices › Timed
+        'timed_none' => 'No invoice waits for its time.',
+        'timed_none_text' => 'An invoice whose time is set shows here until it becomes final.',
+        'timed_at' => 'Becomes final at',
+        'timed_by' => 'Set by',
+        'timed_state' => 'State',
+        'waiting' => 'Waiting for its time',
+        'could_not' => 'Could not be made final',
+        // A receipt made from an invoice
+        'against' => 'Received against the supplier invoice:',
+        'missing_title' => 'What did not come',
+        'missing_text' => 'The invoice billed these, the delivery did not bring them. Claim them from the supplier: a debit note, no stock moves.',
+        'missing_line' => '%s x %s %s (invoice line %s): %s',
+        'claim' => 'Claim what did not come',
+        'claim_open' => 'Open the claim',
+        'nothing_missing' => 'Everything the invoice billed came.',
+        // A supplier
+        'supplier_title' => 'Goods on their way',
+        'supplier_text' => 'What happens to the goods of this supplier\'s invoices that have not arrived yet.',
+        'sell_before' => 'Sell before it arrives',
+        'sell_before_hint' => 'Yes: the goods of a final invoice are sold on the websites before they land.',
+        'default_mode' => 'How its invoices come in',
+        'own_none' => 'This supplier has no choice of its own yet: the settings decide.',
+        'save' => 'Save',
+        'saved' => 'Saved.',
+        'not_saved' => 'Not saved: %s',
+    ];
+
+    /** A refused change around goods on their way. */
+    public const ARRIVAL_ERROR = [
+        'bad_submit_at' => 'Choose a date and time still to come, or make it final now.',
+        'ambiguous_submit_at' => 'That time comes twice that night: the clocks go back an hour. Choose which one below.',
+        'bad_mode' => 'Choose how its goods come in.',
+        'bad_stamp' => 'Choose the stamp from the list.',
+        'stamp_answer_required' => 'Say which duty stamp is on the pack: booked as received, nobody checks it at the bench.',
+        'invoice_copy_required' => 'Attach the supplier\'s invoice (a PDF or a photo): booked as received, its receipt keeps the copy.',
+        'receive_first' => 'Make it final with its own button: booked as received, its receipt is booked first.',
+        'receipt_mismatch' => 'Its lines changed after its receipt was booked: put the lines back, or cancel that receipt.',
+        'nothing_arriving' => 'Nothing of this invoice is on its way.',
+        'arrived' => 'Its goods were received: cancel that receipt first, or book the supplier\'s credit note.',
+        'not_from_invoice' => 'This receipt was not made from a supplier invoice.',
+        'nothing_missing' => 'Everything the invoice billed came: there is nothing to claim.',
+        'incoming_on_item' => 'Units of this product are on their way on a supplier invoice: receive them first.',
+        'not_book_as_received' => 'Only a draft booked as received books its receipt this way.',
+        'nothing_to_receive' => 'Every goods line of this invoice came on a delivery already.',
+        'receipt_not_posted' => 'Its receipt is not final: open it.',
+    ];
+
+    // ---- end of pack J ----
+
     public const TONES = ['needs', 'done', 'waiting', 'blocked', 'info', 'off', 'review'];
 
     /** group => code => tone; a code not listed is `info`. */
     public const TONE = [
+        'ARRIVAL_STATE' => ['open' => 'waiting', 'received' => 'done', 'cancelled' => 'off'], // pack J
         'LISTING_STATUS' => ['unmapped' => 'needs', 'suggested' => 'needs', 'mapped' => 'done', 'ignored' => 'off', 'quarantined' => 'blocked'],
         'DECISION_STATE' => ['pending_second' => 'review', 'applied' => 'done', 'withdrawn' => 'off'],
         'SAMPLE_STATE' => ['open' => 'needs', 'confirmed' => 'done', 'needed_second' => 'done', 'waiting_second' => 'review', 'rejected' => 'blocked',

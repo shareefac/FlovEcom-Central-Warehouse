@@ -216,6 +216,31 @@
   </section>
 </div>
 
+<section class="card" aria-labelledby="arrivals-h" id="arrivals">
+  <h2 id="arrivals-h"><?= $word('ARRIVALS', 'supplier_title') ?></h2>
+  <p class="muted"><?= $word('ARRIVALS', 'supplier_text') ?><?php if (!$arrivals['own']): ?> <?= $word('ARRIVALS', 'own_none') ?><?php endif; ?></p>
+<?php if ($arrivals['canEdit']): ?>
+  <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/arrivals') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <label class="choice"><input type="checkbox" name="sell_before" value="1"<?php if ($arrivals['sell_before']): ?> checked<?php endif; ?>> <?= $word('ARRIVALS', 'sell_before') ?></label>
+    <p class="hint"><?= $word('ARRIVALS', 'sell_before_hint') ?></p>
+    <label><?= $word('ARRIVALS', 'default_mode') ?>
+      <select name="default_mode">
+<?php foreach (\CW\Ui\Words::RECEIVE_MODE as $code => $label): ?>
+        <option value="<?= $e($code) ?>"<?php if ($arrivals['mode'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+      </select>
+    </label>
+    <p class="actions"><button type="submit"><?= $word('ARRIVALS', 'save') ?></button></p>
+  </form>
+<?php else: ?>
+  <dl class="wide">
+    <dt><?= $word('ARRIVALS', 'sell_before') ?></dt><dd><?php if ($arrivals['sell_before']): ?><?= $word('ARRIVALS', 'yes') ?><?php else: ?><?= $word('ARRIVALS', 'no') ?><?php endif; ?></dd>
+    <dt><?= $word('ARRIVALS', 'default_mode') ?></dt><dd><?= $e(\CW\Ui\Words::RECEIVE_MODE[$arrivals['mode']] ?? '') ?></dd>
+  </dl>
+<?php endif; ?>
+</section>
+
 <section aria-labelledby="items-h">
   <h2 id="items-h"><?= $word('SUPPLIER', 'products') ?></h2>
   <p><?= $say('SUPPLIER', 'products_line', $items['active'], $items['preferred']) ?><?php if ($items['no_price'] > 0): ?> <?= $say('SUPPLIER', 'products_no_price', $items['no_price']) ?><?php endif; ?></p>

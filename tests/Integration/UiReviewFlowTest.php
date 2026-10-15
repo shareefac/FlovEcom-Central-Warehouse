@@ -904,7 +904,8 @@ final class UiReviewFlowTest extends UiTestCase
         self::assertStringContainsString($this->skuCode($a), $item->text());
         self::assertStringContainsString('5060777766665', $item->text());
         $main = (string) self::$db->value("SELECT COALESCE(name, code) FROM warehouse WHERE code = 'MAIN'");
-        self::assertSame(['5', '0', '0', '5'], array_slice(self::row($item, Words::ITEM['stock'], $main), 0, 4), 'in the building, sold, reserved, free to sell');
+        self::assertSame(['5', '0', '0', '0', '5'], array_slice(self::row($item, Words::ITEM['stock'], $main), 0, 5),
+            'in the building, on its way (pack J), sold, reserved, free to sell');
         self::assertStringContainsString(Words::MOVEMENT['goods_in'], $item->text(), 'the ledger shows the opening movement, in words (F253)');
         self::assertStringContainsString(Words::ITEM['now_elsewhere'], $item->text(), 'it moved to another item');
         self::assertMatchesRegularExpression('/\d{1,2} [A-Z][a-z]{2} 20\d\d – \d{1,2} [A-Z][a-z]{2} 20\d\d: ' . preg_quote(Words::ITEM['h_this'] . ', ' . Words::ACTION_DONE['link']

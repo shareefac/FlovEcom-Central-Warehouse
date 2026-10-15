@@ -194,6 +194,10 @@ final class Settings
         'duty.page_rows' => ['in' => [50, 100, 200, 500]],
         'duty.export_max_rows' => ['min' => 100, 'max' => 100000],
         // ---- end of pack H ----
+        // ---- Pack J (0041; docs/decisions.md PJ5, PJ6, PJ12): goods on a final supplier invoice that have not arrived yet. ----
+        'arrivals.late_hours' => ['min' => 1, 'max' => 720],
+        'arrivals.default_mode' => ['in' => ['count', 'received']],
+        // ---- end of pack J ----
     ];
 
     /**

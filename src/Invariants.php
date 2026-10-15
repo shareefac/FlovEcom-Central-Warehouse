@@ -9,7 +9,7 @@ namespace CW;
  *
  *  1. held / allocated of every balance = SUM(units_per_item) of its reservation_unit rows in
  *     state held / allocated (linked units only; the sale-time snapshot's warehouse+sku).
- *  2. on_hand / allocated / held of every balance = SUM(qty_delta) of its stock_ledger rows
+ *  2. on_hand / allocated / held / incoming (pack J) of every balance = SUM(qty_delta) of its stock_ledger rows
  *     (bucket by bucket: every change is journalled, movements included).
  *  3. the newest ledger row of each (balance, bucket) has balance_after = the bucket.
  *  4. per unit, the net held / allocated ledger deltas match the unit's state (held -> u held,
@@ -55,6 +55,8 @@ namespace CW;
  *   - stock counting (0029, pack A2a): a final count sheet's record lines are its counted lines and booked what its lines say, the
  *     checks of its differences, the records that put one line back (CW\Counts\CountInvariants C1-C5, CT16).
  *   - pack B: every repack has its header and booked exactly its lines; every item made by hand has its record (CW\Items\ItemsInvariants B1-B3).
+ *   - goods on their way (0041, pack J): incoming against the final invoices still on their way, arrival rows against their documents,
+ *     invoices booked as received against their receipts (CW\Arrivals\ArrivalInvariants J1-J3, PJ13).
  *   - supplier invoices, credit notes and returns (0032, pack C): headers of their kind, the write-once posting anchor, invoice keys,
  *     every posted invoice's stored 3-way match equal to the match now, value events netting to zero with their reversal, a return's
  *     claim (CW\Invoices\InvoiceInvariants V1-V7, PC11).
@@ -102,15 +104,16 @@ final class Invariants
         }
 
         foreach ($db->all(
-            'SELECT b.warehouse_id, b.sku_id, b.on_hand, b.allocated, b.held, '
-            . 'COALESCE(l.oh, 0) AS l_on_hand, COALESCE(l.al, 0) AS l_allocated, COALESCE(l.he, 0) AS l_held FROM stock_balance b '
+            'SELECT b.warehouse_id, b.sku_id, b.on_hand, b.allocated, b.held, b.incoming, '
+            . 'COALESCE(l.oh, 0) AS l_on_hand, COALESCE(l.al, 0) AS l_allocated, COALESCE(l.he, 0) AS l_held, COALESCE(l.inc, 0) AS l_incoming FROM stock_balance b '
             . "LEFT JOIN (SELECT warehouse_id, sku_id, SUM(IF(bucket = 'on_hand', qty_delta, 0)) AS oh, "
-            . "                  SUM(IF(bucket = 'allocated', qty_delta, 0)) AS al, SUM(IF(bucket = 'held', qty_delta, 0)) AS he "
+            . "                  SUM(IF(bucket = 'allocated', qty_delta, 0)) AS al, SUM(IF(bucket = 'held', qty_delta, 0)) AS he, "
+            . "                  SUM(IF(bucket = 'incoming', qty_delta, 0)) AS inc "
             . '           FROM stock_ledger GROUP BY warehouse_id, sku_id) l ON l.warehouse_id = b.warehouse_id AND l.sku_id = b.sku_id '
-            . 'WHERE b.on_hand <> COALESCE(l.oh, 0) OR b.allocated <> COALESCE(l.al, 0) OR b.held <> COALESCE(l.he, 0) '
+            . 'WHERE b.on_hand <> COALESCE(l.oh, 0) OR b.allocated <> COALESCE(l.al, 0) OR b.held <> COALESCE(l.he, 0) OR b.incoming <> COALESCE(l.inc, 0) '
             . 'ORDER BY b.warehouse_id, b.sku_id LIMIT ' . self::MAX_PER_CHECK,
         ) as $r) {
-            foreach (['on_hand', 'allocated', 'held'] as $b) {
+            foreach (['on_hand', 'allocated', 'held', 'incoming'] as $b) {
                 if ((int) $r[$b] !== (int) $r['l_' . $b]) {
                     $v[] = "balance {$r['warehouse_id']}:{$r['sku_id']} {$b}={$r[$b]} but its ledger sums to {$r['l_' . $b]}";
                 }
@@ -119,7 +122,7 @@ final class Invariants
 
         foreach ($db->all(
             'SELECT l.warehouse_id, l.sku_id, l.bucket, l.balance_after, '
-            . "CASE l.bucket WHEN 'on_hand' THEN b.on_hand WHEN 'allocated' THEN b.allocated ELSE b.held END AS cur "
+            . "CASE l.bucket WHEN 'on_hand' THEN b.on_hand WHEN 'allocated' THEN b.allocated WHEN 'incoming' THEN b.incoming ELSE b.held END AS cur "
             . 'FROM stock_ledger l JOIN (SELECT MAX(id) AS id FROM stock_ledger GROUP BY warehouse_id, sku_id, bucket) m ON m.id = l.id '
             . 'JOIN stock_balance b ON b.warehouse_id = l.warehouse_id AND b.sku_id = l.sku_id '
             . "HAVING l.balance_after <> cur LIMIT " . self::MAX_PER_CHECK,
@@ -195,6 +198,8 @@ final class Invariants
         array_push($v, ...Items\ItemsInvariants::check($db)); // pack B: repacks and items made by hand (B1-B3)
         // --- Pack C (docs/decisions.md PC11): supplier invoices, credit notes and returns V1-V7.
         array_push($v, ...Invoices\InvoiceInvariants::check($db));
+        // --- Pack J (docs/decisions.md PJ13): goods on their way (the incoming bucket against the invoices) J1-J3.
+        array_push($v, ...Arrivals\ArrivalInvariants::check($db));
         // Pack H (0038): hand-overs, what each customer owes, the remembered prices (H1-H5, docs/decisions.md PH14).
         array_push($v, ...Handovers\HandoverInvariants::check($db));
         return $v;

@@ -156,8 +156,9 @@ final class ReceivingInvariants
             'SELECT l.id, l.document_id, l.document_line, d.number, w.code, l.movement_type, l.unit_cost, l.cost_source, dl.unit_cost AS line_cost FROM stock_ledger l '
             . "JOIN document d ON d.id = l.document_id AND d.doc_type = 'GRN' AND d.reverses_id IS NULL JOIN warehouse w ON w.id = l.warehouse_id "
             . 'LEFT JOIN document_line dl ON dl.document_id = l.document_id AND dl.line_no = l.document_line '
-            . "WHERE l.bucket <> 'on_hand' OR l.movement_type <> 'goods_in' OR dl.document_id IS NULL OR NOT (l.unit_cost <=> dl.unit_cost) "
-            . "OR NOT (l.cost_source <=> 'document') OR w.code NOT IN ('MAIN', 'VERIFY', 'UNSTAMPED') ORDER BY l.id LIMIT " . self::MAX_PER_CHECK,
+            // Pack J (PJ3): a receipt made from an invoice also takes that invoice's units out of Incoming (`arrive`, checked by J4).
+            . "WHERE NOT (l.bucket = 'incoming' AND l.movement_type = 'arrive') AND (l.bucket <> 'on_hand' OR l.movement_type <> 'goods_in' OR dl.document_id IS NULL "
+            . "OR NOT (l.unit_cost <=> dl.unit_cost) OR NOT (l.cost_source <=> 'document') OR w.code NOT IN ('MAIN', 'VERIFY', 'UNSTAMPED')) ORDER BY l.id LIMIT " . self::MAX_PER_CHECK,
         ) as $r) {
             $v[] = "receipt {$r['number']}: ledger row {$r['id']} ({$r['movement_type']} at {$r['code']}, line " . ($r['document_line'] ?? 'none') . ', cost '
                 . ($r['unit_cost'] ?? 'none') . ' ' . ($r['cost_source'] ?? '') . ') is not a goods_in of a line at its unit cost (' . ($r['line_cost'] ?? 'no line') . ')';

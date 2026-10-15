@@ -1198,6 +1198,13 @@ final class DecisionService
                 $pairs[] = [$wh, (int) $m['to']['id']];
             }
         }
+        // Pack J, review finding 7 (Codex, 15 Oct): and those the websites do not sell (an open invoice_arrival row of a supplier that
+        // does not sell before arrival: nothing in a bucket, perhaps no balance at all, but its receipt is made for this item).
+        foreach ($moves as $m) {
+            if ($m['kind'] === 'merge' && $this->db->value("SELECT 1 FROM invoice_arrival WHERE sku_id = ? AND state = 'open' LIMIT 1", [(int) $m['from']['id']]) !== null) {
+                throw self::incomingOnItem($m['from']);
+            }
+        }
         $out = [];
         if ($pairs === []) {
             foreach ($moves as $m) {
@@ -1206,6 +1213,19 @@ final class DecisionService
             return $out;
         }
         $this->stock->lock($pairs);
+        // --- Pack J (docs/decisions.md PJ1): units on their way on a supplier invoice are not stock to move: a merge of an item with
+        // some waits until they are received (the receipt books them on the item the invoice names): those the websites sell (the
+        // incoming bucket, read on the balances locked above; with the open arrival rows below, J1 holds them equal).
+        foreach ($moves as $m) {
+            if ($m['kind'] !== 'merge') {
+                continue;
+            }
+            foreach ($pairs as [$wh, $sku]) {
+                if ($sku === (int) $m['from']['id'] && $this->stock->row($wh, $sku)['incoming'] > 0) {
+                    throw self::incomingOnItem($m['from']);
+                }
+            }
+        }
         $codes = [];
         foreach ($this->db->all('SELECT id, code FROM warehouse') as $w) {
             $codes[(int) $w['id']] = (string) $w['code'];
@@ -1269,6 +1289,13 @@ final class DecisionService
             $out[$m['decision_id']] = $res;
         }
         return $out;
+    }
+
+    /** Pack J (PJ1): the refusal of a merge of an item with units on their way. @param array<string, mixed> $from */
+    private static function incomingOnItem(array $from): CwException
+    {
+        return new CwException('incoming_on_item', "{$from['code']} has units on their way on a supplier invoice: receive them first, then merge", 409,
+            ['sku_code' => $from['code']]);
     }
 
     /** match_reject(listing, item) once (append-only, M8): a second reject of the pair adds nothing. */

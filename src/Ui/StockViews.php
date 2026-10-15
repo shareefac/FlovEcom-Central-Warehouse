@@ -64,7 +64,7 @@ final class StockViews
             $cols .= ', SUM(CASE WHEN sb.warehouse_id = ' . (int) $w['id'] . ' THEN sb.on_hand ELSE 0 END) AS w_' . (int) $w['id'];
         }
         $inner = 'SELECT s.id AS sku_id, s.code, s.name, s.brand, SUM(sb.allocated + sb.held) AS reserved, '
-            . 'SUM(CASE WHEN w.is_sellable = 1 THEN sb.on_hand - sb.allocated - sb.held ELSE 0 END) AS available' . $cols
+            . 'SUM(CASE WHEN w.is_sellable = 1 THEN sb.on_hand + sb.incoming - sb.allocated - sb.held ELSE 0 END) AS available' . $cols
             . ' FROM stock_balance sb JOIN sku s ON s.id = sb.sku_id JOIN warehouse w ON w.id = sb.warehouse_id'
             . ($where === [] ? '' : ' WHERE ' . implode(' AND ', $where)) . ' GROUP BY s.id, s.code, s.name, s.brand'
             . ($having === [] ? '' : ' HAVING ' . implode(' AND ', $having));

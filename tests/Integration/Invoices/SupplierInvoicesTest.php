@@ -198,6 +198,8 @@ final class SupplierInvoicesTest extends InvoicesTestCase
         $o2 = $this->approvedPoFor($buyer, $sid, 3, 1, '5.0000');
         $early = $this->invoices->createDraft($desk, 'invoice', $sid, ['invoice_number' => 'EARLY-1', 'invoice_date' => self::day('-1 day')]);
         $early = $this->invoices->addOrder($desk, $early->id, $early->version, $o2['doc']->id);
+        // (pack J: an invoice of 0041 brings its goods in itself, "count on arrival" by default; this is the record of before, no way chosen)
+        self::$db->exec('UPDATE supplier_invoice SET receive_mode = NULL WHERE document_id = ?', [$early->id]);
         $early = $this->postWithTotals($desk, $early);
         $m = $this->invoices->matchOf($early->id);
         self::assertSame(['off', ['no_delivery'], 'order'], [$m['lines'][1]['state'], $m['lines'][1]['why'], $m['lines'][1]['ref_from']]);

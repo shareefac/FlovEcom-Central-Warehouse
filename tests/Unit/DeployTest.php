@@ -116,6 +116,22 @@ final class DeployTest extends TestCase
         self::assertStringContainsString('DRY RUN by default', $tool);
     }
 
+    // ---- Pack J (docs/decisions.md PJ10, PJ11) ----
+    /**
+     * The timed supplier invoices have ONE cron line, every minute (the time is the person's, not the cron's); the installer does not
+     * run it as a smoke check (it makes due invoices final: the cron's job).
+     */
+    public function testTheTimedInvoicesAreMadeFinalByOneCronLineEveryMinute(): void
+    {
+        $cron = (string) file_get_contents(self::DIR . '/cw-staging.cron');
+        self::assertMatchesRegularExpression('#^\* \* \* \* \*  root  cd /opt/cw-staging && php bin/submit_invoices\.php --db=cw_staging >> /var/log/cw/submit_invoices\.log 2>&1$#m', $cron);
+        self::assertSame(1, preg_match_all('#^[^\#\n]*submit_invoices\.php#m', $cron), 'one line');
+        self::assertStringNotContainsString('submit_invoices', (string) file_get_contents(self::DIR . '/install_cron.sh'));
+        $tool = (string) file_get_contents(dirname(self::DIR, 2) . '/bin/submit_invoices.php');
+        self::assertStringContainsString("Cli::main(\n    'submit_invoices'", $tool, 'one run at a time (the named lock of Ops\\Cli)');
+    }
+    // ---- end of Pack J ----
+
     /**
      * I36: new files of the document store are sealed every minute (root:www-data 0440, chattr +i) and every stored file
      * is re-hashed nightly; the installer seals what is there and checks that a sealed file cannot be rewritten in place.

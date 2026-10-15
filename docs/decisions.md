@@ -10070,3 +10070,142 @@ the import compares the text itself), and an invoice number over 100 characters 
 items listed: it is now summed over every line, the page says when a list stops at its limit, and shows both totals
 (`testTheDeclarationTotalCountsEveryLineNotOnlyTheListedItems`).
 <!-- ---- end of pack H ---- -->
+
+## Pack J: the owner's day-one purchasing workflow -- invoices made final at a set time, goods on their way, claims (worktree `pack-j`, 15 Oct 2026)
+
+<!-- ---- Pack J (0041): PJ1-PJ16. ---- -->
+The owner's words (15 Oct 2026, relayed in the brief): a purchase placed today usually arrives the next day; they want it on the websites
+the same day, so customers order overnight and the orders go out when the stock lands. Today in ERPNext they book the purchase invoice and
+schedule its submit for a time they choose. Something missing on arrival is a return or claim. When they are 100% sure of the quantity
+they skip the count. Built from main `552851a` in `/root/cw-packj` (branch `pack-j`), migration `0041_incoming_stock.sql`. Code:
+`src/Arrivals/{Arrivals,ArrivalBooking,InvoiceSchedule,ArrivalInvariants}.php`, `bin/submit_invoices.php` (new);
+`src/Ui/Controller/ArrivalsController.php`, views `arrivals`, `invoices_timed` (new); changed: `Stock`, `Movements`, `Availability`,
+`Reservations`, `SiteWriter/SiteView`, `Invariants`, `Mapping/DecisionService` (one guard), `Invoices/{SupplierInvoices,
+SupplierInvoiceHandler,InvoiceMatch}`, `Receiving/{GoodsReceiptHandler,ReceivingInvariants}`, `Ops/{Alerts,AlertDispatch}`, the
+invoice, receipt, supplier and item pages, and one marked block each in `Words`, `Settings`, `Sections`, `Grants`, `Kernel`, `Context`,
+the staging cron. Every number below is a setting; the three settings are build decisions put to the owner (provisional).
+
+**PJ1. Goods on their way are a fourth bucket of a balance, `stock_balance.incoming` (a build decision).** available = on_hand +
+incoming - allocated - held, everywhere the figure is worked out (`Stock::available`, `Availability`, `Reservations`' read, the site
+writer's view and its moves, the staff screens). Stock.php stays the only writer; a change of incoming is a ledger row (bucket
+`incoming`) like every bucket; never below zero (a CHECK). Two document-only movement types move it: `incoming` (+, the invoice made
+final) and `arrive` (-, the receipt that takes them in), booked through `Movements::bookForDocument` (one lock and one flush per
+document). Why a bucket and not a warehouse "on the way": the units stay on the same `(warehouse, item)` row the sites already sell from,
+so the lock order is unchanged (no new row locked, nothing after the feed clock), the change feed tells the sites the new figure by
+itself (the flush's feed rows), the oversell flags of a falling figure work unchanged (`flagShortfalls`), and the connector's writer
+(IM10, `App_proto/src/central_warehouse/lib/writer.php`) writes CW's figure, which now includes incoming: **writer.php needed no change**
+(read, not edited). The cost: the ledger's `bucket` ENUM gains a value, and MySQL 8.4 will not do that in place for a column two CHECKs
+name (probed: INPLACE and INSTANT refused; re-adding an enforced CHECK copies too), so 0041 copies `stock_ledger` and `stock_balance` once,
+ALGORITHM=COPY, LOCK=SHARED: reads go on, stock writes wait. Measured on the test server: 7.6 s per 200,000 ledger rows, 41.5 s per
+1,000,000 (about 40 microseconds a row). Apply it before go-live while the ledger is small, or out of trading hours. A merge of an item
+with units on their way is refused (409 `incoming_on_item`): they are received first (the receipt books them on the invoice's item).
+
+**PJ2. "Count on arrival": the invoice made final puts its goods on their way.** For each goods line no delivery names, an
+`invoice_arrival` row (the item, MAIN, the units, `sellable`, state open); the sellable rows' units go into Incoming, booked LAST in the
+invoice's posting (the module rows first, I21). Lines a delivery already names are matched as before (pack C).
+
+**PJ3. Goods In receives against the invoice.** Goods In › Arriving, "Receive": a receipt draft made from what is still on its way (its
+order when there is exactly one receivable, the invoice number as its reference, the invoice's files copied, linked in
+`goods_receipt_invoice`); one live draft per invoice (pressed again: the same draft). It goes through the usual bench and stamp check and
+posting. Its posting (step 5b of `GoodsReceiptHandler::post`) closes every open row of that invoice: received, linked to the receipt's
+line of the same item (none when the item did not come), and takes the sellable rows' units out of Incoming (`arrive`) in the same
+document booking that puts what came on hand (an item on several invoice lines: its receipt lines are given to them one to one, in
+line order). So a short delivery lowers the figure at once by what did not come, and when the websites
+had sold it the oversell event is raised by the same flush (`movement_short`, pack F's queue). **One receipt closes the whole invoice (a
+build decision):** what it did not bring is short, not "still coming"; a second delivery of the rest is a new receipt and a new invoice
+line, or a credit. The receipt's reversal reopens the rows (the units on their way again).
+
+**PJ4. Reversals.** An invoice whose goods a receipt took in is not reversed (409 `arrived`: reverse the receipt first); otherwise its
+open rows are cancelled and the generic negation takes the units out of Incoming. A receipt's reversal: PJ3.
+
+**PJ5. "Sell before it arrives", a supplier's switch (setting `arrivals.sell_before_default`, on, the brief's default).** A supplier's own
+choice (`supplier_arrival_pref`, the supplier page's "Goods on their way" card, `suppliers.manage`, audited `supplier.arrivals`, not
+changed while the supplier waits for a reviewer's OK, as its other details) else the setting. Off: the rows are kept (shown on Arriving)
+but nothing goes into Incoming. Read when the invoice is made final and kept on the row: changing the switch later does not change
+invoices already final.
+
+**PJ6. The way per invoice, with a default per supplier (setting `arrivals.default_mode`, `count`; a build decision).** A new invoice
+takes the supplier's default, else the setting; the person changes it on the draft ("How its goods come in"). A credit note has none.
+Invoices made before 0041 have none (NULL): pack C's rules unchanged for them.
+
+**PJ7. The claim of what did not come.** On a receipt made from an invoice, "What did not come" lists each item short (units and the
+invoice's amount for them) and "Claim the missing units" (doc.DN.post) makes a draft return to the supplier: reason supplier_error, linked
+to the receipt and the invoice, lines with no item and the amount only, so its posting moves NO stock (pack C's DN/SCN machinery). One live
+claim per receipt (pressed again: the same one; 409 `not_from_invoice`, 422 `nothing_missing`). Damaged units go through the bench's
+existing set-aside / return flow.
+
+**PJ8. The 3-way match.** A goods line on its way counts as delivered for the match until it is received (billed as ordered: matched); once
+received, it bills the receipt line its arrival row names (none: 0 delivered, so a line that did not come is off). A receipt taken in from
+an invoice counts as invoiced by it ("Not invoiced yet" does not list it).
+
+**PJ9. "Book as received (no count)".** For goods the person is sure of: when the invoice is made final, a receipt is booked and posted at
+once (benched: paperwork OK, the stamp answers) and the invoice's lines are linked to it, so the units go straight on hand; no Arriving, no
+bench. The duty stamp is asked on the invoice (`sinv_line.stamp_answer`, digital or transitional, for each line whose item needs a stamp,
+`ItemCompliance::receiving` as the bench asks it), and the invoice copy must be attached: until then making it final is refused with the
+problems listed. Two transactions (the receipt, then the invoice); `submit_receipt_id` makes a retry post the invoice, never a second
+receipt. A posting of such an invoice whose lines no receipt names is refused (409 `receive_first`). Later corrections are the usual
+adjustments and counts.
+
+**PJ10. "Make it final later": the time is the person's.** On a draft invoice: a date and time (UK time, stored UTC; only a time still to
+come, 422 `bad_submit_at`; one that comes twice when the clocks go back is chosen, BST or GMT, by the person), "Take the time off", or
+"Make it final" now. Until then the draft is changed, re-timed or stopped as any
+draft; a stopped draft keeps no time. `bin/submit_invoices.php` (cron every minute; one run at a time per schema, Ops\Cli's named lock)
+makes the due ones final through `SupplierInvoices::submit` as the person who set the time (their roles checked again then), oldest
+first. A draft made final meanwhile is skipped, never posted twice (the posting locks the draft and checks its version). With an approval
+rule on, it goes to the reviewer as a person's posting would, and its time is used up. Purchasing › Invoices › Timed lists the waiting ones.
+
+**PJ11. A timed posting that fails** keeps its reason on the invoice (`submit_failed_at`, `submit_error`), is audited
+(`invoice.submit_failed`), listed first on Timed, counted on its badge and named by the alerts (`invoice_submit_failed`, pack F), and is
+not tried again until a person sets the time again (or makes it final, or stops it). The job exits 1 on the run that saw the failure.
+
+**PJ12. Late (setting `arrivals.late_hours`, 24, 1-720; a build decision).** An invoice whose goods are still on their way that many hours
+after it was made final is "late" on Arriving (and counted on its badge).
+
+**PJ13. The nightly checks (`ArrivalInvariants`, in `Invariants::check`).** J1 every balance's incoming equals its open sellable arrival
+rows; J2 an open row belongs to a final invoice, a received one to a final receipt; J3 an invoice booked as received leaves no goods line
+without a receipt; J4 what a final receipt took out of Incoming equals the sellable rows it received. Receiving's G4 leaves out the
+`arrive` rows (J4 checks them).
+
+**PJ14. The screens.** Purchasing › Goods In › Arriving (receiving.view; "Receive" for doc.GRN.post): per supplier and invoice, the units,
+how many the websites sell, since when, late. Purchasing › Invoices › Timed (invoices.view). The invoice page: "How its goods come in"
+(the way, and the stamp per line for book as received) and "Make it final later" on a draft; "Its goods" once final. The receipt page:
+"Received against the supplier invoice", "What did not come" and the claim. The supplier page: "Goods on their way". The item page: an
+"On its way" column. Every POST carries the CSRF token; every service checks the person again.
+
+**PJ15. Known limits (build decisions, for the owner to accept or change).** Incoming does not change an item's selling mode: a legacy
+item whose website mode is "Out Of Stock" stays off sale until the receipt. Reports, the reorder engine and the duty register count
+on_hand only (units on their way are not stock yet; the reorder list may suggest buying what is already on its way). No partial
+deliveries (PJ3). "Book as received" is two transactions (PJ9). A merge waits for the units on their way (PJ1). The stock
+records' "a protected item never goes below zero" checks (stock out, transfer, repack, hand-over) still count on hand - allocated - held
+without Incoming: units on their way never let shelf units leave. So when the websites sold units on their way beyond the shelf, taking
+shelf units of a strict item out is refused until the delivery is received (stricter than needed, never a negative shelf).
+
+**PJ16. Not changed.** The connector's writer (PJ1), pack C's rules for invoices without a way (NULL, before 0041), the bench and its
+stamp rules, the receipt's own posting order (the arrival step is 5b, before the stock), the lock order.
+
+**Open for the owner:** PJ5's default (on), PJ6's default (count on arrival), PJ12's 24 hours, PJ3's "one receipt closes the invoice",
+PJ15's limits, and when 0041 is applied (PJ1: the ledger copy).
+### The Codex review of pack J (on `cd3868f`; `runs/packj_codex_review.txt`): seven findings, all real, each fixed test-first
+
+The tests are in `tests/Integration/Arrivals/ArrivalsReviewTest.php` (finding 6 in `ArrivalScreensTest`); each failed before its fix.
+(1) Two invoice lines of the same item were both linked to the receipt's first line of that item, so the second looked short, the
+match went off and the receipt's second line stayed "not invoiced": the receipt's lines of an item are now given to the invoice's rows
+of that item one to one in line order (the receipt is made line for line from the invoice), a row left over sharing the item's last
+line (`testTwoLinesOfOneItemAreReceivedLineByLine`). (2) "Make it final" on a book-as-received invoice checked the version before
+booking the receipt but not under the lock, so a new time set in between still booked the stock: `Arrivals::bookAsReceived` now takes
+the expected version and checks it under the invoice's lock before anything is booked (`testAStaleMakeItFinalBooksNoReceipt`). (3) The
+right to make the invoice final was checked only when the invoice was posted, after its receipt: it is now checked first in `submit()`
+and again under the lock (`testMakeItFinalWithoutTheInvoiceRightBooksNoReceipt`). (4) A timed attempt overtaken by a new time marked the
+new time as failed, so it never ran: the failure is recorded only while the draft is still the version and time the run read, under the
+draft's lock; otherwise the attempt is skipped (`testAnAttemptOvertakenByANewTimeLeavesTheNewTimeAlone`). (5) A receipt books up to
+four rows a line (on hand, set aside, quarantine, out of Incoming), so a large invoice with exceptions on every line passed the 2,000
+rows of `Movements::bookForDocument`: a receipt's own bound is `GoodsReceiptHandler::MAX_BOOKED_LINES` (3 x 2,000 receipt lines + 1,000
+invoice lines; `testALargeReceiptFromAnInvoiceIsBookedWhole`, 667 lines, 2,001 rows). (6) A UK time typed in the hour the clocks go
+back was read as the second one (GMT): such a time is now never guessed; both are shown ("01:30 BST: the first one", "01:30 GMT: the
+second one, an hour later") and the person chooses (422 `ambiguous_submit_at` until then); the time set is shown with its clock
+(`CW\Arrivals\UkTime`; `testATimeThatComesTwiceIsChosenByThePerson`). (7) The merge guard read only the incoming bucket, so an item
+whose goods were on their way from a supplier that does not sell before arrival could be merged and its receipt then refused: an open
+arrival row of the item refuses the merge too, checked before the early return for items without a balance
+(`testAnItemOnItsWayUnsoldIsNotMerged`). Also: the two race tests now start the checkout hold only once the posting holds its stock rows
+(the worker waits on performance_schema), instead of a fixed 0.2 s that a busy machine could outrun.
+<!-- ---- end of pack J ---- -->

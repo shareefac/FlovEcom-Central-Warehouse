@@ -87,12 +87,24 @@ final class InvoiceMatch
     {
         $typed ??= $this->typedRules();
         $rules = InvoiceMath::rules($typed);
-        $inv = $this->db->one('SELECT net_total FROM supplier_invoice WHERE document_id = ?', [$invoiceId]);
+        $inv = $this->db->one('SELECT net_total, receive_mode FROM supplier_invoice WHERE document_id = ?', [$invoiceId]);
         $lines = $this->db->all(
-            'SELECT dl.line_no, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, sl.kind, sl.grn_document_id, sl.grn_line_no, sl.po_document_id, sl.po_line_no '
-            . 'FROM document_line dl JOIN sinv_line sl ON sl.document_id = dl.document_id AND sl.line_no = dl.line_no WHERE dl.document_id = ? ORDER BY dl.line_no',
+            'SELECT dl.line_no, dl.sku_id, dl.qty, dl.unit_cost, dl.amount, sl.kind, sl.grn_document_id, sl.grn_line_no, sl.po_document_id, sl.po_line_no, '
+            . 'a.state AS arrival_state, a.grn_document_id AS arrival_grn, a.grn_line_no AS arrival_grn_line '
+            . 'FROM document_line dl JOIN sinv_line sl ON sl.document_id = dl.document_id AND sl.line_no = dl.line_no '
+            . 'LEFT JOIN invoice_arrival a ON a.sinv_document_id = sl.document_id AND a.line_no = sl.line_no WHERE dl.document_id = ? ORDER BY dl.line_no',
             [$invoiceId],
         );
+        // Pack J (docs/decisions.md PJ8): a goods line no delivery names, on an invoice whose goods come in with it (receive_mode set),
+        // is on its way: billed units are "there" until a receipt takes it in; then the receipt's line of that item is its delivery
+        // line (none: that item did not arrive, nothing is there).
+        $arriving = $inv !== null && $inv['receive_mode'] !== null;
+        foreach ($lines as $i => $l) {
+            if ($l['grn_document_id'] === null && $l['arrival_state'] === 'received' && $l['arrival_grn_line'] !== null) {
+                $lines[$i]['grn_document_id'] = $l['arrival_grn'];
+                $lines[$i]['grn_line_no'] = $l['arrival_grn_line'];
+            }
+        }
         $credits = [];
         foreach ($this->db->all(
             'SELECT sl.credit_of_line_no AS line_no, SUM(dl.qty) AS qty, SUM(dl.amount) AS amount FROM supplier_invoice c '
@@ -145,6 +157,10 @@ final class InvoiceMatch
             $available = null;
             if ($g !== null && !$reversed) {
                 $available = $g['accepted'] - $g['returned'] - $g['invoiced_elsewhere'] - ($used[$key] ?? 0);
+            } elseif ($key === null && $arriving && ($l['arrival_state'] === null || $l['arrival_state'] === 'open')) {
+                $available = $units; // on its way (PJ8)
+            } elseif ($key === null && $l['arrival_state'] === 'received') {
+                $available = 0; // received without it: nothing came
             }
             if ($key !== null) {
                 $used[$key] = ($used[$key] ?? 0) + $units;
@@ -169,7 +185,8 @@ final class InvoiceMatch
             }
             $out[$no] = ['line_no' => $no, 'kind' => 'goods', 'units' => $units, 'amount_e2' => $billed, 'credited_units' => $credited['units'],
                 'credited_e2' => $credited['amount_e2'], 'available' => $available, 'accepted' => $g['accepted'] ?? null, 'returned' => $g['returned'] ?? null,
-                'invoiced_elsewhere' => $g['invoiced_elsewhere'] ?? null, 'ref_unit_e6' => $ref, 'ref_from' => $refFrom, 'reversed' => $reversed] + $m;
+                'invoiced_elsewhere' => $g['invoiced_elsewhere'] ?? null, 'ref_unit_e6' => $ref, 'ref_from' => $refFrom, 'reversed' => $reversed,
+                'arriving' => $key === null && $available !== null && $l['arrival_state'] !== 'received'] + $m;
         }
         $totalDiff = $inv === null || $inv['net_total'] === null ? 0 : $sum - InvoiceMath::e2((string) $inv['net_total']);
         if (!InvoiceMath::totalOk($sum, $sum - $totalDiff, count($lines), $rules['total_per_line_e2'])) {
@@ -293,6 +310,11 @@ final class InvoiceMatch
                 if ($id !== null) {
                     $out[(int) $id] = true;
                 }
+            }
+            // Pack J (PJ8): the invoices whose goods a receipt took in from Arriving.
+            foreach ($this->db->column("SELECT DISTINCT a.sinv_document_id FROM invoice_arrival a JOIN document d ON d.id = a.sinv_document_id AND d.status = 'posted' "
+                . "WHERE a.state = 'received' AND a.grn_document_id IN ({$in})", $chunk) as $id) {
+                $out[(int) $id] = true;
             }
         }
         $ids = array_keys($out);
@@ -439,6 +461,23 @@ final class InvoiceMatch
                 $k = $r['grn_document_id'] . ':' . $r['grn_line_no'];
                 if (isset($out[$k])) {
                     $out[$k]['invoiced_elsewhere'] = (int) $r['units'];
+                }
+            }
+            // Pack J (PJ8): invoice lines a receipt took in from Arriving bill that receipt's line of their item (their own sinv_line names
+            // no delivery: they were final before it), net of the credit notes on those lines.
+            foreach ($this->db->all(
+                'SELECT x.grn_document_id, x.grn_line_no, SUM(x.units) AS units FROM (SELECT a.grn_document_id, a.grn_line_no, dl.qty - COALESCE((SELECT SUM(cdl.qty) '
+                . "FROM supplier_invoice c JOIN document cd ON cd.id = c.document_id AND cd.status = 'posted' JOIN sinv_line csl ON csl.document_id = c.document_id "
+                . "AND csl.kind = 'goods' AND csl.credit_of_line_no = a.line_no JOIN document_line cdl ON cdl.document_id = csl.document_id AND cdl.line_no = csl.line_no "
+                . "WHERE c.credits_document_id = a.sinv_document_id AND c.kind = 'credit_note'), 0) AS units FROM invoice_arrival a "
+                . "JOIN document d ON d.id = a.sinv_document_id AND d.status = 'posted' JOIN document_line dl ON dl.document_id = a.sinv_document_id AND dl.line_no = a.line_no "
+                . "WHERE a.state = 'received' AND a.grn_line_no IS NOT NULL AND a.grn_document_id IN ({$in}) AND a.sinv_document_id <> ?) x "
+                . 'GROUP BY x.grn_document_id, x.grn_line_no',
+                [...$chunk, $invoiceId],
+            ) as $r) {
+                $k = $r['grn_document_id'] . ':' . $r['grn_line_no'];
+                if (isset($out[$k])) {
+                    $out[$k]['invoiced_elsewhere'] += (int) $r['units'];
                 }
             }
         }

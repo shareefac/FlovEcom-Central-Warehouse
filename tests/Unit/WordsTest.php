@@ -332,6 +332,7 @@ final class WordsTest extends TestCase
             // --- end of Pack G
             '0038_handovers_company_duty.sql', // Pack H
             '0040_invoice_price_wins.sql', // pack C follow-up (PC19)
+            '0041_incoming_stock.sql', // Pack J
         ] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Invoices;
 
+use CW\Arrivals\ArrivalBooking;
 use CW\Audit;
 use CW\Caller;
 use CW\Clock;
@@ -14,6 +15,7 @@ use CW\Documents\Document;
 use CW\Documents\DocumentHandler;
 use CW\Documents\SizeApproval;
 use CW\Idempotency;
+use CW\Movements;
 use CW\PurchaseOrders\PoMath;
 use CW\Receiving\ReceiptMath;
 use CW\Settings;
@@ -105,6 +107,9 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
             return;
         }
         $db->exec('UPDATE supplier_invoice SET invoice_key = NULL, updated_at = ? WHERE document_id = ? AND invoice_key IS NOT NULL', [Clock::db(($this->clock)()), $doc->id]);
+        // Pack J (PJ10): a stopped or refused draft keeps no time to be made final.
+        $db->exec('UPDATE supplier_invoice SET submit_at = NULL, submit_by = NULL, submit_actor = NULL, submit_failed_at = NULL, submit_error = NULL '
+            . 'WHERE document_id = ? AND submit_at IS NOT NULL', [$doc->id]);
     }
 
     public function size(Db $db, Document $doc, array $lines): array
@@ -138,6 +143,10 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
             ?? throw new CwException('invoice_header_missing', "{$doc->label()} has no supplier invoice header", 422);
         // Again under the locks: a receipt reversed, or another credit note posted, since validate() read them.
         self::refuse(self::problems($db, $doc, $h, $lines, $this->today()));
+        if ($h['receive_mode'] === 'received' && self::notReceived($db, $doc->id) !== []) {
+            // Pack J (PJ9): "book as received" books its receipt first (SupplierInvoices::submit); a posting that skips it is refused.
+            throw new CwException('receive_first', "{$doc->label()} books its goods as received: make it final with its own button (it books the receipt first)", 409);
+        }
         $now = Clock::db(($this->clock)());
         $content = self::content($db, $doc->id);
         $db->exec('INSERT INTO purchase_doc_posting (document_id, content_hash, content, created_at) VALUES (?, ?, ?, ?)', [$doc->id, hash('sha256', $content), $content, $now]);
@@ -155,11 +164,32 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         $match->refresh($refresh, $now);
         $match->storeReceipts($grns, $now);
         $state = $this->docType === 'SINV' ? $db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$doc->id]) : null;
+        // Pack J (PJ2, PJ7): "count on arrival": the goods no delivery names are on their way (invoice_arrival), and the timed posting's
+        // time is used up. FK rows first, the stock LAST (I21).
+        $incoming = $this->docType === 'SINV' ? ArrivalBooking::invoicePosted($db, $doc, $lines, $now) : [];
+        $db->exec('UPDATE supplier_invoice SET submit_at = NULL, submit_by = NULL, submit_actor = NULL, submit_failed_at = NULL, submit_error = NULL '
+            . 'WHERE document_id = ? AND submit_at IS NOT NULL', [$doc->id]);
         Audit::write($db, $caller, $this->docType === 'SINV' ? 'invoice.post' : 'credit_note.post', 'document', (string) $doc->id, $opKey . ':inv',
             ['number' => $doc->number, 'supplier_invoice' => $doc->externalRef, 'supplier' => (int) $h['supplier_id'], 'net' => $h['net_total'], 'vat' => $h['vat_total'],
                 'gross' => $h['gross_total'], 'lines' => count($lines), 'value_events' => count($events)]
-            + ($state === null ? [] : ['match' => $state]) + ($credited === null ? [] : ['credits' => $credited]));
+            + ($state === null ? [] : ['match' => $state]) + ($credited === null ? [] : ['credits' => $credited])
+            + ($h['receive_mode'] === null ? [] : ['receive_mode' => $h['receive_mode'], 'incoming_units' => array_sum(array_column($incoming, 'qty'))]));
+        if ($incoming !== []) {
+            (new Movements($db, null, $this->clock))->bookForDocument($caller, ['document_id' => $doc->id, 'doc_ref' => (string) $doc->number], $opKey,
+                [['type' => 'incoming', 'warehouse' => 'MAIN', 'note' => 'on its way: ' . ($doc->externalRef ?? ''), 'lines' => $incoming]]);
+        }
         return $units;
+    }
+
+    /**
+     * Pack J: the goods lines of an invoice no delivery names and no arrival row holds (what "book as received" still has to receive).
+     *
+     * @return list<int> line numbers
+     */
+    public static function notReceived(Db $db, int $documentId): array
+    {
+        return array_map('intval', $db->column("SELECT sl.line_no FROM sinv_line sl LEFT JOIN invoice_arrival a ON a.sinv_document_id = sl.document_id AND a.line_no = sl.line_no "
+            . "WHERE sl.document_id = ? AND sl.kind = 'goods' AND sl.grn_document_id IS NULL AND a.line_no IS NULL ORDER BY sl.line_no", [$documentId]));
     }
 
     public function reverse(Db $db, Document $original, Document $reversal, array $lines, Caller $caller, string $opKey): void
@@ -180,6 +210,9 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         // The deliveries before any supplier_invoice row (PC10: a receipt's reversal holds its document row and then takes those rows).
         $match->lockReceipts($grns);
         $now = Clock::db(($this->clock)());
+        // Pack J (PJ4): refused once a receipt took its goods in; else what is still on its way is cancelled (the generic negation takes
+        // the units out of Incoming afterwards).
+        ArrivalBooking::invoiceReversed($db, $original, $now);
         $db->exec('UPDATE supplier_invoice SET invoice_key = NULL, updated_at = ? WHERE document_id = ?', [$now, $original->id]);
         $n = $db->exec('INSERT INTO invoice_value_event (document_id, line_no, kind, sku_id, grn_document_id, grn_line_no, units, amount, basis, effective_on, created_at) '
             . 'SELECT ?, line_no, kind, sku_id, grn_document_id, grn_line_no, units, -amount, basis, effective_on, ? FROM invoice_value_event WHERE document_id = ? ORDER BY id',
@@ -282,6 +315,28 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         }
         if ($sum < 0) {
             $add('total_negative', "The {$what}'s lines add up to less than £0.");
+        }
+        if (!$credit && ($h['receive_mode'] ?? null) === 'received' && $doc->status === 'draft') {
+            // Pack J (PJ9): "book as received" books a receipt of the goods no delivery names: the duty stamp is asked here (the bench is
+            // skipped), and the receipt keeps the invoice's copy, as every receipt does.
+            $open = [];
+            foreach ($lines as $l) {
+                $e = $ext[(int) $l['line_no']] ?? null;
+                if ($e !== null && $e['kind'] === 'goods' && $e['grn_document_id'] === null && $l['sku_id'] !== null) {
+                    $open[(int) $l['line_no']] = (int) $l['sku_id'];
+                }
+            }
+            if ($open !== []) {
+                $comp = (new \CW\Catalogue\ItemCompliance($db))->receiving(array_values(array_unique($open)));
+                foreach ($open as $no => $sku) {
+                    if (($comp[$sku]['stamp_required'] ?? true) && ($ext[$no]['stamp_answer'] ?? null) === null) {
+                        $add('stamp_answer_required', "Line {$no}: say which duty stamp is on the pack (digital or transitional): booked as received, nobody checks it at the bench.", $no);
+                    }
+                }
+                if ($db->value("SELECT 1 FROM document_file WHERE document_id = ? AND role = 'supplier_invoice' LIMIT 1", [$doc->id]) === null) {
+                    $add('invoice_copy_required', 'Attach the supplier\'s invoice (a PDF or a photo): booked as received, its receipt keeps the copy.');
+                }
+            }
         }
         return $p;
     }
@@ -503,6 +558,10 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
             foreach ($db->column("SELECT DISTINCT grn_document_id FROM sinv_line WHERE document_id = ? AND kind = 'goods' AND grn_document_id IS NOT NULL", [$d]) as $g) {
                 $ids[(int) $g] = true;
             }
+            // Pack J (PJ8): the receipts that took its goods in from Arriving.
+            foreach ($db->column('SELECT DISTINCT grn_document_id FROM invoice_arrival WHERE sinv_document_id = ? AND grn_document_id IS NOT NULL', [$d]) as $g) {
+                $ids[(int) $g] = true;
+            }
         }
         $out = array_keys($ids);
         sort($out);
@@ -525,11 +584,17 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
         foreach (self::HEADER_FIXED as $k) {
             $head[$k] = $h[$k] === null ? null : (string) $h[$k];
         }
+        if (($h['receive_mode'] ?? null) !== null) {
+            $head['receive_mode'] = (string) $h['receive_mode']; // pack J: only when set, so a record posted before 0041 keeps its content (V2)
+        }
         $lines = [];
         foreach ($db->all('SELECT * FROM sinv_line WHERE document_id = ? ORDER BY line_no', [$documentId]) as $r) {
             $row = [];
             foreach (self::LINE_FIXED as $k) {
                 $row[$k] = $r[$k] === null ? null : (string) $r[$k];
+            }
+            if (($r['stamp_answer'] ?? null) !== null) {
+                $row['stamp_answer'] = (string) $r['stamp_answer'];
             }
             $lines[] = $row;
         }

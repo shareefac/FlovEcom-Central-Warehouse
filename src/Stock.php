@@ -13,7 +13,9 @@ use DateTimeImmutable;
  *   on_hand   units physically in the building (may go negative, D1: opens a count_review)
  *   allocated paid, not yet dispatched (never negative, CHECK)
  *   held      unpaid checkouts (never negative, CHECK)
- *   available = on_hand - allocated - held
+ *   incoming  units of final supplier invoices on their way that the sites may sell (pack J, 0041; never negative, CHECK):
+ *             booked by the invoice's posting (`incoming`), taken out by the receipt against it (`arrive`)
+ *   available = on_hand + incoming - allocated - held
  *
  * Usage inside ONE transaction per operation:
  *   $stock->lock($pairs)        lock every (warehouse, sku) balance the operation touches, in
@@ -40,7 +42,7 @@ use DateTimeImmutable;
  */
 final class Stock
 {
-    public const BUCKETS = ['on_hand', 'allocated', 'held'];
+    public const BUCKETS = ['on_hand', 'allocated', 'held', 'incoming'];
     public const POLICIES = ['legacy', 'strict', 'backorder', 'stopped'];
     /** Ships dispatched within this many seconds of a count's counted_at go to count review (§8.2). */
     public const NEAR_COUNT_SEC = 600;
@@ -64,7 +66,7 @@ final class Stock
      */
     private const UNFLAGGED = ['reserve', 'commit', 'commit_release', 'uncancel'];
 
-    /** @var array<string, array{warehouse_id: int, sku_id: int, on_hand: int, allocated: int, held: int, counted_at: ?string}> */
+    /** @var array<string, array{warehouse_id: int, sku_id: int, on_hand: int, allocated: int, held: int, incoming: int, counted_at: ?string}> */
     private array $rows = [];
     /** @var array<string, int> net availability change per balance since the last flush() */
     private array $availDelta = [];
@@ -144,7 +146,7 @@ final class Stock
         }
         uasort($uniq, static fn (array $a, array $b): int => $a <=> $b);
 
-        $select = 'SELECT warehouse_id, sku_id, on_hand, allocated, held, counted_at FROM stock_balance '
+        $select = 'SELECT warehouse_id, sku_id, on_hand, allocated, held, incoming, counted_at FROM stock_balance '
             . 'WHERE warehouse_id = ? AND sku_id = ? FOR UPDATE';
         foreach ($uniq as $k => [$wh, $sku]) {
             $row = $this->db->one($select, [$wh, $sku]);
@@ -166,12 +168,13 @@ final class Stock
                 'on_hand' => (int) $row['on_hand'],
                 'allocated' => (int) $row['allocated'],
                 'held' => (int) $row['held'],
+                'incoming' => (int) $row['incoming'],
                 'counted_at' => $row['counted_at'] === null ? null : (string) $row['counted_at'],
             ];
         }
     }
 
-    /** @return array{warehouse_id: int, sku_id: int, on_hand: int, allocated: int, held: int, counted_at: ?string} */
+    /** @return array{warehouse_id: int, sku_id: int, on_hand: int, allocated: int, held: int, incoming: int, counted_at: ?string} */
     public function row(int $warehouseId, int $skuId): array
     {
         $k = self::key($warehouseId, $skuId);
@@ -181,11 +184,11 @@ final class Stock
         return $this->rows[$k];
     }
 
-    /** available = on_hand - allocated - held of a locked balance (central units; may be negative). */
+    /** available = on_hand + incoming - allocated - held of a locked balance (central units; may be negative; incoming: pack J). */
     public function available(int $warehouseId, int $skuId): int
     {
         $r = $this->row($warehouseId, $skuId);
-        return $r['on_hand'] - $r['allocated'] - $r['held'];
+        return $r['on_hand'] + $r['incoming'] - $r['allocated'] - $r['held'];
     }
 
     /**
@@ -253,7 +256,8 @@ final class Stock
             }
             $this->valuePending[] = [$skuId, $ledgerId];
         }
-        $availChange = $bucket === 'on_hand' ? $delta : -$delta;
+        // on_hand and incoming add to availability, allocated and held take from it.
+        $availChange = $bucket === 'on_hand' || $bucket === 'incoming' ? $delta : -$delta;
         $this->availDelta[$k] = ($this->availDelta[$k] ?? 0) + $availChange;
         if ($availChange < 0) {
             $this->lastFall[$k] = $m;

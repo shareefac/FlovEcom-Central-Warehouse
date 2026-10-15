@@ -418,6 +418,7 @@ final class SuppliersController
             'items' => ['n' => (int) ($items['n'] ?? 0), 'active' => (int) ($items['active'] ?? 0), 'preferred' => (int) ($items['preferred'] ?? 0),
                 'no_price' => (int) ($items['no_price'] ?? 0)],
             'canManage' => $canManage,
+            'arrivals' => ArrivalsController::supplierBox($ctx, (int) $s['id'], (string) $s['status']), // pack J (PJ5, PJ6): goods on their way
             'recentPos' => $recentPos,
             'canOrder' => $canPost && $s['status'] !== 'inactive',
             'canRequest' => $canManage && in_array($s['status'], ['draft', 'inactive'], true),

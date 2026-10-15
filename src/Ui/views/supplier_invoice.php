@@ -310,6 +310,51 @@
     <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
   </form>
 </details>
+<?php if ($arrival !== null && $arrival['editable']): ?>
+<section class="card" aria-labelledby="how-h" id="how">
+  <h2 id="how-h"><?= $word('ARRIVALS', 'how_title') ?></h2>
+<?php if ($arrival['open'] === 0): ?>
+  <p class="muted"><?= $word('ARRIVALS', 'lines_on_delivery') ?></p>
+<?php else: ?>
+  <p class="muted"><?php if ($arrival['sellsBefore']): ?><?= $word('ARRIVALS', 'sells_before') ?><?php else: ?><?= $word('ARRIVALS', 'sells_after') ?><?php endif; ?></p>
+  <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/receiving') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="version" value="<?= $e($version) ?>">
+    <fieldset>
+      <legend><?= $word('ARRIVALS', 'how_title') ?></legend>
+<?php foreach (\CW\Ui\Words::RECEIVE_MODE as $code => $label): ?>
+      <label class="choice"><input type="radio" name="receive_mode" value="<?= $e($code) ?>"<?php if ($arrival['mode'] === $code): ?> checked<?php endif; ?>> <?= $e($label) ?></label>
+<?php endforeach; ?>
+      <p class="hint"><?= $word('ARRIVALS', 'how_count') ?></p>
+      <p class="hint"><?= $word('ARRIVALS', 'how_received') ?></p>
+    </fieldset>
+<?php if ($arrival['mode'] === 'received'): ?>
+    <div class="table-wrap">
+    <table class="stack">
+      <thead><tr><th scope="col"><?= $word('ARRIVALS', 'line') ?></th><th scope="col"><?= $word('ARRIVALS', 'item') ?></th><th scope="col"><?= $word('ARRIVALS', 'stamp') ?></th></tr></thead>
+      <tbody>
+<?php foreach ($arrival['stampLines'] as $sl): ?>
+        <tr>
+          <th scope="row" class="c-head"><?= $e($sl['line_no']) ?></th>
+          <td data-label="<?= $word('ARRIVALS', 'item') ?>"><?= $e($sl['code']) ?> <?= $e($sl['name']) ?></td>
+          <td data-label="<?= $word('ARRIVALS', 'stamp') ?>"><?php if ($sl['required']): ?>
+            <select name="stamp_<?= $e($sl['line_no']) ?>">
+              <option value=""><?= $word('ARRIVALS', 'stamp_choose') ?></option>
+<?php foreach (\CW\Ui\Words::STAMP_ANSWER as $code => $label): ?>
+              <option value="<?= $e($code) ?>"<?php if ($sl['answer'] === $code): ?> selected<?php endif; ?>><?= $e($label) ?></option>
+<?php endforeach; ?>
+            </select><?php else: ?><span class="muted"><?= $word('ARRIVALS', 'stamp_not_needed') ?></span><?php endif; ?></td>
+        </tr>
+<?php endforeach; ?>
+      </tbody>
+    </table>
+    </div>
+<?php endif; ?>
+    <p class="actions"><button type="submit"><?= $word('ARRIVALS', 'save_how') ?></button></p>
+  </form>
+<?php endif; ?>
+</section>
+<?php endif; ?>
 <section class="card final-box" aria-labelledby="final-h">
   <h2 id="final-h"><?= $e($k['post_title']) ?></h2>
   <p><?= $e($k['post_does']) ?></p>
@@ -321,6 +366,37 @@
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <button type="submit" class="primary"><?= $e($k['post_button']) ?></button>
   </form>
+<?php if ($arrival !== null && $arrival['editable']): ?>
+  <h3><?= $word('ARRIVALS', 'when_title') ?></h3>
+<?php if ($arrival['failed'] !== null): ?>
+  <p class="error" role="alert"><?= $say('ARRIVALS', 'failed', $arrival['failed']) ?></p>
+<?php elseif ($arrival['at'] !== null): ?>
+  <p><?= $say('ARRIVALS', 'timed', $arrival['at'], $arrival['by']) ?></p>
+<?php else: ?>
+  <p class="muted"><?= $word('ARRIVALS', 'when_text') ?></p>
+<?php endif; ?>
+  <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/schedule') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="version" value="<?= $e($version) ?>">
+    <label><?= $word('ARRIVALS', 'at') ?> <input type="datetime-local" name="submit_at" value="<?= $e($clockChoice['typed'] ?? $arrival['atValue']) ?>" required></label>
+<?php if ($clockChoice !== null): ?>
+    <fieldset>
+      <legend><?= $say('ARRIVALS', 'clock_title', $clockChoice['time']) ?></legend>
+      <label class="choice"><input type="radio" name="submit_clock" value="BST" required> <?= $say('ARRIVALS', 'clock_bst', $clockChoice['time']) ?></label>
+      <label class="choice"><input type="radio" name="submit_clock" value="GMT" required> <?= $say('ARRIVALS', 'clock_gmt', $clockChoice['time']) ?></label>
+    </fieldset>
+<?php endif; ?>
+    <button type="submit"><?= $word('ARRIVALS', 'set_time') ?></button>
+  </form>
+<?php if ($arrival['at'] !== null): ?>
+  <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/schedule') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="version" value="<?= $e($version) ?>">
+    <input type="hidden" name="clear" value="1">
+    <button type="submit"><?= $word('ARRIVALS', 'take_off') ?></button>
+  </form>
+<?php endif; ?>
+<?php endif; ?>
 </section>
 <details class="fold">
   <summary><?= $word('STOCK_OPS', 'stop_title') ?></summary>
@@ -345,6 +421,36 @@
 </section>
 <?php endif; ?>
 
+<?php if ($arrival !== null && !$arrival['editable'] && ($arrival['rows'] !== [] || $arrival['receipt'] !== null || $arrival['at'] !== null)): ?>
+<section aria-labelledby="goods-h" id="goods">
+  <h2 id="goods-h"><?= $word('ARRIVALS', 'on_way_title') ?><?php if ($arrival['mode'] !== null): ?> <?= $chip('info', \CW\Ui\Words::RECEIVE_MODE[$arrival['mode']]) ?><?php endif; ?></h2>
+<?php if ($arrival['at'] !== null): ?>
+  <p><?= $say('ARRIVALS', 'timed', $arrival['at'], $arrival['by']) ?></p>
+<?php endif; ?>
+<?php if ($arrival['receipt'] !== null): ?>
+  <p><?= $word('ARRIVALS', 'booked_received') ?> <a href="<?= $u($arrival['receipt']['href']) ?>"><?= $e($arrival['receipt']['number']) ?></a></p>
+<?php endif; ?>
+<?php if ($arrival['rows'] !== []): ?>
+  <div class="table-wrap">
+  <table class="stack">
+    <thead><tr><th scope="col"><?= $word('ARRIVALS', 'line') ?></th><th scope="col"><?= $word('ARRIVALS', 'item') ?></th><th scope="col" class="num"><?= $word('ARRIVALS', 'units') ?></th>
+      <th scope="col"><?= $word('ARRIVALS', 'sold_before') ?></th><th scope="col" class="c-status"><?= $word('ARRIVALS', 'state') ?></th></tr></thead>
+    <tbody>
+<?php foreach ($arrival['rows'] as $ar): ?>
+      <tr>
+        <th scope="row" class="c-head"><?= $e($ar['line_no']) ?></th>
+        <td data-label="<?= $word('ARRIVALS', 'item') ?>"><?= $e($ar['code']) ?> <?= $e($ar['name']) ?></td>
+        <td class="num" data-label="<?= $word('ARRIVALS', 'units') ?>"><?= $n($ar['units']) ?></td>
+        <td data-label="<?= $word('ARRIVALS', 'sold_before') ?>"><?php if ($ar['sellable']): ?><?= $word('ARRIVALS', 'yes') ?><?php else: ?><?= $word('ARRIVALS', 'no') ?><?php endif; ?></td>
+        <td class="c-status"><?= $stateChip('ARRIVAL_STATE', $ar['state']) ?><?php if ($ar['receipt'] !== null): ?> <a href="<?= $u($ar['receipt']['href']) ?>"><?= $e($ar['receipt']['number']) ?></a><?php endif; ?></td>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+<?php endif; ?>
+</section>
+<?php endif; ?>
 <?php if ($kind === 'invoice' && !$doc->isReversal() && ($rec['credit_notes'] !== [] || $canCredit)): ?>
 <section aria-labelledby="credits-h">
   <h2 id="credits-h"><?= $word('INVOICES', 'credit_notes') ?></h2>

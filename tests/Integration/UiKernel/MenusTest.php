@@ -45,8 +45,8 @@ final class MenusTest extends KernelUiTestCase
             [self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($desk->get('/ui/'))['Purchasing']['href'], self::nav($buyer->get('/ui/'))['Purchasing']['href']],
             'a section links to its first tab the person may open');
         // Goods In's segments: the bench is for the people who receive.
-        self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register'], array_column(self::segments($desk->get('/ui/receiving')), 'label'));
-        self::assertSame(['To receive', 'Issues', 'Duty register'], array_column(self::segments($reviewer->get('/ui/receiving')), 'label'));
+        self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register', 'Arriving'], array_column(self::segments($desk->get('/ui/receiving')), 'label')); // Pack J: Arriving
+        self::assertSame(['To receive', 'Issues', 'Duty register', 'Arriving'], array_column(self::segments($reviewer->get('/ui/receiving')), 'label'));
         // The buying flow: every step for the reviewer; a step the buyer cannot open has no link.
         $flow = static function ($page): array {
             $xp = new \DOMXPath($page->dom());

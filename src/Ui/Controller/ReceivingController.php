@@ -701,6 +701,8 @@ final class ReceivingController
         $data['canSetInvoice'] = $canPost && $doc->status === 'draft' && $doc->createdBy !== $me->id;
         // --- Pack C: the invoices that bill this delivery, and "Book its invoice" (the quick way) while units are left to invoice.
         $data['invoiceBook'] = self::invoiceBook($ctx, $doc);
+        // --- Pack J (docs/decisions.md PJ14): a receipt made from an invoice names it, says what it did not bring, and claims it.
+        $data['arrivalBox'] = ArrivalsController::receiptBox($ctx, $doc->id, $doc->status);
         return $ctx->page('receipt', $data + $this->viewData($ctx, $doc), $status, ['title' => $data['title'], 'active' => 'receiving', 'notice' => $notice]);
     }
 

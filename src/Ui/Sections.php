@@ -140,6 +140,8 @@ final class Sections
                     'badge' => 'incidents_open'],
                 // Pack H (0038; docs/decisions.md PH15): the vaping duty register built from the receipts (IM13), read only.
                 ['key' => 'duty', 'perm' => 'duty.view', 'path' => '/ui/receiving/duty', 'match' => ['/ui/receiving/duty*']],
+                // Pack J (0041; docs/decisions.md PJ14): the goods of final supplier invoices on their way, and "Receive".
+                ['key' => 'arriving', 'perm' => 'receiving.view', 'path' => '/ui/receiving/arriving', 'match' => ['/ui/receiving/arriving*'], 'badge' => 'arrivals_late'],
             ]],
             // --- Pack C (IM7, docs/decisions.md PC17): supplier invoices (the invoices, the "To match" list, the deliveries not invoiced
             // yet, the supplier's credit notes) and returns to suppliers.
@@ -152,6 +154,9 @@ final class Sections
                 ['key' => 'not_invoiced', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices/not-invoiced', 'match' => ['/ui/purchasing/invoices/not-invoiced*']],
                 ['key' => 'credit_notes', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/credit-notes', 'match' => ['/ui/purchasing/credit-notes*'],
                     'new' => ['perm' => 'doc.SCN.post', 'href' => '/ui/purchasing/credit-notes#new', 'label' => 'credit_notes']],
+                // Pack J (0041; docs/decisions.md PJ10): the draft invoices waiting for their time.
+                ['key' => 'timed', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices/timed', 'match' => ['/ui/purchasing/invoices/timed*'],
+                    'badge' => 'invoices_timed_failed'],
             ]],
             'returns' => ['pages' => [['perm' => 'returns.view', 'path' => '/ui/purchasing/returns', 'match' => ['/ui/purchasing/returns*'],
                 'new' => ['perm' => 'doc.DN.post', 'href' => '/ui/purchasing/returns#new', 'label' => 'returns']]]],

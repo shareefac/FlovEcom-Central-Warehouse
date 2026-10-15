@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Arrivals\UkTime;
 use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
@@ -37,7 +38,8 @@ final class InvoicesController
     public const FROM_RECEIPT = '/ui/purchasing/invoices/from-receipt';
     public const FROM_RETURN = '/ui/purchasing/credit-notes/from-return';
     /** POST actions of one record (both kinds). */
-    public const ACTIONS = ['details', 'lines', 'add-delivery', 'add-order', 'add-item', 'add-charge', 'add-credit', 'post', 'cancel', 'reverse', 'withdraw', 'files'];
+    public const ACTIONS = ['details', 'lines', 'add-delivery', 'add-order', 'add-item', 'add-charge', 'add-credit', 'post', 'cancel', 'reverse', 'withdraw', 'files',
+        'receiving', 'schedule']; // pack J: how its goods come in, when it becomes final
 
     /** Adds every route (Kernel::router). */
     public static function routes(Router $r): void
@@ -327,9 +329,57 @@ final class InvoicesController
     public function post(Context $ctx, string $kind): HtmlResponse
     {
         return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx): array {
-            $d = $si->post($ctx->caller(), $id, $version);
+            // Pack J (PJ9): "book as received" books its receipt first (SupplierInvoices::submit).
+            $d = $si->submit($ctx->caller(), $id, $version);
             return $d->status === 'awaiting_approval' ? ['notice' => 'submitted'] : ['notice' => 'posted', 'query' => ['number' => $d->number]];
         });
+    }
+
+    /** Pack J (PJ6, PJ9): POST {id}/receiving: how the draft's goods come in, and the duty stamp per line for "book as received". */
+    public function receiving(Context $ctx, string $kind): HtmlResponse
+    {
+        $mode = (string) ($ctx->req->field('receive_mode') ?? '');
+        return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx, $mode): array {
+            $stamps = [];
+            foreach ($si->lines($id) as $l) {
+                if ($l['kind'] === 'goods' && $l['grn_document_id'] === null) {
+                    $v = $ctx->req->field('stamp_' . (int) $l['line_no']);
+                    if ($v !== null) {
+                        $stamps[(int) $l['line_no']] = (string) $v;
+                    }
+                }
+            }
+            $si->setReceiving($ctx->caller(), $id, $version, $mode, $stamps);
+            return ['notice' => 'receiving_saved'];
+        });
+    }
+
+    /**
+     * Pack J (PJ10): POST {id}/schedule: the time the draft is made final by itself (submit_at, UK time), or `clear` to take it off. A
+     * time that comes twice (the hour the clocks go back; review finding 6, Codex 15 Oct) is not guessed: both are shown and the person
+     * chooses (`submit_clock` BST or GMT; 422 ambiguous_submit_at until then); a time that does not happen is refused.
+     */
+    public function schedule(Context $ctx, string $kind): HtmlResponse
+    {
+        $clear = $ctx->req->field('clear') === '1';
+        $typed = trim((string) ($ctx->req->field('submit_at') ?? ''));
+        $clock = (string) ($ctx->req->field('submit_clock') ?? '');
+        $moments = UkTime::moments($typed);
+        $twice = count($moments) > 1 ? ['clock' => ['typed' => $typed, 'time' => substr($typed, 11, 5)]] : [];
+        return $this->act($ctx, $kind, static function (SupplierInvoices $si, int $id, int $version) use ($ctx, $clear, $moments, $clock): array {
+            if ($clear) {
+                $si->schedule($ctx->caller(), $id, $version, null);
+                return ['notice' => 'untimed'];
+            }
+            if ($moments === []) {
+                throw new CwException('bad_submit_at', Words::ARRIVAL_ERROR['bad_submit_at'], 400, ['field' => 'submit_at']);
+            }
+            if (count($moments) > 1 && !isset($moments[$clock])) {
+                throw new CwException('ambiguous_submit_at', Words::ARRIVAL_ERROR['ambiguous_submit_at'], 422, ['field' => 'submit_clock']);
+            }
+            $si->schedule($ctx->caller(), $id, $version, count($moments) > 1 ? $moments[$clock] : reset($moments));
+            return ['notice' => 'timed'];
+        }, $twice);
     }
 
     public function cancel(Context $ctx, string $kind): HtmlResponse
@@ -488,6 +538,8 @@ final class InvoicesController
                     . "AND is_active = 1 AND code NOT IN ('po_amended', 'supplier_cannot_supply', 'not_needed') ORDER BY sort_order, code")] : null,
             'reversedBy' => $reversedBy,
             'ruleWaits' => $ruleWaits,
+            'arrival' => ArrivalsController::invoiceBox($ctx, $rec, $doc, $editable, $lines), // pack J (PJ6, PJ9, PJ10)
+            'clockChoice' => $extra['clock'] ?? null, // pack J, review finding 6: a time typed that comes twice
             'canAccept' => $isInvoice && $doc->status === 'posted' && $original && $rec['match_state'] === 'needs_review' && $me->can('invoices.accept'),
             'canCredit' => $isInvoice && $doc->status === 'posted' && $original && Documents::mayPost($me->roles, 'SCN'),
             'creditKey' => FormOnce::newKey(),
@@ -526,14 +578,15 @@ final class InvoicesController
             'note_required' => Words::INVOICE_ERROR['accept_note'],
             default => isset(Words::INVOICE_ERROR[$e->errorCode]) && is_int($d['line'] ?? null)
                 ? Words::say('INVOICE_ERROR', 'on_line', (int) $d['line'], Words::INVOICE_ERROR[$e->errorCode])
-                : (Words::INVOICE_ERROR[$e->errorCode] ?? Words::STOCK_ERROR[$e->errorCode] ?? Words::RECEIPT_ERROR[$e->errorCode] ?? Words::error($e->errorCode, $e->getMessage())),
+                : (Words::INVOICE_ERROR[$e->errorCode] ?? Words::ARRIVAL_ERROR[$e->errorCode] ?? Words::STOCK_ERROR[$e->errorCode] ?? Words::RECEIPT_ERROR[$e->errorCode]
+                    ?? Words::error($e->errorCode, $e->getMessage())),
         };
     }
 
     /** One problem of a posting in words (its code's, naming its line), else the service's own sentence. @param array<string, mixed> $p */
     public static function problemText(array $p): string
     {
-        $w = Words::INVOICE_ERROR[(string) ($p['code'] ?? '')] ?? null;
+        $w = Words::INVOICE_ERROR[(string) ($p['code'] ?? '')] ?? Words::ARRIVAL_ERROR[(string) ($p['code'] ?? '')] ?? null;
         if ($w === null) {
             return (string) ($p['message'] ?? '');
         }

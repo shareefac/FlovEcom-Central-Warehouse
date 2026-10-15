@@ -9,7 +9,8 @@ namespace CW;
  * snapshot; §4 "values, not deltas").
  *
  * A listing view: link status, central code, policy, u, available, state, version.
- *   available = floor(SUM over the channel's sellable warehouse(s) of (on_hand - allocated - held) / u)
+ *   available = floor(SUM over the channel's sellable warehouse(s) of (on_hand + incoming - allocated - held) / u)
+ *               (incoming: the units of final supplier invoices on their way, pack J PJ1)
  *               (null when the listing is not linked; 0 when the item has no balance yet)
  *   state     = unlinked | legacy (whatever the listing's status, R8) | stopped (policy stopped,
  *               or the listing is quarantined) | in_stock (available >= 1) | out_of_stock (strict)
@@ -306,7 +307,7 @@ final class Availability
         $rows = $this->db->all(
             'SELECT cl.id, cl.external_variant_id, cl.status, cl.units_per_item, '
             . "IF(cl.status IN ('mapped', 'quarantined'), cl.sku_id, NULL) AS sku_id, s.code, s.sell_policy, "
-            . '(SELECT SUM(b.on_hand - b.allocated - b.held) FROM channel_warehouse cw '
+            . '(SELECT SUM(b.on_hand + b.incoming - b.allocated - b.held) FROM channel_warehouse cw '
             . '   JOIN stock_balance b ON b.warehouse_id = cw.warehouse_id AND b.sku_id = cl.sku_id '
             . '   WHERE cw.channel_id = cl.channel_id AND cw.is_sellable = 1) AS avail '
             . "FROM channel_listing cl LEFT JOIN sku s ON s.id = cl.sku_id AND cl.status IN ('mapped', 'quarantined') "

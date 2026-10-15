@@ -22,6 +22,7 @@ use CW\Settings;
  *     answer_slow    CW's own answer time: alerts.answer_probes times a NEW connection and the reads of a health call (what every API
  *                    call pays first), measured on CW's server; the middle value above alerts.answer_max_ms (answer_failed: a probe
  *                    could not connect). The answer time a store sees at Place order is measured on the store (its connector log).
+ *     invoice_submit_failed  (pack J) a timed supplier invoice could not be made final at its time
  *     invariants_failed / invariants_stale
  *                    the newest nightly safety check (integrity_run) found problems, or none finished for
  *                    alerts.invariants_max_age_hours. A system where no check has ever run is quiet (as Home is).
@@ -65,7 +66,7 @@ final class Alerts
             $out[] = ['key' => $p['problem'] . ':' . $p['channel'], 'kind' => $p['problem'], 'channel' => $p['channel'], 'channel_id' => $p['channel_id'],
                 'name' => $p['name'], 'mode' => $p['mode'], 'detail' => $p['detail'], 'data' => $p['data']];
         }
-        foreach ([$this->answerTime($s), $this->nightlyCheck($s)] as $p) {
+        foreach ([$this->answerTime($s), $this->nightlyCheck($s), $this->invoiceSubmits()] as $p) {
             if ($p !== null) {
                 $out[] = $p + ['channel' => null, 'channel_id' => null, 'name' => null, 'mode' => null];
             }
@@ -112,6 +113,23 @@ final class Alerts
                 'data' => ['hours' => $last['hours'], 'limit' => $max]];
         }
         return null;
+    }
+
+    /**
+     * Pack J (docs/decisions.md PJ11): timed supplier invoices whose posting failed (listed on Purchasing > Invoices > Timed; not tried
+     * again until a person sets the time again).
+     *
+     * @return array{key: string, kind: string, detail: string, data: array<string, int|string|null>}|null
+     */
+    private function invoiceSubmits(): ?array
+    {
+        $failed = \CW\Arrivals\InvoiceSchedule::failed($this->db);
+        if ($failed === []) {
+            return null;
+        }
+        $refs = implode(', ', array_map(static fn (array $f): string => (string) ($f['external_ref'] ?? ('#' . $f['id'])), array_slice($failed, 0, 5)));
+        return ['key' => 'invoice_submit_failed', 'kind' => 'invoice_submit_failed', 'detail' => sprintf('%d timed supplier invoices could not be made final (%s)',
+            count($failed), $refs), 'data' => ['count' => count($failed), 'invoices' => $refs]];
     }
 
     /** An int setting, or $default on a schema without it (or unset). */

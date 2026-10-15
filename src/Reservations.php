@@ -269,7 +269,7 @@ final class Reservations
         foreach ($byWarehouse as $wh => $whSkus) {
             foreach (array_chunk($whSkus, 1000) as $chunk) {
                 foreach ($this->db->all(
-                    'SELECT sku_id, on_hand - allocated - held AS available FROM stock_balance WHERE warehouse_id = ? AND sku_id IN ('
+                    'SELECT sku_id, on_hand + incoming - allocated - held AS available FROM stock_balance WHERE warehouse_id = ? AND sku_id IN ('
                     . implode(',', array_fill(0, count($chunk), '?')) . ')',
                     [$wh, ...$chunk],
                 ) as $r) {
