@@ -8,6 +8,7 @@ use CW\Admin\ApprovalRules;
 use CW\Company\CompanyDetails;
 use CW\Documents\NumberSeries;
 use CW\Output\CsvWriter;
+use CW\Settings;
 use CW\Ui\ConfigWords;
 use CW\Ui\Context;
 use CW\Ui\Html;
@@ -106,11 +107,15 @@ final class ReferenceController
             . "WHERE updated_actor LIKE 'staff:%')") as $u) {
             $names['staff:' . $u['id']] = (string) $u['display_name'];
         }
-        foreach ($ctx->settings()->all() as $s) {
+        $all = $ctx->settings()->all();
+        $values = array_column($all, 'value', 'key');
+        foreach ($all as $s) {
             $key = (string) $s['key'];
             if (isset(ApprovalRules::SWITCHES[$key]) || isset(ApprovalRules::NUMBERS[$key])) {
                 continue; // the approval rules have their own page (one place for one thing, Y9)
             }
+            // Pack C follow-up (PC19): a setting not used while its switch is off is greyed and says so.
+            $switch = Settings::UNUSED_WHEN_OFF[$key] ?? null;
             $value = $s['value'];
             $actor = (string) $s['updated_actor'];
             $topics[Words::settingTopic($key)][] = [
@@ -125,6 +130,7 @@ final class ReferenceController
                     default => (string) $s['display'],
                 },
                 'agreed' => !$s['provisional'],
+                'unused' => $switch !== null && ($values[$switch] ?? null) === false ? Words::say('SETTINGS_PAGE', 'unused_while_off', Words::settingName($switch)) : null,
                 'changed' => match (true) {
                     str_starts_with($actor, 'staff:') => Words::say('SETTINGS_PAGE', 'by', Html::when((string) $s['updated_at']), $names[$actor] ?? $actor),
                     in_array($actor, ['system:migrate', 'system:history'], true) => Words::say('SETTINGS_PAGE', 'set_up', Html::day((string) $s['updated_at'])),

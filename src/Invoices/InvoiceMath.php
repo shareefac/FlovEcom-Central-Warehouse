@@ -12,7 +12,8 @@ use CW\PurchaseOrders\PoMath;
  *
  *  - rules(): the match's tolerances from the settings as typed (decimal strings): the price may differ by `price_pct` per cent OR by
  *    `price_gbp` pounds on the line (either is enough; 0 switches that test off; both 0: exact), the quantity may be `qty_pct` per cent
- *    more than what is there to invoice (0: exact), and the lines may add up to the stated total within `total_per_line` pounds a line.
+ *    more than what is there to invoice (0: exact), and the lines may add up to the stated total within `total_per_line` pounds a line;
+ *    `check_price` off (PC19): the price is not checked at all, the invoice's price is the right price.
  *  - line(): one goods line against what was ordered and received:
  *        units, amount      what the line bills, less what the supplier's credit notes took off it;
  *        available          what the delivery line still has to be invoiced: accepted into stock - returned to the supplier - invoiced
@@ -33,8 +34,11 @@ final class InvoiceMath
     public const WHY = ['no_delivery', 'delivery_reversed', 'qty_over', 'price_over', 'price_under'];
 
     /**
-     * @param array{price_pct: string, price_gbp: string, qty_pct: string, total_per_line: string} $typed the settings' decimal strings
-     * @return array{price_pct_e6: int, price_gbp_e2: int, qty_pct_e6: int, total_per_line_e2: int}
+     * $typed['check_price']: '1' the price is checked with the two price tolerances, '0' it is not (PC19: the invoice's price is the right
+     * price); missing (a match stored before 0040): checked, as it was.
+     *
+     * @param array{price_pct: string, price_gbp: string, qty_pct: string, total_per_line: string, check_price?: string} $typed the settings as typed
+     * @return array{price_pct_e6: int, price_gbp_e2: int, qty_pct_e6: int, total_per_line_e2: int, check_price: bool}
      */
     public static function rules(array $typed): array
     {
@@ -43,6 +47,7 @@ final class InvoiceMath
             'price_gbp_e2' => self::e2Round(self::plain($typed['price_gbp'])),
             'qty_pct_e6' => PoMath::e6(self::plain($typed['qty_pct'])),
             'total_per_line_e2' => self::e2Round(self::plain($typed['total_per_line'])),
+            'check_price' => ($typed['check_price'] ?? '1') !== '0',
         ];
     }
 
@@ -53,9 +58,13 @@ final class InvoiceMath
     }
 
     /**
+     * With the price not checked (rules check_price false, PC19) a price difference never makes the line within or off: it is kept in
+     * `price_e2` and named in `price_note` (price_over / price_under) as information, and the money to look at (`diff_e2`) is the extra
+     * units at the invoice's own price. The units are checked either way.
+     *
      * @param array{units: int, amount_e2: int, inv_unit_e6: int, available: ?int, ref_unit_e6: ?int, reversed?: bool} $l
-     * @param array{price_pct_e6: int, price_gbp_e2: int, qty_pct_e6: int, total_per_line_e2: int} $rules
-     * @return array{state: string, excess: int, allowed: int, price_e2: int, expected_e2: int, diff_e2: int, why: list<string>}
+     * @param array{price_pct_e6: int, price_gbp_e2: int, qty_pct_e6: int, total_per_line_e2: int, check_price?: bool} $rules
+     * @return array{state: string, excess: int, allowed: int, price_e2: int, expected_e2: int, diff_e2: int, why: list<string>, price_note: ?string}
      */
     public static function line(array $l, array $rules): array
     {
@@ -85,7 +94,12 @@ final class InvoiceMath
         $ref = $l['ref_unit_e6'];
         $expected = $ref === null ? $l['amount_e2'] : self::unitsAt($units, $ref);
         $price = $l['amount_e2'] - $expected;
-        if ($price !== 0) {
+        $checkPrice = $rules['check_price'] ?? true;
+        $note = null;
+        if ($price !== 0 && !$checkPrice) {
+            // PC19: the invoice's price is the right price; the difference is information only.
+            $note = $price > 0 ? 'price_over' : 'price_under';
+        } elseif ($price !== 0) {
             $why[] = $price > 0 ? 'price_over' : 'price_under';
             if (self::priceOk($price, $expected, $rules)) {
                 $within = true;
@@ -93,14 +107,18 @@ final class InvoiceMath
                 $off = true;
             }
         }
-        // The money to look at: the amount less the units that are there at the reference price (or the line's own).
+        // The money to look at: the amount less the units that are there at the reference price (or the line's own); with the price not
+        // checked, at the invoice's own price (only extra units count).
         $there = max(0, min($units, $l['available'] ?? 0));
-        $diff = $l['amount_e2'] - self::unitsAt($there, $ref ?? ($units > 0 ? intdiv($l['amount_e2'] * 10_000 + intdiv($units, 2), $units) : 0));
+        $own = $units > 0 ? intdiv($l['amount_e2'] * 10_000 + intdiv($units, 2), $units) : 0;
+        $diff = $l['amount_e2'] - self::unitsAt($there, $checkPrice ? ($ref ?? $own) : ($l['inv_unit_e6'] > 0 ? $l['inv_unit_e6'] : $own));
         if ($there === $units) {
-            $diff = $price; // every unit is there: the difference is the price alone (no rounding of a derived unit price)
+            // Every unit is there: the difference is the price alone (no rounding of a derived unit price), or nothing when the price
+            // is not checked.
+            $diff = $checkPrice ? $price : 0;
         }
         return ['state' => $off ? 'off' : ($within ? 'within' : 'matched'), 'excess' => $excess, 'allowed' => $allowed, 'price_e2' => $price,
-            'expected_e2' => $expected, 'diff_e2' => $diff, 'why' => $why];
+            'expected_e2' => $expected, 'diff_e2' => $diff, 'why' => $why, 'price_note' => $note];
     }
 
     /**

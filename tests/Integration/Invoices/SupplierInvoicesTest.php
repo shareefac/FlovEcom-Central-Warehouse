@@ -95,6 +95,7 @@ final class SupplierInvoicesTest extends InvoicesTestCase
 
     public function testTheThreeWayMatchInsideAndOutsideTheTolerances(): void
     {
+        $this->setting('invoices.check_price', 'true'); // PC19: with the price check on, the tolerances apply as before
         ['desk' => $desk, 'buyer' => $buyer, 'supplier' => $s] = $this->people('Matching Ltd');
         $sid = (int) $s['id'];
         // Within: the order says £10.00 a pack, the invoice £10.15 (1.5 %, £1.50 on ten packs): within 2 % or £5.
@@ -264,6 +265,7 @@ final class SupplierInvoicesTest extends InvoicesTestCase
 
     public function testTheOkFirstForAnInvoiceOutsideTheTolerances(): void
     {
+        $this->setting('invoices.check_price', 'true'); // PC19: with the price check on, the tolerances apply as before
         ['desk' => $desk, 'buyer' => $buyer, 'supplier' => $s] = $this->people('Ok First Ltd');
         $this->rule('SINV', ['approval_rule' => 'over_difference', 'approval_limit_units' => 5]);
         $a = $this->orderedAndDelivered($desk, $buyer, (int) $s['id'], 10, 1, '10.0000', 10);
@@ -393,6 +395,7 @@ final class SupplierInvoicesTest extends InvoicesTestCase
     /** Review finding 5: an invoice whose OK first is refused is cancelled, and the supplier's number is free for the corrected one. */
     public function testARefusedOkFreesTheSuppliersNumber(): void
     {
+        $this->setting('invoices.check_price', 'true'); // PC19: with the price check on, the tolerances apply as before
         ['desk' => $desk, 'buyer' => $buyer, 'supplier' => $s] = $this->people('Refused Ok Ltd');
         $this->rule('SINV', ['approval_rule' => 'over_difference', 'approval_limit_units' => 5]);
         $a = $this->orderedAndDelivered($desk, $buyer, (int) $s['id'], 10, 1, '10.0000', 10);
@@ -406,6 +409,47 @@ final class SupplierInvoicesTest extends InvoicesTestCase
         self::assertNull(self::$db->value('SELECT invoice_key FROM supplier_invoice WHERE document_id = ?', [$w->id]), 'a cancelled record holds no number');
         $again = $this->invoices->createFromReceipt($desk, $a['grn']->id);
         self::assertSame([null, $number], [$again['number_taken'], $again['document']->externalRef], 'the corrected invoice takes the same number');
+        self::assertSame([], InvoiceInvariants::check(self::$db));
+    }
+
+    /**
+     * PC19 (owner, 15 Oct 2026: "end of the day whatever comes in purchase invoice is the right price"): with invoices.check_price off,
+     * the default, a price that differs from the order is matched whatever its size, the difference is recorded for the stock value and
+     * shown as information; billing more units than arrived still needs a person; with the check on, the tolerances apply as before.
+     */
+    public function testThePriceOnTheInvoiceIsTheRightPrice(): void
+    {
+        ['desk' => $desk, 'buyer' => $buyer, 'supplier' => $s] = $this->people('Invoice Price Ltd');
+        $sid = (int) $s['id'];
+        self::assertFalse((new \CW\Settings(self::$db))->get('invoices.check_price'), 'off by default (0040)');
+        // Ordered and delivered at £10.00 a pack; the invoice says £15.00 (£50 more on ten, 50 %): matched.
+        $a = $this->orderedAndDelivered($desk, $buyer, $sid, 10, 1, '10.0000', 10);
+        $d = $this->invoices->createFromReceipt($desk, $a['grn']->id)['document'];
+        $d = $this->invoices->saveLines($desk, $d->id, $d->version, [self::lineOf($this->invoices->lines($d->id)[0], ['pack_price' => '15.0000'])]);
+        $p = $this->postWithTotals($desk, $d);
+        self::assertSame(['matched', '0', '0.00'], array_values(array_map('strval', $this->stored($p->id))), 'the invoice price is the right price');
+        $m = $this->invoices->matchOf($p->id);
+        self::assertSame(['matched', [], 5000, 'price_over', 'order'], [$m['lines'][1]['state'], $m['lines'][1]['why'], $m['lines'][1]['price_e2'],
+            $m['lines'][1]['price_note'], $m['lines'][1]['ref_from']]);
+        self::assertSame([], $this->invoices->toMatch(), 'nothing on "To match"');
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM invoice_value_event WHERE document_id = ? AND kind = 'price_difference' AND amount = '50.00'",
+            [$p->id]), 'the £50 above the delivery\'s cost is recorded: the invoice\'s price is the cost carried forward');
+
+        // The units are checked as before: twelve billed of the ten received needs a person, the two extra at the invoice's price.
+        $b = $this->orderedAndDelivered($desk, $buyer, $sid, 10, 1, '10.0000', 10);
+        $d = $this->invoices->createFromReceipt($desk, $b['grn']->id)['document'];
+        $d = $this->invoices->saveLines($desk, $d->id, $d->version, [self::lineOf($this->invoices->lines($d->id)[0], ['packs' => 12, 'pack_price' => '15.0000'])]);
+        $q = $this->postWithTotals($desk, $d);
+        self::assertSame(['needs_review', '1', '30.00'], array_values(array_map('strval', $this->stored($q->id))));
+        self::assertSame(['qty_over'], $this->invoices->matchOf($q->id)['lines'][1]['why']);
+        self::assertSame([$q->id], array_map(static fn (array $r): int => (int) $r['id'], $this->invoices->toMatch()));
+
+        // With the check on, the tolerances apply as before ("Check these again" works the stored matches out with it).
+        $this->setting('invoices.check_price', 'true');
+        self::assertSame(1, $this->invoices->recheck($desk, [$p->id, $q->id]));
+        self::assertSame(['needs_review', '1', '50.00'], array_values(array_map('strval', $this->stored($p->id))));
+        self::assertSame(['price_over'], $this->invoices->matchOf($p->id)['lines'][1]['why']);
+        self::assertSame(['needs_review', '1', '80.00'], array_values(array_map('strval', $this->stored($q->id))), 'twelve at £15 against ten at £10');
         self::assertSame([], InvoiceInvariants::check(self::$db));
     }
 

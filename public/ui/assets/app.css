@@ -1107,6 +1107,9 @@ form.roles { max-width: 1000px; }
 
 /* Purchasing: the activation box, the settings list, the PO editor */
 table.settings th[scope="row"] small { display: block; font-weight: 400; overflow-wrap: anywhere; }
+/* Pack C follow-up (PC19): a setting not used while the switch it depends on is off */
+table.settings tr.unused > th, table.settings tr.unused > td { color: var(--ink-2); }
+table.settings tr.unused .unused-note { display: block; font-weight: 600; }
 form.po-editor { display: grid; gap: 14px; }
 form.po-editor fieldset { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-end; }
 form.po-editor fieldset label { flex: 1 1 14rem; }

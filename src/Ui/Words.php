@@ -2426,6 +2426,7 @@ final class Words
         'items.repack_carry_cost' => 'A repack carries the cost to what it makes',
         'approvals.item_by_hand_check' => 'Items made by hand are checked by a second person',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices.check_price' => 'Check invoice prices against the order', // PC19 (0040)
         'invoices.price_tolerance_pct' => 'Invoice price may differ by (%)',
         'invoices.price_tolerance_gbp' => 'Invoice price may differ by (£ a line)',
         'invoices.qty_tolerance_pct' => 'Invoice may bill more units than received (%)',
@@ -3491,6 +3492,8 @@ final class Words
         'none' => 'None',
         'over_value' => 'Over £%s (no VAT)',
         'over_units' => 'Putting back over %s items without a supplier document',
+        // --- Pack C follow-up (PC19): a setting that is not used while the switch it depends on is off (greyed in the list).
+        'unused_while_off' => 'Not used while "%s" is off.',
     ];
 
     /** reason_code.applies_to and direction words (Reasons for stock changes). */
@@ -3657,6 +3660,9 @@ final class Words
             . 'Off: what it makes has no cost of its own and is valued at the average cost later.',
         'approvals.item_by_hand_check' => 'A second person checks each item made by hand, afterwards, on Products › Add Item. The item can be used at once.',
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
+        'invoices.check_price' => 'Off (as the owner chose on 15 Oct 2026): the price on the supplier\'s invoice is the right price. A line whose price differs from '
+            . 'the order is still matched; the difference is shown on the invoice and recorded for the stock value. On: a price outside the two price tolerances '
+            . 'below needs a person on "To match". The units are checked either way: billing more than arrived always needs a person.',
         'invoices.price_tolerance_pct' => 'A line whose price differs from the order (else the delivery) by at most this percentage still matches "within the tolerance". 0: this test is off.',
         'invoices.price_tolerance_gbp' => 'Or by at most this many pounds on the line. Either test is enough. With both at 0 the price must be exact.',
         'invoices.qty_tolerance_pct' => 'An invoice may bill this percentage more units than were received and not invoiced yet. 0: the units must be exact.',
@@ -9051,6 +9057,13 @@ final class Words
         'open_invoice' => 'The invoice it reduces',
         'open_return' => 'The return it answers',
         'rules_now' => 'Within the tolerance: a price up to %s%% or %s off a line, %s%% more units than received, the total up to %s a line off.',
+        // --- Pack C follow-up (PC19, the owner's decision of 15 Oct 2026): the invoice's price is the right price.
+        'rules_no_price' => 'Prices are not checked: the price on the invoice is used.',
+        'rules_now_units' => 'Within the tolerance: %s%% more units than received, the total up to %s a line off.',
+        'price_info_more' => 'Price differs from the order: %s more. The invoice price is used.',
+        'price_info_less' => 'Price differs from the order: %s less. The invoice price is used.',
+        'price_info_more_delivery' => 'Price differs from the delivery: %s more. The invoice price is used.',
+        'price_info_less_delivery' => 'Price differs from the delivery: %s less. The invoice price is used.',
         'rules_link' => 'Change the tolerances',
         'show_to_check' => 'Show the invoices to check',
         'show_accepted' => 'Show the invoices whose differences were accepted',

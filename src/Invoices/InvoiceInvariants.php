@@ -128,7 +128,9 @@ final class InvoiceInvariants
                     continue;
                 }
                 $m = $match->compute((int) $r['document_id'], ['price_pct' => (string) ($rules['price_pct'] ?? '0'), 'price_gbp' => (string) ($rules['price_gbp'] ?? '0'),
-                    'qty_pct' => (string) ($rules['qty_pct'] ?? '0'), 'total_per_line' => (string) ($rules['total_per_line'] ?? '0')]);
+                    'qty_pct' => (string) ($rules['qty_pct'] ?? '0'), 'total_per_line' => (string) ($rules['total_per_line'] ?? '0'),
+                    // PC19: a match stored before 0040 has no check_price: it was worked out with the price checked.
+                    'check_price' => (string) ($rules['check_price'] ?? '1')]);
                 $state = InvoiceMatch::stored($m, $r);
                 if ($r['accepted_at'] !== null && $r['match_state'] !== 'accepted') {
                     $v[] = "V4 posted invoice {$r['document_id']} keeps an acceptance its match ({$r['match_state']}) no longer is";

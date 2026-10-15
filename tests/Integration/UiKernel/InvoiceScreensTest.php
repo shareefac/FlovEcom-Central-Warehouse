@@ -26,6 +26,8 @@ final class InvoiceScreensTest extends KernelUiTestCase
     private string $dir;
     private string|false $prevStore = false;
     private ?string $prevCutoff = null;
+    /** @var array<string, string> setting key => its value before the test (put back in tearDown) */
+    private array $savedSettings = [];
 
     protected function setUp(): void
     {
@@ -42,6 +44,10 @@ final class InvoiceScreensTest extends KernelUiTestCase
 
     protected function tearDown(): void
     {
+        foreach ($this->savedSettings as $key => $json) {
+            self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [$json, $key]);
+        }
+        $this->savedSettings = [];
         putenv($this->prevStore === false ? 'CW_FILE_STORE_DIR' : 'CW_FILE_STORE_DIR=' . $this->prevStore);
         if ($this->prevCutoff !== null) {
             self::$db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = 'receiving.unstamped_refusal_from'", [$this->prevCutoff]);
@@ -87,6 +93,12 @@ final class InvoiceScreensTest extends KernelUiTestCase
         return ['grn' => $p->id, 'sku' => $sku, 'number' => (string) $p->number];
     }
 
+    private function setting(string $key, string $json): void
+    {
+        $this->savedSettings[$key] ??= (string) self::$db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', [$key]);
+        self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [$json, $key]);
+    }
+
     private static function idFrom(?string $location, string $base): int
     {
         self::assertSame(1, preg_match('#^' . preg_quote($base, '#') . '/(\d+)#', (string) $location, $m), (string) $location);
@@ -95,6 +107,7 @@ final class InvoiceScreensTest extends KernelUiTestCase
 
     public function testTheQuickWayOnTheScreensAndAnInvoiceThatDoesNotMatch(): void
     {
+        $this->setting('invoices.check_price', 'true'); // PC19: with the price check on, the tolerances apply as before
         $deskUser = $this->uiUser('purchasing_desk');
         $s = $this->supplier('Screen Invoices Ltd');
         $x = $this->delivery($deskUser['id'], (int) $s['id'], 10, '3.00');
@@ -156,6 +169,46 @@ final class InvoiceScreensTest extends KernelUiTestCase
         // The record's generic page leads to its own.
         $generic = $desk->get('/ui/documents/' . $id);
         self::assertContains('/ui/purchasing/invoices/' . $id, $generic->hrefs());
+    }
+
+    /**
+     * PC19 (owner, 15 Oct 2026): with the price check off (the default) an invoice dearer than its delivery is matched, and its page
+     * says the difference as information; the setting has its plain words on Settings, and the two price tolerances say they are not
+     * used while it is off.
+     */
+    public function testThePriceOnTheInvoiceIsUsedAndSaidAsInformation(): void
+    {
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier('Screen Price Ltd');
+        $x = $this->delivery($deskUser['id'], (int) $s['id'], 10, '3.00');
+        $desk = $this->signIn($deskUser);
+        $r = $desk->post('/ui/purchasing/invoices/from-receipt', $desk->get('/ui/receiving/' . $x['grn'])->form('/ui/purchasing/invoices/from-receipt'));
+        self::assertSame(303, $r->status, $r->describe());
+        $id = self::idFrom($r->location(), '/ui/purchasing/invoices');
+        $page = $desk->get('/ui/purchasing/invoices/' . $id);
+        $form = $page->form('/ui/purchasing/invoices/' . $id . '/lines');
+        $form['pp_1'] = '4.00';
+        self::assertSame(303, $desk->post('/ui/purchasing/invoices/' . $id . '/lines', $form)->status);
+        $page = $desk->get('/ui/purchasing/invoices/' . $id);
+        $form = ['net_total' => '40.00', 'vat_total' => '8.00'] + $page->form('/ui/purchasing/invoices/' . $id . '/details');
+        self::assertSame(303, $desk->post('/ui/purchasing/invoices/' . $id . '/details', $form)->status);
+        $page = $desk->get('/ui/purchasing/invoices/' . $id);
+        $page = $desk->follow($desk->post('/ui/purchasing/invoices/' . $id . '/post', $page->form('/ui/purchasing/invoices/' . $id . '/post')));
+        self::assertStringContainsString(Words::MATCH_STATE['matched'], $page->text(), '£10 dearer than the delivery: the invoice price is the right price');
+        self::assertStringContainsString(Words::say('INVOICES', 'price_info_more_delivery', '£10.00'), $page->text());
+        self::assertStringNotContainsString(Words::MATCH_WHY['price_over'], $page->text());
+        self::assertSame(0, array_column(self::segments($desk->get('/ui/purchasing/invoices/to-match')), 'count', 'label')['To match'] ?? 0);
+        self::assertStringContainsString(Words::INVOICES['rules_no_price'], $desk->get('/ui/purchasing/invoices/to-match')->text());
+
+        $settings = $this->signIn($this->uiUser('purchasing_manager'))->get('/ui/reference/settings');
+        self::assertSame(200, $settings->status, $settings->describe());
+        self::assertStringContainsString(Words::SETTING['invoices.check_price'], $settings->text());
+        self::assertStringContainsString(Words::say('SETTINGS_PAGE', 'unused_while_off', Words::SETTING['invoices.check_price']), $settings->text());
+        $xp = new \DOMXPath($settings->dom());
+        self::assertSame(2, $xp->query('//table[contains(@class, "settings")]//tr[contains(@class, "unused")]')->length, 'the two price tolerances are greyed');
+        $this->setting('invoices.check_price', 'true');
+        $settings = $this->signIn($this->uiUser('purchasing_manager'))->get('/ui/reference/settings');
+        self::assertSame(0, (new \DOMXPath($settings->dom()))->query('//table[contains(@class, "settings")]//tr[contains(@class, "unused")]')->length);
     }
 
     public function testAReturnOfADeliverysDamagedUnitsAndItsCreditNote(): void

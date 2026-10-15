@@ -54,8 +54,9 @@ final class Migration0032Test extends IntegrationTestCase
     public function testTheSettings(): void
     {
         $s = [];
-        foreach (self::$db->all("SELECT setting_key, value_type, CAST(value_json AS CHAR) AS v, provisional, decision FROM app_setting WHERE setting_key LIKE 'invoices.%' "
-            . "OR setting_key = 'approvals.invoice_accept_other' ORDER BY setting_key") as $r) {
+        // (0040 adds invoices.check_price: Migration0040Test.)
+        foreach (self::$db->all("SELECT setting_key, value_type, CAST(value_json AS CHAR) AS v, provisional, decision FROM app_setting WHERE (setting_key LIKE 'invoices.%' "
+            . "AND setting_key <> 'invoices.check_price') OR setting_key = 'approvals.invoice_accept_other' ORDER BY setting_key") as $r) {
             $s[(string) $r['setting_key']] = [$r['value_type'], $r['v'], (int) $r['provisional'], $r['decision']];
         }
         self::assertSame([
@@ -74,7 +75,7 @@ final class Migration0032Test extends IntegrationTestCase
         self::assertSame(['in' => ['value', 'ml']], Settings::RULES['invoices.freight_spread']);
         self::assertFalse(ApprovalRules::on(self::$db, 'approvals.invoice_accept_other'));
         self::assertSame(7, (int) self::$db->value("SELECT COUNT(*) FROM config_change WHERE subject_type = 'setting' AND action = 'baseline' AND version = 1 AND "
-            . "(subject_key LIKE 'invoices.%' OR subject_key = 'approvals.invoice_accept_other')"));
+            . "((subject_key LIKE 'invoices.%' AND subject_key <> 'invoices.check_price') OR subject_key = 'approvals.invoice_accept_other')"));
         self::assertSame([], ConfigInvariants::check(self::$db), 'K1-K4: every new configuration row has its history');
     }
 

@@ -725,6 +725,9 @@ final class InvoicesController
                     Html::money(rtrim(rtrim(\CW\PurchaseOrders\PoMath::fromE6((int) $l['ref_unit_e6']), '0'), '.'))),
                 'why' => implode(' ', array_map(static fn (string $w): string => Words::of('MATCH_WHY', $w), $l['why'])),
                 'diff' => (int) $l['diff_e2'] === 0 ? '' : Html::money(InvoiceMath::fromE2((int) $l['diff_e2'])),
+                // PC19: with the price not checked, the difference from the order (else the delivery) as information.
+                'info' => ($l['price_note'] ?? null) === null ? null : Words::say('INVOICES', 'price_info_' . ($l['price_note'] === 'price_over' ? 'more' : 'less')
+                    . ($l['ref_from'] === 'order' ? '' : '_delivery'), Html::money(InvoiceMath::fromE2(abs((int) $l['price_e2'])))),
                 'credited' => (int) ($l['credited_units'] ?? 0) > 0 ? Words::say('INVOICES', 'credited_units', (int) $l['credited_units']) : null,
             ];
         }
@@ -737,6 +740,10 @@ final class InvoicesController
     private static function rulesText(Context $ctx): string
     {
         $r = (new \CW\Invoices\InvoiceMatch($ctx->db))->typedRules();
+        if ($r['check_price'] === '0') {
+            // PC19: prices are not checked: the invoice's price is the right price.
+            return Words::INVOICES['rules_no_price'] . ' ' . Words::say('INVOICES', 'rules_now_units', Html::dec($r['qty_pct']), Html::money($r['total_per_line']));
+        }
         return Words::say('INVOICES', 'rules_now', Html::dec($r['price_pct']), Html::money($r['price_gbp']), Html::dec($r['qty_pct']), Html::money($r['total_per_line']));
     }
 

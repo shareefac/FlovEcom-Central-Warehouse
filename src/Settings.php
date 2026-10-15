@@ -195,6 +195,13 @@ final class Settings
         'duty.export_max_rows' => ['min' => 100, 'max' => 100000],
         // ---- end of pack H ----
     ];
+
+    /**
+     * --- Pack C follow-up (0040; docs/decisions.md PC19): a setting that is not used while a switch is off => that switch. The Settings
+     * list greys it and says so; its value is kept for when the switch is on again.
+     */
+    public const UNUSED_WHEN_OFF = ['invoices.price_tolerance_pct' => 'invoices.check_price', 'invoices.price_tolerance_gbp' => 'invoices.check_price'];
+
     /**
      * Settings whose value is a secret (review finding 6 of 14 Oct 2026: a chat channel's incoming address carries its token). get()
      * gives the value whole, to the code that uses it; all() (the Settings pages, bin/settings.php) shows only its scheme and host

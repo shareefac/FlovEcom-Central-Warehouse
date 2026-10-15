@@ -22,7 +22,9 @@ final class InvoiceMathTest extends TestCase
 
     public function testTheRulesAreTheSettingsInWholeUnits(): void
     {
-        self::assertSame(['price_pct_e6' => 2_000_000, 'price_gbp_e2' => 500, 'qty_pct_e6' => 0, 'total_per_line_e2' => 5], self::plan());
+        self::assertSame(['price_pct_e6' => 2_000_000, 'price_gbp_e2' => 500, 'qty_pct_e6' => 0, 'total_per_line_e2' => 5, 'check_price' => true], self::plan(),
+            'without the switch (a match stored before 0040): the price is checked, as it was');
+        self::assertFalse(self::plan(['check_price' => '0'])['check_price']);
         self::assertSame(1, InvoiceMath::rules(['price_pct' => '', 'price_gbp' => '0.005', 'qty_pct' => '0', 'total_per_line' => '0'])['price_gbp_e2'], 'a half penny rounds up');
     }
 
@@ -51,6 +53,31 @@ final class InvoiceMathTest extends TestCase
         // Both price tests switched off: exact.
         $exact = self::plan(['price_pct' => '0', 'price_gbp' => '0']);
         self::assertSame('off', InvoiceMath::line(['units' => 1, 'amount_e2' => 1001, 'inv_unit_e6' => 0, 'available' => 1, 'ref_unit_e6' => 10_000_000], $exact)['state']);
+    }
+
+    /**
+     * PC19 (owner, 15 Oct 2026: "the invoice price is the right price"): with invoices.check_price off, a price that differs from the
+     * order never puts a line outside the match, whatever its size; the difference stays on the line as information. The units are
+     * checked as before, and the money to look at is then at the invoice's own price.
+     */
+    public function testWithThePriceNotCheckedTheInvoicePriceIsTheRightPrice(): void
+    {
+        $r = self::plan(['check_price' => '0']);
+        $l = static fn (int $units, int $amount, int $invUnit, ?int $avail, ?int $ref): array => InvoiceMath::line(['units' => $units, 'amount_e2' => $amount,
+            'inv_unit_e6' => $invUnit, 'available' => $avail, 'ref_unit_e6' => $ref], $r);
+        // Ordered at £10.00, billed at £15.00 (50 % dearer): matched; the £50 difference is kept, as information.
+        $m = $l(10, 15000, 15_000_000, 10, 10_000_000);
+        self::assertSame(['matched', 5000, [], 0, 'price_over'], [$m['state'], $m['price_e2'], $m['why'], $m['diff_e2'], $m['price_note']]);
+        self::assertSame(['matched', 'price_under'], [$l(10, 5000, 5_000_000, 10, 10_000_000)['state'], $l(10, 5000, 5_000_000, 10, 10_000_000)['price_note']]);
+        self::assertNull($l(10, 10000, 10_000_000, 10, 10_000_000)['price_note']);
+        // The quantity still counts: 12 billed of the 10 there is off, the 2 extra at the invoice's £15.00 are the money (the £60 price
+        // difference stays information).
+        self::assertSame(['off', 2, 6000, 3000, ['qty_over']], self::pick($l(12, 18000, 15_000_000, 10, 10_000_000)));
+        self::assertSame(['off', ['no_delivery']], [$l(3, 4500, 15_000_000, null, null)['state'], $l(3, 4500, 15_000_000, null, null)['why']]);
+        // With the check on: the tolerances, as before.
+        $on = self::plan(['check_price' => '1']);
+        $m = InvoiceMath::line(['units' => 10, 'amount_e2' => 15000, 'inv_unit_e6' => 15_000_000, 'available' => 10, 'ref_unit_e6' => 10_000_000], $on);
+        self::assertSame(['off', ['price_over'], 5000, null], [$m['state'], $m['why'], $m['diff_e2'], $m['price_note']]);
     }
 
     public function testTheInvoiceStateAndTheTotal(): void

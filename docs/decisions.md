@@ -8996,7 +8996,7 @@ list, the purchase order editor and the reports (Q4's "order and see reports by 
 
 ## Pack C: supplier invoices, the 3-way match, credit and debit notes, returns to suppliers (worktree `pack-c`, 14 Oct 2026)
 
-<!-- Pack C block: decisions PC1-PC18. Kept as one block for the merge (Packs B, D and E are built at the same time). -->
+<!-- Pack C block: decisions PC1-PC19. Kept as one block for the merge (Packs B, D and E are built at the same time). -->
 
 Plan IM7 ("supplier invoices, credit/debit notes, supplier returns"; the owner's list of 8 Oct 2026: "Purchase & Replenishment: to add
 (pack C): supplier invoices with 3-way match; returns to supplier / debit notes"). Code: `migrations/0032_supplier_invoices.sql` (after
@@ -9163,13 +9163,27 @@ deliveries, newest first. V7 checks the rows (the newest 2,000) and that every d
 one grouped read of the credit notes that answer a return (a subquery per return chose a full scan of `supplier_invoice`: 2.2-2.9 s for
 500 returns). Every other new read is an indexed one (`packc_explain.txt`, in the build's run folder, not committed).
 
+**PC19. Owner, 15 Oct: the invoice price is the right price.** The owner's words: "end of the day whatever comes in purchase invoice is
+the right price". A new switch, `invoices.check_price` (0040, a migration of its own: 0032 is applied on staging), **off**, not
+provisional (the owner's own decision). Off: a goods line whose price differs from the order (else the delivery's price) is never
+`within` or `off` for its price, whatever the size of the difference, so the price alone never puts an invoice on "To match"; the
+difference stays on the line (`price_e2`, `price_note`) and the invoice's page says it as information ("Price differs from the order:
+£0.15 more. The invoice price is used."); it is still recorded for the value engine exactly as before (`invoice_value_event`
+`price_difference` against the delivery's provisional cost: the invoice's price is the cost carried forward, PC8). The quantity is
+checked exactly as before: billing more units than arrived (beyond `invoices.qty_tolerance_pct`) still needs a person, and the money
+shown for it is the extra units at the invoice's own price. On: the two price tolerances (PC3) apply unchanged. While it is off, the
+Settings list greys the two price tolerances and says they are not used (`Settings::UNUSED_WHEN_OFF`); their values are kept. The
+tolerances a stored match was worked out with now include the switch; a match stored before 0040 has none and reads as checked (V4).
+"Check these again" on "To match" works the listed invoices out with the switch as it is now (the migration recomputes nothing).
+
 **Not done (out of scope or left for the owner):** supplier payments, the ledger, bank, VAT returns and the accountant's files (scope);
 the supplier item's "last price from the latest invoice" (IM4; I146's open item): an invoice records no `supplier_item_price` row, because a
 price row cannot be taken back when the invoice is cancelled (append-only) and S4 would then keep a cancelled price: a decision for the
 owner; a price-variance report as a file (the match is on each invoice and the "To match" list); an invoice line allocated over several
 delivery lines (PC2); freight across invoices (IM8 W2); a foreign-currency invoice (GBP only, I1).
 
-**Open for the owner:** PC3 ("or" in the price tolerance; the exact quantity); PC6 (no reviewer check after posting by default for invoices
+**Open for the owner:** PC3 ("or" in the price tolerance, which applies only with `invoices.check_price` on since PC19; the exact
+quantity); PC6 (no reviewer check after posting by default for invoices
 and returns); PC7 (who); the "last price" question above; whether a return's units are valued at the claimed price or the average (PC8 (4)).
 ## Going live, the CW side: the stores' queues, the relay intake, alerts, clean-up (pack F, slot `packf`, 14 Oct 2026)
 

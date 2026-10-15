@@ -40,7 +40,9 @@ final class InvoiceMatch
 {
     /** Setting key => its default (the plan's IM7 numbers; the quantity: exact). */
     public const RULE_SETTINGS = ['price_pct' => ['invoices.price_tolerance_pct', '2'], 'price_gbp' => ['invoices.price_tolerance_gbp', '5.00'],
-        'qty_pct' => ['invoices.qty_tolerance_pct', '0'], 'total_per_line' => ['invoices.total_tolerance_per_line', '0.05']];
+        'qty_pct' => ['invoices.qty_tolerance_pct', '0'], 'total_per_line' => ['invoices.total_tolerance_per_line', '0.05'],
+        // PC19 (0040): whether the price is checked at all ('1' / '0'); off by the owner's decision of 15 Oct 2026.
+        'check_price' => ['invoices.check_price', '0']];
 
     /**
      * The warehouses a receipt puts a line's exceptions in (GoodsReceiptHandler: damaged, wrong and over units in VERIFY, quarantined
@@ -64,9 +66,13 @@ final class InvoiceMatch
         $out = [];
         foreach (self::RULE_SETTINGS as $k => [$key, $default]) {
             $v = $s->has($key) ? $s->get($key) : null;
-            $out[$k] = $v === null || $v === '' ? $default : (string) $v;
+            $out[$k] = match (true) {
+                is_bool($v) => $v ? '1' : '0',
+                $v === null, $v === '' => $default,
+                default => (string) $v,
+            };
         }
-        /** @var array{price_pct: string, price_gbp: string, qty_pct: string, total_per_line: string} $out */
+        /** @var array{price_pct: string, price_gbp: string, qty_pct: string, total_per_line: string, check_price: string} $out */
         return $out;
     }
 

@@ -29,11 +29,11 @@
   </thead>
   <tbody>
 <?php foreach ($rows as $s): ?>
-    <tr class="<?php if ($s['agreed']): ?>done<?php else: ?>needs<?php endif; ?>">
+    <tr class="<?php if ($s['agreed']): ?>done<?php else: ?>needs<?php endif; ?><?php if (($s['unused'] ?? null) !== null): ?> unused<?php endif; ?>">
       <th scope="row" class="c-head"><a class="o-name" href="<?= $e($s['href']) ?>"><?= $e($s['name']) ?></a> <small class="muted"><code><?= $e($s['key']) ?></code></small></th>
       <td class="c-status"><?php if ($s['agreed']): ?><?= $chip('done', \CW\Ui\Words::SETTINGS_PAGE['agreed']) ?><?php else: ?><?= $chip('needs', \CW\Ui\Words::SETTINGS_PAGE['not_agreed']) ?><?php endif; ?></td>
       <td data-label="<?= $word('SETTINGS_PAGE', 'value') ?>" class="pre"><?php if ($s['value'] === null): ?><span class="muted"><?= $word('SETTINGS_PAGE', 'not_set') ?></span><?php else: ?><?= $e($s['value']) ?><?php endif; ?></td>
-      <td data-label="<?= $word('SETTINGS_PAGE', 'what') ?>"><?= $e($s['help']) ?></td>
+      <td data-label="<?= $word('SETTINGS_PAGE', 'what') ?>"><?= $e($s['help']) ?><?php if (($s['unused'] ?? null) !== null): ?> <strong class="unused-note"><?= $e($s['unused']) ?></strong><?php endif; ?></td>
       <td data-label="<?= $word('SETTINGS_PAGE', 'changed') ?>"><?= $e($s['changed']) ?></td>
     </tr>
 <?php endforeach; ?>
