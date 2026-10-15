@@ -39,6 +39,7 @@ final class ReceiptWords
             str_starts_with($m, 'Attach the supplier\'s invoice (a PDF, or a photo of a paper invoice)') => $w('invoice_file_required'),
             preg_match('/^The attached supplier invoice \((.+)\) is also the invoice of (.+?): a supplier\'s invoice is received once\./s', $m, $x) === 1
                 => $w('invoice_copy_elsewhere', $x[1], self::receiptLabel($x[2])),
+            str_starts_with($m, 'This supplier invoice is also on a delivery of another order') => $w('invoice_shared'), // pack PO (PO10)
             preg_match('/^Supplier (\S+) is [a-z ]+: goods are received only from an active supplier/', $m, $x) === 1 => $w('supplier_not_active', $s($x[1])),
             preg_match('/^Supplier (\S+) is overseas and its import route/', $m, $x) === 1 => $w('import_route', $s($x[1])),
             preg_match('/^Supplier (\S+): a change of its import route or of its overseas status/', $m, $x) === 1 => $w('import_route_change', $s($x[1])),

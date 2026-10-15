@@ -158,6 +158,30 @@
     });
   });
 
+  // Pack PO (docs/decisions.md PO2): a search box over a long list of choices (the suppliers of an order). Without the script it stays
+  // hidden and the list works as it is (a select is searched by typing its first letters). Typing shows only the choices whose words
+  // hold what was typed; the placeholder choice and the one chosen always stay.
+  each(document.querySelectorAll('input[data-filter-select]'), function (input) {
+    var select = document.getElementById(input.getAttribute('data-filter-select'));
+    if (!select) {
+      return;
+    }
+    input.hidden = false;
+    input.addEventListener('input', function () {
+      var q = input.value.trim().toLowerCase();
+      each(select.options, function (o) {
+        o.hidden = q !== '' && o.value !== '' && !o.selected && o.text.toLowerCase().indexOf(q) === -1;
+      });
+    });
+    input.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') {
+        ev.preventDefault(); // Enter in the search box chooses nothing and sends nothing
+        var first = Array.prototype.filter.call(select.options, function (o) { return !o.hidden && o.value !== ''; })[0];
+        if (first) { select.value = first.value; select.focus(); }
+      }
+    });
+  });
+
   // A form that changes something is sent once: the button is disabled on the first submit.
   each(document.querySelectorAll('form[method="post"]'), function (form) {
     form.addEventListener('submit', function (ev) {

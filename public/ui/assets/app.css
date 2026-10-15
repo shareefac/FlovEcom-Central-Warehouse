@@ -1655,3 +1655,8 @@ fieldset.count-open-how .inline-field input { width: 5rem; }
 p.seg-links { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
 p.seg-links a, p.seg-links strong { display: inline-flex; align-items: center; min-height: 44px; }
 form.count-answer { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-end; }
+
+/* Pack PO (docs/decisions.md PO2-PO4): select or add new on the order screens. */
+input.select-filter { display: block; max-width: 24rem; margin: 0 0 6px; }
+.supplier-needs ol { margin: 4px 0 8px 1.4em; padding: 0; }
+.po-editor .add-new { margin-top: 8px; }

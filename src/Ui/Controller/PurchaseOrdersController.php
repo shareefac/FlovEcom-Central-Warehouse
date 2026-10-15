@@ -59,7 +59,7 @@ final class PurchaseOrdersController
 
     /**
      * The most fields the editor form of these lines sends: an item line with a supplier item 4 (packs, price, VAT, note),
-     * without one 6 (+ units per pack, "save"), a charge 3 (packs, price, note); plus EDITOR_FIXED_FIELDS.
+     * without one 6 (+ units per pack, "save"), a charge 4 (packs, price, note, "remove"); plus EDITOR_FIXED_FIELDS.
      *
      * @param list<array<string, mixed>> $lines po_line rows (kind, supplier_item_id)
      */
@@ -67,7 +67,7 @@ final class PurchaseOrdersController
     {
         $n = self::EDITOR_FIXED_FIELDS;
         foreach ($lines as $l) {
-            $n += ($l['kind'] ?? 'item') === 'charge' ? 3 : (($l['supplier_item_id'] ?? null) === null ? 6 : 4);
+            $n += ($l['kind'] ?? 'item') === 'charge' ? 4 : (($l['supplier_item_id'] ?? null) === null ? 6 : 4);
         }
         return $n;
     }
@@ -93,8 +93,13 @@ final class PurchaseOrdersController
         return $this->listPage($ctx, 200, null, null);
     }
 
-    /** The list, also after a refused "Start a new order" ($error shown, $formKey kept). */
-    private function listPage(Context $ctx, int $status, ?string $error, ?string $formKey): HtmlResponse
+    /**
+     * The list, also after a refused "Start a new order" ($error shown, $formKey kept) or a refused "Add a new supplier" ($extra:
+     * newSupplier (what was typed), newSupplierError, supplierKey: pack PO, PO2).
+     *
+     * @param array<string, mixed> $extra
+     */
+    public function listPage(Context $ctx, int $status, ?string $error, ?string $formKey, array $extra = []): HtmlResponse
     {
         $me = $ctx->me();
         $draftsOff = self::draftsOffByDefault($me->roles);
@@ -119,6 +124,13 @@ final class PurchaseOrdersController
             'approvalLimit' => $ctx->documents()->typeInfo('PO')['approval_rule'] === 'none' ? null
                 : Html::money((int) $ctx->documents()->typeInfo('PO')['approval_limit_units']),
             'error' => $error,
+            // --- Pack PO (PO2): "Add a new supplier" next to the supplier list of "Start a new order" (its own form and form key).
+            'canAddSupplier' => $canPost && $me->can('suppliers.manage'),
+            'askSupplier' => Words::say('PO_ADD', 'ask_supplier', Words::whoCan('suppliers.manage')),
+            'supplierKey' => $canPost && $me->can('suppliers.manage') ? (string) ($extra['supplierKey'] ?? FormOnce::newKey()) : null,
+            'newSupplier' => ($extra['newSupplier'] ?? []) + ['name' => '', 'email' => '', 'phone' => ''],
+            'newSupplierError' => $extra['newSupplierError'] ?? null,
+            // --- end of pack PO
         ], $status, ['title' => Words::MENU['orders'], 'active' => 'orders']);
     }
 
@@ -323,9 +335,12 @@ final class PurchaseOrdersController
             $addSi = UiRequest::id($req->field('add_si'));
             $approving = $req->field('action') === 'approve' && $addSku === null && $addSi === null;
             if ($approving && $q !== '') {
-                return $this->page($ctx, $id, 422, new CwException('scan_pending', Words::say('BUY_ERROR', 'scan_pending', $q), 422), null, ['typed' => $typed, 'q' => $q]);
+                return $this->page($ctx, $id, 422, new CwException('scan_pending', Words::say('BUY_ERROR', 'scan_pending', $q), 422), null,
+                    ['typed' => $typed, 'q' => $q, 'packs' => $req->field('packs') ?? '1']);
             }
             $adding = $addSku !== null || $addSi !== null || ($req->field('action') === 'add' && $q !== '');
+            // Pack PO (PO4): "Add a new item" saves the table, then opens the step with what is in the scan box.
+            $newItem = $req->field('action') === 'new_item' && !$adding;
             $result = $ctx->db->transaction(function () use ($ctx, $svc, $id, $version, $header, $lines, $adding, $approving, $addSku, $addSi, $q, $packs): array {
                 $doc = $svc->saveDraft($ctx->caller(), $id, $version, $header, $lines);
                 if ($approving) {
@@ -348,14 +363,20 @@ final class PurchaseOrdersController
             if ($e->errorCode === 'version_conflict') {
                 return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::BUY_ERROR['version_conflict'], 409));
             }
-            return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typed' => $typed]);
+            // Review finding 5 (pack PO, PO7): nothing was saved, so what was still to add comes back too: the scan text, its packs and
+            // the charge (the form's charge fields are drawn from `typed`), as well as the table's edits.
+            return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typed' => $typed, 'q' => $q, 'packs' => $req->field('packs') ?? '1']);
         }
         if ($result['status'] === 'choices') {
             $choices = $result['choices'];
             return $this->page($ctx, $id, 200, null, null, ['choices' => $choices, 'q' => $q, 'packs' => max(1, $packs)]);
         }
+        if ($newItem && $result['status'] === 'saved') {
+            return HtmlResponse::redirect(Html::url('/ui/purchasing/orders/' . $id . '/new-item', ['q' => $q === '' ? null : $q, 'packs' => (string) max(1, $packs)]));
+        }
         if ($result['status'] === 'not_found') {
-            return $this->page($ctx, $id, 422, new CwException('not_found', Words::say('BUY_ERROR', 'not_found', $q), 422), null, ['q' => $q]);
+            return $this->page($ctx, $id, 422, new CwException('not_found', Words::say('BUY_ERROR', 'not_found', $q), 422), null, ['q' => $q,
+                'packs' => $req->field('packs') ?? '1']);
         }
         return HtmlResponse::redirect(Html::url('/ui/purchasing/orders/' . $id, ['notice' => $result['status']])
             . (in_array($result['status'], ['approved', 'submitted'], true) ? '' : '#scan'));
@@ -447,6 +468,15 @@ final class PurchaseOrdersController
         return $this->act($ctx, function (PurchaseOrders $svc, int $id, int $version) use ($ctx): string {
             $svc->close($ctx->caller(), $id, $version, $ctx->req->field('reason') ?? '');
             return 'closed';
+        });
+    }
+
+    /** POST reopen (pack PO, PO8): a closed order waits for the rest again (a reason, audited). */
+    public function reopen(Context $ctx): HtmlResponse
+    {
+        return $this->act($ctx, function (PurchaseOrders $svc, int $id, int $version) use ($ctx): string {
+            $svc->reopen($ctx->caller(), $id, $version, $ctx->req->field('reason') ?? '');
+            return 'reopened';
         });
     }
 
@@ -573,7 +603,10 @@ final class PurchaseOrdersController
                     $totals['by_code'])],
             'vatLabels' => $vatLabels,
             'state' => $state,
-            'warnings' => in_array($doc->status, ['draft', 'awaiting_approval'], true) ? PoWarnings::plain($svc->warnings($doc->id), $supplierName, $products) : [],
+            'warnings' => in_array($doc->status, ['draft', 'awaiting_approval'], true)
+                ? self::withoutSupplierWarning(PoWarnings::plain($svc->warnings($doc->id), $supplierName, $products), $supplier, $supplierName) : [],
+            'supplierNeeds' => $doc->status === 'draft'
+                ? self::supplierNeeds($supplier, $supplierName, !\CW\Admin\ApprovalRules::on($db, 'approvals.supplier_activation')) : null, // pack PO (PO3)
             'companyNote' => self::companyNote($ctx, $po),
             'limit' => $okFirst ? Html::money($limit) : null,
             'overLimit' => $okFirst && $netE2 > 0 && PoMath::approvalUnits($netE2) > $limit,
@@ -593,7 +626,7 @@ final class PurchaseOrdersController
                 'typed' => $extra['typed'] ?? [],
                 'choices' => $extra['choices'] ?? null,
                 'q' => $extra['q'] ?? '',
-                'packs' => (int) ($extra['packs'] ?? 1),
+                'packs' => (string) ($extra['packs'] ?? '1'),
                 'vatCodes' => $db->all('SELECT code, label FROM vat_code WHERE is_active = 1 ORDER BY sort_order, code'),
                 'suppliers' => $count === 0 ? $db->all("SELECT id, code, name, status FROM supplier WHERE status <> 'inactive' ORDER BY name, id") : [],
                 'today' => (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d'),
@@ -601,10 +634,63 @@ final class PurchaseOrdersController
                 'maxMb' => intdiv(PoLinesFile::MAX_BYTES, 1_048_576),
                 'maxRows' => PoLinesFile::MAX_ROWS,
                 'cancelReasons' => self::reasonChoices($db, 'draft_cancel'),
+                // --- Pack PO (PO2-PO5): select or add new.
+                'canAddSupplier' => $count === 0 && $me->can('suppliers.manage'),
+                'askSupplier' => $count === 0 ? Words::say('PO_ADD', 'ask_supplier', Words::whoCan('suppliers.manage')) : null,
+                'newSupplier' => ($extra['newSupplier'] ?? []) + ['name' => '', 'email' => '', 'phone' => ''],
+                'newSupplierError' => $extra['newSupplierError'] ?? null,
+                'canAddItem' => $me->can('items.create'),
+                'askItem' => Words::say('PO_ADD', 'ask_item', Words::whoCan('items.create')),
+                // --- end of pack PO
             ];
             return $ctx->page('purchase_order_edit', $data, $status, $layout);
         }
         return $ctx->page('purchase_order', $data + $this->viewData($ctx, $doc, $po, $canPost, $supplierName), $status, $layout);
+    }
+
+    /**
+     * Pack PO (PO3): what a supplier that is not approved yet still needs before an order to it can be confirmed, in steps, with the
+     * link to its page; null when it is active (or stopped: the warnings say that). The approval rule itself is the existing one
+     * (PurchaseOrderHandler::validate): this only says it plainly.
+     *
+     * @param array<string, mixed> $supplier the supplier row
+     * @param bool $alone the second person for a supplier is switched off (approvals.supplier_activation): its buyer makes it usable
+     * @return array{title: string, lead: string, steps: list<string>, link: string}|null
+     */
+    public static function supplierNeeds(array $supplier, string $name, bool $alone = false): ?array
+    {
+        $status = (string) ($supplier['status'] ?? '');
+        if (!in_array($status, ['draft', 'pending_approval'], true)) {
+            return null;
+        }
+        $link = '/ui/purchasing/suppliers/' . (int) ($supplier['id'] ?? 0);
+        if ($status === 'pending_approval') {
+            return ['title' => Words::PO_ADD['needs_title'], 'lead' => Words::say('PO_ADD', 'needs_pending', $name), 'steps' => [], 'link' => $link];
+        }
+        $missing = \CW\Suppliers\Suppliers::missing($supplier);
+        return ['title' => Words::PO_ADD[$alone ? 'needs_title_alone' : 'needs_title'], 'lead' => Words::say('PO_ADD', 'needs_new', $name),
+            'steps' => array_values(array_filter([
+                $missing === [] ? null : Words::say('PO_ADD', 'needs_fill', SuppliersController::fields($missing)),
+                Words::PO_ADD[$alone ? 'needs_activate' : 'needs_ask'],
+                Words::PO_ADD[$alone ? 'needs_then' : 'needs_reviewer'],
+            ])), 'link' => $link];
+    }
+
+    /**
+     * The draft's warnings without "you cannot confirm it until a reviewer approves the supplier" when supplierNeeds() says it in
+     * steps (pack PO, PO3): one thing said once.
+     *
+     * @param list<string> $warnings
+     * @param array<string, mixed> $supplier
+     * @return list<string>
+     */
+    private static function withoutSupplierWarning(array $warnings, array $supplier, string $name): array
+    {
+        if (!in_array((string) ($supplier['status'] ?? ''), ['draft', 'pending_approval'], true)) {
+            return $warnings;
+        }
+        $said = Words::say('PO_WARN', 'supplier_not_approved', $name);
+        return array_values(array_filter($warnings, static fn (string $w): bool => $w !== $said));
     }
 
     /**
@@ -735,6 +821,7 @@ final class PurchaseOrdersController
                 'amend' => $canPost && $posted && $received === 0 && !in_array($state, ['received', 'closed'], true),
                 'copy' => $canPost,
                 'close' => $canPost && $posted && $state === 'part_received',
+                'reopen' => $canPost && $posted && $state === 'closed', // pack PO (PO8)
                 'approve' => $canPost && $doc->status === 'draft',
                 'withdraw' => $canPost && $doc->status === 'awaiting_approval' && $doc->submittedBy === $me->id,
             ],
@@ -840,7 +927,7 @@ final class PurchaseOrdersController
 
     /**
      * The editor's lines with the table's edits applied (rows 1..$count): packs (0 removes the line), pack price, VAT code,
-     * note; for a line without a supplier item also units per pack and "save as supplier item".
+     * note; for a line without a supplier item also units per pack and "save as supplier item"; a charge's "remove" box.
      *
      * @param list<array<string, mixed>> $current
      * @return list<array<string, mixed>>
@@ -860,6 +947,9 @@ final class PurchaseOrdersController
             }
             if ($p === 0) {
                 continue;
+            }
+            if ($l['kind'] === 'charge' && $req->field("line_{$n}_remove") === '1') {
+                continue; // review finding 8 (pack PO, PO7): a charge's own "remove" box
             }
             $l['packs'] = $p;
             $note = $req->field("line_{$n}_note");

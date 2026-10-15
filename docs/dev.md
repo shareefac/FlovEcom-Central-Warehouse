@@ -637,3 +637,21 @@ Document and file tests notes:
   `StockOpsTestCase`; `ItemsRaceTest` races two `items_worker.php` processes), `tests/Integration/UiKernel/ItemManagementScreensTest.php` (the screens as `cw_app`, who may, the CSRF token on
   every POST), `tests/Unit/ItemManagementUnitTest.php` (templates, words, permissions, tabs, settings). A test that changes one of the four
   settings puts its VALUE back (never `updated_actor`).
+
+
+### Pack PO: "select or add new" on the purchase order, and the PO review fixes (`docs/decisions.md` PO1-PO12)
+
+| Path | What |
+|---|---|
+| `migrations/0042_po_select_or_add.sql` | `purchase_order.terms_snapshot` (the terms as approved), `goods_receipt.invoice_part` and the UNIQUE key (supplier, invoice key, part) of a live invoice number |
+| `src/Ui/Controller/PoSelectOrAddController.php`, views `purchase_order_new_item`, `po_supplier_needs` | "Add a new supplier" (the list, a draft without products) and the step "Add a new item" (`/ui/purchasing/orders/{id}/new-item`); what a supplier not usable yet still needs |
+| `src/PurchaseOrders/PurchaseOrders.php` | + `createWithNewSupplier`, `setNewSupplier`, `addNewItem` (one transaction each), `reopen`; `reverseReceipt` on a closed order; `pdfData` prints the terms as approved |
+| `src/PurchaseOrders/PoLinesFile.php` | `PRECEDENCE`: a row's most precise identifier names its line, the others are resolved within it |
+| `src/Reorder/DraftPos.php`, `ReorderController` | a pick carries the supplier item and pack the list showed; a changed one is skipped (`why` changed, `?changed=` on the redirect) |
+| `src/Receiving/GoodsReceipts.php` (`invoicePart`), `ReceiptPlan`, view `receipt_split` | one supplier invoice for several deliveries of one order (`setInvoice` `invoice_split`) |
+
+- Tests: `tests/Integration/PurchaseOrders/{PoSelectOrAddTest,PurchaseOrderReviewFixesTest}.php`, `tests/Integration/Receiving/
+  ClosedOrderAndSplitInvoiceTest.php`, `tests/Integration/Reorder/ReorderDraftAsShownTest.php`, `tests/Integration/UiKernel/
+  {PoSelectOrAddScreensTest,PurchaseOrderFixesScreensTest}.php` (every new POST: its CSRF token and its route's permission), `Migration0042Test`.
+  A screen test that changes the PO rule (`document_type`, a seed table) puts its row back in tearDown. The search box over the supplier list
+  is `input[data-filter-select]` (hidden; `app.js` shows it): `UiResponse::form()` skips it (it has no name).

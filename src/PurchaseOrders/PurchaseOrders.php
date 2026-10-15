@@ -16,10 +16,12 @@ use CW\Db;
 use CW\Documents\Document;
 use CW\Documents\Documents;
 use CW\Files\FileStore;
+use CW\Items\HandMade;
 use CW\Matching\Gtin;
 use CW\Settings;
 use CW\Staff\StaffRoles;
 use CW\Suppliers\SupplierItems;
+use CW\Suppliers\Suppliers;
 use CW\Ui\Queries;
 
 /**
@@ -256,8 +258,8 @@ final class PurchaseOrders
             $this->lockDraft($id, $version, $me);
             $supplier = $db->one('SELECT * FROM supplier WHERE id = ?', [(int) $this->poRow($id)['supplier_id']]) ?? throw new \LogicException('PO without supplier');
             $vat = array_map(static fn (array $v): bool => $v['active'], $this->vatCodes());
-            $parsed = PoLinesFile::parse($file['header'], $file['rows'], fn (string $type, string $value): array|string => $this->resolveForFile((int) $supplier['id'],
-                $type, $value), $vat);
+            $parsed = PoLinesFile::parse($file['header'], $file['rows'], fn (string $type, string $value, ?array $within = null): array|string
+                => $this->resolveForFile((int) $supplier['id'], $type, $value, $within), $vat);
             if ($parsed['errors'] !== []) {
                 return ['lines' => 0, 'errors' => $parsed['errors'], 'document' => $this->docs->get($id)];
             }
@@ -283,6 +285,92 @@ final class PurchaseOrders
             Audit::write($db, $caller, 'po.import_lines', 'document', (string) $id, null,
                 ['file' => mb_substr(basename($name), 0, 120), 'sha256' => $sha, 'format' => $file['format'], 'rows' => count($parsed['lines']), 'mode' => $mode]);
             return ['lines' => count($parsed['lines']), 'errors' => [], 'document' => $doc];
+        });
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Select or add new (the owner, 15 Oct 2026; pack PO, docs/decisions.md PO1-PO6)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * "Add a new supplier" while starting an order: the supplier is made as the supplier screens make one (Suppliers::create: a
+     * DRAFT supplier, suppliers.manage, its own checks and audit) and a draft order is started for it, in ONE transaction. The order
+     * is prepared while the supplier is not approved yet; confirming it still waits for the supplier's approval (PurchaseOrderHandler,
+     * unchanged). The caller writes purchase orders too (doc.PO.post). Audit supplier.create and po.create (source manual).
+     *
+     * @param array<string, mixed> $fields Suppliers::FIELDS (name required)
+     * @return array{supplier: array<string, mixed>, document: Document}
+     */
+    public function createWithNewSupplier(Caller $caller, Suppliers $suppliers, array $fields): array
+    {
+        return $this->db->transaction(function () use ($caller, $suppliers, $fields): array {
+            $this->poster($caller);
+            $s = $suppliers->create($caller, $fields);
+            return ['supplier' => $s, 'document' => $this->createDraft($caller, (int) $s['id'], [])];
+        });
+    }
+
+    /**
+     * "Add a new supplier" on a draft that has no lines yet (its supplier can change only then): the supplier is made as the supplier
+     * screens make one (a DRAFT supplier) and put on this draft at once, in ONE transaction. Creator only, at $version (the draft's row
+     * is locked first, then the supplier is written: the order of saveDraft). 409 supplier_has_lines.
+     *
+     * @param array<string, mixed> $fields Suppliers::FIELDS (name required)
+     * @return array{supplier: array<string, mixed>, document: Document}
+     */
+    public function setNewSupplier(Caller $caller, Suppliers $suppliers, int $id, int $version, array $fields): array
+    {
+        return $this->db->transaction(function (Db $db) use ($caller, $suppliers, $id, $version, $fields): array {
+            $me = $this->poster($caller);
+            $this->lockDraft($id, $version, $me);
+            if ((int) $db->value('SELECT COUNT(*) FROM document_line WHERE document_id = ?', [$id]) > 0) {
+                throw new CwException('supplier_has_lines', 'the supplier of a draft changes only while it has no lines: remove them first, or start a new order', 409);
+            }
+            $s = $suppliers->create($caller, $fields);
+            return ['supplier' => $s, 'document' => $this->saveDraft($caller, $id, $version, ['supplier_id' => (int) $s['id']], [])];
+        });
+    }
+
+    /**
+     * "Add a new item" on a draft's line, in ONE transaction: the draft locked first (creator, $version), then the item made by hand
+     * with Pack B's rules (HandMade::create: items.create; a barcode on another item refused, 409 barcode_on_other_item; the same name
+     * and identity refused unless `anyway`, 409 same_item_exists), then, when a supplier code, a price or a pack of more than 1 is
+     * given, this supplier's supplier item for it (SupplierItems::create: suppliers.manage; preferred when the item has no main
+     * supply yet; the price recorded as its first price), and last the line ($packs packs; addResolved, as a scan). Audit po.new_item
+     * besides the services' own rows.
+     *
+     * @param array<string, mixed> $item HandMade::create's input (card, barcode, barcode_units, anyway)
+     * @param array{supplier_code?: ?string, units_per_pack?: int, purchase_unit?: ?string, pack_price?: ?string} $supply
+     * @return array{status: 'added'|'incremented', document: Document, line_no: int, sku_id: int, code: string, supplier_item_id: ?int}
+     */
+    public function addNewItem(Caller $caller, int $id, int $version, HandMade $hand, array $item, array $supply, int $packs): array
+    {
+        if ($packs < 1 || $packs > PoMath::MAX_PACKS) {
+            throw new CwException('bad_field', 'packs: a whole number from 1 to ' . PoMath::MAX_PACKS, 422, ['field' => 'packs']);
+        }
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $hand, $item, $supply, $packs): array {
+            $me = $this->poster($caller);
+            $this->lockDraft($id, $version, $me);
+            $supplierId = (int) $this->poRow($id)['supplier_id'];
+            $made = $hand->create($caller, $item);
+            $sku = (int) $made['sku_id'];
+            $code = $supply['supplier_code'] ?? null;
+            $code = $code === null || trim($code) === '' ? null : trim($code);
+            $upp = (int) ($supply['units_per_pack'] ?? 1);
+            $price = $supply['pack_price'] ?? null;
+            $price = $price === null || trim($price) === '' ? null : trim($price);
+            $si = null;
+            if ($code !== null || $price !== null || $upp > 1) {
+                $unit = $supply['purchase_unit'] ?? null;
+                $si = $this->supplierItems->create($caller, $supplierId, $sku, ['supplier_code' => $code, 'units_per_pack' => (string) $upp,
+                    'purchase_unit' => $unit === null || trim($unit) === '' ? ($upp > 1 ? 'case' : 'each') : trim($unit), 'is_preferred' => SupplierItems::PREFERRED_AUTO],
+                    $price === null ? null : ['pack_price' => $price]);
+            }
+            $r = $si !== null ? self::found($sku, $si) : ['status' => 'found', 'sku_id' => $sku, 'supplier_item' => null, 'units_per_pack' => 1, 'purchase_unit' => 'each'];
+            $res = $this->addResolved($caller, $id, $version, $r, $packs);
+            Audit::write($db, $caller, 'po.new_item', 'document', (string) $id, null, ['sku_id' => $sku, 'code' => $made['code'],
+                'supplier_item_id' => $si === null ? null : (int) $si['id'], 'packs' => $packs, 'line_no' => $res['line_no']]);
+            return $res + ['sku_id' => $sku, 'code' => (string) $made['code'], 'supplier_item_id' => $si === null ? null : (int) $si['id']];
         });
     }
 
@@ -554,6 +642,56 @@ final class PurchaseOrders
         });
     }
 
+    /**
+     * Opens a closed order again (review finding 2, pack PO, PO8: "Reopen order"): the rest is expected after all. Its state goes back
+     * to what its receipts say (part_received; received when every line is complete), the close is cleared and the reason given is
+     * audited (po.reopen, with the close reason it undoes). 409 not_reopenable unless closed; $reason 3-500 characters (400
+     * reopen_reason_required); a buyer (doc.PO.post); the version the page was drawn with.
+     */
+    public function reopen(Caller $caller, int $id, int $version, string $reason): Document
+    {
+        $reason = trim($reason);
+        if (mb_strlen($reason) < Documents::NOTE_MIN || mb_strlen($reason) > Documents::NOTE_MAX || !mb_check_encoding($reason, 'UTF-8')) {
+            throw new CwException('reopen_reason_required', 'say in 3 to 500 characters why the rest is expected again', 400, ['field' => 'reason']);
+        }
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $reason): Document {
+            $this->poster($caller);
+            $row = $this->lockPo($id);
+            $this->checkVersion($row, $version);
+            $po = $db->one('SELECT state, sent_at, close_reason, closed_at FROM purchase_order WHERE document_id = ? FOR UPDATE', [$id]);
+            if ($row['status'] !== 'posted' || $row['reverses_id'] !== null || $po === null || $po['state'] !== 'closed') {
+                throw new CwException('not_reopenable', "{$this->label($row)} is " . str_replace('_', ' ', (string) ($po['state'] ?? $row['status']))
+                    . ': only a closed order is reopened', 409);
+            }
+            $any = false;
+            $all = true;
+            foreach ($db->all("SELECT dl.qty, pl.received_units FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no "
+                . "WHERE pl.document_id = ? AND pl.kind = 'item'", [$id]) as $l) {
+                $any = $any || (int) $l['received_units'] > 0;
+                $all = $all && (int) $l['received_units'] >= (int) $l['qty'];
+            }
+            $state = self::receiptState($any, $all, $po['sent_at'] !== null);
+            $now = $this->nowDb();
+            $db->exec('UPDATE purchase_order SET state = ?, closed_at = NULL, closed_by = NULL, close_reason = NULL, updated_at = ? WHERE document_id = ?',
+                [$state, $now, $id]);
+            $db->exec('UPDATE document SET version = version + 1, updated_at = ? WHERE id = ?', [$now, $id]);
+            Audit::write($db, $caller, 'po.reopen', 'document', (string) $id, null, ['number' => $row['number'], 'reason' => $reason,
+                'close_reason' => $po['close_reason'], 'closed_at' => $po['closed_at'], 'state' => $state]);
+            return $this->docs->get($id);
+        });
+    }
+
+    /** An order's state from its receipts: every item line complete -> received; some -> part_received; none -> sent or approved. */
+    private static function receiptState(bool $any, bool $all, bool $sent): string
+    {
+        return match (true) {
+            $any && $all => 'received',
+            $any => 'part_received',
+            $sent => 'sent',
+            default => 'approved',
+        };
+    }
+
     // ------------------------------------------------------------------------------------------
     // Receipts (Phase I-3's GRN calls these inside its posting transaction)
     // ------------------------------------------------------------------------------------------
@@ -607,7 +745,10 @@ final class PurchaseOrders
 
     /**
      * Takes received units back (a GRN reversal), inside the caller's transaction; never below 0 (409 receipt_below_zero).
-     * The state follows (none left: back to sent or approved, by sent_at).
+     * The state follows (none left: back to sent or approved, by sent_at). A CLOSED order takes its receipts back too (review
+     * finding 2, pack PO, PO8): it stays closed while something is still received (the rest is still not expected); with
+     * nothing received it is open again (sent or approved: "closed" means "the rest of a part delivery is not coming"), its
+     * close cleared and the close reason kept in the audit row (`reopened_from_closed`).
      *
      * @param array<int, int> $lineUnits
      */
@@ -812,8 +953,30 @@ final class PurchaseOrders
             'supplier' => $supplier,
             'lines' => $lines,
             'totals' => PoMath::totals($calc),
-            'terms' => (string) $this->settings->get('po.terms'),
+            'terms' => $posted ? $this->termsAsApproved($po, $orig) : (string) $this->settings->get('po.terms'),
         ];
+    }
+
+    /**
+     * The terms an approved order prints (pack PO, PO9, review finding 7): its snapshot; an order approved before 0042 has none, so
+     * the version of the setting in force when it was approved (its history, config_change), else the setting as it is now.
+     *
+     * @param array<string, mixed> $po the purchase_order row
+     */
+    private function termsAsApproved(array $po, Document $doc): string
+    {
+        if (($po['terms_snapshot'] ?? null) !== null) {
+            return (string) $po['terms_snapshot'];
+        }
+        if ($doc->postedAt !== null) {
+            $v = $this->db->value("SELECT JSON_UNQUOTE(JSON_EXTRACT(state, '$.value')) FROM config_change WHERE subject_type = 'setting' AND subject_key = 'po.terms' "
+                . 'AND created_at <= ? ORDER BY version DESC LIMIT 1', [$doc->postedAt]);
+            $decoded = $v === null ? null : json_decode((string) $v, true);
+            if (is_string($decoded)) {
+                return $decoded;
+            }
+        }
+        return (string) $this->settings->get('po.terms');
     }
 
     /**
@@ -976,12 +1139,38 @@ final class PurchaseOrders
     }
 
     /**
-     * A lines-file identifier (cw_code, supplier_code, barcode) as PoLinesFile::parse() wants it, or the error text.
+     * A lines-file identifier (cw_code, supplier_code, barcode) as PoLinesFile::parse() wants it, or the error text. $within: the
+     * row's identifier that names its line (PoLinesFile::PRECEDENCE, pack PO PO9): this one then names only its item (and a barcode
+     * the units it stands for, `pack_of`), so a CW number of an item sold in several packs no longer contradicts the supplier code.
      *
+     * @param array<string, mixed>|null $within
      * @return array<string, mixed>|string
      */
-    private function resolveForFile(int $supplierId, string $type, string $value): array|string
+    private function resolveForFile(int $supplierId, string $type, string $value, ?array $within = null): array|string
     {
+        if ($within !== null && in_array($type, ['cw_code', 'barcode'], true)) {
+            $packOf = 1;
+            if ($type === 'cw_code') {
+                if (preg_match('/^(?:cw-?)?0*([0-9]{1,10})$/iD', $value, $m) !== 1 || $this->db->value('SELECT 1 FROM sku WHERE id = ?', [(int) $m[1]]) === null) {
+                    return "there is no item {$value}";
+                }
+                $sku = (int) $m[1];
+            } else {
+                if (preg_match('/^[0-9 ]{6,64}$/D', $value) !== 1) {
+                    return 'a barcode is 6 to 64 digits';
+                }
+                $digits = str_replace(' ', '', $value);
+                $b = $this->db->one('SELECT sku_id, units_per_scan FROM sku_barcode WHERE barcode IN (?, ?) AND is_usable = 1 ORDER BY barcode = ? DESC LIMIT 1',
+                    [$digits, Gtin::key($digits) ?? $digits, $digits]);
+                if ($b === null) {
+                    return "no item has the usable barcode {$value}";
+                }
+                $sku = (int) $b['sku_id'];
+                $packOf = (int) $b['units_per_scan'];
+            }
+            $code = $this->db->value('SELECT code FROM sku WHERE id = ?', [$sku]);
+            return ['sku_id' => $sku, 'sku_code' => (string) $code, 'supplier_item' => null, 'pack_of' => $packOf];
+        }
         switch ($type) {
             case 'supplier_code':
                 $si = $this->db->one('SELECT * FROM supplier_item WHERE supplier_id = ? AND supplier_code = ? AND is_active = 1 ORDER BY id LIMIT 1', [$supplierId, $value]);
@@ -1338,7 +1527,7 @@ final class PurchaseOrders
             throw new CwException('unknown_purchase_order', 'there is no such purchase order', 404);
         }
         $po = $this->db->one('SELECT * FROM purchase_order WHERE document_id = ? FOR UPDATE', [$poId]) ?? throw new \LogicException('PO without header');
-        $allowed = $sign > 0 ? self::OPEN_STATES : [...self::OPEN_STATES, 'received'];
+        $allowed = $sign > 0 ? self::OPEN_STATES : [...self::OPEN_STATES, 'received', 'closed'];
         if ($row['status'] !== 'posted' || !in_array($po['state'], $allowed, true)) {
             throw new CwException('po_not_receivable', ($row['number'] ?? 'this order') . ' is ' . str_replace('_', ' ', (string) ($po['state'] ?? $row['status']))
                 . ($sign > 0 ? ': goods are received only against an approved, sent or part-received order' : ': its receipts cannot be taken back'), 409);
@@ -1365,15 +1554,21 @@ final class PurchaseOrders
             $any = $any || (int) $l['received_units'] > 0;
             $all = $all && (int) $l['received_units'] >= (int) $l['qty'];
         }
-        $state = match (true) {
-            $any && $all => 'received',
-            $any => 'part_received',
-            $po['sent_at'] !== null => 'sent',
-            default => 'approved',
-        };
-        $this->db->exec('UPDATE purchase_order SET state = ?, updated_at = ? WHERE document_id = ?', [$state, $this->nowDb(), $poId]);
+        $state = self::receiptState($any, $all, $po['sent_at'] !== null);
+        $reopened = null;
+        if ($po['state'] === 'closed') {
+            if ($any) {
+                $state = 'closed'; // the rest is still not expected (PO8)
+            } else {
+                $reopened = (string) $po['close_reason'];
+            }
+        }
+        $this->db->exec('UPDATE purchase_order SET state = ?, closed_at = IF(? = 1, NULL, closed_at), closed_by = IF(? = 1, NULL, closed_by), '
+            . 'close_reason = IF(? = 1, NULL, close_reason), updated_at = ? WHERE document_id = ?',
+            [$state, $reopened !== null ? 1 : 0, $reopened !== null ? 1 : 0, $reopened !== null ? 1 : 0, $this->nowDb(), $poId]);
         Audit::write($this->db, $caller, 'po.receipt', 'document', (string) $poId, null,
-            ['number' => $row['number'], 'grn' => mb_substr($grnLabel, 0, 64), 'direction' => $sign > 0 ? 'in' : 'back', 'lines' => $lineUnits, 'state' => $state]);
+            ['number' => $row['number'], 'grn' => mb_substr($grnLabel, 0, 64), 'direction' => $sign > 0 ? 'in' : 'back', 'lines' => $lineUnits, 'state' => $state]
+            + ($reopened === null ? [] : ['reopened_from_closed' => $reopened]));
     }
 
     /**

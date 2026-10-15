@@ -5,6 +5,9 @@
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?><?php if ($refusedPost): ?> <a href="#ready-h"><?= $word('RECEIPT', 'refused_see') ?></a><?php endif; ?></p>
 <?php endif; ?>
+<?php if ($splitStep !== null): ?>
+<?= $partial('receipt_split', ['doc' => $doc, 'step' => $splitStep]) ?>
+<?php endif; ?>
 <?php if ($problems !== [] && !$refusedPost): ?>
 <ul class="error problems">
 <?php foreach ($problems as $p): ?>
@@ -69,7 +72,7 @@
     <p><?= $word('RECEIPT', 'against') ?> <a href="<?= $u('/ui/purchasing/orders/' . $po['id']) ?>"><?= $e($po['number']) ?></a> <?= $stateChip('PO_STATE', (string) $po['state']) ?>
       <span class="hint"><?= $word('RECEIPT', 'po_fixed') ?></span></p>
 <?php endif; ?>
-    <label><?= $word('RECEIPT', 'invoice_number') ?> <input type="text" name="invoice_number" maxlength="64" value="<?= $e($typed['invoice_number'] ?? $doc->externalRef) ?>" autocomplete="off"></label>
+    <label><?= $word('RECEIPT', 'invoice_number') ?> <input type="text" name="invoice_number" maxlength="64" value="<?= $e($typed['invoice_number'] ?? $doc->externalRef) ?>" autocomplete="off"><?php if ($invoicePart > 1): ?> <span class="hint"><?= $say('RECEIPT', 'split_part', $invoicePart) ?></span><?php endif; ?></label>
     <label><?= $word('RECEIPT', 'invoice_date') ?> <input type="date" name="invoice_date" value="<?= $e($typed['invoice_date'] ?? ($gr['invoice_date'] ?? '')) ?>"></label>
     <label><?= $word('RECEIPT', 'delivery_note_no') ?> <input type="text" name="delivery_note" maxlength="64" value="<?= $e($typed['delivery_note'] ?? ($gr['delivery_note'] ?? '')) ?>"></label>
     <label><?= $word('RECEIPT', 'arrived_at') ?> <input type="datetime-local" name="received_at" value="<?= $e($typed['received_at'] ?? $receivedLocal) ?>"></label>

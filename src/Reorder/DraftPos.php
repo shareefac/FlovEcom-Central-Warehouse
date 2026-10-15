@@ -38,10 +38,15 @@ final class DraftPos
     }
 
     /**
-     * @param list<array{sku_id: int, packs: int}> $picks
+     * Pack PO (docs/decisions.md PO11, review finding 4): a pick may carry what the list SHOWED, `supplier_item_id` (null: no main
+     * supplier) and `units_per_pack`; the screen always sends them. When the item's main supply is no longer that supplier item in
+     * that pack (another supplier, another pack, none), the line is skipped (`why` changed) and listed, never ordered in what the
+     * buyer did not see. A pick without them (the API, older callers) takes the main supply as it is now.
+     *
+     * @param list<array{sku_id: int, packs: int, supplier_item_id?: ?int, units_per_pack?: int}> $picks
      * @param string $stock the list's stock source (cw | site): the suggestion stored with each line is the one the buyer saw
      * @return array{drafts: list<array{document_id: int, supplier_id: int, supplier: string, lines: int, units: int, net: string, below_minimum: bool}>,
-     *   skipped: list<array{sku_id: int, code: string, reason: string}>, warnings: list<string>}
+     *   skipped: list<array{sku_id: int, code: string, reason: string, why?: string}>, warnings: list<string>}
      */
     public function create(Caller $caller, array $picks, string $stock = 'cw', ?string $formKey = null): array
     {
@@ -49,12 +54,21 @@ final class DraftPos
             throw new CwException('too_many_lines', 'at most ' . self::MAX_PICKS . ' items at once', 422);
         }
         $want = [];
+        $shown = [];
         foreach ($picks as $p) {
             if (!is_array($p) || !is_int($p['sku_id'] ?? null) || !is_int($p['packs'] ?? null) || $p['sku_id'] < 1 || $p['packs'] < 0 || $p['packs'] > PoMath::MAX_PACKS) {
                 throw new CwException('bad_pick', 'each picked item has an item and a number of packs from 0 to ' . number_format(PoMath::MAX_PACKS), 400);
             }
             if (isset($want[$p['sku_id']])) {
                 throw new CwException('bad_pick', 'an item is picked twice', 400);
+            }
+            if (array_key_exists('supplier_item_id', $p) || array_key_exists('units_per_pack', $p)) {
+                $si = $p['supplier_item_id'] ?? null;
+                $upp = $p['units_per_pack'] ?? null;
+                if (($si !== null && (!is_int($si) || $si < 1)) || ($upp !== null && (!is_int($upp) || $upp < 1))) {
+                    throw new CwException('bad_pick', 'what the list showed is a supplier item and a pack size', 400);
+                }
+                $shown[$p['sku_id']] = ['supplier_item_id' => $si, 'units_per_pack' => $upp];
             }
             if ($p['packs'] > 0) {
                 $want[$p['sku_id']] = $p['packs'];
@@ -64,7 +78,7 @@ final class DraftPos
             throw new CwException('nothing_picked', 'tick at least one line with more than 0 packs', 422);
         }
         $skipNoPrice = ReorderSettings::engine($this->settings ?? new Settings($this->db))['skip_no_price'];
-        return $this->db->transaction(function (Db $db) use ($caller, $want, $stock, $formKey, $skipNoPrice): array {
+        return $this->db->transaction(function (Db $db) use ($caller, $want, $shown, $stock, $formKey, $skipNoPrice): array {
             $f = ReorderList::filters(['show' => 'all', 'stock' => $stock]);
             $lines = [];
             foreach ($this->list->lines($f, array_keys($want)) as $l) {
@@ -75,6 +89,14 @@ final class DraftPos
             foreach ($want as $sku => $packs) {
                 $l = $lines[$sku] ?? null;
                 $code = $l['code'] ?? (string) ($db->value('SELECT code FROM sku WHERE id = ?', [$sku]) ?? "#{$sku}");
+                // Pack PO (PO11): the line as the buyer saw it, or nothing.
+                $seen = $shown[$sku] ?? null;
+                if ($l !== null && $seen !== null && ($seen['supplier_item_id'] !== ($l['supplier_item_id'] === null ? null : (int) $l['supplier_item_id'])
+                    || ($seen['units_per_pack'] !== null && $l['supplier_item_id'] !== null && $seen['units_per_pack'] !== (int) $l['upp']))) {
+                    $skipped[] = ['sku_id' => $sku, 'code' => $code, 'why' => 'changed', 'reason' => 'its main supply changed after the list was shown (now '
+                        . ($l['supplier_item_id'] === null ? 'none' : ($l['supplier'] ?? '?') . ', packs of ' . (int) $l['upp']) . '): look at the list again'];
+                    continue;
+                }
                 $reason = match (true) {
                     $l === null => 'not on the reorder list',
                     in_array('merged', $l['flags'], true) => (string) $l['never'] . ': order that item instead',

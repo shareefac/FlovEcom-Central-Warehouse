@@ -131,6 +131,8 @@ final class GoodsReceipts
                 'note' => $h['note'] ?? null]);
             $now = Clock::db($this->now());
             $key = ReceiptMath::invoiceKey($h['invoice_number'] ?? null);
+            // Pack PO (PO10): a number on another live receipt of the supplier is refused here, whatever part that one is.
+            $this->invoicePart($doc->id, $supplierId, $poId, $h['delivery_note'] ?? null, $key, null, 1, false, (string) ($h['invoice_number'] ?? ''));
             try {
                 $db->exec('INSERT INTO goods_receipt (document_id, supplier_id, po_document_id, invoice_key, invoice_date, delivery_note, received_at, paper_sheet, '
                     . 'backdate_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -196,6 +198,12 @@ final class GoodsReceipts
                 }
             }
             if (array_key_exists('po_id', $h) && $h['po_id'] !== $poId) {
+                // Pack PO (PO10): a delivery that shares its supplier invoice with other deliveries of its order keeps that order.
+                if ($gr['invoice_key'] !== null && $db->value('SELECT 1 FROM goods_receipt WHERE supplier_id = ? AND invoice_key = ? AND document_id <> ? LIMIT 1',
+                    [(int) $gr['supplier_id'], $gr['invoice_key'], $id]) !== null) {
+                    throw new CwException('invoice_shared', 'this delivery shares its supplier invoice with other deliveries of its order: change its invoice number first, '
+                        . 'then its order', 409, ['field' => 'po_id']);
+                }
                 if ($db->value('SELECT 1 FROM grn_line WHERE document_id = ? AND po_line_no IS NOT NULL LIMIT 1', [$id]) !== null) {
                     throw new CwException('receipt_has_lines', 'the purchase order of a receipt changes only while no line is received against it: set its lines to '
                         . '"not against the order" first, or start a new receipt', 409);
@@ -211,6 +219,10 @@ final class GoodsReceipts
                 $docHeader['external_ref'] = $h['invoice_number'];
                 $key = ReceiptMath::invoiceKey($h['invoice_number']);
                 $set['invoice_key'] = $key === '' ? null : $key;
+                // Pack PO (PO10): the same number keeps its part; another number taken by a live receipt is refused (split: setInvoice).
+                $set['invoice_part'] = $this->invoicePart($id, (int) ($set['supplier_id'] ?? $gr['supplier_id']), $poId,
+                    array_key_exists('delivery_note', $h) ? $h['delivery_note'] : $gr['delivery_note'], $key, $gr['invoice_key'], (int) $gr['invoice_part'], false,
+                    (string) ($h['invoice_number'] ?? ''));
             }
             if (array_key_exists('note', $h)) {
                 $docHeader['note'] = $h['note'];
@@ -520,7 +532,11 @@ final class GoodsReceipts
      */
     public function setInvoice(Caller $caller, int $id, int $version, array $fields): Document
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $fields): Document {
+        // Pack PO (PO10, review finding 6): `invoice_split` true: this delivery is a later one of a supplier invoice that covers several
+        // deliveries of the same order (invoicePart()).
+        $split = in_array($fields['invoice_split'] ?? false, [true, 1, '1'], true);
+        unset($fields['invoice_split']);
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $fields, $split): Document {
             $this->poster($caller);
             $row = $this->lockGrn($id);
             if ($row['status'] !== 'draft') {
@@ -539,6 +555,9 @@ final class GoodsReceipts
             if (array_key_exists('invoice_number', $h)) {
                 $key = ReceiptMath::invoiceKey($h['invoice_number']);
                 $set['invoice_key'] = $key === '' ? null : $key;
+                $set['invoice_part'] = $this->invoicePart($id, (int) $gr['supplier_id'], $gr['po_document_id'] === null ? null : (int) $gr['po_document_id'],
+                    array_key_exists('delivery_note', $h) ? $h['delivery_note'] : $gr['delivery_note'], $key, $gr['invoice_key'], (int) $gr['invoice_part'], $split,
+                    (string) ($h['invoice_number'] ?? ''));
                 $doc[] = 'external_ref = ?';
                 $docParams[] = $h['invoice_number'];
             }
@@ -554,7 +573,8 @@ final class GoodsReceipts
                 throw $this->duplicate($e, (int) $gr['supplier_id'], (string) ($set['invoice_key'] ?? $gr['invoice_key'] ?? ''), $id);
             }
             $db->exec('UPDATE document SET ' . implode(', ', $doc) . ' WHERE id = ?', [...$docParams, $id]);
-            Audit::write($db, $caller, 'grn.invoice', 'document', (string) $id, null, ['version' => $version + 1] + $h);
+            Audit::write($db, $caller, 'grn.invoice', 'document', (string) $id, null, ['version' => $version + 1] + $h
+                + (($set['invoice_part'] ?? 1) > 1 ? ['invoice_part' => $set['invoice_part']] : []));
             return $this->docs->get($id);
         });
     }
@@ -593,9 +613,13 @@ final class GoodsReceipts
             if ($role === 'supplier_invoice' && $stored['deduped']) {
                 // The same invoice copy already on another live receipt of this supplier (its number typed differently, I171).
                 $supplierId = (int) $db->value('SELECT supplier_id FROM goods_receipt WHERE document_id = ?', [$id]);
+                // Pack PO (PO10): the deliveries of one supplier invoice that covers several deliveries of an order share its copy.
+                $mine = (array) $db->one('SELECT invoice_key, po_document_id FROM goods_receipt WHERE document_id = ?', [$id]);
                 $other = $db->one("SELECT d.id, d.number, d.status FROM document_file df JOIN goods_receipt g ON g.document_id = df.document_id AND g.supplier_id = ? "
                     . "JOIN document d ON d.id = df.document_id AND d.status IN ('draft', 'awaiting_approval', 'posted') WHERE df.file_id = ? AND df.role = 'supplier_invoice' "
-                    . 'AND df.document_id <> ? ORDER BY d.id LIMIT 1', [$supplierId, $stored['id'], $id]);
+                    . 'AND df.document_id <> ? AND NOT (? IS NOT NULL AND ? IS NOT NULL AND g.invoice_key <=> ? AND g.po_document_id <=> ?) ORDER BY d.id LIMIT 1',
+                    [$supplierId, $stored['id'], $id, $mine['invoice_key'] ?? null, $mine['po_document_id'] ?? null, $mine['invoice_key'] ?? null,
+                        $mine['po_document_id'] ?? null]);
                 if ($other !== null) {
                     $label = $other['number'] ?? (str_replace('_', ' ', (string) $other['status']) . ' receipt #' . $other['id']);
                     throw new CwException('invoice_copy_elsewhere', "this file is already the supplier invoice of {$label}: a supplier's invoice is received once "
@@ -1310,6 +1334,51 @@ final class GoodsReceipts
         }
         return ['sku_id' => $sku, 'sku_code' => (string) $s['code'], 'units_per_scan' => $packOf, 'supplier_item' => $si === null ? null : ['id' => (int) $si['id'],
             'units_per_pack' => (int) $si['units_per_pack'], 'purchase_unit' => (string) $si['purchase_unit'], 'supplier_code' => $si['supplier_code']]];
+    }
+
+    /**
+     * Pack PO (docs/decisions.md PO10, review finding 6): the part of its supplier invoice a receipt is, when its invoice key becomes
+     * $key ('' = none). The same key as before keeps its part. A key no other live receipt of the supplier has: part 1. A key another
+     * live receipt has: 409 duplicate_invoice (a supplier invoice is received once), unless $split (the person said "this is a later
+     * delivery on the same invoice") and the invoice covers deliveries of ONE order: every live receipt with the key is against this
+     * receipt's order (not none), and none has this receipt's delivery note (the same delivery keyed twice is a real duplicate:
+     * detail.why same_delivery_note): then the next part. The refusal says (detail.split_po, the order's number) when a split is
+     * possible, so the screens offer it as a second step. The other receipts are locked (FOR UPDATE) in id order; two at once taking
+     * the same part meet on the UNIQUE key (duplicate()).
+     */
+    private function invoicePart(int $self, int $supplierId, ?int $poId, ?string $deliveryNote, string $key, ?string $storedKey, int $storedPart, bool $split,
+        string $typed): int
+    {
+        if ($key === '') {
+            return 1;
+        }
+        if ($storedKey !== null && $storedKey === $key) {
+            return $storedPart;
+        }
+        $others = $this->db->all('SELECT g.document_id, g.po_document_id, g.delivery_note, g.invoice_part, d.number, d.status, u.display_name FROM goods_receipt g '
+            . 'JOIN document d ON d.id = g.document_id LEFT JOIN staff_user u ON u.id = d.created_by WHERE g.supplier_id = ? AND g.invoice_key = ? AND g.document_id <> ? '
+            . 'ORDER BY g.document_id FOR UPDATE', [$supplierId, $key, $self]);
+        if ($others === []) {
+            return 1;
+        }
+        $sameOrder = $poId !== null;
+        $sameNote = false;
+        $note = static fn (?string $n): string => mb_strtoupper(trim((string) $n));
+        foreach ($others as $o) {
+            $sameOrder = $sameOrder && $o['po_document_id'] !== null && (int) $o['po_document_id'] === $poId;
+            $sameNote = $sameNote || ($note($deliveryNote) !== '' && $note($deliveryNote) === $note($o['delivery_note']));
+        }
+        if ($split && $sameOrder && !$sameNote) {
+            return max(array_map(static fn (array $o): int => (int) $o['invoice_part'], $others)) + 1;
+        }
+        $o = $others[0];
+        $label = $o['number'] ?? str_replace('_', ' ', (string) $o['status']) . ' receipt #' . $o['document_id'] . ($o['display_name'] !== null ? ' (' . $o['display_name'] . ')' : '');
+        $po = $sameOrder ? $this->db->value('SELECT number FROM document WHERE id = ?', [$poId]) : null;
+        throw new CwException('duplicate_invoice', "this supplier's invoice {$key} is already on {$label}: a supplier invoice is received once "
+            . ($sameNote ? '(this delivery has the same delivery note: it is the same delivery)' : ($po !== null
+                ? "(if this invoice covers more than one delivery of {$po}, say that this is a later delivery on it)" : '(cancel the other receipt first if it was keyed by mistake)')),
+            409, ['other' => (int) $o['document_id'], 'split_po' => $sameNote || $po === null ? null : (string) $po, 'why' => $sameNote ? 'same_delivery_note' : null,
+                'number' => mb_substr($typed, 0, self::INVOICE_MAX)]);
     }
 
     /** A 409 duplicate_invoice for a duplicate key on uq_goods_receipt_invoice (other PDOExceptions are rethrown). */

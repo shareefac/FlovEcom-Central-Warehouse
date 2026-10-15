@@ -552,6 +552,9 @@ final class ReceivingController
                     $fields[$k] = $ctx->req->field($k);
                 }
             }
+            if ($ctx->req->field('invoice_split') === '1') {
+                $fields['invoice_split'] = true; // pack PO (PO10): a later delivery on the same supplier invoice
+            }
             $svc->setInvoice($ctx->caller(), $id, $version, $fields);
             return 'invoice_set';
         });
@@ -659,6 +662,12 @@ final class ReceivingController
             'benchState' => $doc->status !== 'draft' ? null : self::benchState(['checked_at' => $gr['checked_at'] ?? null, 'paperwork_ok' => $gr['paperwork_ok'] ?? null,
                 'lines' => count($lines), 'checked_lines' => $checkedLines]),
             'maxMb' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
+            // --- Pack PO (PO10, review finding 6): the number is on another delivery of the same order: "a later delivery on this invoice"
+            // is offered as a second step (the /invoice form with invoice_split); and which delivery of its invoice this one is.
+            'splitStep' => $doc->status === 'draft' && $canPost && $error?->errorCode === 'duplicate_invoice' && is_string($error->detail['split_po'] ?? null)
+                ? ['po' => (string) $error->detail['split_po'], 'number' => (string) ($error->detail['number'] ?? '')] : null,
+            'invoicePart' => (int) ($gr['invoice_part'] ?? 1),
+            // --- end of pack PO
         ];
         if ($editor) {
             $poLines = [];
@@ -1053,8 +1062,8 @@ final class ReceivingController
             . "LEFT JOIN staff_user x ON x.id = t.decided_by WHERE t.subject_type = 'document' AND t.subject_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY t.id',
             $ids);
         $now = gmdate('Y-m-d H:i:s');
-        // A rejected review reverses the receipt, which is refused while its order is closed (I145): say so before the reviewer
-        // presses reject (open owner question, I176).
+        // A rejected review reverses the receipt; its order closed meanwhile stays closed while something of it is still delivered
+        // (pack PO, PO8: it was refused, I176 (1)): the box says so before the reviewer presses reject.
         $poClosed = $doc->status === 'posted' && ($po = $db->one('SELECT d.number, p.state FROM goods_receipt g JOIN document d ON d.id = g.po_document_id '
             . 'JOIN purchase_order p ON p.document_id = d.id WHERE g.document_id = ?', [$doc->id])) !== null && $po['state'] === 'closed'
             && (int) $db->value('SELECT COALESCE(SUM(po_units), 0) FROM grn_line WHERE document_id = ?', [$doc->id]) > 0 ? (string) $po['number'] : null;

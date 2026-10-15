@@ -21,6 +21,9 @@
 <?php if ($companyNote !== null): ?>
 <p class="note company-note"><?= $e($companyNote['text']) ?> <a href="/ui/reference/company"><?= $e($companyNote['link']) ?></a></p>
 <?php endif; ?>
+<?php if ($supplierNeeds !== null): ?>
+<?= $partial('po_supplier_needs', ['needs' => $supplierNeeds]) ?>
+<?php endif; ?>
 <?php if ($doc->status === 'draft'): ?>
 <p class="note read-only"><?php if ($canPost): ?><?= $say('ORDER', 'only_creator', (string) $people['created']) ?><?php else: ?><?= $say('ORDER', 'only_creator_look', (string) $people['created']) ?><?php endif; ?></p>
 <?php endif; ?>
@@ -62,7 +65,7 @@
 </section>
 <?php endforeach; ?>
 
-<?php if ($can['approve'] || $can['withdraw'] || $can['send'] || $can['close'] || $can['cancel'] || $can['amend'] || $can['copy']): ?>
+<?php if ($can['approve'] || $can['withdraw'] || $can['send'] || $can['close'] || $can['reopen'] || $can['cancel'] || $can['amend'] || $can['copy']): ?>
 <section class="card order-actions" aria-labelledby="actions-h">
   <h2 id="actions-h"><?= $word('ORDER', 'next') ?></h2>
 <?php if ($can['approve']): ?>
@@ -120,6 +123,19 @@
       <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
       <label><?= $word('ORDER', 'close_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
       <p class="actions"><button type="submit"><?= $word('ORDER', 'close_button') ?></button></p>
+    </form>
+  </details>
+<?php endif; ?>
+<?php if ($can['reopen']): ?>
+  <details class="action"<?php if ($errorCode === 'reopen_reason_required'): ?> open<?php endif; ?>>
+    <summary><?= $word('ORDER', 'reopen') ?></summary>
+    <h3 class="section-title"><?= $word('ORDER', 'reopen_title') ?></h3>
+    <p class="hint"><?= $word('ORDER', 'reopen_does') ?></p>
+    <form class="record" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/reopen') ?>">
+      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
+      <label><?= $word('ORDER', 'reopen_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
+      <p class="actions"><button type="submit"><?= $word('ORDER', 'reopen_button') ?></button></p>
     </form>
   </details>
 <?php endif; ?>

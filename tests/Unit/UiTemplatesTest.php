@@ -168,7 +168,8 @@ final class UiTemplatesTest extends TestCase
         foreach (['purchase_orders', 'purchase_order', 'purchase_order_edit', 'reorder', 'reorder_item', 'reorder_brands', 'reorder_anomalies', 'sales_history',
             'suppliers', 'supplier', 'supplier_form', 'supplier_items', 'supplier_item', 'supplier_item_form', 'item_cards', 'item_card_form', 'item_cards_import',
             'barcode_reviews', 'stock', 'stock_movements', 'stock_reservations', 'stock_reservation',
-            'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns'] as $name) { // the last four: pack D (docs/decisions.md PD13)
+            'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D (docs/decisions.md PD13)
+            'purchase_order_new_item', 'po_supplier_needs'] as $name) { // the last two: pack PO (PO3, PO4)
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {
@@ -194,7 +195,7 @@ final class UiTemplatesTest extends TestCase
     public function testTheDeliveryPagesTurnIntoCardsAndTakeEveryWordFromWords(): void
     {
         $templates = self::templates();
-        foreach (['receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents'] as $name) {
+        foreach (['receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents', 'receipt_split'] as $name) { // receipt_split: pack PO
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {

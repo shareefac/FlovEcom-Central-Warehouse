@@ -33,6 +33,7 @@ use CW\Ui\Controller\ItemController;
 use CW\Ui\Controller\NewVariantsController;
 use CW\Ui\Controller\OtherAccountsController;
 use CW\Ui\Controller\PeopleController;
+use CW\Ui\Controller\PoSelectOrAddController;
 use CW\Ui\Controller\PurchaseOrdersController;
 use CW\Ui\Controller\ReasonsController;
 use CW\Ui\Controller\ReceivingController;
@@ -558,6 +559,13 @@ final class Kernel
         $r->add('GET', '/ui/purchasing/orders', 'purchasing.view', $orders->index(...));
         $r->add('GET', '/ui/purchasing/orders.csv', 'purchasing.view', $orders->csv(...));
         $r->add('POST', '/ui/purchasing/orders', 'doc.PO.post', $orders->create(...));
+        // --- Pack PO (docs/decisions.md PO1-PO6): select or add new. The services check doc.PO.post as well.
+        $poAdd = new PoSelectOrAddController();
+        $r->add('POST', '/ui/purchasing/orders/new-supplier', 'suppliers.manage', $poAdd->newSupplier(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/new-supplier', 'suppliers.manage', $poAdd->newSupplierOnDraft(...));
+        $r->add('GET', '/ui/purchasing/orders/{id}/new-item', 'items.create', $poAdd->newItemForm(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/new-item', 'items.create', $poAdd->newItem(...));
+        // --- end of pack PO
         $r->add('GET', '/ui/purchasing/orders/{id}', 'purchasing.view', $orders->show(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/lines', 'doc.PO.post', $orders->lines(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/lines/import', 'doc.PO.post', $orders->import(...));
@@ -570,6 +578,7 @@ final class Kernel
         $r->add('POST', '/ui/purchasing/orders/{id}/amend', 'doc.PO.post', $orders->amend(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/copy', 'doc.PO.post', $orders->copy(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/close', 'doc.PO.post', $orders->close(...));
+        $r->add('POST', '/ui/purchasing/orders/{id}/reopen', 'doc.PO.post', $orders->reopen(...)); // pack PO (PO8)
         $r->add('POST', '/ui/purchasing/orders/{id}/withdraw', 'doc.PO.post', $orders->withdraw(...));
         // The reorder list and the sales history (IM9 basic, I60-I71): reorder.view looks; reorder.manage changes settings and
         // recalculates (checked again by CW\Reorder\ReorderSettings); doc.PO.post makes the drafts (checked again by PurchaseOrders).

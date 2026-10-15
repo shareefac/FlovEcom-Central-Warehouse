@@ -27,7 +27,7 @@ use CW\Settings;
  *                   from PoMath; charge: no item, no qty, amount = pack price > 0); every VAT code is active at the rate
  *                   the line carries; at most 2,000 lines.
  *  approvalUnits()  ceil(net total) in whole GBP (over_value, decision 11: a blocking approval above £10,000).
- *  post()           purchase_order FOR UPDATE; totals; the company and supplier snapshots; state approved; a `po` price
+ *  post()           purchase_order FOR UPDATE; totals; the company, supplier and terms snapshots; state approved; a `po` price
  *                   history row per item line with a supplier item and its last_po_*; the write-once po_posting anchor
  *                   (the module content at approval, P2); audit po.approve. Returns ceil(net) (the review units).
  *  reverse()        the original's purchase_order FOR UPDATE: 409 po_has_receipts once a line has receipts, 409
@@ -144,11 +144,14 @@ final class PurchaseOrderHandler implements DocumentHandler
         $supplier = $db->one('SELECT * FROM supplier WHERE id = ?', [(int) $po['supplier_id']])
             ?? throw new \LogicException('the supplier vanished after validate()');
         $now = Clock::db(($this->clock)());
+        // The terms printed on the order, as they are now (pack PO, PO9, review finding 7): a later change of the setting never changes
+        // an approved order's PDF. Part of the anchor below.
+        $terms = (string) $this->settings->get('po.terms');
         $db->exec(
             "UPDATE purchase_order SET state = 'approved', net_total = ?, vat_total = ?, gross_total = ?, company_snapshot = CAST(? AS JSON), "
-            . 'supplier_snapshot = CAST(? AS JSON), updated_at = ? WHERE document_id = ?',
+            . 'supplier_snapshot = CAST(? AS JSON), terms_snapshot = ?, updated_at = ? WHERE document_id = ?',
             [PoMath::fromE2($t['net_e2']), PoMath::fromE2($t['vat_e2']), PoMath::fromE2($t['gross_e2']), Idempotency::json($this->settings->company()),
-                Idempotency::json(self::supplierSnapshot($supplier)), $now, $doc->id],
+                Idempotency::json(self::supplierSnapshot($supplier)), $terms, $now, $doc->id],
         );
         // The PO price of each supplier item (history source `po`; only last_po_* moves, never the last price: I44, S4).
         $priced = [];
@@ -217,7 +220,8 @@ final class PurchaseOrderHandler implements DocumentHandler
 
     /**
      * The canonical JSON a PO's posting anchor keeps (po_posting.content): the immutable purchase_order fields and every
-     * po_line field but received_units, decimals as the database returns them (spec §6.2; P2 recomputes it).
+     * po_line field but received_units, decimals as the database returns them (spec §6.2; P2 recomputes it). The terms snapshot
+     * (0042, pack PO PO9) is in it when the order has one: an order approved before keeps its anchor as it was.
      *
      * @param array<string, mixed> $po a purchase_order row
      * @param list<array<string, mixed>> $poLines po_line rows
@@ -234,7 +238,7 @@ final class PurchaseOrderHandler implements DocumentHandler
                 'expected_date' => $str($po['expected_date']), 'amends_document_id' => $int($po['amends_document_id']), 'currency' => (string) $po['currency'],
                 'net_total' => (string) $po['net_total'], 'vat_total' => (string) $po['vat_total'], 'gross_total' => (string) $po['gross_total'],
                 'company_snapshot' => $json($po['company_snapshot']), 'supplier_snapshot' => $json($po['supplier_snapshot']),
-            ],
+            ] + (($po['terms_snapshot'] ?? null) === null ? [] : ['terms_snapshot' => (string) $po['terms_snapshot']]),
             'lines' => array_map(static fn (array $l): array => [
                 'line_no' => (int) $l['line_no'], 'kind' => (string) $l['kind'], 'supplier_item_id' => $int($l['supplier_item_id']),
                 'supplier_code' => $str($l['supplier_code']), 'purchase_unit' => (string) $l['purchase_unit'], 'units_per_pack' => (int) $l['units_per_pack'],

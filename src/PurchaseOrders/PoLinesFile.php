@@ -15,8 +15,9 @@ use CW\Output\XlsxWriter;
  * NOTHING (PurchaseOrders::importLines).
  *
  * Columns, in export order (an import matches header names without regard to case or spaces, in any order, and ignores
- * columns it does not know): line (ignored), cw_code, supplier_code, barcode (one of the three is required: the first
- * non-empty in that order names the item; two that name different items are an error), item_name (ignored),
+ * columns it does not know): line (ignored), cw_code, supplier_code, barcode (one of the three is required: the most precise
+ * given names the line, supplier_code, then barcode, then cw_code (PRECEDENCE, pack PO); another that names a different item, or a
+ * case barcode of another pack, is an error), item_name (ignored),
  * purchase_unit (must be the supplier item's when there is one), units_per_pack (must be the supplier item's: "pack
  * differs: supplier item says 24"; without one, default 1), packs (REQUIRED: a whole number 1..1,000,000; "24.0" from a
  * spreadsheet is 24), units (when given, must be packs × units_per_pack: catches boxes typed as units), pack_price (≥ 0, at
@@ -38,6 +39,8 @@ final class PoLinesFile
     public const TYPES = ['line' => 'number', 'cw_code' => 'text', 'supplier_code' => 'text', 'barcode' => 'text', 'item_name' => 'text', 'purchase_unit' => 'text',
         'units_per_pack' => 'number', 'packs' => 'number', 'units' => 'number', 'pack_price' => 'number', 'vat_code' => 'text', 'line_total' => 'number', 'note' => 'text'];
     public const IDENTIFIERS = ['cw_code', 'supplier_code', 'barcode'];
+    /** The order in which a row's identifiers name its line: the most precise first (pack PO, PO9). */
+    public const PRECEDENCE = ['supplier_code', 'barcode', 'cw_code'];
     public const MAX_ROWS = 2000;
     public const MAX_BYTES = 2_097_152;
     public const MAX_ERRORS = 50;
@@ -113,11 +116,12 @@ final class PoLinesFile
     /**
      * Checks every row and builds the lines (saveDraft's shape), or the errors. $resolve(type, value) answers an identifier
      * (cw_code, supplier_code, barcode) with {sku_id, sku_code, supplier_item: ?{id, units_per_pack, purchase_unit,
-     * supplier_code, last_pack_price}} or an error message. $vatCodes: code => in use.
+     * supplier_code, last_pack_price}} or an error message; $resolve(type, value, first) answers a row's further identifier within
+     * the one that names its line (only the item matters, and a barcode's `pack_of`). $vatCodes: code => in use.
      *
      * @param list<string> $header
      * @param iterable<int, array<string, string>> $rows
-     * @param \Closure(string, string): (array<string, mixed>|string) $resolve
+     * @param \Closure(string, string, array<string, mixed>=): (array<string, mixed>|string) $resolve
      * @param array<string, bool> $vatCodes
      * @return array{lines: list<array<string, mixed>>, errors: list<string>}
      */
@@ -170,7 +174,7 @@ final class PoLinesFile
      * One data row (class docblock): the line, or null with $errors filled.
      *
      * @param array<string, string> $r
-     * @param \Closure(string, string): (array<string, mixed>|string) $resolve
+     * @param \Closure(string, string, array<string, mixed>=): (array<string, mixed>|string) $resolve
      * @param array<string, bool> $vatCodes
      * @param list<string> $errors
      * @return array<string, mixed>|null
@@ -202,7 +206,7 @@ final class PoLinesFile
             }
         }
         $ids = [];
-        foreach (self::IDENTIFIERS as $c) {
+        foreach (self::PRECEDENCE as $c) {
             if ($get($c) !== '') {
                 $ids[$c] = $get($c);
             }
@@ -226,28 +230,28 @@ final class PoLinesFile
             $err('cw_code', 'give cw_code, supplier_code or barcode');
             return null;
         }
+        // Review finding 3 (pack PO, PO9): the most precise identifier names the line (PRECEDENCE: a supplier code names a pack, a case
+        // barcode its pack, a CW number only the item); the others are resolved within it ($resolve's third argument) and must name the
+        // same item, and a case barcode the same pack. An order's own export (all three columns) of a box line imports as the box.
         $resolved = [];
+        $first = null;
         foreach ($ids as $c => $v) {
-            $x = $resolve($c, $v);
+            $x = $first === null ? $resolve($c, $v) : $resolve($c, $v, $first[1]);
             if (is_string($x)) {
                 $err($c, $x);
                 continue;
             }
             $resolved[$c] = $x;
-        }
-        $first = null;
-        foreach ($resolved as $c => $x) {
             if ($first === null) {
                 $first = [$c, $x];
                 continue;
             }
             $a = $first[1];
-            $same = ($a['supplier_item']['id'] ?? null) !== null && ($x['supplier_item']['id'] ?? null) !== null
-                ? $a['supplier_item']['id'] === $x['supplier_item']['id']
-                : $a['sku_id'] === $x['sku_id'];
-            if (!$same) {
+            if ($a['sku_id'] !== $x['sku_id']) {
                 $err($c, "names a different item than {$first[0]} ({$a['sku_code']}" . (($a['supplier_item']['supplier_code'] ?? null) !== null
                     ? ', supplier code ' . $a['supplier_item']['supplier_code'] : '') . ')');
+            } elseif (($x['pack_of'] ?? 1) > 1 && ($a['supplier_item'] ?? null) !== null && (int) $x['pack_of'] !== (int) $a['supplier_item']['units_per_pack']) {
+                $err($c, "is a case of {$x['pack_of']}, but {$first[0]} names a pack of {$a['supplier_item']['units_per_pack']}");
             }
         }
         if (count($resolved) !== count($ids) || $first === null) {

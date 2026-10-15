@@ -25,6 +25,28 @@
 <?php if ($companyNote !== null): ?>
 <p class="note company-note"><?= $e($companyNote['text']) ?> <a href="/ui/reference/company"><?= $e($companyNote['link']) ?></a></p>
 <?php endif; ?>
+<?php if ($supplierNeeds !== null): ?>
+<?= $partial('po_supplier_needs', ['needs' => $supplierNeeds]) ?>
+<?php endif; ?>
+<?php if ($canAddSupplier): ?>
+<details class="fold add-new" id="new-supplier"<?php if ($newSupplierError !== null): ?> open<?php endif; ?>>
+  <summary><?= $word('PO_ADD', 'new_supplier') ?></summary>
+  <p class="hint"><?= $word('PO_ADD', 'new_supplier_text') ?></p>
+<?php if ($newSupplierError !== null): ?>
+  <p class="error" role="alert"><?= $e($newSupplierError) ?></p>
+<?php endif; ?>
+  <form class="record" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/new-supplier') ?>">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
+    <label><?= $word('PO_ADD', 'new_supplier_name') ?> <input type="text" name="new_supplier_name" maxlength="128" required value="<?= $e($newSupplier['name']) ?>"></label>
+    <label><?= $word('PO_ADD', 'new_supplier_email') ?> <input type="email" name="new_supplier_email" maxlength="191" value="<?= $e($newSupplier['email']) ?>"></label>
+    <label><?= $word('PO_ADD', 'new_supplier_phone') ?> <input type="tel" name="new_supplier_phone" maxlength="32" value="<?= $e($newSupplier['phone']) ?>"></label>
+    <p class="actions"><button type="submit" class="primary"><?= $word('PO_ADD', 'new_supplier_set') ?></button></p>
+  </form>
+</details>
+<?php elseif ($askSupplier !== null): ?>
+<p class="hint"><?= $e($askSupplier) ?></p>
+<?php endif; ?>
 
 <form class="po-editor" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
@@ -34,8 +56,9 @@
   <fieldset class="po-header">
     <legend><?= $word('ORDER', 'order') ?></legend>
 <?php if ($suppliers !== []): ?>
+    <input type="search" class="select-filter" data-filter-select="po-supplier" hidden maxlength="60" placeholder="<?= $word('PO_ADD', 'filter') ?>" aria-label="<?= $word('PO_ADD', 'filter') ?>">
     <label><?= $word('ORDER', 'supplier') ?>
-      <select name="supplier_id">
+      <select name="supplier_id" id="po-supplier">
 <?php foreach ($suppliers as $s): ?>
         <option value="<?= $e($s['id']) ?>"<?php if ((int) $s['id'] === (int) $po['supplier_id']): ?> selected<?php endif; ?>><?php if ($s['status'] === 'active'): ?><?= $e($s['name']) ?><?php else: ?><?= $say('ORDERS', 'not_ready', (string) $s['name'], $s['status'] === 'draft' ? \CW\Ui\Words::ORDERS['not_approved'] : \CW\Ui\Words::ORDERS['waiting_ok']) ?><?php endif; ?></option>
 <?php endforeach; ?>
@@ -58,6 +81,11 @@
     <label><?= $word('ORDER', 'packs_label') ?> <input type="number" name="packs" min="1" max="1000000" value="<?= $e($packs) ?>" class="short"></label>
     <button type="submit" name="action" value="add" class="primary"><?= $word('ORDER', 'add_button') ?></button>
     <p class="hint" id="scan-hint"><?= $word('ORDER', 'scan_hint') ?></p>
+<?php if ($canAddItem): ?>
+    <p class="add-new"><button type="submit" name="action" value="new_item" formnovalidate class="secondary"><?= $word('PO_ADD', 'new_item') ?></button> <span class="hint"><?= $word('PO_ADD', 'new_item_does') ?></span></p>
+<?php else: ?>
+    <p class="hint"><?= $e($askItem) ?></p>
+<?php endif; ?>
   </fieldset>
 <?php if ($choices !== null): ?>
   <section class="choices" aria-labelledby="choices-h">
@@ -116,7 +144,7 @@
           <th scope="row" class="c-head"><?= $word('ORDER', 'charge') ?> <span class="o-sub"><?= $say('ORDER', 'line', $no) ?></span><?php if ($editable): ?><input type="hidden" name="line_<?= $e($no) ?>_packs" value="<?= $e($typed['line_' . $no . '_packs'] ?? '1') ?>"><?php endif; ?></th>
           <td data-label="<?= $word('ORDER', 'their_code') ?>"></td>
           <td data-label="<?= $word('ORDER', 'pack') ?>"></td>
-          <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"></td>
+          <td class="num" data-label="<?= $word('ORDER', 'packs') ?>"><?php if ($editable): ?><label class="choice"><input type="checkbox" name="line_<?= $e($no) ?>_remove" value="1"<?php if (($typed['line_' . $no . '_remove'] ?? '') === '1'): ?> checked<?php endif; ?>> <?= $word('ORDER', 'charge_remove') ?></label><?php endif; ?></td>
           <td class="num" data-label="<?= $word('ORDER', 'items') ?>"></td>
           <td class="num" data-label="<?= $word('ORDER', 'per_pack') ?>"><?php if ($editable): ?><input type="text" name="line_<?= $e($no) ?>_price" value="<?= $e($typed['line_' . $no . '_price'] ?? $l['price']) ?>" class="short" inputmode="decimal" aria-label="<?= $say('ORDER', 'line', $no) ?>: <?= $word('ORDER', 'per_pack') ?>"><?php else: ?><?= $e($l['price']) ?><?php endif; ?></td>
           <td data-label="<?= $word('ORDER', 'vat') ?>"><?= $e($l['vat_code']) ?></td>
@@ -148,17 +176,17 @@
     <p class="hint"><?= $word('ORDER', 'packs_zero') ?> <?= $word('ORDER', 'no_si') ?></p>
   </section>
 
-  <details class="fold charge">
+  <details class="fold charge"<?php if (trim((string) ($typed['charge_amount'] ?? '')) !== '' || trim((string) ($typed['charge_description'] ?? '')) !== ''): ?> open<?php endif; ?>>
     <summary><?= $word('ORDER', 'charge_open') ?></summary>
     <fieldset class="charge">
       <legend class="visually-hidden"><?= $word('ORDER', 'charge_open') ?></legend>
-      <label><?= $word('ORDER', 'charge_what') ?> <input type="text" name="charge_description" maxlength="255"></label>
-      <label><?= $word('ORDER', 'charge_amount') ?> <input type="text" name="charge_amount" inputmode="decimal" class="short"></label>
+      <label><?= $word('ORDER', 'charge_what') ?> <input type="text" name="charge_description" maxlength="255" value="<?= $e($typed['charge_description'] ?? '') ?>"></label>
+      <label><?= $word('ORDER', 'charge_amount') ?> <input type="text" name="charge_amount" inputmode="decimal" class="short" value="<?= $e($typed['charge_amount'] ?? '') ?>"></label>
       <label><?= $word('ORDER', 'charge_vat') ?>
         <select name="charge_vat">
           <option value=""><?= $word('ORDER', 'charge_vat_default') ?></option>
 <?php foreach ($vatCodes as $v): ?>
-          <option value="<?= $e($v['code']) ?>"><?= $e($v['code']) ?> – <?= $e($v['label']) ?></option>
+          <option value="<?= $e($v['code']) ?>"<?php if (($typed['charge_vat'] ?? '') === $v['code']): ?> selected<?php endif; ?>><?= $e($v['code']) ?> – <?= $e($v['label']) ?></option>
 <?php endforeach; ?>
         </select>
       </label>
@@ -175,7 +203,7 @@
 <?php endforeach; ?>
       <dt><?= $word('ORDER', 'gross') ?></dt><dd><strong><?= $e($totals['gross']) ?></strong></dd>
     </dl>
-    <p class="hint"><?= $say('ORDER', 'limit_note', $limit, $limit) ?></p>
+    <p class="hint"><?php if ($limit !== null): ?><?= $say('ORDER', 'limit_note', $limit, $limit) ?><?php else: ?><?= $word('ORDER', 'limit_note_off') ?><?php endif; ?></p>
     <div class="actions">
       <button type="submit" name="action" value="save" class="btn big secondary"><span class="btn-title"><?= $word('ORDER', 'save') ?></span></button>
       <button type="submit" name="action" value="approve" class="primary btn big"><span class="btn-title"><?php if ($overLimit): ?><?= $word('PO', 'confirm_over_limit') ?><?php else: ?><?= $word('ORDER', 'confirm_draft') ?><?php endif; ?></span>

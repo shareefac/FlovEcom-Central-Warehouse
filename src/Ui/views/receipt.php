@@ -9,6 +9,9 @@
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
+<?php if ($splitStep !== null): ?>
+<?= $partial('receipt_split', ['doc' => $doc, 'step' => $splitStep]) ?>
+<?php endif; ?>
 <?php if ($problems !== []): ?>
 <ul class="error problems">
 <?php foreach ($problems as $p): ?>
@@ -43,12 +46,10 @@
         <dt><?= $word('RECEIPT', 'ok') ?></dt>
         <dd><?= $word('RECEIPT', 'ok_does') ?></dd>
       </div>
-<?php if ($d['poClosed'] === null): ?>
       <div class="answer blocked">
         <dt><?php if ($d['reversal']): ?><?= $word('RECEIPT', 'not_ok_reversal') ?><?php else: ?><?= $word('RECEIPT', 'not_ok') ?><?php endif; ?></dt>
         <dd><?php if ($d['reversal']): ?><?= $word('RECEIPT', 'not_ok_reversal_does') ?><?php else: ?><?= $word('RECEIPT', 'not_ok_does') ?><?php endif; ?></dd>
       </div>
-<?php endif; ?>
     </dl>
   </div>
   <form class="inline" method="post" action="<?= $u('/ui/documents/reviews/' . $d['task']['id'] . '/approve') ?>">
@@ -58,13 +59,12 @@
   </form>
 <?php if ($d['poClosed'] !== null): ?>
   <p class="note"><?= $say('RECEIPT', 'po_closed', (string) $d['poClosed']) ?></p>
-<?php else: ?>
+<?php endif; ?>
   <form class="inline" method="post" action="<?= $u('/ui/documents/reviews/' . $d['task']['id'] . '/reject') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('RECEIPT', 'why_not_ok') ?> <input type="text" name="note" minlength="3" maxlength="500" required></label>
     <button type="submit" class="danger"><?php if ($d['reversal']): ?><?= $word('RECEIPT', 'not_ok_reversal') ?><?php else: ?><?= $word('RECEIPT', 'not_ok') ?><?php endif; ?></button>
   </form>
-<?php endif; ?>
 <?php endif; ?>
 </section>
 <?php endforeach; ?>
@@ -119,7 +119,7 @@
 <section class="card about-receipt" aria-labelledby="about-h">
   <h2 id="about-h"><?= $word('RECEIPT', 'about') ?></h2>
   <dl>
-    <dt><?= $word('RECEIPT', 'invoice') ?></dt><dd><?php if ($doc->externalRef === null): ?><?= $word('RECEIPT', 'no_invoice') ?><?php elseif (($gr['invoice_date'] ?? null) !== null): ?><?= $say('RECEIPT', 'invoice_dated', (string) $doc->externalRef, \CW\Ui\Html::day((string) $gr['invoice_date'])) ?><?php else: ?><?= $e($doc->externalRef) ?><?php endif; ?></dd>
+    <dt><?= $word('RECEIPT', 'invoice') ?></dt><dd><?php if ($doc->externalRef === null): ?><?= $word('RECEIPT', 'no_invoice') ?><?php elseif (($gr['invoice_date'] ?? null) !== null): ?><?= $say('RECEIPT', 'invoice_dated', (string) $doc->externalRef, \CW\Ui\Html::day((string) $gr['invoice_date'])) ?><?php else: ?><?= $e($doc->externalRef) ?><?php endif; ?><?php if ($invoicePart > 1): ?> <span class="hint"><?= $say('RECEIPT', 'split_part', $invoicePart) ?></span><?php endif; ?></dd>
 <?php if (($gr['delivery_note'] ?? null) !== null): ?>
     <dt><?= $word('RECEIPT', 'delivery_note') ?></dt><dd><?= $e($gr['delivery_note']) ?></dd>
 <?php endif; ?>

@@ -10209,3 +10209,100 @@ arrival row of the item refuses the merge too, checked before the early return f
 (`testAnItemOnItsWayUnsoldIsNotMerged`). Also: the two race tests now start the checkout hold only once the posting holds its stock rows
 (the worker waits on performance_schema), instead of a fixed 0.2 s that a busy machine could outrun.
 <!-- ---- end of pack J ---- -->
+## Pack PO: "select or add new" on the purchase order, and the Codex review of the PO module (worktree `pack-po`, 15 Oct 2026)
+
+<!-- ---- Pack PO (0042): PO1-PO12. ---- -->
+Built from main `552851a` in `/root/cw-packpo` (branch `pack-po`), migration `0042_po_select_or_add.sql`. The owner, 15 Oct 2026: "In purchase
+order view: select or add new option." And the eight findings of the Codex review of the PO module (`runs/po_module_codex_review.txt`), each
+proved first by a test that failed on `552851a` (`runs/packpo_red_552851a.log`). New: `src/Ui/Controller/PoSelectOrAddController.php`, views
+`purchase_order_new_item`, `po_supplier_needs`, `receipt_split`; changed: `PurchaseOrders`, `PurchaseOrderHandler`, `PoLinesFile`, `DraftPos`,
+`PurchaseOrdersController`, `ReorderController`, `ReceivingController` (marked blocks), `GoodsReceipts`, `GoodsReceiptHandler`, `ReceiptPlan`
+(marked blocks), `ReceiptWords`, the views of the order, the editor, the list, the reorder list and the delivery, `Words` (group `PO_ADD` and
+marked keys), `Kernel` (five routes), `app.js` (the list's search box), `app.css`.
+
+**PO1. The request.** Wherever a purchase order chooses something, the person picks one that is there or adds a new one, without leaving the
+order: the supplier (the list's "Start a new order", and a draft that has no products yet: the supplier of a draft with products stays fixed,
+I-2) and the product of a line. A build decision put to the owner: the inline supplier form asks the name (the only field the supplier record
+needs) and, optionally, an e-mail and a phone; everything else is filled in on the supplier's own page.
+
+**PO2. The supplier: select or add.** The supplier list gets a search box (`input[data-filter-select]`, shown by `app.js`; without the script
+the list works as before, a select is searched by its first letters). "Supplier not in the list? Add a new supplier" is a small form of its own
+(never inside the order's one form). On the list it makes the supplier and a draft order for it in ONE transaction
+(`PurchaseOrders::createWithNewSupplier`, FormOnce: one of each however often it is sent); on a draft without products it makes the supplier
+and puts it on the draft (`setNewSupplier`, at the draft's version: the draft's row is locked first, then the supplier is written, the order of
+`saveDraft`). The supplier is made by `Suppliers::create` exactly as the supplier screens make one: a DRAFT supplier, its checks, its audit
+(`supplier.create`); its approval rules are not changed. Who: the routes ask `suppliers.manage`, the services check it and `doc.PO.post`.
+
+**PO3. A supplier not usable yet.** The draft may be saved with a supplier that is a draft or waits for approval (as before); confirming it is
+refused as before (`PurchaseOrderHandler::validate`, 422 `supplier_not_active`). The editor and the order's page now say plainly what is still
+needed, in steps, with a link to the supplier ("Supplier waiting for approval": fill in its details, naming the ones `Suppliers::missing`
+lists; ask for its approval; a reviewer approves it; then confirm the order). While the second person for a supplier is switched off on the
+Approval Rules page (`approvals.supplier_activation`), the steps say that its buyer makes it usable on its page. The general warning "you cannot
+confirm it until a reviewer approves X" is then not said twice.
+
+**PO4. The product of a line: scan, search, or add a new item.** The scan box is unchanged. Next to it, "Add a new item" (a button of the
+order's one form: it saves the table like Save, then opens the step `/ui/purchasing/orders/{id}/new-item` with what is in the scan box: digits
+fill the barcode, words the name, and the packs). The step makes, in ONE transaction (`PurchaseOrders::addNewItem`: the draft locked first,
+creator, its version): the item by hand with Pack B's rules (`HandMade::create`: a barcode on another item refused, 409
+`barcode_on_other_item`; the same name and identity answered with the items that are there and a "different item" box, 409
+`same_item_exists`), this supplier's supplier item when a supplier code, a price or a pack of more than 1 is given (`SupplierItems::create`,
+preferred when the item has no main supply yet; the price recorded as its first price), and the line (as a scan adds one). Audit `item.create`,
+`supplier_item.create`, `po.new_item`. A refusal offers the existing item: "Add that item to the order instead" / "Add this one to the order"
+(a small form to the order's `/lines` with `add_sku`). FormOnce: one item however often the step is sent. Back on the order: "The new item was
+made and added to the order."
+
+**PO5. Who sees the "add" options.** Supplier: `suppliers.manage` (Buyers, Purchasing managers). Item: `items.create` (Matching leads, Stock
+controllers, Purchasing managers: Pack B, PB1). People without them never see the option: the screen names who can ("Product not found?
+Matching leads, Stock controllers and Purchasing managers can add a new item: ask them.", from the permission map in force). **Open for the
+owner:** a Buyer cannot make items (items.create is the catalogue team's), so on a Buyer's draft "Add a new item" is not offered; give Buyers
+items.create on the Roles and permissions page if they should.
+
+**PO6. Without the script, and the CSP.** Every form works without `app.js` (the search box stays hidden; "Add a new item" is a step that
+returns to the order); one stylesheet and one script, no inline code; every word from `Words` (`PO_ADD`); the new templates are held to the
+buying and delivery pages' rules (`UiTemplatesTest`).
+
+**PO7. Review findings 1, 5 and 8 (the editor).** (1) HIGH, real: with the orders' "OK first" switched off the editor printed the limit note with
+`null` (a TypeError, HTTP 500): the note now says no order needs an OK first (`PurchaseOrderFixesScreensTest::
+testTheDraftEditorOpensWithTheOrdersOkFirstSwitchedOff`). (5) MEDIUM, real: a refused save or confirm lost the charge being added, the scan text
+and its packs: they are shown again with the table's edits (nothing was saved, so nothing is added twice; after a version conflict they are not:
+the page is as it is now). (8) LOW, real: a charge line has its own "Remove this charge" box (`line_N_remove`; `editorFields` counts it).
+
+**PO8. Review finding 2 (HIGH, real): a delivery of an order closed afterwards.** It was refused (409 `po_closed`, I145; owner question I176
+(1)): a wrong delivery could be neither reversed nor rejected at review. Now it is taken back like any other (`PurchaseOrders::reverseReceipt`
+accepts a closed order): the order stays closed while some of it is still delivered (its "the rest is not coming" stands), and with nothing
+delivered it is open again (sent or approved: "closed" means the rest of a part delivery is not coming), its close cleared, the close reason kept
+in the audit row (`po.receipt` `reopened_from_closed`; P5 holds either way). The delivery's review box offers "Not OK" again and says what it does
+to the order. And "Reopen order" (`PurchaseOrders::reopen`, `POST /ui/purchasing/orders/{id}/reopen`, buyers): a closed order waits for the rest
+again; a reason of 3-500 characters, the version, audit `po.reopen` with the close reason it undoes; it can be closed again later.
+
+**PO9. Review findings 3 and 7 (MEDIUM, real).** (3) An order's own lines file did not import again when its item is sold in several packs:
+the CW number named the preferred pack and contradicted the supplier code of the box. A row's identifiers now name its line from the most
+precise (`PoLinesFile::PRECEDENCE`: supplier code, then barcode, then CW number); the others are resolved within it and must name the same item,
+a case barcode the same pack ("is a case of 12, but supplier_code names a pack of 6"). Without a supplier code the CW number still names the
+preferred pack. (7) Changing "Terms printed on orders" changed the PDF of orders approved before: the terms are kept at approval
+(`purchase_order.terms_snapshot`, 0042; in the order's anchor, P2, when present); an order approved before 0042 prints the version of the
+setting in force at its approval (its history), else the setting.
+
+**PO10. Review finding 6 (MEDIUM, real): one supplier invoice for several deliveries.** A delivery may use the invoice number (and the same invoice
+copy) of another delivery when the person says so ("Yes: this is a later delivery on the same invoice", a second step offered after the
+refusal; `GoodsReceipts::setInvoice` `invoice_split`) AND every live delivery with that number is against the same order (not none) AND none has
+the same delivery note (the same delivery keyed twice: 409 `duplicate_invoice`, `why` same_delivery_note). It is then part 2, 3, ... of the
+invoice (`goods_receipt.invoice_part`, 0042; the UNIQUE key of a live number is (supplier, number, part)). Everything else stays refused as before:
+the number alone, another order's number, no order. A later part keeps its order (409 `invoice_shared` until its number changes); posting
+re-checks it (plan problem `invoice_shared`). Left for pack J / pack C: the invoice "the quick way from a delivery" of the second delivery finds
+the number taken and starts an invoice without a number; the desk adds the second delivery to the invoice of the first instead.
+
+**PO11. Review finding 4 (MEDIUM, real): the reorder list orders what it showed.** Each ticked line sends the supplier item and the pack it showed
+(`si_N`, `upp_N`); when the item's main supply changed meanwhile (another supplier, another pack, none) the line is not ordered: it is skipped
+and listed ("its main supplier or pack changed after the list was shown ... look at it again and tick it again"; the owner's rule: skip anything
+doubtful, finish the rest). A pick without them (the API, older callers) takes the main supply as it is, as before.
+
+**PO12. "Make all flow easy" (relayed by the build's coordinator, 15 Oct 2026).** Found: the owner, holding Reviewer, can already do the whole flow
+alone. (a) A new supplier: the second person is the switch `approvals.supplier_activation` on the Approval Rules page; switched off, "ask for
+approval" makes a complete supplier usable at once, recorded as approved alone (`supplier.activate_alone`); CW holds no bank details (decision
+25). (b) The company details: a Reviewer edits and confirms them alone; the check of one's own change of watched details
+(`approvals.company_own_change`) opens a review afterwards and never blocks. (c) The reviewer check after an order is confirmed is the PO rule's
+review rule on the same page; the OK first over the value limit is separate. (d) A new line already takes the supplier's VAT code and the
+supplier item's last price (`PoSelectOrAddTest::testANewLineTakesTheSuppliersVatCodeAndTheLastPrice`). **Not done in this build:** changing the
+seeded defaults of (a) and (c) to off; it is put to the owner, who can switch both on the Approval Rules page today.
+<!-- ---- end of pack PO ---- -->

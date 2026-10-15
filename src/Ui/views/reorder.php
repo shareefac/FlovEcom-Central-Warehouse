@@ -166,7 +166,7 @@
 <?php endif; ?>
       <td class="num" data-label="<?= $word('REORDER', 'sells_a_day') ?>"><?= $e($r['per_day']) ?></td>
       <td class="num" data-label="<?php if ($filters['stock'] === 'site'): ?><?= $word('REORDER', 'have_site') ?><?php else: ?><?= $word('REORDER', 'have') ?><?php endif; ?>"><?= $say('REORDER', 'have_line', $r['available'], $r['on_order']) ?> <span class="o-sub"><?= $say('REORDER', 'days_left', $r['days_left']) ?></span><?php if ((int) ($r['safety_stock'] ?? 0) > 0): ?> <span class="o-sub"><?= $say('REORDER_ENGINE', 'safety_stock', (int) $r['safety_stock']) ?></span><?php endif; ?></td>
-      <td class="num" data-label="<?= $word('REORDER', 'suggest') ?>"><?php if ($canDraft): ?><input class="packs" type="number" name="packs_<?= $e($r['sku_id']) ?>" value="<?= $e($r['packs']) ?>" min="0" max="1000000" step="1" aria-label="<?= $say('REORDER', 'packs_label', $r['name']) ?>"><?php else: ?><?= $n($r['packs']) ?><?php endif; ?>
+      <td class="num" data-label="<?= $word('REORDER', 'suggest') ?>"><?php if ($canDraft): ?><input class="packs" type="number" name="packs_<?= $e($r['sku_id']) ?>" value="<?= $e($r['packs']) ?>" min="0" max="1000000" step="1" aria-label="<?= $say('REORDER', 'packs_label', $r['name']) ?>"><input type="hidden" name="si_<?= $e($r['sku_id']) ?>" value="<?= $e($r['supplier_item_id'] ?? '') ?>"><input type="hidden" name="upp_<?= $e($r['sku_id']) ?>" value="<?= $e($r['upp']) ?>"><?php else: ?><?= $n($r['packs']) ?><?php endif; ?>
 <?php if ($r['upp'] > 1): ?>
         <span class="o-sub"><?= $say('REORDER', 'pack_of', $r['upp']) ?></span>
 <?php endif; ?>

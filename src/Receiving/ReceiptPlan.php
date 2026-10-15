@@ -131,6 +131,14 @@ final class ReceiptPlan
             $add('invoice_copy_elsewhere', "The attached supplier invoice ({$other['name']}) is also the invoice of {$other['label']}: a supplier's invoice is received once. "
                 . 'Attach the right invoice, or cancel one of the two receipts.');
         }
+        // --- Pack PO (PO10): an invoice shared by deliveries is shared by deliveries of ONE order (kept by GoodsReceipts; checked again here).
+        if ($gr['invoice_key'] !== null && $db->value('SELECT 1 FROM goods_receipt WHERE supplier_id = ? AND invoice_key = ? AND document_id <> ? '
+            . 'AND (? IS NULL OR po_document_id IS NULL OR po_document_id <> ?) LIMIT 1',
+            [(int) $gr['supplier_id'], $gr['invoice_key'], $documentId, $gr['po_document_id'], $gr['po_document_id']]) !== null) {
+            $add('invoice_shared', 'This supplier invoice is also on a delivery of another order: one invoice is shared only by deliveries of the same order. '
+                . 'Correct the invoice number of one of them.');
+        }
+        // --- end of pack PO
         if (($supplier['status'] ?? null) !== 'active') {
             $add('supplier_not_active', 'Supplier ' . ($supplier['code'] ?? '?') . ' is ' . str_replace('_', ' ', (string) ($supplier['status'] ?? 'missing'))
                 . ': goods are received only from an active supplier (a second person approves the supplier first).');
@@ -449,10 +457,15 @@ final class ReceiptPlan
     public static function invoiceCopyElsewhere(Db $db, int $documentId, int $supplierId): array
     {
         $out = [];
+        // Pack PO (PO10): the deliveries of one supplier invoice that covers several deliveries of an order (the same live invoice key and
+        // order: GoodsReceipts::setInvoice `invoice_split`) share its copy.
         foreach ($db->all("SELECT DISTINCT d.id, d.number, d.status, f.original_name FROM document_file mine JOIN document_file df ON df.file_id = mine.file_id "
             . "AND df.role = 'supplier_invoice' AND df.document_id <> mine.document_id JOIN goods_receipt g ON g.document_id = df.document_id AND g.supplier_id = ? "
             . "JOIN document d ON d.id = df.document_id AND d.status IN ('draft', 'awaiting_approval', 'posted') JOIN stored_file f ON f.id = mine.file_id "
-            . "WHERE mine.document_id = ? AND mine.role = 'supplier_invoice' ORDER BY d.id LIMIT 5", [$supplierId, $documentId]) as $r) {
+            . 'JOIN goods_receipt mg ON mg.document_id = mine.document_id '
+            . "WHERE mine.document_id = ? AND mine.role = 'supplier_invoice' "
+            . 'AND NOT (mg.invoice_key IS NOT NULL AND mg.po_document_id IS NOT NULL AND g.invoice_key <=> mg.invoice_key AND g.po_document_id <=> mg.po_document_id) '
+            . 'ORDER BY d.id LIMIT 5', [$supplierId, $documentId]) as $r) {
             $out[] = ['label' => $r['number'] ?? (str_replace('_', ' ', (string) $r['status']) . ' receipt #' . $r['id']), 'name' => (string) $r['original_name']];
         }
         return $out;

@@ -67,8 +67,9 @@
   <form class="inline" method="post" action="/ui/purchasing/orders">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
+    <input type="search" class="select-filter" data-filter-select="new-order-supplier" hidden maxlength="60" placeholder="<?= $word('PO_ADD', 'filter') ?>" aria-label="<?= $word('PO_ADD', 'filter') ?>">
     <label><?= $word('ORDERS', 'supplier') ?>
-      <select name="supplier_id" required>
+      <select name="supplier_id" id="new-order-supplier" required>
         <option value=""><?= $word('ORDERS', 'choose_supplier') ?></option>
 <?php foreach ($newSuppliers as $s): ?>
         <option value="<?= $e($s['id']) ?>"<?php if ($filters['supplier'] === (int) $s['id']): ?> selected<?php endif; ?>><?php if ($s['status'] === 'active'): ?><?= $e($s['name']) ?><?php else: ?><?= $say('ORDERS', 'not_ready', (string) $s['name'], $s['status'] === 'draft' ? \CW\Ui\Words::ORDERS['not_approved'] : \CW\Ui\Words::ORDERS['waiting_ok']) ?><?php endif; ?></option>
@@ -77,6 +78,25 @@
     </label>
     <button type="submit" class="primary"><?= $word('ORDERS', 'new') ?></button>
   </form>
+<?php endif; ?>
+<?php if ($canAddSupplier): ?>
+  <details class="fold add-new" id="new-supplier"<?php if ($newSupplierError !== null || $newSuppliers === []): ?> open<?php endif; ?>>
+    <summary><?= $word('PO_ADD', 'new_supplier') ?></summary>
+    <p class="hint"><?= $word('PO_ADD', 'new_supplier_text') ?></p>
+<?php if ($newSupplierError !== null): ?>
+    <p class="error" role="alert"><?= $e($newSupplierError) ?></p>
+<?php endif; ?>
+    <form class="record" method="post" action="/ui/purchasing/orders/new-supplier">
+      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="form_key" value="<?= $e($supplierKey) ?>">
+      <label><?= $word('PO_ADD', 'new_supplier_name') ?> <input type="text" name="new_supplier_name" maxlength="128" required value="<?= $e($newSupplier['name']) ?>"></label>
+      <label><?= $word('PO_ADD', 'new_supplier_email') ?> <input type="email" name="new_supplier_email" maxlength="191" value="<?= $e($newSupplier['email']) ?>"></label>
+      <label><?= $word('PO_ADD', 'new_supplier_phone') ?> <input type="tel" name="new_supplier_phone" maxlength="32" value="<?= $e($newSupplier['phone']) ?>"></label>
+      <p class="actions"><button type="submit" class="primary"><?= $word('PO_ADD', 'new_supplier_start') ?></button></p>
+    </form>
+  </details>
+<?php elseif ($canPost): ?>
+  <p class="hint"><?= $e($askSupplier) ?></p>
 <?php endif; ?>
 </details>
 <?php endif; ?>

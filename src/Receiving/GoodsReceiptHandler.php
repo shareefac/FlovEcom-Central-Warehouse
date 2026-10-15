@@ -40,7 +40,7 @@ use CW\Stock;
  *                   Movements::bookForDocument: goods_in into MAIN (accepted), VERIFY (damaged, wrong item, over) and UNSTAMPED
  *                   (quarantined), each row at the line's unit cost (cost source document; value seq, C0), and LAST a feed row
  *                   per item whose site mode changed (Stock::skuChanged 'mode'). Returns the units booked (the review units).
- *  reverse()        the receipt's PO receipts taken back (PurchaseOrders::reverseReceipt; a closed PO: 409 po_closed), its open
+ *  reverse()        the receipt's PO receipts taken back (PurchaseOrders::reverseReceipt; a closed PO too since pack PO, PO8), its open
  *                   incidents dismissed ("the receipt was reversed by GRN-x"), its invoice number freed; the stock is negated
  *                   generically afterwards (Movements::reverseDocument). The selling modes it set stay (the quantity goes back;
  *                   a mode is changed by the next receipt or IM10's switch).
@@ -245,13 +245,12 @@ final class GoodsReceiptHandler implements DocumentHandler, ReviewInvolvement
         }
         if ($back !== [] && $gr['po_document_id'] !== null) {
             $poId = (int) $gr['po_document_id'];
-            $state = $db->value('SELECT p.state FROM document d JOIN purchase_order p ON p.document_id = d.id WHERE d.id = ? FOR UPDATE', [$poId]);
-            if ($state === 'closed') {
-                $number = (string) $db->value('SELECT number FROM document WHERE id = ?', [$poId]);
-                throw new CwException('po_closed', "{$number} was closed after this delivery: a receipt against a closed order is not reversed here (its receipts would "
-                    . 'reopen it). Correct the stock with an adjustment (Phase I-4), or ask an engineer.', 409);
-            }
+            $db->value('SELECT p.state FROM document d JOIN purchase_order p ON p.document_id = d.id WHERE d.id = ? FOR UPDATE', [$poId]);
+            // --- Pack PO (docs/decisions.md PO8, review finding 2): a delivery of an order closed afterwards is taken back too (it was
+            // refused, 409 po_closed): the order stays closed while something of it is still delivered, and is open again when nothing is
+            // (PurchaseOrders::reverseReceipt says which in its audit row).
             (new PurchaseOrders($db, new Documents($db, [])))->reverseReceipt($poId, $back, (string) $reversal->number, $caller);
+            // --- end of pack PO
         }
         $now = Clock::db($this->now());
         $dismissed = $db->exec("UPDATE incident SET status = 'dismissed', resolution = ?, resolved_by = ?, resolved_actor = ?, resolved_at = ? WHERE document_id = ? AND status = 'open'",

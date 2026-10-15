@@ -112,7 +112,8 @@ final class PoLinesFileTest extends TestCase
             'row 11, note: at most 255 characters',
             'row 12, cw_code: give cw_code, supplier_code or barcode',
             'row 13, cw_code: there is no item CW-999999',
-            'row 14, supplier_code: names a different item than cw_code (CW-000001, supplier code A-24)',
+            // Pack PO (PO9, review finding 3): the supplier code names the line (its pack); the others must name the same item.
+            'row 14, cw_code: names a different item than supplier_code (CW-000003, supplier code B-6)',
             'row 15, pack_price: a charge is an amount of more than £0 in whole pence',
             'row 16, note: a charge says what it is (delivery, ...)',
             'row 17, units_per_pack: a whole number from 1 to 100,000',

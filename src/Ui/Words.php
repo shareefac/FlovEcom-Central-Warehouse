@@ -37,7 +37,7 @@ final class Words
         'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
-        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'REORDER', 'WHY',
+        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'REORDER', 'WHY',
         'REORDER_ITEM', 'BRANDS', 'ANOMALIES', 'REORDER_NOTICE', 'SALES', 'SUPPLIERS', 'SUPPLIER', 'SUPPLIER_FIELD', 'SUPPLIER_FORM', 'SUPPLIER_NOTICE', 'SUPPLIER_ITEMS', 'SI_NOTICE',
         'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
         'SELLING', 'SELLING_NOTICE', 'SITE_SYNC', 'SELLING_ERROR', 'MODE_MEANING', 'RECEIPT_STATE', 'BENCH_STATE', 'INCIDENT_WHERE',
@@ -566,6 +566,8 @@ final class Words
             'If a website product is not matched to a warehouse product, its sales are not used: the list below shows the biggest ones.'],
         'orders' => ['Every order to a supplier.', 'Start a new one below, or open one to see where it is.'],
         'order_draft' => ['A new order, not confirmed yet.', 'Add products by scanning or searching, check packs and prices, then confirm it. An order over the approval limit goes to a reviewer first.'],
+        // Pack PO (PO4): the step "Add a new item" of the order editor.
+        'order_new_item' => ['Make a new item and put it on this order in one step.', 'Fill in what you know: only the name is needed. You come back to the order afterwards.'],
         'order' => ['One order: what was ordered, where it is now, and what to do next.', ''],
         'suppliers' => ['The companies we buy from.', 'A new supplier needs a reviewer\'s OK before you can order from it.'],
         'supplier_form' => ['A supplier\'s details.', 'Fill them in, save them as a draft, then ask a reviewer to approve the supplier.'],
@@ -5602,6 +5604,18 @@ final class Words
         'cancel_draft' => 'Cancel the draft…',
         'cancel_draft_title' => 'Cancel this draft',
         'cancel_draft_button' => 'Cancel the draft',
+        // --- Pack PO (docs/decisions.md PO7-PO11): the review fixes of the order screens.
+        // The orders' "OK first" switched off on the Approval Rules page (review finding 1).
+        'limit_note_off' => 'No order needs a reviewer\'s OK before it gets its PO number: that is switched off on the Approval Rules page.',
+        // A delivery charge has its own remove box (review finding 8).
+        'charge_remove' => 'Remove this charge',
+        // "Reopen order" on a closed order (review finding 2).
+        'reopen' => 'Reopen…',
+        'reopen_title' => 'Reopen: the rest is coming after all',
+        'reopen_does' => 'The order waits for the rest again. What came stays as it is. You can close it again later.',
+        'reopen_why' => 'Why the rest is expected again (required)',
+        'reopen_button' => 'Reopen the order',
+        // --- end of pack PO
     ];
 
     /** Notices after a click on a purchase order (PurchaseOrdersController::NOTICES). %s: the PO number or the limit. */
@@ -5622,6 +5636,10 @@ final class Words
         'copied' => 'Done: this new draft is copied from the order. Check it, then confirm it.',
         'closed' => 'Closed: the rest is no longer expected.',
         'withdrawn' => 'Request cancelled: the order is a draft again.',
+        'reopened' => 'Reopened: the rest of the order is expected again.', // pack PO (PO8)
+        // Pack PO (PO1-PO6): select or add new.
+        'supplier_added' => 'New supplier added and put on this order. You can add products now. The order can be confirmed once the supplier is approved: see the note below.',
+        'item_added' => 'The new item was made and added to the order.',
         'approved_review' => 'Saved: you said OK.',
         'approved_posted' => 'Done: the order has its PO number now, in the buyer\'s name.',
         'rejected_recorded' => 'Saved: you said not OK. The buyer will cancel or correct the order.',
@@ -5682,6 +5700,9 @@ final class Words
         'not_amendable' => 'Nothing was changed: only a confirmed order is corrected. A draft is simply edited.',
         'not_closable' => 'Nothing was changed: only a partly delivered order is closed. Cancel one that has had nothing delivered.',
         'not_withdrawable' => 'Nothing was changed: this order does not wait for a reviewer\'s OK.',
+        // Pack PO (PO8): "Reopen order".
+        'not_reopenable' => 'Nothing was changed: only a closed order is reopened.',
+        'reopen_reason_required' => 'Write why the rest is expected again (3 to 500 characters). Nothing was changed.',
         'awaiting_approval' => 'Nothing was changed: this order waits for a reviewer\'s OK. Only the person who asked can cancel the request.',
         'po_has_receipts' => 'Nothing was changed: some of this order was delivered already. Use Close instead.',
         'too_many_lines' => 'Not saved: an order has at most %s products. Split it into two orders.',
@@ -5734,6 +5755,59 @@ final class Words
         'row' => 'Row %s (%s): %s',
         'row_no_product' => 'Row %s: no product given. Fill in the CW number (%s), their product code (%s) or the barcode (%s).',
         'row_plain' => 'Row %s: %s',
+    ];
+
+    /**
+     * Pack PO (the owner, 15 Oct 2026: "In purchase order view: select or add new option"; docs/decisions.md PO1-PO6): wherever an order
+     * chooses a supplier or a product, choose one that is there or add a new one without leaving the order.
+     */
+    public const PO_ADD = [
+        // The supplier: choose one, or add a new one
+        'filter' => 'Type to narrow the list',
+        'new_supplier' => 'Supplier not in the list? Add a new supplier',
+        'new_supplier_text' => 'Type its name. It is added as a new supplier and put on this order at once. Its other details are filled in on its own page later.',
+        'new_supplier_name' => 'Supplier name (required)',
+        'new_supplier_email' => 'E-mail (optional)',
+        'new_supplier_phone' => 'Phone (optional)',
+        'new_supplier_start' => 'Add the supplier and start the order',
+        'new_supplier_set' => 'Add the supplier and put it on this order',
+        'ask_supplier' => 'Supplier not in the list? %s can add a new one: ask them.',
+        // What a supplier that is not approved yet still needs before the order can be confirmed
+        'needs_title' => 'Supplier waiting for approval',
+        'needs_new' => '%s is a new supplier. You can save this order now. Before it can be confirmed:',
+        'needs_fill' => 'Fill in its details: %s.',
+        'needs_ask' => 'Ask for its approval on its page.',
+        'needs_reviewer' => 'A reviewer approves it. Then confirm this order.',
+        'needs_pending' => '%s is waiting for a reviewer\'s approval. You can save this order now, and confirm it once the supplier is approved.',
+        'needs_link' => 'Open the supplier',
+        // The same while the second person for a supplier is switched off on the Approval Rules page (its buyer makes it usable).
+        'needs_title_alone' => 'Supplier not usable yet',
+        'needs_activate' => 'Make it usable on its page: no second person is needed (that is switched off on the Approval Rules page).',
+        'needs_then' => 'Then confirm this order.',
+        // The product of a line: scan or search, or add a new one
+        'new_item' => 'Add a new item',
+        'new_item_does' => 'For a product the system does not have yet. Your changes in the table are saved first.',
+        'ask_item' => 'Product not found? %s can add a new item: ask them.',
+        // The step page "Add a new item"
+        'item_title' => 'Add a new item to the order for %s',
+        'item_name' => 'Item name (required)',
+        'item_brand' => 'Brand',
+        'item_barcode' => 'Barcode on the item',
+        'item_supply' => 'How this supplier sells it',
+        'item_supply_text' => 'Give their product code, the pack or the price: it is then set up with this supplier for next time.',
+        'item_code' => 'Their product code',
+        'item_upp' => 'Items in one pack',
+        'item_price' => '£ per pack, before VAT',
+        'item_packs' => 'Packs to order',
+        'item_button' => 'Make the item and add it to the order',
+        'item_back' => 'Back to the order',
+        'same_title' => 'An item with this name is in the system already',
+        'same_text' => 'Add the one that is there, or tick the box below if yours is a different item.',
+        'same_use' => 'Add this one to the order',
+        'same_anyway' => 'It is a different item: make a new one',
+        'barcode_other' => 'This barcode belongs to %s.',
+        'barcode_use' => 'Add that item to the order instead',
+        'bad_number' => 'Not saved: "%s" must be a whole number of at least 1. Nothing was saved.',
     ];
 
     /** What to buy (/ui/purchasing/reorder, plan §6.22). REORDER['demand'] is correction e. */
@@ -5821,6 +5895,8 @@ final class Words
         'skip_blocked' => 'blocked by its product card (%s)',
         'skip_merged' => 'joined into another product',
         'skip_other' => 'left out',
+        // Pack PO (PO11, review finding 4): what the list showed changed before "Create draft orders" was pressed.
+        'skip_changed' => 'its main supplier or pack changed after the list was shown, so nothing was ordered for it: look at it again and tick it again',
         'board' => 'Suggested orders',
     ];
 
@@ -7145,8 +7221,16 @@ final class Words
         'not_ok_reversal_does' => 'Your answer is recorded. Nothing changes: a reversal is never undone. The desk keys the delivery again if needed.',
         'note_optional' => 'Note (optional)',
         'why_not_ok' => 'Why it is not OK (needed)',
-        'po_closed' => 'This delivery cannot be taken back here: %s was closed after the delivery, and taking it back would open the order again. Say OK if it is right. '
-            . 'If it is wrong, leave the check open and ask the purchasing manager (the stock is corrected with a stock correction).',
+        // Pack PO (PO8): a delivery of an order closed afterwards is taken back like any other.
+        'po_closed' => '%s was closed after this delivery. "Not OK" takes the delivery back; the order stays closed while some of it is still delivered, '
+            . 'and waits for the goods again when none is.',
+        // Pack PO (PO10, review finding 6): one supplier invoice that covers more than one delivery of the same order.
+        'split_title' => 'One invoice for more than one delivery?',
+        'split_offer' => 'This invoice number is already on another delivery of %s. If the supplier sent one invoice for several deliveries of that order, '
+            . 'say that this is a later delivery on it.',
+        'split_button' => 'Yes: this is a later delivery on the same invoice',
+        'split_hint' => 'If it is the same delivery keyed twice, do not press it: cancel one of the two deliveries instead.',
+        'split_part' => '(delivery %s on this invoice)',
         // The facts.
         'about' => 'About this delivery',
         'invoice' => 'Supplier invoice',
@@ -7563,6 +7647,8 @@ final class Words
             . 'it was keyed by mistake.',
         'invoice_copy_elsewhere' => 'Not saved: this file is already the supplier invoice of %s. A supplier invoice is booked in once only: attach the right invoice, or '
             . 'cancel the other delivery if it was keyed by mistake.',
+        // Pack PO (PO10).
+        'invoice_shared' => 'Not saved: this delivery shares its supplier invoice with other deliveries of its order. Change its invoice number first, then its order.',
         'admin_cannot_post' => 'Admin cannot key or book in deliveries. Nothing was changed.',
         'role_not_allowed' => 'Your jobs do not allow this. Nothing was changed.',
         'bad_status' => 'Choose how the incident ended: dealt with, or nothing needed. Nothing was changed.',
@@ -7581,6 +7667,9 @@ final class Words
         'invoice_file_required' => 'Attach the supplier\'s invoice (a PDF, or a photo of a paper invoice).',
         'invoice_copy_elsewhere' => 'The invoice file %s is also the invoice of %s. A supplier invoice is booked in once only: attach the right invoice, or cancel '
             . 'one of the two deliveries.',
+        // Pack PO (PO10): one invoice shared by deliveries of different orders.
+        'invoice_shared' => 'This supplier invoice is also on a delivery of another order. One invoice is shared only by deliveries of the same order: correct '
+            . 'the invoice number of one of them.',
         'supplier_not_active' => '%s is not approved yet (or we stopped buying from it). A delivery is booked in only from an approved supplier.',
         'import_route' => '%s is abroad, and how UK duty stamps are put on its goods is not approved yet. A reviewer approves it first.',
         'import_route_change' => 'A change of where %s\'s goods get their UK duty stamps waits for a reviewer\'s OK.',

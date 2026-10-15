@@ -116,7 +116,12 @@ final class ReorderController
                 if (preg_match('/^\d{1,7}$/D', $p) !== 1) {
                     throw new CwException('bad_pick', Words::BUY_ERROR['bad_pick'], 422);
                 }
-                $picks[] = ['sku_id' => $sku, 'packs' => (int) $p];
+                $pick = ['sku_id' => $sku, 'packs' => (int) $p];
+                // Pack PO (PO11, review finding 4): what the line showed (its main supplier item and pack), when the form sent it.
+                if ($req->field("si_{$sku}") !== null) {
+                    $pick += ['supplier_item_id' => UiRequest::id($req->field("si_{$sku}")), 'units_per_pack' => UiRequest::id($req->field("upp_{$sku}"))];
+                }
+                $picks[] = $pick;
             }
             usort($picks, static fn (array $a, array $b): int => $a['sku_id'] <=> $b['sku_id']);
             $r = FormOnce::run($ctx, 'ui.reorder.draft', ['picks' => $picks, 'stock' => $f['stock']], function (Db $db) use ($ctx, $picks, $f): OpResult {
@@ -130,6 +135,8 @@ final class ReorderController
                     : Html::url('/ui/purchasing/reorder', ['notice' => 'drafts', 'drafts' => implode(',', array_column($res['drafts'], 'document_id')),
                         'skipped' => implode(',', array_slice(array_column($res['skipped'], 'sku_id'), 0, self::SKIPPED_IN_URL)),
                         'skipped_n' => count($res['skipped']) > self::SKIPPED_IN_URL ? (string) count($res['skipped']) : null,
+                        // Pack PO (PO11): the lines skipped because what the list showed changed (their reason is not the list's now).
+                        'changed' => self::changedIds($res['skipped']),
                         'brand' => $f['brand'], 'supplier' => $f['supplier'], 'stock' => $f['stock'] === 'cw' ? null : $f['stock']]);
                 return OpResult::of(303, ['result' => 'drafts', 'drafts' => array_column($res['drafts'], 'document_id'), 'skipped' => array_column($res['skipped'], 'sku_id'),
                     'redirect' => $redirect]);
@@ -138,6 +145,18 @@ final class ReorderController
             return $this->listPage($ctx, $f, $e->httpStatus, self::plain($e));
         }
         return FormOnce::redirect($r);
+    }
+
+    /**
+     * The skipped lines whose supply changed since the list was shown (DraftPos `why` changed; pack PO, PO11), for the redirect: their ids,
+     * or null when none.
+     *
+     * @param list<array<string, mixed>> $skipped
+     */
+    private static function changedIds(array $skipped): ?string
+    {
+        $ids = array_slice(array_column(array_filter($skipped, static fn (array $s): bool => ($s['why'] ?? null) === 'changed'), 'sku_id'), 0, self::SKIPPED_IN_URL);
+        return $ids === [] ? null : implode(',', $ids);
     }
 
     /**
@@ -433,10 +452,12 @@ final class ReorderController
         }
         unset($d);
         $skus = self::ids($ctx->req->param('skipped'), self::SKIPPED_IN_URL);
+        $changed = array_flip(self::ids($ctx->req->param('changed'), self::SKIPPED_IN_URL));
         $skipped = [];
         if ($skus !== []) {
             foreach ($this->list($ctx)->lines(ReorderList::filters(['show' => 'all']), $skus) as $l) {
                 $skipped[] = ['sku_id' => $l['sku_id'], 'code' => $l['code'], 'name' => $l['name'], 'reason' => match (true) {
+                    isset($changed[(int) $l['sku_id']]) => Words::REORDER['skip_changed'], // pack PO (PO11)
                     $l['never'] !== null && in_array('merged', $l['flags'], true) => Words::REORDER['skip_merged'],
                     in_array('card_blocked', $l['flags'], true) => Words::say('REORDER', 'skip_blocked', ItemRules::labels($l['card_blocked'])),
                     // Pack G (PG8): never suggested, a main supplier not approved yet, no price.
