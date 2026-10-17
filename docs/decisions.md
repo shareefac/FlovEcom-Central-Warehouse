@@ -10306,3 +10306,249 @@ review rule on the same page; the OK first over the value limit is separate. (d)
 supplier item's last price (`PoSelectOrAddTest::testANewLineTakesTheSuppliersVatCodeAndTheLastPrice`). **Not done in this build:** changing the
 seeded defaults of (a) and (c) to off; it is put to the owner, who can switch both on the Approval Rules page today.
 <!-- ---- end of pack PO ---- -->
+
+## Pack RB: the rollback file, the smallest switch-over tool (worktree `rollback-export`, 17 Oct 2026; RB1-RB34)
+
+The go-live plan (step 5.2, "the ERP way back" step 4; IM15) needs, if the switch is rolled back, a file that brings ERPNext level with what
+CW booked since the switch, plus the lists ERPNext needs, written every night of the rollback window. `bin/rollback_export.php` makes it;
+`CW\Ops\RollbackExport` has the rules. The owner's condition for the switch (Vape and Go first, at least 3 listening days) stays; this pack only
+makes the way back possible.
+
+**RB1. Read only, one moment, never overwritten.** Everything is read in ONE consistent snapshot (`Snapshot::read`: REPEATABLE READ, READ ONLY);
+nothing is written to the database and nothing connects to ERPNext. The files go into a NEW directory (one that exists is refused, exit 2), 0700,
+each file 0600 (umask 0077 before the first write), `manifest.json` last: the format, when it was made (the database's clock), the schema, the
+cut-off and where it came from, the settings used, the item list's name and sha256, each file's rows, bytes and sha256, and the counts. A run
+stopped halfway leaves a directory without a manifest: it is not used, a new one is made (never delete). The cut-off is `--since` (UTC, to the
+microsecond), else the as-of moment of the EARLIEST finished ERPNext opening (`erp_opening_run`, pack I; RB13): the moment ERPNext's figures
+describe. The settings are read in the same snapshot (RB17).
+
+**RB2. Which stock rows are carried.** Every `on_hand` row booked (`created_at`) at or after the cut-off at a warehouse of the setting
+`rollback.cw_warehouses` (baseline `MAIN,VERIFY`), except, each listed in `movements.csv` with why (`Words::ROLLBACK_REASON`):
+- the website's order flow (`RollbackExport::WEBSITE_TYPES`: reserve ... return): the website sends its own sales, cancels and returns to
+  ERPNext; these rows are not read, only counted per type (`website_rows`);
+- rows a website (channel) booked: the ERP relay types (goods in, supplier returns, sales booked in ERPNext) are `in_erpnext`; anything else a
+  website booked (a doubtful cancel moved into VERIFY) is `from_website`;
+- a person's booking OF an ERPNext queue row (its Idempotency-Key is the row's, `Corrections::KEY` / `Suspense::KEY`, for the same item;
+  RB15), and any `erp_sale`: `in_erpnext` (ERPNext made them);
+- a join of duplicates and its undoing: `cw_join` (RB14); a row booked at or before an ERPNext "set to this number" of its item and
+  warehouse: `before_erp_correction` (RB12); a website event a count took in gives its units back to that count (RB11);
+- opening rows (actor `system:opening_estimate`: the ERPNext opening, the estimate, the units-only rebase; or type `opening`): `opening`;
+- a row at another warehouse: `other_warehouse`; a type this file does not know (`CARRIED_TYPES` lists the ones it does): `unknown_type`.
+Why VERIFY is carried by default: a website's cancel moves units MAIN -> VERIFY (not carried: the website's), and ERPNext never took them out; a
+person's recount VERIFY -> MAIN then adds up to nothing inside its document. With VERIFY not carried, that recount would add the units to ERPNext
+a second time. UNSTAMPED is not carried by default: stock moved there by the duty sweep cannot be sold, so ERPNext's figure loses it (a setting).
+
+**RB3. Which ERPNext item a CW item is, never a guess.** The candidates of an item: every ERPNext code CW knows (its ERPNext links,
+`sku_erp_item`, and, when the ERPNext item list is given, `--item-list`, the same file the opening used, its codes) that the opening's own
+resolver (`ErpItemResolver`: the link first, else the Product ID through the store `erp_opening.listing_store`'s match) makes this item, with
+its units per ERPNext item (RB10); item codes compared as ERPNext compares them (`ErpOpeningRules::itemKey`), written as ERPNext wrote them
+(`ErpOpeningFiles::itemMap` now also returns `codes`). One candidate: that one. Several: the one of one unit, when exactly one is; else
+`ambiguous_erp_item`. None: `no_erp_item`. A net that is not a whole number of ERPNext items: `fractional_qty`. A code the spreadsheet guard
+would change (`CsvWriter::safeText`: it starts like a formula): `unsafe_text`, since ERPNext would get a different code. Each is listed with its
+units; nothing is carried for it (the owner's rule: skip anything doubtful and list it).
+
+**RB4. One entry per document, added up per item.** The rows of one document and its reversal (`reverses_id`), or of one movement a person typed
+(its Idempotency-Key), are added up per item first; what adds up to nothing is `netted_out` (a document and its cancelling, a move between two
+carried warehouses). The rest of a document becomes a Material Receipt (more) and/or a Material Issue (less) in `erpnext_stock_entry.csv`, in
+ERPNext's Data Import layout ("Insert New Records": the entry's fields on its first row, the item fields as "Field (Items)" on every row), in the
+ERPNext company `rollback.erp_company` and warehouse `rollback.erp_warehouse` (baselines `VAPE AND GO` and `Stores - VPG`, the names the
+opening import reads), posted at the earliest moment of its rows (`effective_at`, else `created_at`) in UK time with "Set Posting Time" on. A
+receipt's Basic Rate is the cost a central unit CW valued the rows at (the value ledger's, else the row's own), averaged over the rows weighted by
+units, times the units per ERPNext item, to 6 decimals; none known: left empty and counted (`receipt_lines_without_rate`). An issue carries no
+rate: ERPNext values it at its own average. The Remarks name the entry ("CW rollback entry N"), the CW document numbers and the movement types;
+`movements.csv` names each row's entry. The two ERPNext files have no byte-order mark (ERPNext's importer reads plain UTF-8); the lists keep
+the mark (people open them in Excel).
+
+**RB5. A hand-over is a Sales Invoice.** The units out of a hand-over document (`TRD`) are a line of `erpnext_sales_invoice.csv`: Customer (the
+customer's name in CW, which ERPNext must have: `customers.csv`), Update Stock on, the ERPNext item and its quantity, Rate = the hand-over's price
+a unit (averaged as in RB4) times the units per ERPNext item, in the same warehouse. VAT is not on the file: ERPNext applies its tax template. A
+customer name the spreadsheet guard would change, or a reversal whose original lies before the cut-off (units back in), goes to the stock entry
+file instead.
+
+**RB6. The selling modes.** `selling_modes.csv`: every item's mode on the store (`item_channel_mode`: the mode, the mode before Out-Of-Stock, the
+low-stock figure CW writes, who set it, when) as CW last wrote it, one row per ERPNext item of the item (each of them takes the mode), with the
+store's variants; an item without an ERPNext item is listed with why. Honest limit: while the writer is off, the store may hold other modes;
+this file is what CW last wrote.
+
+**RB7. The lists.** `purchase_orders.csv`: every order made, or approved, since the cut-off (RB18), or received against since (a goods receipt posted since),
+one row per item line: units ordered, received and still to come (none once received, closed or cancelled), the pack price and VAT code, and the
+ERPNext item. `suppliers.csv`, `customers.csv`, `items.csv`: those made since the cut-off (an item with its ERPNext items, `code (units)` when not
+one, its variants, and what it was joined into), so ERPNext gets them before the entries that name them.
+
+**RB8. Settings (0046).** `rollback.cw_warehouses` (warehouse codes, comma-separated; each must be a CW warehouse when the file is made),
+`rollback.erp_warehouse`, `rollback.erp_company` (the names as ERPNext writes them; a name starting like a formula is refused; empty: the file is
+not made, exit 2), and `rollback.max_rows` (RB28). All four provisional: put to the owner. Topic "Way back to ERPNext"; words in `Words::SETTING`, `SETTING_HELP`, and
+`ROLLBACK_REASON` for the reasons.
+
+**RB9. Not in this pack.** The nightly run and the copy off CW (write-once storage) of plan step 5.2 are set up on the production server, with
+its backups (handoff 17 Oct, §6.4): the command is ready for a cron line. The Data Import layout is proved only by the practice switch night on
+the ERPNext test copy (plan part 3, "the ERP way back after two weeks"): if ERPNext v16's template names a column differently, the titles are in
+`RollbackExport::STOCK_ENTRY_COLUMNS` and `SALES_INVOICE_COLUMNS` (one place).
+
+Tests: `RollbackExportTest` (a goods-in a person typed as a Material Receipt at its cost in UK time; units in ERPNext items and every reason a
+row is not carried; what ERPNext or a website already has; a document and its reversal, a move between carried warehouses; a hand-over as a
+Sales Invoice; the item list and the modes file; the settings; the script: a new directory once, 0700/0600, the manifest's sha256, the cut-off
+from the latest opening), `RollbackListsTest` (the orders, suppliers, customers and items made since), `Migration0046Test`.
+### The Codex review of pack RB (on `269909d`; `runs/rbx_codex_review.txt`): ten findings, all real, each shown by a test first
+
+The key question put to the reviewer: after a rollback, is ERPNext's stock of each item CW's stock in the carried warehouses, every change
+carried once, at the right ERPNext item? Each finding below has a test that failed on `269909d` (`runs/rbx_red.log`: 8 failures, the 10 earlier
+tests passing) and passes now. RB1-RB9 above stand as amended here.
+
+**RB10. Finding 1 (HIGH): an ERPNext item is the CW item the opening import makes it.** A link (`sku_erp_item` BOX = 6 units) and the item list
+(BOX's Product ID is a single's listing) were added side by side, and "the one of one unit" then wrote 12 BOX for 12 units. Now every code CW
+knows (its links, the item list's codes) is resolved by `ErpItemResolver`, exactly as the opening resolves it (the link first, else the Product
+ID through the store's match; a merged item, an unmatched or quarantined listing and a code two links share resolve to nothing). One code is one
+CW item with one unit count; only then is the item's code chosen (RB3). `RollbackExport::productCodes()` is gone; the constructor takes the
+item list itself. Test: `testAnErpnextLinkKeepsItsUnitsWhenTheItemListAlsoReachesTheItem`.
+
+**RB11. Finding 2 (HIGH): a website event a count already took in.** A dispatch dated before a count but sent after it books only
+`allocated -u` (note `pre_count`, Reservations::ship); the count's own on_hand change already took the units off, and the website still tells
+ERPNext of the sale: carrying the count took them off ERPNext twice. The same for a reset (unship) the count put back. Such a row is now read
+(`bucket = 'allocated'`, `ship`/`unship`, note `pre_count`) and gives its units back to the count that took them in (the latest count of the
+item and warehouse in the window, dated at or after it): in the count's family they add up to the count's true change. A count the file does
+not carry passes its reason on; none in the window: `count_before_cut` (the item's ERPNext figure was never CW's: set by hand). Test:
+`testADispatchOrResetACountAlreadyTookInIsNotCarriedTwice`.
+
+**RB12. Finding 3 (HIGH): ERPNext's "set to this number" makes its figure whole.** A reconciliation sets ERPNext's figure absolutely, so what
+CW alone booked before its moment is inside it (CW's confirmation books the difference against its own figure then, Corrections::effect). A
+row booked (`created_at`) at or before the latest ERPNext correction of its item and warehouse (`Corrections::at`, any state) is not carried:
+`before_erp_correction`. A correction CW did not take (open, dismissed) is named in the counts (`erp_corrections_not_taken`; the command says how
+many): ERPNext's figure of that item is then not CW's. Test: `testAnErpnextCorrectionTakesInWhatCwBookedBeforeIt`.
+
+**RB13. Finding 4 (HIGH): the cut-off is the EARLIEST finished ERPNext opening.** A later run books only items that had not moved, so it can
+never move the cut-off; choosing the latest hid the CW changes between the two. Every finished run is named in the manifest
+(`opening_runs`), and the command says so when there are several. Test: `testTheEarliestFinishedOpeningIsTheCutOff`.
+
+**RB14. Finding 5 (HIGH): a join of duplicates is CW's own.** Carried, a join moved ERPNext's units between two ERPNext items while the moved
+listing's website sales went on to the old item in ERPNext. ERPNext never joins its items: the join rows (`JOIN_TYPES`: merge and split) are
+not carried (`cw_join`), so each ERPNext item keeps what its own website listing sells from; the total over the two stays CW's. Test:
+`testAJoinOfDuplicatesIsNotCarriedAndAMovementUnderTheSameKeyStaysItsOwn`.
+
+**RB15. Finding 6 (MEDIUM): only a booking OF an ERPNext queue row is ERPNext's.** A document name shared with an ERPNext queue row hid a
+person's own goods-in. Now a row is ERPNext's when its Idempotency-Key is the queue row's (`Corrections::KEY`, `Suspense::KEY`, now constants
+used by the queues themselves) for the same item. Test: `testAMovementThatOnlySharesAnErpnextDocumentsNameIsCarried`.
+
+**RB16. Finding 7 (MEDIUM): one typed movement is its booker, its type and its key.** A join's generated key could equal a typed key. The family
+of a row without a document is now `(actor, type, Idempotency-Key)`; joins are not carried anyway (RB14). Same test as RB14.
+
+**RB17. Finding 8 (MEDIUM): the settings are of the same moment.** `RollbackExport::run()` reads the settings, the cut-off and the stock in one
+snapshot; the command calls it and writes the settings it used into the manifest. Test: `testTheSettingsAreReadInTheSnapshotOfTheStock`
+(every read of `app_setting` happens inside the transaction).
+
+**RB18. Finding 9 (MEDIUM): an order approved since the cut-off is listed** even when its draft is older (`document.posted_at`). Test:
+`RollbackListsTest::testAnOrderDraftedBeforeTheCutOffAndApprovedAfterIsListed`.
+
+**RB19. Finding 10 (MEDIUM): memory.** The rows were all kept as arrays until the end. Now they are read twice in the same snapshot, by id in
+chunks: the first pass keeps only each family's sums per item (one small array; a family's types and documents once), the second writes
+movements.csv. Measured with a probe not kept in the tests (`runs/rbx_memory_probe*.txt`; peak above the start, the old code against the new on
+the same rows): 3,000 rows at a warehouse not carried 10.6 MB -> 6.8 MB (a row not carried now costs only its line in movements.csv); 3,000
+rows each its own carried item 10.0 MB -> 11.3 MB (about the same: one sum per document and item instead of one row). Honest limit (corrected
+by RB22): memory grows with the carried documents and items (their sums, outcomes and entries) and with the files, not only with the CSV bytes.
+### The second Codex review (on `5e96333`; `runs/rbx_codex_review2.txt`): six of the ten fixed, four more, each shown by a test first
+
+Codex checked each fix against its finding: RB10, RB11, RB12, RB13, RB17 and RB18 fixed; four were not complete. The tests below failed on
+`5e96333` (`runs/rbx_red3.log`) or, for RB23, on `269909d` (`runs/rbx_red2.log`), and pass now.
+
+**RB20. (HIGH) Joins, and the items entries cannot make level, are set to CW's figure. Withdrawn by RB24: see there.** Not carrying a join (RB14) kept each ERPNext item's
+own figure, but an ERPNext correction of the kept item afterwards (30 + 8 joined, ERPNext sets the kept one to 20) left the joined item's 8 in
+ERPNext: 28 against CW's 20. Entries cannot fix that, nor an ERPNext correction CW did not take (RB12), nor the website events of a count before
+the cut-off (RB11). So the file now has `erpnext_stock_reconciliation.csv`: ONE Stock Reconciliation, at the moment of the file, that sets each
+such item to CW's figure as ERPNext counts it: its units at the carried warehouses less the paid units not yet sent (`allocated`: ERPNext takes
+a sale off when it is paid; the opening's units-only rebase, PI14, is the same relation), in its ERPNext item, at CW's average cost; every other
+ERPNext item of it, and a joined item's own links (which the opening no longer reads), to nothing. ERPNext imports it LAST: an absolute figure
+at that moment overrides every entry before it. An item it cannot set (no or several ERPNext items, not whole ERPNext items, a figure below
+zero, a code like a formula) is named in `counts.reconciliation.not_set`, never guessed. Of several ERPNext items of one unit, CW's own link
+(a person's decision) is the item's (a join leaves the kept item with its own link and, through the moved listing, the joined one's). Honest
+limit: a website sale paid but not yet in ERPNext at that moment is counted twice for these items (minutes; the same as the opening's pending
+sales). Test: `testAJoinOfDuplicatesIsNotCarriedAndBothItemsAreSetToCwsFigure`.
+
+**RB21. (MEDIUM) A queue booking is the person who settled the row.** A key and an item did not prove the row booked that queue row: a job
+can use `queue:correction:7` in its own scope (Idempotency: staff and each job have their own). A row is ERPNext's booking only when the queue
+row is settled, the row's booker is the person who settled it (`resolved_by`), its type is the queue's (an adjustment; the suspense row's
+type) and its item (and, for a correction, its warehouse) are the queue row's. Test: `testAJobsMovementUnderAQueueRowsKeyIsCarried`.
+
+**RB22. (MEDIUM) Memory, measured and said honestly.** Codex measured a file of 30,000 distinct carried documents at about 148 MB above the
+start (it did not fit in 128 MB): about 5 KB a carried document and item. A window of 100,000 of them would need about 500 MB; the expected
+window is far smaller (6 weeks: about 300 receipts, 100 corrections, the counts of 6 to 8 weeks, plan §5.2 and §8.3), and the production
+server has 4 GB with PHP's command line unlimited. Each run writes `peak_memory_bytes` into its manifest, so the nightly runs show the job
+growing long before it would not fit; bounding it further (streaming the entries) is left until a run shows the need.
+
+**RB23. (MEDIUM) The test that isolates RB16.** Two movements under one key from two scopes (a person's +6 and a job's -1 of an item of six
+units) stay two families: one box, and the job's unit listed as not whole. With the old grouping by the key alone they added up to 5 and both
+were listed. Test: `testTwoMovementsUnderOneKeyFromTwoScopesStayApart`.
+### The third Codex review (on `433ff14`; `runs/rbx_codex_review3.txt`): RB21 and RB23 confirmed; the stock reconciliation withdrawn
+
+Codex confirmed RB21 and RB23, and RB20 for the case it was written for, but showed that a figure set by a program erases what it does not
+see. The tests below failed on `433ff14` (`runs/rbx_red4.log`) and pass now.
+
+**RB24. (HIGH) Nothing sets ERPNext's figures by itself: the items entries cannot make level are listed, to be set by hand.** RB20's Stock
+Reconciliation set a joined item to nothing although units held on it stayed its own (38 in ERPNext became 36); a count dated a minute ahead
+was counted twice (the reconciliation, then the later entry); the reconciliation's clock was later than the snapshot (a sale between the two
+was overwritten); a merged item's link bypassed the check of two links reading as one code; a code shared by two items took the last item's
+rate; a merged item's one link of a box was called ambiguous. Each is a way a program's absolute figure goes wrong. So
+`erpnext_stock_reconciliation.csv` is gone; `to_set_by_hand.csv` lists both items of every join (the item joined, the one it went into, each
+marking the other), every item ERPNext set to a number CW did not take, and every item a count before the cut-off took website events in for:
+the item, why (`Words::ROLLBACK_SET`), CW's figure as ERPNext counts it (units on hand at the carried warehouses less the paid units not yet
+sent: ERPNext takes a sale off when it is paid, the relation of the opening's units-only rebase, PI14), both parts, every ERPNext item known for
+it (the codes the opening reads, a joined item's own links, with their units), and the item it was joined with. The ERPNext admin sets them
+after the import, so that each pair together holds CW's figures (the owner's rule: anything doubtful is listed, never guessed). The command
+says how many; `counts.to_set_by_hand` holds the number. Tests: `testAJoinOfDuplicatesIsNotCarriedAndBothItemsAreListedToBeSetByHand` (the 30
++ 8 join, then ERPNext sets the kept item to 20: no entry, both listed at 20 and 0), `testAJoinThatLeavesHeldUnitsOnTheJoinedItemListsBothFigures`
+(36 and 2: the held units are not paid, ERPNext still counts them).
+
+**RB25. (HIGH) Two ERPNext items of one unit are never chosen between.** RB20's tie-break (CW's own link wins) could take a sale off an
+ERPNext item that holds none: a link says how its own code maps into CW, not which of two ERPNext items is the item's. Withdrawn: such an
+item's rows are `ambiguous_erp_item`, as before RB20. Test: `testTwoErpnextItemsOfOneUnitAreNeverChosenBetween`.
+
+**RB26, RB27.** Withdrawn with the reconciliation (RB24): the rate of a code shared by two items (finding 7) and the one link of a box
+(finding 8) were the reconciliation's alone; the hand list shows every code with its units and sets nothing.
+
+**RB28. (MEDIUM) A window too big for the machine stops before it is read.** The aggregation is still unbounded by design (RB22's numbers:
+about 5 KB a carried row). The new setting `rollback.max_rows` (0046; baseline 200,000, provisional) stops the first pass at the first row past
+it, before any file is written (exit 3, the directory not made), and says how to go on: raise the setting when the machine has the memory, or
+make the file from a later moment. Test: `testARunThatWouldReadMoreRowsThanTheLimitStopsAndSaysWhy` (a limit of 2 with 3 rows stops, through
+`run()` and through the command; 3 reads them).
+### The fourth Codex review (on `5264689`; `runs/rbx_codex_review4.txt`): RB24-RB28 answered; the hand list told more
+
+Codex found the nine points of its third review answered, and four things the person setting the list, or a big window, still needed. The tests
+below failed on `5264689` (`runs/rbx_red5.log`) and pass now.
+
+**RB29. (HIGH) A joined item's ERPNext item from before the join.** When ERPNext reaches the joined item only through its listing, the join
+moved that listing to the kept item, so the code showed under the kept item and the joined item's held units had none. A listing whose present
+link a join opened (`listing_map_history` opened by an applied `merge_skus` decision, `DecisionService::openPeriod`) belonged to the joined
+item: its code is shown under the kept item as "came with <item> in the join" and under the joined item as "its own before the join". Test:
+`testAJoinThatLeavesHeldUnitsOnTheJoinedItemListsBothFiguresAndItsOwnErpnextItem` (the joined item's code through its listing only; 36 and 2).
+
+**RB30. (HIGH) A code two CW links read as one is shown with its other owner.** A joined item's own link (` Shared`) and another item's
+(`Shared`) are one ERPNext item; the opening's resolver refuses both, but the list showed the code under the joined item alone, and setting it
+to that item's figure would have erased the other's units. Every code in the list now says which other CW items link it ("also linked to ...:
+settle which item it is first"). Test: `testACodeTwoLinksReadAsOneIsShownWithItsOtherOwner`.
+
+**RB31. (MEDIUM) The limit is checked on a count, before a row is read.** The first pass counted as it went, so a window far over the limit
+could run out of memory (exit 255) before reaching it. The rows are counted first (the same reading's condition, on the `created_at` index); a
+window over `rollback.max_rows` stops with exit 3 before any row is read, and a window within it raises PHP's memory limit, when it is set lower,
+to what it may need (RB22's 5 KB a row, and room to start). Test: the limit test now also proves no row was read (`StatementHook`).
+
+**RB32. (MEDIUM) Many joins stay within MySQL's limit of bound values.** The hand list's look-up of joined pairs named every item twice in one
+statement (65,536 values for 32,768 items); it now reads in chunks of 1,000, each side on its own, like the other look-ups. Not covered by a
+test (it needs 16,384 joins); the chunking is the same as `loadSkus()`'s.
+### The fifth Codex review (on `2ed488b`; `runs/rbx_codex_review5.txt`): RB30-RB32 answered; one more, then fit to merge
+
+**RB33. (HIGH) Through a chain of joins each code goes back to the item it belonged to first.** RB29 read only the newest period of a
+listing's link: after A was joined into B and B into C, A's code showed under B ("its own before the join") while A, still holding two units
+held for a checkout, showed none, and setting B would have erased them. The listing's periods are now walked from the newest back: each period a
+join opened names the item it came from, as long as it follows on from the period before it (the walk stops at a period a person's decision
+opened, or a link changed in between); the item of the first join is the code's own. Test: `testAChainOfJoinsGivesEachCodeBackToTheItemItBelongedToFirst`
+(A into B into C, two units held on A: A 2 with its code, B 0 with its code, C 13 with both "came with").
+### The sixth Codex review (on `1b41917`; `runs/rbx_codex_review6.txt`): RB33 confirmed; a join undone
+
+**RB34. (HIGH) A join undone is stepped over; history that cannot be followed is said so.** After A into B into C, splitting B back out of C
+opened new periods for B's listings, and the walk stopped there: A's code showed under B with no word, and A's two held units had none. A
+period a split back to the former item opened (`match_decision` action `split`, `detail.split_to = former`) now sends the walk back past every
+period down to the one the join it undoes opened (`detail.undoes_decision_id`), and on from the period before it, which must be of the same item.
+A history that cannot be followed (a split to a new item, or the join a split undoes not among the listing's periods) is not guessed: the code
+is shown with "its joins cannot be followed: check which item it belongs to". The walk is `RollbackExport::firstOwner()`. Test:
+`testAJoinUndoneIsSteppedOverAndTheEarlierJoinsCodeStaysItsOwn` (A into B into C, then B split back: A 2 with "its own before the join", B 3
+with A's code as "came with A in the join" and its own, C 10).
+<!-- ---- end of pack RB ---- -->

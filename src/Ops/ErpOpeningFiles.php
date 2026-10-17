@@ -146,14 +146,16 @@ final class ErpOpeningFiles
     /**
      * The item list: ERPNext item code => the store's variant number (Product ID).
      *
-     * @return array{sha256: string, file: string, rows: int, map: array<string, string>, without_product: int, ambiguous: array<string, list<string>>}
-     *         map keys: ErpOpeningRules::itemKey(item code)
+     * @return array{sha256: string, file: string, rows: int, map: array<string, string>, without_product: int, ambiguous: array<string, list<string>>,
+     *               codes: array<string, string>}
+     *         map keys: ErpOpeningRules::itemKey(item code); codes: the same key => the item code as the file first wrote it (pack RB)
      */
     public static function itemMap(string $path): array
     {
         [, $cols, , , $rest] = self::header(self::records($path), self::MAP_COLUMNS, ['item_code', 'product_id'],
             'the item list needs the columns ID (or Item Code) and Product ID');
         $map = [];
+        $codes = [];
         $ambiguous = [];
         $rows = 0;
         $without = 0;
@@ -173,12 +175,13 @@ final class ErpOpeningFiles
                 $ambiguous[$k] = array_values(array_unique([...($ambiguous[$k] ?? [$map[$k]]), $pid]));
             }
             $map[$k] ??= $pid;
+            $codes[$k] ??= $code;
         }
         foreach (array_keys($ambiguous) as $k) {
-            unset($map[$k]);
+            unset($map[$k], $codes[$k]);
         }
         return ['sha256' => (string) hash_file('sha256', $path), 'file' => basename($path), 'rows' => $rows, 'map' => $map, 'without_product' => $without,
-            'ambiguous' => $ambiguous];
+            'ambiguous' => $ambiguous, 'codes' => $codes];
     }
 
     /**

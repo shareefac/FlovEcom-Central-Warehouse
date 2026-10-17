@@ -41,6 +41,8 @@ final class Corrections
     public const TABLE = 'count_review';
     public const PERM = 'queues.corrections';
     public const SOURCE = RelayIntake::SOURCE_RECONCILIATION;
+    /** The Idempotency-Key of a confirmation (and of the adjustment it books): KEY . <count_review id> (the rollback file knows them by it). */
+    public const KEY = 'queue:correction:';
 
     public function __construct(private readonly Db $db)
     {
@@ -145,7 +147,7 @@ final class Corrections
         $note = QueueRules::note($note);
         // Who first (and again inside): a person without the job hears that, not what the key stored for someone else's answer.
         QueueRules::authorise($this->db, $caller, self::PERM);
-        $key = 'queue:correction:' . $id;
+        $key = self::KEY . $id;
         $r = (new Idempotency($this->db))->run($caller, $key, 'queue.correction.confirm', '/ui/queues/corrections/' . $id, ['id' => $id, 'note' => $note],
             self::TABLE, (string) $id, function (Db $db) use ($caller, $id, $note, $key): OpResult {
                 QueueRules::authorise($db, $caller, self::PERM);

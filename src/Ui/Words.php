@@ -71,7 +71,9 @@ final class Words
         'HANDOVER', 'HANDOVER_NOTICE', 'HANDOVER_ERROR', 'HANDOVER_PDF', 'CUSTOMER', 'CUSTOMER_KIND', 'CUSTOMER_FIELD_ERROR', 'CUSTOMER_ERROR',
         'CUSTOMER_NOTICE', 'PRICE_SKIP', 'BALANCE', 'BALANCE_KIND', 'BALANCE_NOTICE', 'BALANCE_ERROR', 'DUTY', 'DUTY_STAMP',
         // --- Pack J (0041): goods on their way
-        'ARRIVALS', 'ARRIVAL_STATE', 'RECEIVE_MODE', 'STAMP_ANSWER', 'ARRIVAL_ERROR'];
+        'ARRIVALS', 'ARRIVAL_STATE', 'RECEIVE_MODE', 'STAMP_ANSWER', 'ARRIVAL_ERROR',
+        // --- Pack RB (0046): the rollback file
+        'ROLLBACK_REASON', 'ROLLBACK_SET'];
 
     // ------------------------------------------------------------------------------------------------------------------
     // 1.1 Products and websites
@@ -2443,6 +2445,11 @@ final class Words
         'arrivals.late_hours' => 'Late after (hours)',
         'arrivals.sell_before_default' => 'Sell before it arrives (suppliers without their own choice)',
         'arrivals.default_mode' => 'How invoices come in (suppliers without their own choice)',
+        // --- Pack RB (0046): the rollback file.
+        'rollback.cw_warehouses' => 'Warehouses ERPNext\'s stock stands for',
+        'rollback.erp_warehouse' => 'ERPNext warehouse of the rollback file',
+        'rollback.erp_company' => 'ERPNext company of the rollback file',
+        'rollback.max_rows' => 'Most stock rows one rollback file reads',
         'invoices.price_tolerance_pct' => 'Invoice price may differ by (%)',
         'invoices.price_tolerance_gbp' => 'Invoice price may differ by (£ a line)',
         'invoices.qty_tolerance_pct' => 'Invoice may bill more units than received (%)',
@@ -3562,6 +3569,7 @@ final class Words
         // Pack H (0038).
         'handovers' => 'Hand-overs',
         'duty' => 'Vaping duty',
+        'rollback' => 'Way back to ERPNext', // Pack RB (0046)
     ];
 
     /** app_setting key => what the setting does, in words (the migration's description is the fallback). */
@@ -3683,6 +3691,14 @@ final class Words
             . '(customers can order overnight; the orders go out when the goods land). Off: they are sold once received. Each supplier can choose on its page.',
         'arrivals.default_mode' => 'count: the goods are counted on arrival by Goods In (they wait in Arriving). received: they are booked as received the moment '
             . 'the invoice is final, without a count. For a supplier without its own choice; each invoice can still choose.',
+        // --- Pack RB (0046)
+        'rollback.cw_warehouses' => 'The warehouses, by their short codes separated by commas, whose stock ERPNext\'s own figure stands for. The rollback '
+            . 'file carries what CW booked there; a move between two of them adds up to nothing. VERIFY belongs here: a website\'s cancel moves units '
+            . 'into it, and ERPNext never took them out.',
+        'rollback.erp_warehouse' => 'The ERPNext warehouse the rollback file\'s entries take stock into and out of, written exactly as in ERPNext.',
+        'rollback.erp_company' => 'The ERPNext company of the rollback file\'s entries, written exactly as in ERPNext.',
+        'rollback.max_rows' => 'A rollback file that would read more stock rows than this stops before reading them and says so: raise it when the machine '
+            . 'has the memory (each carried row takes a few kilobytes), or make the file from a later moment.',
         'invoices.check_price' => 'Off (as the owner chose on 15 Oct 2026): the price on the supplier\'s invoice is the right price. A line whose price differs from '
             . 'the order is still matched; the difference is shown on the invoice and recorded for the stock value. On: a price outside the two price tolerances '
             . 'below needs a person on "To match". The units are checked either way: billing more than arrived always needs a person.',
@@ -4050,6 +4066,30 @@ final class Words
         // pack J (PJ1): a supplier invoice's units on their way, and the receipt that takes them in.
         'incoming' => 'On its way (supplier invoice final)',
         'arrive' => 'Arrived (received against its invoice)',
+    ];
+
+    /** Pack RB (docs/decisions.md RB2-RB4): why a stock change is not carried into the rollback file (RollbackExport::REASONS). */
+    public const ROLLBACK_REASON = [
+        'from_website' => 'Booked by a website: its own sales, cancels and returns reach ERPNext from the website',
+        'in_erpnext' => 'Came from ERPNext: ERPNext has it already',
+        'opening' => 'Opening stock, taken from ERPNext',
+        'cw_join' => 'A join of duplicate items in CW: ERPNext keeps both items, so both are in the list to set by hand',
+        'other_warehouse' => 'A warehouse ERPNext\'s stock does not stand for',
+        'unknown_type' => 'A kind of stock change this file does not know: book it in ERPNext by hand',
+        'before_erp_correction' => 'Booked before ERPNext set this item to a number: ERPNext\'s figure took it in then',
+        'count_before_cut' => 'A website dispatch a count before the cut-off took in: the item is in the list to set by hand',
+        'netted_out' => 'Undone in the same document: it adds up to nothing',
+        'no_erp_item' => 'No ERPNext item: make it in ERPNext (or link it in CW) and book it by hand',
+        'ambiguous_erp_item' => 'More than one ERPNext item could be meant: book it by hand',
+        'fractional_qty' => 'Not a whole number of ERPNext items: book it by hand',
+        'unsafe_text' => 'The ERPNext item code starts like a spreadsheet formula: book it by hand',
+    ];
+
+    /** Pack RB (docs/decisions.md RB24): why an item is in to_set_by_hand.csv (ERPNext's figure of it cannot be made level by entries). */
+    public const ROLLBACK_SET = [
+        'cw_join' => 'Joined with a duplicate in CW: ERPNext keeps both items; set them so that together they hold CW\'s figures',
+        'erp_correction_not_taken' => 'ERPNext set it to a number CW did not take: set it to CW\'s figure',
+        'count_before_cut' => 'A count before the cut-off took in website events ERPNext has: set it to CW\'s figure',
     ];
 
     /** How a warehouse product was made (sku.origin). */

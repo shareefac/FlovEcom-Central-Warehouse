@@ -39,6 +39,8 @@ final class Suspense
     /** The kinds a person may book from here (the relay's stock kinds), and the relayed correction that opens a correction instead. */
     public const STOCK_KINDS = ['goods_in', 'supplier_return', 'erp_sale'];
     public const UNITS_MAX = 10000;
+    /** The Idempotency-Key of a booking (and of its ledger rows): KEY . <goods_in_suspense id> (the rollback file knows them by it). */
+    public const KEY = 'queue:suspense:';
 
     public function __construct(private readonly Db $db)
     {
@@ -98,7 +100,7 @@ final class Suspense
         }
         // Who first (and again inside): a person without the job hears that, not what the key stored for someone else's answer.
         QueueRules::authorise($this->db, $caller, self::PERM);
-        $key = 'queue:suspense:' . $id;
+        $key = self::KEY . $id;
         $r = (new Idempotency($this->db))->run($caller, $key, 'queue.suspense.book', '/ui/queues/suspense/' . $id,
             ['id' => $id, 'item' => $itemCode, 'units' => $unitsPer, 'note' => $note], self::TABLE, (string) $id,
             function (Db $db) use ($caller, $id, $itemCode, $unitsPer, $note, $key): OpResult {

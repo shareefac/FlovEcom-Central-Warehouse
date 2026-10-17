@@ -655,3 +655,20 @@ Document and file tests notes:
   {PoSelectOrAddScreensTest,PurchaseOrderFixesScreensTest}.php` (every new POST: its CSRF token and its route's permission), `Migration0042Test`.
   A screen test that changes the PO rule (`document_type`, a seed table) puts its row back in tearDown. The search box over the supplier list
   is `input[data-filter-select]` (hidden; `app.js` shows it): `UiResponse::form()` skips it (it has no name).
+
+
+### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
+
+| Path | What |
+|---|---|
+| `migrations/0046_rollback_export.sql` | the settings `rollback.cw_warehouses`, `rollback.erp_warehouse`, `rollback.erp_company`, `rollback.max_rows` and their baselines (no table changes) |
+| `src/Ops/RollbackExport.php` | the rules: which rows are carried (`WEBSITE_TYPES`, `CARRIED_TYPES`, `JOIN_TYPES`, `REASONS`), the ERPNext item of a CW item (through `ErpItemResolver`), one entry per document added up per item, the eight files; `run()` reads everything in one snapshot, two passes by id |
+| `src/Queues/Corrections.php`, `Suspense.php` | `KEY`: the Idempotency-Key prefix of a queue booking (the rollback file knows ERPNext's bookings by it) |
+| `bin/rollback_export.php` | the command: a new directory, 0700 / 0600, `manifest.json` last; `--since`, `--item-list` |
+| `src/Ops/ErpOpeningFiles.php` | `itemMap()` also returns `codes`: each item code as ERPNext wrote it |
+| `src/Ui/Words.php` | `ROLLBACK_REASON`, `ROLLBACK_SET`, the four settings' names and help, the topic `rollback` |
+
+- Tests: `tests/Integration/Ops/RollbackExportTest.php` (extends `HandoversTestCase`: real stock records, hand-overs, relay and queue bookings;
+  the cut-off is the database clock, as `stock_ledger.created_at`; the script run out of process on the test schema),
+  `tests/Integration/Ops/RollbackListsTest.php` (extends `PurchaseOrderTestCase`), `Migration0046Test`. A new movement type is either in
+  `CARRIED_TYPES` or in `WEBSITE_TYPES`; anything else is listed as `unknown_type` and never carried.

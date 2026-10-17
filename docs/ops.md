@@ -2644,3 +2644,40 @@ php bin/import_erp_opening.php ...the same... --apply --sha256=<that hash> --app
   --db=cw_staging` (it only posts what is due).
 - **Checks:** `bin/invariants.php` runs J1–J4 (incoming against the invoices on their way).
 <!-- ---- end of pack J ---- -->
+
+## The way back to ERPNext: the rollback file (pack RB; `docs/decisions.md` RB1–RB34)
+
+If the switch is rolled back, ERPNext must be made level with what CW booked since the switch before it sends anything to a store. The
+rollback file says what, in ERPNext's Data Import layout. It only reads CW (one snapshot) and never connects to ERPNext.
+
+```
+php bin/rollback_export.php --out=/var/lib/cw/rollback/$(date -u +%Y%m%dT%H%M%SZ) --item-list=<the ERPNext item list the opening used>
+```
+
+- `--out` must be a NEW directory (nothing is overwritten); it is made 0700, each file 0600, `manifest.json` last. No manifest: the run stopped;
+  make a new one.
+- `--since=<UTC time>` sets the cut-off; without it, the as-of moment of the earliest finished ERPNext opening (the switch).
+- The command names, and `manifest.json` lists, any ERPNext correction CW did not take: set those items in ERPNext by hand.
+- Without `--item-list` only CW's own ERPNext links name ERPNext items; every other item is listed as having none.
+- Settings (Settings › Way back to ERPNext): `rollback.cw_warehouses` (MAIN,VERIFY), `rollback.erp_warehouse` (Stores - VPG),
+  `rollback.erp_company` (VAPE AND GO), `rollback.max_rows` (200,000: a bigger window stops, exit 3, before anything is written). Check the
+  two ERPNext names against ERPNext before the switch night.
+
+What the directory holds, and what the ERPNext admin does with it, in this order:
+
+| File | What it is | ERPNext |
+|---|---|---|
+| `items.csv`, `suppliers.csv`, `customers.csv` | made in CW since the cut-off | made in ERPNext first (an entry cannot name an item or customer ERPNext lacks) |
+| `erpnext_stock_entry.csv` | Material Receipts and Issues: goods in, stock in and out, counts, corrections, write-offs, supplier returns, joins | Data Import, Stock Entry, Insert New Records |
+| `erpnext_sales_invoice.csv` | hand-overs, one invoice each, Update Stock on, no VAT on the file | Data Import, Sales Invoice; ERPNext's tax template added |
+| `to_set_by_hand.csv` | items entries cannot make level (joined duplicates, ERPNext corrections CW did not take, counts before the cut-off), with CW's figure as ERPNext counts it | set by hand AFTER the import; nothing in the files sets a figure by itself |
+| `selling_modes.csv` | each item's mode and low-stock figure on the store as CW last wrote them | loaded so ERPNext does not push the switch night's modes back |
+| `purchase_orders.csv` | orders made or received against since the cut-off, with what is still to come | the orders still open are raised again in ERPNext |
+| `movements.csv` | every stock row read: its entry, or why it is not carried | the rows "book it by hand" are booked by hand |
+| `manifest.json` | cut-off, settings, sha256 of each file, counts | checked before anything is imported |
+
+Nothing in these files may reach a store: the store already holds those units and modes (plan, "the ERP way back" step 4). Import only while the
+ERPNext doors to the stores are still closed, and only into an ERPNext that was proved with the practice run on the test copy.
+
+**Every night of the rollback window** (plan step 5.2) the production server runs the command from cron and copies the directory off CW (the
+write-once storage), so the way back does not need CW on the day. It is set up with the production server's backups.

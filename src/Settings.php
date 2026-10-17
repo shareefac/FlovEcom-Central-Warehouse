@@ -198,6 +198,16 @@ final class Settings
         'arrivals.late_hours' => ['min' => 1, 'max' => 720],
         'arrivals.default_mode' => ['in' => ['count', 'received']],
         // ---- end of pack J ----
+        // ---- Pack RB (0046; docs/decisions.md RB2, RB4): the rollback file. The ERPNext names are typed as ERPNext writes them; one that
+        // starts like a spreadsheet formula is refused (the files are read by ERPNext and opened by people). Empty: the file is not made.
+        'rollback.cw_warehouses' => ['pattern' => '/^[A-Z][A-Z0-9_]{0,31}(,[A-Z][A-Z0-9_]{0,31})*$/D',
+            'pattern_says' => 'warehouse codes separated by commas, like MAIN,VERIFY'],
+        'rollback.erp_warehouse' => ['pattern' => '/^[^\x00-\x20\x7F=+\-@][^\x00-\x1F\x7F]{0,139}$/Du',
+            'pattern_says' => 'an ERPNext warehouse name, like Stores - VPG'],
+        'rollback.erp_company' => ['pattern' => '/^[^\x00-\x20\x7F=+\-@][^\x00-\x1F\x7F]{0,139}$/Du',
+            'pattern_says' => 'an ERPNext company name, like VAPE AND GO'],
+        'rollback.max_rows' => ['min' => 1, 'max' => 10_000_000],
+        // ---- end of pack RB ----
     ];
 
     /**
