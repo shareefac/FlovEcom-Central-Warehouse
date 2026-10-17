@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\Reorder;
 
 use CW\Availability;
+use CW\Documents\DocumentHandlers;
+use CW\Documents\Documents;
+use CW\PurchaseOrders\PurchaseOrders;
+use CW\Reorder\ReorderList;
+use CW\Tests\Support\HookedStatement;
+use CW\Tests\Support\TestDb;
 use CW\Reorder\LowStockLevels;
 use CW\Reorder\ReorderRefresh;
 use CW\Reorder\ReorderSettings;
@@ -91,5 +97,40 @@ final class LowStockLevelsTest extends ReorderTestCase
         self::$db->exec('UPDATE channel SET site_writer = 0 WHERE id = ?', [$vpg]);
         self::assertSame(['601' => null, '601-10' => null], array_map(static fn (array $v): ?int => $v['site']['low_stock_threshold'] ?? null,
             array_column($avail->forVariants($vpg, ['601', '601-10']), null, 'variant_id')));
+    }
+
+    public function testSafetyStockIsCalculatedAfterSettingsLocksIncludingMissingRows(): void
+    {
+        $s = $this->listScenario();
+        $set = new ReorderSettings(self::$db);
+        $set->saveItem($s['buyer'], $s['a'], 0, ['safety_days' => '5']);
+        // A has an existing settings row; B has none. A concurrent save must precede calculation in both cases.
+        foreach ([[$s['a'], 1, 12], [$s['b'], 0, 2]] as [$sku, $version, $expected]) {
+            $conn = TestDb::connect();
+            $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [HookedStatement::class, []]);
+            $pos = new PurchaseOrders($conn, new Documents($conn, DocumentHandlers::all($conn)));
+            $levels = new LowStockLevels($conn, new ReorderList($conn, $pos), new ReorderRefresh($conn, $pos));
+            $ran = false;
+            $save = function () use ($set, $s, $sku, $version, &$ran): void {
+                HookedStatement::$before = [];
+                $ran = true;
+                $set->saveItem($s['buyer'], $sku, $version, ['safety_days' => '1']);
+            };
+            HookedStatement::$before = [
+                'SELECT sku_id, low_stock_level FROM item_reorder' => $save,
+                'SELECT id, code FROM sku WHERE id IN (' => $save,
+            ];
+            try {
+                $r = $levels->apply($s['buyer'], 'safety', [$sku]);
+            } finally {
+                HookedStatement::$before = [];
+            }
+            self::assertTrue($ran);
+            self::assertSame($expected, $r['changed'][0]['after'], 'one spare day, using the settings acquired under lock');
+            self::assertSame($expected, (int) self::$db->value('SELECT low_stock_level FROM item_reorder WHERE sku_id = ?', [$sku]));
+            self::assertSame([$expected, $expected], array_values((array) self::$db->one(
+                'SELECT safety_stock, low_stock_level FROM reorder_line WHERE sku_id = ?', [$sku])));
+        }
+        self::assertSame(2, $this->feedRows(), 'one update per changed product reaches the sites');
     }
 }

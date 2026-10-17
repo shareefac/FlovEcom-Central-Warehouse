@@ -143,12 +143,12 @@ final class HandoverScreensTest extends KernelUiTestCase
         // 5 x 2.40 = 12.00 + 20% = 14.40 owed for the copy.
         $bal = $web->get('/ui/stock/handovers/balances');
         self::assertStringContainsString('£14.40', $bal->text());
-        $r = $web->post('/ui/stock/handovers/balances/' . $cp . '/payments', ['csrf' => $this->token($web), 'amount' => '10.00', 'paid_on' => gmdate('Y-m-d'),
-            'reference' => 'BACS 99']);
+        $paymentPath = '/ui/stock/handovers/balances/' . $cp . '/payments';
+        $r = $web->post($paymentPath, ['amount' => '10.00', 'reference' => 'BACS 99'] + $bal->form($paymentPath));
         self::assertSame(303, $r->status, $r->describe());
         self::assertStringContainsString(Words::say('BALANCE_NOTICE', 'paid', '£4.40'), $web->follow($r)->text());
-        $over = $web->post('/ui/stock/handovers/balances/' . $cp . '/payments', ['csrf' => $this->token($web), 'amount' => '10.00', 'paid_on' => gmdate('Y-m-d'),
-            'reference' => 'BACS 100']);
+        $over = $web->post($paymentPath, ['amount' => '10.00', 'reference' => 'BACS 100']
+            + $web->get('/ui/stock/handovers/balances')->form($paymentPath));
         self::assertSame(409, $over->status);
         self::assertStringContainsString(Words::say('BALANCE_ERROR', 'more_than_owed', '£4.40'), $over->text());
         // The list and its download; the customer's page with its remembered price.
@@ -159,6 +159,49 @@ final class HandoverScreensTest extends KernelUiTestCase
         $customer = $web->get('/ui/stock/handovers/customers/' . $cp);
         self::assertSame(200, $customer->status);
         self::assertStringContainsString('£2.40', $customer->text());
+    }
+
+    public function testPaymentRetriesRecordOneEntryAndRefusalsKeepTheFormKey(): void
+    {
+        $sku = $this->item('legacy', 2, 'Payment retry item');
+        $web = $this->signIn($this->uiUser('purchasing_desk'));
+        $cp = (int) self::$db->insert("INSERT INTO counterparty (kind, name, vat_code, created_actor) VALUES ('trade', 'Payment Retry Ltd', 'Z', 'test')");
+        $r = $web->post('/ui/stock/handovers', ['counterparty' => (string) $cp]
+            + $web->get('/ui/stock/handovers')->form('/ui/stock/handovers', true));
+        self::assertSame(303, $r->status, $r->describe());
+        $page = (string) parse_url((string) $r->location(), PHP_URL_PATH);
+        self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $sku, 'qty' => '1', 'price' => '1000.00'])->status);
+        self::assertSame(303, $this->submit($web, $page, $page . '/post')->status);
+        $balances = '/ui/stock/handovers/balances';
+        $path = $balances . '/' . $cp . '/payments';
+        $form = $web->get($balances)->form($path);
+        self::assertArrayHasKey('form_key', $form);
+        $pay = ['amount' => '100.00', 'reference' => 'BACS-RETRY'] + $form;
+        $missing = $pay;
+        unset($missing['form_key']);
+        $badKey = $web->post($path, $missing);
+        self::assertSame(400, $badKey->status);
+        self::assertSame('bad_form_key', $badKey->errorCode());
+
+        $first = $web->post($path, $pay);
+        self::assertSame(303, $first->status, $first->describe());
+        $again = $web->post($path, $pay);
+        self::assertSame(303, $again->status, $again->describe());
+        self::assertSame($first->location(), $again->location());
+        self::assertSame('900.00', (new \CW\Handovers\CounterpartyAccounts(self::$db))->balance($cp));
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM counterparty_entry WHERE counterparty_id = ? AND kind = 'payment'", [$cp]));
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'counterparty.payment'"));
+        $changed = $web->post($path, ['amount' => '200.00'] + $pay);
+        self::assertSame(422, $changed->status);
+        self::assertSame('idempotency_key_reused', $changed->errorCode());
+
+        $fresh = $web->get($balances)->form($path);
+        $over = $web->post($path, ['amount' => '1000.00', 'reference' => 'BACS-CORRECT'] + $fresh);
+        self::assertSame(409, $over->status);
+        self::assertSame($fresh['form_key'], $over->form($path)['form_key']);
+        $corrected = $web->post($path, ['amount' => '50.00'] + $over->form($path));
+        self::assertSame(303, $corrected->status, $corrected->describe());
+        self::assertSame('850.00', (new \CW\Handovers\CounterpartyAccounts(self::$db))->balance($cp));
     }
 
     /** Review finding 3 (Codex, 14 Oct): the generic record PDF of a hand-over is held to the same rule as its invoice. */

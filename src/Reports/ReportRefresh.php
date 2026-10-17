@@ -24,7 +24,7 @@ use DateTimeZone;
  *     still loading or failed (a failed export is retried under the same id: PE18): the last day each matched item sold. A link made
  *     after a batch was read does not bring its older days back.
  *  B. Per UK day and store (report_sales_day), each day worked out whole again: orders paid that day (reservation.committed_at, the
- *     index of 0034) and the warehouse units on them (reservation_unit.units_per_item, whatever happened to them since), and the units
+ *     index of 0034) and the warehouse units included in their payment (reservation_unit.was_paid and units_per_item), and the units
  *     sent, cancelled and returned that day (the ledger's ship/unship, cancel/uncancel of the allocated figure, and return, by the
  *     row's created_at, read as one range of ids). The days from the one where the last run stopped, less LAG_SECONDS (a transaction
  *     that began before the run commits after it), to today; a first run starts at the first paid order and catches up at most
@@ -117,7 +117,7 @@ final class ReportRefresh
         $ids = array_keys($chunk);
         $in = implode(',', array_fill(0, count($ids), '?'));
         $have = [];
-        foreach ($db->all("SELECT sku_id, seq_done, in_units, in_value, first_in_on, last_sale_on FROM report_item WHERE sku_id IN ({$in}) FOR UPDATE", $ids) as $r) {
+        foreach ($db->all("SELECT sku_id, seq_done, in_units, in_value, first_in_on, last_other_sale_on FROM report_item WHERE sku_id IN ({$in}) FOR UPDATE", $ids) as $r) {
             $have[(int) $r['sku_id']] = $r;
         }
         $cond = [];
@@ -127,7 +127,7 @@ final class ReportRefresh
             $r = $have[$sku] ?? null;
             $from = $r === null ? 0 : (int) $r['seq_done'];
             $state[$sku] = ['done' => max($from, $to), 'units' => (string) ($r['in_units'] ?? '0'), 'value' => (string) ($r['in_value'] ?? '0'),
-                'first' => $r['first_in_on'] ?? null, 'sale' => $r['last_sale_on'] ?? null];
+                'first' => $r['first_in_on'] ?? null, 'sale' => $r['last_other_sale_on'] ?? null];
             if ($to > $from) {
                 $cond[] = '(s.sku_id = ? AND s.seq > ? AND s.seq <= ?)';
                 array_push($params, $sku, $from, $to);
@@ -154,9 +154,10 @@ final class ReportRefresh
             }
         }
         foreach ($state as $sku => $st) {
-            $db->exec('INSERT INTO report_item (sku_id, seq_done, in_units, in_value, first_in_on, last_sale_on) VALUES (?, ?, ?, ?, ?, ?) AS n '
+            $db->exec('INSERT INTO report_item (sku_id, seq_done, in_units, in_value, first_in_on, last_sale_on, last_other_sale_on) VALUES (?, ?, ?, ?, ?, ?, ?) AS n '
                 . 'ON DUPLICATE KEY UPDATE seq_done = n.seq_done, in_units = n.in_units, in_value = n.in_value, first_in_on = n.first_in_on, '
-                . 'last_sale_on = n.last_sale_on', [$sku, $st['done'], $st['units'], $st['value'], $st['first'], $st['sale']]);
+                . 'last_other_sale_on = n.last_other_sale_on, last_sale_on = GREATEST(COALESCE(report_item.last_sale_on, n.last_sale_on), '
+                . 'COALESCE(n.last_sale_on, report_item.last_sale_on))', [$sku, $st['done'], $st['units'], $st['value'], $st['first'], $st['sale'], $st['sale']]);
         }
         return $rows;
     }
@@ -184,7 +185,7 @@ final class ReportRefresh
                 $last[(int) $r['sku_id']] = (string) $r['d'];
             }
             $this->db->transaction(function (Db $db) use ($id, $last): void {
-                $this->lastSale($db, $last);
+                $this->lastOtherSale($db, $last);
                 $db->exec('UPDATE report_refresh SET history_batch_id = ? WHERE id = 1 AND history_batch_id < ?', [$id, $id]);
             });
             $done++;
@@ -192,18 +193,46 @@ final class ReportRefresh
         return [$done, $waiting];
     }
 
-    /** @param array<int, string> $days sku id => a UK day it sold: the item's last sale day moves forward only */
-    private function lastSale(Db $db, array $days): void
+    /** @param array<int, string> $days sku id => a UK day from imported history (kept separately from cancellable store sales) */
+    private function lastOtherSale(Db $db, array $days): void
     {
         foreach (array_chunk($days, 500, true) as $chunk) {
             $values = [];
             $params = [];
             foreach ($chunk as $sku => $day) {
-                $values[] = '(?, ?)';
-                array_push($params, $sku, $day);
+                $values[] = '(?, ?, ?)';
+                array_push($params, $sku, $day, $day);
             }
-            $db->exec('INSERT INTO report_item (sku_id, last_sale_on) VALUES ' . implode(', ', $values) . ' AS n '
-                . 'ON DUPLICATE KEY UPDATE last_sale_on = GREATEST(COALESCE(report_item.last_sale_on, n.last_sale_on), n.last_sale_on)', $params);
+            $db->exec('INSERT INTO report_item (sku_id, last_sale_on, last_other_sale_on) VALUES ' . implode(', ', $values) . ' AS n '
+                . 'ON DUPLICATE KEY UPDATE last_other_sale_on = GREATEST(COALESCE(report_item.last_other_sale_on, n.last_other_sale_on), n.last_other_sale_on), '
+                . 'last_sale_on = GREATEST(COALESCE(report_item.last_sale_on, n.last_sale_on), n.last_sale_on)', $params);
+        }
+    }
+
+    /**
+     * Recompute the store contribution for affected items, across ALL paid days and stores. A cancellation can move it backwards
+     * or clear it; the separately retained ERP/trade/history contribution survives. Newly linked history is not replayed here.
+     *
+     * @param list<int> $ids
+     */
+    private function storeLastSale(Db $db, array $ids): void
+    {
+        $states = implode(', ', array_map(static fn (string $s): string => "'{$s}'", self::SOLD_STATES));
+        sort($ids);
+        foreach (array_chunk($ids, self::ITEM_CHUNK) as $chunk) {
+            $last = [];
+            foreach ($db->all('SELECT u.sku_id, MAX(r.committed_at) AS at FROM reservation_unit u JOIN reservation r ON r.id = u.reservation_id '
+                . "WHERE u.sku_id IN (" . implode(',', array_fill(0, count($chunk), '?')) . ") AND u.state IN ({$states}) "
+                . "AND (u.was_paid = 1 OR u.was_paid IS NULL) AND r.status = 'committed' GROUP BY u.sku_id", $chunk) as $r) {
+                if ($r['at'] !== null) {
+                    $last[(int) $r['sku_id']] = self::ukDay((string) $r['at']);
+                }
+            }
+            foreach ($chunk as $sku) {
+                $db->exec('INSERT INTO report_item (sku_id, last_sale_on) VALUES (?, ?) AS n ON DUPLICATE KEY UPDATE '
+                    . 'last_sale_on = GREATEST(COALESCE(report_item.last_other_sale_on, n.last_sale_on), '
+                    . 'COALESCE(n.last_sale_on, report_item.last_other_sale_on))', [$sku, $last[$sku] ?? null]);
+            }
         }
     }
 
@@ -260,11 +289,12 @@ final class ReportRefresh
         $states = implode(', ', array_map(static fn (string $s): string => "'{$s}'", self::ORDER_STATES));
         $items = [];
         foreach ($this->db->all('SELECT r.channel_id, u.sku_id, u.state, SUM(u.units_per_item) AS n FROM reservation r JOIN reservation_unit u ON u.reservation_id = r.id '
-            . "WHERE r.status = 'committed' AND r.committed_at >= ? AND r.committed_at < ? AND u.state IN ({$states}) GROUP BY r.channel_id, u.sku_id, u.state",
+            . "WHERE r.status = 'committed' AND r.committed_at >= ? AND r.committed_at < ? AND u.state IN ({$states}) "
+            . 'AND (u.was_paid = 1 OR u.was_paid IS NULL) GROUP BY r.channel_id, u.sku_id, u.state',
             [$f, $t]) as $r) {
             $add((int) $r['channel_id'], 'units_sold', (int) $r['n']);
-            if ($r['sku_id'] !== null && in_array((string) $r['state'], self::SOLD_STATES, true)) {
-                $items[(int) $r['sku_id']] = $day;
+            if ($r['sku_id'] !== null) {
+                $items[(int) $r['sku_id']] = true;
             }
         }
         // The ledger's rows of the day, as one range of ids (a row's id and time are set together; LAG on both sides).
@@ -273,9 +303,12 @@ final class ReportRefresh
         $hi = $this->db->value('SELECT id FROM stock_ledger WHERE created_at < ? ORDER BY created_at DESC, id DESC LIMIT 1',
             [Clock::db($to->modify('+' . self::LAG_SECONDS . ' seconds'))]);
         if ($lo !== null && $hi !== null && (int) $lo <= (int) $hi) {
-            foreach ($this->db->all('SELECT channel_id, movement_type, bucket, SUM(qty_delta) AS q FROM stock_ledger WHERE id BETWEEN ? AND ? '
+            foreach ($this->db->all('SELECT channel_id, sku_id, movement_type, bucket, SUM(qty_delta) AS q FROM stock_ledger WHERE id BETWEEN ? AND ? '
                 . "AND created_at >= ? AND created_at < ? AND channel_id IS NOT NULL AND movement_type IN ('ship', 'unship', 'cancel', 'uncancel', 'return') "
-                . 'GROUP BY channel_id, movement_type, bucket', [(int) $lo, (int) $hi, $f, $t]) as $r) {
+                . 'GROUP BY channel_id, sku_id, movement_type, bucket', [(int) $lo, (int) $hi, $f, $t]) as $r) {
+                if (in_array($r['movement_type'], ['cancel', 'uncancel'], true)) {
+                    $items[(int) $r['sku_id']] = true;
+                }
                 $q = (int) $r['q'];
                 match (true) {
                     in_array($r['movement_type'], ['ship', 'unship'], true) && $r['bucket'] === 'allocated' => $add((int) $r['channel_id'], 'units_sent', -$q),
@@ -294,7 +327,7 @@ final class ReportRefresh
                 $db->exec('INSERT INTO report_sales_day (sale_date, channel_id, orders, units_sold, units_sent, units_cancelled, units_returned, refreshed_at) '
                     . 'VALUES (?, ?, ?, ?, ?, ?, ?, NOW(6))', [$day, $channel, $x['orders'], $x['units_sold'], $x['units_sent'], $x['units_cancelled'], $x['units_returned']]);
             }
-            $this->lastSale($db, $items);
+            $this->storeLastSale($db, array_keys($items));
         });
     }
 

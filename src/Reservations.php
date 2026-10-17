@@ -450,6 +450,9 @@ final class Reservations
             }
         }
 
+        // Freeze membership of this payment independently of later unit states, including units sold while unlinked.
+        $this->db->exec("UPDATE reservation_unit SET was_paid = 1 WHERE reservation_id = ? AND state = 'allocated'", [$resId]);
+
         $kind = match (true) {
             $origin === 'unreserved' => 'outage_order',
             $origin === 'opening' => 'opening_short',

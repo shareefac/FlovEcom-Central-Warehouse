@@ -193,7 +193,8 @@ final class OpeningEstimate
         string $docType = 'opening_estimate', array $alsoOwn = []): array
     {
         $out = ['booked_items' => 0, 'booked_units' => 0, 'replayed_items' => 0];
-        $guard = OpeningGuard::closure($this->db, [$docRef, ...$alsoOwn]);
+        $warehouseId = (int) $this->db->value('SELECT id FROM warehouse WHERE code = ?', [$warehouse]);
+        $guard = OpeningGuard::closure($this->db, [$docRef, ...$alsoOwn], $warehouseId);
         $n = 0;
         foreach ($lines as $sku => $units) {
             $r = $this->moves->record($caller, ['type' => self::MOVEMENT_TYPE, 'doc_ref' => $docRef, 'doc_type' => $docType,

@@ -116,13 +116,8 @@ final class ReorderRefresh
     /**
      * Works out and stores the lines of some items; an item no longer on the list is unlisted. Returns how many rows changed.
      *
-     * The figures are read first (outside any transaction); then, in ONE short transaction, the items' stored rows are locked in item
-     * order and each line is decided against what is stored (review finding 1, Codex 14 Oct 2026):
-     *  - a stored row read LATER than these figures wins: this line is dropped;
-     *  - a line equal to the stored one writes nothing but its read time (read_at moves on, changed_at stays), so a slower refresh that
-     *    read earlier can never put its older line over it;
-     *  - anything else is written, both tables together (a new row: the guarded upsert, so the later read wins there too);
-     *  - an item no longer on the list is unlisted when its stored row was read no later than these figures.
+     * Computation and persistence share the per-item reorder_line locks, including a timestamped unlisted row when no result exists.
+     * The read time is captured after every lock. Equal lines advance only read_at; older timestamps still lose on both tables.
      *
      * @param list<int> $ids
      */
@@ -131,17 +126,22 @@ final class ReorderRefresh
         if ($ids === []) {
             return 0;
         }
-        $readAt = Clock::db(($this->clock)());
-        $lines = [];
-        foreach ($this->list->lines(ReorderList::filters(['show' => 'all', 'stock' => 'cw']), $ids) as $l) {
-            $lines[(int) $l['sku_id']] = $l;
-        }
-        $encoded = [];
-        foreach ($lines as $id => $l) {
-            $json = json_encode($l, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
-            $encoded[$id] = [$l, $json, sha1($json)];
-        }
-        return $this->db->transaction(function (Db $db) use ($ids, $encoded, $readAt): int {
+        return $this->db->transaction(function (Db $db) use ($ids): int {
+            // Settings writers take sku before reorder_line too; keep that order, including the FK check of a new marker.
+            $db->all('SELECT id FROM sku WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY id FOR SHARE', $ids);
+            // Upsert even absent results: READ COMMITTED does not lock a missing row. The unlisted row is also the per-item mutex.
+            $lockAt = Clock::db(($this->clock)());
+            foreach ($ids as $id) {
+                $db->exec('INSERT INTO reorder_line (sku_id, listed, need, urgent, below_safety, never_suggested, no_demand, safety_stock, available, '
+                    . 'line_hash, read_at, changed_at) SELECT id, 0, 0, 0, 0, 0, 1, 0, 0, ?, ?, ? FROM sku WHERE id = ? '
+                    . 'ON DUPLICATE KEY UPDATE sku_id = reorder_line.sku_id', [sha1(''), $lockAt, $lockAt, $id]);
+            }
+            $readAt = Clock::db(($this->clock)());
+            $encoded = [];
+            foreach ($this->list->lines(ReorderList::filters(['show' => 'all', 'stock' => 'cw']), $ids) as $l) {
+                $json = json_encode($l, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION);
+                $encoded[(int) $l['sku_id']] = [$l, $json, sha1($json)];
+            }
             $have = [];
             foreach ($db->all('SELECT sku_id, line_hash, listed, read_at FROM reorder_line FORCE INDEX (PRIMARY) WHERE sku_id IN ('
                 . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY sku_id FOR UPDATE', $ids) as $r) {
@@ -160,7 +160,7 @@ final class ReorderRefresh
                 }
                 $write[$id] = $e;
             }
-            $gone = array_values(array_filter($ids, static fn (int $id): bool => !isset($encoded[$id]) && ($have[$id]['listed'] ?? false)
+            $gone = array_values(array_filter($ids, static fn (int $id): bool => !isset($encoded[$id]) && isset($have[$id])
                 && $have[$id]['read_at'] <= $readAt));
             if ($seen !== []) {
                 $db->exec('UPDATE reorder_line FORCE INDEX (PRIMARY) SET read_at = ? WHERE read_at < ? AND sku_id IN (' . implode(', ', array_fill(0, count($seen), '?')) . ')',
@@ -188,9 +188,10 @@ final class ReorderRefresh
                     . 'read_at = GREATEST(new.read_at, reorder_line_detail.read_at)', $details);
                 $n += count($part);
             }
-            if ($gone !== []) {
-                $n += $db->exec('UPDATE reorder_line FORCE INDEX (PRIMARY) SET listed = 0, changed_at = ?, read_at = ? WHERE listed = 1 AND read_at <= ? AND sku_id IN ('
-                    . implode(', ', array_fill(0, count($gone), '?')) . ')', [$readAt, $readAt, $readAt, ...$gone]);
+            foreach ($gone as $id) {
+                $db->exec('UPDATE reorder_line SET changed_at = IF(listed = 1, ?, changed_at), listed = 0, read_at = ? WHERE sku_id = ?',
+                    [$readAt, $readAt, $id]);
+                $n += $have[$id]['listed'] ? 1 : 0;
             }
             return $n;
         });
@@ -208,8 +209,7 @@ final class ReorderRefresh
         if ($ids === []) {
             return 0;
         }
-        $now = Clock::db(($this->clock)());
-        return $this->db->transaction(function (Db $db) use ($ids, $baseAt, $now): int {
+        return $this->db->transaction(function (Db $db) use ($ids, $baseAt): int {
             $in = implode(', ', array_fill(0, count($ids), '?'));
             $old = array_map('intval', $db->column("SELECT sku_id FROM reorder_line FORCE INDEX (PRIMARY) WHERE sku_id IN ({$in}) AND listed = 1 AND read_at <= ? "
                 . 'ORDER BY sku_id FOR UPDATE', [...$ids, $baseAt]));
@@ -223,8 +223,9 @@ final class ReorderRefresh
             if ($off === []) {
                 return 0;
             }
+            $now = Clock::db(($this->clock)());
             return $db->exec('UPDATE reorder_line FORCE INDEX (PRIMARY) SET listed = 0, changed_at = ?, read_at = ? WHERE listed = 1 AND read_at <= ? AND sku_id IN ('
-                . implode(', ', array_fill(0, count($off), '?')) . ')', [$now, $baseAt, $baseAt, ...$off]);
+                . implode(', ', array_fill(0, count($off), '?')) . ')', [$now, $now, $baseAt, ...$off]);
         });
     }
 }

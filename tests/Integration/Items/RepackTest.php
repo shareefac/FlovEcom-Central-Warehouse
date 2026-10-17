@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration\Items;
 
+use CW\Documents\DocumentHandlers;
+use CW\Documents\Documents;
+use CW\Tests\Support\HookedStatement;
+use CW\Tests\Support\TestDb;
 use CW\Items\Packs;
 use CW\Items\RepackHandler;
 use CW\Items\Repacks;
@@ -205,5 +209,57 @@ final class RepackTest extends StockOpsTestCase
         self::refusedWith('admin_cannot_post', fn () => $this->repacks->book($this->staffUser('admin'), ['warehouse' => self::warehouseId('MAIN'), 'pack' => $def,
             'direction' => 'break', 'packs' => 1]));
         self::assertSame(8, $this->onHand($box));
+    }
+
+    public function testCarriedCostIsReadAfterTheStockLocks(): void
+    {
+        [$def, $box] = $this->pack(10);
+        $this->book('goods_in', $box, 1, 'MAIN', null, '10.00');
+        $sc = $this->staffUser('stock_controller');
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [HookedStatement::class, []]);
+        $docs = new Documents($conn, DocumentHandlers::all($conn));
+        $ran = false;
+        HookedStatement::$before = ['SELECT warehouse_id, sku_id, on_hand' => function () use ($box, &$ran): void {
+            $ran = true;
+            // A receipt commits while the repack is about to acquire its balance locks. The average is global across warehouses.
+            $this->book('goods_in', $box, 1, 'VERIFY', null, '30.00');
+        }];
+        try {
+            $doc = (new Repacks($conn, $docs))->book($sc, ['warehouse' => self::warehouseId('MAIN'), 'pack' => $def, 'direction' => 'break', 'packs' => 1]);
+        } finally {
+            HookedStatement::$before = [];
+        }
+        self::assertTrue($ran);
+        self::assertSame([['MAIN', 'adjustment', -1, null], ['MAIN', 'adjustment', 10, '2.000000']], $this->ledgerOf($doc->id));
+    }
+
+    public function testCarriedCostHoldsEveryPostingValueClockBeforeWritingTheLedger(): void
+    {
+        [$def, $box, $single] = $this->pack(10, 'legacy', 0, 1);
+        $this->book('goods_in', $box, 1, 'MAIN', null, '10.00');
+        $sc = $this->staffUser('stock_controller');
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [HookedStatement::class, []]);
+        $docs = new Documents($conn, DocumentHandlers::all($conn));
+        $ran = false;
+        HookedStatement::$before = ['INSERT INTO stock_ledger (' => function () use ($box, $single, &$ran): void {
+            $ran = true;
+            foreach ([$box, $single] as $sku) {
+                self::$db->pdo()->beginTransaction();
+                try {
+                    self::assertSame(3572, self::mysqlError(fn () => self::$db->one(
+                        'SELECT sku_id FROM stock_value_clock WHERE sku_id = ? FOR UPDATE NOWAIT', [$sku])), 'each value stream is frozen');
+                } finally {
+                    self::$db->pdo()->rollBack();
+                }
+            }
+        }];
+        try {
+            (new Repacks($conn, $docs))->book($sc, ['warehouse' => self::warehouseId('MAIN'), 'pack' => $def, 'direction' => 'break', 'packs' => 1]);
+        } finally {
+            HookedStatement::$before = [];
+        }
+        self::assertTrue($ran);
     }
 }

@@ -6,7 +6,6 @@ namespace CW\Duty;
 
 use CW\Clock;
 use CW\Db;
-use CW\Receiving\ReceiptMath;
 use CW\Settings;
 
 /**
@@ -114,18 +113,15 @@ final class DutyRegister
             $r['stamp_required'] = $r['stamp_required'] === null ? null : (int) $r['stamp_required'] === 1;
             $r['stamp_on_pack'] = $r['stamp_on_pack'] === null ? null : (int) $r['stamp_on_pack'] === 1;
             $r['evidence_file'] = (int) $r['evidence_file'] === 1;
-            // Stamped and unstamped as the receipt booked them (review finding 4 of 14 Oct): an unstamped delivery's damaged and over
-            // units go with its unstamped units (ReceiptMath::extras, I167), so they are unstamped too; otherwise they went to VERIFY as
-            // ordinary stock. Stamped = what came as this item (less short and wrong item, plus over) that is not unstamped, and only
-            // when the bench found the stamp on the pack.
+            // Count the physical stamp state, including damaged and over units even when a declaration sent them to VERIFY.
             ['stamped' => $r['stamped_units'], 'unstamped' => $r['unstamped_total']] = self::stampUnits($r);
             return $r;
         }, $rows);
     }
 
     /**
-     * The stamped and unstamped units of a register line, by the receipt's own rules (ReceiptMath::extras: where an unstamped
-     * delivery's damaged and over units went). Pure.
+     * The physical stamped and unstamped units of a register line, independently of their stock destination. A pack without a stamp
+     * has unstamped damaged and over units too; mixed lines quarantined or refused as unstamped keep the same treatment. Pure.
      *
      * @param array{stamp_required: ?bool, stamp_on_pack: ?bool, units: int, short_units: int, wrong_item_units: int, damaged_units: int, over_units: int, unstamped_units: int, unstamped_action: ?string} $r
      * @return array{stamped: int, unstamped: int}
@@ -137,8 +133,8 @@ final class DutyRegister
         }
         $action = $r['unstamped_units'] > 0 ? $r['unstamped_action'] : null;
         $onPack = $r['stamp_on_pack'] === null ? null : ($r['stamp_on_pack'] ? 1 : 0);
-        $extras = ReceiptMath::extras(true, $onPack, $action);
-        $unstamped = $r['unstamped_units'] + ($extras === null ? 0 : $r['damaged_units'] + $r['over_units']);
+        $extrasUnstamped = $onPack === 0 || in_array($action, ['quarantine', 'refuse'], true);
+        $unstamped = $r['unstamped_units'] + ($extrasUnstamped ? $r['damaged_units'] + $r['over_units'] : 0);
         $came = $r['units'] - $r['short_units'] - $r['wrong_item_units'] + $r['over_units'];
         return ['stamped' => $onPack === 1 ? max(0, $came - $unstamped) : 0, 'unstamped' => $unstamped];
     }
@@ -232,7 +228,8 @@ final class DutyRegister
 
     /** The stamp state of a line, in SQL (STAMP_STATES): the bench's findings as the posting kept them. */
     private const STAMP_SQL = "(CASE WHEN g.stamp_required = 0 THEN 'not_needed' WHEN g.unstamped_action = 'accept_pre_october' THEN 'declaration' "
-        . "WHEN g.unstamped_units > 0 THEN 'unstamped' WHEN g.stamp_on_pack = 1 THEN 'stamped' ELSE 'not_checked' END)";
+        . "WHEN g.unstamped_units > 0 OR (g.stamp_on_pack = 0 AND (g.damaged_units > 0 OR g.over_units > 0)) THEN 'unstamped' "
+        . "WHEN g.stamp_on_pack = 1 THEN 'stamped' ELSE 'not_checked' END)";
 
     /**
      * @param array{from: ?string, to: ?string, supplier: ?int, stamp: ?string, state: ?string, q: string} $f

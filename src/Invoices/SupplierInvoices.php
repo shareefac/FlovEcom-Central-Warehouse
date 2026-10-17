@@ -170,7 +170,7 @@ final class SupplierInvoices
             $doc = $this->createDraft($caller, 'credit_note', (int) $r['supplier_id'], ['credits_id' => $credits, 'debit_note_id' => $dnId]);
             $invLines = [];
             if ($credits !== null) {
-                foreach ($db->all('SELECT dl.line_no, dl.sku_id, dl.qty, dl.unit_cost, sl.grn_document_id, sl.grn_line_no, sl.po_document_id, sl.po_line_no FROM document_line dl '
+                foreach ($db->all('SELECT dl.line_no, dl.sku_id, dl.qty, dl.unit_cost, sl.units_per_pack, sl.pack_price, sl.grn_document_id, sl.grn_line_no, sl.po_document_id, sl.po_line_no FROM document_line dl '
                     . "JOIN sinv_line sl ON sl.document_id = dl.document_id AND sl.line_no = dl.line_no WHERE dl.document_id = ? AND sl.kind = 'goods' ORDER BY dl.line_no",
                     [$credits]) as $l) {
                     $invLines[] = $l;
@@ -187,32 +187,39 @@ final class SupplierInvoices
                 $duty = InvoiceMath::e2((string) $d['duty_amount']);
                 $goodsE2 = InvoiceMath::e2((string) $d['amount']) - $duty;
                 $what = 'Return ' . $r['number'] . ' line ' . $d['line_no'] . ($d['code'] === null ? '' : ' ' . $d['code']);
-                $done = false;
+                $remaining = (int) ($d['qty'] ?? 0);
                 if ($d['sku_id'] !== null && $d['grn_document_id'] !== null) {
                     foreach ($invLines as $l) {
                         $no = (int) $l['line_no'];
                         if ((int) $l['sku_id'] === (int) $d['sku_id'] && (string) $l['grn_document_id'] === (string) $d['grn_document_id']
                             && (string) $l['grn_line_no'] === (string) $d['grn_line_no'] && $left[$no] > 0) {
-                            $units = min($left[$no], (int) $d['qty']);
+                            $units = min($left[$no], $remaining);
                             $left[$no] -= $units;
-                            $lines[] = ['kind' => 'goods', 'sku_id' => (int) $d['sku_id'], 'packs' => $units, 'units_per_pack' => 1,
-                                'pack_price' => self::price4((string) $d['unit_cost']), 'credit_of_line_no' => $no, 'grn_document_id' => (int) $l['grn_document_id'],
+                            $remaining -= $units;
+                            // Keep complete packs at their original price when the return uses that unit cost.
+                            $upp = (int) $l['units_per_pack'];
+                            $whole = $units % $upp === 0 && (string) $l['unit_cost'] === (string) $d['unit_cost'];
+                            $packs = $whole ? intdiv($units, $upp) : $units;
+                            $price = $whole ? (string) $l['pack_price'] : self::price4((string) $d['unit_cost']);
+                            $lines[] = ['kind' => 'goods', 'sku_id' => (int) $d['sku_id'], 'packs' => $packs, 'units_per_pack' => $whole ? $upp : 1,
+                                'pack_price' => $price, 'credit_of_line_no' => $no, 'grn_document_id' => (int) $l['grn_document_id'],
                                 'grn_line_no' => (int) $l['grn_line_no'], 'po_document_id' => $l['po_document_id'] === null ? null : (int) $l['po_document_id'],
                                 'po_line_no' => $l['po_line_no'] === null ? null : (int) $l['po_line_no'], 'entry' => 'credit', 'description' => $what];
-                            $goodsE2 -= PoMath::lineAmountE2($units, PoMath::e4(self::price4((string) $d['unit_cost'])));
-                            $done = true;
-                            break;
+                            $goodsE2 -= PoMath::lineAmountE2($packs, PoMath::e4($price));
+                            if ($remaining === 0) {
+                                break;
+                            }
                         }
                     }
                 }
-                if ($goodsE2 > 0 || (!$done && $goodsE2 !== 0)) {
-                    $lines[] = ['kind' => 'other', 'amount' => InvoiceMath::fromE2(max(0, $goodsE2)), 'description' => $what, 'entry' => 'credit'];
+                if ($goodsE2 !== 0) {
+                    $lines[] = ['kind' => 'other', 'amount' => InvoiceMath::fromE2($goodsE2), 'description' => $what, 'entry' => 'credit'];
                 }
                 if ($duty > 0) {
                     $lines[] = ['kind' => 'duty', 'amount' => InvoiceMath::fromE2($duty), 'description' => 'Duty: ' . $what, 'entry' => 'credit'];
                 }
             }
-            $lines = array_values(array_filter($lines, static fn (array $l): bool => $l['kind'] === 'goods' || InvoiceMath::e2((string) $l['amount']) > 0));
+            $lines = array_values(array_filter($lines, static fn (array $l): bool => $l['kind'] === 'goods' || InvoiceMath::e2((string) $l['amount']) !== 0));
             return $lines === [] ? $doc : $this->saveLines($caller, $doc->id, $doc->version, $lines);
         });
     }
@@ -367,7 +374,7 @@ final class SupplierInvoices
             $lines = $this->lineRows($id);
             $onDraft = [];
             foreach ($lines as $l) {
-                if ($l['po_document_id'] !== null) {
+                if ($l['po_document_id'] !== null && (int) $l['po_document_id'] === $poId) {
                     $k = (int) $l['po_line_no'];
                     $onDraft[$k] = ($onDraft[$k] ?? 0) + (int) $l['packs'] * (int) $l['units_per_pack'];
                 }
@@ -714,17 +721,18 @@ final class SupplierInvoices
 
     /**
      * A person accepts the differences of a posted invoice that needs review (invoices.accept; while approvals.invoice_accept_other is
-     * on, not the person who posted it: 403 own_invoice). $note (3-500 characters) says why. The match is worked out now: an invoice
-     * that no longer needs review is not accepted (409 not_needs_review). It stays `accepted` while its match is what was accepted.
+     * on, not the person who posted it: 403 own_invoice). $note (3-500 characters) says why. $fingerprint is the displayed match's
+     * InvoiceMatch::fingerprint(); changed figures are refused under the receipt locks (409 match_changed). An invoice that no longer
+     * needs review is not accepted (409 not_needs_review). It stays `accepted` while its match is what was accepted.
      */
-    public function accept(Caller $caller, int $id, string $note): Document
+    public function accept(Caller $caller, int $id, string $note, string $fingerprint): Document
     {
         $note = trim($note);
         if (mb_strlen($note) < self::ACCEPT_NOTE_MIN || mb_strlen($note) > self::ACCEPT_NOTE_MAX) {
             throw new CwException('note_required', 'say in ' . self::ACCEPT_NOTE_MIN . ' to ' . self::ACCEPT_NOTE_MAX . ' characters why the differences are accepted', 400,
                 ['field' => 'note']);
         }
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $note): Document {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $note, $fingerprint): Document {
             if ($caller->staffUserId === null) {
                 throw new CwException('staff_required', 'invoices are checked by staff', 403);
             }
@@ -750,6 +758,9 @@ final class SupplierInvoices
             if ($m['state'] !== 'needs_review') {
                 $this->match->refresh([$id], $this->nowDb());
                 throw new CwException('not_needs_review', 'this invoice does not need review now', 409, ['state' => $m['state']]);
+            }
+            if (!hash_equals(InvoiceMatch::fingerprint($m), $fingerprint)) {
+                throw new CwException('match_changed', 'the invoice differences changed: review the current figures before accepting', 409);
             }
             $now = $this->nowDb();
             $db->exec('UPDATE supplier_invoice SET accepted_by = ?, accepted_actor = ?, accepted_at = ?, accept_note = ?, accepted_lines_off = ?, accepted_difference = ?, '
@@ -1218,7 +1229,7 @@ final class SupplierInvoices
                 $entry = 'manual';
             }
             if ($lk !== 'goods') {
-                $amount = self::money($l['amount'] ?? null, "lines[{$no}].amount", $lk === 'other' && $kind === 'invoice');
+                $amount = self::money($l['amount'] ?? null, "lines[{$no}].amount", $lk === 'other');
                 if ($desc === null) {
                     $desc = ucfirst($lk);
                 }

@@ -71,6 +71,7 @@
     <p class="muted"><?= $word('INVOICES', 'accept_text') ?></p>
     <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/accept') ?>">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="match_fingerprint" value="<?= $e($match['fingerprint']) ?>">
       <label><?= $word('INVOICES', 'accept_why') ?> <input type="text" name="note" value="<?= $e($typedAccept) ?>" minlength="3" maxlength="500" required></label>
       <p class="actions"><button type="submit" class="primary"><?= $word('INVOICES', 'accept_button') ?></button></p>
     </form>

@@ -5,6 +5,11 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\Reorder;
 
 use CW\Caller;
+use CW\Clock;
+use CW\Documents\DocumentHandlers;
+use CW\Documents\Documents;
+use CW\PurchaseOrders\PurchaseOrders;
+use CW\Tests\Support\HookedStatement;
 use CW\Catalogue\ItemCards;
 use CW\CwException;
 use CW\Db;
@@ -338,5 +343,57 @@ final class ReorderEngineTest extends ReorderTestCase
             self::fail($e->getMessage());
         }
         self::assertNull(self::$db->value("SELECT error FROM reorder_job WHERE job = 'lines'"), 'a good run clears it');
+    }
+
+    public function testARefreshRecomputesAfterWaitingForADraft(): void
+    {
+        $s = $this->listScenario();
+        $conn = TestDb::connect();
+        $conn->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [HookedStatement::class, []]);
+        $pos = new PurchaseOrders($conn, new Documents($conn, DocumentHandlers::all($conn)));
+        $at = Clock::now()->modify('+2 hours');
+        $ran = false;
+        $draft = function () use ($s, &$ran): void {
+            HookedStatement::$before = [];
+            $ran = true;
+            $this->drafts()->create($s['buyer'], [['sku_id' => $s['a'], 'packs' => 5]], 'cw', str_repeat('a', 32));
+        };
+        // Stop before the first per-item lock, whether it is an existing-row SELECT or the missing-row upsert.
+        HookedStatement::$before = [
+            'SELECT sku_id, line_hash, listed, read_at FROM reorder_line' => $draft,
+            'INSERT INTO reorder_line (sku_id, listed, need, urgent' => $draft,
+        ];
+        try {
+            (new ReorderRefresh($conn, $pos, null, static fn (): \DateTimeImmutable => $at))->items([$s['a']]);
+        } finally {
+            HookedStatement::$before = [];
+        }
+        self::assertTrue($ran);
+        $line = $this->page(['show' => 'all'])[$s['a']];
+        self::assertSame(120, $line['in_drafts'], 'the later refresh reads the draft that committed while it waited');
+        self::assertContains('in_draft', $line['flags']);
+    }
+
+    public function testAbsentResultsKeepMarkersForMissingAndAlreadyUnlistedRows(): void
+    {
+        $x = self::makeSku('Never listed yet');
+        $this->refreshAt('2026-10-14 10:00:02')->items([$x]);
+        self::assertSame([0, '2026-10-14 10:00:02.000000'], array_values((array) self::$db->one(
+            'SELECT listed, read_at FROM reorder_line WHERE sku_id = ?', [$x])), 'absence is recorded even without an old row');
+        self::$db->exec("INSERT INTO item_reorder (sku_id, min_stock, updated_actor) VALUES (?, 10, 'system:test')", [$x]);
+        $this->refreshAt('2026-10-14 10:00:01')->items([$x]);
+        self::assertSame(0, (int) self::$db->value('SELECT listed FROM reorder_line WHERE sku_id = ?', [$x]), 'an older refresh cannot restore a removed suggestion');
+
+        $this->refreshAt('2026-10-14 10:00:03')->items([$x]);
+        self::$db->exec('UPDATE item_reorder SET min_stock = NULL WHERE sku_id = ?', [$x]);
+        $this->refreshAt('2026-10-14 10:00:04')->items([$x]);
+        $changed = self::$db->value('SELECT changed_at FROM reorder_line WHERE sku_id = ?', [$x]);
+        $this->refreshAt('2026-10-14 10:00:06')->items([$x]);
+        self::assertSame(['2026-10-14 10:00:06.000000', $changed], array_values((array) self::$db->one(
+            'SELECT read_at, changed_at FROM reorder_line WHERE sku_id = ?', [$x])), 'already unlisted: advance the read, retain the change time');
+        self::$db->exec('UPDATE item_reorder SET min_stock = 20 WHERE sku_id = ?', [$x]);
+        $this->refreshAt('2026-10-14 10:00:05')->items([$x]);
+        self::assertSame(0, (int) self::$db->value('SELECT listed FROM reorder_line WHERE sku_id = ?', [$x]));
+        self::assertArrayNotHasKey($x, $this->page(['show' => 'all']));
     }
 }

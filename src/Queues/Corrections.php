@@ -156,6 +156,11 @@ final class Corrections
                 // The item's balance first: two corrections of one item confirmed at once decide one after the other, each seeing what
                 // the other booked (finding 1). bookInTransaction locks the same balance again (held).
                 (new Stock($db))->lock([[(int) $row['warehouse_id'], (int) $row['sku_id']]]);
+                $countedAt = $db->value('SELECT counted_at FROM stock_balance WHERE warehouse_id = ? AND sku_id = ?',
+                    [(int) $row['warehouse_id'], (int) $row['sku_id']]);
+                if ($countedAt !== null && (string) $countedAt > $at) {
+                    throw new CwException('newer_count', 'a later physical count already set this balance: close the older correction', 409);
+                }
                 $e = $this->effect((int) $row['warehouse_id'], (int) $row['sku_id'], (int) $row['proposed_qty'], $at, null, $id);
                 if ($e['newer']) {
                     throw new CwException('newer_correction', 'a newer ERPNext correction of this item was confirmed already: this one is out of date, close it', 409);

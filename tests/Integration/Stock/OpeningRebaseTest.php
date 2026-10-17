@@ -336,6 +336,20 @@ final class OpeningRebaseTest extends StockTestCase
         self::assertSame(1, $plan['report']['no_change'], 'F: earlier 1 = its opening unit in flight');
     }
 
+    public function testUnitsOnlyRebaseSkipsAMergedItemWithOpeningUnitsInFlight(): void
+    {
+        [, $k, $f] = $this->mergedWithUnitsInFlight(false);
+        $plan = (new OpeningRebase(self::$db))->plan('vpg', [], self::REBASE, self::EST, null, true);
+        self::assertSame([], $plan['lines'], 'the merge already retained the opening unit on the old item');
+        self::assertSame(['merged_item' => 1], $plan['report']['skipped']['why']);
+        self::assertSame($f, $plan['report']['skipped']['details'][0]['sku_id']);
+        $this->bookRebase($plan['lines']);
+        $site = Caller::channel((int) self::$db->value("SELECT id FROM channel WHERE code = 'vpg'"), 'vpg');
+        $this->ship($site, '902', ['b1']);
+        $this->assertBal(0, 0, 0, $f); // no stock stranded on the merged item
+        $this->assertBal(13, 0, 0, $k);
+    }
+
     public function testAMergedItemHoldingMoreThanItsOpeningUnitsIsSkippedAsMergedItem(): void
     {
         [$plan, $k, $f] = $this->mergedWithUnitsInFlight(true);

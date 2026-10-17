@@ -300,8 +300,8 @@ final class SupplierInvoiceHandler implements DocumentHandler, SizeApproval, Can
             } else {
                 if ($l['sku_id'] !== null || $l['qty'] !== null || $amount === null) {
                     $add('bad_invoice_line', "Line {$no}: a {$e['kind']} line has an amount and no item.", $no);
-                } elseif ($amount === 0 || ($amount < 0 && ($credit || $e['kind'] !== 'other'))) {
-                    $add('bad_invoice_line', "Line {$no}: the amount is more than £0" . ($credit ? '' : ' (only an "other" line, a discount, may be below £0)') . '.', $no);
+                } elseif ($amount === 0 || ($amount < 0 && $e['kind'] !== 'other')) {
+                    $add('bad_invoice_line', "Line {$no}: the amount is nonzero; only an other line may be negative.", $no);
                 }
             }
         }

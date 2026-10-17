@@ -163,6 +163,29 @@ final class StoreQueuesTest extends StockTestCase
         }
     }
 
+    public function testACorrectionCannotOverwriteALaterPhysicalCount(): void
+    {
+        foreach ([8, 20] as $counted) {
+            $sku = $this->item('strict', 20);
+            $variant = 'V' . $counted;
+            $this->listing($this->site, $variant, $sku);
+            self::$db->exec('UPDATE stock_ledger SET created_at = ? WHERE sku_id = ?', [Clock::db(Clock::now()->modify('-2 hours')), $sku]);
+            $at = Clock::now()->modify('-1 hour');
+            $this->ok((new RelayIntake(self::$db))->reconciliations($this->site, ['doc_ref' => 'OLD-' . $variant,
+                'posted_at' => $at->format('Y-m-d\TH:i:s.u\Z'), 'lines' => [['variant_id' => $variant, 'qty' => 10]]], $this->key('correction')));
+            $id = (int) self::$db->value("SELECT id FROM count_review WHERE sku_id = ? AND source = 'erp_reconciliation'", [$sku]);
+            $this->ok((new \CW\Movements(self::$db))->record(self::staff(), ['type' => 'count',
+                'counted_at' => Clock::now()->modify('-30 minutes')->format('Y-m-d\TH:i:s.u\Z'),
+                'lines' => [['sku_id' => $sku, 'qty' => $counted]]], $this->key('count')));
+            $before = $this->ledgerCount();
+            self::refused(fn () => (new Corrections(self::$db))->confirm($this->person('stock_controller'), $id, 'checked the older correction'),
+                409, 'newer_count');
+            $this->assertBal($counted, 0, 0, $sku);
+            self::assertSame($before, $this->ledgerCount(), 'even a zero-delta count supersedes the old correction');
+            self::assertSame('open', self::$db->value('SELECT CAST(status AS CHAR) FROM count_review WHERE id = ?', [$id]));
+        }
+    }
+
     public function testACorrectionWithNoDifferenceBooksNothingAndOneCanBeDismissed(): void
     {
         $sku = $this->item('strict', 6);

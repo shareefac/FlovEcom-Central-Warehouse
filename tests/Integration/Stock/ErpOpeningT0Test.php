@@ -54,7 +54,7 @@ final class ErpOpeningT0Test extends StockTestCase
     }
 
     /** The ERPNext opening of made-up figures: item code => [variant, qty, rate]. @param array<string, array{0: string, 1: int, 2: string}> $lines */
-    private function erpOpening(array $lines): void
+    private function erpOpening(array $lines, ?string $replaces = null): void
     {
         $stock = "\"Item\",\"Warehouse\",\"Balance Qty\",\"Valuation Rate\",\"Company\"\n";
         $items = "\"ID\",\"Product ID\"\n";
@@ -65,7 +65,7 @@ final class ErpOpeningT0Test extends StockTestCase
         file_put_contents($s = $this->dir . '/sb.csv', $stock);
         file_put_contents($i = $this->dir . '/items.csv', $items);
         $op = new ErpOpening(self::$db, $this->moves, new ErpOpeningRules(['Stores - VPG'], ['VAPE AND GO'], ['VPG 2'], 'zero', ['1.000000'], 'vpg', 'MAIN', false));
-        $plan = $op->plan(ErpOpeningFiles::stock($s), ErpOpeningFiles::itemMap($i), null, self::ERP, new DateTimeImmutable('2000-01-01T00:00:00Z'));
+        $plan = $op->plan(ErpOpeningFiles::stock($s), ErpOpeningFiles::itemMap($i), null, self::ERP, new DateTimeImmutable('2000-01-01T00:00:00Z'), $replaces);
         $op->apply(self::sys(), $plan, self::ERP, 'opening stock from ERPNext: test');
     }
 
@@ -127,6 +127,29 @@ final class ErpOpeningT0Test extends StockTestCase
         // The normal rebase with the ERPNext opening named would put the store's own figure back: units-only is the one to use.
         self::assertSame('bad_mode', $this->code(fn () => (new OpeningRebase(self::$db))->plan('vpg', [['A', 1]], 'opening-rebase:vpg:x', self::ERP, null, true)));
         self::assertSame('bad_mode', $this->code(fn () => (new OpeningRebase(self::$db))->plan('vpg', [], 'opening-rebase:vpg:x', null, null, true)));
+    }
+
+    public function testUnitsOnlyRebaseIncludesTheOpeningReplacedByErpnext(): void
+    {
+        $site = $this->site('vpg', 'shadow');
+        $sku = $this->item('legacy');
+        $this->listing($site, 'A', $sku);
+        $estimate = 'opening:vpg:estimate';
+        (new OpeningEstimate(self::$db, $this->moves))->apply(self::sys(), [$sku => 8], $estimate, 'earlier estimate (test)');
+        $this->erpOpening(['A' => ['A', 11, '2']], $estimate);
+        $this->assertBal(11, 0, 0, $sku);
+        self::assertSame(3, (int) self::$db->value("SELECT SUM(qty_delta) FROM stock_ledger WHERE doc_ref = ? AND bucket = 'on_hand'", [self::ERP]));
+        $this->ok($this->res->openingOrders($site, [['order_ref' => '901', 'lines' => [self::line('A', 'a1', 'a2', 'a3')]]],
+            true, $this->key('opening'), self::T0));
+
+        $plan = $this->rebase();
+        self::assertSame([$sku => 3], $plan['lines']);
+        self::assertSame(11, $plan['report']['earlier'], 'eight under the estimate plus net three under ERPNext');
+        self::assertSame(0, $plan['report']['skipped']['items']);
+        self::assertSame(3, $this->bookRebase($plan['lines'])['booked_units'], 'the in-transaction guard accepts that same ancestry');
+        $this->ship($site, '901', ['a1', 'a2', 'a3']);
+        $this->assertBal(11, 0, 0, $sku);
+        self::assertSame([], $this->rebase()['lines']);
     }
 
     public function testItemsWithAnotherOpeningOrHistoryAreSkippedAndTheCliRunsWithoutAFile(): void

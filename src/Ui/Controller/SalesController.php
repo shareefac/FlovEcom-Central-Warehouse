@@ -47,7 +47,7 @@ final class SalesController
         $query = ['channel' => $code] + $keep;
         return $ctx->page('sales_orders', [
             'f' => ['channel' => $code, 'state' => $f['q']['state'], 'origin' => $f['q']['origin'], 'from' => $f['period']['kind'] === 'range' ? $f['period']['from_day'] : null,
-                'to' => $f['period']['kind'] === 'range' ? $f['period']['to_day'] : null],
+                'to' => $f['period']['kind'] === 'range' ? $f['period']['to_day'] : null, 'period' => $keep['period']],
             'storeItems' => ReviewController::storeItems($stores, self::PATH, $keep, $code, array_map(static fn (array $w): int => $w['orders'], $waiting), true),
             'states' => Words::SALE_STATE,
             'origins' => Words::SALE_ORIGIN,

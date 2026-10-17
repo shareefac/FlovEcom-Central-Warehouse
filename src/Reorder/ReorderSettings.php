@@ -147,7 +147,7 @@ final class ReorderSettings
         $new = self::itemFields($fields);
         return $this->db->transaction(function (Db $db) use ($caller, $skuId, $version, $new): array {
             $this->manager($caller);
-            $sku = $db->one('SELECT id, code, merged_into_sku_id FROM sku WHERE id = ?', [$skuId])
+            $sku = $db->one('SELECT id, code, merged_into_sku_id FROM sku WHERE id = ? FOR UPDATE', [$skuId])
                 ?? throw new CwException('unknown_item', 'there is no such item', 404);
             if ($sku['merged_into_sku_id'] !== null) {
                 throw new CwException('merged_item', "item {$sku['code']} was merged into another item: change that one's settings", 422);

@@ -447,7 +447,7 @@ final class InvoicesController
             return $this->notFound($ctx, 'invoice');
         }
         try {
-            $ctx->supplierInvoices()->accept($ctx->caller(), $id, $note);
+            $ctx->supplierInvoices()->accept($ctx->caller(), $id, $note, (string) ($ctx->req->field('match_fingerprint') ?? ''));
         } catch (CwException $e) {
             return $this->page($ctx, 'invoice', $id, $e->httpStatus, $e, null, ['typedAccept' => $note]);
         }
@@ -786,7 +786,8 @@ final class InvoicesController
         }
         return ['state' => $m['state'], 'word' => Words::of('MATCH_STATE', (string) $m['state']), 'tone' => Words::tone('MATCH_STATE', (string) $m['state']),
             'lines' => $lines, 'off' => (int) $m['lines_off'], 'difference' => Html::money(InvoiceMath::fromE2((int) $m['difference_e2'])),
-            'total_diff' => (int) $m['total_diff_e2'] === 0 ? null : Html::money(InvoiceMath::fromE2((int) $m['total_diff_e2'])), 'posted' => $posted];
+            'total_diff' => (int) $m['total_diff_e2'] === 0 ? null : Html::money(InvoiceMath::fromE2((int) $m['total_diff_e2'])), 'posted' => $posted,
+            'fingerprint' => \CW\Invoices\InvoiceMatch::fingerprint($m)];
     }
 
     /** The tolerances in force, in one sentence (the "To match" page). */

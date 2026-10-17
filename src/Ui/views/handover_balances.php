@@ -26,6 +26,7 @@
     <p class="muted"><?= $word('BALANCE', 'pay_text') ?></p>
     <form class="record" method="post" action="<?= $u('/ui/stock/handovers/balances/' . $a['id'] . '/payments') ?>">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="form_key" value="<?= $e($a['form_key']) ?>">
       <label><?= $word('BALANCE', 'amount') ?> <input type="text" name="amount" value="<?php if ($mine): ?><?= $e($typed['amount']) ?><?php endif; ?>" inputmode="decimal" maxlength="16" required></label>
       <label><?= $word('BALANCE', 'paid_on') ?> <input type="date" name="paid_on" value="<?php if ($mine): ?><?= $e($typed['paid_on']) ?><?php else: ?><?= $e($today) ?><?php endif; ?>" required></label>
       <label><?= $word('BALANCE', 'reference') ?> <input type="text" name="reference" value="<?php if ($mine): ?><?= $e($typed['reference']) ?><?php endif; ?>" maxlength="100" required></label>

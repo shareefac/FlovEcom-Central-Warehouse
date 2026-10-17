@@ -71,7 +71,9 @@ final class Grants
         // Pack H (0038): what each customer owes us (hand-overs, payments received and their reversals), never rewritten or removed.
         'counterparty_entry',
         // --- Pack J (0041): the receipt made from a supplier invoice (written once).
-        'goods_receipt_invoice'];
+        'goods_receipt_invoice',
+        // XA2, XA7: replacement ancestry is immutable; mode watermarks only advance their timestamp.
+        'opening_replacement', 'relay_mode_seen'];
     /**
      * Append-only tables whose listed columns are the only ones the app may UPDATE (column-level
      * grant): a proposal's status, a decision's settlement, the end of a link period, an item's value
@@ -112,6 +114,7 @@ final class Grants
         // are frozen); what became of it is written in the same transaction. A line is never removed: it is booked once, however late
         // it is sent again.
         'relay_line' => ['outcome', 'sku_id', 'units', 'queue_id', 'reason'],
+        'relay_mode_seen' => ['changed_at'],
         // ---- Pack I (0039; docs/decisions.md PI12): a run of the ERPNext opening import is written once and finished once (its status,
         // its summary, when it finished); what it was run on (doc_ref, as-of, the files and their hashes, who) is frozen; never removed.
         'erp_opening_run' => ['status', 'summary', 'finished_at'],

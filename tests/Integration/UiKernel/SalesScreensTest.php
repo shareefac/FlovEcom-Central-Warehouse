@@ -836,4 +836,26 @@ final class SalesScreensTest extends KernelUiTestCase
         [$key] = $plan('SELECT id FROM stock_ledger WHERE created_at >= ? ORDER BY created_at, id LIMIT 1', ['2026-01-01']);
         self::assertSame('ix_stock_ledger_created', $key);
     }
+
+    public function testApplyingFiltersPreservesAnyTimeAndItsCsv(): void
+    {
+        $this->orders();
+        $web = $this->signIn($this->uiUser('buyer'));
+        $page = $this->page($web, self::ORDERS, ['channel' => 'vpg', 'period' => 'all']);
+        $dom = $page->dom();
+        $form = (new \DOMXPath($dom))->query('//main//form[@method="get"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $form);
+        $fields = (new UiResponse(200, [], (string) $dom->saveHTML($form)))->form('');
+        self::assertSame('all', $fields['period'] ?? null);
+        $fields['state'] = 'paid';
+        $filtered = $this->page($web, self::ORDERS, $fields);
+        self::assertContains('V1998', self::refs($filtered, 'sales-orders'), 'a paid order placed 40 days ago stays visible');
+        self::assertStringContainsString(Words::SALE['period_all'], $filtered->text());
+        self::assertContains(self::ORDERS . '.csv?channel=vpg&state=paid&period=all', $filtered->hrefs());
+        $csv = $web->get(self::ORDERS . '.csv', $fields);
+        self::assertSame(200, $csv->status);
+        self::assertStringContainsString('"V1998"', $csv->body);
+        $fields['from'] = $fields['to'] = $this->real->setTimezone(new \DateTimeZone('Europe/London'))->format('Y-m-d');
+        self::assertNotContains('V1998', self::refs($this->page($web, self::ORDERS, $fields), 'sales-orders'), 'typed dates still override Any time');
+    }
 }

@@ -12,6 +12,7 @@ use CW\Documents\DocumentHandlers;
 use CW\Documents\Documents;
 use CW\Documents\SizeApproval;
 use CW\Invoices\InvoiceInvariants;
+use CW\Invoices\InvoiceMatch;
 use CW\Invoices\SupplierInvoiceHandler;
 use CW\Invoices\SupplierInvoices;
 use CW\Tests\Support\TestDb;
@@ -134,14 +135,14 @@ final class SupplierInvoicesTest extends InvoicesTestCase
         self::assertSame(['within_tolerance', 'needs_review'], [$this->stored($qty->id)['match_state'], $this->stored($off->id)['match_state']]);
 
         // A person accepts the differences (the poster may, while the second-person switch is off) ...
-        $this->refusedCode('note_required', fn () => $this->invoices->accept($desk, $off->id, 'ok'));
-        $this->invoices->accept($desk, $off->id, 'Price rise agreed on the phone');
+        $this->refusedCode('note_required', fn () => $this->invoices->accept($desk, $off->id, 'ok', InvoiceMatch::fingerprint($this->invoices->matchOf($off->id))));
+        $this->invoices->accept($desk, $off->id, 'Price rise agreed on the phone', InvoiceMatch::fingerprint($this->invoices->matchOf($off->id)));
         self::assertSame('accepted', $this->stored($off->id)['match_state']);
         self::assertSame([], $this->invoices->toMatch());
         self::assertSame([$off->id], array_map(static fn (array $r): int => (int) $r['id'], $this->invoices->toMatch('accepted')));
         self::assertContains('invoice.accept', $this->audits($off->id));
-        $this->refusedCode('not_needs_review', fn () => $this->invoices->accept($desk, $within->id, 'Nothing to accept here'));
-        $this->refusedCode('role_not_allowed', fn () => $this->invoices->accept($buyer, $off->id, 'A buyer cannot accept'));
+        $this->refusedCode('not_needs_review', fn () => $this->invoices->accept($desk, $within->id, 'Nothing to accept here', InvoiceMatch::fingerprint($this->invoices->matchOf($within->id))));
+        $this->refusedCode('role_not_allowed', fn () => $this->invoices->accept($buyer, $off->id, 'A buyer cannot accept', InvoiceMatch::fingerprint($this->invoices->matchOf($off->id))));
 
         // ... and, with the switch on, someone other than the person who posted it.
         $this->setting('approvals.invoice_accept_other', 'true');
@@ -149,8 +150,8 @@ final class SupplierInvoicesTest extends InvoicesTestCase
         $d = $this->invoices->createFromReceipt($desk, $e2['grn']->id)['document'];
         $d = $this->invoices->saveLines($desk, $d->id, $d->version, [self::lineOf($this->invoices->lines($d->id)[0], ['pack_price' => '12.0000'])]);
         $second = $this->postWithTotals($desk, $d);
-        $this->refusedCode('own_invoice', fn () => $this->invoices->accept($desk, $second->id, 'I posted it myself'));
-        $this->invoices->accept($this->staffUser('reviewer'), $second->id, 'Checked with the buyer');
+        $this->refusedCode('own_invoice', fn () => $this->invoices->accept($desk, $second->id, 'I posted it myself', InvoiceMatch::fingerprint($this->invoices->matchOf($second->id))));
+        $this->invoices->accept($this->staffUser('reviewer'), $second->id, 'Checked with the buyer', InvoiceMatch::fingerprint($this->invoices->matchOf($second->id)));
         self::assertSame('accepted', $this->stored($second->id)['match_state']);
     }
 
@@ -377,7 +378,7 @@ final class SupplierInvoicesTest extends InvoicesTestCase
         $d = $this->invoices->saveLines($desk, $d->id, $d->version, [self::lineOf($l[0], ['packs' => 11]), self::lineOf($l[1])]);
         $inv = $this->postWithTotals($desk, $d);
         self::assertSame(['needs_review', '1', '10.00'], array_values(array_map('strval', $this->stored($inv->id))));
-        $this->invoices->accept($desk, $inv->id, 'One extra unit agreed with the rep');
+        $this->invoices->accept($desk, $inv->id, 'One extra unit agreed with the rep', InvoiceMatch::fingerprint($this->invoices->matchOf($inv->id)));
         self::assertSame('accepted', $this->stored($inv->id)['match_state']);
 
         $cn = $this->invoices->createDraft($desk, 'credit_note', $sid, ['credits_id' => $inv->id]);

@@ -267,4 +267,75 @@ final class ReportRefreshTest extends StockTestCase
         self::assertSame('2026-10-26', ReportRefresh::nextDay('2026-10-25'));
         self::assertSame('2027-01-01', ReportRefresh::nextDay('2026-12-31'));
     }
+
+    public function testUnpaidCancellationsDoNotCountAsSales(): void
+    {
+        $site = $this->site();
+        $sku = $this->item('strict', 30);
+        $this->listing($site, 'M', $sku, 3);
+        $this->listing($site, 'U', null, 2);
+        $this->ok($this->reserve($site, 'part-paid', [self::line('M', 'ma', 'mb', 'mc'), self::line('U', 'ua', 'ub', 'uc')]));
+        $this->ok($this->res->cancel($site, 'part-paid', ['ma', 'ua'], true, $this->key('cancel-held')));
+        $this->ok($this->commit($site, 'part-paid', [self::line('M', 'mb', 'mc'), self::line('U', 'ub', 'uc')]));
+        $this->ok($this->res->cancel($site, 'part-paid', ['mc', 'uc'], true, $this->key('cancel-paid')));
+        self::assertSame(['ma' => 0, 'mb' => 1, 'mc' => 1, 'ua' => 0, 'ub' => 1, 'uc' => 1], array_column(self::$db->all(
+            'SELECT unit_id, was_paid FROM reservation_unit ORDER BY unit_id'), 'was_paid', 'unit_id'));
+        $this->job()->recount('2026-09-26');
+        self::assertSame([1, 10], array_values((array) self::$db->one(
+            "SELECT orders, units_sold FROM report_sales_day WHERE sale_date = '2026-09-26' AND channel_id = ?", [$site->channelId])),
+            'only payment members count, including mapped and unlinked units cancelled after payment');
+    }
+
+    public function testCancellingAnOldOrderRecomputesLastSaleWithoutLosingOtherSources(): void
+    {
+        $real = Clock::now();
+        $site = $this->site();
+        $skus = [];
+        foreach (['A', 'B', 'C', 'D'] as $v) {
+            $skus[$v] = $this->item('strict');
+            $this->listing($site, $v, $skus[$v]);
+        }
+        $this->now = $real->modify('-220 days');
+        foreach ($skus as $sku) {
+            $this->book('goods_in', $sku, 100, 'MAIN', null, '2.00');
+        }
+        $this->now = $real->modify('-45 days');
+        $this->ok($this->commit($site, 'earlier', [self::line('B', 'older-b')]));
+        $olderStore = ReportRefresh::ukDay(Clock::db($this->now));
+        $this->now = $real->modify('-30 days');
+        $this->book('erp_sale', $skus['C'], 1);
+        $erpDay = ReportRefresh::ukDay(Clock::db($this->now));
+        $historyDay = ReportRefresh::ukDay(Clock::db($real->modify('-40 days')));
+        $batch = self::$db->insert("INSERT INTO sales_import_batch (channel_id, source, date_from, date_to, sales_file, sales_sha256, manifest, exported_at, status, actor) "
+            . "VALUES (?, 'cps', ?, ?, 'xc.csv', ?, JSON_OBJECT(), NOW(6), 'loaded', 'system:test')",
+            [$site->channelId, $historyDay, $historyDay, hash('sha256', 'xc-history')]);
+        self::$db->exec("INSERT INTO sales_history_day (channel_id, external_variant_id, sale_date, units_online, batch_id) VALUES (?, 'D', ?, 1, ?)",
+            [$site->channelId, $historyDay, $batch]);
+
+        $this->now = $real->modify('-2 days');
+        $latest = ReportRefresh::ukDay(Clock::db($this->now));
+        $this->ok($this->commit($site, 'latest', [self::line('A', 'a'), self::line('B', 'b'), self::line('C', 'c'), self::line('D', 'd')]));
+        $this->job($real)->run(true, null, 366);
+        foreach ($skus as $sku) {
+            self::assertSame($latest, self::items()[$sku]['last_sale_on']);
+        }
+
+        // The payment day has left the report job's overlap window. The cancellation day must invalidate these items.
+        $this->now = $real;
+        $this->ok($this->res->cancel($site, 'latest', ['a', 'b', 'c', 'd'], true, $this->key('cancel')));
+        $at = $real->modify('+1 minute');
+        $this->job($at)->run(true);
+        $after = self::items();
+        self::assertSame([null, $olderStore, $erpDay, $historyDay],
+            array_map(static fn (int $sku): ?string => $after[$sku]['last_sale_on'], array_values($skus)));
+        $dead = (new ReportViews(self::$db))->slow('dead', '', ReportRefresh::ukDay(Clock::db($at)), 60, 180, 1);
+        self::assertContains($skus['A'], array_map('intval', array_column($dead['rows'], 'sku_id')), 'its only sale was cancelled: old stock is dead again');
+
+        self::rebuild();
+        $this->job($at)->run(true, null, 366);
+        self::assertEquals($after, self::items(), 'incremental refresh and rebuild agree');
+        $this->ok($this->res->uncancel($site, 'latest', ['a'], $this->key('uncancel')));
+        $this->job($at)->run(true);
+        self::assertSame($latest, self::items()[$skus['A']]['last_sale_on'], 'taking the cancellation back restores the sale day');
+    }
 }

@@ -319,8 +319,11 @@ final class Counterparties
                     $skipped[] = ['row' => $no, 'why' => $item, 'value' => mb_substr($itemText, 0, 60)];
                     continue;
                 }
-                $priceText = trim(str_replace(['£', ',', ' '], '', (string) ($row[$cols['price']] ?? '')));
-                if (preg_match('/^(0|[1-9][0-9]{0,7})(?:\.([0-9]{1,6}))?$/D', $priceText, $m) !== 1) {
+                $priceText = trim((string) ($row[$cols['price']] ?? ''));
+                $plainPrice = str_starts_with($priceText, '£') ? ltrim(substr($priceText, strlen('£'))) : $priceText;
+                // Check the grouping before removing commas: "1,25" is not a known pound price.
+                if (preg_match('/^(?:0|[1-9][0-9]*|[1-9][0-9]{0,2}(?:,[0-9]{3})+)(?:\.[0-9]{1,6})?$/D', $plainPrice) !== 1
+                    || preg_match('/^(0|[1-9][0-9]{0,7})(?:\.([0-9]{1,6}))?$/D', str_replace(',', '', $plainPrice), $m) !== 1) {
                     $skipped[] = ['row' => $no, 'why' => 'bad_price', 'value' => mb_substr($priceText, 0, 30)];
                     continue;
                 }

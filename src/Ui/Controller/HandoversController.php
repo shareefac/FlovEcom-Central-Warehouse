@@ -500,6 +500,8 @@ final class HandoversController
         $rows = [];
         foreach ($accounts->balances() as $b) {
             $b['entries'] = $accounts->entries($b['id']);
+            $b['form_key'] = $typed !== null && $typed['for'] === (string) $b['id']
+                ? ($typed['form_key'] ?? FormOnce::newKey()) : FormOnce::newKey();
             $rows[] = $b;
         }
         $n = $ctx->req->param('notice');
@@ -520,12 +522,17 @@ final class HandoversController
         $typed = ['for' => (string) $ctx->id(), 'amount' => (string) ($ctx->req->field('amount') ?? ''), 'paid_on' => (string) ($ctx->req->field('paid_on') ?? ''),
             'reference' => (string) ($ctx->req->field('reference') ?? ''), 'note' => (string) ($ctx->req->field('note') ?? '')];
         try {
-            $r = (new CounterpartyAccounts($ctx->db))->recordPayment($ctx->caller(), $ctx->id(), $typed['amount'], $typed['paid_on'], $typed['reference'],
-                $typed['note'] === '' ? null : $typed['note'], $ctx->settings());
+            $r = FormOnce::run($ctx, 'ui.counterparty.payment', $typed, static function (Db $db) use ($ctx, $typed): OpResult {
+                $paid = (new CounterpartyAccounts($db))->recordPayment($ctx->caller(), $ctx->id(), $typed['amount'], $typed['paid_on'], $typed['reference'],
+                    $typed['note'] === '' ? null : $typed['note'], $ctx->settings());
+                return OpResult::of(303, ['redirect' => Html::url(self::BALANCES, ['notice' => 'paid', 'balance' => Html::money($paid['balance'])])
+                    . '#customer-' . $ctx->id()]);
+            });
         } catch (CwException $e) {
+            $typed['form_key'] = (string) ($ctx->req->field(FormOnce::FIELD) ?? '');
             return $this->balances($ctx, $e->httpStatus, $e, $typed);
         }
-        return HtmlResponse::redirect(Html::url(self::BALANCES, ['notice' => 'paid', 'balance' => Html::money($r['balance'])]) . '#customer-' . $ctx->id());
+        return FormOnce::redirect($r);
     }
 
     public function reversePayment(Context $ctx): HtmlResponse

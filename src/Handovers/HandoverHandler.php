@@ -106,9 +106,9 @@ final class HandoverHandler implements DocumentHandler, SizeApproval
         if ((int) $c['is_active'] !== 1) {
             throw new CwException('customer_off', "{$c['name']} is switched off", 422, ['field' => 'counterparty']);
         }
-        [$vatCode, $rate] = $this->vatFor($db, $h);
-        $sums = HandoverMath::totals($lines, $rate);
         $company = (new CompanyDetails($db))->company();
+        [$vatCode, $rate] = $this->vatFor($db, $h, $company);
+        $sums = HandoverMath::totals($lines, $rate);
         $buyer = ['name' => (string) $c['name'], 'kind' => (string) $c['kind'], 'address' => (string) $c['address'], 'company_number' => (string) $c['company_number'],
             'vat_number' => (string) $c['vat_number'], 'email' => (string) $c['email'], 'phone' => (string) $c['phone'], 'version' => (int) $c['version']];
         $now = Clock::db($this->now());
@@ -185,11 +185,12 @@ final class HandoverHandler implements DocumentHandler, SizeApproval
      * be, VAT registered; 422 vat_code_off for a code no longer in use.
      *
      * @param array<string, mixed> $h the handover row
+     * @param array<string, mixed>|null $company the posting's snapshot, or null to read the current profile
      * @return array{0: ?string, 1: ?string} code, rate percent
      */
-    public function vatFor(Db $db, array $h): array
+    public function vatFor(Db $db, array $h, ?array $company = null): array
     {
-        $company = (new CompanyDetails($db))->company();
+        $company ??= (new CompanyDetails($db))->company();
         if (($company['vat_registered'] ?? null) === false) {
             return [null, null];
         }

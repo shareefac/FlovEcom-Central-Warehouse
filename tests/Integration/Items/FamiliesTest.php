@@ -182,4 +182,25 @@ final class FamiliesTest extends MappingTestCase
         }
         self::fail("expected {$status} {$code} {$why}");
     }
+
+    public function testUnusableBarcodesAreSkippedWithoutNumericFallback(): void
+    {
+        $lead = $this->staffUser('mapping_lead');
+        $family = $this->fam->create($lead, 'Safe family')['id'];
+        $holder = $this->item('legacy', 0, 'Barcode holder');
+        $numeric = $this->item('legacy', 0, 'Numeric fallback');
+        $alias = str_pad((string) $numeric, 8, '0', STR_PAD_LEFT);
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id, is_usable) VALUES ('5012345678900', ?, 0), (?, ?, 0)", [$holder, (string) $numeric, $holder]);
+
+        self::assertNull(Families::resolveOne(self::$db, '5012345678900'));
+        self::assertNull(Families::resolveOne(self::$db, $alias), 'a known unusable barcode must not become a numeric item id');
+        $r = $this->fam->bulkAssign($lead, $family, "5012345678900\n{$alias}\n" . sprintf('CW-%06d', $numeric));
+        self::assertSame([$numeric], array_column($r['added'], 'sku_id'));
+        self::assertSame([['5012345678900', 'not_found'], [$alias, 'not_found']],
+            array_map(static fn (array $s): array => [$s['text'], $s['reason']], $r['skipped']));
+        self::assertSame([], Families::ofItems(self::$db, [$holder]));
+
+        self::$db->exec("UPDATE sku_barcode SET is_usable = 1 WHERE barcode = '5012345678900'");
+        self::assertSame($holder, Families::resolveOne(self::$db, '05012345678900'), 'usable barcodes still resolve, including zero padding');
+    }
 }

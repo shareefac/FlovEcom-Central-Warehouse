@@ -7,8 +7,17 @@ namespace CW\Tests\Integration\Relay;
 use CW\Caller;
 use CW\ChannelAdmin;
 use CW\CwException;
+use CW\Clock;
+use CW\Db;
+use CW\Idempotency;
+use CW\Movements;
+use CW\OpResult;
+use CW\Ops\Housekeeping;
 use CW\Relay\RelayIntake;
 use CW\SiteWriter\SiteModes;
+use CW\Settings;
+use CW\Tests\Support\StatementHook;
+use CW\Tests\Support\TestDb;
 use CW\Tests\Support\StockTestCase;
 
 /**
@@ -298,6 +307,96 @@ final class RelayIntakeTest extends StockTestCase
         } catch (CwException $e) {
             self::assertSame('bad_movement_type', $e->errorCode);
         }
+    }
+
+    public function testHousekeepingPreservesLegacyMovementReplayProtection(): void
+    {
+        $site = $this->site();
+        $this->grant($site, 'goods_in');
+        $sku = $this->item('strict');
+        $this->listing($site, 'V1', $sku);
+        $req = ['type' => 'goods_in', 'doc_ref' => 'LEGACY-PINV', 'lines' => [['variant_id' => 'V1', 'qty' => 3]]];
+        $canonical = ['type' => 'goods_in', 'doc_ref' => 'LEGACY-PINV', 'doc_type' => 'purchase_invoice',
+            'warehouse' => null, 'counted_at' => null, 'note' => null, 'lines' => [['line_index' => 0, 'qty' => 3, 'variant_id' => 'V1']]];
+        // Reproduce the old writer: a movement and a request key, without a relay_line claim. Stock still goes through Movements.
+        (new Idempotency(self::$db))->run($site, 'legacy-key', 'movement.goods_in', '/v1/movements', $canonical, 'movement', 'LEGACY-PINV',
+            static function (Db $db) use ($sku): OpResult {
+                $lines = (new Movements($db))->bookInTransaction(self::staff(),
+                    ['type' => 'goods_in', 'doc_ref' => 'LEGACY-PINV', 'lines' => [['sku_id' => $sku, 'qty' => 3]]], 'legacy-key');
+                return OpResult::of(200, ['result' => 'recorded', 'type' => 'goods_in', 'doc_ref' => 'LEGACY-PINV', 'lines' => $lines]);
+            });
+        self::$db->exec('UPDATE idempotency SET created_at = ? WHERE channel_id = ? AND idem_key = ?',
+            [Clock::db(Clock::now()->modify('-40 days')), $site->channelId, 'legacy-key']);
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM relay_line'));
+        $housekeeping = new Housekeeping(self::$db);
+        self::assertSame(0, $housekeeping->run(new Settings(self::$db), true)['idempotency']['removed']);
+        self::assertSame(0, $housekeeping->run(new Settings(self::$db))['idempotency']['removed']);
+        self::assertTrue($this->moves->record($site, $req, 'legacy-key')->replayed);
+        $this->assertBal(3, 0, 0, $sku);
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM relay_line'));
+    }
+
+    public function testANoChangeMessageRemainsNewerThanADelayedModeChange(): void
+    {
+        $site = $this->site();
+        $this->grant($site, 'erp_mode');
+        foreach (['listing', 'sku'] as $subject) {
+            $sku = $this->item('strict');
+            $variant = 'V-' . $subject;
+            $this->listing($site, $variant, $sku);
+            self::$db->exec('INSERT INTO sku_erp_item (item_code, sku_id) VALUES (?, ?)', ['ERP-' . $subject, $sku]);
+            $identity = $subject === 'listing' ? ['variant_id' => $variant] : ['erp_item_code' => 'ERP-' . $subject];
+            $send = fn (string $name, int $age, string $mode): \CW\OpResult => $this->relay->modes($site, [
+                'doc_ref' => $subject . '-' . $name, 'changed_at' => $this->ago($age), 'lines' => [$identity + ['mode' => $mode]],
+            ], $this->key('mode'));
+            $this->ok($send('old', 10800, 'Out-Of-Stock'));
+            self::assertSame('no_change', $this->ok($send('latest', 3600, 'From-Warehouse'))->body['lines'][0]['result']);
+            // A fresh service instance cannot forget a message just because no review was needed.
+            $this->relay = new RelayIntake(self::$db);
+            $late = $this->ok($send('late', 7200, 'In-Stock'));
+            self::assertSame(['no_change', 'older_than_known'], [$late->body['lines'][0]['result'], $late->body['lines'][0]['reason'] ?? null]);
+            self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM policy_review WHERE sku_id = ? AND status = 'open'", [$sku]));
+            self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM policy_review WHERE sku_id = ?', [$sku]), 'no-change messages add no staff review');
+        }
+    }
+
+    public function testConcurrentFirstModeMessagesAreSerialisedBeforeHistoryIsRead(): void
+    {
+        $site = $this->site();
+        $this->grant($site, 'erp_mode');
+        $sku = $this->item('strict');
+        $this->listing($site, 'V1', $sku);
+        $other = TestDb::connect();
+        $other->exec('SET SESSION innodb_lock_wait_timeout = 1');
+        $newer = ['doc_ref' => 'newer-first-pair', 'changed_at' => $this->ago(300), 'lines' => [['variant_id' => 'V1', 'mode' => 'In-Stock']]];
+        $attempted = false;
+        $waited = false;
+        // Both history and watermark have been read, but this first request has not inserted its review yet.
+        $after = static function (string $sql) use ($other, $site, $newer, &$attempted, &$waited): void {
+            if ($attempted || !str_contains($sql, 'FROM item_channel_mode WHERE sku_id = ? AND channel_id = ?')) {
+                return;
+            }
+            $attempted = true;
+            try {
+                (new RelayIntake($other))->modes($site, $newer, 'newer-first-pair');
+            } catch (\PDOException $e) {
+                self::assertSame(1205, Db::driverCode($e), 'the second connection waits on the stable guard');
+                $waited = true;
+            }
+        };
+        self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [$after]]);
+        try {
+            $this->ok($this->relay->modes($site, ['doc_ref' => 'older-first-pair', 'changed_at' => $this->ago(600),
+                'lines' => [['variant_id' => 'V1', 'mode' => 'Out-Of-Stock']]], 'older-first-pair'));
+        } finally {
+            self::$db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertTrue($attempted);
+        self::assertTrue($waited, 'an empty history must still be serialised');
+        $this->ok((new RelayIntake($other))->modes($site, $newer, 'newer-first-pair'));
+        self::assertSame([['Out-Of-Stock', 'dismissed', 'superseded'], ['In-Stock', 'open', null]],
+            array_map(static fn (array $r): array => array_values($r), self::$db->all(
+                'SELECT site_mode, CAST(status AS CHAR) AS status, resolution FROM policy_review ORDER BY id')));
     }
 
     public function testBadMessagesAreRefusedBeforeAnythingIsStored(): void

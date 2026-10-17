@@ -140,6 +140,8 @@ final class RelayIntake
         $request = ['doc_ref' => $docRef, 'changed_at' => $changedAt === null ? null : Clock::db($changedAt), 'lines' => $lines];
         return $this->idem->run($caller, $idemKey, 'relay.mode', '/v1/relay/modes', $request, 'relay', $docRef,
             function (Db $db) use ($caller, $docRef, $changedAt, $lines, $idemKey): OpResult {
+                // A channel always exists, even before its first request. Take this guard before line claims and history locks.
+                $db->one('SELECT id FROM channel WHERE id = ? FOR UPDATE', [$caller->channelId]);
                 $now = Clock::now();
                 $at = $changedAt ?? $now;
                 Clock::checkWindow($at, 'changed_at', $now, self::MAX_AGE_SEC);
@@ -218,6 +220,13 @@ final class RelayIntake
         // The change time decides, not the arrival order (review finding 4 of 14 Oct 2026): this store's earlier requests for the same
         // variant (or, named by its ERPNext item alone, the same item on this store: finding 5), with when each was made.
         $earlier = $this->requestsFor($db, (int) $caller->channelId, $skuId, $listingId);
+        $subject = $listingId === null ? 'sku' : 'listing';
+        $subjectId = $listingId ?? $skuId;
+        $known = $db->value('SELECT changed_at FROM relay_mode_seen WHERE channel_id = ? AND subject_kind = ? AND subject_id = ?',
+            [$caller->channelId, $subject, $subjectId]);
+        if ($known !== null && (string) $known > $when) {
+            return ['outcome' => 'no_change', 'reason' => 'older_than_known', 'sku_id' => $skuId];
+        }
         foreach ($earlier as $r) {
             if ($r['changed_at'] > $when) {
                 // A newer change of this variant is known already (waiting, answered or replaced): this one is out of date.
@@ -237,6 +246,9 @@ final class RelayIntake
             $policy === 'legacy' && $cwMode === $mode && ($low === null || $cwLow === $low) => 'same_in_cw',
             default => null,
         };
+        // Keep the latest event time even when the message needs no review. The channel guard serialises this watermark.
+        $db->exec('INSERT INTO relay_mode_seen (channel_id, subject_kind, subject_id, changed_at) VALUES (?, ?, ?, ?) '
+            . 'ON DUPLICATE KEY UPDATE changed_at = GREATEST(changed_at, ?)', [$caller->channelId, $subject, $subjectId, $when, $when]);
         if ($same !== null) {
             // Nothing to ask a person, but the store's latest state is this one: an older request still open is out of date (finding 3).
             $this->supersede($db, $earlier, null);
@@ -261,8 +273,8 @@ final class RelayIntake
 
     /**
      * This store's mode requests for one variant (by its listing), or for one item named by its ERPNext item alone (no listing): id,
-     * status, and when the change was made (the relayed changed_at, else when CW received it). Locked (FOR UPDATE), so two messages
-     * of one variant decide one after the other.
+     * status, and when the change was made (the relayed changed_at, else when CW received it). The caller holds the channel guard
+     * before reading this history, including when no request exists yet; FOR UPDATE also serialises it with staff answers.
      *
      * @return list<array{id: int, status: string, changed_at: string}>
      */

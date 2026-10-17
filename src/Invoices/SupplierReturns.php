@@ -589,13 +589,26 @@ final class SupplierReturns
             }
             $wh = isset($l['warehouse_id']) && $l['warehouse_id'] !== null && $l['warehouse_id'] !== '' ? (int) $l['warehouse_id']
                 : ($cur['warehouse_id'] === null ? null : (int) $cur['warehouse_id']);
-            if ($grn === null && $cur['grn_document_id'] !== null) {
-                // An item added by hand to a return about a delivery comes from that delivery (review finding 2).
-                [$grn, $grnLine] = $this->deliveryLineFor((int) $cur['grn_document_id'], $sku, $wh, $qty, $taken);
+            if ($grn !== null && $cur['grn_document_id'] !== null && $grn === (int) $cur['grn_document_id']) {
+                $code = $wh === null ? null : $this->db->value('SELECT code FROM warehouse WHERE id = ?', [$wh]);
+                $column = InvoiceMatch::EXCEPTION_WAREHOUSES[(string) $code] ?? 'accepted_units';
+                $key = $grnLine . ':' . $column;
+                $taken[$key] = ($taken[$key] ?? 0) + $qty;
             }
             $amount = InvoiceMath::fromE2(InvoiceMath::unitsAt($qty, InvoiceMath::e6($cost)) + InvoiceMath::e2($duty));
             $out[] = ['doc' => ['sku_id' => $sku, 'qty' => $qty, 'warehouse_id' => $wh, 'unit_cost' => $cost, 'amount' => $amount, 'reason_code' => $reason, 'description' => $desc],
                 'ext' => ['grn_document_id' => $grn, 'grn_line_no' => $grnLine, 'duty_amount' => $duty]];
+        }
+        // Reserve every explicit link first, including ones later in the form, before choosing a line for unlinked goods.
+        if ($cur['grn_document_id'] !== null) {
+            foreach ($out as $i => $n) {
+                if (isset($n['doc']['sku_id']) && $n['ext']['grn_document_id'] === null) {
+                    [$grn, $grnLine] = $this->deliveryLineFor((int) $cur['grn_document_id'], $n['doc']['sku_id'],
+                        $n['doc']['warehouse_id'], $n['doc']['qty'], $taken);
+                    $out[$i]['ext']['grn_document_id'] = $grn;
+                    $out[$i]['ext']['grn_line_no'] = $grnLine;
+                }
+            }
         }
         return $out;
     }
@@ -603,11 +616,11 @@ final class SupplierReturns
     /**
      * The line of delivery $grnId an item added without one comes from (review finding 2): the first line of that item with room for
      * $qty in the part the warehouse it leaves from holds (VERIFY: the line's exceptions there; UNSTAMPED: its quarantined units;
-     * anywhere else: its accepted units), after the posted returns and this draft's earlier lines ($taken); else the first line of that
+     * anywhere else: its accepted units), after the posted returns and this draft's explicit links and earlier allocations ($taken); else the first line of that
      * item (the posting then says what it booked in); [null, null] when the item is not on the delivery (the posting refuses it:
      * line_not_on_delivery).
      *
-     * @param array<string, int> $taken "line:column" => units this draft's earlier lines take
+     * @param array<string, int> $taken "line:column" => units this draft has already allocated
      * @return array{0: ?int, 1: ?int}
      */
     private function deliveryLineFor(int $grnId, int $skuId, ?int $warehouseId, int $qty, array &$taken): array

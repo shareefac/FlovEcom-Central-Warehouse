@@ -15,6 +15,7 @@ use CW\Settings;
  *   idempotency    the stored answers of the stores' calls, older than housekeeping.idempotency_keep_days (30 at the least: a store
  *                  keeps its messages 14 days, plus a replay after a restore, D14). A key pruned and sent again books again only
  *                  where nothing else stops it: a relayed document line is held by relay_line (PF1), a queue row by its status.
+ *                  Movement request keys stay: bookings made before relay_line have no durable line claim.
  *   channel_health the stores' heartbeats older than housekeeping.channel_health_keep_days, except each store's newest one (the Stores
  *                  page and the alerts read it: a store silent for longer must still read "last contact <date>", not "never").
  *   audit_log      older than housekeeping.audit_keep_years (7 at the least: records are kept "year end + 6 years"). The app login has
@@ -57,8 +58,10 @@ final class Housekeeping
         $out = [];
 
         $cut = Clock::db($now->modify('-' . $days('housekeeping.idempotency_keep_days', 30, 30) . ' days'));
-        $out['idempotency'] = $this->prune('idempotency', 'DELETE FROM idempotency WHERE created_at < ? ORDER BY created_at LIMIT ' . $chunk,
-            'SELECT COUNT(*) FROM idempotency WHERE created_at < ?', [$cut], $cut, $chunk, $deadline, $dryRun);
+        // Pre-relay_line bookings have only their request key. Keep movement keys: a restore must never book them twice.
+        $eligible = "created_at < ? AND path <> '/v1/movements'";
+        $out['idempotency'] = $this->prune('idempotency', 'DELETE FROM idempotency WHERE ' . $eligible . ' ORDER BY created_at LIMIT ' . $chunk,
+            'SELECT COUNT(*) FROM idempotency WHERE ' . $eligible, [$cut], $cut, $chunk, $deadline, $dryRun);
 
         $cut = Clock::db($now->modify('-' . $days('housekeeping.channel_health_keep_days', 30, 7) . ' days'));
         $removed = 0;

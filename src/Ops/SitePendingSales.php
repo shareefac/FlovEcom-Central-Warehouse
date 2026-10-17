@@ -94,7 +94,8 @@ final class SitePendingSales
         }
         $pdo->exec('SET SESSION MAX_EXECUTION_TIME = ' . $this->maxMs);
         $pdo->exec('SET SESSION TRANSACTION READ ONLY');
-        $pdo->exec('START TRANSACTION READ ONLY');
+        $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        $pdo->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
         $fractions = [];
         try {
             $session = (array) $this->site->one($st[0]);

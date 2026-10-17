@@ -265,10 +265,11 @@ final class Movements
      *                   lines: list<array{document_line: int, sku_id?: int, sku_code?: string, qty: int, unit_cost?: mixed, warehouse?: string}>}> $movements
      * @param int $maxLines the rows all movements may book together: MAX_LINES, or a handler's own bound when one document line books
      *                      several rows (a receipt: each line to on hand, set aside and quarantine, and out of Incoming; pack J)
+     * @param ?\Closure(): array<int, string> $costs calculated unit costs by document line, after all balance and value-clock locks
      * @return list<array{type: string, lines: list<array<string, mixed>>}> per movement, record()'s per-line results
      *         (line_index = document_line)
      */
-    public function bookForDocument(Caller $caller, array $doc, string $opKey, array $movements, int $maxLines = self::MAX_LINES): array
+    public function bookForDocument(Caller $caller, array $doc, string $opKey, array $movements, int $maxLines = self::MAX_LINES, ?\Closure $costs = null): array
     {
         if (!$this->db->inTransaction()) {
             throw new \LogicException('bookForDocument() runs inside the transaction that posts the document');
@@ -302,7 +303,7 @@ final class Movements
         if ($lines > $maxLines) {
             throw new CwException('bad_lines', 'a document posting books at most ' . $maxLines . " lines ({$lines} sent)", 400);
         }
-        $booked = $this->book($caller, $prepared, $opKey, $doc, false);
+        $booked = $this->book($caller, $prepared, $opKey, $doc, false, lockedCosts: $costs);
         if ($booked['unresolved'] !== []) {
             $bad = array_map(static fn (array $u): array => ['movement' => $u['movement'], 'type' => $prepared[$u['movement']]['type'],
                 'document_line' => $u['line_index'], 'reason' => $u['reason']], $booked['unresolved']);
@@ -463,11 +464,12 @@ final class Movements
      * @param array{document_id: int, doc_ref: string}|null $doc the posting document (bookForDocument), null for record()
      * @param ?string $costSource the source line costs are stored with (null: `document` for a document, else `manual`; recordOpening: `estimate`)
      * @param ?\Closure(list<int>): void $guard record()'s and recordOpening()'s check after the lock (PI17)
+     * @param ?\Closure(): array<int, string> $lockedCosts bookForDocument()'s costs calculated under the value clocks
      * @return array{movements: list<array{type: string, lines: list<array<string, mixed>>}>,
      *               unresolved: list<array{movement: int, line_index: int, reason: string}>}
      */
     private function book(Caller $caller, array $movements, string $opKey, ?array $doc, bool $allowSuspense, ?string $costSource = null,
-        ?\Closure $guard = null): array
+        ?\Closure $guard = null, ?\Closure $lockedCosts = null): array
     {
         $resolved = [];
         $unresolved = [];
@@ -523,6 +525,19 @@ final class Movements
         if ($guard !== null) {
             // Pack I (PI17): the caller's own check, on balances this transaction now holds, before anything is booked.
             $guard(array_values(array_unique(array_map(static fn (array $p): int => (int) $p[1], $pairs))));
+        }
+        if ($lockedCosts !== null) {
+            $this->stock->lockValueClocks(array_column($pairs, 1));
+            $calculated = $lockedCosts();
+            foreach ($movements as &$mv) {
+                foreach ($mv['lines'] as &$line) {
+                    if (isset($calculated[$line['line_index']])) {
+                        $line['unit_cost'] = self::normaliseCost($calculated[$line['line_index']], 'unit_cost');
+                    }
+                }
+                unset($line);
+            }
+            unset($mv);
         }
         $now = Clock::db($this->now());
         $costSource ??= $doc === null ? 'manual' : 'document';

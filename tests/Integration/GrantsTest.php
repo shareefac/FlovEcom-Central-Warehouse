@@ -33,6 +33,7 @@ use CW\Reorder\ReorderList;
 use CW\Reorder\ReorderSettings;
 use CW\Reorder\SalesHistoryImport;
 use CW\Reservations;
+use CW\Relay\RelayIntake;
 use CW\Schema\Grants;
 use CW\Staff\StaffAdmin;
 use CW\Staff\StaffRoles;
@@ -983,6 +984,32 @@ CW-" . sprintf('%06d', $b) . ",20
             }
             self::$db->exec("DELETE FROM reason_code WHERE code = 'seal'");
         }
+    }
+
+    public function testRelayMovementsAndQueuesRunWithTheAppGrants(): void
+    {
+        Grants::apply(self::$db, TestDb::name(), self::$user);
+        $id = self::makeChannel('relay', 'live');
+        $sku = self::makeSku();
+        self::$db->exec('INSERT INTO channel_warehouse (channel_id, warehouse_id, is_sellable) VALUES (?, ?, 1)', [$id, self::warehouseId('MAIN')]);
+        self::$db->exec('UPDATE channel SET movement_types = ? WHERE id = ?', [json_encode(['goods_in', 'erp_reconciliation', 'erp_mode']), $id]);
+        self::$db->exec("INSERT INTO channel_listing (channel_id, external_variant_id, sku_id, units_per_item, status) VALUES (?, 'V1', ?, 1, 'mapped')", [$id, $sku]);
+        $site = Caller::channel($id, 'relay');
+        $app = $this->appSession();
+        $moves = new Movements($app);
+        $relay = new RelayIntake($app);
+        $movement = ['type' => 'goods_in', 'doc_ref' => 'PINV-APP', 'lines' => [['variant_id' => 'V1', 'qty' => 3]]];
+        $correction = ['doc_ref' => 'RECO-APP', 'lines' => [['variant_id' => 'V1', 'qty' => 2]]];
+        $mode = ['doc_ref' => 'MODE-APP', 'lines' => [['variant_id' => 'V1', 'mode' => 'Out-Of-Stock']]];
+        self::assertSame('booked', $moves->record($site, $movement, 'app-m1')->body['lines'][0]['result']);
+        self::assertSame('queued', $relay->reconciliations($site, $correction, 'app-r1')->body['lines'][0]['result']);
+        self::assertSame('queued', $relay->modes($site, $mode, 'app-p1')->body['lines'][0]['result']);
+        self::assertSame('already_recorded', $moves->record($site, $movement, 'app-m2')->body['lines'][0]['result']);
+        self::assertSame('already_recorded', $relay->reconciliations($site, $correction, 'app-r2')->body['lines'][0]['result']);
+        self::assertSame('already_recorded', $relay->modes($site, $mode, 'app-p2')->body['lines'][0]['result']);
+        self::assertSame(3, (int) self::$db->value('SELECT on_hand FROM stock_balance WHERE warehouse_id = ? AND sku_id = ?', [self::warehouseId('MAIN'), $sku]));
+        self::assertSame(3, (int) self::$db->value('SELECT COUNT(*) FROM relay_line'));
+        self::assertSame([], Invariants::check(self::$db));
     }
 
     private function appSession(): Db

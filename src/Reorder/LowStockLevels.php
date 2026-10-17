@@ -71,18 +71,19 @@ final class LowStockLevels
         sort($ids);
         return $this->db->transaction(function (Db $db) use ($caller, $action, $ids): array {
             (new ReorderSettings($db, $this->clock))->manager($caller);
-            $lines = [];
-            foreach ($this->list->lines(ReorderList::filters(['show' => 'all', 'stock' => 'cw']), $ids) as $l) {
-                $lines[(int) $l['sku_id']] = $l;
+            // The sku lock also serializes a settings save when item_reorder has no row yet (saveItem takes the same lock).
+            $codes = [];
+            foreach ($db->all('SELECT id, code FROM sku WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY id FOR UPDATE', $ids) as $r) {
+                $codes[(int) $r['id']] = (string) $r['code'];
             }
             $rows = [];
             foreach ($db->all('SELECT sku_id, low_stock_level FROM item_reorder WHERE sku_id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY sku_id FOR UPDATE',
                 $ids) as $r) {
                 $rows[(int) $r['sku_id']] = $r['low_stock_level'] === null ? null : (int) $r['low_stock_level'];
             }
-            $codes = [];
-            foreach ($db->all('SELECT id, code FROM sku WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ')', $ids) as $r) {
-                $codes[(int) $r['id']] = (string) $r['code'];
+            $lines = [];
+            foreach ($this->list->lines(ReorderList::filters(['show' => 'all', 'stock' => 'cw']), $ids) as $l) {
+                $lines[(int) $l['sku_id']] = $l;
             }
             $changed = [];
             $skipped = [];

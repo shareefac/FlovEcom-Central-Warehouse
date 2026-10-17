@@ -121,6 +121,46 @@ final class DutyRegisterTest extends ReceivingTestCase
         self::assertSame('unstamped', $r['stamp_state']);
     }
 
+    public function testUnstampedFiltersIncludeReceiptsWhoseOnlyGoodsAreDamagedOrOver(): void
+    {
+        ['desk' => $desk, 'supplier' => $s] = $this->people('Only Extras Ltd');
+        $sku = self::makeSku('Only damaged and over liquid');
+        $this->liquid($sku);
+        $d = $this->receipt($desk, (int) $s['id'], [['sku_id' => $sku, 'packs' => 10, 'units_per_pack' => 1, 'pack_price' => '2.00']]);
+        $this->invoice($desk, $d->id);
+        $this->bench($this->staffUser('goods_in'), $d->id,
+            [1 => ['stamp_on_pack' => '0', 'damaged_units' => '10', 'over_units' => '5']]);
+        $posted = $this->post($desk, $d->id);
+        $reg = $this->register();
+        $filter = DutyRegister::filters(['stamp' => 'unstamped']);
+        self::assertSame(1, $reg->count($filter));
+        $rows = $reg->rows($filter, 100);
+        self::assertCount(1, $rows, 'the page and filtered exports use these same rows');
+        $r = $rows[0];
+        self::assertSame([$posted->id, 'unstamped', 0, 15, 0, 15],
+            [$r['document_id'], $r['stamp_state'], $r['unstamped_units'], $r['unstamped_total'], $r['stamped_units'], $r['quarantine_units']]);
+        self::assertSame(0, $reg->count(DutyRegister::filters(['stamp' => 'not_checked'])));
+    }
+
+    public function testDeclarationStampTotalsIncludeUnstampedExtrasInVerify(): void
+    {
+        ['desk' => $desk, 'supplier' => $s] = $this->people('Declared Extras Ltd');
+        $sku = self::makeSku('Declared extras liquid');
+        $this->liquid($sku);
+        $line = ['sku_id' => $sku, 'packs' => 100, 'units_per_pack' => 1, 'pack_price' => '2.00'];
+        $d = $this->receipt($desk, (int) $s['id'], [$line, $line]);
+        $this->invoice($desk, $d->id);
+        $declared = ['damaged_units' => '10', 'over_units' => '5', 'unstamped_units' => '90', 'unstamped_action' => 'accept_pre_october',
+            'pre_october_evidence' => 'Supplier letter confirms manufacture before October 2026'];
+        $this->bench($this->staffUser('goods_in'), $d->id,
+            [1 => ['stamp_on_pack' => '0'] + $declared, 2 => ['stamp_on_pack' => '1'] + $declared]);
+        $this->post($desk, $d->id);
+        $rows = $this->register()->rows(DutyRegister::filters(['stamp' => 'declaration']), 100);
+        self::assertSame([['declaration', 90, 15, 105, 0], ['declaration', 90, 15, 90, 15]],
+            array_map(static fn (array $r): array => [$r['stamp_state'], $r['accepted_units'], $r['verify_units'], $r['unstamped_total'], $r['stamped_units']], $rows),
+            'stock destination does not change the physical stamp state of the damaged and over units');
+    }
+
     /** Review finding 6 (Codex, 14 Oct): the total taken in on a declaration counts every line, not only the items listed. */
     public function testTheDeclarationTotalCountsEveryLineNotOnlyTheListedItems(): void
     {

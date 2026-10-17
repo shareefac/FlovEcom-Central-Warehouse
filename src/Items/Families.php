@@ -553,9 +553,9 @@ final class Families
         $t = strtoupper(trim($text));
         if (preg_match('/^[0-9]{8,14}$/D', $t) === 1) {
             $key = Gtin::key($t);
-            $id = $key === null ? null : $db->value('SELECT sku_id FROM sku_barcode WHERE barcode = ?', [$key]);
-            if ($id !== null) {
-                return (int) $id;
+            $barcode = $key === null ? null : $db->one('SELECT sku_id, is_usable FROM sku_barcode WHERE barcode = ?', [$key]);
+            if ($barcode !== null) {
+                return (int) $barcode['is_usable'] === 1 ? (int) $barcode['sku_id'] : null;
             }
         }
         if (preg_match('/^(?:CW-?)?0*([1-9][0-9]{0,9})$/D', $t, $m) === 1) {

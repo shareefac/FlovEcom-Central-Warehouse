@@ -370,6 +370,27 @@ final class Stock
     }
 
     /**
+     * Freezes every item value stream a document's calculated costs depend on, after its balance and sku locks, before the feed.
+     * Include ALL items the posting will value, in one call: flush() must not acquire a lower clock after a higher one.
+     *
+     * @param list<int> $skuIds
+     */
+    public function lockValueClocks(array $skuIds): void
+    {
+        if (!$this->db->inTransaction()) {
+            throw new \LogicException('value clocks are locked inside the stock booking transaction');
+        }
+        $ids = array_values(array_unique(array_map('intval', $skuIds)));
+        sort($ids);
+        foreach (array_chunk($ids, self::VALUE_CHUNK) as $chunk) {
+            $this->seal();
+            $this->db->exec('INSERT INTO stock_value_clock (sku_id, last_seq) VALUES '
+                . implode(', ', array_fill(0, count($chunk), '(?, 0)'))
+                . ' ON DUPLICATE KEY UPDATE last_seq = stock_value_clock.last_seq', $chunk);
+        }
+    }
+
+    /**
      * Numbers this operation's on_hand ledger rows in their items' value sequences (I3): per item
      * 1, 2, 3, ... in commit order, with no gap, so IM8 (Valuation.php) values each item's on_hand
      * changes strictly in that order and can tell "not yet committed" from "missing".

@@ -9428,6 +9428,7 @@ final class Words
         'not_an_invoice' => 'This is not a supplier invoice or credit note.',
         'own_invoice' => 'You made this invoice final: another person accepts its differences.',
         'not_needs_review' => 'This invoice does not need review now: nothing to accept.',
+        'match_changed' => 'The figures changed since this form was opened. Check the figures shown now before accepting the differences.',
         'bad_amount' => 'An amount is in pounds with at most 2 decimals.',
         'bad_price' => 'A price is in pounds with at most 4 decimals.',
         'bad_line' => 'A line is not complete: check its numbers.',
@@ -9696,6 +9697,7 @@ final class Words
         'protected_item' => 'The item was counted meanwhile, so its stock rule decides now. Look at it again. Nothing was saved.',
         'not_matched' => 'This change names no item. Close it. Nothing was saved.',
         'newer_correction' => 'A newer ERPNext correction of this item was confirmed already. Close this one. Nothing was booked.',
+        'newer_count' => 'A later shelf count already set this stock figure. Close this correction. Nothing was booked.',
         'bad_field' => 'Choose how it was sorted out. Nothing was saved.',
         'other' => 'This did not work: %s. Nothing was saved.',
     ];

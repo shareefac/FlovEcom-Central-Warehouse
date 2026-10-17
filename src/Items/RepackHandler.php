@@ -30,7 +30,8 @@ use CW\StockOps\StockOpHandler;
  * line: the units taken out equal packs x N singles' worth on both sides. While items.repack_carry_cost is on (on by default) the
  * line that comes in carries the cost of what went out: the average cost so far of the item taken apart (CostHints::average) times
  * its units, divided by the units that come in (6 decimals); with no average known, or with the setting off, no cost (it is valued at
- * the average cost later, IM8). It checks the shortfall again on the balances it then holds locked. A cancellation is the document
+ * the average cost later, IM8). The cost is read after the booking's balances and all its item value clocks are locked, so receipts
+ * at any warehouse finish before it is frozen. It checks the shortfall again on the balances it then holds locked. A cancellation is the document
  * base's exact negation of the ledger rows (Movements::reverseDocument): reverse() copies the header for it.
  *
  * Approvals: none blocks by default. The reviewer check after posting and the OK first for a big record (size()) are the Approval
@@ -133,14 +134,22 @@ final class RepackHandler implements DocumentHandler, SizeApproval
     public function post(Db $db, Document $doc, array $lines, Caller $caller, string $opKey): int
     {
         $wh = (string) ($db->value('SELECT code FROM warehouse WHERE id = ?', [$doc->warehouseId]) ?? throw new \LogicException("repack {$doc->id} has no warehouse"));
-        $cost = $this->carriedCost($db, $lines);
         $moveLines = [];
         foreach ($lines as $l) {
             $q = (int) $l['qty'];
-            $moveLines[] = ['document_line' => (int) $l['line_no'], 'sku_id' => (int) $l['sku_id'], 'qty' => $q] + ($q > 0 && $cost !== null ? ['unit_cost' => $cost] : []);
+            $moveLines[] = ['document_line' => (int) $l['line_no'], 'sku_id' => (int) $l['sku_id'], 'qty' => $q];
         }
         $this->moves->bookForDocument($caller, ['document_id' => $doc->id, 'doc_ref' => (string) $doc->number], $opKey,
-            [['type' => 'adjustment', 'warehouse' => $wh, 'lines' => $moveLines]]);
+            [['type' => 'adjustment', 'warehouse' => $wh, 'lines' => $moveLines]], costs: function () use ($db, $lines): array {
+                $cost = $this->carriedCost($db, $lines);
+                $out = [];
+                foreach ($lines as $l) {
+                    if ((int) $l['qty'] > 0 && $cost !== null) {
+                        $out[(int) $l['line_no']] = $cost;
+                    }
+                }
+                return $out;
+            });
         $short = $this->shortfall($db, $doc, $lines, true);
         if ($short !== null) {
             throw $short;

@@ -53,7 +53,7 @@ final class RelayLines
         $hash = self::hash($line);
         $n = $this->db->exec(
             'INSERT INTO relay_line (channel_id, kind, doc_ref, line_index, line_hash, idem_key) VALUES (?, ?, ?, ?, ?, ?) '
-            . 'ON DUPLICATE KEY UPDATE id = id',
+            . 'ON DUPLICATE KEY UPDATE outcome = outcome',
             [$caller->channelId, $kind, $docRef, $idx, $hash, $idemKey],
         );
         if ($n === 1) {

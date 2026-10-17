@@ -126,4 +126,20 @@ final class ReportsUnitTest extends TestCase
         self::assertSame(['reports.slow_after_days'], Settings::RULES['reports.dead_after_days']['at_least']);
         self::assertStringContainsString("SELECT 'setting', setting_key, 1, 'baseline'", $sql, 'each with its baseline version');
     }
+
+    public function testEverySalesPeriodHonoursTheConfiguredMaximum(): void
+    {
+        $req = static fn (array $q): UiRequest => new UiRequest('GET', '/ui/reports/sales-by-store', $q, [], [], [], '127.0.0.1', false);
+        $limit = Words::say('REPORTS', 'too_long', '7');
+        foreach ([
+            [[], 'last_30', '2026-10-08', '2026-10-14', $limit],
+            [['period' => 'this_month'], 'this_month', '2026-10-08', '2026-10-14', $limit],
+            [['period' => 'last_month'], 'last_month', '2026-09-24', '2026-09-30', $limit],
+            [['period' => 'unknown'], 'last_30', '2026-10-08', '2026-10-14', $limit],
+            [['period' => 'choose', 'from' => 'bad', 'to' => '2026-10-14'], 'last_30', '2026-10-08', '2026-10-14', Words::REPORTS['bad_dates'] . ' ' . $limit],
+            [['period' => 'last_7'], 'last_7', '2026-10-08', '2026-10-14', null],
+        ] as [$query, $period, $from, $to, $warn]) {
+            self::assertSame([$period, $from, $to, $warn], ReportsController::period($req($query), '2026-10-14', 7), json_encode($query));
+        }
+    }
 }

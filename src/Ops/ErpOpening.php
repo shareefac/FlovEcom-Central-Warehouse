@@ -296,7 +296,17 @@ final class ErpOpening
         $n = 0;
         $total = count($plan['items']);
         // Re-checked inside each item's transaction (PI17): another opening or a count since the plan stops the run at that item.
-        $guard = OpeningGuard::closure($this->db, [$docRef, $plan['replaces'] ?? null]);
+        $warehouseId = (int) $this->db->value('SELECT id FROM warehouse WHERE code = ?', [$this->rules->cwWarehouse]);
+        $replaces = $plan['replaces'] ?? null;
+        $check = OpeningGuard::closure($this->db, [$docRef, $replaces], $warehouseId);
+        $guard = function (array $skuIds) use ($check, $warehouseId, $docRef, $replaces): void {
+            $check($skuIds);
+            if ($replaces !== null) {
+                foreach ($skuIds as $sku) {
+                    OpeningLineage::record($this->db, $warehouseId, $sku, $docRef, $replaces);
+                }
+            }
+        };
         foreach ($plan['items'] as $sku => $it) {
             $lines = [];
             if ($it['target'] !== 0) {

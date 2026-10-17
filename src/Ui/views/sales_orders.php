@@ -4,6 +4,7 @@
 // orders newest first, a page at a time. No form here posts anything.
 ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
+  <input type="hidden" name="period" value="<?= $e($f['period']) ?>">
 <?php if ($f['channel'] !== null): ?>
   <input type="hidden" name="channel" value="<?= $e($f['channel']) ?>">
 <?php endif; ?>

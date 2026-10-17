@@ -8,6 +8,7 @@ use CW\Db;
 use CW\Ops\ErpOpeningFiles;
 use CW\Ops\SitePendingSales;
 use CW\Tests\Support\IntegrationTestCase;
+use CW\Tests\Support\StatementHook;
 use CW\Tests\Support\TestDb;
 
 /**
@@ -106,6 +107,36 @@ final class SitePendingSalesTest extends IntegrationTestCase
         // With no grace, a SUCCESS row is taken as in ERPNext.
         $site2 = Db::connect(TestDb::config()->dbAdmin()->withDatabase($this->schema));
         self::assertArrayNotHasKey(105, (new SitePendingSales($site2, 5000, 0))->read()['lines']);
+    }
+
+    public function testAQueueCommitBetweenTheQuantityReadsCannotHideASale(): void
+    {
+        $writer = Db::connect(TestDb::config()->dbAdmin()->withDatabase($this->schema));
+        $writer->exec("INSERT INTO orders_master (ord_id, ord_is_syncable, ord_generate_prepare_to_sync, ord_genarated_date) VALUES (30, b'1', 0, NOW())");
+        $writer->exec('INSERT INTO orders_items (ordi_ord_id, ordi_prodt_id) VALUES (30, 999), (30, 999), (30, 999)');
+        $interleaved = false;
+        $after = static function (string $sql) use ($writer, &$interleaved): void {
+            if ($interleaved || !str_contains($sql, 'JSON_TABLE')) {
+                return;
+            }
+            $interleaved = true;
+            $writer->transaction(static function (Db $db): void {
+                $db->exec("INSERT INTO data_sync (ds_type, ds_type_id, ds_method_type, ds_json_payload) VALUES ('sales_invoice', 30, 'INSERT', ?)",
+                    [json_encode(['custom_source_orders' => [['ord_id' => 30]], 'items' => [['item_code' => '999', 'qty' => 3]]], JSON_THROW_ON_ERROR)]);
+                $db->exec('UPDATE orders_master SET ord_generate_prepare_to_sync = 1 WHERE ord_id = 30');
+            });
+        };
+        $this->site->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [StatementHook::class, [$after]]);
+        try {
+            $r = (new SitePendingSales($this->site, 5000))->read();
+        } finally {
+            $this->site->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [\PDOStatement::class]);
+        }
+        self::assertTrue($interleaved);
+        self::assertSame(3, $r['lines'][999] ?? 0, 'the sale is still unqueued in this snapshot, although the writer committed its queue row');
+        self::assertSame(['orders' => 2, 'units' => 5], $r['report']['not_queued']);
+        self::assertFalse($this->site->inTransaction());
+        self::assertSame('READ-COMMITTED', $this->site->value('SELECT @@session.transaction_isolation'), 'only this read changes isolation');
     }
 
     public function testTheScriptWritesTheFileTheOpeningImportReads(): void

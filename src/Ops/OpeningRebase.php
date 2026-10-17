@@ -263,6 +263,7 @@ final class OpeningRebase
         $booked = [];
         $otherOpening = [];
         $openingItems = [];
+        $lineage = $estimateDocRef === null ? [] : OpeningLineage::documents($this->db, $whId, [$estimateDocRef]);
         foreach ($this->db->all(
             "SELECT sku_id, warehouse_id, doc_ref COLLATE utf8mb4_0900_bin AS d, SUM(qty_delta) q FROM stock_ledger "
             . "WHERE actor = ? AND bucket = 'on_hand' GROUP BY sku_id, warehouse_id, d",
@@ -271,7 +272,7 @@ final class OpeningRebase
             $sku = (int) $r['sku_id'];
             $d = $r['d'] === null ? null : (string) $r['d'];
             $here = (int) $r['warehouse_id'] === $whId;
-            if ($here && $estimateDocRef !== null && $d === $estimateDocRef) {
+            if ($here && $estimateDocRef !== null && ($d === $estimateDocRef || isset($lineage[$sku][$d]))) {
                 $earlier[$sku] = ($earlier[$sku] ?? 0) + (int) $r['q'];
                 $openingItems[$sku] = true;
             } elseif ($here && $d === $docRef) {
@@ -318,6 +319,10 @@ final class OpeningRebase
         foreach ($items as $sku) {
             if (isset($otherOpening[$sku])) {
                 $skip[$sku]['other_opening'] = true;
+            }
+            // A merge already left this item's in-flight units on it. Adding them again strands stock after dispatch.
+            if ($unitsOnly && isset($merged[$sku]) && ($unitsTerm[$sku] ?? 0) !== 0) {
+                $skip[$sku]['merged_item'] = true;
             }
             // Opened by the estimate, or sold in the opening, but no longer linked on this channel: the site figure
             // is unknown (siteTerm is set for every item with a mapped or quarantined listing here). A merged item whose

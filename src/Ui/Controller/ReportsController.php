@@ -286,20 +286,28 @@ final class ReportsController
                 if ($from > $to) {
                     [$from, $to] = [$to, $from];
                 }
-                $first = (new \DateTimeImmutable($to))->modify('-' . ($max - 1) . ' days')->format('Y-m-d');
-                if ($from < $first) {
-                    $from = $first;
-                    $warn = Words::say('REPORTS', 'too_long', number_format($max));
-                }
-                return ['choose', $from, $to, $warn];
+                return self::limitPeriod('choose', $from, $to, $warn, $max);
             }
         }
-        return match ($period) {
+        [$period, $from, $to, $warn] = match ($period) {
             'last_7' => ['last_7', $t->modify('-6 days')->format('Y-m-d'), $today, $warn],
             'this_month' => ['this_month', $t->format('Y-m-01'), $today, $warn],
             'last_month' => ['last_month', $t->modify('first day of last month')->format('Y-m-d'), $t->modify('last day of last month')->format('Y-m-d'), $warn],
             default => ['last_30', $t->modify('-29 days')->format('Y-m-d'), $today, $warn],
         };
+        return self::limitPeriod($period, $from, $to, $warn, $max);
+    }
+
+    /** @return array{0: string, 1: string, 2: string, 3: ?string} */
+    private static function limitPeriod(string $period, string $from, string $to, ?string $warn, int $max): array
+    {
+        $first = (new \DateTimeImmutable($to))->modify('-' . ($max - 1) . ' days')->format('Y-m-d');
+        if ($from < $first) {
+            $from = $first;
+            $limit = Words::say('REPORTS', 'too_long', number_format($max));
+            $warn = $warn === null ? $limit : $warn . ' ' . $limit;
+        }
+        return [$period, $from, $to, $warn];
     }
 
     /** "Sales and costs were last brought up to date …", or why not. */
