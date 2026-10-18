@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# a2query -s SITE: enabled when state/site_SITE exists (a2ensite and a2dissite keep it).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "a2query $*"
+[[ ${1-} == -s && -n ${2-} ]] || exit 0
+if [[ -e $S/site_$2 ]]; then
+    echo "$2 (enabled by site administrator)"
+    exit 0
+fi
+echo "No site matches $2" >&2
+exit 32

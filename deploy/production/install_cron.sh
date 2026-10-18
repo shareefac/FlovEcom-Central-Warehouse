@@ -18,18 +18,36 @@
 #            and says so; the next run must have --migrate (it converges again, then resumes). Without --migrate a pending
 #            migration stops the run before anything that runs has changed.
 # Refuses, before anything is built: a second install at the same time; a release copy that is not whole; an app.env that
-# does not name cw_prod or that says environment=staging (read as the application reads it: CW\Config, lower-cased and
-# trimmed). Production never serves another schema, never runs the staging-only tools, and no screen says TEST SYSTEM.
+# does not name cw_prod or that says environment=staging (read as the application reads it: CW\Ui\Kernel's own expression,
+# CW\Config's appFile, trimmed and lower-cased). Production never serves another schema, never runs the staging-only tools,
+# and no screen says TEST SYSTEM.
 set -euo pipefail
+# CW_DEPLOY_ROOT: tests/Unit/ProductionDeployBehaviourTest.php runs this script against a temporary tree, every path below
+# under $R, with its stub commands on PATH. A root is taken only when it holds the marker .cw-deploy-test-root, this is
+# not a CW server (the kernel's own hostname, which no stub can change; unreadable or empty: refused), and the stub
+# systemctl comes first on PATH. Unset, as it always is on the servers, $R is empty: every path is the real one.
+R=${CW_DEPLOY_ROOT:-/}
+R=${R%/}
+if [[ -n $R ]]; then
+    kernel_host=
+    read -r kernel_host 2>/dev/null < /proc/sys/kernel/hostname || true
+    [[ $R =~ ^/[A-Za-z0-9/._-]+$ && -f $R/.cw-deploy-test-root && -n $kernel_host ]] \
+        && [[ ! $kernel_host =~ ^(cw-prod-lon1-01|vpg-ded-lon1-01|FlovEcom-Central-Warehouse)$ ]] \
+        && grep -qsx '# cw-deploy-stub' "$(type -P systemctl)" \
+        || { echo "install_cron: CW_DEPLOY_ROOT=$R is not a test tree (its marker, the stub commands first on PATH, never a CW server)" >&2; exit 2; }
+fi
 
-src=/opt/cw-prod-release
-releases=/opt/cw-prod-releases
-live=/opt/cw-prod
+src=$R/opt/cw-prod-release
+releases=$R/opt/cw-prod-releases
+live=$R/opt/cw-prod
 schema=cw_prod
-paused_cron=/etc/cw/cw-prod.cron.paused
+app_env=$R/etc/cw/app.env
+cron_file=$R/etc/cron.d/cw-prod
+lock=$R/run/lock/cw-prod-install.lock
+paused_cron=$R/etc/cw/cw-prod.cron.paused
 # Set while this installer holds the web off, so a later run brings it back even after a failed one.
-paused_web=/etc/cw/cw-https.paused
-paused_fpm=/etc/cw/cw-fpm.stopped
+paused_web=$R/etc/cw/cw-https.paused
+paused_fpm=$R/etc/cw/cw-fpm.stopped
 migrate=0
 for a in "$@"; do
     case $a in
@@ -43,25 +61,26 @@ refuse() { echo "install_cron: REFUSING: $*" >&2; exit 1; }
 # 0. Guards: nothing is built or changed before these hold.
 [[ $(id -u) -eq 0 ]] || refuse "run as root"
 [[ $(hostname) == cw-prod-lon1-01 ]] || refuse "this box is $(hostname), not cw-prod-lon1-01"
-exec 9>/run/lock/cw-prod-install.lock
-flock -n 9 || refuse "another install (or a push) holds /run/lock/cw-prod-install.lock"
+exec 9>"$lock"
+flock -n 9 || refuse "another install (or a push) holds $lock"
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 [[ $here == "$src" ]] || refuse "run from the release copy $src (push_code.sh puts it there), not $here"
 [[ -s $src/REVISION && -f $src/vendor/autoload.php ]] \
     || refuse "$src is not a whole release (push_code.sh writes REVISION last, after composer): run push_code.sh"
 rev=$(tr -cd '0-9a-f' < "$src/REVISION")
 [[ ${#rev} -eq 40 ]] || refuse "$src/REVISION is not a commit id"
-[[ -f /etc/cw/app.env ]] || refuse "/etc/cw/app.env is missing: run 'php bin/setup_staging.php --db=$schema' in $src first"
+[[ -f $app_env ]] || refuse "$app_env is missing: run 'php bin/setup_staging.php --db=$schema' in $src first"
 if [[ -e $live && ! -L $live ]]; then
     refuse "$live is a directory, not the symlink this installer keeps: move it aside by hand first"
 fi
+# The marker as CW\Ui\Kernel reads it, the schema as the web service's CW\Config does (app.env only, no CW_* override).
 appcheck=$(php -d display_errors=stderr -r '
-require "/opt/cw-prod-release/vendor/autoload.php";
-$app = CW\Config::parseEnvFile("/etc/cw/app.env");
-echo strtolower(trim((string) ($app["environment"] ?? ""))), "|", CW\Config::loadApp(["CW_APP_ENV" => "/etc/cw/app.env"])->appDbName() ?? "";
-') || refuse "cannot read /etc/cw/app.env"
-[[ ${appcheck%%|*} != staging ]] || refuse "/etc/cw/app.env says environment=staging: never on production"
-[[ ${appcheck#*|} == "$schema" ]] || refuse "/etc/cw/app.env names the schema '${appcheck#*|}', not $schema"
+require $argv[1] . "/vendor/autoload.php";
+$app = CW\Config::loadApp(["CW_APP_ENV" => $argv[2]]);
+echo strtolower(trim((string) $app->appFile(CW\Ops\TestRefPurge::ENV_KEY))), "|", $app->appDbName() ?? "";
+' -- "$src" "$app_env") || refuse "cannot read $app_env"
+[[ ${appcheck%%|*} != staging ]] || refuse "$app_env says environment=staging: never on production"
+[[ ${appcheck#*|} == "$schema" ]] || refuse "$app_env names the schema '${appcheck#*|}', not $schema"
 recovering=0
 [[ -e $paused_cron || -e $paused_web || -e $paused_fpm ]] && recovering=1
 if [[ $recovering -eq 1 && $migrate -ne 1 ]]; then
@@ -102,9 +121,9 @@ fi
 if [[ $migrate -eq 1 ]]; then
     # Pause every writer, for every --migrate run (grants change too, the third review): the jobs (cron file aside, then the running ones waited for), and the web (vhost off, php-fpm stopped
     # gracefully: the requests it is answering finish first).
-    if [[ -f /etc/cron.d/cw-prod ]]; then
-        mv /etc/cron.d/cw-prod "$paused_cron"
-        say "cron paused (/etc/cron.d/cw-prod -> $paused_cron)"
+    if [[ -f $cron_file ]]; then
+        mv "$cron_file" "$paused_cron"
+        say "cron paused ($cron_file -> $paused_cron)"
     fi
     if a2query -s cw-https >/dev/null 2>&1; then
         touch "$paused_web"
@@ -142,14 +161,14 @@ say "$live -> $new"
 
 # 4. Logs, cron, logrotate (from the new release); the web back on if a run paused it.
 cd "$live"
-install -d -m 0750 -o root -g root /var/log/cw
-install -m 0644 -o root -g root deploy/production/logrotate-cw.conf /etc/logrotate.d/cw-prod
-if ! logrotate --debug /etc/logrotate.d/cw-prod >/dev/null 2>&1; then
-    echo "install_cron: logrotate rejects /etc/logrotate.d/cw-prod" >&2
+install -d -m 0750 -o root -g root "$R/var/log/cw"
+install -m 0644 -o root -g root deploy/production/logrotate-cw.conf "$R/etc/logrotate.d/cw-prod"
+if ! logrotate --debug "$R/etc/logrotate.d/cw-prod" >/dev/null 2>&1; then
+    echo "install_cron: logrotate rejects $R/etc/logrotate.d/cw-prod" >&2
     exit 1
 fi
-install -m 0644 -o root -g root deploy/production/cw-prod.cron /etc/cron.d/cw-prod
-[[ ! -f $paused_cron ]] || mv "$paused_cron" "/etc/cw/cw-prod.cron.replaced-$(date -u +%Y%m%dT%H%M%SZ)"
+install -m 0644 -o root -g root deploy/production/cw-prod.cron "$cron_file"
+[[ ! -f $paused_cron ]] || mv "$paused_cron" "$R/etc/cw/cw-prod.cron.replaced-$(date -u +%Y%m%dT%H%M%SZ)"
 if [[ -f $paused_fpm ]]; then
     systemctl start php8.3-fpm
     rm -f "$paused_fpm"
@@ -164,7 +183,7 @@ if [[ -f $paused_web ]]; then
     rm -f "$paused_web"
     say "public vhost back on"
 fi
-say "installed /etc/cron.d/cw-prod, /etc/logrotate.d/cw-prod, /var/log/cw"
+say "installed $cron_file, $R/etc/logrotate.d/cw-prod, $R/var/log/cw"
 
 # 5. Smoke: each job once, exactly as cron runs it (the forms that write nothing, as on staging).
 fail=0

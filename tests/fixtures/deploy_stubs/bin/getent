@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# getent ahostsv4 NAME: the addresses in answers/dns (default the reserved address; empty: the name does not resolve).
+# passwd and group are the real getent's (www-data's uid and gid); any other database is refused (exit 99).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+if [[ ${1-} == ahostsv4 ]]; then
+    log "getent $*"
+    a=$(answer dns 129.212.162.243)
+    [[ -n $a ]] || exit 2
+    for ip in $a; do
+        printf '%-15s STREAM %s\n%-15s DGRAM\n%-15s RAW\n' "$ip" "$2" "$ip" "$ip"
+    done
+    exit 0
+fi
+case ${1-} in
+    passwd|group) exec "$(real getent)" "$@" ;;
+    *) echo "getent stub: only ahostsv4 (the scenario), passwd and group" >&2; exit 99 ;;
+esac

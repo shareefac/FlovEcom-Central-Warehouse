@@ -11,6 +11,20 @@
 # It installs no CW code, no vhost, no cron and touches no database: push_code.sh, install_cron.sh, install_file_store.sh and
 # enable_https.sh do those, in that order.
 set -euo pipefail
+# CW_DEPLOY_ROOT: tests/Unit/ProductionDeployBehaviourTest.php runs this script against a temporary tree, every path below
+# under $R, with its stub commands on PATH. A root is taken only when it holds the marker .cw-deploy-test-root, this is
+# not a CW server (the kernel's own hostname, which no stub can change; unreadable or empty: refused), and the stub
+# systemctl comes first on PATH. Unset, as it always is on the servers, $R is empty: every path is the real one.
+R=${CW_DEPLOY_ROOT:-/}
+R=${R%/}
+if [[ -n $R ]]; then
+    kernel_host=
+    read -r kernel_host 2>/dev/null < /proc/sys/kernel/hostname || true
+    [[ $R =~ ^/[A-Za-z0-9/._-]+$ && -f $R/.cw-deploy-test-root && -n $kernel_host ]] \
+        && [[ ! $kernel_host =~ ^(cw-prod-lon1-01|vpg-ded-lon1-01|FlovEcom-Central-Warehouse)$ ]] \
+        && grep -qsx '# cw-deploy-stub' "$(type -P systemctl)" \
+        || { echo "provision: CW_DEPLOY_ROOT=$R is not a test tree (its marker, the stub commands first on PATH, never a CW server)" >&2; exit 2; }
+fi
 
 say() { echo "[provision] $*"; }
 refuse() { echo "provision: REFUSING: $*" >&2; exit 1; }
@@ -23,7 +37,7 @@ for a in "$@"; do
     esac
 done
 [[ $(id -u) -eq 0 ]] || refuse "run as root"
-. /etc/os-release
+. "$R/etc/os-release"
 [[ ${ID:-} == ubuntu && ${VERSION_ID:-} == 24.04 ]] || refuse "this is ${PRETTY_NAME:-an unknown system}, not Ubuntu 24.04"
 [[ $(hostname) == cw-prod-lon1-01 ]] || refuse "this box is $(hostname), not cw-prod-lon1-01 (the production server)"
 
@@ -53,7 +67,7 @@ else
 fi
 
 # 2. Security updates by themselves (Ubuntu's security origin, the unattended-upgrades default), daily.
-printf '%s\n' 'APT::Periodic::Update-Package-Lists "1";' 'APT::Periodic::Unattended-Upgrade "1";' > /etc/apt/apt.conf.d/20auto-upgrades
+printf '%s\n' 'APT::Periodic::Update-Package-Lists "1";' 'APT::Periodic::Unattended-Upgrade "1";' > "$R/etc/apt/apt.conf.d/20auto-upgrades"
 say "unattended security updates: on"
 
 # 3. The clock: UTC (every CW time is UTC; the UK time is worked out where it is shown).
@@ -87,8 +101,11 @@ for m in "${PHP_EXTENSIONS[@]}"; do
     grep -qx "$m" <<<"$mods" || refuse "PHP has no $m extension"
 done
 say "PHP extensions present: ${PHP_EXTENSIONS[*]}"
-apache2ctl -M 2>/dev/null | grep -q proxy_fcgi_module || refuse "Apache has no proxy_fcgi"
-apache2ctl -M 2>/dev/null | grep -q mpm_event_module || refuse "Apache does not run the event MPM"
-ufw status | grep -q 'Status: active' || refuse "the firewall is not active"
+# Each list read whole first: `cmd | grep -q` under pipefail fails when grep stops before cmd has written everything.
+apache_modules=$(apache2ctl -M 2>/dev/null) || refuse "apache2ctl -M failed"
+grep -q proxy_fcgi_module <<<"$apache_modules" || refuse "Apache has no proxy_fcgi"
+grep -q mpm_event_module <<<"$apache_modules" || refuse "Apache does not run the event MPM"
+firewall=$(ufw status) || refuse "ufw status failed"
+grep -q 'Status: active' <<<"$firewall" || refuse "the firewall is not active"
 command -v chattr >/dev/null || refuse "chattr is missing (e2fsprogs)"
 say "done: the next steps are in docs/ops.md, \"The production server\" (push_code.sh again, then the database setup and the installers)"

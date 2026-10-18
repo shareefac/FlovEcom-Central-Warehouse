@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# pgrep -f PATTERN: the scenario's processes (answers/jobs: "<checks left> <command line>" per line) whose command line
+# matches PATTERN (extended regex, as pgrep's) and that are still running; each call counts the ones it finds down by one
+# check. A job of another schema is never found by a pattern for cw_prod, and blocks nothing.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "pgrep $*"
+[[ ${1-} == -f && -n ${2-} ]] || { echo "pgrep stub: only pgrep -f PATTERN" >&2; exit 99; }
+[[ -f $A/jobs ]] || exit 1
+found=1
+out=
+while read -r left cmdline; do
+    if (( left > 0 )) && grep -qE -- "$2" <<<"$cmdline"; then
+        found=0
+        left=$((left - 1))
+    fi
+    out+="$left $cmdline"$'\n'
+done < "$A/jobs"
+printf '%s' "$out" > "$A/jobs"
+[[ $found == 0 ]] && echo 4242
+exit $found

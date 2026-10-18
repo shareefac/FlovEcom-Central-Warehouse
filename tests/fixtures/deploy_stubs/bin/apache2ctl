@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# apache2ctl: configtest says Syntax OK, unless the HTTPS vhost is enabled before its certificate exists (Apache cannot load
+# it: SSLCertificateFile does not exist); -M lists the event MPM and proxy_fcgi first, then more than a pipe holds, so a
+# `apache2ctl -M | grep -q` under pipefail is cut (SIGPIPE) as it can be on the box.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "apache2ctl $*"
+case ${1-} in
+    configtest)
+        if [[ -e $S/site_cw-https && ! -s $R/etc/letsencrypt/live/warehouse.floverfy.com/fullchain.pem ]]; then
+            echo "AH00526: Syntax error: SSLCertificateFile: file '/etc/letsencrypt/live/warehouse.floverfy.com/fullchain.pem' does not exist or is empty" >&2
+            echo "Action 'configtest' failed." >&2
+            exit 1
+        fi
+        echo "Syntax OK" >&2 ;;
+    -M)
+        printf 'Loaded Modules:\n %s (shared)\n' mpm_event_module proxy_fcgi_module ssl_module
+        printf ' padding_%05d_module (shared)\n' $(seq 1 8000) ;;
+esac

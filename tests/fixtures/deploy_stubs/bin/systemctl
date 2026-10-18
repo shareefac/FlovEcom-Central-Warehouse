@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# systemctl: php8.3-fpm's state is state/fpm: active; draining after `kill -s QUIT` (for answers/fpm_drain more is-active
+# checks: requests still finishing), then inactive. A reload of a php-fpm that is not running fails, as systemd's does.
+# apache2 will not reload with the HTTPS vhost enabled before its certificate exists (as apache2ctl configtest says).
+# Everything else (enable, restart) is recorded only.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "systemctl $*"
+fpm=$(cat "$S/fpm" 2>/dev/null || echo inactive)
+case "$*" in
+    "is-active --quiet php8.3-fpm")
+        case $fpm in
+            active) exit 0 ;;
+            draining)
+                n=$(cat "$S/fpm_drain" 2>/dev/null || echo 0)
+                if (( n > 0 )); then
+                    echo $((n - 1)) > "$S/fpm_drain"
+                    exit 0
+                fi
+                echo inactive > "$S/fpm"
+                exit 3 ;;
+            *) exit 3 ;;
+        esac ;;
+    "kill -s QUIT php8.3-fpm")
+        if [[ $fpm == active ]]; then
+            echo draining > "$S/fpm"
+            answer fpm_drain 2 > "$S/fpm_drain"
+        fi ;;
+    "stop php8.3-fpm") echo inactive > "$S/fpm" ;;
+    "start php8.3-fpm") echo active > "$S/fpm" ;;
+    "reload php8.3-fpm") [[ $fpm == active ]] || { echo "php8.3-fpm.service is not active, cannot reload." >&2; exit 1; } ;;
+    "reload apache2")
+        if [[ -e $S/site_cw-https && ! -s $R/etc/letsencrypt/live/warehouse.floverfy.com/fullchain.pem ]]; then
+            echo "Job for apache2.service failed (the configuration does not load)." >&2
+            exit 1
+        fi ;;
+esac
+exit 0

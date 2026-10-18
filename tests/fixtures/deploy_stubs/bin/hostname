@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# hostname: the production box's name, or the scenario's (answers/hostname).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+answer hostname cw-prod-lon1-01
+echo

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# a2ensite SITE...: marks each site enabled (state/site_SITE).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "a2ensite $*"
+for s in "$@"; do
+    [[ $s == -* ]] || touch "$S/site_$s"
+done

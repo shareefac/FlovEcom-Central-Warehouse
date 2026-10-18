@@ -64,7 +64,8 @@ final class ProductionDeployTest extends TestCase
     {
         $src = (string) file_get_contents(self::DIR . '/enable_https.sh');
         self::assertStringContainsString("NAME=warehouse.floverfy.com\nADDR=129.212.162.243", $src);
-        self::assertStringContainsString('$repo != /opt/cw-prod-release', $src, 'it runs from the release copy only');
+        self::assertStringContainsString("src=\$R/opt/cw-prod-release\nlive=\$R/opt/cw-prod\n", $src);
+        self::assertStringContainsString('[[ $repo != "$src" ]]', $src, 'it runs from the release copy only');
         self::assertStringContainsString('hostname) == cw-prod-lon1-01', $src);
         self::assertStringContainsString('metadata/v1/reserved_ip/ipv4', $src, 'a reserved address is not on the interface: the metadata says whose it is');
         self::assertStringContainsString('expected cw_prod', $src);
@@ -87,11 +88,11 @@ final class ProductionDeployTest extends TestCase
     public function testInstallCronBuildsBesideTheRunningCodeAndSwitchesAfterTheSchema(): void
     {
         $src = (string) file_get_contents(self::DIR . '/install_cron.sh');
-        self::assertStringContainsString("src=/opt/cw-prod-release\nreleases=/opt/cw-prod-releases\nlive=/opt/cw-prod\nschema=cw_prod", $src);
+        self::assertStringContainsString("src=\$R/opt/cw-prod-release\nreleases=\$R/opt/cw-prod-releases\nlive=\$R/opt/cw-prod\nschema=cw_prod\napp_env=\$R/etc/cw/app.env\ncron_file=\$R/etc/cron.d/cw-prod\n", $src);
         $pos = static fn (string $s): int => (int) strpos($src, $s);
-        // The marker and the schema read as the application reads app.env.
-        self::assertStringContainsString('CW\Config::parseEnvFile("/etc/cw/app.env")', $src);
-        self::assertStringContainsString('strtolower(trim((string) ($app["environment"] ?? "")))', $src);
+        // The marker and the schema read as the application reads app.env (CW\Ui\Kernel's expression; the web service's Config).
+        self::assertStringContainsString('$app = CW\Config::loadApp(["CW_APP_ENV" => $argv[2]]);', $src);
+        self::assertStringContainsString('strtolower(trim((string) $app->appFile(CW\Ops\TestRefPurge::ENV_KEY)))', $src);
         self::assertStringContainsString('says environment=staging: never on production', $src);
         self::assertStringContainsString('names the schema', $src);
         $build = $pos('# 1. The new release');
@@ -99,7 +100,7 @@ final class ProductionDeployTest extends TestCase
             self::assertLessThan($build, $pos($g), "{$g}: refused before anything is built");
         }
         $status = $pos('migrate.php" --db="$schema" --status');
-        $pause = $pos('mv /etc/cron.d/cw-prod "$paused_cron"');
+        $pause = $pos('mv "$cron_file" "$paused_cron"');
         $web = $pos('a2dissite -q cw-https');
         $migrate = $pos('php "$new/bin/migrate.php" --db="$schema" |');
         $switch = $pos('mv -T "$live.next" "$live"');
@@ -128,7 +129,7 @@ final class ProductionDeployTest extends TestCase
         self::assertLessThan($build, $pos('re-run with --migrate (it converges the schema and the grants, then resumes)'));
         self::assertStringContainsString("if [[ \$migrate -eq 1 ]]; then\n    # Pause every writer", $src, 'every --migrate run pauses the writers first (grants change too)');
         self::assertStringContainsString('if [[ $migrate -eq 1 ]]; then', $src, 'with --migrate the migration (and so the grants) always runs');
-        self::assertStringContainsString('install -m 0644 -o root -g root deploy/production/cw-prod.cron /etc/cron.d/cw-prod', $src);
+        self::assertStringContainsString('install -m 0644 -o root -g root deploy/production/cw-prod.cron "$cron_file"', $src);
         $cron = (string) file_get_contents(self::DIR . '/cw-prod.cron');
         preg_match_all('/--db=(\w+)/', $cron, $m);
         self::assertSame(['cw_prod'], array_values(array_unique($m[1])), 'every job runs against cw_prod');
@@ -139,21 +140,24 @@ final class ProductionDeployTest extends TestCase
     {
         $src = (string) file_get_contents(self::DIR . '/enable_https.sh');
         $pos = static fn (string $s): int => (int) strpos($src, $s);
-        foreach (['chown root:www-data /etc/cw/app.env', 'chmod 0640 /etc/cw/app.env', 'chmod 0600 /etc/cw/db.env',
+        self::assertStringContainsString("etc=\$R/etc/cw\napp_env=\$etc/app.env\ndb_env=\$etc/db.env\n", $src);
+        foreach (['chown root:www-data "$app_env"', 'chmod 0640 "$app_env"', 'chmod 0600 "$db_env"',
             'SecretBox::newKeyBase64()', '"db_host", "db_port"'] as $s) {
             self::assertGreaterThan(0, $pos($s), $s);
             self::assertLessThan($pos('/etc/php/8.3/fpm/pool.d/cw-web.conf'), $pos($s), "{$s} before the pool");
             self::assertGreaterThan($pos('if [[ $check == 1 ]]'), $pos($s), "{$s} after --check");
         }
-        self::assertStringContainsString('CW\Config::parseEnvFile("/etc/cw/app.env")', $src, 'the marker as the application reads it');
+        self::assertStringContainsString('appFile(CW\Ops\TestRefPurge::ENV_KEY)', $src, 'the marker as the application reads it');
     }
 
     /** push_code.sh sends GitHub's main only: the main checkout, branch main, a clean tree, equal to origin/main. */
     public function testPushCodeSendsOnlyGithubsMain(): void
     {
         $src = (string) file_get_contents(self::DIR . '/push_code.sh');
-        foreach (['git archive --format=tar "$rev"', 'incoming=/opt/cw-prod-incoming/$rev-$$', 'flock -w 600 /run/lock/cw-prod-install.lock bash -euo pipefail',
-            'mv $incoming $DEST', '$repo == /root/central-warehouse',
+        self::assertStringContainsString("DEST=\$R/opt/cw-prod-release\nGIT_KEY=\$R/root/.ssh/cw_repo_deploy\nCHECKOUT=\$R/root/central-warehouse\n"
+            . "INCOMING=\$R/opt/cw-prod-incoming\nLOCK=\$R/run/lock/cw-prod-install.lock\n", $src);
+        foreach (['git archive --format=tar "$rev"', 'incoming=$INCOMING/$rev-$$', 'flock -w 600 $LOCK bash -euo pipefail',
+            'mv $incoming $DEST', '$repo == "$CHECKOUT"',
             'rev-parse --abbrev-ref HEAD) == main', 'git status --porcelain', 'git fetch -q origin main', '$rev == "$(git rev-parse origin/main)"',
             'HOST=root@129.212.162.243', '--exclude=/tests/', '--exclude=/tools/', 'composer install --no-dev'] as $s) {
             self::assertStringContainsString($s, $src);
@@ -162,7 +166,7 @@ final class ProductionDeployTest extends TestCase
         self::assertNotFalse($first);
         self::assertLessThan($first, (int) strpos($src, 'origin/main)"'), 'checked before anything is sent');
         // The third review: each push to its own directory; composer, REVISION and the rename under the install lock, in that order.
-        $locked = (int) strpos($src, 'flock -w 600 /run/lock/cw-prod-install.lock bash -euo pipefail');
+        $locked = (int) strpos($src, 'flock -w 600 $LOCK bash -euo pipefail');
         self::assertLessThan($locked, $first, 'the files go to the incoming directory before the lock is taken');
         self::assertStringContainsString('"$tmp/" "$HOST:$incoming/"', $src, 'never straight into the release copy');
         self::assertLessThan((int) strpos($src, '> REVISION', $locked), (int) strpos($src, 'composer install --no-dev', $locked), 'REVISION after composer');

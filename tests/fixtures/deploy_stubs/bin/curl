@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# curl URL: DigitalOcean's metadata (answers/meta_active, answers/meta_ip; default: the reserved address is this droplet's) and
+# the HTTP codes the finished site gives (login 200, the API without a key 401, plain HTTP 301).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+url=${!#}
+log "curl $url"
+case $url in
+    */reserved_ip/ipv4/active) answer meta_active true ;;
+    */reserved_ip/ipv4/ip_address) answer meta_ip 129.212.162.243 ;;
+    https://*/ui/login) printf 200 ;;
+    https://*/v1/health) printf 401 ;;
+    http://*/ui/login) printf 301 ;;
+    *) exit 7 ;;
+esac

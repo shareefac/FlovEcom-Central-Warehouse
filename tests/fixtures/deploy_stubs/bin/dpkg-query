@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# dpkg-query -W -f='${Status}' PACKAGE: installed unless answers/dpkg_missing lists it.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+pkg=${!#}
+grep -qxF "$pkg" "$A/dpkg_missing" 2>/dev/null && exit 1
+printf 'install ok installed'

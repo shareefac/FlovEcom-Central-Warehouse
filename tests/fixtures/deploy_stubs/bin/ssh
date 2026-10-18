@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# ssh [options] [USER@]HOST COMMAND...: runs COMMAND here with bash, as sshd runs it on the box (the tests' "production box" is
+# this machine, under CW_DEPLOY_ROOT). Only root at the production address is accepted (rsync passes the user as -l root).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+user=
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -l) user=${2-}; shift 2 ;;
+        -[bcDEeFIiJLmOoPpQRSWw]) shift 2 ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+host=${1-}
+shift || true
+[[ -z $user || $host == *@* ]] || host=$user@$host
+[[ $host == root@129.212.162.243 ]] || { echo "ssh stub: unexpected host '$host'" >&2; exit 255; }
+[[ $* == "rsync --server"* ]] || log "ssh $host $*"
+exec bash -c "$*"

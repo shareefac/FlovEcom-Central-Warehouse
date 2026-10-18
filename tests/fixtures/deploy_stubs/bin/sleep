@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# sleep: returns at once (the scripts' waits are counted by the stubs they poll, not by time).
+exit 0

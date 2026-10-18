@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# php-fpm8.3 -t: the configuration test passes.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "php-fpm8.3 $*"
+echo "NOTICE: configuration file /etc/php/8.3/fpm/php-fpm.conf test is successful" >&2

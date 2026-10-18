@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# timedatectl: set-timezone is recorded; show gives Etc/UTC.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "timedatectl $*"
+[[ ${1-} != show ]] || echo Etc/UTC

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# runuser -u USER -- test EXPR: answers as the plain file modes would for USER (the owner, group or other bits that apply to
+# USER's uid and gid; every directory above the path must be searchable), without changing user. test's -e -f -d -r -w -x,
+# joined by -a. Anything else is refused (exit 99): the test then fails rather than run as root a command the box would run as
+# www-data.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "runuser $*"
+[[ ${1-} == -u && ${3-} == -- && ${4-} == test ]] || { echo "runuser stub: only 'runuser -u USER -- test ...'" >&2; exit 99; }
+user=$2
+shift 4
+IFS=: read -r _ _ uid gid _ < <(getent passwd "$user") || { echo "runuser: user $user does not exist" >&2; exit 1; }
+# may BIT PATH: 4 read, 2 write, 1 search, by the class of bits that applies to USER
+may() {
+    local u g m
+    read -r u g m < <(stat -c '%u %g %a' "$2" 2>/dev/null) || return 1
+    m=$((8#$m))
+    if [[ $u == "$uid" ]]; then m=$((m >> 6)); elif [[ $g == "$gid" ]]; then m=$((m >> 3)); fi
+    (( m & $1 ))
+}
+reach() {
+    local d
+    d=$(dirname "$1")
+    while [[ $d != / ]]; do
+        may 1 "$d" || return 1
+        d=$(dirname "$d")
+    done
+    may 1 /
+}
+ok=0
+while [[ $# -gt 0 ]]; do
+    op=$1
+    path=${2-}
+    [[ $# -ge 2 ]] || { echo "runuser stub: test $op needs a path" >&2; exit 99; }
+    shift 2
+    reach "$path" && [[ -e $path ]] || ok=1
+    case $op in
+        -e) ;;
+        -f) [[ -f $path ]] || ok=1 ;;
+        -d) [[ -d $path ]] || ok=1 ;;
+        -r) may 4 "$path" || ok=1 ;;
+        -w) may 2 "$path" || ok=1 ;;
+        -x) may 1 "$path" || ok=1 ;;
+        *) echo "runuser stub: test $op is not emulated" >&2; exit 99 ;;
+    esac
+    [[ $# -gt 0 ]] || break
+    [[ $1 == -a ]] || { echo "runuser stub: only -a joins tests" >&2; exit 99; }
+    shift
+done
+exit $ok

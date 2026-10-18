@@ -2729,7 +2729,21 @@ place; one install runs at a time (`/run/lock/cw-prod-install.lock`), and `push_
 fails the writers stay paused**: read the error, fix, and run it again with `--migrate` (a run without it refuses while anything is
 paused); do not move the cron file back or start php-fpm by hand onto a half-migrated schema.
 
-**Checks after the first install** (the scripts' own tests read their text; these prove their behaviour on the box): `readlink
+**The scripts' tests.** `tests/Unit/ProductionDeployTest.php` reads their text (staging's settings under the production names);
+`tests/Unit/ProductionDeployBehaviourTest.php` RUNS them, on the test machine, against a temporary tree that stands for the box:
+`CW_DEPLOY_ROOT` names it (each script reads it once, at the top, puts every path under it, and refuses a tree without the marker
+file `.cw-deploy-test-root`), and the stub commands of `tests/fixtures/deploy_stubs/bin` come first on PATH (systemctl, a2query,
+a2ensite, a2dissite, apache2ctl, runuser, flock, ssh, composer, php ...: they record each call and answer from the scenario, so no
+service, network or database is reached; rsync, git, tar and flock's locking are the real ones). They cover: a push that stops (no
+REVISION, the release copy as it was) and the first push to a new box (never a release); a push and an install excluding each other,
+and a push that lands during the copy (REVISION changed: refused); a pending migration without `--migrate` (exit 3, nothing that runs
+changed); `--migrate` pausing every writer (cron file aside and the jobs waited for, vhost off, php-fpm drained and stopped), then
+switching and bringing them back; a failed migration (the writers stay paused, the next run without `--migrate` refuses and changes
+nothing, a `--migrate` run that succeeds resumes); the release readable by www-data; the staging marker read exactly as
+`CW\Ui\Kernel` reads it; an app.env naming another schema; `enable_https.sh`'s guards, app.env 0640 root:www-data and the UI key
+made once; `provision.sh` allowing SSH before the firewall. On the box `CW_DEPLOY_ROOT` is never set: every path is the real one.
+
+**Checks after the first install** (what only the box can prove): `readlink
 /opt/cw-prod` names `/opt/cw-prod-releases/<the commit>`; `runuser -u www-data -- test -r /opt/cw-prod/public/index.php`; `stat -c '%a
 %U:%G' /etc/cw/app.env /etc/cw/db.env` gives `640 root:www-data` and `600 root:root`; `curl -sI https://warehouse.floverfy.com/ui/login`
 answers 200 and `/v1/health` 401; `php bin/invariants.php --db=cw_prod` says ok; a second `install_cron.sh --migrate` with nothing pending

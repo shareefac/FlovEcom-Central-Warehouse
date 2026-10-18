@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# php: `php [-d ...] -r CODE [-- ARGS]` and `php -v` / `php -m` run the real PHP, so the scripts' guards read app.env with the
+# repository's own CW\Config; code that opens the database (CW\Db::connect) prints answers/db_value instead (default 0).
+# A script (bin/NAME.php) is the scenario's: migrate.php --status prints answers/migrate_status; migrate.php itself records what
+# was running at that moment in migrations.log (the cron file, the vhost, php-fpm, the markers, the cw_prod jobs still running,
+# where /opt/cw-prod points) and
+# exits answers/migrate_exit; any other bin/NAME.php prints a line and exits answers/NAME.exit (default 0).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+args=("$@")
+i=0
+while (( i < ${#args[@]} )); do
+    case ${args[i]} in
+        -d) i=$((i + 2)) ;;
+        -d?*) i=$((i + 1)) ;;
+        -r)
+            if [[ ${args[i + 1]-} == *'Db::connect'* ]]; then
+                log "php -r (the database)"
+                answer db_value 0
+                echo
+                exit 0
+            fi
+            exec "$CW_STUB_PHP" "$@" ;;
+        -*) exec "$CW_STUB_PHP" "$@" ;;
+        *) break ;;
+    esac
+done
+script=${args[i]-}
+name=${script##*/}
+rest=" ${args[*]:i+1} "
+log "php $script${rest% }"
+there() { [[ -e $1 ]] && echo present || echo absent; }
+case $name in
+    migrate.php)
+        if [[ $rest == *' --status '* ]]; then
+            answer migrate_status "0046_rollback_settings.sql               applied 2026-10-17 23:56:01"
+            echo
+            exit 0
+        fi
+        live=$(readlink "$R/opt/cw-prod" || true)
+        jobs=$(awk '$1 > 0 && /--db=cw_prod( |$)/' "$A/jobs" 2>/dev/null | wc -l)
+        printf 'cron=%s paused_cron=%s vhost=%s fpm=%s web_marker=%s fpm_marker=%s jobs=%s live=%s\n' \
+            "$(there "$R/etc/cron.d/cw-prod")" "$(there "$R/etc/cw/cw-prod.cron.paused")" \
+            "$([[ -e $S/site_cw-https ]] && echo on || echo off)" "$(cat "$S/fpm" 2>/dev/null || echo inactive)" \
+            "$(there "$R/etc/cw/cw-https.paused")" "$(there "$R/etc/cw/cw-fpm.stopped")" "$jobs" "${live#"$R"}" \
+            >> "$CW_STUB_DIR/migrations.log"
+        n=$(answer migrate_exit 0)
+        if [[ $n == 0 ]]; then echo "[cw_prod] 1 migration(s) applied"; else echo "[cw_prod] 0047 FAILED" >&2; fi
+        exit "$n" ;;
+    *)
+        echo "$name: ok"
+        exit "$(answer "$name.exit" 0)" ;;
+esac

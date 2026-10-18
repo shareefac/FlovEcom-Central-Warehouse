@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# flock: the real util-linux flock, so a lock the test itself holds on the same file excludes the script. A wait (-w) is cut to
+# answers/flock_wait seconds when the scenario gives one, so a refusal does not take ten minutes.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+args=()
+while [[ $# -gt 0 ]]; do
+    if [[ $1 == -w ]]; then
+        args+=(-w "$(answer flock_wait "$2")")
+        shift 2
+    else
+        args+=("$1")
+        shift
+    fi
+done
+log "flock ${args[*]:0:3}"
+exec "$(real flock)" "${args[@]}"

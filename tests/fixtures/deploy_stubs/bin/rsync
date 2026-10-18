@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# rsync: the real one. The scenario may stop a transfer (answers/rsync_exit: the next transfer exits with it, copying nothing)
+# or run hooks/rsync.after once after a transfer (e.g. a push that lands while install_cron.sh copies the release copy).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+r=$(real rsync)
+[[ ${1-} == --server ]] && exec "$r" "$@"
+log "rsync $*"
+if [[ -f $A/rsync_exit ]]; then
+    n=$(cat "$A/rsync_exit")
+    rm -f "$A/rsync_exit"
+    echo "rsync stub: the transfer stopped (exit $n)" >&2
+    exit "$n"
+fi
+"$r" "$@"
+rc=$?
+h=$CW_STUB_DIR/hooks/rsync.after
+if [[ -f $h ]]; then
+    mv "$h" "$h.ran"
+    bash "$h.ran"
+fi
+exit $rc

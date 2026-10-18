@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# Records the call and succeeds: the commands whose effect the tests do not need (a2enmod, a2dismod, a2enconf, apt-get,
+# logrotate; each is a link to this file).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "$(basename "$0") $*"

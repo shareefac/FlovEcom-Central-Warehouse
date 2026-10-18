@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# chattr, lsattr: refused, as on a file system without attributes (nothing in the tree becomes append-only or immutable,
+# so the test can always remove it).
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "$(basename "$0") $*"
+echo "$(basename "$0"): Operation not supported" >&2
+exit 1

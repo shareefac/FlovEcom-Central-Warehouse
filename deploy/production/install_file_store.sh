@@ -18,19 +18,34 @@
 # Run as root ON the production box, from the release copy (push_code.sh), after install_cron.sh:
 #   bash /opt/cw-prod-release/deploy/production/install_file_store.sh
 set -euo pipefail
+# CW_DEPLOY_ROOT: tests/Unit/ProductionDeployBehaviourTest.php runs this script against a temporary tree, every path below
+# under $R, with its stub commands on PATH. A root is taken only when it holds the marker .cw-deploy-test-root, this is
+# not a CW server (the kernel's own hostname, which no stub can change; unreadable or empty: refused), and the stub
+# systemctl comes first on PATH. Unset, as it always is on the servers, $R is empty: every path is the real one.
+R=${CW_DEPLOY_ROOT:-/}
+R=${R%/}
+if [[ -n $R ]]; then
+    kernel_host=
+    read -r kernel_host 2>/dev/null < /proc/sys/kernel/hostname || true
+    [[ $R =~ ^/[A-Za-z0-9/._-]+$ && -f $R/.cw-deploy-test-root && -n $kernel_host ]] \
+        && [[ ! $kernel_host =~ ^(cw-prod-lon1-01|vpg-ded-lon1-01|FlovEcom-Central-Warehouse)$ ]] \
+        && grep -qsx '# cw-deploy-stub' "$(type -P systemctl)" \
+        || { echo "install_file_store: CW_DEPLOY_ROOT=$R is not a test tree (its marker, the stub commands first on PATH, never a CW server)" >&2; exit 2; }
+fi
 
-root=/srv/cw-docs
+store=/srv/cw-docs
+root=$R$store
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 say() { echo "[install_file_store] $*"; }
 die() { echo "install_file_store: $*" >&2; exit 1; }
 
 [[ $(id -u) -eq 0 ]] || die "run as root"
 [[ $(hostname) == cw-prod-lon1-01 ]] || die "this box is $(hostname), not cw-prod-lon1-01"
-[[ $repo == /opt/cw-prod-release ]] || die "run from the release copy /opt/cw-prod-release (push_code.sh), not $repo"
+[[ $repo == "$R/opt/cw-prod-release" ]] || die "run from the release copy $R/opt/cw-prod-release (push_code.sh), not $repo"
 [[ -f $repo/vendor/autoload.php ]] || die "$repo has no vendor/ (push_code.sh installs it)"
 getent group www-data >/dev/null || die "group www-data is missing"
-case "$root" in
-    /var/www*|*/public|*/public/*|/opt/*) die "refusing $root: a web or code directory" ;;
+case "$store" in
+    /var/www*|*/public|*/public/*|/opt/*) die "refusing $store: a web or code directory" ;;
 esac
 
 # 1. Directories (02770: group www-data writes, setgid keeps the group on everything created inside).
@@ -77,17 +92,17 @@ fi
 # 3. app.env: file_store_dir (kept mode and group; never prints other keys).
 (cd "$repo" && FS_ROOT="$root" php -d display_errors=stderr -r '
 require "vendor/autoload.php";
-$c = CW\Config::load();
-$app = CW\Config::parseEnvFile($c->appEnvPath);
+$path = CW\Config::load(getenv() + ["CW_APP_ENV" => $argv[1]])->appEnvPath;
+$app = CW\Config::parseEnvFile($path);
 $want = getenv("FS_ROOT");
 if (($app["file_store_dir"] ?? "") === $want) {
     echo "[install_file_store] app.env: file_store_dir already $want\n";
 } else {
-    CW\Staff\AppEnvFile::set($c->appEnvPath, ["file_store_dir" => $want]);
+    CW\Staff\AppEnvFile::set($path, ["file_store_dir" => $want]);
     echo "[install_file_store] app.env: file_store_dir = $want\n";
 }
 new CW\Files\LocalFileStorage($want); // refuses a root a web server or a deploy could reach
-') || die "could not set file_store_dir in app.env"
+' -- "$R/etc/cw/app.env") || die "could not set file_store_dir in app.env"
 
 # 4. Self-checks.
 #    a) a file in a shard cannot be removed (the probe stays: it is not a sha256 name, so verify_files ignores it)
@@ -128,6 +143,6 @@ fi
 runuser -u www-data -- test -w "$root/tmp" || die "www-data cannot write $root/tmp"
 runuser -u www-data -- test -r "$root/00" || die "www-data cannot read $root/00"
 #    d) the code accepts the root
-(cd "$repo" && php -d display_errors=stderr -r 'require "vendor/autoload.php"; new CW\Files\LocalFileStorage("/srv/cw-docs"); echo "[install_file_store] CW accepts /srv/cw-docs\n";') \
+(cd "$repo" && php -d display_errors=stderr -r 'require "vendor/autoload.php"; new CW\Files\LocalFileStorage($argv[1]); echo "[install_file_store] CW accepts $argv[1]\n";' -- "$root") \
     || die "CW\\Files\\LocalFileStorage refuses $root"
 say "done. Next: php bin/store_file.php --file=<pdf> --kind=duty_evidence, then php bin/verify_files.php (docs/ops.md)"

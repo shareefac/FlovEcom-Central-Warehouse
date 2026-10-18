@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# a2dissite SITE...: marks each site disabled.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "a2dissite $*"
+for s in "$@"; do
+    [[ $s == -* ]] || rm -f "$S/site_$s"
+done

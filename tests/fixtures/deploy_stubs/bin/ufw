@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# ufw: the rules allowed (state/ufw_rules) and whether it is on (state/ufw_on), as ufw status shows them. Switched on before
+# OpenSSH is allowed, it cuts the session that runs the script: state/ssh_cut records it.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "ufw $*"
+case "$*" in
+    status) # in one write, as ufw does (a reader that stops early, grep -q, must not cut it)
+        if [[ -e $S/ufw_on ]]; then printf 'Status: active\n%s\n' "$(cat "$S/ufw_rules" 2>/dev/null)"; else echo "Status: inactive"; fi ;;
+    "--force enable")
+        grep -q '^OpenSSH ' "$S/ufw_rules" 2>/dev/null || touch "$S/ssh_cut"
+        touch "$S/ufw_on" ;;
+    allow\ *) printf '%-24s ALLOW       Anywhere\n%-24s ALLOW       Anywhere (v6)\n' "$2" "$2 (v6)" >> "$S/ufw_rules" ;;
+esac

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# cw-deploy-stub
+# composer install: writes vendor/autoload.php in the current directory (it loads the repository's own autoloader, so the
+# scripts' guards run the CW\Config under test); answers/composer_exit makes it fail.
+. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib.sh"
+log "composer $* (in ${PWD#"$R"}, REVISION $([[ -e REVISION ]] && echo present || echo absent))"
+n=$(answer composer_exit 0)
+[[ $n == 0 ]] || { echo "composer stub: install failed" >&2; exit "$n"; }
+mkdir -p vendor
+printf "<?php\nrequire '%s';\n" "$CW_STUB_AUTOLOAD" > vendor/autoload.php
