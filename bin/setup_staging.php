@@ -137,7 +137,9 @@ try {
                 $app->exec($sql);
                 throw new RuntimeException("{$appUser} can run a write it must not have: " . strtok($sql, ' ') . " {$table}");
             } catch (PDOException $e) {
-                if (Db::driverCode($e) !== 1142) {
+                // 1142: the table refuses the write; 1143: a table with UPDATE on some columns only (Grants::UPDATE_COLUMNS, e.g.
+                // relay_mode_seen.changed_at) refuses it on this one. Both are the denial this checks.
+                if (!in_array(Db::driverCode($e), [1142, 1143], true)) {
                     throw $e;
                 }
                 $denied[] = strtok($sql, ' ') . " {$table}";
