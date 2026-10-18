@@ -1,0 +1,56 @@
+# CW scheduled jobs on the PRODUCTION server (cw-prod-lon1-01), against the production app schema cw_prod. The same jobs as
+# staging (deploy/staging/cw-staging.cron); the seal sweep runs the staging script, which takes the store's root.
+# Installed by deploy/production/install_cron.sh as /etc/cron.d/cw-prod; code in /opt/cw-prod
+# (a copy, never a slot directory). Times are UTC (the server's zone). See docs/ops.md.
+# Each job logs one line per run to /var/log/cw/<job>.log (rotated weekly by
+# /etc/logrotate.d/cw-prod) and exits non-zero on a problem (0 ok, 1 problem, 2 usage, 3 cannot run).
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+# Expire unpaid holds past their TTL: lock-free select, then one transaction per hold (plan §3, §4).
+* * * * *  root  cd /opt/cw-prod && php bin/expire_reservations.php --db=cw_prod >> /var/log/cw/expire_reservations.log 2>&1
+
+# Keep 14 days of the change feed; the newest row of every item/listing/channel stays, so no version moves.
+17 3 * * *  root  cd /opt/cw-prod && php bin/prune_changes.php --db=cw_prod --days=14 >> /var/log/cw/prune_changes.log 2>&1
+
+# Nightly invariant check on one consistent snapshot; a mismatch is also written to syslog (tag cw-invariants).
+47 3 * * *  root  cd /opt/cw-prod && { php bin/invariants.php --db=cw_prod >> /var/log/cw/invariants.log 2>&1 || logger -p user.err -t cw-invariants "cw_prod invariant check failed (exit $?); see /var/log/cw/invariants.log"; }
+
+# The document store (docs/decisions.md I23, I36): seal new stored files every minute (root:www-data 0440, chattr +i, so
+# they cannot be rewritten in place; silent when nothing is new; nothing to do before install_file_store.sh), and re-hash
+# every stored file nightly; a missing or changed file also goes to syslog (tag cw-files).
+* * * * *  root  bash /opt/cw-prod/deploy/staging/seal_file_store.sh /srv/cw-docs >> /var/log/cw/seal_file_store.log 2>&1
+27 4 * * *  root  [ ! -d /srv/cw-docs ] || { cd /opt/cw-prod && php bin/verify_files.php --db=cw_prod >> /var/log/cw/verify_files.log 2>&1 || logger -p user.err -t cw-files "cw_prod stored files missing or changed (exit $?); see /var/log/cw/verify_files.log"; }
+
+# The check on arrival (docs/decisions.md M64): a rules-only suggestion for a newly arrived variant whose barcode, or whose web
+# address copied from the main store, points at an item. It does nothing ("switched off", exit 0) until a store is named in the
+# setting mapping.arrival_stores; it takes only the variants the listing intake marked, never the ones that were there before.
+*/10 * * * *  root  cd /opt/cw-prod && php bin/check_arrivals.php --db=cw_prod --apply >> /var/log/cw/check_arrivals.log 2>&1
+
+# ---- Pack F (docs/decisions.md PF10-PF12) ----
+# The alerts to a person: every store's heartbeat, outbox, failed messages and feed lag, CW's own answer time and the nightly check,
+# each limit a setting (alerts.*). It sends to alerts.webhook_url / alerts.email_to once per alerts.repeat_minutes while a problem
+# lasts; both are EMPTY until someone fills one in (then nothing is sent; the log still lists the problems). Exit 1 = problems found.
+*/2 * * * *  root  cd /opt/cw-prod && php bin/health_alert.php --db=cw_prod >> /var/log/cw/health_alert.log 2>&1
+
+# The nightly clean-up: stored answers older than housekeeping.idempotency_keep_days, heartbeats older than
+# housekeeping.channel_health_keep_days (each store's newest one kept), in chunks within housekeeping.max_seconds. The app login cannot
+# delete audit rows (append-only): the audit log is kept (7 years at the least; only the admin login removes older ones, by hand).
+37 3 * * *  root  cd /opt/cw-prod && php bin/housekeeping.php --db=cw_prod >> /var/log/cw/housekeeping.log 2>&1
+
+# Pack E (docs/decisions.md PE12): the reports' own tables (report_item, report_sales_day) brought up to date from the value sequence,
+# the paid orders and the ledger's sends, cancels and returns. It reads at most the settings' bounds a run and writes nothing else;
+# while the setting reports.refresh_on is off it does nothing (exit 0).
+*/15 * * * *  root  cd /opt/cw-prod && php bin/refresh_reports.php --db=cw_prod >> /var/log/cw/refresh_reports.log 2>&1
+
+# --- Pack G: the reorder engine (docs/decisions.md PG4). Every 5 minutes it does what is due and nothing else: CW's own record of each
+# store's sales folded from the stock ledger (the days not folded yet, the last days once more a day), the sales worked out once a UK
+# day from the setting reorder.demand_hour, the reorder list worked out every reorder.refresh_minutes. It writes only the reorder tables.
+*/5 * * * *  root  cd /opt/cw-prod && php bin/reorder_refresh.php --db=cw_prod >> /var/log/cw/reorder_refresh.log 2>&1
+
+# ---- Pack J (docs/decisions.md PJ10, PJ11) ----
+# Supplier invoices made final at the time a person set on each (no fixed time): as that person, once; a failure is kept on the
+# invoice, listed on Purchasing > Invoices > Timed and named by the alerts (health_alert), and not tried again until its time is set
+# again. Exit 1 = some failed.
+* * * * *  root  cd /opt/cw-prod && php bin/submit_invoices.php --db=cw_prod >> /var/log/cw/submit_invoices.log 2>&1

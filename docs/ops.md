@@ -2681,3 +2681,60 @@ ERPNext doors to the stores are still closed, and only into an ERPNext that was 
 
 **Every night of the rollback window** (plan step 5.2) the production server runs the command from cron and copies the directory off CW (the
 write-once storage), so the way back does not need CW on the day. It is set up with the production server's backups.
+
+## The production server (`deploy/production/`; go-live plan "Ops and security for I-Day")
+
+| What | Where |
+|---|---|
+| Box | `cw-prod-lon1-01`, DigitalOcean LON1, Ubuntu 24.04, 2 vCPU / 4 GB; address 209.97.186.165, **reserved address 129.212.162.243** (what the name points at; it can move to a rebuilt droplet) |
+| Name | `warehouse.floverfy.com` A 129.212.162.243, DNS only (not proxied: REMOTE_ADDR must be the real client) |
+| Database | DigitalOcean Managed MySQL 8.4 `cw-prod-db`, LON1, same VPC; reached on its **private** host (`private-db-mysql-lon1-...`, port 25060, TLS required); daily backups and point-in-time recovery are the cluster's own; a standby node is added before the switch night |
+| Schema / logins | `cw_prod`; `doadmin` in `/etc/cw/db.env` (0600 root, written by the owner with a hidden prompt, never seen by anyone else); `cw_app` in `/etc/cw/app.env` (0640 root:www-data, made by `bin/setup_staging.php`) |
+| Code | `/opt/cw-prod-release` (what `push_code.sh` sends: the files of GitHub's main commit, no tests or tools; `REVISION` written last, after composer); `/opt/cw-prod-releases/<commit>` (each release, built whole by `install_cron.sh`, earlier ones kept); `/opt/cw-prod` (a symlink to the release the crons and the web server run, switched in one rename after the schema) |
+| Jobs | `/etc/cron.d/cw-prod` (the staging jobs against `cw_prod`), logs `/var/log/cw/`, `/etc/logrotate.d/cw-prod` |
+| Web | pool `cw-web`, vhosts `cw-acme` (port 80: challenge + redirect) and `cw-https` (443: `/ui` and `/v1`), certbot's timer renews |
+| Firewall | ufw: OpenSSH, 80, 443 only (staging has none) |
+
+**Production never carries the staging marker** (`environment=staging` in app.env, read as the application reads it): `install_cron.sh`
+and `enable_https.sh` refuse it, and `install_cron.sh` refuses an app.env that does not name `cw_prod`, so the staging-only tools (test purges) can never run there and no screen says TEST SYSTEM.
+
+The first install, in this order (each step is idempotent and can be re-run):
+
+```bash
+# on the main server, from /root/central-warehouse on main (= GitHub's main):
+bash deploy/production/push_code.sh                       # code -> /opt/cw-prod-release (no composer yet on a new box)
+# on the production box (ssh -i /root/.ssh/cw_staging root@129.212.162.243):
+bash /opt/cw-prod-release/deploy/production/provision.sh  # packages, unattended security updates, Apache + php-fpm, ufw
+# on the main server again:
+bash deploy/production/push_code.sh                       # now with composer --no-dev
+# on the production box:
+cd /opt/cw-prod-release && php bin/setup_staging.php --db=cw_prod --user=cw_app    # NEVER --mark-staging here
+# (enable_https.sh later gives php-fpm read access to app.env and makes ui_secret_key, as staging's install_api/ui did)
+bash /opt/cw-prod-release/deploy/production/install_cron.sh --migrate
+bash /opt/cw-prod-release/deploy/production/install_file_store.sh
+bash /opt/cw-prod-release/deploy/production/enable_https.sh --check   # then without --check
+```
+
+Then the first staff login (`bin/create_staff.php` in `/opt/cw-prod`, the owner's own account with TOTP), the settings that differ
+from staging (alerts, company details), and `bin/invariants.php --db=cw_prod`.
+
+**An update:** merge to main (staging first, as always), push to GitHub with the owner's yes, then `push_code.sh` and
+`install_cron.sh [--migrate]`, and `enable_https.sh` again only when a file of the web server changed. `install_cron.sh` checks the
+new release's migrations before anything that runs changes: pending without `--migrate`, it stops (exit 3); with `--migrate` it pauses
+the writers (the cron file to `/etc/cw/cw-prod.cron.paused` and the running jobs waited for; the public vhost off while
+`/etc/cw/cw-https.paused` exists; php-fpm stopped gracefully while `/etc/cw/cw-fpm.stopped` exists, so no request of the old code is still
+writing), migrates with the new code (bin/migrate.php also converges cw_app's grants), switches `/opt/cw-prod`, and puts them back. Each
+release is built in a fresh directory and checked (its REVISION and the source's, and that www-data can read it) before it is put in
+place; one install runs at a time (`/run/lock/cw-prod-install.lock`), and `push_code.sh` does not push while one runs. **If a migration
+fails the writers stay paused**: read the error, fix, and run it again with `--migrate` (a run without it refuses while anything is
+paused); do not move the cron file back or start php-fpm by hand onto a half-migrated schema.
+
+**Checks after the first install** (the scripts' own tests read their text; these prove their behaviour on the box): `readlink
+/opt/cw-prod` names `/opt/cw-prod-releases/<the commit>`; `runuser -u www-data -- test -r /opt/cw-prod/public/index.php`; `stat -c '%a
+%U:%G' /etc/cw/app.env /etc/cw/db.env` gives `640 root:www-data` and `600 root:root`; `curl -sI https://warehouse.floverfy.com/ui/login`
+answers 200 and `/v1/health` 401; `php bin/invariants.php --db=cw_prod` says ok; a second `install_cron.sh --migrate` with nothing pending
+converges the grants and changes nothing else.
+
+**Not done yet (before the switch):** the off-box copy of the nightly rollback file and its cron line (`bin/rollback_export.php`,
+"The way back to ERPNext"); a restore test of the database (restore a backup into a new cluster, run `bin/invariants.php` on it,
+destroy it); the document store moved to Object Lock storage; the standby node.
