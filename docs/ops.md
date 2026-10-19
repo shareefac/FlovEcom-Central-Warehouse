@@ -2695,7 +2695,7 @@ write-once storage), so the way back does not need CW on the day. It is set up w
 |---|---|
 | Box | `cw-prod-lon1-01`, DigitalOcean LON1, Ubuntu 24.04, 2 vCPU / 4 GB; address 209.97.186.165, **reserved address 129.212.162.243** (what the name points at; it can move to a rebuilt droplet) |
 | Name | `warehouse.floverfy.com` A 129.212.162.243, DNS only (not proxied: REMOTE_ADDR must be the real client) |
-| Database | DigitalOcean Managed MySQL 8.4 `cw-prod-db`, LON1, same VPC; reached on its **private** host (`private-db-mysql-lon1-...`, port 25060, TLS required); daily backups and point-in-time recovery are the cluster's own; a standby node is added before the switch night |
+| Database | DigitalOcean Managed MySQL 8.4 `cw-prod-db` (its name in DigitalOcean: `db-mysql-lon1-37047`; staging's is `db-mysql-lon1-48542`), LON1, same VPC; reached on its **private** host (`private-db-mysql-lon1-...`, port 25060, TLS required); daily backups and point-in-time recovery are the cluster's own; a standby node is added before the switch night |
 | Schema / logins | `cw_prod`; `doadmin` in `/etc/cw/db.env` (0600 root, written by the owner with a hidden prompt, never seen by anyone else); `cw_app` in `/etc/cw/app.env` (0640 root:www-data, made by `bin/setup_staging.php`) |
 | Code | `/opt/cw-prod-release` (what `push_code.sh` sends: the files of GitHub's main commit, no tests or tools; `REVISION` written last, after composer); `/opt/cw-prod-releases/<commit>` (each release, built whole by `install_cron.sh`, earlier ones kept); `/opt/cw-prod` (a symlink to the release the crons and the web server run, switched in one rename after the schema) |
 | Jobs | `/etc/cron.d/cw-prod` (the staging jobs against `cw_prod`), logs `/var/log/cw/`, `/etc/logrotate.d/cw-prod` |
@@ -2757,5 +2757,35 @@ answers 200 and `/v1/health` 401; `php bin/invariants.php --db=cw_prod` says ok;
 converges the grants and changes nothing else.
 
 **Not done yet (before the switch):** the off-box copy of the nightly rollback file and its cron line (`bin/rollback_export.php`,
-"The way back to ERPNext"); a restore test of the database (restore a backup into a new cluster, run `bin/invariants.php` on it,
-destroy it); the document store moved to Object Lock storage; the standby node.
+"The way back to ERPNext"); the document store moved to Object Lock storage; the standby node.
+
+**Secrets: the staff logins and the database password.** `bin/create_staff.php` and `bin/reset_staff.php --new-totp` print a
+one-time password and a TOTP `otpauth://` address once. Run them in the DigitalOcean droplet console (Droplets › cw-prod-lon1-01 ›
+Access › Launch Droplet Console), never through a chat, a pasted output or a screenshot, and scan the TOTP from a QR drawn there:
+`php bin/reset_staff.php --email=<address> --new-totp | sed -n 's/^otpauth=//p' | qrencode -t ansiutf8` (`provision.sh` installs
+qrencode). The `doadmin` password is typed only into the hidden prompt of `bash deploy/production/set_db_password.sh`, at the
+first install and after a reset in DigitalOcean (Users & Databases): it checks the password against the database before it writes
+`/etc/cw/db.env`, so a wrong one changes nothing.
+
+**Alerts.** Production posts its alerts to a Discord channel: `alerts.webhook_url` is the channel's webhook address with `/slack`
+at the end (Discord's Slack-shaped address takes CW's `{"text": ...}`; the plain one refuses a message without its own `content`),
+set by the owner on Settings › System › Settings. `php deploy/production/alert_test.php` (in `/opt/cw-prod`) sends one test message
+through CW's own sender and names only the server. **E-mail alerts cannot leave this box:** DigitalOcean blocks the outgoing mail
+ports (25, 465, 587 and 2525, tested on 19 Oct 2026), so `alerts.email_to` stays empty.
+
+**The restore test** (passed on 19 Oct 2026; again before the switch night if the cluster changed). In DigitalOcean,
+`db-mysql-lon1-37047` › Actions › Restore from backup › the latest transaction, to a new cluster (an account at its limit of database
+clusters cannot: Resource Limits › Request an increase first); give the copy `cw-prod-lon1-01` as its only trusted source at once.
+**A restored cluster keeps production's users and passwords**: the copy's Connection details show production's `doadmin` password, so
+copy only its host. Then, in `/opt/cw-prod`:
+
+```
+php deploy/production/restore_check.php <the copy's private host>
+CW_DB_HOST=<the copy's private host> php bin/invariants.php --db=cw_prod
+```
+
+`restore_check.php` reads both (each table of `cw_prod`, a hash of the columns, each table's COUNT and CHECKSUM TABLE, the users,
+`cw_app`'s grants, `cw_app` signing in to the copy) and refuses production's own host or a second name of the same server
+(`--self-test <production's public host>` is its own check); the tables the jobs write every few minutes may differ, nothing else.
+`invariants.php` records its run in the copy. Then destroy the copy. The result on 19 Oct: 125 tables, 124 identical (`reorder_job`:
+the same rows, rewritten by its 5-minute job), the users and grants the same, `cw_app` signs in, invariants ok.

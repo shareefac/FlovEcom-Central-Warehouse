@@ -2,7 +2,7 @@
 # Prepares the CW PRODUCTION server (cw-prod-lon1-01: Ubuntu 24.04, DigitalOcean LON1; reserved address 129.212.162.243,
 # warehouse.floverfy.com) with what the staging box runs (docs/ops.md "The production server"): Apache with the event MPM
 # and php-fpm 8.3 (no mod_php), the PHP extensions CW uses, composer, the MySQL client, certbot, and the tools the other
-# scripts need (rsync, e2fsprogs for chattr). Unlike staging it also switches the host firewall on (ufw: SSH, 80, 443 only)
+# scripts need (rsync, e2fsprogs for chattr; qrencode draws a new TOTP secret as a QR in the DigitalOcean console). Unlike staging it also switches the host firewall on (ufw: SSH, 80, 443 only)
 # and lets Ubuntu install security updates by itself (unattended-upgrades). Idempotent. Run as root ON the production box:
 #
 #   bash /opt/cw-prod-release/deploy/production/provision.sh [--check]
@@ -42,7 +42,8 @@ done
 [[ $(hostname) == cw-prod-lon1-01 ]] || refuse "this box is $(hostname), not cw-prod-lon1-01 (the production server)"
 
 PACKAGES=(apache2 php8.3-fpm php8.3-cli php8.3-bcmath php8.3-curl php8.3-intl php8.3-mbstring php8.3-mysql php8.3-opcache
-    php8.3-readline php8.3-xml php8.3-zip composer mysql-client certbot git rsync unzip ufw unattended-upgrades logrotate e2fsprogs curl)
+    php8.3-readline php8.3-xml php8.3-zip composer mysql-client certbot git rsync unzip ufw unattended-upgrades logrotate e2fsprogs curl
+    qrencode)
 PHP_EXTENSIONS=(bcmath curl intl mbstring openssl pdo_mysql sodium xml zip)
 
 missing=()
