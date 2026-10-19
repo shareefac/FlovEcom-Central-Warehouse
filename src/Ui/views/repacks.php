@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::MENU['repack'], intro: 'repack', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REPACK', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('REPACK', 'search') ?>"></div>
   <label><span class="visually-hidden"><?= $word('REPACK', 'state') ?></span>
@@ -11,8 +12,6 @@
   <button type="submit" class="btn ghost sm"><?= $word('UI', 'apply') ?></button>
 </form>
 
-<h1><?= $word('MENU', 'repack') ?></h1>
-<?= $intro('repack', $lookOnly) ?>
 <?php if ($done !== null): ?>
 <p class="note done" role="status"><?= $e($done['text']) ?> <a href="<?= $u($done['href']) ?>"><?= $word('REPACK', 'open') ?></a></p>
 <?php endif; ?>
@@ -21,7 +20,7 @@
 <?php endif; ?>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-repack" id="new"<?php if ($error !== null || $rows_n === 0 || $typed['pack'] !== ''): ?> open<?php endif; ?>>
+<details class="fold new-repack drawer" id="new"<?php if ($error !== null || $rows_n === 0 || $typed['pack'] !== ''): ?> open<?php endif; ?>>
   <summary><?= $word('REPACK', 'add') ?></summary>
 <?php if ($packs === []): ?>
   <?= $empty(\CW\Ui\Words::REPACK['no_packs'], '', '/ui/items/packs', \CW\Ui\Words::REPACK['no_packs_link']) ?>

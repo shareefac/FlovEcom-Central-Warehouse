@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="/ui/stock/handovers"><?= $word('SEGMENT', 'handovers') ?></a></p>
-<h1><?= $e($title) ?> <?= $stateChip('DOC_STATUS', $doc->status) ?></h1>
-<?= $intro('handover', $lookOnly) ?>
+<?= $head($title, intro: 'handover', look: $lookOnly, chips: $stateChip('DOC_STATUS', $doc->status)) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?><?php if ($errorCode === 'company_not_confirmed' || $errorCode === 'vat_code_missing'): ?> <a href="<?= $e($companyHref) ?>"><?= $word('HANDOVER', 'company_link') ?></a><?php endif; ?></p>
 <?php endif; ?>

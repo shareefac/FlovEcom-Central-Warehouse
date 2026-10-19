@@ -3,8 +3,7 @@
 // booked on the stock ledger for the order (the only history it keeps).
 ?>
 <p class="crumbs"><a href="<?= $e($back) ?>"><?= $word('MENU', 'reservations') ?></a></p>
-<h1><?= $e($title) ?> <?= $chip($tone, $chipWord) ?></h1>
-<?= $intro('reservation') ?>
+<?= $head((string) $title, intro: 'reservation', chips: $chip($tone, $chipWord)) ?>
 
 <section aria-labelledby="facts-h">
   <h2 id="facts-h" class="visually-hidden"><?= $word('RESV', 'facts') ?></h2>

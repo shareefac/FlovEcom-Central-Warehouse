@@ -1,10 +1,8 @@
 <section class="narrow">
-  <h1><?= $word('PAGE_TITLE', 'password') ?></h1>
 <?php $forced = $who !== null && $who->mustChangePassword; ?>
+  <?= $head(\CW\Ui\Words::PAGE_TITLE['password'], intro: $forced ? null : 'password', eyebrow: \CW\Ui\Words::UI['account']) ?>
 <?php if ($forced): ?>
   <p class="note"><?= $word('SIGN_IN', 'welcome') ?></p>
-<?php else: ?>
-  <?= $intro('password') ?>
 <?php endif; ?>
 <?php if ($error !== null): ?>
   <p class="error" role="alert"><?= $e($error) ?></p>

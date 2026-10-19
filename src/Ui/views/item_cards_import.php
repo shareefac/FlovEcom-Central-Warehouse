@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="/ui/items/cards"><?= $word('CARD_IMPORT', 'back') ?></a></p>
-<h1><?= $word('PAGE_TITLE', 'card_import') ?></h1>
-<?= $intro('card_import') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['card_import'], intro: 'card_import') ?>
 <p class="hint"><?= $word('CARD_IMPORT', 'how') ?></p>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>

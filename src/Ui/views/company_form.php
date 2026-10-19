@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="/ui/reference/company"><?= $word('COMPANY', 'back') ?></a></p>
-<h1><?= $word('PAGE_TITLE', 'company_edit') ?></h1>
-<?= $intro('company_edit') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['company_edit'], intro: 'company_edit') ?>
 <p class="muted"><?= $word('COMPANY', 'until_confirmed') ?></p>
 <?php if ($error !== null): ?>
 <div class="error" role="alert">

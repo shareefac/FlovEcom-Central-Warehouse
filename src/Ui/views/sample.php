@@ -1,10 +1,6 @@
 <p class="crumbs"><a href="/ui/review/samples"><?= $word('PAGE_TITLE', 'samples') ?></a></p>
 
-<div class="head-help">
-  <h1><?= $say('SAMPLE', 'title', $s['name']) ?></h1>
-  <?= $explain('spot_check', \CW\Ui\Words::MENU['samples']) ?>
-</div>
-<?= $intro('sample') ?>
+<?= $head(\CW\Ui\Words::say('SAMPLE', 'title', $s['name']), intro: 'sample', aside: $explain('spot_check', \CW\Ui\Words::MENU['samples'])) ?>
 
 <section class="card spot-box" aria-labelledby="progress-h">
   <div class="progress-line">

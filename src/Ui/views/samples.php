@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('PAGE_TITLE', 'samples') ?></h1>
-  <?= $explain('spot_check', \CW\Ui\Words::MENU['samples']) ?>
-</div>
-<?= $intro('samples') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['samples'], intro: 'samples', aside: $explain('spot_check', \CW\Ui\Words::MENU['samples'])) ?>
 <?= $partial('store_seg', ['items' => $stores, 'countWords' => \CW\Ui\Words::BULK['store_count_samples']]) ?>
 
 <?php if ($rows === []): ?>

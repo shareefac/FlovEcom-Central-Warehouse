@@ -1,5 +1,4 @@
-<h1><?= $word('PAGE_TITLE', 'search') ?></h1>
-<?= $intro('search') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['search'], intro: 'search') ?>
 
 <form class="filters" method="get" action="/ui/search" role="search">
   <label><?= $word('SEARCH', 'label') ?>

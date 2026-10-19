@@ -10552,3 +10552,149 @@ is shown with "its joins cannot be followed: check which item it belongs to". Th
 `testAJoinUndoneIsSteppedOverAndTheEarlierJoinsCodeStaysItsOwn` (A into B into C, then B split back: A 2 with "its own before the join", B 3
 with A's code as "came with A in the join" and its own, C 10).
 <!-- ---- end of pack RB ---- -->
+
+## Design v5: the owner's monday.com-like brief (worktree `ui-v5`, 19 Oct 2026; V5.1-V5.9)
+
+The owner pasted a design brief from another project ("ui posible to follow this style") and chose, when asked: light only (no dark
+mode), the icons as a same-origin SVG sprite, a deep plum (#2a0a24) sign-in panel, and the three missing Poppins weights downloaded from
+@fontsource/poppins 5.2.7 (the 500 already here is byte-identical to that package's). The brief is kept at
+`/root/cw_work/ui5/design_brief_owner_2026-10-19.md` on the main server. It is a re-skin: no route, permission, service or word of a
+rule changed.
+
+**V5.1. Tokens.** Section 1 of `app.css` holds the brief's tokens (surfaces, ink, lines, the accent #c90e9f, the brand gradient, the
+eight solid status colours, the soft tags, radius 8/10/12/14/16/999, the spacing scale) and defines every older token name the page
+bodies use from them, so the screens' own parts kept their rules. One font, Poppins 400-700 (Figtree is gone). Light only:
+`color-scheme: light`, no dark block. Two deviations, both for contrast: the open sidebar item's words are the darker accent #8f0a71
+on the accent's tint (the accent itself is 4.3:1 there), and a field's edge (`--field`) is the brief's muted ink #6c6577, not the
+1 px hairline (1.2:1) nor "ink faint" #9a92a6 (2.95:1), so a field is visible (WCAG 1.4.11 asks 3:1; V5.10).
+
+**V5.2. The statement.** Every page template opens with `$head(...)` (`Ui\View::head`, drawn by `Ui\Html::statement` and
+`views/page_frame.php`): the section's name as the UPPERCASE eyebrow (the Dashboard: today's date; outside every section the system's
+name; an error page "Error 404"), the page's heading, its state chips, the page's sentence and, muted under it, what to do (or "You can
+look; … change this."): `Words::introParts`, the same PAGE_INTRO pair as before, so the words did not change. The full stop is drawn by
+the stylesheet after `.stmt.stop` (not after a heading that ends in its own punctuation), so the heading's text stays the page's name for
+the tab title, a screen reader and the tests. The page's create button sits on the right of the statement; the section's tabs, the
+buying flow, the segmented filter and the "switched off" strip come under it. The section's one-line description (`SECTION_DESC`) is no
+longer shown (one sentence per page). A template that draws no statement still gets the frame from the layout (`.frame-only`).
+
+**V5.3. Icons.** `public/ui/assets/icons.svg`: 24 outline icons, one `<view>` each (an "SVG stack": no style, no script, nothing
+fetched), served by `Ui\Assets` as `image/svg+xml` under the same CSP and caching as the stylesheet. `app.css` draws `.ico .ico-<name>`
+as a mask of `icons.svg?v=<first 16 of its sha256>#<name>` in the text colour, so a page still holds no `<svg>` and no image
+(`UiSecurityTest::assertInert` unchanged). `UiUnitTest::testTheIconSpriteIsCurrentAndHasEveryIconAPageNames` keeps the version current
+and every icon a page names in the sprite.
+
+**V5.4. The shell.** A white sidebar (248 px, from 700 px up): the CW tile and name, the bell (everything waiting for the person, on the
+Dashboard; the sum of the sidebar's counts) and the help; "Find a product"; MENU; the seven sections; the person (gradient avatar,
+name, jobs) with a menu (`details.user-menu`: Change password, Sign out). Under 700 px: a sticky top bar (the tile, the open tab's
+name, find, the bell, Menu) and the bottom bar the owner approved in v3 (kept: the brief does not forbid it and the phone users rely on
+it). The change notice is a toast at the bottom right (`p.notice.toast`), fading after 8 seconds with app.js.
+
+**V5.5. Components restyled in place** (the markup and the tests that pin it unchanged): status pills (solid, white 12 px semi-bold,
+radius 6, at least 110 px; the tones keep their names: needs amber, done green, waiting grey, blocked red, info blue, review purple, off
+navy), soft tags, KPI tiles (radius 16, a 10 px coloured square before the label, 32 px figure), board groups (a coloured chevron and
+17 px title, a muted count, then the table in a white card), tables (in a white card with a hairline and radius 14, sideways scroll
+inside it, a 12 px muted head, soft row dividers, numbers on the right, ticked rows #fdf3fb, rows needing a look #fdf6ec), quick-filter
+chips, segmented filters (the chosen one dark), underline tabs, buttons (44/36/30 px; primary, secondary, dark, danger, danger outline,
+success, ghost, dashed), forms (label above, 44 px fields, radius 10, a 2 px accent focus ring; a form of several fieldsets numbers them),
+notices (info, warning, problem, done, each with its badge), the bulk bar (dark, the count in pink, dark secondary buttons, the main
+action pink with dark words), histories as a timeline, empty states centred.
+
+**V5.6. Drawers.** A list page's "New …" fold (`details.drawer#new`: purchase orders and the other create forms) is, with app.js and
+from 700 px, a panel sliding in from the right (560-760 px, radius 16): its summary is the sticky header with a close mark, the form's
+buttons a sticky footer, the page dimmed behind it (`body::after`). Esc, a click on the dimmed page and the header close it; Tab stays
+inside; focus goes to its first field and back to what opened it (else to its header). While open it is moved to the end of `<body>`
+and back to its place when it closes or the screen narrows under 700 px (and lifted again when it widens): the page column is a CSS
+container (its lists turn into cards), and a container keeps what is fixed inside it under the dimmed layer. A fold the server sends
+open (a refused form, whose error is above it, or an empty list) stays a fold in the page (`is-inline`) until it is closed and opened
+again (V5.10). Without the script, or on a phone, it is the fold it was.
+
+**V5.7. Sign-in.** Two halves (stacked under 900 px): the brand half (#2a0a24, two soft glows in the brand gradient's colours, faint
+large shapes at 16%, a dot grid, the CW tile on a white tile, an eyebrow, the headline "One stock figure for every shop.", one line, four
+short bars, "Powered by Floverfy") and the 420 px form ("Sign in.", the sentence, e-mail, password with Show, the 6-digit code, the full-
+width button, "or", "Set up my sign-in", who to ask). The words are new `Words::SIGN_IN` entries.
+
+**V5.8. Left out of the brief, on purpose.** Google Fonts and Alpine.js (CSP and the vanilla app.js); the cookie banner (CW sets only
+its session cookie); a footer privacy link (no such page); "Keep me signed in", "Forgot password?" and a code-only sign-in (they would
+be new services; who to ask is said instead); the "Live · updated" badge with 30-second refresh (app.js never talks to the network);
+the context switcher card, the inline assign panel, the approvals split layout and paging every group by 10 (each a change of what the
+pages do, not of their look); a modal (CW has no modal: its confirmations are steps on the page); "−£" in red for negative money
+(`Html::money` is shared with files and stays "-£").
+
+**V5.9. Tests.** UiTemplatesTest (the layout: sidebar, bell, person's menu, top bar, statement before the tabs, the create button on the
+right; `testEveryPageOpensWithItsStatement`: no template writes an `<h1>`, every page template draws `$head`, the helper's parts
+escaped and in order, the drawn full stop), UiUnitTest (the sprite served and current; the error pages' heading), UiSecurityTest (the
+sprite and the four Poppins files served, nothing else), KernelUiTestCase::sectionTabs (the tabs are under the statement now).
+
+### The Codex review of ui-v5 (on `38756fe`; `runs/ui5_codex_review.txt`): five findings, all real, each shown by a test first
+
+**V5.10.** (1, MEDIUM) A create form refused with an error was sent open and became a drawer over the error above it: a fold the server
+sends open now stays in the page (`is-inline`; the drawer rules skip it). (2, MEDIUM) A drawer opened under 700 px and widened past it
+stayed in the page under the dimmed layer: app.js follows the breakpoint both ways and keeps the focus and what was typed. (3, MEDIUM)
+section 22 still had v4's `.bulkbar-choice` rule after the new one (dark words on the dark bar, 1:1): one rule now. (4, LOW) a field's
+edge was 2.95:1: `--field` is the muted ink (5.6:1). (5, LOW) the template lint took `$head(...)` as a helper call, so a raw value in its
+`chips`, `meta` or `aside` (printed as they are) would have passed: `UiTemplatesTest::testTheStatementsRawPartsAreOnlyHelperOutput` parses
+those arguments and allows only helper calls, string literals, `.`, parentheses and ternaries whose branches are such (none of the 117
+calls failed it). Tests: `UiUnitTest::testTheDesignTokensMeetTheContrastTheyAreUsedFor` (the field edge on a card and the page, muted and
+body words, the eyebrow, the open sidebar item, white on every status colour, the one bulk-bar rule) and
+`testACreateDrawerTheServerOpenedStaysInThePageAndFollowsTheBreakpoint`; the drawer's behaviour itself was checked in a browser (no
+script test runner in CW).
+
+### The second Codex review (on `bf28321`, rebased onto main `de196e3`; `runs/ui5_codex_review2.txt`): 3 fixed, 2 partly, 3 more
+
+**V5.11.** Findings 1, 3 and 4 fixed; 2 and 5 partly, and three more, all real, each answered:
+- (LOW, finding 5 again) the lint read a `$head` argument by its text, so `/* note */ meta: $row['name']` or the raw parts given by position
+  (`$head('P', null, null, $row['name'])`) slipped past: the arguments are now read from their tokens (comments dropped), and one
+  given by position is the helper's parameter at its place (`UiTemplatesTest::HEAD_PARAMS`); both cases are in the lint's own test.
+- (MEDIUM) widening past 700 px made an open fold a drawer while the focus stayed behind the dimmed layer (Enter could send the page's
+  search form): becoming a drawer, opened or widened, now goes through one `enter()` that puts the focus inside and remembers what had
+  it, which gets it back on close.
+- (MEDIUM) after Esc or a click on the dimmed page, the toolbar's "New …" link could not open the drawer again (the address already
+  ended in #new, so no hashchange): a click on a link to a fold of this page opens it, and that link gets the focus back on close.
+- (LOW) two open drawers: one modal drawer at a time (opening or lifting one sends any other back into the page as a fold), and Esc,
+  Tab and the dimmed page act on the one on top.
+The drawer's behaviour was checked in a browser (the viewport emulation used sends no resize event, so the breakpoint was driven by a
+resize event fired by hand); `UiUnitTest::testACreateDrawerTheServerOpenedStaysInThePageAndFollowsTheBreakpoint` pins the script's parts.
+
+### The third Codex review (on `b96c828`; `runs/ui5_codex_review3.txt`): every MEDIUM fixed, three LOW more, each answered
+
+**V5.12.** (LOW) The lint still missed `$head('P', ...['meta' => $row['name']])` and a comment holding brackets before a name: the calls
+are now found with PHP's own tokenizer (a bracket in a string or a comment is never the end of a call; markup is never read), and an
+unpacked argument is refused (which parameter it fills is unknown). (LOW) A Ctrl, Cmd, Shift or Alt click on a "New …" link (a new tab)
+also opened the drawer here: only a plain click that stays in this tab opens it (not another button, a `target`, a `download`).
+(LOW) A link to an ordinary fold could be kept as a drawer's opener: a link is an opener only for a drawer and only from outside it,
+and when what opened a drawer is gone or hidden the focus goes back to the fold's header. Tests: the lint's own cases
+(`testTheStatementsRawPartsAreOnlyHelperOutput`) and the script's parts
+(`testACreateDrawerTheServerOpenedStaysInThePageAndFollowsTheBreakpoint`), red on `b96c828` first.
+
+### The fourth Codex review (on `a156b50`; `runs/ui5_codex_review4.txt`): two of three fixed, the lint once more
+
+**V5.13.** (LOW) A bracket inside a double-quoted string (`$head("$title)", meta: $row['name'])`) still ended a call early for the lint,
+so what came after it was never read. The lint now refuses any `$head` call it cannot read whole: one holding a double-quoted,
+backquoted or heredoc string (none of the 117 calls does) or one that never closes (`UiTemplatesTest::UNREADABLE`); Codex's three cases,
+a `{$x}` case, a heredoc and an unclosed call are in the lint's own test. The fifth review (on `39a50c1`; `runs/ui5_codex_review5.txt`)
+found the same gap through an attribute (`#[A] fn() => …`, whose `#[` is one token): instead of one token more, a `$head` call may now
+hold only the parts the templates use (`HEAD_TOKENS`, `HEAD_CHARS`: variables, names, single-quoted strings, numbers, comparisons,
+`??`, casts, `->`, `::`, brackets, `.`, `?`, `:`, `!`); anything else (an attribute, a closure, `match`, braces, a backquote) makes it
+unreadable, and the lint fails.
+
+### The sixth Codex review (on `2fadf6d`; `runs/ui5_codex_review6.txt`): the attribute case fixed; one older gap closed at its source
+
+**V5.14.** (LOW, older than this commit) The `$partial` helper drew any template with the values given, the layout too, whose `body`
+is printed as it is: `$partial('layout', ['body' => $row['name']])` passed both lints. The helper now refuses the layout (only
+`View::page()` draws it; `UiTemplatesTest::testThePartialHelperNeverDrawsTheLayout`, red first), and `$head`'s raw parts may not use
+`$partial` at all (none did).
+
+### The seventh Codex review (on `17d47d5`; `runs/ui5_codex_review7.txt`): `$partial` fixed, no other helper route; the echo lint read whole
+
+**V5.15.** (LOW, older than this commit) The echo lint (`UiTemplatesTest::onlyHelperCalls`) read an echo by its characters, so brackets
+in a comment could make a raw value look like part of a helper call (`<?= $e(/* ( */'') . $row['name'] // ) ?>`). It now reads the
+echo's PHP tokens (comments and whitespace dropped; the text of a double-quoted string never counts as a bracket) and wants every term
+to be one whole helper call ending at depth 0; the raw-part checker got the same end check (a term left open is refused). Codex's case,
+an interpolated bracket and an unclosed call are in the lint's own test; every echo of every template still passes.
+
+### The eighth Codex review (on `92cd9fd`; `runs/ui5_codex_review8.txt`): V5.15 fixed; one NEW gap it opened, closed
+
+**V5.16.** (LOW, NEW in V5.15) The echoes were still cut out with a regex up to the first `?>`, also one inside a block comment (which
+PHP does not end there), and the tokenized lint then dropped the unfinished comment: `<?= $e('') /* ?> */ . $row['name'] ?>` passed.
+Every `<?= ... ?>` and `<?php ... ?>` block is now read with PHP's own tokenizer, up to the closing tag PHP itself ends it with
+(`UiTemplatesTest::blocks()`, `echoes()`, `phpBlocks()`); Codex's template is in the lint's own test.

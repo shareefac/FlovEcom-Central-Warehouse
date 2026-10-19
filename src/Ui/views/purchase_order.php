@@ -1,7 +1,5 @@
 <p class="crumbs"><a href="/ui/purchasing/orders"><?= $word('MENU', 'orders') ?></a></p>
-<h1><?= $e($title) ?></h1>
-<p class="eyebrow"><?= $stateChip('PO_STATE', $state) ?><?php if ($doc->reviewState !== null && $doc->reviewState !== 'not_required'): ?> <?= $stateChip('REVIEW_STATE', $doc->reviewState) ?><?php endif; ?></p>
-<?= $intro('order') ?>
+<?= $head($title, intro: 'order', meta: $stateChip('PO_STATE', $state) . ($doc->reviewState !== null && $doc->reviewState !== 'not_required' ? ' ' . $stateChip('REVIEW_STATE', $doc->reviewState) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

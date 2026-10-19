@@ -6,8 +6,7 @@
 // no computer check has marked a variant New is told so in the box ($checkLine), and the box says whether the check on arrival is on
 // for the store, how many variants wait for it and what its last run did there ($arrivalLines, U144).
 ?>
-<h1><?= $word('MENU', 'new_variants') ?></h1>
-<?= $intro('new_variants', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['new_variants'], intro: 'new_variants', look: $lookOnly) ?>
 <?php if ($store === null): ?>
 <?= $empty(\CW\Ui\Words::NEW_VARIANTS['no_stores'], \CW\Ui\Words::NEW_VARIANTS['no_stores_text']) ?>
 <p class="muted"><?= $word('NEW_VARIANTS', 'where_from') ?></p>

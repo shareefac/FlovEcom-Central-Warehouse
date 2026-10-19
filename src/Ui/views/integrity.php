@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('MENU', 'integrity') ?></h1>
-  <?= $explain('safety_check', \CW\Ui\Words::MENU['integrity']) ?>
-</div>
-<?= $intro('integrity') ?>
+<?= $head(\CW\Ui\Words::MENU['integrity'], intro: 'integrity', aside: $explain('safety_check', \CW\Ui\Words::MENU['integrity'])) ?>
 <?php if ($latest === null): ?>
 <?= $empty(\CW\Ui\Words::INTEGRITY['none']) ?>
 <?php else: ?>

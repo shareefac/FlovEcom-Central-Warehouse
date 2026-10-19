@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::MENU['stock_value'], intro: 'stock_value') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
 <?php if ($f['by'] === 'product'): ?>
 <?php if ($f['nocost']): ?>
@@ -10,8 +11,6 @@
 <?php endif; ?>
   <a class="btn ghost sm" href="<?= $e($csv_link) ?>"><?= $word('REPORTS', 'csv') ?></a>
 </form>
-<h1><?= $word('MENU', 'stock_value') ?></h1>
-<?= $intro('stock_value') ?>
 
 <section class="home-tiles" aria-label="<?= $word('MENU', 'stock_value') ?>">
   <div class="kpis-wrap"><ul class="kpis four">

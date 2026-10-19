@@ -910,16 +910,23 @@ The audit trail of the purge:
 
 ## The staff UI (`/ui`, linking backend front end; `docs/decisions.md` U1-U17, U25-U79)
 
-Server-rendered PHP, no JavaScript framework and nothing from a third party: two static files
-(`/ui/assets/app.css`, `app.js`) and five self-hosted fonts (`/ui/assets/fonts/*.woff2`) served by the front controller under the CSP
-`default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`.
+Server-rendered PHP, no JavaScript framework and nothing from a third party: three static files
+(`/ui/assets/app.css`, `app.js`, the icon sprite `icons.svg`) and four self-hosted font files (Poppins, `/ui/assets/fonts/*.woff2`) served
+by the front controller under the CSP `default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`.
 
-**Seven sections and tabs, design v4 (owner's request of 8 Oct 2026; U95-U105).** The sidebar is Dashboard, Products, Stock,
+**The look is design v5 (the owner's brief of 19 Oct 2026; V5.1-V5.9 in docs/decisions.md).** White cards on a soft lilac page, a magenta
+accent, solid status pills, coloured group headings over the tables. Every page opens with a statement: the section in small capitals,
+the page's heading with a full stop, and one plain sentence (with a muted line under it saying what to do). The sidebar is white with
+the person's menu (Change password, Sign out) at its bottom and a bell that opens the Dashboard with everything waiting for them. On a
+phone: a top bar (the page's name, find, the bell, Menu) and the bottom bar below. A list page's "New …" form opens as a drawer on the
+right. Light only; the sign-in page has a dark plum brand half.
+
+**Seven sections and tabs (design v4, owner's request of 8 Oct 2026; U95-U105; kept in v5).** The sidebar is Dashboard, Products, Stock,
 Purchasing, Reports, Approvals and Settings (each with a count where something waits for the person); everything else is a tab under the
 section's name, with a segmented filter inside some tabs (Mapping: To review · Spot check · Second approval; Reorder: Suggestions ·
 Brands · Anomalies · Sales history; Goods In: To receive · Checking · Issues; System: Settings · Numbering · System checks). Purchasing
 shows the buying flow Reorder → Purchase Order → Goods In → Stock updated. A page's create button ("New purchase order", "Receive
-delivery", "New supplier", "New user", "New warehouse", "New reason") sits on the left of the row under the tabs. On a phone the
+delivery", "New supplier", "New user", "New warehouse", "New reason") sits on the right of the page's statement (v5). On a phone the
 bottom bar is Dashboard · Products · Stock · Purchasing · More. Tabs not built yet show "Soon": Stock › Adjustments, Counts, Transfers
 and Reports › Stock by Store, Sales by Store, Low Stock. No address changed; Stock › Overview (`/ui/stock`) and Movements
 (`/ui/stock/movements`) are new. The map is `src/Ui/Sections.php`; the look's tokens and fonts are at the top of `app.css`.

@@ -198,7 +198,7 @@ final class UiUnitTest extends TestCase
         self::assertStringNotContainsString('db-secret-host', $r->body, 'the database address is for the log, not the page');
         self::assertStringNotContainsString('SQLSTATE', $r->body);
         self::assertStringContainsString(Words::ERROR['unavailable'], $r->body);
-        self::assertStringContainsString('<h1>' . Words::ERROR_TITLE['503'] . '</h1>', $r->body);
+        self::assertStringContainsString('<p class="ph-eyebrow">Error 503</p><div class="ph-title"><h1><span class="stmt stop">' . Words::ERROR_TITLE['503'] . '</span></h1>', $r->body);
         self::assertStringContainsString(Words::UI['quote_rid'] . ' <code>' . $r->header('X-Request-Id') . '</code>', $r->body, 'the number to quote, in words');
         self::assertNotNull($r->header('X-Request-Id'));
         self::assertStringContainsString($r->header('X-Request-Id') ?? '-', $logged[0] ?? '', 'the page shows the id that finds the log line');
@@ -278,7 +278,7 @@ final class UiUnitTest extends TestCase
         self::assertSame(405, $p->status, 'deciding is POST-only');
         self::assertSame('POST', $p->header('Allow'));
         self::assertSame(0, $touched);
-        self::assertStringContainsString('<h1>' . Words::ERROR_TITLE['404'] . '</h1>', $nf->body);
+        self::assertStringContainsString('<h1><span class="stmt stop">' . Words::ERROR_TITLE['404'] . '</span></h1>', $nf->body);
         self::assertStringContainsString(Words::ERROR['not_found'], $nf->body);
         self::assertStringContainsString('data-code="not_found"', $nf->body, 'the code stays for support and tests, not as words');
         self::assertStringNotContainsString('no such page', $nf->body);
@@ -623,6 +623,7 @@ final class UiUnitTest extends TestCase
     {
         self::assertFileExists(Assets::dir() . '/app.css');
         self::assertFileExists(Assets::dir() . '/app.js');
+        self::assertFileExists(Assets::dir() . '/icons.svg');
         $css = Assets::serve(self::request('GET', '/ui/assets/app.css'));
         self::assertSame(200, $css->status);
         self::assertSame('text/css; charset=utf-8', $css->header('Content-Type'));
@@ -633,6 +634,12 @@ final class UiUnitTest extends TestCase
         self::assertSame(file_get_contents(Assets::dir() . '/app.css'), $css->body);
         $js = Assets::serve(self::request('GET', '/ui/assets/app.js'));
         self::assertSame('text/javascript; charset=utf-8', $js->header('Content-Type'));
+        $svg = Assets::serve(self::request('GET', '/ui/assets/icons.svg'));
+        self::assertSame(200, $svg->status);
+        self::assertSame('image/svg+xml', $svg->header('Content-Type'));
+        self::assertSame('nosniff', $svg->header('X-Content-Type-Options'));
+        self::assertSame(Kernel::CSP, $svg->header('Content-Security-Policy'));
+        self::assertSame(file_get_contents(Assets::dir() . '/icons.svg'), $svg->body);
         $etag = (string) $css->header('ETag');
         self::assertMatchesRegularExpression('/^"[0-9a-f]{32}"$/', $etag);
         $again = Assets::serve(self::request('GET', '/ui/assets/app.css', ['if-none-match' => $etag]));
@@ -646,7 +653,8 @@ final class UiUnitTest extends TestCase
             self::assertSame(304, Assets::serve(self::request('GET', '/ui/assets/app.css', ['if-none-match' => $sent]))->status, $sent);
         }
         self::assertSame(200, Assets::serve(self::request('GET', '/ui/assets/app.css', ['if-none-match' => substr($etag, 0, -2) . '-gzip"']))->status);
-        foreach (['/ui/assets/', '/ui/assets/app.php', '/ui/assets/../index.php', '/ui/assets/..%2findex.php', '/ui/assets/app.css/', '/ui/assets/APP.css', '/ui/assets/other.css', '/ui/assets/app.css%00.php', '/ui/assets/sub/app.css', "/ui/assets/app.css\n"] as $path) {
+        foreach (['/ui/assets/', '/ui/assets/app.php', '/ui/assets/../index.php', '/ui/assets/..%2findex.php', '/ui/assets/app.css/', '/ui/assets/APP.css', '/ui/assets/other.css', '/ui/assets/app.css%00.php', '/ui/assets/sub/app.css', "/ui/assets/app.css\n",
+            '/ui/assets/ICONS.svg', '/ui/assets/other.svg', '/ui/assets/icons.svg.php', '/ui/assets/icons.svgz'] as $path) {
             $r = Assets::serve(self::request('GET', $path));
             self::assertSame(404, $r->status, $path);
             self::assertSame(Kernel::CSP, $r->header('Content-Security-Policy'), $path);
@@ -656,7 +664,7 @@ final class UiUnitTest extends TestCase
 
     public function testTheLayoutLinksTheAssetsByVersionAndThatUrlIsKeptForAYear(): void
     {
-        foreach (['app.css', 'app.js'] as $name) {
+        foreach (['app.css', 'app.js', 'icons.svg'] as $name) {
             $hash = hash_file('sha256', Assets::dir() . '/' . $name);
             $url = Assets::url($name);
             self::assertSame('/ui/assets/' . $name . '?v=' . substr((string) $hash, 0, 16), $url);
@@ -676,12 +684,131 @@ final class UiUnitTest extends TestCase
                 self::assertSame('no-cache', $old->header('Cache-Control'), $v);
             }
         }
-        self::assertSame('/ui/assets/other.css', Assets::url('other.css'), 'only the two files have a version');
+        self::assertSame('/ui/assets/other.css', Assets::url('other.css'), 'only the asset files have a version');
         $view = new \CW\Ui\View(\CW\Ui\View::defaultDir(), ['csrf' => '', 'who' => null]);
         $html = $view->page('error', ['status' => 404, 'code' => 'not_found', 'heading' => 'Not found', 'message' => 'm', 'rid' => 'r'],
             ['title' => 'Not found', 'active' => '', 'notice' => null, 'menu' => [], 'badges' => [], 'searchBox' => false, 'testSystem' => false]);
         self::assertStringContainsString('<link rel="stylesheet" href="' . Assets::url('app.css') . '">', $html);
         self::assertStringContainsString('<script src="' . Assets::url('app.js') . '" defer></script>', $html);
+    }
+
+    /**
+     * Design v5's icons: ONE same-origin sprite, a <view> per icon (no style, no script, nothing external), drawn by the stylesheet as a
+     * mask under the sprite's current version; every icon a page names (.ico-<name>) is in the sprite and has its rule.
+     */
+    public function testTheIconSpriteIsCurrentAndHasEveryIconAPageNames(): void
+    {
+        $svg = (string) file_get_contents(Assets::dir() . '/icons.svg');
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $doc = new \DOMDocument();
+        self::assertTrue($doc->loadXML($svg, LIBXML_NONET), 'the sprite is well-formed XML');
+        self::assertSame(0, $doc->getElementsByTagName('script')->length + $doc->getElementsByTagName('style')->length + $doc->getElementsByTagName('image')->length
+            + $doc->getElementsByTagName('foreignObject')->length);
+        self::assertDoesNotMatchRegularExpression('/\son[a-z]+\s*=|href\s*=|url\(/i', $svg, 'no handler, no link, nothing fetched');
+        $views = [];
+        foreach ($doc->getElementsByTagName('view') as $v) {
+            $views[] = $v->getAttribute('id');
+        }
+        self::assertGreaterThanOrEqual(20, count($views));
+        $version = substr((string) hash('sha256', $svg), 0, 16);
+        preg_match_all('#url\("icons\.svg\?v=([0-9a-f]+)\#([a-z-]+)"\)#', $css, $m, PREG_SET_ORDER);
+        self::assertNotSame([], $m);
+        foreach ($m as [, $v, $name]) {
+            self::assertSame($version, $v, "{$name}: app.css names the sprite by its current version (sha256 of icons.svg, first 16)");
+            self::assertContains($name, $views, "{$name}: in the sprite");
+        }
+        $used = [];
+        foreach (glob(\CW\Ui\View::defaultDir() . '/*.php') ?: [] as $file) {
+            preg_match_all('/\bico-([a-z][a-z-]*)\b/', (string) file_get_contents($file), $u);
+            $used = array_merge($used, $u[1]);
+        }
+        foreach (\CW\Ui\Sections::MAP as $section => $_) {
+            $used[] = $section; // the sidebar draws ico-<section>
+        }
+        foreach (array_unique($used) as $name) {
+            self::assertContains($name, $views, "ico-{$name}: a page names it, the sprite has it");
+            self::assertStringContainsString('.ico-' . $name . ' { -webkit-mask-image: url("icons.svg?v=' . $version . '#' . $name . '")', $css, "ico-{$name}: its rule");
+        }
+    }
+
+    /**
+     * Design v5's colours meet WCAG 2.2 AA where the stylesheet uses them (Codex review of ui-v5, findings 3 and 4): a field's edge
+     * at least 3:1 on a card and on the page (1.4.11); muted and body words, the eyebrow, the open sidebar item's words and white on
+     * every status pill at least 4.5:1 (1.4.3); the bulk bar's store choice in light words on the dark bar (one rule only).
+     */
+    public function testTheDesignTokensMeetTheContrastTheyAreUsedFor(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertSame(1, preg_match('/:root \{(.*?)\n\}/s', $css, $root));
+        preg_match_all('/--([a-z0-9-]+):\s*([^;]+);/', $root[1], $m, PREG_SET_ORDER);
+        $tokens = [];
+        foreach ($m as [, $name, $value]) {
+            $tokens[$name] = trim($value);
+        }
+        $hex = static function (string $name) use ($tokens): string {
+            $v = $tokens[$name] ?? throw new \LogicException("no token --{$name}");
+            for ($i = 0; $i < 10 && preg_match('/^var\(--([a-z0-9-]+)\)$/', $v, $r) === 1; $i++) {
+                $v = $tokens[$r[1]] ?? throw new \LogicException("no token --{$r[1]}");
+            }
+            self::assertMatchesRegularExpression('/^#[0-9a-f]{6}$/i', $v, "--{$name} is a colour");
+            return $v;
+        };
+        $lum = static function (string $c): float {
+            $rgb = array_map(static fn (string $h): float => hexdec($h) / 255, str_split(ltrim($c, '#'), 2));
+            $lin = array_map(static fn (float $v): float => $v <= 0.03928 ? $v / 12.92 : (($v + 0.055) / 1.055) ** 2.4, $rgb);
+            return 0.2126 * $lin[0] + 0.7152 * $lin[1] + 0.0722 * $lin[2];
+        };
+        $ratio = static function (string $a, string $b) use ($lum): float {
+            [$x, $y] = [$lum($a) + 0.05, $lum($b) + 0.05];
+            return max($x, $y) / min($x, $y);
+        };
+        foreach (['card', 'page'] as $bg) {
+            self::assertGreaterThanOrEqual(3.0, $ratio($hex('field'), $hex($bg)), "a field's edge on --{$bg}");
+            self::assertGreaterThanOrEqual(4.5, $ratio($hex('ink-muted'), $hex($bg)), "muted words on --{$bg}");
+            self::assertGreaterThanOrEqual(4.5, $ratio($hex('ink-body'), $hex($bg)), "body words on --{$bg}");
+            self::assertGreaterThanOrEqual(4.5, $ratio($hex('accent'), $hex($bg)), "the eyebrow on --{$bg}");
+        }
+        self::assertGreaterThanOrEqual(4.5, $ratio($hex('accent-hover'), $hex('accent-soft')), 'the open sidebar item');
+        foreach (['st-green', 'st-amber', 'st-red', 'st-purple', 'st-blue', 'st-grey', 'st-navy', 'st-magenta', 'accent'] as $fill) {
+            self::assertGreaterThanOrEqual(4.5, $ratio('#ffffff', $hex($fill)), "white words on --{$fill}");
+        }
+        self::assertStringContainsString('input[type="date"], input[type="file"], select, textarea {', $css);
+        self::assertMatchesRegularExpression('/select, textarea \{[^}]*border: 1px solid var\(--field\)/', $css, 'the fields use the --field edge');
+        // The bulk bar's store choice: one rule, light words on the dark bar.
+        self::assertSame(1, preg_match_all('/^\.bulkbar-choice \{/m', $css), 'one rule for the bulk bar\'s store choice');
+        self::assertSame(1, preg_match('/^\.bulkbar-choice \{[^}]*color: rgba\(255, 255, 255, \.8\)/m', $css));
+    }
+
+    /**
+     * The create drawers (Codex review of ui-v5, findings 1 and 2): a fold the server opened (a refused form says why above it, or
+     * an empty list) stays a fold in the page, so its error stays in sight; and an open drawer follows the 700 px breakpoint both
+     * ways, so it is never left under the dimmed layer.
+     */
+    public function testACreateDrawerTheServerOpenedStaysInThePageAndFollowsTheBreakpoint(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        self::assertSame(0, preg_match('/details\.drawer\[open\](?!:not\(\.is-inline\))/', $css), 'every drawer rule skips a fold kept in the page');
+        self::assertStringContainsString("body:has(details.drawer[open]:not(.is-inline))::after", $css);
+        self::assertStringContainsString("classList.add('is-inline')", $js, 'a fold open when the page arrives stays in the page');
+        self::assertStringContainsString("classList.remove('is-inline')", $js, '... until it is closed and opened again');
+        self::assertMatchesRegularExpression('/wide\.addEventListener\(\'change\'|wide\.addListener\(/', $js, 'the breakpoint is followed while a drawer is open');
+        self::assertStringContainsString("querySelectorAll('details.drawer[open]:not(.is-inline)')", $js, 'Esc and the dimmed page act on a real drawer only ...');
+        self::assertStringContainsString('all[all.length - 1]', $js, '... the one on top');
+        // Codex's second review: one modal drawer at a time; the focus goes inside when widening makes a fold a drawer; a "New ..."
+        // link opens its fold again although the address already ends in #new.
+        self::assertStringContainsString("o.d.classList.add('is-inline'); o.settle();", $js, 'a second drawer sends the first back into the page');
+        self::assertMatchesRegularExpression('/var enter = function \(\) \{.*?lift\(\);\s*if \(!d\.contains\(document\.activeElement\)\) \{/s', $js,
+            'entering drawer mode (opened or widened) puts the focus inside');
+        self::assertMatchesRegularExpression('/var place = function \(\) \{.*?enter\(\);/s', $js, 'widening enters drawer mode the same way');
+        self::assertStringContainsString("closest('a[href*=\"#\"]')", $js, 'a link to a fold of this page opens it');
+        // Codex's third review: only a plain click that stays in this tab opens it; the focus goes back to the fold's header when what
+        // opened it is gone or hidden; a link is a drawer's opener only for a drawer and from outside it.
+        self::assertStringContainsString('ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey', $js);
+        self::assertStringContainsString("a.hasAttribute('download') || (a.target !== '' && a.target !== '_self')", $js);
+        self::assertStringContainsString("if (!opener || document.activeElement !== opener) {", $js);
+        self::assertStringContainsString("linkOpener = el.classList.contains('drawer') && !el.contains(a) ? a : null;", $js);
+        self::assertStringContainsString('} else if (linkOpener && !d.contains(linkOpener)) {', $js);
     }
 
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void

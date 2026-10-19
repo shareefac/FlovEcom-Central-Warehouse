@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::MENU['stock_by_store'], intro: 'stock_by_store') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <input type="hidden" name="store" value="<?= $e($f['store']) ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REPORTS', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
@@ -18,8 +19,6 @@
   <a class="btn ghost sm" href="<?= $e($csv_link) ?>"><?= $word('REPORTS', 'csv') ?></a>
 <?php endif; ?>
 </form>
-<h1><?= $word('MENU', 'stock_by_store') ?></h1>
-<?= $intro('stock_by_store') ?>
 
 <?php if ($stores === []): ?>
 <?= $empty(\CW\Ui\Words::REPORTS['no_stores']) ?>

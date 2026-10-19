@@ -1,7 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'duty') ?></h1>
-</div>
-<?= $intro('duty') ?>
+<?= $head(\CW\Ui\Words::SEGMENT['duty'], intro: 'duty') ?>
 <?php if ($unstamped['alarm']): ?>
 <p class="error" role="alert"><?= $say('DUTY', 'alarm', $unstamped['held_units'], \CW\Ui\Html::day($unstamped['from'])) ?></p>
 <?php elseif ($unstamped['held_units'] > 0 && $unstamped['from'] !== null): ?>

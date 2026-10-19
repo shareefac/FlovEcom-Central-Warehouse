@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('MENU', 'bench') ?></h1>
-  <?= $explain('duty_stamp', \CW\Ui\Words::BENCH['stamp_label']) ?>
-</div>
-<?= $intro('bench') ?>
+<?= $head(\CW\Ui\Words::MENU['bench'], intro: 'bench', aside: $explain('duty_stamp', \CW\Ui\Words::BENCH['stamp_label'])) ?>
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::BENCH['none'], \CW\Ui\Words::BENCH['none_text']) ?>
 <?php else: ?>

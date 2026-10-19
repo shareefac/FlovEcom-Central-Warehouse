@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::PAGE_TITLE['reviews'], intro: 'reviews') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <details class="tb-pop">
     <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($type !== null): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
@@ -14,8 +15,6 @@
     </div>
   </details>
 </form>
-<h1><?= $word('PAGE_TITLE', 'reviews') ?></h1>
-<?= $intro('reviews') ?>
 <div class="head-help">
   <p class="muted"><?= $word('CHECKS', 'how') ?></p>
   <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>

@@ -1,5 +1,4 @@
-<h1><?= $word('PAGE_TITLE', 'access') ?></h1>
-<?= $intro('access') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['access'], intro: 'access') ?>
 <?php if ($canSeeStaff): ?>
 <p class="see-also"><a href="/ui/people"><?= $word('ACCESS', 'people') ?></a> <a href="/ui/reference/approvals"><?= $word('MENU', 'approvals') ?></a></p>
 <?php else: ?>

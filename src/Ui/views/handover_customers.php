@@ -1,7 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'handover_customers') ?></h1>
-</div>
-<?= $intro('handover_customers', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::SEGMENT['handover_customers'], intro: 'handover_customers', look: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -50,7 +47,7 @@
 </form>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-order" id="new"<?php if (($error !== null && $import === null && $errorCode !== 'import_columns' && $errorCode !== 'bad_file') || $rows === []): ?> open<?php endif; ?>>
+<details class="fold new-order drawer" id="new"<?php if (($error !== null && $import === null && $errorCode !== 'import_columns' && $errorCode !== 'bad_file') || $rows === []): ?> open<?php endif; ?>>
   <summary><?= $word('CUSTOMER', 'add') ?></summary>
   <form class="record customer" method="post" action="/ui/stock/handovers/customers">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

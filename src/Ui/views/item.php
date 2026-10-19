@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="/ui/items/cards"><?= $word('MENU', 'cards') ?></a></p>
-<h1><?= $e($sku['name']) ?> <span class="muted">(<?= $e($sku['code']) ?>)</span></h1>
-<?= $intro('item') ?>
+<?= $head((string) $sku['name'], intro: 'item', chips: '<span class="muted">(' . $e($sku['code']) . ')</span>') ?>
 
 <?php if ($merged_into !== null): ?>
 <p class="note"><?= $word('ITEM', 'merged_into') ?> <a href="/ui/items/<?= $e($merged_into['id']) ?>"><?= $e($merged_into['code']) ?></a> <?= $e($merged_into['name']) ?>. <?= $word('ITEM', 'merged_into_text') ?></p>

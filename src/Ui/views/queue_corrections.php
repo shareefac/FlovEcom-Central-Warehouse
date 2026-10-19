@@ -3,10 +3,7 @@
 // relayed, as a card: the figure, when ERPNext set it, what the warehouse held at that moment and what confirming books now; for the
 // people who may, a note and the two answers (confirm: books the difference; close it: books nothing).
 ?>
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'queue_corrections') ?></h1>
-</div>
-<?= $intro('queue_corrections', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::SEGMENT['queue_corrections'], intro: 'queue_corrections', look: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

@@ -2682,6 +2682,15 @@ final class Words
         'reveal_hide' => 'Hide',
         'reveal_show_label' => 'Show the password',
         'reveal_hide_label' => 'Hide the password',
+        // The sign-in page's brand half and its form's foot (design v5)
+        'brand_eyebrow' => 'Central Warehouse',
+        'brand_headline' => 'One stock figure for every shop.',
+        'brand_line' => 'Vape and Go, Electrofag and Vape Big sell from the same shelves. Their stock, orders and deliveries live here, in one place.',
+        'brand_label' => 'About this system',
+        'powered_by' => 'Powered by Floverfy',
+        'or' => 'or',
+        'set_up' => 'Set up my sign-in',
+        'no_account' => 'No account? Ask ' . self::ASK_ROLE . '.',
     ];
 
     /** The frame's own words. */
@@ -2730,6 +2739,10 @@ final class Words
         'signed_out' => 'You were signed out: you were away for 30 minutes, 12 hours passed since you signed in, or your password changed. Sign in again to carry on.',
         // Behaviour item 1 (F057): a form sent while signed out is dropped.
         'lost' => 'What you sent was NOT saved, because you were not signed in any more. Sign in, then do it again.',
+        // Design v5 (owner's brief, 19 Oct 2026): the sidebar's bell (everything waiting for this person, on the Dashboard) and the
+        // eyebrow of an error page.
+        'bell' => 'What is waiting for you',
+        'error_eyebrow' => 'Error %s',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -10563,6 +10576,21 @@ final class Words
         }
         $second = $lookOnly !== null ? sprintf(self::UI['look_only'], $lookOnly) : $intro[1];
         return trim($intro[0] . ' ' . $second);
+    }
+
+    /**
+     * The intro of a page in its two parts, as the statement draws them (design v5): the one plain sentence (what the page is) and the
+     * muted line under it (what to do, or for $lookOnly "You can look; <who> change this."). ['', ''] for a page without an intro.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function introParts(string $page, ?string $lookOnly = null): array
+    {
+        $intro = self::PAGE_INTRO[$page] ?? null;
+        if ($intro === null) {
+            return ['', $lookOnly !== null ? sprintf(self::UI['look_only'], $lookOnly) : ''];
+        }
+        return [$intro[0], $lookOnly !== null ? sprintf(self::UI['look_only'], $lookOnly) : $intro[1]];
     }
 
     /** A page's title: PAGE_TITLE, else its menu name, else ''. */

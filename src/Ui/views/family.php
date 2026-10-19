@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="/ui/items/families"><?= $word('FAMILY', 'back') ?></a></p>
-<h1><?= $e($f['name']) ?></h1>
-<?= $intro('family', $lookOnly) ?>
+<?= $head((string) $f['name'], intro: 'family', look: $lookOnly) ?>
 <p class="muted"><?= $e($f['made']) ?><?php if ($f['changed'] !== null): ?> <?= $e($f['changed']) ?><?php endif; ?></p>
 <?php if ($f['note'] !== null): ?>
 <p class="note"><?= $e($f['note']) ?></p>

@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::MENU['reorder'], intro: 'reorder', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REORDER', 'product') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <details class="tb-pop">
@@ -40,8 +41,6 @@
   <div class="tb-end"><a class="btn ghost sm" href="<?= $u('/ui/purchasing/reorder.csv', $query) ?>" title="<?= $word('REORDER', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
 <?php endif; ?>
 </form>
-<h1><?= $word('MENU', 'reorder') ?></h1>
-<?= $intro('reorder', $lookOnly) ?>
 <?php if ($lookOnly !== null): ?>
 <p class="hint"><?= $word('REORDER', 'look') ?></p>
 <?php endif; ?>

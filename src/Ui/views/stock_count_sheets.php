@@ -2,6 +2,7 @@
 // Stock › Counts › Count sheets (docs/decisions.md CT14): every count record, newest first, as a board grouped by status: open
 // sheets, final ones, cancelled ones, the records that put a count back, stopped ones. Search, Filter, Export; older pages by id.
 ?>
+<?= $head(\CW\Ui\Words::SEGMENT['count_sheets'], intro: 'count_sheets') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('COUNTS', 'find_sheet') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>" title="<?= $word('COUNTS', 'find_sheet') ?>"></div>
   <details class="tb-pop">
@@ -30,10 +31,6 @@
   <div class="tb-end"><a class="btn ghost sm" href="<?= $e($csv) ?>" title="<?= $word('COUNTS', 'download_list') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
 <?php endif; ?>
 </form>
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'count_sheets') ?></h1>
-</div>
-<?= $intro('count_sheets') ?>
 <?php if ($byItem): ?>
 <p class="muted"><?= $word('COUNTS', 'by_item') ?></p>
 <?php endif; ?>

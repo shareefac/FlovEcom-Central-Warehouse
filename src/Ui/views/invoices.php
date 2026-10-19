@@ -1,3 +1,4 @@
+<?= $head((string) $k['tab'], intro: $kind === 'invoice' ? 'invoices' : 'credit_notes', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('INVOICES', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <details class="tb-pop">
@@ -34,9 +35,6 @@
     </div>
   </details>
 </form>
-
-<h1><?= $e($k['tab']) ?></h1>
-<?= $intro($kind === 'invoice' ? 'invoices' : 'credit_notes', $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -50,7 +48,7 @@
 </details>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-order" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
+<details class="fold new-order drawer" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $e($k['start']) ?></summary>
   <p class="hint"><?= $e($k['start_text']) ?></p>
   <form class="record" method="post" action="<?= $e($base) ?>">

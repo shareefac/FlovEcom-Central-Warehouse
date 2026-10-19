@@ -1,5 +1,4 @@
-<h1><?= $word('MENU', 'company') ?></h1>
-<?= $intro('company') ?>
+<?= $head(\CW\Ui\Words::MENU['company'], intro: 'company') ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?><?php if ($errorMissing !== null): ?> <span class="visually-hidden"><?= $say('COMPANY', 'missing', implode(', ', $errorMissing)) ?></span><?php endif; ?></p>
 <?php endif; ?>

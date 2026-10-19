@@ -5,8 +5,7 @@
 // Since U123-U124: the number of rows is chosen above the list, and a person who may decide gets a tick box on every item a store
 // suggests a variant for, and the bar under the list (a plain form without app.js: its buttons open the preview, which saves nothing).
 ?>
-<h1><?= $word('MENU', 'by_product') ?></h1>
-<?= $intro('by_product', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['by_product'], intro: 'by_product', look: $lookOnly) ?>
 <?php if ($stores === []): ?>
 <?= $empty(\CW\Ui\Words::BY_PRODUCT['no_stores'], \CW\Ui\Words::BY_PRODUCT['no_stores_text']) ?>
 <?php else: ?>

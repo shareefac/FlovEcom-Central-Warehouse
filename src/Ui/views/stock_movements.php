@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::MENU['movements'], intro: 'movements') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('STOCK_VIEW', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <details class="tb-pop">
@@ -29,8 +30,6 @@
     </div>
   </details>
 </form>
-<h1><?= $word('MENU', 'movements') ?></h1>
-<?= $intro('movements') ?>
 
 <?php if ($rows === []): ?>
 <?php if ($filtered): ?>

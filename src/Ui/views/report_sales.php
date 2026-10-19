@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::MENU['sales_by_store'], intro: 'sales_by_store') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <label><?= $word('REPORTS', 'period') ?>
     <select name="period">
@@ -20,8 +21,6 @@
   <button type="submit" class="btn primary sm"><?= $word('REPORTS', 'apply') ?></button>
   <a class="btn ghost sm" href="<?= $e($csv_link) ?>"><?= $word('REPORTS', 'csv') ?></a>
 </form>
-<h1><?= $word('MENU', 'sales_by_store') ?></h1>
-<?= $intro('sales_by_store') ?>
 <p class="note"><?= $say('REPORTS', 'period_says', $day($from), $day($to)) ?> <?= $e($asOf) ?></p>
 <?php if ($warn !== null): ?>
 <p class="note"><?= $e($warn) ?></p>

@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'review') ?></h1>
-  <?= $explain('how_sure', \CW\Ui\Words::THING['band']) ?>
-</div>
-<?= $intro('mapping_overview', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::SEGMENT['review'], intro: 'mapping_overview', look: $lookOnly, aside: $explain('how_sure', \CW\Ui\Words::THING['band'])) ?>
 <?= $partial('store_seg', ['items' => $stores, 'countWords' => \CW\Ui\Words::BULK['store_count_review']]) ?>
 <?php if ($groups === []): ?>
 <?= $empty(\CW\Ui\Words::BY_STORE['none'], \CW\Ui\Words::BY_STORE['none_text']) ?>

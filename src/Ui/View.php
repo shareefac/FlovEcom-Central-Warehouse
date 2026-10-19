@@ -21,7 +21,13 @@ namespace CW\Ui;
  *   $jobs($roles)           "Admin · Matching lead (off)"
  *   $chip($tone, $text)     a status chip: icon shape + word (tones: Words::TONES)
  *   $stateChip($group, $code)  the chip of a status code (its word and tone from Words)
- *   $intro($page, $who)     the page's one-sentence intro (Words::PAGE_INTRO; $who = "You can look; <who> change this.")
+ *   $head($title, intro: $page, look: $who, chips:, meta:, aside:, lede:, more:, tag:, eyebrow:)   the statement every page opens with
+ *                           (design v5): the section as an UPPERCASE eyebrow (or `eyebrow`, and `tag` after it), the heading (`chips`
+ *                           inside it, `aside` beside it), `meta` (state chips), the page's sentence and the muted line under it
+ *                           (Words::introParts of `intro`, or `lede` and `more`), the page's create button; then the section's tabs,
+ *                           the buying flow, the segmented filter and the switched-off strip. Text arguments are escaped; `chips`,
+ *                           `meta` and `aside` are helper output. Every page template draws it once (tests/Unit/UiTemplatesTest.php).
+ *   $intro($page, $who)     the page's intro alone, in its two parts (Words::PAGE_INTRO; $who = "You can look; <who> change this.")
  *   $explain($key, $label)  a "?" that unfolds one Words::HELP text (a <details>: no script)
  *   $cards($cards, $group, $tone, $id)   the task board: one row per task (job number, title, where, status, how many, "What happens:",
  *                           one button), under the group's title
@@ -33,6 +39,11 @@ namespace CW\Ui;
  */
 final class View
 {
+    /** @var array<string, mixed> the layout's variables of the page page() is drawing (its head draws the frame from them) */
+    private array $frame = [];
+    /** Whether the page's template drew its head (then the layout draws no frame of its own) */
+    private bool $headDrawn = false;
+
     /** @param array<string, mixed> $shared variables every template gets (csrf token, who, ...) */
     public function __construct(private readonly string $dir, private readonly array $shared = [])
     {
@@ -60,7 +71,10 @@ final class View
             'dt' => static fn (mixed $v): string => Html::e(Html::dt($v === null ? null : (string) $v)),
             'pct' => static fn (int|float $part, int|float $whole): string => Html::e(Html::pct($part, $whole)),
             'u' => static fn (string $path, array $query = []): string => Html::e(Html::url($path, $query)),
-            'partial' => fn (string $name, array $v = []): string => $this->render($name, $v),
+            // Any template but the layout, which prints its `body` as it is: only page() draws it.
+            'partial' => fn (string $name, array $v = []): string => $name === 'layout'
+                ? throw new \InvalidArgumentException('the layout is drawn by page() only, never as a partial')
+                : $this->render($name, $v),
             'word' => static fn (string $group, ?string $code): string => Html::e(Words::of($group, $code)),
             'say' => static fn (string $group, string $code, string|int|float ...$args): string => Html::e(Words::say($group, $code, ...$args)),
             'money' => static fn (mixed $v): string => Html::e(Html::money($v)),
@@ -69,7 +83,10 @@ final class View
             'jobs' => static fn (array $roles): string => Html::e(Words::roles(array_values(array_map('strval', $roles)))),
             'chip' => static fn (string $tone, string $text): string => Html::chip($tone, $text),
             'stateChip' => static fn (string $group, ?string $code): string => Html::chip(Words::tone($group, $code), Words::of($group, $code)),
-            'intro' => static fn (string $page, ?string $lookOnly = null): string => Html::intro(Words::intro($page, $lookOnly)),
+            'intro' => static fn (string $page, ?string $lookOnly = null): string => Html::lede(...Words::introParts($page, $lookOnly)),
+            'head' => fn (string $title, ?string $intro = null, ?string $look = null, string $chips = '', string $meta = '', string $aside = '',
+                ?string $lede = null, ?string $more = null, string $tag = '', ?string $eyebrow = null): string
+                => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow),
             'explain' => static fn (string $key, ?string $label = null): string => Html::help($key, $label),
             // The task board (design v4): one group of rows, its title in its colour; $group null = no title.
             'cards' => fn (array $cards, ?string $group = null, string $tone = 'info', string $id = 'tasks'): string
@@ -98,7 +115,32 @@ final class View
     /** A page: the template inside layout.php. @param array<string, mixed> $vars @param array<string, mixed> $layout */
     public function page(string $template, array $vars, array $layout): string
     {
-        $body = $this->render($template, $vars);
-        return $this->render('layout', $layout + ['body' => $body]);
+        $this->frame = $layout;
+        $this->headDrawn = false;
+        try {
+            $body = $this->render($template, $vars);
+        } finally {
+            $this->frame = [];
+        }
+        return $this->render('layout', $layout + ['body' => $body, 'headDrawn' => $this->headDrawn]);
+    }
+
+    /**
+     * The statement and the frame under it (the $head helper): Html::statement with the section's name as the eyebrow (the brand on a
+     * page outside every section) and the page's create button, then page_frame.php: the section's tabs, the buying flow, the
+     * segmented filter, the switched-off strip.
+     */
+    private function head(string $title, ?string $intro, ?string $look, string $chips, string $meta, string $aside, ?string $lede, ?string $more,
+        string $tag, ?string $eyebrow): string
+    {
+        $this->headDrawn = true;
+        $f = $this->frame;
+        $pagebar = is_array($f['pagebar'] ?? null) ? $f['pagebar'] : null;
+        [$sentence, $line] = $intro !== null ? Words::introParts($intro, $look) : ['', $look !== null ? sprintf(Words::UI['look_only'], $look) : ''];
+        $actions = is_array($f['actions'] ?? null) && $f['actions'] !== [] ? $this->render('split', ['actions' => $f['actions']]) : '';
+        return Html::statement($eyebrow ?? ($pagebar !== null ? (string) $pagebar['label'] : Words::UI['brand']), $title, $lede ?? $sentence, $more ?? $line, $tag,
+            $chips, $aside, $meta, $actions)
+            . $this->render('page_frame', ['pagebar' => $pagebar, 'flow' => $f['flow'] ?? null, 'segments' => $f['segments'] ?? [],
+                'switchedOff' => $f['switchedOff'] ?? null]);
     }
 }

@@ -6,8 +6,7 @@
 // button at the bottom makes the sheet final.
 ?>
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $word('COUNTS', 'back_to_sheet') ?></a></p>
-<h1><?= $e($title) ?></h1>
-<?= $intro('count_before', $lookOnly) ?>
+<?= $head((string) $title, intro: 'count_before', look: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

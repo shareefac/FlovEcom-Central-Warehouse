@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::MENU['stock'], intro: 'stock', aside: $explain('stock', \CW\Ui\Words::ITEM['stock'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('STOCK_VIEW', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <details class="tb-pop">
@@ -22,11 +23,6 @@
     </div>
   </details>
 </form>
-<div class="head-help">
-  <h1><?= $word('MENU', 'stock') ?></h1>
-  <?= $explain('stock', \CW\Ui\Words::ITEM['stock']) ?>
-</div>
-<?= $intro('stock') ?>
 
 <section class="home-tiles" aria-label="<?= $word('STOCK_VIEW', 'figures') ?>">
   <div class="kpis-wrap"><ul class="kpis four">

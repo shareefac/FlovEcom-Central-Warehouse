@@ -1,5 +1,4 @@
-<h1><?= $word('MENU', 'documents') ?></h1>
-<?= $intro('documents') ?>
+<?= $head(\CW\Ui\Words::MENU['documents'], intro: 'documents') ?>
 <p class="muted"><?php if ($today === ''): ?><?= $word('RECORDS', 'none_live') ?><?php else: ?><?= $say('RECORDS', 'today', $today) ?><?php endif; ?>
 <?php if ($later !== ''): ?> <?= $say('RECORDS', 'later', $later) ?><?php endif; ?>
 <?php if ($poHidden): ?> <?= $word('RECORDS', 'po_hidden') ?><?php endif; ?></p>

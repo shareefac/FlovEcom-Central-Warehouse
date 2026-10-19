@@ -1,10 +1,5 @@
 <p class="crumbs"><a href="/ui/reference/access"><?= $word('ROLES_EDIT', 'back') ?></a></p>
-<h1><?= $e($what) ?></h1>
-<?php if ($lookOnly !== null): ?>
-<p class="lede"><?= $e(\CW\Ui\Words::PAGE_INTRO['permission'][0]) ?> <?= $e($lookOnly) ?></p>
-<?php else: ?>
-<?= $intro('permission') ?>
-<?php endif; ?>
+<?= $head($what, intro: 'permission', more: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

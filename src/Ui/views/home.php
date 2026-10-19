@@ -1,5 +1,5 @@
-<h1><?= $word('HOME', 'title') ?></h1>
-<p class="lede"><?= $e($hello) ?> <?= $word('UI', 'you_work_as') ?> <strong><?= $jobs($myRoles) ?></strong>.</p>
+<?= $head(\CW\Ui\Words::HOME['title'], intro: 'home', more: $hello . ' ' . \CW\Ui\Words::UI['you_work_as'] . ' ' . \CW\Ui\Words::roles(array_values(array_map('strval', $myRoles))) . '.',
+    eyebrow: \CW\Ui\Html::today()) ?>
 <?php $newActions = $newActions ?? []; $tiles = $tiles ?? []; $canFind = $canFind ?? false; ?>
 <?php if ($canFind): ?>
 <form class="toolbar" method="get" action="/ui/search" role="search">

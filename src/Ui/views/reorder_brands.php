@@ -1,6 +1,5 @@
 <?php $v = $typed ?? ($current ?? []); ?>
-<h1><?= $word('PAGE_TITLE', 'reorder_brands') ?></h1>
-<?= $intro('reorder_brands') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['reorder_brands'], intro: 'reorder_brands') ?>
 <p><?= $say('BRANDS', 'intro', $defaultSafety) ?></p>
 <?php if ($lookOnly !== null): ?>
 <p class="hint"><?= $say('UI', 'look_only', $lookOnly) ?></p>

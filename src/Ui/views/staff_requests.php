@@ -1,5 +1,4 @@
-<h1><?= $word('PAGE_TITLE', 'staff_requests') ?></h1>
-<?= $intro('staff_requests') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['staff_requests'], intro: 'staff_requests') ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

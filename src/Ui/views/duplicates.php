@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('MENU', 'duplicates') ?></h1>
-  <?= $explain('join_undo', \CW\Ui\Words::DUPS['undo_button']) ?>
-</div>
-<?= $intro('duplicates', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['duplicates'], intro: 'duplicates', look: $lookOnly, aside: $explain('join_undo', \CW\Ui\Words::DUPS['undo_button'])) ?>
 <?php if ($look !== null): ?>
 <p class="note read-only"><?= $e($look) ?></p>
 <?php endif; ?>

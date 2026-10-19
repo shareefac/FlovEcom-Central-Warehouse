@@ -1,5 +1,4 @@
-<h1><?= $word('PAGE_TITLE', 'pack_links') ?></h1>
-<?= $intro('pack_links') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['pack_links'], intro: 'pack_links') ?>
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::PACKS['links_none'], \CW\Ui\Words::PACKS['links_none_text']) ?>
 <?php else: ?>

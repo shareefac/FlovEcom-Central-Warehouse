@@ -1,11 +1,9 @@
+<?= $head(\CW\Ui\Words::PAGE_TITLE['packs'], intro: 'packs', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('PACKS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('PACKS', 'search') ?>"></div>
   <label class="choice"><input type="checkbox" name="off" value="1"<?php if ($off): ?> checked<?php endif; ?>> <?= $word('PACKS', 'show_off') ?></label>
   <button type="submit" class="btn ghost sm"><?= $word('UI', 'apply') ?></button>
 </form>
-
-<h1><?= $word('PAGE_TITLE', 'packs') ?></h1>
-<?= $intro('packs', $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -19,7 +17,7 @@
 </details>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-pack" id="new"<?php if ($error !== null || $total === 0): ?> open<?php endif; ?>>
+<details class="fold new-pack drawer" id="new"<?php if ($error !== null || $total === 0): ?> open<?php endif; ?>>
   <summary><?= $word('PACKS', 'add') ?></summary>
   <p class="hint"><?= $word('PACKS', 'add_text') ?></p>
   <form class="record" method="post" action="/ui/items/packs">

@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="/ui/purchasing/suppliers"><?= $word('MENU', 'suppliers') ?></a><?php if ($s !== null): ?> <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id']) ?>"><?= $say('SUPPLIER_FORM', 'back', (string) $s['name']) ?></a><?php endif; ?></p>
-<h1><?= $e($title) ?></h1>
-<?= $intro('supplier_form') ?>
+<?= $head((string) $title, intro: 'supplier_form') ?>
 <?php if ($error !== null && $theirs !== []): ?>
 <div class="error" role="alert">
   <p><?= $e($error) ?></p>

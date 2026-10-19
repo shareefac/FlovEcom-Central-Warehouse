@@ -1,4 +1,5 @@
 <?php $newActions = $newActions ?? []; ?>
+<?= $head(\CW\Ui\Words::MENU['orders'], intro: 'orders', look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <?= $partial('split', ['actions' => $newActions]) ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('ORDERS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
@@ -34,11 +35,6 @@
 <?php endif; ?>
 </form>
 
-<div class="head-help">
-  <h1><?= $word('MENU', 'orders') ?></h1>
-  <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
-</div>
-<?= $intro('orders', $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -58,7 +54,7 @@
 </details>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-order" id="new"<?php if ($error !== null || $rows === []): ?> open<?php endif; ?>>
+<details class="fold new-order drawer" id="new"<?php if ($error !== null || $rows === []): ?> open<?php endif; ?>>
   <summary><?= $word('ORDERS', 'new') ?></summary>
 <?php if ($newSuppliers === []): ?>
   <?= $empty(\CW\Ui\Words::ORDERS['no_supplier'], \CW\Ui\Words::ORDERS['no_supplier_text'], '/ui/purchasing/suppliers/new', \CW\Ui\Words::ORDERS['add_supplier']) ?>

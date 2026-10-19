@@ -1,5 +1,4 @@
-<h1><?= $word('MENU', 'store_products') ?></h1>
-<?= $intro('store_products', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['store_products'], intro: 'store_products', look: $lookOnly) ?>
 <?php if ($store === null): ?>
 <?= $empty(\CW\Ui\Words::STORE_PRODUCTS['no_stores'], \CW\Ui\Words::STORE_PRODUCTS['no_stores_text']) ?>
 <?php else: ?>

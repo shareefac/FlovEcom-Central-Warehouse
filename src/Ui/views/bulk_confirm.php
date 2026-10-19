@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="<?= $e($back[0]) ?>"><?= $e($back[1]) ?></a></p>
-<h1><?= $e($title) ?></h1>
-<?= $intro('bulk_confirm') ?>
+<?= $head($title, intro: 'bulk_confirm') ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

@@ -3,10 +3,7 @@
 // for, as a card: how many short, the order and store, what happened, the notes so far; for the people who may, a note (kept, never
 // changed), and "mark handled" with how it was sorted out.
 ?>
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'queue_oversold') ?></h1>
-</div>
-<?= $intro('queue_oversold', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::SEGMENT['queue_oversold'], intro: 'queue_oversold', look: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

@@ -5,8 +5,7 @@
 // For "Not a match…" this page is the second step (U110): the red button.
 ?>
 <p class="crumbs"><a href="<?= $e($back) ?>"><?= $word('MENU', 'by_product') ?></a></p>
-<h1><?= $e($title) ?></h1>
-<?= $intro('by_item_preview') ?>
+<?= $head($title, intro: 'by_item_preview') ?>
 <div class="alert <?php if ($go === 0): ?>waiting<?php elseif ($danger): ?>blocked confirm-step<?php else: ?>info<?php endif; ?> preview-facts" role="status">
   <p class="alert-title"><?= $e($summary) ?></p>
   <p><?= $e($scope) ?></p>

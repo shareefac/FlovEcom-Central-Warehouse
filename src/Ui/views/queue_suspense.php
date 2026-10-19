@@ -3,10 +3,7 @@
 // records could not match to an item, as a card: what it is, where it came from, why it waits; for the people who may, the item's code
 // with the units of one line unit and a note (book it, or for a correction send it to the corrections), or a note to close it.
 ?>
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'queue_suspense') ?></h1>
-</div>
-<?= $intro('queue_suspense', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::SEGMENT['queue_suspense'], intro: 'queue_suspense', look: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

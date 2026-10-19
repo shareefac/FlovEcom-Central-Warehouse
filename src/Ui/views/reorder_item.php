@@ -1,8 +1,6 @@
 <?php $v = $typed ?? ($settings ?? []); ?>
 <p class="crumbs"><a href="/ui/purchasing/reorder"><?= $word('MENU', 'reorder') ?></a> <a href="<?= $u('/ui/items/' . $sku['id']) ?>"><?= $word('REORDER_ITEM', 'product_page') ?></a></p>
-<h1><?= $e($title) ?></h1>
-<p class="eyebrow"><?php if ($sku['brand'] !== null): ?><?= $e($sku['brand']) ?><?php else: ?><?= $word('REORDER_ITEM', 'no_brand') ?><?php endif; ?><?php if ($sku['merged_into_sku_id'] !== null): ?> <?= $chip('blocked', \CW\Ui\Words::say('REORDER_ITEM', 'merged', (string) $sku['merged_code'])) ?><?php endif; ?></p>
-<?= $intro('reorder_item', $canManage ? null : \CW\Ui\Words::whoCan('reorder.manage')) ?>
+<?= $head($title, intro: 'reorder_item', look: $canManage ? null : \CW\Ui\Words::whoCan('reorder.manage'), meta: ($sku['brand'] !== null ? $e($sku['brand']) : $word('REORDER_ITEM', 'no_brand')) . ($sku['merged_into_sku_id'] !== null ? ' ' . $chip('blocked', \CW\Ui\Words::say('REORDER_ITEM', 'merged', (string) $sku['merged_code'])) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

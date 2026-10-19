@@ -1,4 +1,5 @@
 <?php $newActions = $newActions ?? []; ?>
+<?= $head(\CW\Ui\Words::MENU['suppliers'], intro: 'suppliers', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <?= $partial('split', ['actions' => $newActions]) ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('SUPPLIERS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
@@ -20,8 +21,6 @@
   </details>
   <div class="tb-end"><a class="btn ghost sm" href="<?= $u('/ui/purchasing/suppliers.csv', ['status' => $filters['status'], 'q' => $filters['q'], 'due' => $filters['due'] ? '1' : null, 'alone' => $filters['alone'] ? '1' : null]) ?>" title="<?= $word('SUPPLIERS', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
 </form>
-<h1><?= $word('MENU', 'suppliers') ?></h1>
-<?= $intro('suppliers', $lookOnly) ?>
 <p class="hint"><?= $word('SUPPLIERS', 'no_bank') ?></p>
 <?php if ($rows === [] && $filtered): ?>
 <?= $empty(\CW\Ui\Words::SUPPLIERS['none_filter'], \CW\Ui\Words::SUPPLIERS['none_filter_text'], '/ui/purchasing/suppliers', \CW\Ui\Words::SUPPLIERS['clear']) ?>

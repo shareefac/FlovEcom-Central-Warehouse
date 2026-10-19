@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('MENU', 'incidents') ?></h1>
-  <?= $explain('where_units_go', \CW\Ui\Words::INCIDENTS['where_label']) ?>
-</div>
-<?= $intro('incidents', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['incidents'], intro: 'incidents', look: $lookOnly, aside: $explain('where_units_go', \CW\Ui\Words::INCIDENTS['where_label'])) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('MENU', 'warehouses') ?></h1>
-  <?= $explain('stock_owner', \CW\Ui\Words::WAREHOUSES['owner']) ?>
-</div>
-<?= $intro('warehouses', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['warehouses'], intro: 'warehouses', look: $lookOnly, aside: $explain('stock_owner', \CW\Ui\Words::WAREHOUSES['owner'])) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -34,7 +30,7 @@
 </div>
 <?php if ($canEdit): ?>
 <p class="muted"><?= $word('WAREHOUSES', 'tip') ?></p>
-<details class="fold add-warehouse" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
+<details class="fold add-warehouse drawer" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $word('WAREHOUSES', 'add_title') ?></summary>
   <form class="record" method="post" action="/ui/reference/warehouses">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

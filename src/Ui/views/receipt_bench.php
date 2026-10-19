@@ -1,7 +1,5 @@
 <p class="crumbs"><a href="/ui/receiving/bench"><?= $word('MENU', 'bench') ?></a> <a href="<?= $u('/ui/receiving/' . $doc->id) ?>"><?= $word('BENCH', 'open_delivery') ?></a></p>
-<h1><?= $e($title) ?></h1>
-<p class="eyebrow"><?= $stateChip('RECEIPT_STATE', 'draft') ?> <?php if ($doc->externalRef !== null): ?><?= $say('BENCH', 'eyebrow_invoice', (string) $doc->externalRef) ?><?php else: ?><?= $word('BENCH', 'eyebrow_no_invoice') ?><?php endif; ?> · <?php if ($count === 1): ?><?= $word('BENCH', 'eyebrow_lines_one') ?><?php else: ?><?= $say('BENCH', 'eyebrow_lines', $count) ?><?php endif; ?><?php if ($count > $pageSize): ?>, <?= $say('BENCH', 'eyebrow_page', $pageSize) ?><?php endif; ?><?php if ($checkedBy !== null): ?> · <?= $say('BENCH', 'last_by', (string) $checkedBy) ?><?php endif; ?></p>
-<?= $intro('receipt_bench') ?>
+<?= $head($title, intro: 'receipt_bench', meta: $stateChip('RECEIPT_STATE', 'draft') . ' ' . ($doc->externalRef !== null ? $say('BENCH', 'eyebrow_invoice', (string) $doc->externalRef) : $word('BENCH', 'eyebrow_no_invoice')) . ' · ' . ($count === 1 ? $word('BENCH', 'eyebrow_lines_one') : $say('BENCH', 'eyebrow_lines', $count)) . ($count > $pageSize ? ', ' . $say('BENCH', 'eyebrow_page', $pageSize) : '') . ($checkedBy !== null ? ' · ' . $say('BENCH', 'last_by', (string) $checkedBy) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

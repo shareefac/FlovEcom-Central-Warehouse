@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Central Warehouse icons (design v5): one 24 x 24 outline icon per column, each named by a <view> (icons.svg#name). app.css draws
+     them as a mask in the text colour (.ico .ico-<name>), so a page holds no svg element. No style, no script, nothing external. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 24">
+  <view id="dashboard" viewBox="0 0 24 24"/>
+  <g transform="translate(0 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></g>
+  <view id="products" viewBox="24 0 24 24"/>
+  <g transform="translate(24 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 7.5 12 3 3.5 7.5v9L12 21l8.5-4.5z"/><path d="m3.5 7.5 8.5 4.5 8.5-4.5"/><path d="M12 12v9"/></g>
+  <view id="stock" viewBox="48 0 24 24"/>
+  <g transform="translate(48 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 20.5V9L12 3.5 20.5 9v11.5"/><path d="M7.5 20.5v-8h9v8"/><path d="M7.5 16.5h9"/></g>
+  <view id="purchasing" viewBox="72 0 24 24"/>
+  <g transform="translate(72 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="19.5" r="1.5"/><circle cx="17.5" cy="19.5" r="1.5"/><path d="M2.5 3.5h3l2.4 11.2a1.5 1.5 0 0 0 1.5 1.3h8.3a1.5 1.5 0 0 0 1.5-1.2l1.3-6.8H6.4"/></g>
+  <view id="reports" viewBox="96 0 24 24"/>
+  <g transform="translate(96 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 20.5h17"/><path d="M6.5 16.5v-5"/><path d="M11.5 16.5v-11"/><path d="M16.5 16.5v-8"/></g>
+  <view id="approvals" viewBox="120 0 24 24"/>
+  <g transform="translate(120 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.4 2.6 2.6 5-5.2"/></g>
+  <view id="settings" viewBox="144 0 24 24"/>
+  <g transform="translate(144 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h9"/><path d="M17 6.5h3"/><circle cx="15" cy="6.5" r="2"/><path d="M4 12h3"/><path d="M11 12h9"/><circle cx="9" cy="12" r="2"/><path d="M4 17.5h11"/><path d="M19 17.5h1"/><circle cx="17" cy="17.5" r="2"/></g>
+  <view id="search" viewBox="168 0 24 24"/>
+  <g transform="translate(168 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></g>
+  <view id="key" viewBox="192 0 24 24"/>
+  <g transform="translate(192 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15.5" r="4"/><path d="m10.9 12.6 8.6-8.6"/><path d="m16.5 7 2.5 2.5"/><path d="m14 9.5 2 2"/></g>
+  <view id="signout" viewBox="216 0 24 24"/>
+  <g transform="translate(216 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 20.5h-3a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2h3"/><path d="m15.5 16.5 4.5-4.5-4.5-4.5"/><path d="M20 12H9.5"/></g>
+  <view id="plus" viewBox="240 0 24 24"/>
+  <g transform="translate(240 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></g>
+  <view id="help" viewBox="264 0 24 24"/>
+  <g transform="translate(264 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.9.6c0 1.7-2.5 2.2-2.5 3.8"/><path d="M12 16.8h.01"/></g>
+  <view id="filter" viewBox="288 0 24 24"/>
+  <g transform="translate(288 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5h17l-6.5 7.6v5.9l-4 2v-7.9z"/></g>
+  <view id="sort" viewBox="312 0 24 24"/>
+  <g transform="translate(312 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4.5v15"/><path d="m4.5 7.5 3-3 3 3"/><path d="M16.5 19.5v-15"/><path d="m13.5 16.5 3 3 3-3"/></g>
+  <view id="export" viewBox="336 0 24 24"/>
+  <g transform="translate(336 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="m7.5 10 4.5 4.5 4.5-4.5"/><path d="M4.5 16.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2"/></g>
+  <view id="menu" viewBox="360 0 24 24"/>
+  <g transform="translate(360 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16"/><path d="M4 12h16"/><path d="M4 17.5h16"/></g>
+  <view id="more" viewBox="384 0 24 24"/>
+  <g transform="translate(384 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/></g>
+  <view id="bell" viewBox="408 0 24 24"/>
+  <g transform="translate(408 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 9a5.5 5.5 0 0 0-11 0c0 6.5-2.5 8.5-2.5 8.5h16s-2.5-2-2.5-8.5"/><path d="M13.8 20.5a2 2 0 0 1-3.6 0"/></g>
+  <view id="close" viewBox="432 0 24 24"/>
+  <g transform="translate(432 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12"/><path d="M18 6 6 18"/></g>
+  <view id="chevron-right" viewBox="456 0 24 24"/>
+  <g transform="translate(456 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 6 6 6-6 6"/></g>
+  <view id="chevron-left" viewBox="480 0 24 24"/>
+  <g transform="translate(480 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 6-6 6 6 6"/></g>
+  <view id="chevron-down" viewBox="504 0 24 24"/>
+  <g transform="translate(504 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9.5 6 6 6-6"/></g>
+  <view id="check" viewBox="528 0 24 24"/>
+  <g transform="translate(528 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></g>
+  <view id="user" viewBox="552 0 24 24"/>
+  <g transform="translate(552 0)" fill="none" stroke="#000" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></g>
+</svg>

@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::MENU['cards'], intro: 'cards', look: $canEdit ? null : \CW\Ui\Words::whoCan('catalogue.edit')) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('CARDS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <details class="tb-pop">
@@ -33,8 +34,6 @@
     <a class="btn ghost sm" href="<?= $u('/ui/items/cards.csv', $query) ?>" title="<?= $word('CARDS', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a>
   </div>
 </form>
-<h1><?= $word('MENU', 'cards') ?></h1>
-<?= $intro('cards', $canEdit ? null : \CW\Ui\Words::whoCan('catalogue.edit')) ?>
 <p class="hint"><?= $word('CARDS', 'rules') ?></p>
 <ul class="plain summary-line">
   <li><?= $say('CARDS', 'summary_products', $summary['items'], $summary['with_stock']) ?></li>

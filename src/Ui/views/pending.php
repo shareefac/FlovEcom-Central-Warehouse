@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('PAGE_TITLE', 'pending') ?></h1>
-  <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
-</div>
-<?= $intro('pending', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['pending'], intro: 'pending', look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second'])) ?>
 <?= $partial('store_seg', ['items' => $stores, 'countWords' => \CW\Ui\Words::BULK['store_count_pending']]) ?>
 
 <?php if ($error !== null): ?>

@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="<?= $u('/ui/people/' . $id) ?>"><?= $e($name) ?></a></p>
-<h1><?= $say('SHEET', 'title_' . $kind, $name) ?></h1>
-<?= $intro('staff_sheet') ?>
+<?= $head(\CW\Ui\Words::say('SHEET', 'title_' . $kind, $name), intro: 'staff_sheet') ?>
 <div class="alert blocked sheet-once" role="alert">
   <p class="alert-title"><?= $word('SHEET', 'once') ?></p>
 </div>

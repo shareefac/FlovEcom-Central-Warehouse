@@ -1,7 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('ACCOUNTS', 'title') ?></h1>
-</div>
-<?= $intro('accounts', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::ACCOUNTS['title'], intro: 'accounts', look: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

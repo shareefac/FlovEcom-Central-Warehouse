@@ -1,5 +1,4 @@
-<h1><?= $word('SEGMENT', 'arriving') ?></h1>
-<?= $intro('arriving') ?>
+<?= $head(\CW\Ui\Words::SEGMENT['arriving'], intro: 'arriving') ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

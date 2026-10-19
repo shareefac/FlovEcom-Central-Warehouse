@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="<?= $u('/ui/items/' . $sku['id']) ?>"><?= $say('CARD', 'back', (string) $sku['name']) ?></a></p>
-<h1><?= $e($title) ?> <span class="muted">(<?= $e($sku['code']) ?>)</span></h1>
-<?= $intro('card_form') ?>
+<?= $head((string) $title, intro: 'card_form', chips: '<span class="muted">(' . $e($sku['code']) . ')</span>') ?>
 <p class="hint"><?= $word('CARD', 'form_intro') ?></p>
 <?php if ($error !== null): ?>
 <div class="error" role="alert">

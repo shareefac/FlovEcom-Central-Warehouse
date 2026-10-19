@@ -3,8 +3,7 @@
 // the store variant of each, then each unit's stock changes from the ledger, each with a link to it among the item's movements.
 ?>
 <p class="crumbs"><a href="<?= $e($back) ?>"><?= $word('MENU', 'sales_orders') ?></a></p>
-<h1><?= $e($title) ?> <?= $chip($tone, $chipWord) ?></h1>
-<?= $intro('sales_order') ?>
+<?= $head($title, intro: 'sales_order', chips: $chip($tone, $chipWord)) ?>
 
 <section aria-labelledby="facts-h">
   <h2 id="facts-h" class="visually-hidden"><?= $word('SALE_ORDER', 'facts') ?></h2>

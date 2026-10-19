@@ -1,5 +1,4 @@
-<h1><?= $word('MENU', 'settings') ?></h1>
-<?= $intro('settings', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['settings'], intro: 'settings', look: $lookOnly) ?>
 <p class="see-also"><a href="/ui/reference/reasons"><?= $word('PAGE_TITLE', 'reasons') ?></a> <a href="/ui/reference/series"><?= $word('PAGE_TITLE', 'series') ?></a> <a href="/ui/reference/approvals"><?= $word('MENU', 'approvals') ?></a> <a href="/ui/reference/warehouses"><?= $word('MENU', 'warehouses') ?></a> <a href="/ui/reference/access"><?= $word('PAGE_TITLE', 'access') ?></a></p>
 <section class="card company-summary<?php if (!$company['confirmed']): ?> waiting<?php endif; ?>" aria-labelledby="company-h">
   <h2 id="company-h"><?= $word('MENU', 'company') ?></h2>

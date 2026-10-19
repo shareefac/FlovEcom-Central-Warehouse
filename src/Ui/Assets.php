@@ -5,17 +5,18 @@ declare(strict_types=1);
 namespace CW\Ui;
 
 /**
- * The two static files of the UI (public/ui/assets/app.css, app.js), served by the front controller
- * so no other file of public/ can ever be reached. Same-origin only (the CSP allows nothing else).
+ * The static files of the UI (public/ui/assets/app.css, app.js and the icon sprite icons.svg), served by the
+ * front controller so no other file of public/ can ever be reached. Same-origin only (the CSP allows nothing else).
  *
- * The layout links them with their version (url(): `?v=` the start of the content's hash), and that URL is
- * cached by the browser for a year (`immutable`): a page view asks for neither file again, and a deploy that
+ * The layout links the stylesheet and the script with their version (url(): `?v=` the start of the content's hash),
+ * and the stylesheet names the sprite the same way (tests/Unit/UiUnitTest.php keeps that version current); that URL
+ * is cached by the browser for a year (`immutable`): a page view asks for none of them again, and a deploy that
  * changes a file changes its URL, so it still shows at once. Any other request (no `v`, or the `v` of an older
  * file) is revalidated with the ETag as before, also when Apache's compression added "-gzip" to it.
  */
 final class Assets
 {
-    private const FILES = ['app.css' => 'text/css; charset=utf-8', 'app.js' => 'text/javascript; charset=utf-8'];
+    private const FILES = ['app.css' => 'text/css; charset=utf-8', 'app.js' => 'text/javascript; charset=utf-8', 'icons.svg' => 'image/svg+xml'];
     /** The versioned URL never changes its content: a year, and the browser need not ask again (RFC 8246). */
     public const IMMUTABLE = 'public, max-age=31536000, immutable';
     /** Length of the version in the URL (hex characters of the content's sha256). */
@@ -55,7 +56,7 @@ final class Assets
         if ($req->method !== 'GET' && $req->method !== 'HEAD') {
             return self::plain(405, 'method not allowed')->withHeader('Allow', 'GET, HEAD');
         }
-        if (preg_match('#^/ui/assets/([a-z0-9]+\.(?:css|js))$#D', $req->path, $m) !== 1 || !isset(self::FILES[$m[1]])) {
+        if (preg_match('#^/ui/assets/([a-z0-9]+\.(?:css|js|svg))$#D', $req->path, $m) !== 1 || !isset(self::FILES[$m[1]])) {
             return self::plain(404, 'not found');
         }
         $file = self::dir() . '/' . $m[1];
@@ -105,8 +106,8 @@ final class Assets
     }
 
     /**
-     * The self-hosted fonts of the stylesheet (design v4: Figtree and Poppins, SIL Open Font Licence; the licence texts sit beside
-     * them in public/ui/assets/fonts and are not served). Only the files FONTS names; a font file never changes under its name (a new
+     * The self-hosted font of the stylesheet (design v5: Poppins 400-700, SIL Open Font Licence; the licence text sits beside the
+     * files in public/ui/assets/fonts and is not served). Only the files FONTS names; a font file never changes under its name (a new
      * cut gets a new name), so the browser keeps it for a year.
      */
     private static function font(UiRequest $req): HtmlResponse
@@ -132,7 +133,7 @@ final class Assets
     }
 
     /** The font files app.css loads (section 0). */
-    public const FONTS = ['figtree-latin-400-normal.woff2', 'figtree-latin-500-normal.woff2', 'figtree-latin-600-normal.woff2',
-        'figtree-latin-700-normal.woff2', 'poppins-latin-500-normal.woff2'];
+    public const FONTS = ['poppins-latin-400-normal.woff2', 'poppins-latin-500-normal.woff2', 'poppins-latin-600-normal.woff2',
+        'poppins-latin-700-normal.woff2'];
     private const FONT_CACHE = 'public, max-age=31536000, immutable';
 }

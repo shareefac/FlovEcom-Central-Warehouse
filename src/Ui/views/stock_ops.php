@@ -1,4 +1,5 @@
 <?php $newActions = $newActions ?? []; ?>
+<?= $head(($kind === 'release' ? \CW\Ui\Words::of('SEGMENT', 'releases') : (string) $k['tab']), intro: $pageKey, look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <?= $partial('split', ['actions' => $newActions]) ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('STOCK_OPS', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
@@ -30,11 +31,6 @@
 <?php endif; ?>
 </form>
 
-<div class="head-help">
-  <h1><?php if ($kind === 'release'): ?><?= $word('SEGMENT', 'releases') ?><?php else: ?><?= $e($k['tab']) ?><?php endif; ?></h1>
-  <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
-</div>
-<?= $intro($pageKey, $lookOnly) ?>
 <?php if ($kind === 'in'): ?>
 <p class="note"><?= $e($k['goods_in']) ?> <a href="/ui/receiving"><?= $e($k['goods_in_link']) ?></a></p>
 <?php endif; ?>
@@ -51,7 +47,7 @@
 </details>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-order" id="new"<?php if ($error !== null || $rows_n === 0): ?> open<?php endif; ?>>
+<details class="fold new-order drawer" id="new"<?php if ($error !== null || $rows_n === 0): ?> open<?php endif; ?>>
   <summary><?= $e($k['start']) ?></summary>
 <?php if ($form['noOther']): ?>
   <?= $empty(\CW\Ui\Words::STOCK_OPS['no_other'], '', '/ui/reference/warehouses', \CW\Ui\Words::STOCK_OPS['no_other_link']) ?>

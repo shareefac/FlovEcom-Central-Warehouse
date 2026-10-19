@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $e($listName) ?></a></p>
-<h1><?= $e($title) ?> <?= $stateChip('DOC_STATUS', $doc->status) ?></h1>
-<?= $intro('stock_op', $lookOnly) ?>
+<?= $head((string) $title, intro: 'stock_op', look: $lookOnly, chips: $stateChip('DOC_STATUS', $doc->status)) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

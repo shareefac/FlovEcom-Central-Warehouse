@@ -1,6 +1,5 @@
 <?php $v = $typed ?? []; ?>
-<h1><?= $word('PAGE_TITLE', 'reorder_anomalies') ?></h1>
-<?= $intro('reorder_anomalies') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['reorder_anomalies'], intro: 'reorder_anomalies') ?>
 <p><?= $say('ANOMALIES', 'intro', $maxDays) ?></p>
 <?php if ($lookOnly !== null): ?>
 <p class="hint"><?= $say('UI', 'look_only', $lookOnly) ?></p>

@@ -1,10 +1,5 @@
 <p class="crumbs"><a href="/ui/people"><?= $word('MENU', 'people') ?></a></p>
-<h1><?= $e($person['display_name']) ?></h1>
-<?php if ($readOnly !== null): ?>
-<p class="lede"><?= $e(\CW\Ui\Words::PAGE_INTRO['person'][0]) ?></p>
-<?php else: ?>
-<?= $intro('person') ?>
-<?php endif; ?>
+<?= $head((string) $person['display_name'], intro: 'person', more: $readOnly !== null ? '' : null) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

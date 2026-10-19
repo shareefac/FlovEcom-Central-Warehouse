@@ -3,6 +3,7 @@
 // store selector (All stores and each store of the channel table, with its paid orders waiting to ship), the period in words, then the
 // orders newest first, a page at a time. No form here posts anything.
 ?>
+<?= $head(\CW\Ui\Words::MENU['sales_orders'], intro: 'sales_orders', aside: $explain('sales_orders', \CW\Ui\Words::MENU['sales_orders'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <input type="hidden" name="period" value="<?= $e($f['period']) ?>">
 <?php if ($f['channel'] !== null): ?>
@@ -36,11 +37,6 @@
   <div class="tb-end"><a class="btn ghost sm" href="<?= $e($csv) ?>" title="<?= $word('SALE', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
 <?php endif; ?>
 </form>
-<div class="head-help">
-  <h1><?= $word('MENU', 'sales_orders') ?></h1>
-  <?= $explain('sales_orders', \CW\Ui\Words::MENU['sales_orders']) ?>
-</div>
-<?= $intro('sales_orders') ?>
 <?= $partial('store_seg', ['items' => $storeItems, 'countWords' => \CW\Ui\Words::SALE['store_count']]) ?>
 
 <p class="muted sales-period"><?= $e($periodLine) ?><?php foreach ($periodLinks as $pl): ?><?php if (!$pl['current']): ?> · <a href="<?= $e($pl['href']) ?>"><?= $e($pl['label']) ?></a><?php endif; ?><?php endforeach; ?></p>

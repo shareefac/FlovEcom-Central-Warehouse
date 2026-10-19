@@ -1,4 +1,5 @@
 <?php $newActions = $newActions ?? []; ?>
+<?= $head(\CW\Ui\Words::MENU['receiving'], intro: 'receiving', look: $lookOnly, aside: $explain('posting', \CW\Ui\Words::RECEIVING['posting_label'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <?= $partial('split', ['actions' => $newActions]) ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('RECEIVING', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
@@ -25,11 +26,6 @@
     </div>
   </details>
 </form>
-<div class="head-help">
-  <h1><?= $word('MENU', 'receiving') ?></h1>
-  <?= $explain('posting', \CW\Ui\Words::RECEIVING['posting_label']) ?>
-</div>
-<?= $intro('receiving', $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

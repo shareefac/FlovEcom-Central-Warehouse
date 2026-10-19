@@ -2,6 +2,7 @@
 // Stock › Sales › Returns (pack D, docs/decisions.md PD7): read only. The toolbar (Filter: returned, cancelled or both; Export), the
 // store selector (with each store's units waiting for a recount), one figure, then the units newest order first. No form here posts.
 ?>
+<?= $head(\CW\Ui\Words::MENU['sales_returns'], intro: 'sales_returns') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
 <?php if ($f['channel'] !== null): ?>
   <input type="hidden" name="channel" value="<?= $e($f['channel']) ?>">
@@ -24,10 +25,6 @@
   <div class="tb-end"><a class="btn ghost sm" href="<?= $e($csv) ?>" title="<?= $word('SALE_RETURNS', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
 <?php endif; ?>
 </form>
-<div class="head-help">
-  <h1><?= $word('MENU', 'sales_returns') ?></h1>
-</div>
-<?= $intro('sales_returns') ?>
 <?= $partial('store_seg', ['items' => $storeItems, 'countWords' => \CW\Ui\Words::SALE_RETURNS['store_count']]) ?>
 
 <section class="home-tiles" aria-label="<?= $word('SALE_RETURNS', 'figures') ?>">

@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="/ui/purchasing/orders"><?= $word('MENU', 'orders') ?></a> <a href="<?= $u('/ui/purchasing/orders/' . $doc->id) ?>"><?= $word('PO_ADD', 'item_back') ?></a></p>
-<h1><?= $say('PO_ADD', 'item_title', $supplierName) ?></h1>
-<?= $intro('order_new_item') ?>
+<?= $head(\CW\Ui\Words::say('PO_ADD', 'item_title', $supplierName), intro: 'order_new_item') ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

@@ -1,5 +1,4 @@
-<h1><?= $word('SEGMENT', 'timed') ?></h1>
-<?= $intro('timed') ?>
+<?= $head(\CW\Ui\Words::SEGMENT['timed'], intro: 'timed') ?>
 <?php if ($rows === []): ?>
 <?= $empty(\CW\Ui\Words::ARRIVALS['timed_none'], \CW\Ui\Words::ARRIVALS['timed_none_text']) ?>
 <?php else: ?>

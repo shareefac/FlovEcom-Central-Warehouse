@@ -4,6 +4,7 @@
 // who count the board sits inside the "open a count sheet" form: its tick boxes, the place and note, and the four ways to open one.
 $newActions = $newActions ?? [];
 ?>
+<?= $head(\CW\Ui\Words::MENU['counts'], intro: 'counts', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <?= $partial('split', ['actions' => $newActions]) ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('COUNTS', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>" title="<?= $word('COUNTS', 'find') ?>"></div>
@@ -28,10 +29,6 @@ $newActions = $newActions ?? [];
     </div>
   </details>
 </form>
-<div class="head-help">
-  <h1><?= $word('MENU', 'counts') ?></h1>
-</div>
-<?= $intro('counts', $lookOnly) ?>
 
 <section class="home-tiles" aria-label="<?= $word('COUNTS', 'figures') ?>">
   <div class="kpis-wrap"><ul class="kpis four">

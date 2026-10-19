@@ -388,8 +388,184 @@
       el.open = true;
     }
   };
+
+  // The create drawers (design v5: a list page's "New ..." form, details.drawer): from 700 px the open fold is a panel on the right
+  // (CSS). Here: Esc, a click on the dimmed page and the panel's header close it; Tab stays inside it; focus goes to its first field
+  // and, when it closes, back to what opened it. On a phone it stays an ordinary fold. A fold the server sent open (a refused form,
+  // whose error is above it; an empty list) stays a fold in the page (is-inline) until it is closed and opened again.
+  var wide = window.matchMedia ? window.matchMedia('(min-width: 700px)') : null;
+  var isWide = function () { return !!wide && wide.matches; };
+  var focusable = function (root) {
+    return Array.prototype.filter.call(root.querySelectorAll('summary, a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled])'),
+      function (el) { return el.offsetParent !== null || el.tagName === 'SUMMARY'; });
+  };
+  // One drawer at a time is the modal one: the last opened (a second one would cover it).
+  var openDrawer = function () {
+    var all = document.querySelectorAll('details.drawer[open]:not(.is-inline)');
+    return all.length > 0 ? all[all.length - 1] : null;
+  };
+  var drawers = [];
+  var linkOpener = null; // the "New ..." link that opened a fold (following it moves the focus to the page first)
+  each(document.querySelectorAll('details.drawer'), function (d) {
+    var opener = null;
+    // The page column is a CSS container (its lists turn into cards), and a container holds what is fixed inside it under the dimmed
+    // layer: an open drawer goes to the end of <body>, and back to its place in the page when it closes or the screen narrows.
+    var home = document.createComment('drawer');
+    d.parentNode.insertBefore(home, d);
+    var move = function (into) {
+      var focused = d.contains(document.activeElement) ? document.activeElement : null;
+      into();
+      if (focused) { focused.focus(); }
+    };
+    var lift = function () {
+      if (d.parentNode !== document.body) { move(function () { document.body.appendChild(d); }); }
+    };
+    var settle = function () {
+      if (home.parentNode && d.previousSibling !== home) { move(function () { home.parentNode.insertBefore(d, home.nextSibling); }); }
+    };
+    // It becomes the modal drawer: any other open one goes back into the page as a fold, it is lifted, and the focus goes inside
+    // (what had it, outside, gets it back when the drawer closes).
+    var enter = function () {
+      drawers.forEach(function (o) {
+        if (o.d !== d && o.d.open && !o.d.classList.contains('is-inline')) { o.d.classList.add('is-inline'); o.settle(); }
+      });
+      var was = document.activeElement;
+      if (was && was !== document.body && !d.contains(was)) {
+        opener = was;
+      } else if (linkOpener && !d.contains(linkOpener)) {
+        opener = linkOpener;
+      }
+      linkOpener = null;
+      lift();
+      if (!d.contains(document.activeElement)) {
+        var first = focusable(d).filter(function (el) { return el.tagName !== 'SUMMARY'; })[0];
+        (first || d.querySelector('summary')).focus();
+      }
+    };
+    // Where an open drawer belongs now: on <body> from 700 px, in the page below that (the breakpoint, both ways).
+    var place = function () {
+      if (d.open && !d.classList.contains('is-inline') && isWide()) {
+        if (d.parentNode !== document.body) { enter(); }
+      } else {
+        settle();
+      }
+    };
+    if (d.open) {
+      d.classList.add('is-inline');
+    }
+    d.addEventListener('toggle', function () {
+      if (!d.open) {
+        var wasDrawer = d.parentNode === document.body;
+        d.classList.remove('is-inline');
+        settle();
+        if (!wasDrawer) {
+          return;
+        }
+        if (opener && document.contains(opener)) {
+          opener.focus();
+        }
+        if (!opener || document.activeElement !== opener) {
+          d.querySelector('summary').focus(); // what opened it is gone or hidden: the fold's own header
+        }
+        opener = null;
+        return;
+      }
+      if (!d.classList.contains('is-inline') && isWide()) {
+        enter();
+      }
+    });
+    drawers.push({ d: d, place: place, settle: settle });
+  });
+  if (wide) {
+    var follow = function () { drawers.forEach(function (o) { o.place(); }); };
+    if (wide.addEventListener) { wide.addEventListener('change', follow); } else if (wide.addListener) { wide.addListener(follow); }
+    window.addEventListener('resize', follow); // the same again on a resize (cheap: place() only moves what is in the wrong place)
+  }
+  // A link to a fold of this page (the toolbar's "New ..." leads to #new) opens it, also when the address already ends in #new and no
+  // hashchange comes (after the drawer was closed with Esc or the dimmed page).
+  document.addEventListener('click', function (ev) {
+    // Only a plain click that stays in this tab (not Ctrl, Cmd, Shift or Alt, not another button, not a new tab or a download).
+    if (ev.defaultPrevented || ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) {
+      return;
+    }
+    var a = ev.target && ev.target.closest ? ev.target.closest('a[href*="#"]') : null;
+    if (!a || a.hasAttribute('download') || (a.target !== '' && a.target !== '_self')) {
+      return;
+    }
+    var url = new URL(a.getAttribute('href'), window.location.href);
+    if (url.origin !== window.location.origin || url.pathname !== window.location.pathname || url.search !== window.location.search || url.hash.length < 2) {
+      return;
+    }
+    var el = document.getElementById(decodeURIComponent(url.hash.slice(1)));
+    if (el && el.tagName === 'DETAILS' && !el.open) {
+      // The link is what a drawer gives the focus back to: only for a drawer, and only a link outside it.
+      linkOpener = el.classList.contains('drawer') && !el.contains(a) ? a : null;
+      el.open = true;
+    }
+  });
+  document.addEventListener('keydown', function (ev) {
+    var d = openDrawer();
+    if (!d || !isWide()) {
+      return;
+    }
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      d.open = false;
+      return;
+    }
+    if (ev.key === 'Tab') {
+      var list = focusable(d);
+      if (list.length === 0) {
+        return;
+      }
+      var i = list.indexOf(document.activeElement);
+      if (ev.shiftKey && (i <= 0)) {
+        ev.preventDefault();
+        list[list.length - 1].focus();
+      } else if (!ev.shiftKey && (i === -1 || i === list.length - 1)) {
+        ev.preventDefault();
+        list[0].focus();
+      }
+    }
+  });
+  // The dimmed page is the body's own layer: a click on it lands on <body>.
+  document.addEventListener('click', function (ev) {
+    var d = openDrawer();
+    if (d && isWide() && ev.target === document.body) {
+      d.open = false;
+    }
+  });
   openTarget();
   window.addEventListener('hashchange', openTarget);
+
+  // The small menus (the person's menu, Filter and Sort, the "New" button's list): Esc or a click elsewhere closes the open one.
+  var menus = 'details.user-menu[open], details.tb-pop[open], details.split-more[open]';
+  document.addEventListener('click', function (ev) {
+    each(document.querySelectorAll(menus), function (m) {
+      if (!m.contains(ev.target)) { m.open = false; }
+    });
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') {
+      return;
+    }
+    each(document.querySelectorAll(menus), function (m) {
+      m.open = false;
+      var s = m.querySelector('summary');
+      if (s) { s.focus(); }
+    });
+  });
+
+  // The message after a change (a toast at the bottom right) fades after a while; a click on it fades it at once. It stays for a
+  // person who moves into it with the keyboard or the mouse.
+  each(document.querySelectorAll('p.toast'), function (t) {
+    var held = false;
+    var gone = function () { if (!held) { t.classList.add('is-gone'); } };
+    t.addEventListener('mouseenter', function () { held = true; });
+    t.addEventListener('mouseleave', function () { held = false; window.setTimeout(gone, 3000); });
+    t.addEventListener('click', function () { held = false; gone(); });
+    window.setTimeout(gone, 8000);
+  });
 
   // New delivery: "receive all as ordered" follows the purchase order chosen.
   each(document.querySelectorAll('select[data-ticks]'), function (s) {

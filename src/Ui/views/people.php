@@ -1,9 +1,4 @@
-<h1><?= $word('MENU', 'people') ?></h1>
-<?php if ($lookOnly !== null): ?>
-<p class="lede"><?= $e(\CW\Ui\Words::PAGE_INTRO['people'][0]) ?> <?= $e($lookOnly) ?></p>
-<?php else: ?>
-<?= $intro('people') ?>
-<?php endif; ?>
+<?= $head(\CW\Ui\Words::MENU['people'], intro: 'people', more: $lookOnly) ?>
 <?php foreach ($warnings as $warning): ?>
 <p class="note" role="alert"><?= $e($warning) ?></p>
 <?php endforeach; ?>
@@ -21,7 +16,7 @@
 <?php endif; ?>
 <?php if ($canManage): ?>
 <p class="muted"><?= $word('STAFF', 'add') ?></p>
-<details class="fold add-person" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
+<details class="fold add-person drawer" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $word('STAFF', 'add_title') ?></summary>
   <div class="head-help">
     <p class="muted"><?= $word('STAFF', 'add_text') ?></p>

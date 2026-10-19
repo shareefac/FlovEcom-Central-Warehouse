@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $e($k['tab']) ?></a></p>
-<h1><?= $e($title) ?> <?php if ($doc->isReversal()): ?><?= $chip('off', \CW\Ui\Words::INVOICES['reversal']) ?><?php else: ?><?= $stateChip('DOC_STATUS', $doc->status) ?><?php endif; ?><?php if ($storedMatch !== null): ?> <?= $stateChip('MATCH_STATE', $storedMatch) ?><?php endif; ?></h1>
-<?= $intro('supplier_invoice', $lookOnly) ?>
+<?= $head((string) $title, intro: 'supplier_invoice', look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($storedMatch !== null ? ' ' . $stateChip('MATCH_STATE', $storedMatch) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php if (count($problemsOfError) > 1): ?>

@@ -1,6 +1,6 @@
 <p class="crumbs"><a href="/ui/stock/handovers/customers"><?= $word('SEGMENT', 'handover_customers') ?></a></p>
-<h1><?= $e($c['name']) ?> <?php if ((int) $c['is_active'] === 1): ?><?= $chip('done', \CW\Ui\Words::CUSTOMER['on']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::CUSTOMER['off']) ?><?php endif; ?></h1>
-<?= $intro('handover_customer', $lookOnly) ?>
+<?= $head((string) $c['name'], intro: 'handover_customer', look: $lookOnly,
+    chips: (int) $c['is_active'] === 1 ? $chip('done', \CW\Ui\Words::CUSTOMER['on']) : $chip('off', \CW\Ui\Words::CUSTOMER['off'])) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

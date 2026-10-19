@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::PAGE_TITLE['reorder_low_stock'], intro: 'reorder_low_stock', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REORDER_LOW', 'product') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($filters['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <details class="tb-pop">
@@ -31,8 +32,6 @@
     </div>
   </details>
 </form>
-<h1><?= $word('PAGE_TITLE', 'reorder_low_stock') ?></h1>
-<?= $intro('reorder_low_stock', $lookOnly) ?>
 <p><?= $word('REORDER_LOW', 'intro') ?></p>
 <p class="hint"><?= $word('REORDER_LOW', 'how') ?> <?= $word('REORDER_LOW', 'site_wins') ?></p>
 <p class="hint"><?php if ($writers === []): ?><?= $word('REORDER_LOW', 'writers_none') ?><?php else: ?><?= $say('REORDER_LOW', 'writers_on', \CW\Ui\Words::andList(array_map('strval', array_column($writers, 'name')))) ?><?php endif; ?></p>

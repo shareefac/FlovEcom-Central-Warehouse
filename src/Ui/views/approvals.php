@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('MENU', 'approvals') ?></h1>
-  <?= $explain('second_ok', \CW\Ui\Words::THING['second']) ?>
-</div>
-<?= $intro('approvals', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['approvals'], intro: 'approvals', look: $lookOnly, aside: $explain('second_ok', \CW\Ui\Words::THING['second'])) ?>
 <?php if ($requests > 0): ?>
 <p class="note"><?= $say('APPROVALS', 'requests', $requests) ?><?php if ($canDecideRequests): ?> <a href="/ui/staff-requests"><?= $word('APPROVALS', 'requests_link') ?></a><?php endif; ?></p>
 <?php endif; ?>

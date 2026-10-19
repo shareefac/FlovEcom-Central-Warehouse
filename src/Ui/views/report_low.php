@@ -1,11 +1,10 @@
+<?= $head(\CW\Ui\Words::MENU['low_stock'], intro: 'low_stock') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <input type="hidden" name="show" value="<?= $e($f['show']) ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('REPORTS', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <button type="submit" class="btn ghost sm"><?= $word('UI', 'apply') ?></button>
   <a class="btn ghost sm" href="<?= $e($csv_link) ?>"><?= $word('REPORTS', 'csv') ?></a>
 </form>
-<h1><?= $word('MENU', 'low_stock') ?></h1>
-<?= $intro('low_stock') ?>
 <p class="note"><?= $say('REPORTS', 'default_level', $default) ?></p>
 <nav class="seg" aria-label="<?= $word('REPORTS', 'show') ?>">
   <a class="seg-item" href="<?= $u('/ui/reports/low-stock', ['q' => $f['q']]) ?>"<?php if ($f['show'] === 'low'): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'show_low') ?></span><span class="count"><?= $n($counts['low']) ?></span></a>

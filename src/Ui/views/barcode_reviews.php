@@ -1,5 +1,4 @@
-<h1><?= $word('MENU', 'barcodes') ?></h1>
-<?= $intro('barcodes') ?>
+<?= $head(\CW\Ui\Words::MENU['barcodes'], intro: 'barcodes') ?>
 <?php if ($error !== null && $errorId === null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

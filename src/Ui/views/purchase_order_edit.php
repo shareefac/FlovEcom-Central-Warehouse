@@ -1,7 +1,5 @@
 <p class="crumbs"><a href="/ui/purchasing/orders"><?= $word('MENU', 'orders') ?></a></p>
-<h1><?= $e($title) ?></h1>
-<p class="eyebrow"><?= $stateChip('PO_STATE', 'draft') ?></p>
-<?= $intro('order_draft') ?>
+<?= $head((string) $title, intro: 'order_draft', meta: $stateChip('PO_STATE', 'draft')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

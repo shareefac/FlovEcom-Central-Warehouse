@@ -1,11 +1,8 @@
 <p class="crumbs"><a href="/ui/receiving"><?= $word('MENU', 'receiving') ?></a><?php if ($canBench): ?> <a href="<?= $u('/ui/receiving/' . $doc->id . '/bench') ?>"><?= $word('RECEIPT', 'to_bench') ?></a><?php endif; ?></p>
-<h1><?= $e($title) ?></h1>
-<p class="eyebrow"><?= $stateChip('RECEIPT_STATE', $doc->status) ?><?php if ($benchState !== null): ?> <?= $stateChip('BENCH_STATE', $benchState) ?><?php endif; ?><?php if ($doc->reviewState !== null && $doc->reviewState !== 'not_required'): ?> <?= $stateChip('REVIEW_STATE', $doc->reviewState) ?><?php endif; ?></p>
-<?php if ($doc->status === 'draft'): ?>
-<?= $intro('receipt_other', $canPost ? null : \CW\Ui\Words::whoCan('doc.GRN.post')) ?>
-<?php else: ?>
-<?= $intro('receipt') ?>
-<?php endif; ?>
+<?= $head((string) $title, intro: $doc->status === 'draft' ? 'receipt_other' : 'receipt',
+    look: $doc->status === 'draft' ? ($canPost ? null : \CW\Ui\Words::whoCan('doc.GRN.post')) : null,
+    meta: $stateChip('RECEIPT_STATE', $doc->status) . ($benchState !== null ? ' ' . $stateChip('BENCH_STATE', $benchState) : '')
+        . ($doc->reviewState !== null && $doc->reviewState !== 'not_required' ? ' ' . $stateChip('REVIEW_STATE', $doc->reviewState) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

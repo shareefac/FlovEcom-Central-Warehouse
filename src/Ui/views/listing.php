@@ -29,12 +29,9 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
 <?php endif; ?>
 </p>
 
-<h1><?= $e($l['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></h1>
-<?php if ($l['variant_title'] !== null): ?>
-<p class="title subtitle"><?= $e($l['variant_title']) ?></p>
-<?php endif; ?>
-<p class="eyebrow"><?= $e($l['channel_name'] ?? $l['channel']) ?> · <?= $stateChip('LISTING_STATUS', $l['status']) ?></p>
-<?= $intro($intro_page, $lookOnly) ?>
+<?= $head((string) ($l['title'] ?? \CW\Ui\Words::LISTING['no_title']), intro: $intro_page, look: $lookOnly,
+    aside: $l['variant_title'] !== null ? '<p class="title subtitle">' . $e($l['variant_title']) . '</p>' : '',
+    meta: $e($l['channel_name'] ?? $l['channel']) . ' · ' . $stateChip('LISTING_STATUS', $l['status'])) ?>
 
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?><?php if ($fieldId !== null): ?> <a href="#<?= $e($fieldId) ?>"><?= $word('LISTING', 'go_to_field') ?></a><?php endif; ?></p>

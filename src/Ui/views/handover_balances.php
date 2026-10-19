@@ -1,7 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'handover_balances') ?></h1>
-</div>
-<?= $intro('handover_balances', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::SEGMENT['handover_balances'], intro: 'handover_balances', look: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

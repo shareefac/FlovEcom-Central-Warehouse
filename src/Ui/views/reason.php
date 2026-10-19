@@ -1,10 +1,6 @@
 <p class="crumbs"><a href="/ui/reference/reasons"><?= $word('PAGE_TITLE', 'reasons') ?></a></p>
-<h1><?= $e($r['label']) ?> <?php if ($r['is_active']): ?><?= $chip('done', \CW\Ui\Words::REASONS_EDIT['status_on']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::REASONS_EDIT['status_off']) ?><?php endif; ?></h1>
-<?php if ($lookOnly !== null): ?>
-<p class="lede"><?= $e(\CW\Ui\Words::PAGE_INTRO['reason'][0]) ?> <?= $e($lookOnly) ?></p>
-<?php else: ?>
-<?= $intro('reason') ?>
-<?php endif; ?>
+<?= $head((string) $r['label'], intro: 'reason', more: $lookOnly,
+    chips: $r['is_active'] ? $chip('done', \CW\Ui\Words::REASONS_EDIT['status_on']) : $chip('off', \CW\Ui\Words::REASONS_EDIT['status_off'])) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

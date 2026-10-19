@@ -2,11 +2,7 @@
 // Stock › Sales › Dispatch (pack D, docs/decisions.md PD6): read only. The store selector (with each store's paid orders waiting to
 // ship), five figures, the switch between the four lists, then the list chosen. No form here posts anything.
 ?>
-<div class="head-help">
-  <h1><?= $word('MENU', 'sales_dispatch') ?></h1>
-  <?= $explain('sales_dispatch', \CW\Ui\Words::MENU['sales_dispatch']) ?>
-</div>
-<?= $intro('sales_dispatch') ?>
+<?= $head(\CW\Ui\Words::MENU['sales_dispatch'], intro: 'sales_dispatch', aside: $explain('sales_dispatch', \CW\Ui\Words::MENU['sales_dispatch'])) ?>
 <?= $partial('store_seg', ['items' => $storeItems, 'countWords' => \CW\Ui\Words::DISPATCH['store_count']]) ?>
 
 <section class="home-tiles" aria-label="<?= $word('DISPATCH', 'figures') ?>">

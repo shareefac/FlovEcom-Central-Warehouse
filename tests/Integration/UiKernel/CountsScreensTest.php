@@ -172,7 +172,7 @@ final class CountsScreensTest extends KernelUiTestCase
         $open = $web->get($sheet, ['notice' => 'opened']);
         self::assertSame(200, $open->status, $open->describe() . ' ' . implode(' | ', self::$log));
         $xp = new \DOMXPath($open->dom());
-        self::assertSame(Words::COUNTS['title_open'], trim((string) $xp->evaluate('string(//main//h1/text())')));
+        self::assertSame(Words::COUNTS['title_open'], trim((string) $xp->evaluate('string(//main//h1/span[contains(@class, "stmt")])')), 'the heading\'s name, before its state chip');
         self::assertStringContainsString(Words::COUNT_NOTICE['opened'], $open->text());
         self::assertSame(['Stock', 'Counts'], [self::currentSection($open), self::currentTab($open)]);
         self::assertSame(['Alpha pod 2ml', 'Beta liquid'], self::names($open));
@@ -267,7 +267,7 @@ final class CountsScreensTest extends KernelUiTestCase
         $done = $web->follow($r);
         self::assertStringContainsString(Words::say('COUNT_NOTICE', 'posted_check', 'CNT-000001'), $done->text());
         self::assertSame([8, 5, 3], [$this->onHand($a), $this->onHand($b), $this->onHand($c)], 'only the counted lines are booked');
-        self::assertSame(Words::say('COUNTS', 'title_sheet', 'CNT-000001'), trim((string) (new \DOMXPath($done->dom()))->evaluate('string(//main//h1/text())')));
+        self::assertSame(Words::say('COUNTS', 'title_sheet', 'CNT-000001'), trim((string) (new \DOMXPath($done->dom()))->evaluate('string(//main//h1/span[contains(@class, "stmt")])')));
         self::assertStringContainsString(Words::COUNT_LINE['booked'], $done->text());
         self::assertStringContainsString(Words::COUNT_CHECK['open'], $done->text());
         self::assertStringContainsString(Words::COUNTS['not_counted'], $done->text(), 'the line left empty says so');

@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="<?= $e($list[0]) ?>"><?= $e($list[1]) ?></a></p>
-<h1><?= $say('BULK', 'title', $batch['id']) ?></h1>
-<?= $intro($words['intro']) ?>
+<?= $head(\CW\Ui\Words::say('BULK', 'title', $batch['id']), intro: $words['intro']) ?>
 <div class="alert <?php if ($count['skipped'] === 0 && $missing === 0): ?>done<?php else: ?>needs<?php endif; ?>" role="status">
   <p class="alert-title"><?= $e($summary) ?></p>
 <?php if ($count['pending_second'] > 0): ?>

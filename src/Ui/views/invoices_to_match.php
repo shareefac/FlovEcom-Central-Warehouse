@@ -1,5 +1,4 @@
-<h1><?= $word('SEGMENT', 'to_match') ?></h1>
-<?= $intro('to_match') ?>
+<?= $head(\CW\Ui\Words::SEGMENT['to_match'], intro: 'to_match') ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

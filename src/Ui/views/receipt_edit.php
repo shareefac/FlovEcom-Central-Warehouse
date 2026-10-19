@@ -1,7 +1,5 @@
 <p class="crumbs"><a href="/ui/receiving"><?= $word('MENU', 'receiving') ?></a> <a href="<?= $u('/ui/receiving/' . $doc->id . '/bench') ?>"><?= $word('RECEIPT', 'to_bench') ?></a></p>
-<h1><?= $e($title) ?></h1>
-<p class="eyebrow"><?= $stateChip('RECEIPT_STATE', 'draft') ?><?php if ($benchState !== null): ?> <?= $stateChip('BENCH_STATE', $benchState) ?><?php endif; ?></p>
-<?= $intro('receipt_draft') ?>
+<?= $head($title, intro: 'receipt_draft', meta: $stateChip('RECEIPT_STATE', 'draft') . ($benchState !== null ? ' ' . $stateChip('BENCH_STATE', $benchState) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?><?php if ($refusedPost): ?> <a href="#ready-h"><?= $word('RECEIPT', 'refused_see') ?></a><?php endif; ?></p>
 <?php endif; ?>

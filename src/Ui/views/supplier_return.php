@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $word('MENU', 'returns') ?></a></p>
-<h1><?= $e($title) ?> <?php if ($doc->isReversal()): ?><?= $chip('off', \CW\Ui\Words::INVOICES['reversal']) ?><?php else: ?><?= $stateChip('DOC_STATUS', $doc->status) ?><?php endif; ?><?php if ($rec['credit_state'] !== null && !$doc->isReversal()): ?> <?= $stateChip('CREDIT_STATE', $rec['credit_state']) ?><?php endif; ?></h1>
-<?= $intro('supplier_return', $lookOnly) ?>
+<?= $head((string) $title, intro: 'supplier_return', look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($rec['credit_state'] !== null && !$doc->isReversal() ? ' ' . $stateChip('CREDIT_STATE', $rec['credit_state']) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

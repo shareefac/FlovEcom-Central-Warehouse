@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $e($title) ?></h1>
-  <?= $explain('how_sure', \CW\Ui\Words::THING['band']) ?>
-</div>
-<?= $intro('queue_' . $qc->band, $lookOnly) ?>
+<?= $head((string) $title, intro: 'queue_' . $qc->band, look: $lookOnly, aside: $explain('how_sure', \CW\Ui\Words::THING['band'])) ?>
 <?= $partial('store_seg', ['items' => $stores, 'countWords' => \CW\Ui\Words::BULK['store_count_review']]) ?>
 
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">

@@ -15,12 +15,9 @@ $shownRows = array_filter($compare, static fn (array $f): bool => array_filter($
 <?php endif; ?>
 </p>
 
-<div class="head-help">
-  <h1><?= $e($heading) ?></h1>
-  <?= $explain('join_undo', \CW\Ui\Words::DUPS['undo_button']) ?>
-</div>
-<p class="eyebrow"><?= $say('DUPS', 'group', (string) ($g['group'] ?? $g['id'])) ?><?php if ($kind !== null): ?> · <?= $e($kind) ?><?php endif; ?><?php if ($g['open'] > 0 && $g['decided'] > 0): ?> · <?= $word('DUPS', 'partly_decided') ?><?php endif; ?></p>
-<?= $intro('duplicate_group', $lookOnly) ?>
+<?= $head($heading, intro: 'duplicate_group', look: $lookOnly, aside: $explain('join_undo', \CW\Ui\Words::DUPS['undo_button']),
+    meta: $say('DUPS', 'group', (string) ($g['group'] ?? $g['id'])) . ($kind !== null ? ' · ' . $e($kind) : '')
+        . ($g['open'] > 0 && $g['decided'] > 0 ? ' · ' . $word('DUPS', 'partly_decided') : '')) ?>
 
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>

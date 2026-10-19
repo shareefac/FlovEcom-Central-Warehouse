@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::MENU['returns'], intro: 'returns', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('INVOICES', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <details class="tb-pop">
@@ -25,8 +26,6 @@
   </details>
 </form>
 
-<h1><?= $word('MENU', 'returns') ?></h1>
-<?= $intro('returns', $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -59,7 +58,7 @@
 <?php endif; ?>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-order" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
+<details class="fold new-order drawer" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $word('RETURNS', 'start') ?></summary>
   <p class="hint"><?= $word('RETURNS', 'start_text') ?></p>
   <form class="record" method="post" action="/ui/purchasing/returns">

@@ -6,8 +6,7 @@
 // line and its check; cancel it as a whole. The record that puts a count back, or cancels a sheet: its facts and what it is about.
 ?>
 <p class="crumbs"><a href="<?= $e($listHref) ?>"><?= $word('SEGMENT', 'count_sheets') ?></a></p>
-<h1><?= $e($title) ?> <?= $stateChip('DOC_STATUS', $doc->status) ?></h1>
-<?= $intro($editable ? 'count_sheet_open' : 'count_sheet', $lookOnly) ?>
+<?= $head((string) $title, intro: $editable ? 'count_sheet_open' : 'count_sheet', look: $lookOnly, chips: $stateChip('DOC_STATUS', $doc->status)) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

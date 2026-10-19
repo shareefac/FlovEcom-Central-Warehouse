@@ -1,7 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'handovers') ?></h1>
-</div>
-<?= $intro('handovers', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::SEGMENT['handovers'], intro: 'handovers', look: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -45,7 +42,7 @@
 </form>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-order" id="new"<?php if ($error !== null || $rowsN === 0): ?> open<?php endif; ?>>
+<details class="fold new-order drawer" id="new"<?php if ($error !== null || $rowsN === 0): ?> open<?php endif; ?>>
   <summary><?= $word('HANDOVER', 'start') ?></summary>
 <?php if ($form['noCustomers']): ?>
   <?= $empty(\CW\Ui\Words::HANDOVER['no_customers'], \CW\Ui\Words::HANDOVER['no_customers_text'], '/ui/stock/handovers/customers#new', \CW\Ui\Words::HANDOVER['no_customers_link']) ?>

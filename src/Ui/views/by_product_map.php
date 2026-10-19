@@ -5,8 +5,7 @@
 $lists = [['id' => 'suggested', 'rows' => $suggested], ['id' => 'found', 'rows' => $found]];
 ?>
 <p class="crumbs"><a href="<?= $e($back) ?>"><?= $word('MENU', 'by_product') ?></a></p>
-<h1><?= $say('BY_PRODUCT', 'pick_title', (string) $sku['code'], $store['name']) ?></h1>
-<?= $intro('by_product_map') ?>
+<?= $head(\CW\Ui\Words::say('BY_PRODUCT', 'pick_title', (string) $sku['code'], $store['name']), intro: 'by_product_map') ?>
 
 <section class="card" aria-labelledby="facts-h">
   <h2 id="facts-h"><?= $word('BY_PRODUCT', 'pick_facts') ?></h2>

@@ -1,10 +1,5 @@
 <p class="crumbs"><a href="/ui/reference/warehouses"><?= $word('MENU', 'warehouses') ?></a></p>
-<h1><?= $e($w['name']) ?> <?php if ($w['is_active']): ?><?= $chip('done', \CW\Ui\Words::WAREHOUSES['status_on']) ?><?php else: ?><?= $chip('off', \CW\Ui\Words::WAREHOUSES['status_off']) ?><?php endif; ?></h1>
-<?php if ($lookOnly !== null): ?>
-<p class="lede"><?= $e(\CW\Ui\Words::PAGE_INTRO['warehouse'][0]) ?> <?= $e($lookOnly) ?></p>
-<?php else: ?>
-<?= $intro('warehouse') ?>
-<?php endif; ?>
+<?= $head((string) $w['name'], intro: 'warehouse', more: $lookOnly, chips: $w['is_active'] ? $chip('done', \CW\Ui\Words::WAREHOUSES['status_on']) : $chip('off', \CW\Ui\Words::WAREHOUSES['status_off'])) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

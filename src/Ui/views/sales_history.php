@@ -1,5 +1,4 @@
-<h1><?= $word('MENU', 'sales_history') ?></h1>
-<?= $intro('sales_history') ?>
+<?= $head(\CW\Ui\Words::MENU['sales_history'], intro: 'sales_history') ?>
 <?php if ($channels === []): ?>
 <?= $empty(\CW\Ui\Words::SALES['none'], \CW\Ui\Words::SALES['none_text']) ?>
 <?php endif; ?>

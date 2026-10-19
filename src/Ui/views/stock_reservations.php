@@ -3,6 +3,7 @@
 // matching pages' partial: All stores and each store of the channel table, with its reservations held now), three figures, then the
 // list as a board grouped by state, newest first. No form here posts anything.
 ?>
+<?= $head(\CW\Ui\Words::MENU['reservations'], intro: 'reservations', aside: $explain('reservations', \CW\Ui\Words::MENU['reservations'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
 <?php if ($f['channel'] !== null): ?>
   <input type="hidden" name="channel" value="<?= $e($f['channel']) ?>">
@@ -26,11 +27,6 @@
   <div class="tb-end"><a class="btn ghost sm" href="<?= $e($csv) ?>" title="<?= $word('RESV', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a></div>
 <?php endif; ?>
 </form>
-<div class="head-help">
-  <h1><?= $word('MENU', 'reservations') ?></h1>
-  <?= $explain('reservations', \CW\Ui\Words::MENU['reservations']) ?>
-</div>
-<?= $intro('reservations') ?>
 <?= $partial('store_seg', ['items' => $storeItems, 'countWords' => \CW\Ui\Words::RESV['store_count']]) ?>
 
 <section class="home-tiles" aria-label="<?= $word('RESV', 'figures') ?>">

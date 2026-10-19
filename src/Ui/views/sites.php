@@ -1,8 +1,4 @@
-<div class="head-help">
-  <h1><?= $word('MENU', 'sites') ?></h1>
-  <?= $explain('site_modes', \CW\Ui\Words::SITES['mode']) ?>
-</div>
-<?= $intro('sites') ?>
+<?= $head(\CW\Ui\Words::MENU['sites'], intro: 'sites', aside: $explain('site_modes', \CW\Ui\Words::SITES['mode'])) ?>
 <?php if ($sites === []): ?>
 <?= $empty(\CW\Ui\Words::SITES['none']) ?>
 <?php else: ?>

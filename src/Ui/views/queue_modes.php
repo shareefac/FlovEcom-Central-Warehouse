@@ -3,10 +3,7 @@
 // relayed that differs from what the warehouse holds as its mode, as a card: the item, the store and variant, the mode and low-stock level,
 // what CW has now and what accepting does; for the people who may, a note and the two answers.
 ?>
-<div class="head-help">
-  <h1><?= $word('SEGMENT', 'queue_modes') ?></h1>
-</div>
-<?= $intro('queue_modes', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::SEGMENT['queue_modes'], intro: 'queue_modes', look: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

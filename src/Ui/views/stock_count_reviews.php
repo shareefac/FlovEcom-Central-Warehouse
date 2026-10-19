@@ -4,10 +4,7 @@
 // item, the sheet, what CW held, what was counted, the difference, who counted, why it waits, and the two answers (a note, then accept
 // or reject). A difference of an item counted again since says so instead of the reject button (review C-1).
 ?>
-<div class="head-help">
-  <h1><?= $word('PAGE_TITLE', 'count_differences') ?></h1>
-</div>
-<?= $intro('count_differences', $lookOnly) ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['count_differences'], intro: 'count_differences', look: $lookOnly) ?>
 <p class="note"><?= $e($second) ?> <a href="<?= $e($rulesHref) ?>"><?= $word('COUNTS', 'rules_link') ?></a></p>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>

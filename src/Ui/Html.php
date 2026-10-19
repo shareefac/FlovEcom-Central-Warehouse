@@ -91,7 +91,7 @@ final class Html
         return $d === false ? null : $d->setTimezone($london);
     }
 
-    /** A status chip: an icon shape (by tone, in CSS) and the word. An unknown tone is `info`. */
+    /** A status pill: the tone's solid colour (in CSS) and the word. An unknown tone is `info`. */
     public static function chip(string $tone, string $text): string
     {
         $tone = in_array($tone, Words::TONES, true) ? $tone : 'info';
@@ -102,6 +102,50 @@ final class Html
     public static function intro(string $text): string
     {
         return $text === '' ? '' : '<p class="lede">' . self::e($text) . '</p>';
+    }
+
+    /** The intro in its two parts (Words::introParts): the plain sentence, then the muted line under it ('' for none). */
+    public static function lede(string $sentence, string $more = ''): string
+    {
+        if ($sentence === '' && $more === '') {
+            return '';
+        }
+        return '<p class="lede">' . self::e($sentence) . ($more === '' ? '' : ($sentence === '' ? '' : ' ') . '<span class="lede-more">' . self::e($more) . '</span>')
+            . '</p>';
+    }
+
+    /**
+     * The statement every page opens with (design v5, the owner's brief of 19 Oct 2026): a small UPPERCASE eyebrow ($eyebrow, the
+     * section; $tag after it), the heading ($title, the page's name; the stylesheet draws its full stop unless it ends in its own
+     * punctuation; $chips inside it after the name; $aside beside it, a "?" help), a line of state chips ($meta) and the one plain
+     * sentence ($lede, the muted $more under it), then the page's actions on the right. $eyebrow, $tag, $title, $lede and $more are text,
+     * escaped here; $chips, $aside, $meta and $actions are HTML the helpers made.
+     */
+    public static function statement(string $eyebrow, string $title, string $lede = '', string $more = '', string $tag = '', string $chips = '',
+        string $aside = '', string $meta = '', string $actions = ''): string
+    {
+        $stop = preg_match('/[.!?:…]$/uD', rtrim($title)) === 1 ? '' : ' stop';
+        $out = '<header class="page-head"><div class="ph-text">';
+        if ($eyebrow !== '' || $tag !== '') {
+            $out .= '<p class="ph-eyebrow">' . self::e($eyebrow)
+                . ($tag === '' ? '' : '<span class="ph-tag">' . ($eyebrow === '' ? '' : ' · ') . self::e($tag) . '</span>') . '</p>';
+        }
+        $out .= '<div class="ph-title"><h1><span class="stmt' . $stop . '">' . self::e($title) . '</span>' . ($chips === '' ? '' : ' ' . $chips) . '</h1>'
+            . $aside . '</div>';
+        if ($meta !== '') {
+            $out .= '<p class="ph-meta">' . $meta . '</p>';
+        }
+        $out .= self::lede($lede, $more) . '</div>';
+        if ($actions !== '') {
+            $out .= '<div class="ph-actions">' . $actions . '</div>';
+        }
+        return $out . '</header>';
+    }
+
+    /** Today in London as the Dashboard's eyebrow says it: "Monday 19 October". */
+    public static function today(?\DateTimeImmutable $now = null): string
+    {
+        return ($now ?? new \DateTimeImmutable('now'))->setTimezone(new \DateTimeZone('Europe/London'))->format('l j F');
     }
 
     /**

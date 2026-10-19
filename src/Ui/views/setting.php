@@ -1,10 +1,5 @@
 <p class="crumbs"><a href="/ui/reference/settings"><?= $word('MENU', 'settings') ?></a></p>
-<h1><?= $e($name) ?></h1>
-<?php if ($lookOnly !== null): ?>
-<p class="lede"><?= $e(\CW\Ui\Words::PAGE_INTRO['setting'][0]) ?> <?= $e($lookOnly) ?></p>
-<?php else: ?>
-<?= $intro('setting') ?>
-<?php endif; ?>
+<?= $head((string) $name, intro: 'setting', more: $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

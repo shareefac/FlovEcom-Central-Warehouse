@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="/ui/documents"><?= $word('MENU', 'documents') ?></a></p>
-<h1><?= $e($title) ?></h1>
-<?= $intro('document') ?>
+<?= $head($title, intro: 'document') ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

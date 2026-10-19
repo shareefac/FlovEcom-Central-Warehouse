@@ -87,7 +87,7 @@ final class StartSettingsWordsTest extends KernelUiTestCase
             self::check($page, $where, $title, $intro);
         }
         $login = $this->browser()->get('/ui/login');
-        self::check($login, '/ui/login', Words::UI['brand'], 'login');
+        self::check($login, '/ui/login', Words::PAGE_TITLE['login'], 'login'); // design v5: "Sign in." beside the brand panel
     }
 
     /** One page: its title, its intro, no codes or technical words, tables as cards. */

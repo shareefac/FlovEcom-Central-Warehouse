@@ -1,3 +1,4 @@
+<?= $head(\CW\Ui\Words::SEGMENT['not_invoiced'], intro: 'not_invoiced', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('INVOICES', 'search_delivery') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
   <label class="visually-hidden" for="tb-supplier"><?= $word('INVOICES', 'supplier') ?></label>
@@ -9,9 +10,6 @@
   </select>
   <button type="submit" class="btn ghost sm"><?= $word('UI', 'apply') ?></button>
 </form>
-
-<h1><?= $word('SEGMENT', 'not_invoiced') ?></h1>
-<?= $intro('not_invoiced', $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>

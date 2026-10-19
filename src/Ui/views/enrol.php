@@ -1,6 +1,5 @@
 <section class="narrow login enrol">
-  <h1><?= $word('PAGE_TITLE', 'enrol') ?></h1>
-  <?= $intro('enrol') ?>
+  <?= $head(\CW\Ui\Words::PAGE_TITLE['enrol'], intro: 'enrol') ?>
 <?php if ($error !== null): ?>
   <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>

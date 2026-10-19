@@ -1,5 +1,4 @@
-<h1><?= $word('PAGE_TITLE', 'item_new') ?></h1>
-<?= $intro('item_new') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['item_new'], intro: 'item_new') ?>
 <?php if ($error !== null): ?>
 <div class="error" role="alert" data-code="<?= $e($errorCode) ?>">
   <p><?= $e($error) ?><?php if ($errorItem !== null): ?> <a href="<?= $u('/ui/items/' . $errorItem['id']) ?>"><?= $e($errorItem['code']) ?></a><?php endif; ?></p>

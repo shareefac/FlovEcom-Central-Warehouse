@@ -1,17 +1,16 @@
+<?= $head(\CW\Ui\Words::MENU['families'], intro: 'families', look: $lookOnly) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('FAMILY', 'search') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" placeholder="<?= $word('FAMILY', 'search') ?>"></div>
   <label class="choice"><input type="checkbox" name="off" value="1"<?php if ($off): ?> checked<?php endif; ?>> <?= $word('FAMILY', 'show_off') ?></label>
   <button type="submit" class="btn ghost sm"><?= $word('UI', 'apply') ?></button>
 </form>
 
-<h1><?= $word('MENU', 'families') ?></h1>
-<?= $intro('families', $lookOnly) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-family" id="new"<?php if ($error !== null || $total === 0): ?> open<?php endif; ?>>
+<details class="fold new-family drawer" id="new"<?php if ($error !== null || $total === 0): ?> open<?php endif; ?>>
   <summary><?= $word('FAMILY', 'add') ?></summary>
   <form class="record" method="post" action="/ui/items/families">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

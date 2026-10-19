@@ -1,6 +1,5 @@
 <p class="crumbs"><a href="/ui/purchasing/suppliers"><?= $word('MENU', 'suppliers') ?></a> <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id']) ?>"><?= $say('SUPPLIER_ITEMS', 'back', (string) $s['name']) ?></a></p>
-<h1><?= $e($title) ?></h1>
-<?= $intro('supplier_items', $lookOnly) ?>
+<?= $head((string) $title, intro: 'supplier_items', look: $lookOnly) ?>
 <p class="hint"><?= $word('SUPPLIER_ITEMS', 'intro') ?></p>
 <p class="actions">
 <?php if ($canManage): ?>

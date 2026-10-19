@@ -1,5 +1,4 @@
-<h1><?= $word('PAGE_TITLE', 'series') ?></h1>
-<?= $intro('series') ?>
+<?= $head(\CW\Ui\Words::PAGE_TITLE['series'], intro: 'series') ?>
 <p class="muted"><?= $word('SETTINGS_PAGE', 'series_text') ?></p>
 <div class="table-wrap">
 <table class="stack series">

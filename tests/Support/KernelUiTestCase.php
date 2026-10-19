@@ -194,8 +194,8 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * The tab bar of a page (the current section's tabs, under its name): label, link (null for a tab not built yet), count and
-     * whether it is the current one.
+     * The tab bar of a page (the current section's tabs, under the page's statement): label, link (null for a tab not built yet), count
+     * and whether it is the current one.
      *
      * @return list<array{label: string, href: ?string, count: int, current: bool}>
      */
@@ -203,7 +203,7 @@ abstract class KernelUiTestCase extends MappingTestCase
     {
         $xp = new \DOMXPath($r->dom());
         $out = [];
-        foreach ($xp->query('//header[@class="pagebar"]/nav[@class="tabs"]/*[contains(concat(" ", @class, " "), " tab ")]') ?: [] as $t) {
+        foreach ($xp->query('//main//nav[@class="tabs"]/*[contains(concat(" ", @class, " "), " tab ")]') ?: [] as $t) {
             /** @var \DOMElement $t */
             $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $t)), 'href' => $t->nodeName === 'a' ? $t->getAttribute('href') : null,
                 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ") and not(contains(@class, "soon"))]', $t)->item(0)),

@@ -372,7 +372,7 @@ final class UiSecurityTest extends UiTestCase
         }
     }
 
-    public function testOnlyTheTwoAssetsAreServedAndTheyRevalidate(): void
+    public function testOnlyTheAssetsAreServedAndTheyRevalidate(): void
     {
         $web = $this->browser();
         $css = $web->get('/ui/assets/app.css');
@@ -389,8 +389,15 @@ final class UiSecurityTest extends UiTestCase
         self::assertDoesNotMatchRegularExpression('/@import|url\(\s*[\'"]?(?:https?:)?\/\//i', $css->body);
         self::assertStringNotContainsString('eval(', $js->body);
         self::assertStringNotContainsString('innerHTML', $js->body, 'the script never builds markup from strings');
+        // Design v5's icon sprite: same origin, an image (not a page), its own revalidation like the others.
+        $svg = $web->get('/ui/assets/icons.svg');
+        self::assertSame(200, $svg->status);
+        self::assertSame('image/svg+xml', $svg->header('content-type'));
+        self::assertSame('nosniff', $svg->header('x-content-type-options'));
+        self::assertStringNotContainsString('<script', $svg->body);
+        self::assertStringContainsString('url("icons.svg?v=', $css->body, 'the stylesheet draws the icons from the sprite');
 
-        foreach ([[$css, '/ui/assets/app.css'], [$js, '/ui/assets/app.js']] as [$first, $path]) {
+        foreach ([[$css, '/ui/assets/app.css'], [$js, '/ui/assets/app.js'], [$svg, '/ui/assets/icons.svg']] as [$first, $path]) {
             $etag = (string) $first->header('etag');
             self::assertMatchesRegularExpression('/^"[0-9a-f]{32}"$/', $etag);
             $again = $web->get($path, [], ['If-None-Match' => $etag]);
@@ -405,15 +412,17 @@ final class UiSecurityTest extends UiTestCase
 
         foreach (['/ui/assets/', '/ui/assets', '/ui/assets/APP.CSS', '/ui/assets/app.css.map', '/ui/assets/app.css/', '/ui/assets/app.css/x', '/ui/assets/index.php',
             '/ui/assets/app.php', '/ui/assets/.htaccess', '/ui/assets/nope.js', '/ui/assets/..%2f..%2fcomposer.json', '/ui/assets/%2e%2e/%2e%2e/composer.json',
-            '/ui/assets/../../composer.json', '/ui/assets/app.css%00.js', '/ui/assets/sub/app.css', '/ui/assets/app.css%2f..%2f..%2fcomposer.json'] as $path) {
+            '/ui/assets/../../composer.json', '/ui/assets/app.css%00.js', '/ui/assets/sub/app.css', '/ui/assets/app.css%2f..%2f..%2fcomposer.json',
+            '/ui/assets/ICONS.SVG', '/ui/assets/other.svg', '/ui/assets/icons.svg/x'] as $path) {
             $r = $web->send('GET', $path, null);
             self::assertContains($r->status, [400, 403, 404], $path . ' -> ' . $r->status);
             self::assertStringNotContainsString('"require"', $r->body, $path);
             self::assertStringNotContainsString('phpunit', $r->body, $path);
             self::assertStringNotContainsString('<?php', $r->body, $path);
         }
-        // The self-hosted fonts of design v4 (Figtree, Poppins: font-src 'self' through default-src): only the five the stylesheet
-        // loads, kept for a year (a font never changes under its name); the licence texts beside them are not served.
+        // The self-hosted font of design v5 (Poppins 400-700: font-src 'self' through default-src): only the four files the stylesheet
+        // loads, kept for a year (a font never changes under its name); the licence text beside them is not served, nor design v4's
+        // Figtree (gone).
         foreach (\CW\Ui\Assets::FONTS as $font) {
             self::assertStringContainsString('url("fonts/' . $font . '")', $css->body, "{$font}: loaded by the stylesheet");
             $r = $web->get('/ui/assets/fonts/' . $font);
@@ -423,8 +432,8 @@ final class UiSecurityTest extends UiTestCase
             self::assertSame('public, max-age=31536000, immutable', $r->header('cache-control'), $font);
             self::assertSame('nosniff', $r->header('x-content-type-options'));
         }
-        foreach (['/ui/assets/fonts/OFL-Figtree.txt', '/ui/assets/fonts/other.woff2', '/ui/assets/fonts/', '/ui/assets/fonts/FIGTREE-LATIN-400-NORMAL.WOFF2',
-            '/ui/assets/fonts/figtree-latin-400-normal.woff2/x'] as $path) {
+        foreach (['/ui/assets/fonts/OFL-Poppins.txt', '/ui/assets/fonts/other.woff2', '/ui/assets/fonts/', '/ui/assets/fonts/POPPINS-LATIN-400-NORMAL.WOFF2',
+            '/ui/assets/fonts/poppins-latin-400-normal.woff2/x', '/ui/assets/fonts/figtree-latin-400-normal.woff2'] as $path) {
             self::assertContains($web->send('GET', $path, null)->status, [400, 403, 404], $path);
         }
         self::assertSame(405, $web->post('/ui/assets/fonts/' . \CW\Ui\Assets::FONTS[0], [])->status);
