@@ -15,6 +15,8 @@ use PHPUnit\Framework\TestCase;
 final class ProductionOpsToolsTest extends TestCase
 {
     private const DIR = __DIR__ . '/../../deploy/production';
+    private const PRODUCTION_HOST = 'private-db-mysql-lon1-37047-do-user-39758664-0.m.db.ondigitalocean.com';
+    private const PRODUCTION_PUBLIC_HOST = 'db-mysql-lon1-37047-do-user-39758664-0.m.db.ondigitalocean.com';
     private string $dir = '';
 
     protected function setUp(): void
@@ -41,14 +43,42 @@ final class ProductionOpsToolsTest extends TestCase
         }
     }
 
-    /** Production's own host (what db.env names) as "the copy": refused before any connection. */
+    /** Production's own cluster (its private host, or the public name of the same server) as "the copy": refused before any connection. */
     public function testTheRestoreCheckRefusesProductionsOwnHostBeforeConnecting(): void
     {
-        $env = $this->files('db.prod.example.test');
-        $r = $this->run_(self::DIR . '/restore_check.php', ['db.prod.example.test'], $env + ['CW_DB_HOST' => 'restore.example.test']);
+        $env = $this->files(self::PRODUCTION_HOST);
+        foreach ([self::PRODUCTION_HOST, self::PRODUCTION_PUBLIC_HOST] as $host) {
+            $r = $this->run_(self::DIR . '/restore_check.php', [$host], $env + ['CW_DB_HOST' => 'restore.example.test']);
+            self::assertSame(2, $r['code'], $r['err']);
+            self::assertStringContainsString("REFUSING: {$host} is production's own cluster", $r['err']);
+            self::assertSame('', $r['out'], 'nothing compared');
+        }
+    }
+
+    /**
+     * A production configuration naming another server (an app.env inherited from the shell that names the restored cluster: its
+     * db_host is what both logins use) would turn production and the copy around: refused before any connection.
+     */
+    public function testTheRestoreCheckRefusesAProductionConfigurationNamingAnotherServer(): void
+    {
+        $env = $this->files(self::PRODUCTION_HOST);
+        $app = (string) file_get_contents("{$this->dir}/app.env");
+        file_put_contents("{$this->dir}/app.env", str_replace('db_host = ' . self::PRODUCTION_HOST, 'db_host = private-restore-test.example.test', $app));
+        $r = $this->run_(self::DIR . '/restore_check.php', [self::PRODUCTION_HOST], $env);
         self::assertSame(2, $r['code'], $r['err']);
-        self::assertStringContainsString("REFUSING: db.prod.example.test is production's own host", $r['err']);
-        self::assertSame('', $r['out'], 'nothing compared');
+        self::assertStringContainsString("REFUSING: production's admin login names the host private-restore-test.example.test", $r['err']);
+        self::assertSame('', $r['out']);
+    }
+
+    /** A table whose checksum MySQL cannot give (NULL) on either side is a difference, never "identical". */
+    public function testTheRestoreCheckNeverCallsATableWithoutAChecksumIdentical(): void
+    {
+        $src = (string) file_get_contents(self::DIR . '/restore_check.php');
+        self::assertStringContainsString('if ($sP === null || $sC === null) {', $src);
+        self::assertSame(0, preg_match('/CHECKSUM TABLE[^\n]*\?\? \x27\x27/', $src), 'no NULL checksum read as an empty string');
+        $null = (int) strpos($src, 'if ($sP === null || $sC === null) {');
+        self::assertStringContainsString('$problems++;', substr($src, $null, 400));
+        self::assertLessThan((int) strpos($src, 'if ($nP === $nC && $sP === $sC) {'), $null, 'checked before the comparison');
     }
 
     /** A box whose app.env names another schema than cw_prod (staging, a test box): refused before any connection. */

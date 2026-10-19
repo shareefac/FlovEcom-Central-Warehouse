@@ -2785,9 +2785,10 @@ php deploy/production/restore_check.php "$copy" && CW_DB_HOST="$copy" php bin/in
 ```
 
 `restore_check.php` reads both (each table of `cw_prod`, a hash of the columns, each table's COUNT and CHECKSUM TABLE, the users,
-`cw_app`'s grants, `cw_app` signing in to the copy on `cw_prod`) and refuses production's own host, a second name of the same
-server and a box whose app.env does not name `cw_prod` (`--self-test <production's public host>` is its own check); a check it cannot
-make counts as a difference; the tables the jobs write every few minutes may differ, nothing else. The `&&` keeps `invariants.php`
+`cw_app`'s grants, `cw_app` signing in to the copy on `cw_prod`) and refuses production's own cluster (its private host or its public
+name), a second name of the same server, a box whose app.env does not name `cw_prod`, and a production configuration whose logins name
+another host than production's cluster (`--self-test <production's public host>` is its own check); a check it cannot make (a table
+without a checksum, the user list unreadable) counts as a difference; the tables the jobs write every few minutes may differ, nothing else. The `&&` keeps `invariants.php`
 off production when the check refuses.
 `invariants.php` records its run in the copy. Then destroy the copy. The result on 19 Oct: 125 tables, 124 identical (`reorder_job`:
 the same rows, rewritten by its 5-minute job), the users and grants the same, `cw_app` signs in, invariants ok.

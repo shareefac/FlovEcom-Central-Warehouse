@@ -19,6 +19,10 @@ use CW\Config;
 use CW\Db;
 
 const SCHEMA = 'cw_prod';
+// Production's cluster (db-mysql-lon1-37047): its private host (what both production logins must name) and the public name of the
+// same server (only --self-test may name it).
+const PRODUCTION_HOST = 'private-db-mysql-lon1-37047-do-user-39758664-0.m.db.ondigitalocean.com';
+const PRODUCTION_PUBLIC_HOST = 'db-mysql-lon1-37047-do-user-39758664-0.m.db.ondigitalocean.com';
 // Tables the running jobs (and sign-ins) write every few minutes: rows changed there after the backup are expected.
 const BUSY = ['alert_state', 'audit_log', 'integrity_run', 'login_attempt', 'staff_session', 'report_refresh', 'reorder_job', 'idempotency',
     'feed_clock', 'channel_health'];
@@ -37,8 +41,20 @@ if ($prodCfg->appDbName() !== SCHEMA) {
     fwrite(STDERR, 'REFUSING: this box\'s app.env names the schema ' . ($prodCfg->appDbName() ?? '(none)') . ', not ' . SCHEMA . ": run it on the production box\n");
     exit(2);
 }
-if (!$selfTest && $prodCfg->dbAdmin()->host === $copyHost) {
-    fwrite(STDERR, "REFUSING: {$copyHost} is production's own host\n");
+// Production is production's cluster, whatever this shell inherited (an app.env naming another host would turn the two around).
+try {
+    foreach (['admin' => $prodCfg->dbAdmin()->host, 'app' => $prodCfg->dbApp()->host] as $login => $h) {
+        if ($h !== PRODUCTION_HOST) {
+            fwrite(STDERR, "REFUSING: production's {$login} login names the host {$h}, not production's cluster (" . PRODUCTION_HOST . ")\n");
+            exit(2);
+        }
+    }
+} catch (\CW\ConfigException $e) {
+    fwrite(STDERR, 'REFUSING: ' . $e->getMessage() . "\n");
+    exit(2);
+}
+if (!$selfTest && in_array($copyHost, [PRODUCTION_HOST, PRODUCTION_PUBLIC_HOST], true)) {
+    fwrite(STDERR, "REFUSING: {$copyHost} is production's own cluster\n");
     exit(2);
 }
 
@@ -96,8 +112,14 @@ foreach (array_intersect($tablesP, $tablesC) as $t) {
     $q = Db::ident(SCHEMA) . '.' . Db::ident($t);
     $nP = (int) $prod->value("SELECT COUNT(*) FROM {$q}");
     $nC = (int) $copy->value("SELECT COUNT(*) FROM {$q}");
-    $sP = (string) ($prod->one("CHECKSUM TABLE {$q}")['Checksum'] ?? '');
-    $sC = (string) ($copy->one("CHECKSUM TABLE {$q}")['Checksum'] ?? '');
+    $sP = $prod->one("CHECKSUM TABLE {$q}")['Checksum'] ?? null;
+    $sC = $copy->one("CHECKSUM TABLE {$q}")['Checksum'] ?? null;
+    if ($sP === null || $sC === null) {
+        // No checksum (MySQL gives NULL when it cannot read the table): its rows were not compared, so it is never "identical".
+        $grown[] = sprintf('  CANNOT checksum %s (production %s, copy %s)', $t, $sP === null ? 'none' : 'ok', $sC === null ? 'none' : 'ok');
+        $problems++;
+        continue;
+    }
     if ($nP === $nC && $sP === $sC) {
         $same++;
         continue;
