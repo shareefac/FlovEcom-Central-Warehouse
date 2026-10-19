@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # cw-deploy-stub
 # php: `php [-d ...] -r CODE [-- ARGS]` and `php -v` / `php -m` run the real PHP, so the scripts' guards read app.env with the
-# repository's own CW\Config; code that opens the database (CW\Db::connect) prints answers/db_value instead (default 0).
+# repository's own CW\Config; code that opens the database (CW\Db::connect) prints answers/db_value instead (default 0) and
+# exits answers/db_exit (default 0; 1: the database refused, as a wrong password).
 # A script (bin/NAME.php) is the scenario's: migrate.php --status prints answers/migrate_status; migrate.php itself records what
 # was running at that moment in migrations.log (the cron file, the vhost, php-fpm, the markers, the cw_prod jobs still running,
 # where /opt/cw-prod points) and
@@ -18,7 +19,7 @@ while (( i < ${#args[@]} )); do
                 log "php -r (the database)"
                 answer db_value 0
                 echo
-                exit 0
+                exit "$(answer db_exit 0)"
             fi
             exec "$CW_STUB_PHP" "$@" ;;
         -*) exec "$CW_STUB_PHP" "$@" ;;

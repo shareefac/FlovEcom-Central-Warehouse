@@ -25,7 +25,7 @@ final class ProductionDeployBehaviourTest extends TestCase
 {
     private const DIR = __DIR__ . '/../../deploy/production';
     private const STUBS = __DIR__ . '/../fixtures/deploy_stubs/bin';
-    private const SCRIPTS = ['provision.sh', 'push_code.sh', 'install_cron.sh', 'install_file_store.sh', 'enable_https.sh'];
+    private const SCRIPTS = ['provision.sh', 'push_code.sh', 'install_cron.sh', 'install_file_store.sh', 'enable_https.sh', 'set_db_password.sh'];
     /** The first lines after `set -euo pipefail` (and their comment) in every script. */
     private const PREAMBLE = "R=\${CW_DEPLOY_ROOT:-/}\nR=\${R%/}\nif [[ -n \$R ]]; then\n    kernel_host=\n"
         . "    read -r kernel_host 2>/dev/null < /proc/sys/kernel/hostname || true\n"
@@ -718,6 +718,65 @@ final class ProductionDeployBehaviourTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/apt-get|ufw|chattr|runuser/', $this->calls());
     }
 
+    /**
+     * set_db_password.sh: two different passwords, none, or one the database refuses change nothing (db.env as it was, no
+     * temporary file left, /etc/cw as it was: 0750 root:www-data); one the database takes replaces db.env, 0600, and /etc/cw stays
+     * as it was. Nothing it prints holds a password typed, not even with an xtrace inherited from the shell. Another box: refused.
+     */
+    public function testSetDbPasswordWritesOnlyAPasswordTheDatabaseTakes(): void
+    {
+        $this->needBox();
+        $this->release('opt/cw-prod-release', self::NEW);
+        chown($this->root . '/etc/cw', 'root');
+        chgrp($this->root . '/etc/cw', 'www-data');
+        chmod($this->root . '/etc/cw', 0750);
+        $this->write('etc/cw/app.env', self::APP_ENV . "db_name=cw_prod\n", 0640);
+        chgrp($this->root . '/etc/cw/app.env', 'www-data');
+        $this->write('etc/cw/db.env', "username = doadmin\npassword = the-old-one\nhost = private-db.example\nport = 25060\n", 0600);
+        $before = $this->tree('etc/cw');
+        $cases = [
+            'two different passwords' => ["pw-first-1111\npw-other-2222\n", 0, 'did not match (or were empty): nothing changed'],
+            'two empty lines' => ["\n\n", 0, 'did not match (or were empty): nothing changed'],
+            'nothing typed' => ['', 0, ''],
+            'a password the database refuses' => ["pw-refused-3333\npw-refused-3333\n", 1, 'the database did not accept this password: nothing changed'],
+        ];
+        foreach ($cases as $what => [$typed, $dbExit, $says]) {
+            $this->answer('db_exit', (string) $dbExit);
+            $this->clearCalls();
+            [$code, $out, $err] = $this->runScript('set_db_password.sh', [], [], null, $typed);
+            self::assertSame(1, $code, "{$what}: {$out}{$err}");
+            self::assertStringContainsString($says, $err, $what);
+            self::assertSame($before, $this->tree('etc/cw'), "{$what}: db.env, its directory and app.env as they were, no temporary file left");
+            foreach (array_filter(explode("\n", $typed)) as $secret) {
+                self::assertStringNotContainsString($secret, $out . $err . $this->calls(), "{$what}: never printed");
+            }
+        }
+        self::assertStringContainsString('php -r (the database)', $this->calls(), 'the refused one was tried against the database');
+
+        // Taken: with an xtrace inherited from the shell (SHELLOPTS), which the script switches off before anything is read.
+        unlink($this->stub . '/answers/db_exit');
+        $this->clearCalls();
+        [$code, $out, $err] = $this->runScript('set_db_password.sh', [], ['SHELLOPTS' => 'xtrace'], null, "pw-good-4444\npw-good-4444\n");
+        self::assertSame(0, $code, $out . $err);
+        self::assertStringContainsString('+ R=', $err, 'the xtrace was on when it started');
+        self::assertStringNotContainsString('pw-good-4444', $out . $err . $this->calls(), 'never printed, not even traced');
+        self::assertStringContainsString('saved and checked: ' . $this->root . '/etc/cw/db.env (0600 root)', $out);
+        self::assertSame("username = doadmin\npassword = pw-good-4444\nhost = private-db-mysql-lon1-37047-do-user-39758664-0.m.db.ondigitalocean.com\n"
+            . "port = 25060\ndatabase = defaultdb\nsslmode = REQUIRED\n", file_get_contents($this->root . '/etc/cw/db.env'));
+        self::assertSame('600 root:root', $this->stat('etc/cw/db.env'));
+        self::assertSame('750 root:www-data', $this->stat('etc/cw'), '/etc/cw as it was: php-fpm still reads app.env');
+        self::assertSame(['app.env', 'db.env'], $this->entries('etc/cw'), 'no temporary file left');
+        self::assertSame(1, substr_count($this->calls(), 'php -r (the database)'), 'checked against the database before it was written');
+
+        // Another box: refused before a password is read.
+        $after = $this->tree('etc/cw');
+        $this->answer('hostname', 'cw-staging');
+        [$code, $out, $err] = $this->runScript('set_db_password.sh', [], [], null, "pw-staging-5555\npw-staging-5555\n");
+        self::assertSame(1, $code, $out . $err);
+        self::assertStringContainsString('this box is cw-staging, not cw-prod-lon1-01', $err);
+        self::assertSame($after, $this->tree('etc/cw'));
+    }
+
     // ---- the tree, the stubs, the runs ----
 
     /** Skips where these must not or cannot run; builds the empty tree and the stub directory. */
@@ -794,9 +853,10 @@ final class ProductionDeployBehaviourTest extends TestCase
      *
      * @param list<string> $args
      * @param array<string, string> $env
+     * @param ?string $typed what is typed at its prompts (stdin); null: nothing (/dev/null)
      * @return array{int, string, string} exit code, stdout, stderr
      */
-    private function runScript(string $script, array $args = [], array $env = [], ?string $path = null): array
+    private function runScript(string $script, array $args = [], array $env = [], ?string $path = null, ?string $typed = null): array
     {
         $path ??= $this->base . '/bin:' . $this->base . '/sys';
         $src = (string) file_get_contents(self::DIR . '/' . $script);
@@ -808,7 +868,7 @@ final class ProductionDeployBehaviourTest extends TestCase
         $out = $this->base . '/stdout';
         $err = $this->base . '/stderr';
         $own = self::machinesOwnConfig();
-        $p = proc_open(['/bin/bash', $file, ...$args], [0 => ['file', '/dev/null', 'r'], 1 => ['file', $out, 'w'], 2 => ['file', $err, 'w']], $pipes, $this->root, $env + [
+        $p = proc_open(['/bin/bash', $file, ...$args], [0 => $typed === null ? ['file', '/dev/null', 'r'] : ['pipe', 'r'], 1 => ['file', $out, 'w'], 2 => ['file', $err, 'w']], $pipes, $this->root, $env + [
             'PATH' => $path,
             'HOME' => $this->base . '/home',
             'LC_ALL' => 'C',
@@ -820,6 +880,10 @@ final class ProductionDeployBehaviourTest extends TestCase
             'GIT_CONFIG_NOSYSTEM' => '1',
         ]);
         self::assertIsResource($p);
+        if ($typed !== null) {
+            fwrite($pipes[0], $typed);
+            fclose($pipes[0]);
+        }
         $code = proc_close($p);
         foreach (self::OUTSIDE as $o) {
             self::assertFileDoesNotExist($o, "{$script} reached outside its tree");

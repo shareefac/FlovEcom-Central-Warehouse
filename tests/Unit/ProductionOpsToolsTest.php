@@ -106,9 +106,9 @@ final class ProductionOpsToolsTest extends TestCase
         self::assertSame(2, preg_match_all('/^read -rsp /m', $src), 'both reads hide what is typed');
         self::assertSame(0, preg_match('/^read -r?p /m', $src), 'no read shows it');
         self::assertSame(0, preg_match('/^set -[a-z]*x/m', $src), 'no trace prints it');
-        // The check reads the new file alone (no app.env, an empty environment) and refuses any host but production's.
-        $check = strpos($src, 'env -i PATH="$PATH" CW_NEW_DB_ENV="$tmp"');
-        $move = strpos($src, 'mv "$tmp" /etc/cw/db.env');
+        // The check reads the new file alone (CW\Config::fromArrays: no app.env, no environment) and refuses any host but production's.
+        $check = strpos($src, 'CW_NEW_DB_ENV="$tmp" CW_HERE="$here" CW_WANT_HOST="$host" php -r');
+        $move = strpos($src, 'mv "$tmp" "$db_env"');
         self::assertIsInt($check);
         self::assertIsInt($move);
         self::assertLessThan($move, $check, 'checked before it replaces db.env');
@@ -118,8 +118,9 @@ final class ProductionOpsToolsTest extends TestCase
         $noTrace = strpos($src, '{ set +x; } 2>/dev/null');
         self::assertIsInt($noTrace);
         self::assertLessThan((int) strpos($src, 'read -rsp '), $noTrace);
-        self::assertSame(1, preg_match_all('#install -d [^\n]*/etc/cw#', $src));
-        self::assertStringContainsString('[[ -d /etc/cw ]] || install -d -m 0750 -o root -g root /etc/cw', $src);
+        self::assertSame(1, preg_match_all('#install -d #', $src));
+        self::assertStringContainsString('etc_cw=$R/etc/cw', $src);
+        self::assertStringContainsString('[[ -d $etc_cw ]] || install -d -m 0750 -o root -g root "$etc_cw"', $src);
         self::assertStringContainsString("trap 'rm -f \"\$tmp\"' EXIT", $src, 'a refused password leaves no file');
     }
 
