@@ -10698,3 +10698,26 @@ an interpolated bracket and an unclosed call are in the lint's own test; every e
 PHP does not end there), and the tokenized lint then dropped the unfinished comment: `<?= $e('') /* ?> */ . $row['name'] ?>` passed.
 Every `<?= ... ?>` and `<?php ... ?>` block is now read with PHP's own tokenizer, up to the closing tag PHP itself ends it with
 (`UiTemplatesTest::blocks()`, `echoes()`, `phpBlocks()`); Codex's template is in the lint's own test.
+
+### The ninth Codex review (on `ebc6f9f`; `runs/ui5_codex_review9.txt`): its older LOW, closed after the merge (branch `lint-helper-calls`)
+
+**V5.17.** (LOW, older than design v5) The echo lint trusts a helper by its variable's name, so a template that rebinds one prints what
+it likes: `<?php $e = static fn ($v) => $v; ?><?= $e($row['name']) ?>` passed every template lint and printed a raw value. In a
+template's code a helper variable is now only ever called (`$e(`), read with PHP's tokenizer (`UiTemplatesTest::helperMisuse()`,
+`testAHelperIsOnlyEverCalled`, red first: main's lints accepted all 56 cases). Every other use is refused: an assignment of any kind,
+a `foreach`, `catch` or parameter variable, `&$e`, destructuring, `global`/`static`, a closure's `use`, `unset`, a by-reference
+argument. So is what writes a variable by its name: `extract()`, also through `call_user_func(_array)` or a name PHP folds from
+literals (`('ext' . 'ract')(...)`; PHP itself refuses it through a variable), `$$x` and `${'e'}`. One template wrote a helper:
+reasons.php looped `foreach ($uses as $u)` over the `$u` URL helper (nothing called `$u` after the loop); the loop variable is `$use`.
+Codex's review of this change (`runs/lintgap_codex_review.txt`) found a route that replaces what a helper runs instead of rebinding it:
+`<?php namespace CW\Ui; function htmlspecialchars($v, ...$o) { return $v; } ?><?= $e($row['name']) ?>` printed `<b>RAW</b>` (Html::e's
+unqualified `htmlspecialchars()` resolves in CW\Ui first), and `define('CW\Ui\ENT_QUOTES', 0)` left quotes unescaped. A template now
+declares nothing: no namespace, named function, class, interface, trait or enum, no `define()` or `class_alias()` (none did). Its false
+positive, `if ($ok) ($x = 1);` read as a call of a computed name, is fixed: a `)` that closes a control structure's condition is no
+callee. Both red first (`runs/lintgap_red2.log`, `lintgap_red2_cases.txt`). Its second review (`runs/lintgap_codex_review2.txt`) found
+both fixed and no other way to rebind or replace a helper; two false positives it named are fixed too (red first,
+`runs/lintgap_red3.log`): a closure returning by reference (`function &() { ... }`: PHP gives that `&` its own token) and an anonymous
+class with a modifier or an attribute (`new readonly class { }`) declare no name; only `class` followed by a name is a declaration.
+Known, outside this lint and left for a follow-up: the code lint refuses functions by name only, so a function reached through a string
+variable (`$f = 'sys' . 'tem'; $f(...)`) or an output-buffer callback (`ob_start(fn ($b) => html_entity_decode($b))` with
+`ob_end_flush()`, which prints a raw value) passes; an allowlist of the plain functions templates call would close both.

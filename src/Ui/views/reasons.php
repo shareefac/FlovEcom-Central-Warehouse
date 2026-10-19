@@ -21,8 +21,8 @@
     </label>
     <fieldset>
       <legend><?= $word('REASONS_EDIT', 'uses') ?></legend>
-<?php foreach ($uses as $u): ?>
-      <label class="choice"><input type="checkbox" name="use_<?= $e($u['code']) ?>" value="1"<?php if ($u['checked']): ?> checked<?php endif; ?>> <?= $e($u['name']) ?></label>
+<?php foreach ($uses as $use): ?>
+      <label class="choice"><input type="checkbox" name="use_<?= $e($use['code']) ?>" value="1"<?php if ($use['checked']): ?> checked<?php endif; ?>> <?= $e($use['name']) ?></label>
 <?php endforeach; ?>
     </fieldset>
     <fieldset>

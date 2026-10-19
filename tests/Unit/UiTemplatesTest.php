@@ -83,6 +83,63 @@ final class UiTemplatesTest extends TestCase
         }
     }
 
+    /**
+     * Codex's ninth review of ui-v5 (an older gap): the echo lint trusts a helper by its name, so a template that rebinds one prints
+     * what it likes: `<?php $e = static fn ($v) => $v; ?><?= $e($row['name']) ?>` printed a raw value. In a template's code a helper
+     * variable is only ever called (`$e(`); every other use is refused (helperMisuse()): an assignment, a loop, `catch` or parameter
+     * variable, a reference, destructuring, `global` or `static`, a closure's `use`, `unset`, a by-reference argument. So is what writes
+     * a variable by its name: `extract()` (also through `call_user_func` or a name PHP folds from literals) and `$$x`, `${'e'}`. And a
+     * template declares nothing (Codex's review of this lint): a namespace, a named function, a class, `define()` or `class_alias()`
+     * could replace what a helper runs (Html::e's unqualified `htmlspecialchars()` and `ENT_QUOTES` resolve in CW\Ui first).
+     */
+    public function testAHelperIsOnlyEverCalled(): void
+    {
+        foreach (self::templates() as $name => $src) {
+            self::assertSame([], self::helperMisuse($src), "{$name}: a helper variable used other than by calling it");
+        }
+        // The lint itself. Codex's template: the echo lint reads its echo alone and accepts it; the write before it is refused.
+        $codex = "<?php \$e = static fn (\$v) => \$v; ?>\n<?= \$e(\$row['name']) ?>\n";
+        self::assertTrue(self::onlyHelperCalls(trim(self::echoes($codex)[0])), 'the echo alone is a helper call');
+        self::assertSame(['line 1: `$e` then `=`, not a call'], self::helperMisuse($codex));
+        self::assertNotSame([], self::helperMisuse("<?php \$f = function (\$e) { ?><p><?= \$e(\$row['name']) ?></p><?php }; \$f('strval'); ?>"),
+            'a parameter named like a helper, its body across blocks');
+        foreach (['$e .= \'\';', '$e ??= \'strval\';', '$e++;', '$e /* a note */ = \'strval\';', // assignment, compound assignment
+            'foreach ($rows as $e): endforeach;', 'foreach ($rows as $k => $e): endforeach;', 'foreach ($rows as &$e): endforeach;',
+            'foreach ($rows as [\'a\' => $e]): endforeach;', // loops
+            '$x = &$e; $x = \'strval\';', '$x = [&$e];', '$f = fn (&$x) => 1; $f($e);', // references
+            '[$e] = [\'strval\'];', '[, $e] = [1, \'strval\'];', '[\'k\' => $e] = $parts;', 'list($e) = [\'strval\'];', 'list(, list($e)) = $parts;',
+            'global $e;', 'static $e = \'strval\';', '$f = function () use (&$e) { $e = \'strval\'; }; $f();', 'unset($e);',
+            'preg_match(\'/(.*)/\', $s, $e);', 'try { } catch (\Throwable $e) { }', '$f = fn ($e) => $e($row[\'name\']);',
+            // What writes a variable by its name (PHP refuses extract() called through a variable, not these).
+            'extract([\'e\' => \'strval\']);', '\extract([\'e\' => \'strval\']);', 'EXTRACT([\'e\' => \'strval\']);', 'namespace\extract([\'e\' => \'strval\']);',
+            'call_user_func(\'extract\', [\'e\' => \'strval\']);', 'call_user_func_array(\'extract\', [[\'e\' => \'strval\']]);',
+            '(\'ext\' . \'ract\')([\'e\' => \'strval\']);', '\'extract\'([\'e\' => \'strval\']);', '"extract"([\'e\' => \'strval\']);',
+            '$$name = \'strval\';', '${\'e\'} = \'strval\';',
+            // Codex's review of this lint: what replaces what a helper runs (Html::e's unqualified htmlspecialchars() and ENT_QUOTES
+            // resolve in CW\Ui first; a class not loaded yet can be declared first).
+            'namespace CW\Ui; function htmlspecialchars($v, ...$o) { return $v; }', 'define(\'CW\Ui\ENT_QUOTES\', 0);', 'function f() { }',
+            'function &f() { }', 'class_alias(\'Fake\', \'CW\Ui\Words\');', 'final class Words { }', 'readonly class Words { }', 'interface I { }', 'trait T { }', 'enum E { }'] as $code) {
+            self::assertNotSame([], self::helperMisuse('<?php ' . $code . ' ?>'), "refused: {$code}");
+        }
+        self::assertSame(['line 1: a declaration (`namespace`)', 'line 2: a declaration (`function`)'],
+            self::helperMisuse("<?php namespace CW\\Ui;\nfunction htmlspecialchars(\$v, ...\$options) { return \$v; }\n?><?= \$e(\$row['name']) ?>"),
+            'Codex\'s template: the escaping function replaced');
+        foreach (self::HELPERS as $helper) {
+            self::assertNotSame([], self::helperMisuse("<?php \${$helper} = 'strval'; ?>"), "refused: \${$helper} = ...");
+        }
+        foreach (["<?= \$e(\$row['name']) ?>", "<p><?= \$e /* why */ (\$x) . \$n(\$y) ?></p>", "<?php \$chips = \$chip('done', \$t) . \$explain('k'); ?>",
+            "<?php foreach (\$uses as \$use): ?><?= \$e(\$use['name']) ?><?php endforeach; ?>",
+            "<?php \$title = static fn (array \$r): string => \$r['t']; \$every = \$explained = 1; ?><?= \$e(\$title(\$row)) ?>",
+            "<p>\$e = 1 is markup</p><?php /* \$e = 1; extract(\$x); */ ?><?= \$e('\$e = 1, \$\$x, extract()') ?>",
+            // Codex's review of this lint: a control structure's condition is no callee; `::class` and `new class` declare nothing.
+            "<?php if (\$ok) (\$label = 'ok'); ?><?= \$e(\$label) ?>", "<?php if ((\$a)) { } elseif (\$b) (\$c = 1); foreach (\$rows as \$r) (\$d = 1); while (\$x) (\$y = 2); ?>",
+            "<?php for (\$i = 0; \$i < 2; \$i++) (\$j = \$i); switch (\$k) { } (\$m = 1); ?>", "<?= \$e(\\CW\\Ui\\Words::class) ?><?php \$o = new class { }; ?>",
+            // Its second review: a closure returning by reference, an anonymous class with a modifier or an attribute declare no name.
+            "<?php \$f = function &() { static \$x = 1; return \$x; }; ?><?= \$e(\$f()) ?>", "<?php \$o = new readonly class { }; \$p = new #[\\AllowDynamicProperties] class { }; ?>"] as $tpl) {
+            self::assertSame([], self::helperMisuse($tpl), "accepted: {$tpl}");
+        }
+    }
+
     public function testNoInlineScriptStyleOrEventHandlerAndNothingThirdParty(): void
     {
         foreach (self::templates() as $name => $src) {
@@ -842,6 +899,51 @@ final class UiTemplatesTest extends TestCase
             $term[] = $tok;
         }
         return $t !== [] && $depth === 0 && $term === []; // an unclosed call never reaches its end
+    }
+
+    /**
+     * Where a template's code uses a helper variable other than by calling it, writes a variable by its name, or declares something,
+     * as "line <n>: what" (testAHelperIsOnlyEverCalled). Read with PHP's tokenizer, whitespace and comments skipped: markup, comments
+     * and strings hold none. A call whose name is computed (`('ext' . 'ract')(...)`, `'extract'(...)`) is refused: PHP folds the
+     * literals into a direct call. A `)` that closes a control structure's condition is no callee: `if ($ok) ($x = 1);`.
+     *
+     * @return list<string>
+     */
+    private static function helperMisuse(string $src): array
+    {
+        $helpers = array_map(static fn (string $h): string => '$' . $h, self::HELPERS);
+        $toks = array_values(array_filter(token_get_all($src), static fn (array|string $t): bool
+            => !(is_array($t) && in_array($t[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true))));
+        $out = [];
+        $line = 1;
+        $parens = []; // for each open `(`: whether it holds a control structure's condition
+        $closedCondition = false; // whether the token before is the `)` of one
+        foreach ($toks as $i => $tok) {
+            $line = is_array($tok) ? $tok[2] : $line;
+            $prev = $toks[$i - 1] ?? null;
+            $next = $toks[$i + 1] ?? null;
+            $ref = $next === '&' || (is_array($next) && in_array($next[0], [T_AMPERSAND_FOLLOWED_BY_VAR_OR_VARARG, T_AMPERSAND_NOT_FOLLOWED_BY_VAR_OR_VARARG], true));
+            $afterRef = $toks[$i + ($ref ? 2 : 1)] ?? null; // what follows a `function` keyword, past a `&`
+            if (is_array($tok) && $tok[0] === T_VARIABLE && in_array($tok[1], $helpers, true) && $next !== '(') {
+                $out[] = "line {$line}: `{$tok[1]}` then `" . ($next === null ? 'the end' : trim(is_array($next) ? $next[1] : $next)) . '`, not a call';
+            } elseif ($tok === '$') {
+                $out[] = "line {$line}: a variable variable";
+            } elseif (is_array($tok) && in_array($tok[0], [T_STRING, T_NAME_FULLY_QUALIFIED, T_NAME_QUALIFIED, T_NAME_RELATIVE], true)
+                && preg_match('/(?:^|\\\\)(?:extract|call_user_func|call_user_func_array|define|class_alias)$/iD', $tok[1]) === 1) {
+                $out[] = "line {$line}: {$tok[1]}";
+            } elseif (is_array($tok) && (in_array($tok[0], [T_NAMESPACE, T_INTERFACE, T_TRAIT, T_ENUM], true)
+                || ($tok[0] === T_CLASS && is_array($next) && $next[0] === T_STRING) || ($tok[0] === T_FUNCTION && $afterRef !== '('))) {
+                $out[] = "line {$line}: a declaration (`{$tok[1]}`)"; // a closure (`function (`, `function &(`), `::class`, `new class` name none
+            } elseif ($tok === '(' && (($prev === ')' && !$closedCondition) || in_array($prev, [']', '"'], true)
+                || (is_array($prev) && in_array($prev[0], [T_CONSTANT_ENCAPSED_STRING, T_END_HEREDOC], true)))) {
+                $out[] = "line {$line}: a call of a computed name";
+            }
+            if ($tok === '(') {
+                $parens[] = is_array($prev) && in_array($prev[0], [T_IF, T_ELSEIF, T_WHILE, T_FOR, T_FOREACH, T_SWITCH, T_DECLARE], true);
+            }
+            $closedCondition = $tok === ')' && array_pop($parens) === true;
+        }
+        return $out;
     }
 
     /** @return list<string> the code inside <?php ... ?> and <?= ... ?> */

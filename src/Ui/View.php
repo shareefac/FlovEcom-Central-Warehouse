@@ -34,7 +34,8 @@ namespace CW\Ui;
  *   $empty($title, $text, $href, $button)   an empty state that says why and what to do next
  *
  * and `$body` in the layout. Templates never echo anything else: tests/Unit/UiTemplatesTest.php
- * fails the build when a `<?=` prints something that did not pass through one of them, or when a
+ * fails the build when a `<?=` prints something that did not pass through one of them, when a
+ * template uses a helper other than by calling it (a rebound `$e` would print anything), or when a
  * template uses an inline script, style or event handler (the CSP forbids them anyway).
  */
 final class View
