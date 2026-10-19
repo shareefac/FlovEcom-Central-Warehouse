@@ -2759,8 +2759,8 @@ converges the grants and changes nothing else.
 **Not done yet (before the switch):** the off-box copy of the nightly rollback file and its cron line (`bin/rollback_export.php`,
 "The way back to ERPNext"); the document store moved to Object Lock storage; the standby node.
 
-**Secrets: the staff logins and the database password.** `bin/create_staff.php` and `bin/reset_staff.php --new-totp` print a
-one-time password and a TOTP `otpauth://` address once. Run them in the DigitalOcean droplet console (Droplets › cw-prod-lon1-01 ›
+**Secrets: the staff logins and the database password.** `bin/create_staff.php` prints a one-time password and a TOTP
+`otpauth://` address once; `bin/reset_staff.php --new-password` prints a new one-time password, `--new-totp` a new TOTP address. Run them in the DigitalOcean droplet console (Droplets › cw-prod-lon1-01 ›
 Access › Launch Droplet Console), never through a chat, a pasted output or a screenshot, and scan the TOTP from a QR drawn there:
 `php bin/reset_staff.php --email=<address> --new-totp | sed -n 's/^otpauth=//p' | qrencode -t ansiutf8` (`provision.sh` installs
 qrencode). The `doadmin` password is typed only into the hidden prompt of `bash deploy/production/set_db_password.sh`, at the
@@ -2780,12 +2780,14 @@ clusters cannot: Resource Limits › Request an increase first); give the copy `
 copy only its host. Then, in `/opt/cw-prod`:
 
 ```
-php deploy/production/restore_check.php <the copy's private host>
-CW_DB_HOST=<the copy's private host> php bin/invariants.php --db=cw_prod
+copy=<the copy's private host>
+php deploy/production/restore_check.php "$copy" && CW_DB_HOST="$copy" php bin/invariants.php --db=cw_prod
 ```
 
 `restore_check.php` reads both (each table of `cw_prod`, a hash of the columns, each table's COUNT and CHECKSUM TABLE, the users,
-`cw_app`'s grants, `cw_app` signing in to the copy) and refuses production's own host or a second name of the same server
-(`--self-test <production's public host>` is its own check); the tables the jobs write every few minutes may differ, nothing else.
+`cw_app`'s grants, `cw_app` signing in to the copy on `cw_prod`) and refuses production's own host, a second name of the same
+server and a box whose app.env does not name `cw_prod` (`--self-test <production's public host>` is its own check); a check it cannot
+make counts as a difference; the tables the jobs write every few minutes may differ, nothing else. The `&&` keeps `invariants.php`
+off production when the check refuses.
 `invariants.php` records its run in the copy. Then destroy the copy. The result on 19 Oct: 125 tables, 124 identical (`reorder_job`:
 the same rows, rewritten by its 5-minute job), the users and grants the same, `cw_app` signs in, invariants ok.

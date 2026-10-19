@@ -51,6 +51,17 @@ final class ProductionOpsToolsTest extends TestCase
         self::assertSame('', $r['out'], 'nothing compared');
     }
 
+    /** A box whose app.env names another schema than cw_prod (staging, a test box): refused before any connection. */
+    public function testTheRestoreCheckRefusesABoxThatIsNotProduction(): void
+    {
+        $env = $this->files('db.staging.example.test');
+        file_put_contents("{$this->dir}/app.env", str_replace('db_name = cw_prod', 'db_name = cw_staging', (string) file_get_contents("{$this->dir}/app.env")));
+        $r = $this->run_(self::DIR . '/restore_check.php', ['restore.example.test'], $env);
+        self::assertSame(2, $r['code'], $r['err']);
+        self::assertStringContainsString('names the schema cw_staging, not cw_prod', $r['err']);
+        self::assertSame('', $r['out'], 'nothing compared');
+    }
+
     /** The tables the running jobs write between the backup and the check are real tables of the schema. */
     public function testTheRestoreChecksBusyTablesAreTablesOfTheSchema(): void
     {
@@ -95,11 +106,20 @@ final class ProductionOpsToolsTest extends TestCase
         self::assertSame(2, preg_match_all('/^read -rsp /m', $src), 'both reads hide what is typed');
         self::assertSame(0, preg_match('/^read -r?p /m', $src), 'no read shows it');
         self::assertSame(0, preg_match('/^set -[a-z]*x/m', $src), 'no trace prints it');
-        $check = strpos($src, 'env -u CW_DB_HOST -u CW_DB_PORT -u CW_DB_ADMIN_USER -u CW_DB_ADMIN_PASSWORD CW_DB_ENV="$tmp"');
+        // The check reads the new file alone (no app.env, an empty environment) and refuses any host but production's.
+        $check = strpos($src, 'env -i PATH="$PATH" CW_NEW_DB_ENV="$tmp"');
         $move = strpos($src, 'mv "$tmp" /etc/cw/db.env');
         self::assertIsInt($check);
         self::assertIsInt($move);
         self::assertLessThan($move, $check, 'checked before it replaces db.env');
+        self::assertStringContainsString('CW\Config::fromArrays(CW\Config::parseEnvFile(getenv("CW_NEW_DB_ENV")))->dbAdmin()', $src);
+        self::assertStringContainsString('$admin->host !== getenv("CW_WANT_HOST")', $src);
+        // No trace before the password is read; /etc/cw (0750 root:www-data: php-fpm reads app.env) is never changed.
+        $noTrace = strpos($src, '{ set +x; } 2>/dev/null');
+        self::assertIsInt($noTrace);
+        self::assertLessThan((int) strpos($src, 'read -rsp '), $noTrace);
+        self::assertSame(1, preg_match_all('#install -d [^\n]*/etc/cw#', $src));
+        self::assertStringContainsString('[[ -d /etc/cw ]] || install -d -m 0750 -o root -g root /etc/cw', $src);
         self::assertStringContainsString("trap 'rm -f \"\$tmp\"' EXIT", $src, 'a refused password leaves no file');
     }
 

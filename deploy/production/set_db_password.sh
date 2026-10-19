@@ -7,6 +7,8 @@
 #
 #   bash /opt/cw-prod/deploy/production/set_db_password.sh
 set -euo pipefail
+# No trace: `bash -x` would print the password in the comparisons below.
+{ set +x; } 2>/dev/null
 umask 077
 refuse() { echo "set_db_password: REFUSING: $*" >&2; exit 1; }
 [[ $(id -u) -eq 0 ]] || refuse "run as root"
@@ -26,7 +28,8 @@ if [[ -z $P || $P != "$P2" ]]; then
 fi
 unset P2
 
-install -d -m 0750 -o root -g root /etc/cw
+# /etc/cw is 0750 root:www-data once enable_https.sh ran (php-fpm reads app.env): made here only when it is missing, never changed.
+[[ -d /etc/cw ]] || install -d -m 0750 -o root -g root /etc/cw
 tmp=$(mktemp /etc/cw/.db.env.XXXXXX)
 trap 'rm -f "$tmp"' EXIT
 {
@@ -39,9 +42,12 @@ trap 'rm -f "$tmp"' EXIT
 } > "$tmp"
 unset P
 chmod 0600 "$tmp"
-# The check reads the new file as CW reads db.env; nothing inherited from this shell may point it elsewhere.
-if ! env -u CW_DB_HOST -u CW_DB_PORT -u CW_DB_ADMIN_USER -u CW_DB_ADMIN_PASSWORD CW_DB_ENV="$tmp" CW_HERE="$here" \
-    php -r 'require getenv("CW_HERE") . "/vendor/autoload.php"; CW\Db::connect(CW\Config::load()->dbAdmin())->value("SELECT 1");' >/dev/null 2>&1; then
+# The check reads the new file alone (no app.env, no environment that could point it elsewhere) and only production's host.
+if ! env -i PATH="$PATH" CW_NEW_DB_ENV="$tmp" CW_HERE="$here" CW_WANT_HOST="$host" php -r '
+require getenv("CW_HERE") . "/vendor/autoload.php";
+$admin = CW\Config::fromArrays(CW\Config::parseEnvFile(getenv("CW_NEW_DB_ENV")))->dbAdmin();
+if ($admin->host !== getenv("CW_WANT_HOST") || $admin->port !== 25060) { exit(1); }
+CW\Db::connect($admin)->value("SELECT 1");' >/dev/null 2>&1; then
     echo "the database did not accept this password: nothing changed. Copy it again from DigitalOcean and run this again." >&2
     exit 1
 fi

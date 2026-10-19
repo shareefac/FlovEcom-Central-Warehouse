@@ -29,10 +29,14 @@ if (!preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+$/D', $copyHost)) {
     fwrite(STDERR, "usage: php deploy/production/restore_check.php [--self-test] <host of the restored cluster>\n");
     exit(2);
 }
-$env = getenv();
-unset($env['CW_DB_HOST']);
+// Production as its files say it (db.env, app.env): no CW_DB_* override inherited from this shell (only the files' own paths).
+$env = array_filter(getenv(), static fn (string $k): bool => !str_starts_with($k, 'CW_DB_') || $k === 'CW_DB_ENV', ARRAY_FILTER_USE_KEY);
 $prodCfg = Config::load($env);
 $copyCfg = Config::load(['CW_DB_HOST' => $copyHost] + $env);
+if ($prodCfg->appDbName() !== SCHEMA) {
+    fwrite(STDERR, 'REFUSING: this box\'s app.env names the schema ' . ($prodCfg->appDbName() ?? '(none)') . ', not ' . SCHEMA . ": run it on the production box\n");
+    exit(2);
+}
 if (!$selfTest && $prodCfg->dbAdmin()->host === $copyHost) {
     fwrite(STDERR, "REFUSING: {$copyHost} is production's own host\n");
     exit(2);
@@ -70,6 +74,10 @@ $tablesSql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEM
 $tablesP = $prod->column($tablesSql, [SCHEMA]);
 $tablesC = $copy->column($tablesSql, [SCHEMA]);
 $say(sprintf('tables: production %d, copy %d; columns %s', count($tablesP), count($tablesC), $hashP === $hashC ? 'the same' : 'DIFFER'));
+if (!in_array('schema_migrations', $tablesP, true)) {
+    $say('  production has no ' . SCHEMA . ' (no schema_migrations): nothing to compare');
+    $problems++;
+}
 foreach (array_diff($tablesP, $tablesC) as $t) {
     $say("  MISSING in the copy: {$t}");
     $problems++;
@@ -116,7 +124,8 @@ try {
         $problems++;
     }
 } catch (\Throwable $e) {
-    $say('users: cannot read mysql.user (' . Db::driverCode($e) . ')');
+    $say('users: CANNOT read mysql.user (' . Db::driverCode($e) . ')');
+    $problems++;
 }
 $app = $prodCfg->dbApp()->user;
 $grantsSql = 'SHOW GRANTS FOR ' . $prod->pdo()->quote($app) . "@'%'";
@@ -130,6 +139,9 @@ try {
     $asApp = Db::connect($copyCfg->dbApp());
     $who = $asApp->one('SELECT CURRENT_USER() AS u, DATABASE() AS d');
     $say("{$app} signs in to the copy: {$who['u']} on {$who['d']}");
+    if ($who['d'] !== SCHEMA) {
+        $problems++;
+    }
 } catch (\Throwable $e) {
     $say("{$app} CANNOT sign in to the copy: " . $e->getMessage());
     $problems++;
