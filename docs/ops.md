@@ -1062,7 +1062,10 @@ How staff sign in: `https://warehouse-staging.floverfy.com/ui/login` (once the v
 
 Sign-in limits (`LoginLimiter`): 10 failures for one e-mail or 30 for one address in 15 minutes refuse further
 attempts (the answer never says which), also for attempts made at the same moment (they queue on a named lock, U21). Wait 15 minutes; `login_attempt` and `audit_log` (`login.ok`, `login.fail`,
-`logout`) show who tried. Sessions: idle 30 min, absolute 12 h, a new one (and a new id) at every sign-in.
+`logout`) show who tried. Sessions: a new one (and a new id) at every sign-in; it ends after `session.idle_minutes` without a
+page (30 by default, at most 30 days) or `session.absolute_hours` after signing in (12 by default, at most 90 days), the two settings
+under Staff on the Settings page (`docs/decisions.md` SL1-SL5). The cookie lives as long as the second (`Max-Age`), so closing the
+browser does not sign out; signing out, a password change and Users > "Sign them out everywhere" still end a session at once.
 
 ### Documents on the screens (Phase I-1)
 

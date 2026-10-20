@@ -6,6 +6,7 @@ namespace CW\Ui;
 
 use CW\Auth\Csrf;
 use CW\Auth\Permissions;
+use CW\Auth\Sessions;
 use CW\Auth\StaffIdentity;
 use CW\Caller;
 use CW\Catalogue\BarcodeReviews;
@@ -85,7 +86,18 @@ final class Context
         private readonly ?\Closure $log = null,
         /** app.env says environment=staging: every page carries the "TEST SYSTEM" strip. */
         public readonly bool $testSystem = false,
+        /** The staff sessions of this request (the kernel's, which resolved the cookie; null: made on first use). */
+        private ?Sessions $sessions = null,
     ) {
+    }
+
+    /**
+     * The staff sessions of this request: the one the kernel resolved the cookie with, so the session limits (the settings
+     * session.idle_minutes and session.absolute_hours) are read once per request (docs/decisions.md SL2).
+     */
+    public function sessions(): Sessions
+    {
+        return $this->sessions ??= new Sessions($this->db);
     }
 
     /** The box that seals TOTP secrets (app.env ui_secret_key). */

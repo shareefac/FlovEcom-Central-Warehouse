@@ -6,7 +6,6 @@ namespace CW\Ui\Controller;
 
 use CW\Auth\Login;
 use CW\Auth\LoginLimiter;
-use CW\Auth\Sessions;
 use CW\Output\QrCode;
 use CW\Staff\Enrolment;
 use CW\Staff\SetupCode;
@@ -93,8 +92,7 @@ final class AuthController
         }
         if ($result['status'] === 'ok' && $result['token'] !== null) {
             // Back to the page that was asked for (behaviour item 1); a forced password change comes first.
-            return HtmlResponse::redirect($result['must_change'] ? '/ui/password' : ($back ?? '/ui/'))
-                ->withCookie(Kernel::SESSION_COOKIE, $result['token'], $req->secure)
+            return self::withSession(HtmlResponse::redirect($result['must_change'] ? '/ui/password' : ($back ?? '/ui/')), $ctx, $result['token'])
                 ->withoutCookie(Kernel::PRE_COOKIE, $req->secure);
         }
         if ($result['status'] === 'locked') {
@@ -139,8 +137,7 @@ final class AuthController
             $outcome = $this->service($ctx)->changePassword($me->id, $me->sessionId, $req->ip, $req->header('user-agent'), $current, $new);
             if ($outcome['status'] === 'ok' && $outcome['token'] !== null) {
                 // Every session of the person ended, this one too: this browser continues on a new one.
-                return HtmlResponse::redirect('/ui/?notice=password_changed')
-                    ->withCookie(Kernel::SESSION_COOKIE, $outcome['token'], $req->secure);
+                return self::withSession(HtmlResponse::redirect('/ui/?notice=password_changed'), $ctx, $outcome['token']);
             }
             if ($outcome['status'] === 'locked') {
                 return $ctx->page('password', ['error' => Words::SIGN_IN['locked']], 429,
@@ -226,8 +223,7 @@ final class AuthController
         }
         $result = $svc->confirm($token, $code, $new, $req->ip, $req->header('user-agent'), $req->cookie(Kernel::SESSION_COOKIE));
         if ($result['status'] === 'ok' && $result['token'] !== null) {
-            return HtmlResponse::redirect($result['must_change'] ? '/ui/password' : '/ui/?notice=signed_in_new_code')
-                ->withCookie(Kernel::SESSION_COOKIE, $result['token'], $req->secure)
+            return self::withSession(HtmlResponse::redirect($result['must_change'] ? '/ui/password' : '/ui/?notice=signed_in_new_code'), $ctx, $result['token'])
                 ->withoutCookie(Kernel::SETUP_COOKIE, $req->secure)->withoutCookie(Kernel::PRE_COOKIE, $req->secure);
         }
         if ($result['status'] === 'locked') {
@@ -272,7 +268,17 @@ final class AuthController
 
     private function service(Context $ctx): Login
     {
-        return new Login($ctx->db, new Sessions($ctx->db), new LoginLimiter($ctx->db), $ctx->secretBox());
+        return new Login($ctx->db, $ctx->sessions(), new LoginLimiter($ctx->db), $ctx->secretBox());
+    }
+
+    /**
+     * $res with the cookie of a new session (a sign-in, a password change, a finished set-up). It lives as long as the absolute limit
+     * (session.absolute_hours: Sessions::limits; SL3), so closing the browser does not sign the person out; the server still ends the
+     * session at either limit, at sign-out and at a password change, and the kernel clears the cookie of an ended one.
+     */
+    private static function withSession(HtmlResponse $res, Context $ctx, string $token): HtmlResponse
+    {
+        return $res->withCookie(Kernel::SESSION_COOKIE, $token, $ctx->req->secure, $ctx->sessions()->limits()['absolute']);
     }
 
     /**

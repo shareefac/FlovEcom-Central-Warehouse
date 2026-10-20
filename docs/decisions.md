@@ -1531,7 +1531,8 @@ one step under named locks since round 2 (U21).
 
 **U2. Sessions.** `staff_session.id` is the sha256 of a random 256-bit token; the cookie holds the token only
 (`HttpOnly; SameSite=Strict; Path=/ui`, `Secure` when the request is HTTPS). Live while idle < 30 min and age < 12 h, not
-revoked, MFA done. Every sign-in creates a new session and revokes the one the browser presented. Logout is POST-only and
+revoked, MFA done (since 0047 these two are the defaults of the settings `session.idle_minutes` and `session.absolute_hours`, and the
+cookie carries `Max-Age` = the absolute limit: SL1-SL3). Every sign-in creates a new session and revokes the one the browser presented. Logout is POST-only and
 revokes. A code is used once (`staff_user.totp_last_step`). `audit_log`: `login.ok`, `login.fail`, `logout`. The password
 change is forced while `password_must_change` is set (the only reachable routes are `/ui/password` and `/ui/logout`); a change
 rotates the session (U22).
@@ -5380,7 +5381,7 @@ when Admin alone keeps it from them, that and the one fix (`Kernel::refusal`, `P
 expired form, a cross-site post, 404, 405, 413, a truncated form, 500 and the three 503s; `FormOnce`'s two refusals. The sign-in page
 says what to use and who to ask, the code field names the code app, failure and lock-out texts are plain, and a password field has a
 "Show" button (`app.js`, the only script change). The password page names the one-time password on the first sign-in. A request
-whose cookie belonged to a session that ended (idle, 12 hours, signed out or switched off elsewhere) is sent to
+whose cookie belonged to a session that ended (idle, too old, signed out or switched off elsewhere) is sent to
 `/ui/login?why=signed_out`, which says so (plan F056); a cookie nobody issued is still the same as none (`/ui/login`).
 
 **U32. The stylesheet (design A, B's parts).** Tokens on `:root` with dark mode (`prefers-color-scheme`, guarded by
@@ -10721,3 +10722,43 @@ class with a modifier or an attribute (`new readonly class { }`) declare no name
 Known, outside this lint and left for a follow-up: the code lint refuses functions by name only, so a function reached through a string
 variable (`$f = 'sys' . 'tem'; $f(...)`) or an output-buffer callback (`ob_start(fn ($b) => html_entity_decode($b))` with
 `ob_end_flush()`, which prints a raw value) passes; an allowlist of the plain functions templates call would close both.
+
+## How long a person stays signed in (worktree `staff-session-limits`, 20 Oct 2026; SL1-SL5)
+
+The owner, 20 Oct 2026: "we face session time out easily, once logged in don't time out". A session ended after 30 minutes without a page
+or 12 hours after signing in (U2), both fixed in `Auth\Sessions`, and its cookie had no lifetime, so closing the browser signed the person
+out too. The limits are now settings; nothing changes until someone raises them.
+
+**SL1. Two settings (0047).** `session.idle_minutes` (int, baseline 30; `Settings::RULES` 30 to 43,200 = 30 days) and
+`session.absolute_hours` (int, baseline 12; 12 to 2,160 = 90 days), both provisional, with their `config_change` baselines (dev.md rule 5).
+The shortest each may be is the limit of before: a setting can only make sessions longer. They are changed on the Settings page (topic
+Staff) with a reason, like every other setting; this change sets no value on any server. An idle limit longer than the absolute one is
+allowed and simply never decides (the absolute limit ends the session first).
+
+**SL2. Read once per request; a bad value is the limit of before.** `Sessions::limits()` reads both in one statement, once per instance;
+the kernel makes one `Sessions` per request and hands it to the controllers (`Ui\Context::sessions()`: the sign-in, the password change,
+the finished set-up, the Users page's devices), so a request sees one set. A setting that is missing (a schema before 0047), not a whole
+number, or outside its rule (only SQL could store one) reads as its default (`IDLE_SECONDS` = 1800, `ABSOLUTE_SECONDS` = 43200), each
+on its own. `Sessions::liveSql()` is the one condition of a live session: `resolve()`, `revokeAll()` (what "signed out N devices" counts)
+and `Staff\StaffSessions::live()` (Settings > Users, signed-in devices) all use it. A change applies to the next request of everyone
+signed in: a session idle or old beyond a lowered limit ends at its next page, one within a raised limit carries on.
+
+**SL3. The cookie lives as long as the absolute limit.** The session cookie (`HttpOnly; SameSite=Strict; Path=/ui`, `Secure` over HTTPS,
+as U2) now carries `Max-Age` = the absolute limit in seconds at sign-in, at a password change and at the end of a set-up
+(`AuthController::withSession`), so closing the browser does not sign the person out. The server still decides: either limit, signing
+out (POST, revokes the row, `Max-Age=0`), a password change (every session revoked, this browser gets a new one), an admin's sign-out,
+switching the account off, and the kernel clears the cookie of an ended session on its next request. Nothing about session fixation
+changed: every sign-in makes a new random token and revokes the one the browser brought. A raised absolute limit reaches a cookie at the
+person's next sign-in (the browser keeps the Max-Age it was given); cookies issued before this change have no Max-Age and still end
+with the browser.
+
+**SL4. Words.** `Words::UI['signed_out']` names no number ("you were away for too long, your sign-in reached its time limit, or your
+password changed"), true for any setting. The two settings have a name and a help text under Staff (`SETTING_TOPIC['session']`); the
+help gives the day and the week in the unit of the setting and never repeats the value (rule 20), and says that on a shared computer a
+person should sign out themselves.
+
+**SL5. What a longer session costs.** A copied cookie, or an unattended shared computer, stays signed in for as long as the settings
+allow. What stays in place: the cookie is HttpOnly and SameSite=Strict, the CSRF token is bound to the session, Settings > Users lists
+every signed-in device with an admin's "sign out", a password change signs out everywhere, and the sign-in still needs the password and
+the code. There is no "signed in until" column on the Users page (it lists when each device signed in and was last active); none was
+added.

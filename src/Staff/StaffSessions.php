@@ -18,20 +18,19 @@ final class StaffSessions
     public const HANDLE = 16;
 
     /**
-     * The live sessions (not ended, second factor done, active in the last 30 minutes, younger than 12 hours: Sessions), newest
-     * activity first; of one person, or of everyone (null).
+     * The live sessions (not ended, second factor done, within the idle and absolute limits in force: Sessions::liveSql, the settings
+     * session.idle_minutes and session.absolute_hours), newest activity first; of one person, or of everyone (null). $sessions: the
+     * request's (Ui\Context::sessions(): the limits read once per request), else a new one.
      *
      * @return list<array{handle: string, staff_user_id: int, name: string, created_at: string, last_seen_at: string, ip: ?string}>
      */
-    public static function live(Db $db, ?int $staffUserId = null): array
+    public static function live(Db $db, ?int $staffUserId = null, ?Sessions $sessions = null): array
     {
         $out = [];
         foreach ($db->all(
             'SELECT LEFT(s.id, ' . self::HANDLE . ') AS handle, s.staff_user_id, u.display_name, s.created_at, s.last_seen_at, s.ip '
             . 'FROM staff_session s JOIN staff_user u ON u.id = s.staff_user_id '
-            . 'WHERE s.revoked = 0 AND s.mfa_at IS NOT NULL AND u.is_active = 1 '
-            . 'AND s.created_at > NOW(6) - INTERVAL ' . Sessions::ABSOLUTE_SECONDS . ' SECOND '
-            . 'AND s.last_seen_at > NOW(6) - INTERVAL ' . Sessions::IDLE_SECONDS . ' SECOND '
+            . 'WHERE ' . ($sessions ?? new Sessions($db))->liveSql('s') . ' AND u.is_active = 1 '
             . ($staffUserId === null ? '' : 'AND s.staff_user_id = ? ') . 'ORDER BY s.last_seen_at DESC LIMIT 200',
             $staffUserId === null ? [] : [$staffUserId],
         ) as $r) {

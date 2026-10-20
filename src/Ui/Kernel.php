@@ -71,7 +71,8 @@ use CW\Ui\Controller\RepackController;
  *
  *   1. route (404 / 405; no database work for a path that does not exist)
  *   2. connect as the app login (cw_app) and load `ui_secret_key` (CSRF); 503 page when either fails
- *   3. resolve the session cookie: live session (not revoked, MFA done, idle < 30 min, age < 12 h) or nobody
+ *   3. resolve the session cookie: live session (not revoked, MFA done, idle and age within the limits of the settings
+ *      session.idle_minutes and session.absolute_hours, 30 minutes and 12 hours by default: Auth\Sessions::limits) or nobody
  *   4. access: public routes; otherwise sign-in (303 to /ui/login), forced password change,
  *      then the route's permission (Auth\Permissions::MAP, checked against the roles read for this
  *      request: a page a person cannot open is refused 403, not only left out of their menu, I11)
@@ -198,10 +199,12 @@ final class Kernel
             return $this->bare(503, 'unavailable', Words::error('unavailable'), $rid)->withHeader('Retry-After', '5');
         }
 
-        $who = (new Sessions($db))->resolve($req->cookie(self::SESSION_COOKIE));
+        // One Sessions for the request: its limits (the settings session.*) are read once (SL2), here and by the controllers (Context).
+        $sessions = new Sessions($db);
+        $who = $sessions->resolve($req->cookie(self::SESSION_COOKIE));
         $pre = $req->cookie(self::PRE_COOKIE);
         $pre = $pre !== null && preg_match('/^[A-Za-z0-9_-]{43}$/D', $pre) === 1 ? $pre : null;
-        $ctx = new Context($req, $db, $who, $csrf, $params, $rid, $pre, $key, $this->handlers, $this->log, $this->testSystem());
+        $ctx = new Context($req, $db, $who, $csrf, $params, $rid, $pre, $key, $this->handlers, $this->log, $this->testSystem(), $sessions);
         try {
             return $this->guarded($route, $ctx);
         } catch (CwException $e) {
@@ -221,7 +224,7 @@ final class Kernel
         } else {
             if ($who === null) {
                 $cookie = $req->cookie(self::SESSION_COOKIE);
-                // A cookie of a session that ended (30 minutes away, 12 hours old, signed out or switched off elsewhere): the
+                // A cookie of a session that ended (away too long, too old, signed out or switched off elsewhere): the
                 // sign-in page says why (plan F056). A cookie nobody issued is the same as none.
                 $id = $cookie === null ? null : Sessions::idOf($cookie);
                 $ended = $id !== null && $ctx->db->value('SELECT 1 FROM staff_session WHERE id = ?', [$id]) !== null;

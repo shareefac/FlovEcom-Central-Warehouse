@@ -334,6 +334,7 @@ final class WordsTest extends TestCase
             '0040_invoice_price_wins.sql', // pack C follow-up (PC19)
             '0041_incoming_stock.sql', // Pack J
             '0046_rollback_export.sql', // Pack RB
+            '0047_staff_session_limits.sql', // how long a person stays signed in (SL1)
         ] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];

@@ -55,6 +55,8 @@ final class UiAuthTest extends UiTestCase
         self::assertStringContainsString('SameSite=Strict', $cookie);
         self::assertStringContainsString('Path=/ui', $cookie);
         self::assertStringNotContainsString('Secure', $cookie, 'no Secure over plain HTTP (the HTTPS vhost sets it: see UiUnitTest)');
+        self::assertStringContainsString('; Max-Age=' . Sessions::ABSOLUTE_SECONDS, $cookie,
+            'the cookie lives as long as the absolute limit (session.absolute_hours, 12 by default: SL3): closing the browser does not sign out');
         self::assertStringContainsString('cw_pre=;', (string) $login->setCookie('cw_pre'), 'the pre-login cookie is dropped');
 
         $token = $web->cookies['cw_session'];
@@ -195,6 +197,7 @@ final class UiAuthTest extends UiTestCase
         self::assertSame(303, $out->status);
         self::assertSame('/ui/login', $out->location());
         self::assertStringContainsString('cw_session=;', (string) $out->setCookie('cw_session'));
+        self::assertStringContainsString('Max-Age=0', (string) $out->setCookie('cw_session'), 'the long-lived cookie is cleared, not left to its Max-Age');
         self::assertSame(1, self::auditCount('logout', $user['id']));
         self::assertSame(1, (int) self::$db->value('SELECT revoked FROM staff_session'));
 
@@ -209,6 +212,7 @@ final class UiAuthTest extends UiTestCase
         self::assertSame(303, $thief->get('/ui/')->status);
     }
 
+    /** The defaults of session.idle_minutes and session.absolute_hours (0047, SL1); raised limits: UiKernel\SessionLimitsTest. */
     public function testASessionEndsAfterThirtyIdleMinutesAndTwelveHoursInAll(): void
     {
         $user = $this->uiUser('mapper');
@@ -233,8 +237,9 @@ final class UiAuthTest extends UiTestCase
         self::assertSame(303, $r->status, 'older than 12 hours, however active');
         self::assertSame('/ui/login?why=signed_out', $r->location());
 
-        self::assertSame(Sessions::IDLE_SECONDS, 1800);
-        self::assertSame(Sessions::ABSOLUTE_SECONDS, 43200);
+        self::assertSame(Sessions::IDLE_SECONDS, 1800, 'the default of session.idle_minutes: 30 minutes');
+        self::assertSame(Sessions::ABSOLUTE_SECONDS, 43200, 'the default of session.absolute_hours: 12 hours');
+        self::assertSame(['idle' => 1800, 'absolute' => 43200], (new Sessions(self::$db))->limits(), 'the settings at their baselines: the limits of before');
     }
 
     public function testAnAccountIsLockedAfterTenFailuresForFifteenMinutes(): void

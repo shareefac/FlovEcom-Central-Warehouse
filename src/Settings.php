@@ -208,6 +208,11 @@ final class Settings
             'pattern_says' => 'an ERPNext company name, like VAPE AND GO'],
         'rollback.max_rows' => ['min' => 1, 'max' => 10_000_000],
         // ---- end of pack RB ----
+        // ---- How long a person stays signed in (0047; docs/decisions.md SL1-SL5; Auth\Sessions::limits): minutes without opening a page,
+        // and hours after signing in (also the session cookie's lifetime). Never shorter than the fixed limits of before (30 minutes, 12
+        // hours: the defaults); at most 30 days away and 90 days in all.
+        'session.idle_minutes' => ['min' => 30, 'max' => 43_200],
+        'session.absolute_hours' => ['min' => 12, 'max' => 2_160],
     ];
 
     /**

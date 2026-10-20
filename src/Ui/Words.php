@@ -2446,6 +2446,9 @@ final class Words
         // ---- end Pack E
         'staff.setup_hours' => 'Hours to set up a sign-in',
         'staff.min_reviewers' => 'Reviewers needed',
+        // How long a person stays signed in (0047, docs/decisions.md SL4).
+        'session.idle_minutes' => 'Minutes away before a person is signed out',
+        'session.absolute_hours' => 'Hours a sign-in lasts at most',
         // ---- Pack D (docs/decisions.md PD9) ----
         'sales.page_size' => 'Rows on a page of Sales',
         'sales.default_days' => 'Days Store orders looks back',
@@ -2755,7 +2758,8 @@ final class Words
         'what_each_answer_does' => 'What each answer does',
         'login_first_time' => 'First time? Use the one-time password you were given. You will choose your own password next.',
         'login_stuck' => 'Lost your phone or forgot your password? Ask ' . self::ASK_ROLE . '.',
-        'signed_out' => 'You were signed out: you were away for 30 minutes, 12 hours passed since you signed in, or your password changed. Sign in again to carry on.',
+        // No number (SL4): how long a person may stay signed in is a setting (session.idle_minutes, session.absolute_hours).
+        'signed_out' => 'You were signed out: you were away for too long, your sign-in reached its time limit, or your password changed. Sign in again to carry on.',
         // Behaviour item 1 (F057): a form sent while signed out is dropped.
         'lost' => 'What you sent was NOT saved, because you were not signed in any more. Sign in, then do it again.',
         // Design v5 (owner's brief, 19 Oct 2026): the sidebar's bell (everything waiting for this person, on the Dashboard) and the
@@ -3583,6 +3587,7 @@ final class Words
         'site_writer' => 'Websites',
         'approvals' => 'Approval rules',
         'staff' => 'Staff',
+        'session' => 'Staff', // how long a person stays signed in (0047, SL4)
         'mapping' => 'Matching products',
         'sales' => 'Sales and dispatch', // pack D (PD9)
         'items' => 'Items', // Pack B
@@ -3700,6 +3705,12 @@ final class Words
             . 'state reads as not known: such a variant is skipped until its store\'s list is loaded again, or a person opens it and decides.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
+        // How long a person stays signed in (0047, docs/decisions.md SL4): the words never repeat the value (rule 20).
+        'session.idle_minutes' => 'A person who opens no page for this many minutes is signed out. They sign in again with their password and code. '
+            . '1,440 minutes is a day; 10,080 is a week. A change applies from each person\'s next page.',
+        'session.absolute_hours' => 'However active a person is, they are signed out this many hours after signing in. Closing the browser does not '
+            . 'sign them out, so on a shared computer they should sign out themselves. 24 hours is a day; 168 is a week. A shorter time applies at '
+            . 'once; a longer one from each person\'s next sign-in.',
         // ---- Pack D (docs/decisions.md PD9) ----
         'sales.page_size' => 'How many rows Stock › Sales shows on a page (Orders, Dispatch, Returns), and how many sold units of one order: 25, 50, 100 or 200.',
         'sales.default_days' => 'Store orders opens with the orders placed in this many days, today included (7: the last week). '

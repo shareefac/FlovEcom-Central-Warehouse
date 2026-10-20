@@ -120,7 +120,7 @@ final class PeopleController
             'typed' => ['name' => (string) ($typed['name'] ?? ''), 'email' => (string) ($typed['email'] ?? '')],
             'error' => $error === null ? null : self::plain($error, [], $typed['roles'] ?? []),
             'errorCode' => $error?->errorCode,
-            'devices' => StaffSessions::live($ctx->db),
+            'devices' => StaffSessions::live($ctx->db, null, $ctx->sessions()),
             'requests' => count((new RoleRequests($ctx->db))->pending()),
         ], $status, ['title' => Words::MENU['people'], 'active' => 'people', 'notice' => $notice]);
     }
@@ -402,7 +402,7 @@ final class PeopleController
             'history' => $history,
             'adminCompatible' => Words::andList(array_map(static fn (string $r): string => Words::of('ROLE', $r), Permissions::ADMIN_COMPATIBLE), 'or'),
             'placeholder' => StaffAdmin::isPlaceholder($person['email']),
-            'devices' => StaffSessions::live($db, $id),
+            'devices' => StaffSessions::live($db, $id, $ctx->sessions()),
             'setup' => StaffAdmin::setupInfo($db, $id),
             'request' => (new RoleRequests($db))->openFor($id),
             'approvedReset' => RoleRequests::approvedReset($db, $id),
