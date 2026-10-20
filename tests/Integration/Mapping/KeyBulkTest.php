@@ -441,9 +441,55 @@ final class KeyBulkTest extends MappingTestCase
     }
 
     /**
+     * A spot check keeps its matches for its owner only while the owner can still answer them (docs/decisions.md DG1): an active
+     * person with a matching lead's job, the only one whose confirmations KeySample counts. A spot check whose owner lost the job or
+     * was switched off can never be completed, so it keeps nothing: its matches would otherwise be stuck, decidable by nobody.
+     */
+    public function testASpotCheckWhoseOwnerCanNoLongerAnswerItKeepsNothing(): void
+    {
+        $pop = $this->population(16, 8);
+        $owner = $pop['owner'];
+        $s = $this->samples()->create($owner, 'own3', 20, true);
+        $m = $s['members'];
+        $lids = [(int) $m[0]['listing_id'], (int) $m[1]['listing_id']];
+        $otherLead = $this->staffUser('mapping_lead');
+        self::refused(403, 'spot_check_other', fn () => $this->confirm($otherLead, $m[0]['proposal_id']));
+        self::assertEqualsCanonicalizing($lids, array_keys($this->samples()->keeping($lids)));
+        // The owner loses the matching lead's job (a Matcher still): kept no more; given it back: kept again.
+        self::$db->exec("UPDATE staff_role SET revoked_at = NOW(6) WHERE staff_user_id = ? AND role = 'mapping_lead'", [$owner->staffUserId]);
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'mapper')", [$owner->staffUserId]);
+        self::assertSame([], $this->samples()->keeping($lids));
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'mapping_lead')", [$owner->staffUserId]);
+        self::assertEqualsCanonicalizing($lids, array_keys($this->samples()->keeping($lids)));
+        // Switched off: kept no more, and another matching lead decides its matches.
+        self::$db->exec('UPDATE staff_user SET is_active = 0 WHERE id = ?', [$owner->staffUserId]);
+        self::assertSame([], $this->samples()->keeping($lids));
+        self::assertSame('applied', $this->confirm($otherLead, $m[0]['proposal_id'])['state']);
+    }
+
+    /**
+     * A complete spot check still keeps its confirmed matches for its owner (docs/decisions.md DG1, as the page has since U71): a change
+     * by anyone else would fail it after all (changed_since), and its bulk confirm would refuse.
+     */
+    public function testACompleteSpotChecksConfirmedMatchesStayTheOwners(): void
+    {
+        $pop = $this->population(16, 8);
+        $owner = $pop['owner'];
+        $this->samples()->create($owner, 'own4', 20, true);
+        $m = $this->confirmMembers($owner, 'own4');
+        self::assertSame('complete', $this->samples()->status('own4')['verdict']);
+        $e = self::refused(403, 'spot_check_other', fn () => $this->decide($this->staffUser('mapping_lead'), 'unlink', (int) $m[0]['listing_id'], ['reason' => 'wrong']));
+        self::assertSame([(int) $m[0]['listing_id'], 'own4', true], [$e->detail['listing_id'], $e->detail['sample'], $e->detail['done']]);
+        self::refused(403, 'spot_check_other', fn () => $this->decide($this->staffUser('mapper'), 'ignore', (int) $m[1]['listing_id'], ['reason' => 'not sold']));
+        self::assertSame('complete', $this->samples()->status('own4')['verdict'], 'still complete');
+        self::assertSame('applied', $this->decide($owner, 'unlink', (int) $m[0]['listing_id'], ['reason' => 'checked again'])['state'], 'the owner may');
+    }
+
+    /**
      * A merge moves every variant of the item it joins away (M31), so it can change the match of a spot check's confirmed match it
      * does not name (KeySample: changed_since, the spot check fails). While the spot check is open such a merge is its owner's too
-     * (403 spot_check_other, naming that variant; nothing is written); the owner's own merge is not refused.
+     * (403 spot_check_other, naming that variant; nothing is written), and a pending one is checked as the lead who approves it; the
+     * owner's approval applies it.
      */
     public function testAMergeThatMovesAnOpenSpotChecksConfirmedMatchIsTheOwnersAlone(): void
     {
@@ -458,12 +504,20 @@ final class KeyBulkTest extends MappingTestCase
         $merge = fn (Caller $who): array => $this->decide($who, 'merge_skus', $anchor, ['sku_id' => $keep, 'merge_from_sku_id' => $from]);
         $merges = fn (): int => $this->rows("SELECT COUNT(*) FROM match_decision WHERE action = 'merge_skus'");
         $before = $merges();
-        $e = self::refused(403, 'spot_check_other', fn () => $merge($this->staffUser('mapping_lead')));
+        $otherLead = $this->staffUser('mapping_lead');
+        $e = self::refused(403, 'spot_check_other', fn () => $merge($otherLead));
         self::assertSame([(int) $m['listing_id'], 'own2', true], [$e->detail['listing_id'], $e->detail['sample'], $e->detail['done']]);
         self::assertSame([$before, $from, $from], [$merges(), (int) $this->link($m['listing_id'])['sku_id'], (int) $this->link($anchor)['sku_id']], 'nothing was written');
         self::assertSame('confirmed', $this->samples()->status('own2')['members'][0]['state']);
-        self::assertSame('applied', $merge($owner)['state']);
-        self::assertSame($keep, (int) $this->link($m['listing_id'])['sku_id']);
+        // A Matcher's merge waits for a matching lead (M31): its approval is what moves the variants, so it is the approver who is
+        // asked. Another lead's approval is refused (the request still waits); the owner's applies it.
+        $pending = $merge($this->staffUser('mapper'));
+        self::assertSame(['pending_second', ['merge']], [$pending['state'], $pending['needs_second']]);
+        self::refused(403, 'spot_check_other', fn () => $this->ds->approve($otherLead, $pending['decision_id']));
+        self::assertSame(['pending_second', $from], [(string) self::$db->value('SELECT state FROM match_decision WHERE id = ?', [$pending['decision_id']]),
+            (int) $this->link($m['listing_id'])['sku_id']]);
+        self::assertSame('applied', $this->ds->approve($owner, $pending['decision_id'])['state']);
+        self::assertSame([$keep, $keep], [(int) $this->link($m['listing_id'])['sku_id'], (int) $this->link($anchor)['sku_id']]);
     }
 
     public function testOneRejectionStopsTheBulkConfirmAndNoNewSampleGetsPastIt(): void

@@ -221,6 +221,39 @@ final class DecisionServiceTest extends MappingTestCase
         $this->decide($mapper, 'reject', $e, ['sku_id' => $b] + $no);
         self::assertSame([6, 2], array_slice($written(), 0, 2), 'five new answers, about two items');
         self::assertArrayNotHasKey('repeated', $this->decide($mapper, 'reject', $e, ['reason' => null] + $no));
+        // The website changed the listing since (its map_version moved on: the person looked again): a new answer, recorded.
+        self::assertSame(1, DecisionService::identityChanged(self::$db, [$e]));
+        $fresh = $this->decide($mapper, 'reject', $e, ['reason' => null] + $no);
+        self::assertSame([null, 2, 8], [$fresh['repeated'] ?? null, $fresh['map_version'], $written()[0]]);
+        self::assertTrue($this->decide($mapper, 'reject', $e, ['reason' => null] + $no)['repeated'], 'and that one, sent twice, is recorded once');
+    }
+
+    /**
+     * A merge suggestion's "different products" (a reject of the item it proposes, M34) settles the suggestion, so the same form sent
+     * again names a suggestion that is no longer open. The same person's same answer is still the same answer (docs/decisions.md DG3):
+     * it answers as the first did, and nothing is written. Anyone else's, or another answer naming that suggestion, is refused as
+     * before (409 proposal_closed).
+     */
+    public function testTheSameNoTwiceToAMergeSuggestionAnswersAsTheFirst(): void
+    {
+        $vpg = $this->site('vpg', 'live');
+        [$mapper, $lead] = [$this->staffUser('mapper'), $this->staffUser('mapping_lead')];
+        [$keep, $dup] = [$this->item('legacy'), $this->item('legacy')];
+        $v2 = $this->listing($vpg, 'V2', null);
+        $this->decide($lead, 'link', $v2, ['sku_id' => $dup]);
+        $pid = $this->propose($v2, 'Manual', $keep, ['lane' => 'vpg_duplicate'], false, 'dups');
+        $no = ['sku_id' => $keep, 'proposal_id' => $pid, 'reason' => 'different products'];
+        $first = $this->decide($mapper, 'reject', $v2, $no);
+        self::assertSame('decided', self::$db->value('SELECT status FROM match_proposal WHERE id = ?', [$pid]), 'the suggestion is settled');
+        $count = static fn (): array => [(int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE action = 'reject'"), (int) self::$db->value('SELECT COUNT(*) FROM audit_log')];
+        $before = $count();
+        $again = $this->decide($mapper, 'reject', $v2, $no);
+        self::assertSame([$first['decision_id'], true], [$again['decision_id'], $again['repeated'] ?? null]);
+        self::assertSame($before, $count(), 'nothing was written');
+        self::refused(409, 'proposal_closed', fn () => $this->decide($lead, 'reject', $v2, $no));
+        self::refused(409, 'proposal_closed', fn () => $this->decide($mapper, 'reject', $v2, ['reason' => 'another note'] + $no));
+        self::refused(409, 'proposal_closed', fn () => $this->decide($mapper, 'merge_skus', $v2, ['sku_id' => $keep, 'merge_from_sku_id' => $dup, 'proposal_id' => $pid]));
+        self::assertSame($before, $count());
     }
 
     public function testRejectKeepsTheProposalOpenAndALaterLinkToTheRejectedItemNeedsASecondPerson(): void

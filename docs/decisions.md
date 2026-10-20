@@ -10924,8 +10924,10 @@ gets **403 `spot_check_other`** with the listing, the spot check, its owner and 
 - "Open" is "not failed": while a spot check waits, each match is still to answer or confirmed by its owner, and any other person's
   decision fails it for good (`confirmed_by_other`, `decided_otherwise`, `changed_since`). A complete spot check keeps its confirmed
   matches too (a change would fail it after all). A failed one keeps nothing: there is nothing more to lose, and its matches are still
-  one at a time on the screens (DG2). A listing that is a match of two spot checks (the older failed when its suggestion was replaced)
-  is kept by the newest that keeps it.
+  one at a time on the screens (DG2). Neither does one whose owner can no longer answer it (switched off, or without a matching lead's
+  job): no confirmation of theirs would count, so it can never be completed, and its matches would be stuck, decidable by nobody (the
+  page still shows others no form there; a lead can now decide such a match). A listing that is a match of two spot checks (the older
+  failed when its suggestion was replaced) is kept by the newest that keeps it.
 - A merge moves every listing of the item it joins away (M31), named or not: `merge()` asks the same for each listing it moves, as the
   person applying it (the decider, or the lead approving a pending merge). The Duplicates page shows `DUP_ERROR['spot_check_other']`.
 - `BulkDecisions` already skips a spot check's matches before a row is sent (OneAtATime); a spot check drawn between that check and the
@@ -10955,8 +10957,11 @@ it is now (with the hold's note, the spot check's box or the check on arrival's 
 
 **DG3. The same "No, wrong product" twice is recorded once.** A reject does not move map_version, so a double click (or a script that
 sends again) wrote a second decision and audit row. Now, under the listing's lock, a person's reject that is exactly the listing's
-latest decision again (same person, same item, same suggestion, same note, not in a ticked list's batch) writes nothing and answers as
-the first did (the same decision id, `repeated`); the screen shows the same page and notice, so a double click is no error. Chosen over
+latest decision again (same person, same item, same suggestion, same note, the same map_version as that decision, not in a ticked
+list's batch) writes nothing and answers as the first did (the same decision id, `repeated`); the screen shows the same page and
+notice, so a double click is no error. That holds too when the first send settled the suggestion it named (a merge suggestion's
+"different products", M34): the replay answers before the suggestion is called closed; anything else naming it is still 409
+`proposal_closed`. Chosen over
 a refusal because the person did nothing wrong (the browser shows the second answer: "Not saved" would say the first failed) and
 over a one-time key because the form has none and the rest of the decide form needs none (every other answer moves map_version, so a
 second send is refused as stale). Anything else is still a new answer, recorded as before: another person's "No", another note, another
@@ -10988,3 +10993,18 @@ page's own form by a Matcher, a variant not held); `OneAtATimeScreenTest` (a var
 `ByProductScreenTest::testAStaleMatchButtonOnAnotherLeadsSpotCheckOrAHeldVariantIsRefusedOnTheVariantsPage` (a fold drawn before
 the spot check and the hold: another lead's and a Matcher's button 403, the owner's and a held variant's 409, each on the variant's page
 with its words and the way back; the page's own form and a free variant's button saved); `WordsTest` (the new codes have words; `plain()` names the owner, or the job when no name is known).
+
+### The first Codex review (on `3707add`; `runs/decideguard2_codex_review.txt`): no HIGH, two MEDIUM and one LOW, fixed test-first
+
+Each new test failed first (`runs/decideguard2_r1_red.log`) and passes now.
+- **MEDIUM: a new answer after the listing changed was taken for a repeat.** `sameNoAgain()` did not compare map_version: a "No"
+  after the website changed the variant's identity (map_version moved on; the person looked again) wrote nothing. It now needs the
+  first reject's `expected_map_version` (`DecisionServiceTest::testTheSameNoTwiceIsRecordedOnce`, its end).
+- **MEDIUM: the same "No" to a merge suggestion was refused.** Its first send settles the suggestion, so the replay hit 409
+  `proposal_closed` before DG3. The replay is now recognised there (`testTheSameNoTwiceToAMergeSuggestionAnswersAsTheFirst`).
+- **LOW: DG1's edges were not pinned.** `KeyBulkTest::testACompleteSpotChecksConfirmedMatchesStayTheOwners`, and in
+  `testAMergeThatMovesAnOpenSpotChecksConfirmedMatchIsTheOwnersAlone` a Matcher's pending merge refused at another lead's approval and
+  applied at the owner's. The bulk race (a spot check drawn between a list's checks and the row's decision) is not reproducible without
+  a second process at that moment; the mapping to `in_spot_check` is read, not tested.
+- Found while fixing: a spot check whose owner can no longer answer it kept its matches for nobody
+  (`testASpotCheckWhoseOwnerCanNoLongerAnswerItKeepsNothing`; DG1 above).

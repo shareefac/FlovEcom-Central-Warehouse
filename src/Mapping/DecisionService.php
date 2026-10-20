@@ -63,8 +63,10 @@ use CW\Stock;
  * Who decides a spot check's match (M28; docs/decisions.md DG1): while the spot check has not failed,
  * its owner alone (KeySample::keeping), for this listing and for every listing a merge moves; anyone
  * else is refused, 403 spot_check_other, whatever the caller. The same "No, wrong product" again by the
- * same person (a double send) writes nothing and answers as the first did (`repeated`). Relinking a listing whose units are in flight on a
- * counted item queues a recount of both items (remapCorrection, design A.9 rule 5).
+ * same person (a double send) writes nothing and answers as the first did (`repeated`).
+ *
+ * Relinking a listing whose units are in flight on a counted item queues a recount of both items
+ * (remapCorrection, design A.9 rule 5).
  *
  * Lock order (docs/decisions.md M4): reservation rows -> channel_listing (X) -> sku (S, X only
  * for the item merged away or revived by a split) -> stock_balance (adoption; the stock of a merge
@@ -641,6 +643,12 @@ final class DecisionService
             $p = $this->db->one('SELECT listing_id, status FROM match_proposal WHERE id = ?', [$r['proposal_id']]);
             if ($p === null || (int) $p['listing_id'] !== $l['id']) {
                 throw new CwException('proposal_mismatch', 'the proposal is not one of this listing', 422);
+            }
+            // The same "No" again whose first send settled the suggestion it named (a merge suggestion's "different products", M34;
+            // docs/decisions.md DG3): it answers as the first did. Anything else naming a closed suggestion is refused as before.
+            $same = $action === 'reject' && $staff !== null && $r['bulk_batch_id'] === null ? $this->sameNoAgain($staff['id'], $r, $l) : null;
+            if ($same !== null) {
+                return $same;
             }
             throw new CwException('proposal_closed', "the proposal is {$p['status']}", 409);
         }
@@ -1579,8 +1587,8 @@ final class DecisionService
 
     /**
      * "No, wrong product" again (docs/decisions.md DG3): the same person's reject of the same item, about the same suggestion and with
-     * the same note, when that reject is the listing's latest decision (a reject does not move map_version, so a second send of the
-     * page's form, which has no one-time key, would write it twice). Nothing is written; the answer is the first one's, with
+     * the same note, against the same map_version, when that reject is the listing's latest decision (a reject does not move
+     * map_version, so a second send of the page's form, which has no one-time key, would write it twice). Nothing is written; the answer is the first one's, with
      * `repeated`. Anything else is a new answer, recorded as before: another person's, another note, another item, a ticked list's,
      * or the same one once something else was decided on the listing since.
      *
@@ -1590,9 +1598,12 @@ final class DecisionService
      */
     private function sameNoAgain(int $staffId, array $r, array $l): ?array
     {
-        $last = $this->db->one("SELECT id, action, state, sku_id, proposal_id, decided_by, reason, bulk_batch_id FROM match_decision WHERE listing_id = ? "
-            . "AND action <> 'suggest' ORDER BY id DESC LIMIT 1", [$l['id']]);
+        $last = $this->db->one('SELECT id, action, state, sku_id, proposal_id, decided_by, reason, bulk_batch_id, expected_map_version FROM match_decision '
+            . "WHERE listing_id = ? AND action <> 'suggest' ORDER BY id DESC LIMIT 1", [$l['id']]);
+        // Against the same map_version as the first (the caller checked it is the listing's now): the listing has not changed since,
+        // so the person cannot have seen anything new (a website change of its identity moves it on: then it is a new answer).
         if ($last === null || $last['action'] !== 'reject' || $last['state'] !== 'applied' || $last['bulk_batch_id'] !== null
+            || (int) $last['expected_map_version'] !== $r['expected_map_version']
             || (int) $last['decided_by'] !== $staffId || (int) $last['sku_id'] !== $r['sku_id']
             || ($last['proposal_id'] === null ? null : (int) $last['proposal_id']) !== $r['proposal_id']
             || ($last['reason'] === null ? null : (string) $last['reason']) !== $r['reason']) {

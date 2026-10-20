@@ -362,8 +362,10 @@ final class KeySample
      * check has not failed, each of its matches is still to answer (`done` false) or confirmed by its owner (`done` true), and a
      * decision on it by anyone else fails it (decided otherwise, confirmed by another, changed since): DecisionService asks here under
      * the listing's lock before a person's decision (and for every variant a merge moves) and refuses anyone but the owner. A failed
-     * spot check keeps nothing (nothing more to lose; its matches are still one at a time on the screens, OneAtATime). A listing that
-     * is a match of two spot checks (the older one failed when its suggestion was replaced) is kept by the newest that keeps it.
+     * spot check keeps nothing (nothing more to lose; its matches are still one at a time on the screens, OneAtATime), and neither does
+     * one whose owner can no longer answer it (switched off, or without a matching lead's job: no confirmation of theirs would count,
+     * so it can never be completed, and its matches would be stuck). A listing that is a match of two spot checks (the older one failed
+     * when its suggestion was replaced) is kept by the newest that keeps it.
      *
      * @param list<int> $listingIds
      * @return array<int, array{sample_id: int, sample: string, owner_id: int, owner: ?string, done: bool}> listing id => the spot check
@@ -387,7 +389,7 @@ final class KeySample
             if (!array_key_exists($sid, $samples)) {
                 $k = $this->find($sid);
                 $samples[$sid] = null;
-                if ($k !== null) {
+                if ($k !== null && self::canAnswer($this->db, (int) $k['created_by'])) {
                     [$members, $count] = $this->memberStates($k);
                     if (self::verdictOf($count, count($members), (int) $k['sample_size']) !== 'failed') {
                         $samples[$sid] = ['k' => $k, 'states' => array_column($members, 'state', 'listing_id')];
@@ -402,6 +404,19 @@ final class KeySample
                 'owner' => $s['k']['created_by_name'] === null ? null : (string) $s['k']['created_by_name'], 'done' => ($s['states'][$lid] ?? 'open') !== 'open'];
         }
         return $out;
+    }
+
+    /** Whether a person can answer a spot check's matches now: active, with a matching lead's job (lead(), M28). */
+    private static function canAnswer(Db $db, int $staffUserId): bool
+    {
+        try {
+            return Permissions::can(StaffRoles::active($db, $staffUserId), 'mapping.approve');
+        } catch (CwException $e) {
+            if ($e->errorCode !== 'staff_not_allowed') {
+                throw $e;
+            }
+            return false; // unknown or switched off
+        }
     }
 
     /** @param array{open: int, confirmed: int, failed: int} $count */
