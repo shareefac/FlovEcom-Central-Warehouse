@@ -213,6 +213,10 @@ final class Settings
         // hours: the defaults); at most 30 days away and 90 days in all.
         'session.idle_minutes' => ['min' => 30, 'max' => 43_200],
         'session.absolute_hours' => ['min' => 12, 'max' => 2_160],
+        // ---- 2-step verification switched off for a while (0048; docs/decisions.md TF1-TF6; Auth\SecondStep): a UK time as typed, at most
+        // 90 days ahead, one that happens once that day in the UK (`uk_time`; checked against the clock when it is saved). Empty: the code.
+        'auth.totp_off_until' => ['pattern' => \CW\Auth\SecondStep::FORM, 'pattern_says' => 'a UK date and time like 2026-10-27 18:00 (empty: the code is asked for)',
+            'uk_time' => true, 'ahead_max_days' => \CW\Auth\SecondStep::MAX_DAYS],
     ];
 
     /**
@@ -441,6 +445,14 @@ final class Settings
         }
         if (isset($rule['pattern']) && preg_match($rule['pattern'], (string) $value) !== 1) {
             throw $bad('must be ' . ($rule['pattern_says'] ?? 'in the expected form'));
+        }
+        if (($rule['uk_time'] ?? false) === true) {
+            // A UK time that happens once that day (UkTime: not in the hour the clocks go back or forward), and not too far ahead (TF2).
+            $at = \CW\Auth\SecondStep::moment((string) $value)
+                ?? throw $bad('must be a UK date and time that happens once that day, like 2026-10-27 18:00 (not in the hour the clocks change)');
+            if (isset($rule['ahead_max_days']) && $at > Clock::now()->modify('+' . (int) $rule['ahead_max_days'] . ' days')) {
+                throw $bad("must be at most {$rule['ahead_max_days']} days ahead");
+            }
         }
         if (isset($rule['list_in'])) {
             $items = explode(',', (string) $value);

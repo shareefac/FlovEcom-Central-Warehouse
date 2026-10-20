@@ -24,6 +24,9 @@
 <?php if ($error !== null): ?>
       <p class="error" role="alert"<?php if (($expired ?? false) === true): ?> data-code="csrf"<?php endif; ?>><?= $e($error) ?></p>
 <?php endif; ?>
+<?php if (($codeOffUntil ?? null) !== null): ?>
+      <p class="note code-off" role="status"><?= $say('SIGN_IN', 'code_off', \CW\Ui\Html::when($codeOffUntil)) ?></p>
+<?php endif; ?>
       <form method="post" action="/ui/login" autocomplete="off">
         <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
 <?php if (($back ?? null) !== null): ?>
@@ -35,10 +38,12 @@
         <label><?= $word('SIGN_IN', 'password_label') ?>
           <input type="password" name="password" autocomplete="current-password" maxlength="1024" required data-reveal data-show="<?= $word('SIGN_IN', 'reveal_show') ?>" data-hide="<?= $word('SIGN_IN', 'reveal_hide') ?>" data-show-label="<?= $word('SIGN_IN', 'reveal_show_label') ?>" data-hide-label="<?= $word('SIGN_IN', 'reveal_hide_label') ?>">
         </label>
+<?php if (($codeOffUntil ?? null) === null): ?>
         <label><?= $word('SIGN_IN', 'code_label') ?>
           <span class="hint"><?= $word('SIGN_IN', 'code_hint') ?></span>
           <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" maxlength="8" required>
         </label>
+<?php endif; ?>
         <button type="submit" class="primary"><?= $word('SIGN_IN', 'sign_in') ?></button>
       </form>
       <p class="hint"><?= $word('UI', 'login_stuck') ?></p>

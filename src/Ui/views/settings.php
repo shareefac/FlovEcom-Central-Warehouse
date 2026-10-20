@@ -1,4 +1,10 @@
 <?= $head(\CW\Ui\Words::MENU['settings'], intro: 'settings', look: $lookOnly) ?>
+<?php if ($codeOffUntil !== null): ?>
+<div class="alert blocked code-off" role="alert">
+  <p class="alert-title"><?= $say('SETTINGS_PAGE', 'code_off', \CW\Ui\Html::when($codeOffUntil)) ?></p>
+  <p><a href="<?= $u('/ui/reference/settings/setting', ['key' => \CW\Auth\SecondStep::SETTING]) ?>"><?= $word('SETTINGS_PAGE', 'code_off_open') ?></a></p>
+</div>
+<?php endif; ?>
 <p class="see-also"><a href="/ui/reference/reasons"><?= $word('PAGE_TITLE', 'reasons') ?></a> <a href="/ui/reference/series"><?= $word('PAGE_TITLE', 'series') ?></a> <a href="/ui/reference/approvals"><?= $word('MENU', 'approvals') ?></a> <a href="/ui/reference/warehouses"><?= $word('MENU', 'warehouses') ?></a> <a href="/ui/reference/access"><?= $word('PAGE_TITLE', 'access') ?></a></p>
 <section class="card company-summary<?php if (!$company['confirmed']): ?> waiting<?php endif; ?>" aria-labelledby="company-h">
   <h2 id="company-h"><?= $word('MENU', 'company') ?></h2>

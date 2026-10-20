@@ -10781,3 +10781,53 @@ everywhere, a reset, switching an account off, a password change and the end of 
 to nobody; the sign-in page opened after the session ended (or a failed sign-in) left it, and with Max-Age it now outlives the browser.
 `Kernel::dispatch` clears it on every answer that sets no session cookie of its own (a successful sign-in sets only the new one); the
 protected branch no longer clears it itself. Server-side revocation was never bypassed. `testAnEndedCookieIsClearedOnThePublicPagesToo`.
+
+**SL8. A failure page clears an ended cookie too (the second review's low finding, on `902a281`; `runs/sessions1_codex_review.txt`).**
+SL7 cleared it only on the answers `dispatch()` returns; a 500 or 503 after the cookie was checked (a sign-in whose database work
+failed) left it in the browser (it gave no access). `Kernel::handle()` now clears a cookie that resolved to nobody on whatever it answers,
+a failure page included, unless the answer sets a session cookie of its own; a cookie the request never got to check (a 404, a failure
+before or while it was checked) is left alone, since it may be live.
+`SessionLimitsTest::testAFailurePageClearsAnEndedCookieButNeverALiveOne` (red first: `runs/sessions2_red_kept.log`).
+
+## 2-step verification switched off for a while (branch `staff-session-limits`, 20 Oct 2026; TF1-TF6)
+
+The owner's decision of 20 Oct 2026: "turn 2-step verification off temporarily, I will tell you when to turn it back on". We advised
+against it; the owner chose it. What was built is a switch with an end: it cannot be left off by forgetting it.
+
+**TF1. One setting, a UK time (0048).** `auth.totp_off_until` (string, baseline empty, provisional; topic Staff on the Settings page,
+changed like every setting: settings.manage, a reason, a version, an audit row). It holds a UK time as typed, `YYYY-MM-DD HH:MM`
+(`Auth\SecondStep`). The request was for a UTC time; it is a UK time because the screens never show UTC (dev.md rule 10) and a person
+types the time on the clock: a UTC value typed as a UK time in summer would keep the code off an hour longer than meant. CW turns it into
+one moment (`SecondStep::moment`, `Arrivals\UkTime`) and compares moments.
+
+**TF2. The bound, and failing closed.** `Settings::RULES` (`pattern`, `uk_time`, `ahead_max_days` 90) refuses, when it is saved, a time
+more than 90 days ahead, one not in that form or not real, and one that happens twice or not at all that day in the UK (the hours the
+clocks change); a time already past is allowed and simply means "on". `SecondStep::offUntil()` reads it fresh on every call and asks
+for the code (returns null) when the value is empty, past, unreadable, not a text, more than 90 days ahead (only SQL could store
+that), or missing (a schema before 0048).
+
+**TF3. The sign-in without the code.** `Auth\Login`: the throttle and its named locks, the password check, an active account and a
+sign-in that is set up (a sign-up sheet's account never signs in at /ui/login, whatever its password) stay as they are; then, while the
+switch is on (`SecondStep::offUntil`, read inside the locks), the 6-digit step is skipped and a code sent anyway is ignored
+(`Login::withoutCode`): the old cookie's session revoked, a new session (`Sessions::create` sets `mfa_at`, which a live session needs),
+a successful `login_attempt` (step `password`; it resets the account's failures like any completed sign-in), `last_login_at`, and audit
+`login.ok` with `without_code: true`, `code_off_until` and the note "signed in without the 2-step code: switched off until … (UK
+time)". `staff_session` has no field for it, so none is written there (the audit row and the session's id prefix tie them). A one-time
+password still leads to choosing a new one first; a "new sign-in code" waiting (an admin's reset) does not block the sign-in, and its
+set-up waits for the code to be back. /ui/enrol and /ui/new-code still need a code (setting up is still offered). Sessions, their limits,
+signing out, a password change and every revocation are unchanged.
+
+**TF4. The sign-in page.** While it is on, the form has no code field and says one line: "2-step verification is switched off until 27
+Oct 2026, 18:00. Sign in with your e-mail and password." (`Words::SIGN_IN['code_off']`, the moment in UK time). A failed sign-in says
+"Check your e-mail and password" without the words about codes (`failed_no_code`).
+
+**TF5. The warnings.** On the Dashboard, the people who can switch it back on (settings.manage: Admins and Reviewers) see the card
+"2-step verification is OFF until …" first (`HomeTasks` `code_off`, rank 3, tone blocked), which opens the setting; Settings › System
+(the settings list) shows the same warning at the top to everyone who opens it. Both go by themselves at the time.
+
+**TF6. What it costs, and what is left as it is.** While it is on, a password alone signs in: a leaked or guessed password is enough,
+within the throttle (10 failures an account, 30 an address, in 15 minutes). A session made while it was on keeps going after it ends,
+up to its own limits (SL1; with raised limits that can be long): to end them at once, an admin signs people out on Users ("Sign them out
+everywhere"). Ending sessions made without the code when the switch ends was not built (the request kept everything else as it is); it
+would need a mark on the session row.
+

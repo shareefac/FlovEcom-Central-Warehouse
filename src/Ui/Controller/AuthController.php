@@ -98,7 +98,7 @@ final class AuthController
         if ($result['status'] === 'locked') {
             return $this->form($ctx, $email, Words::SIGN_IN['locked'], 429, null, $back)->withHeader('Retry-After', (string) LoginLimiter::WINDOW_SECONDS);
         }
-        return $this->form($ctx, $email, Words::SIGN_IN['failed'], 401, null, $back);
+        return $this->form($ctx, $email, Words::SIGN_IN[$ctx->codeOffUntil() === null ? 'failed' : 'failed_no_code'], 401, null, $back);
     }
 
     public function logout(Context $ctx): HtmlResponse
@@ -293,7 +293,9 @@ final class AuthController
         $pre ??= rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
         $email = mb_strcut($email, 0, 191, 'UTF-8');
         $res = $ctx->page('login', ['error' => $error, 'email' => $email, 'csrf' => $ctx->csrf->forPre($pre), 'signedOut' => $why === 'signed_out',
-            'lost' => $why === 'lost', 'back' => $back, 'expired' => $error === Words::SIGN_IN['expired']],
+            'lost' => $why === 'lost', 'back' => $back, 'expired' => $error === Words::SIGN_IN['expired'],
+            // 2-step switched off for a while (TF4): no code field, and one line that says until when.
+            'codeOffUntil' => $ctx->codeOffUntil()],
             $status, ['title' => Words::title('login')]);
         return $fresh ? $res->withCookie(Kernel::PRE_COOKIE, $pre, $req->secure, 3600) : $res;
     }

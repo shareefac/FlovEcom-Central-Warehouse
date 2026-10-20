@@ -25,6 +25,7 @@ final class HomeTasks
 {
     /** Card key => its place: blocking others (< 100), the owner's own checks (100-199), routine (200+). */
     public const RANK = [
+        'code_off' => 3, // 2-step verification switched off (TF5): before everything else
         'integrity' => 5,
         'integrity_stale' => 6,
         'company_confirm' => 10,
@@ -86,6 +87,7 @@ final class HomeTasks
         'staff_requests' => ['staff.approve'],
         'watch' => ['staff.approve'],
         'setup_closed' => ['staff.manage', 'staff.approve'],
+        'code_off' => ['settings.manage'],
     ];
     /** Lines the "changes to look at" card shows (the rest: the audit log). */
     public const WATCH_LINES = 8;
@@ -132,6 +134,7 @@ final class HomeTasks
  *  watch     list<{at: string, action: string, who: ?string, person: ?string, rule: ?string}>: people added, sign-ins reset and
  *            approval rules made looser in the last 7 days, newest first (review finding I1)
  *  setup_closed list<{id: int, name: string}>: active people whose sign-in set-up closed after too many wrong tries (I5)
+ *  code_off  ?string: until when (a UTC database time) the sign-in asks for no 6-digit code (auth.totp_off_until, TF5), null: it asks
      *  checks    also `deliveries` (optional): the part of `review` that is deliveries booked in (their own card)
      *
      * @param list<string> $roles
@@ -145,6 +148,12 @@ final class HomeTasks
         }
         $can = static fn (string $perm): bool => Permissions::can($roles, $perm);
         $out = [];
+
+        // 2-step verification switched off for a while (auth.totp_off_until, TF5): the people who can switch it back on see it first.
+        if ($can('settings.manage') && is_string($f['code_off'] ?? null)) {
+            $out[] = self::card('code_off', ['title' => sprintf(self::word('code_off', 'title'), Html::when($f['code_off'])), 'tone' => 'blocked',
+                'href' => Html::url('/ui/reference/settings/setting', ['key' => \CW\Auth\SecondStep::SETTING])]);
+        }
 
         // The company details: a reviewer confirms them; until then a buyer's PDFs say DO NOT SEND.
         $company = $f['company'] ?? null;

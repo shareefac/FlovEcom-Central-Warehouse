@@ -86,7 +86,7 @@ final class SettingsController
             $parts[] = sprintf(Words::SETTING_EDIT['one_of'], implode(', ', $rule['in']));
         }
         if (isset($rule['pattern'])) {
-            $parts[] = Words::SETTING_EDIT[$key === 'staff.sign_in_address' ? 'address' : 'sites'];
+            $parts[] = Words::SETTING_EDIT[isset($rule['uk_time']) ? 'uk_time' : ($key === 'staff.sign_in_address' ? 'address' : 'sites')];
         }
         if (isset($rule['list_in'])) {
             return Words::SETTING_EDIT['list'];

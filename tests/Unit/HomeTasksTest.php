@@ -59,10 +59,12 @@ final class HomeTasksTest extends TestCase
     public function testNeedsAsksOnlyForTheFactsTheJobsUse(): void
     {
         self::assertSame(['company', 'checks', 'samples', 'held', 'duplicates', 'pending', 'bands', 'barcodes', 'sales', 'integrity', 'staff_requests',
-            'watch', 'setup_closed'], HomeTasks::needs(self::OWNER), 'a reviewer also looks at the staff and rule changes (I1) and closed set-ups (I5)');
+            'watch', 'setup_closed', 'code_off'], HomeTasks::needs(self::OWNER),
+            'a reviewer also looks at the staff and rule changes (I1), closed set-ups (I5) and whether 2-step verification is off (TF5)');
         self::assertSame(['company', 'orders', 'demand', 'sales', 'suppliers'], HomeTasks::needs(['buyer']));
-        self::assertSame(['staff', 'integrity', 'setup_closed'], HomeTasks::needs(['admin']), 'the admin looks after the system: the nightly safety check (G36), closed set-ups (I5)');
-        self::assertSame(['staff', 'integrity', 'setup_closed'], HomeTasks::needs(['admin', 'mapping_lead', 'reviewer']), 'Admin switches the owner\'s jobs off: no matching or checking counts');
+        self::assertSame(['staff', 'integrity', 'setup_closed', 'code_off'], HomeTasks::needs(['admin']),
+            'the admin looks after the system: the nightly safety check (G36), closed set-ups (I5), 2-step verification off (TF5)');
+        self::assertSame(['staff', 'integrity', 'setup_closed', 'code_off'], HomeTasks::needs(['admin', 'mapping_lead', 'reviewer']), 'Admin switches the owner\'s jobs off: no matching or checking counts');
         self::assertSame(['bands'], HomeTasks::needs(['mapper']));
         self::assertSame([], HomeTasks::needs(['viewer']), 'look only: nothing to count');
         self::assertSame([], HomeTasks::needs([]));
@@ -71,6 +73,19 @@ final class HomeTasksTest extends TestCase
                 self::assertArrayHasKey($perm, Permissions::MAP, $fact);
             }
         }
+    }
+
+    /** 2-step verification switched off (auth.totp_off_until, TF5): the first card of the people who can switch it back on, nobody else's. */
+    public function testTwoStepOffIsTheFirstCardOfAdminsAndReviewers(): void
+    {
+        $f = ['code_off' => '2026-10-27 18:00:00.000000', 'integrity' => ['ok' => false, 'problems' => 2, 'finished_at' => '2026-10-20 01:00:00', 'hours' => 1]];
+        foreach ([['admin'], self::OWNER] as $roles) {
+            $first = HomeTasks::build(7, $roles, $f)['jobs'][0];
+            self::assertSame(['code_off', 'blocked', sprintf(Words::TASK['code_off']['title'], '27 Oct 2026, 18:00'), '/ui/reference/settings/setting?key=auth.totp_off_until'],
+                [$first['key'], $first['tone'], $first['title'], $first['href']], implode(',', $roles));
+        }
+        self::assertNotContains('code_off', array_column(HomeTasks::build(7, ['buyer'], $f)['jobs'], 'key'));
+        self::assertNotContains('code_off', array_column(HomeTasks::build(7, self::OWNER, ['code_off' => null])['jobs'], 'key'), 'off: no card');
     }
 
     public function testEveryCardHasItsWords(): void

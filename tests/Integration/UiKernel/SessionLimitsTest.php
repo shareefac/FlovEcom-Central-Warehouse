@@ -473,6 +473,45 @@ final class SessionLimitsTest extends KernelUiTestCase
         self::assertStringContainsString('Max-Age=0', (string) $stranger->get('/ui/login')->setCookie('cw_session'));
     }
 
+    /**
+     * Codex review round 2, its low finding: a failure page (500, 503) after the cookie resolved to nobody clears it too; a live cookie is
+     * never cleared by a failure, nor is a cookie the request never got to check.
+     */
+    public function testAFailurePageClearsAnEndedCookieButNeverALiveOne(): void
+    {
+        $u = $this->uiUser('mapper');
+        $web = $this->counted();
+        $this->login($u, $web);
+        $old = $web->cookies['cw_session'];
+        self::$db->exec('UPDATE staff_session SET last_seen_at = NOW(6) - INTERVAL 31 MINUTE WHERE id = ?', [hash('sha256', $old)]);
+        $fresh = $this->counted();
+        $csrf = $fresh->get('/ui/login')->form('/ui/login')['csrf'] ?? '';
+        $fresh->cookies['cw_session'] = $old;
+        HookedStatement::$before['SELECT GET_LOCK('] = static function (): void {
+            throw new \RuntimeException('the sign-in fails after the cookie was checked');
+        };
+        $r = $fresh->post('/ui/login', ['csrf' => $csrf, 'email' => $u['email'], 'password' => $u['password'], 'code' => self::code($u['secret'])]);
+        self::assertSame(500, $r->status, $r->describe());
+        self::assertMatchesRegularExpression('/^cw_session=; Path=\/ui; HttpOnly; SameSite=Strict; Max-Age=0$/D', (string) $r->setCookie('cw_session'));
+        self::assertArrayNotHasKey('cw_session', $fresh->cookies);
+
+        // A live session whose request fails keeps its cookie; a 404 never looks at the cookie and keeps it too.
+        $live = $this->counted();
+        $this->login($u, $live);
+        HookedStatement::$before['UPDATE staff_session SET last_seen_at'] = static function (): void {
+            throw new \RuntimeException('the page fails while the session is checked');
+        };
+        $r = $live->get('/ui/');
+        self::assertSame(500, $r->status, $r->describe());
+        self::assertNull($r->setCookie('cw_session'));
+        self::assertSame(200, $live->get('/ui/')->status, 'still signed in');
+        $nowhere = $this->browser();
+        $nowhere->cookies['cw_session'] = $old;
+        $r = $nowhere->get('/ui/no-such-page');
+        self::assertSame(404, $r->status);
+        self::assertNull($r->setCookie('cw_session'));
+    }
+
     public function testTheSignedOutWordsHoldForAnySetting(): void
     {
         self::assertDoesNotMatchRegularExpression('/\d/', Words::UI['signed_out'], 'no fixed number: the limits are settings');

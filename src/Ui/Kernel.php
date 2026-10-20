@@ -98,6 +98,8 @@ final class Kernel
 
     private ?Router $router = null;
     private ?bool $isTestSystem = null;
+    /** This request's session cookie was checked and resolved to nobody (dispatch): its answer clears it, whatever the answer is. */
+    private bool $deadCookie = false;
 
     /**
      * @param \Closure(): Db $connect
@@ -148,6 +150,7 @@ final class Kernel
     public function handle(UiRequest $req): HtmlResponse
     {
         $rid = bin2hex(random_bytes(8));
+        $this->deadCookie = false;
         try {
             $response = $this->dispatch($req, $rid);
         } catch (CwException $e) {
@@ -157,6 +160,13 @@ final class Kernel
             }
         } catch (\Throwable $e) {
             $response = $this->failure($e, $req, $rid);
+        }
+        // A session cookie that resolved to nobody (its session ended, or nobody issued it) is cleared on every answer that does not set
+        // a new one: the public pages too (the sign-in page opened after the session ended, a failed sign-in) and a failure page (500,
+        // 503), since the cookie outlives the browser (Max-Age, SL3; SL7, SL8). A cookie the request never got to check (a 404, a failure
+        // before or while it was checked) is left alone: it may be live.
+        if ($this->deadCookie && !self::setsCookie($response, self::SESSION_COOKIE)) {
+            $response->withoutCookie(self::SESSION_COOKIE, $req->secure);
         }
         return self::secure($response, $req->secure)->withHeader('X-Request-Id', $rid);
     }
@@ -202,21 +212,15 @@ final class Kernel
         // One Sessions for the request: its limits (the settings session.*) are read once (SL2), here and by the controllers (Context).
         $sessions = new Sessions($db);
         $who = $sessions->resolve($req->cookie(self::SESSION_COOKIE));
+        $this->deadCookie = $who === null && $req->cookie(self::SESSION_COOKIE) !== null;
         $pre = $req->cookie(self::PRE_COOKIE);
         $pre = $pre !== null && preg_match('/^[A-Za-z0-9_-]{43}$/D', $pre) === 1 ? $pre : null;
         $ctx = new Context($req, $db, $who, $csrf, $params, $rid, $pre, $key, $this->handlers, $this->log, $this->testSystem(), $sessions);
         try {
-            $res = $this->guarded($route, $ctx);
+            return $this->guarded($route, $ctx);
         } catch (CwException $e) {
-            $res = $ctx->error($e->httpStatus, $e->errorCode, $e->getMessage());
+            return $ctx->error($e->httpStatus, $e->errorCode, $e->getMessage());
         }
-        // A session cookie that resolved to nobody (its session ended, or nobody issued it) is cleared on every answer that does not set
-        // a new one: the public pages too (the sign-in page opened after the session ended, a failed sign-in), since the cookie outlives
-        // the browser (Max-Age, SL3; Codex review round 1, finding 2).
-        if ($who === null && $req->cookie(self::SESSION_COOKIE) !== null && !self::setsCookie($res, self::SESSION_COOKIE)) {
-            $res->withoutCookie(self::SESSION_COOKIE, $req->secure);
-        }
-        return $res;
     }
 
     /** Whether $res sets (or clears) the cookie $name. */
@@ -246,7 +250,7 @@ final class Kernel
                 // sign-in page says why (plan F056). A cookie nobody issued is the same as none.
                 $id = $cookie === null ? null : Sessions::idOf($cookie);
                 $ended = $id !== null && $ctx->db->value('SELECT 1 FROM staff_session WHERE id = ?', [$id]) !== null;
-                return HtmlResponse::redirect(self::signInPath($req, $ended)); // dispatch() clears the cookie
+                return HtmlResponse::redirect(self::signInPath($req, $ended)); // handle() clears the cookie
             }
             if ($who->mustChangePassword && !in_array($req->path, ['/ui/password', '/ui/logout'], true)) {
                 return HtmlResponse::redirect('/ui/password');

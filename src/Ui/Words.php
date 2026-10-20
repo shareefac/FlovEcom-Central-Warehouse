@@ -2449,6 +2449,7 @@ final class Words
         // How long a person stays signed in (0047, docs/decisions.md SL4).
         'session.idle_minutes' => 'Minutes away before a person is signed out',
         'session.absolute_hours' => 'Hours a sign-in lasts at most',
+        'auth.totp_off_until' => '2-step verification switched off until', // 0048, TF1
         // ---- Pack D (docs/decisions.md PD9) ----
         'sales.page_size' => 'Rows on a page of Sales',
         'sales.default_days' => 'Days Store orders looks back',
@@ -2688,6 +2689,9 @@ final class Words
         'password_label' => 'Password',
         'code_label' => '6-digit code from the code app on your phone',
         'code_hint' => 'For example Google Authenticator. It changes every 30 seconds.',
+        // 2-step verification switched off for a while (auth.totp_off_until, docs/decisions.md TF4).
+        'code_off' => '2-step verification is switched off until %s. Sign in with your e-mail and password.',
+        'failed_no_code' => 'Sign-in did not work. Check your e-mail and password.',
         'sign_in' => 'Sign in',
         // Behaviour item 3 (F059): the sign-in form was open longer than its cookie lives (1 hour).
         'expired' => 'This page was open too long. Please sign in again.',
@@ -3064,6 +3068,13 @@ final class Words
             'text' => 'The yellow note at the top of the page says why, and who can fix it.',
             'what' => 'You see your jobs. Until Admin is taken off this account, you can look but not approve or decide.',
             'button' => 'See your access',
+        ],
+        // 2-step verification switched off for a while (auth.totp_off_until, docs/decisions.md TF5): Admins and Reviewers.
+        'code_off' => [
+            'title' => '2-step verification is OFF until %s',
+            'text' => 'Anyone who knows a person\'s password can sign in as them without the 6-digit code. It comes back on by itself at that time.',
+            'what' => 'To switch it back on now, empty the setting and give a reason.',
+            'button' => 'Open the setting',
         ],
         'integrity' => [
             'title' => 'The nightly system check found %s problems',
@@ -3488,6 +3499,10 @@ final class Words
         'status' => 'Status',
         'what' => 'What it does',
         'changed' => 'Changed',
+        // 2-step verification switched off for a while (auth.totp_off_until, docs/decisions.md TF5).
+        'code_off' => '2-step verification is OFF until %s. Anyone who knows a person\'s password can sign in without the 6-digit code. '
+            . 'It comes back on by itself at that time, or at once when its setting under Staff is emptied.',
+        'code_off_open' => 'Open the setting',
         'agreed' => 'Agreed',
         'not_agreed' => 'Not agreed yet',
         'not_set' => 'not set',
@@ -3588,6 +3603,7 @@ final class Words
         'approvals' => 'Approval rules',
         'staff' => 'Staff',
         'session' => 'Staff', // how long a person stays signed in (0047, SL4)
+        'auth' => 'Staff', // 2-step verification switched off for a while (0048, TF5)
         'mapping' => 'Matching products',
         'sales' => 'Sales and dispatch', // pack D (PD9)
         'items' => 'Items', // Pack B
@@ -3711,6 +3727,10 @@ final class Words
         'session.absolute_hours' => 'However active a person is, they are signed out this many hours after signing in. Closing the browser does not '
             . 'sign them out, so on a shared computer they should sign out themselves. 24 hours is a day; 168 is a week. A shorter time applies at '
             . 'once; a longer one from each person\'s next sign-in.',
+        // 2-step verification switched off for a while (0048, docs/decisions.md TF1, TF5): says plainly it is a risk and when it ends.
+        'auth.totp_off_until' => 'A security risk: until this time, anyone who knows a person\'s password can sign in as them without the 6-digit code. '
+            . 'Type a UK date and time, like 2026-10-27 18:00, at most 90 days ahead. At that time the code is asked for again by itself. '
+            . 'Leave it empty to ask for the code always: that is the safe choice.',
         // ---- Pack D (docs/decisions.md PD9) ----
         'sales.page_size' => 'How many rows Stock › Sales shows on a page (Orders, Dispatch, Returns), and how many sold units of one order: 25, 50, 100 or 200.',
         'sales.default_days' => 'Store orders opens with the orders placed in this many days, today included (7: the last week). '
@@ -7959,6 +7979,7 @@ final class Words
         'approvals' => 'This is an approval rule: change it on the Approval Rules page.',
         'company' => 'The company details have their own page.',
         'address' => 'An address starting with https://, without anything after the name, for example https://warehouse.example.com.',
+        'uk_time' => 'A UK date and time, like 2026-10-27 18:00, at most 90 days ahead, and not in the hour the clocks change.',
         'list' => 'Tick the ones that apply. None ticked is allowed.',
         'list_none' => 'None',
     ];

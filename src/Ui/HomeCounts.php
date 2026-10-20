@@ -73,6 +73,7 @@ final class HomeCounts
                 'watch' => $this->watch(),
                 'setup_closed' => array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'name' => (string) $r['display_name']],
                     $this->ctx->db->all('SELECT id, display_name FROM staff_user WHERE is_active = 1 AND setup_closed_at IS NOT NULL ORDER BY setup_closed_at DESC LIMIT 50')),
+                'code_off' => $this->ctx->codeOffUntil(),
                 default => throw new \InvalidArgumentException("no Home fact {$key}"),
             };
         }

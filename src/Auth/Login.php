@@ -29,6 +29,12 @@ use CW\Staff\Totp;
  * a "new sign-in code" an admin saw: the right password and its code issue NO session; that code dies and the person goes to their
  * own page to confirm a fresh secret first (status `new_code` with the step token: Staff\Enrolment); `signup`, a sign-up sheet's:
  * never at the sign-in (only /ui/enrol, with its set-up code), refused like a wrong password.
+ *
+ * 2-step switched off for a while (auth.totp_off_until, Auth\SecondStep; the owner's decision of 20 Oct 2026, against advice;
+ * docs/decisions.md TF1-TF6): while its time is ahead, step 3 is skipped and a code sent anyway is ignored. Steps 1, 2 and 4 stay as they
+ * are (the throttle and its locks, the password, an active account whose sign-in is set up, a new session with its second step marked
+ * done); a "new sign-in code" waiting does not block the sign-in (its set-up waits for when the code is back); the audit row says the
+ * person signed in without the code and until when it was switched off.
  */
 final class Login
 {
@@ -89,6 +95,10 @@ final class Login
         $passwordOk = password_verify($password, (string) $user['password_hash']);
         if (!$passwordOk || (int) $user['is_active'] !== 1 || $user['totp_secret_enc'] === null || $user['totp_state'] === 'signup') {
             return $this->fail($login, $id, $ip, 'password');
+        }
+        $codeOff = SecondStep::offUntil($this->db);
+        if ($codeOff !== null) {
+            return $this->withoutCode($login, $id, $ip, $userAgent, $oldToken, $codeOff, (int) $user['password_must_change'] === 1);
         }
         $secret = $this->box->decrypt((string) $user['totp_secret_enc']);
         $last = $this->db->value('SELECT totp_last_step FROM staff_user WHERE id = ?', [$id]);
@@ -165,6 +175,26 @@ final class Login
             return $session;
         });
         return ['status' => 'ok', 'token' => $session['token']];
+    }
+
+    /**
+     * The sign-in while the code is switched off (TF3): the password was right, the account is active and set up. Under the limiter's
+     * locks, like every sign-in: a new session (Sessions::create marks its second step done, as a live session needs), the old cookie's
+     * session revoked, a successful attempt recorded (which resets the account's failures as any completed sign-in does), and audit
+     * `login.ok` with `without_code` and the time it was switched off until.
+     *
+     * @return array{status: 'ok', token: string, must_change: bool}
+     */
+    private function withoutCode(?string $login, int $id, string $ip, ?string $userAgent, ?string $oldToken, \DateTimeImmutable $until, bool $mustChange): array
+    {
+        $this->db->exec('UPDATE staff_user SET last_login_at = NOW(6) WHERE id = ?', [$id]);
+        $this->sessions->revokeToken($oldToken);
+        $session = $this->sessions->create($id, $ip, $userAgent);
+        $this->limiter->record($login, $id, $ip, 'password', true);
+        $text = SecondStep::text($until);
+        Audit::write($this->db, Caller::staff($id, $ip), 'login.ok', 'staff_user', (string) $id, null, ['session' => substr($session['id'], 0, 8),
+            'without_code' => true, 'code_off_until' => $text, 'note' => 'signed in without the 2-step code: switched off until ' . $text . ' (UK time)']);
+        return ['status' => 'ok', 'token' => $session['token'], 'must_change' => $mustChange];
     }
 
     /** Signs the session out (audit `logout`). */

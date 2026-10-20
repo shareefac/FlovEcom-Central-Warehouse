@@ -1,0 +1,287 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Tests\Integration\UiKernel;
+
+use CW\Auth\LoginLimiter;
+use CW\Auth\SecondStep;
+use CW\Caller;
+use CW\Clock;
+use CW\CwException;
+use CW\Settings;
+use CW\Staff\StaffAdmin;
+use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\Html;
+use CW\Ui\Words;
+
+/**
+ * 2-step verification switched off for a while (the owner's decision of 20 Oct 2026, against advice: "turn 2-step verification off
+ * temporarily, I will tell you when to turn it back on"; docs/decisions.md TF1-TF6). The setting auth.totp_off_until (0048) holds a UK
+ * time: while it is ahead, the sign-in asks for the e-mail and the password only, and records that it did; at that time the code is asked
+ * for again by itself. Empty, past, unreadable or more than 90 days ahead: the code is asked for, exactly as before. Everything else stays:
+ * the throttle and lock-out, the one-time password, sign-up accounts, the sessions and their limits. Admins and reviewers see a warning
+ * on the Dashboard and on Settings › System while it is on.
+ */
+final class TotpOffTest extends KernelUiTestCase
+{
+    private const KEY = SecondStep::SETTING;
+
+    /** @var array{v: string, provisional: int, actor: string}|null the row as it was */
+    private ?array $saved = null;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $r = self::$db->one('SELECT CAST(value_json AS CHAR) AS v, provisional, updated_actor FROM app_setting WHERE setting_key = ?', [self::KEY]);
+        self::assertNotNull($r, '0048 adds the setting');
+        $this->saved = ['v' => (string) $r['v'], 'provisional' => (int) $r['provisional'], 'actor' => (string) $r['updated_actor']];
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->saved !== null) {
+            self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON), provisional = ?, updated_actor = ? WHERE setting_key = ?',
+                [$this->saved['v'], $this->saved['provisional'], $this->saved['actor'], self::KEY]);
+        }
+        parent::tearDown();
+    }
+
+    /** A UK time ("Y-m-d H:i", as typed on the Settings page) at $modify from now. */
+    private static function uk(string $modify): string
+    {
+        return Clock::now()->modify($modify)->setTimezone(new \DateTimeZone('Europe/London'))->format('Y-m-d H:i');
+    }
+
+    /** Stores the setting's text as only the admin login could (no rule checked). */
+    private function store(string $text): void
+    {
+        self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [json_encode($text, JSON_THROW_ON_ERROR), self::KEY]);
+    }
+
+    /** What the sign-in page and the warnings say the time is: the stored UK time as the screens print a moment. */
+    private static function shown(string $uk): string
+    {
+        $at = SecondStep::moment($uk);
+        self::assertNotNull($at, $uk);
+        return Html::when(Clock::db($at));
+    }
+
+    /** @return array{0: \CW\Tests\Support\KernelBrowser, 1: \CW\Tests\Support\UiResponse} the page and its browser */
+    private function loginPage(): array
+    {
+        $web = $this->browser();
+        $page = $web->get('/ui/login');
+        self::assertSame(200, $page->status, $page->describe());
+        return [$web, $page];
+    }
+
+    public function testOffByDefaultTheCodeIsAskedForAsBefore(): void
+    {
+        self::assertSame('""', $this->saved['v'] ?? null, 'the baseline of 0048: empty');
+        self::assertNull(SecondStep::offUntil(self::$appDb));
+        $u = $this->uiUser('mapper');
+        [$web, $page] = $this->loginPage();
+        self::assertSame(['csrf', 'email', 'password', 'code'], array_keys($page->form('/ui/login')), 'the code field as always');
+        self::assertStringNotContainsString(Words::say('SIGN_IN', 'code_off', 'x'), $page->text());
+        $r = $web->post('/ui/login', ['csrf' => $page->form('/ui/login')['csrf'], 'email' => $u['email'], 'password' => $u['password'], 'code' => '']);
+        self::assertSame(401, $r->status, 'the password alone does not sign in');
+        self::assertStringContainsString(Words::SIGN_IN['failed'], $r->text());
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM staff_session WHERE staff_user_id = ?', [$u['id']]));
+        self::assertSame('totp', (string) self::$db->value("SELECT JSON_UNQUOTE(JSON_EXTRACT(detail, '$.step')) FROM audit_log WHERE action = 'login.fail' AND staff_user_id = ?", [$u['id']]));
+        $this->signIn($u); // with the code: as before
+    }
+
+    public function testAPastOrUnreadableTimeAsksForTheCode(): void
+    {
+        $u = $this->uiUser('mapper');
+        foreach ([self::uk('-1 minute'), self::uk('-30 days'), 'tomorrow', '2026-02-30 10:00', self::uk('+91 days'), '2026-10-25 01:30', '27/10/2026 18:00'] as $text) {
+            $this->store($text);
+            self::assertNull(SecondStep::offUntil(self::$appDb), "{$text}: the code is asked for (fail closed)");
+            [$web, $page] = $this->loginPage();
+            self::assertArrayHasKey('code', $page->form('/ui/login'), $text);
+            self::assertSame('invalid', $this->loginService()->attempt($u['email'], $u['password'], '', '198.51.100.' . random_int(1, 250), null, null)['status'], $text);
+        }
+        self::$db->exec("UPDATE app_setting SET value_type = 'int', value_json = CAST('5' AS JSON) WHERE setting_key = ?", [self::KEY]);
+        self::assertNull(SecondStep::offUntil(self::$appDb), 'not a text setting: the code is asked for');
+        self::$db->exec("UPDATE app_setting SET value_type = 'string' WHERE setting_key = ?", [self::KEY]);
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM staff_session WHERE staff_user_id = ?', [$u['id']]));
+    }
+
+    public function testWhileOnTheSignInNeedsThePasswordOnlyAndSaysSo(): void
+    {
+        $until = self::uk('+2 hours');
+        $this->store($until);
+        $at = SecondStep::offUntil(self::$appDb);
+        self::assertNotNull($at);
+        self::assertSame($until, $at->setTimezone(new \DateTimeZone('Europe/London'))->format('Y-m-d H:i'));
+
+        $u = $this->uiUser('buyer');
+        [$web, $page] = $this->loginPage();
+        self::assertSame(['csrf', 'email', 'password'], array_keys($page->form('/ui/login')), 'no code field');
+        self::assertStringContainsString(Words::say('SIGN_IN', 'code_off', self::shown($until)), $page->text(), 'one plain line, with the time it ends');
+
+        // A wrong password still fails, is counted and says so without asking for a code.
+        $bad = $web->post('/ui/login', ['csrf' => $page->form('/ui/login')['csrf'], 'email' => $u['email'], 'password' => 'not the password at all']);
+        self::assertSame(401, $bad->status);
+        self::assertStringContainsString(Words::SIGN_IN['failed_no_code'], $bad->text());
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM login_attempt WHERE login = ? AND success = 0 AND step = 'password'", [$u['email']]));
+
+        // The right password: a session (second step marked done, as Sessions requires), live, audited as signed in without the code.
+        $ok = $web->post('/ui/login', ['csrf' => $page->form('/ui/login')['csrf'], 'email' => $u['email'], 'password' => $u['password']]);
+        self::assertSame([303, '/ui/'], [$ok->status, $ok->location()], $ok->describe());
+        $row = self::$db->one('SELECT mfa_at, revoked FROM staff_session WHERE id = ?', [hash('sha256', $web->cookies['cw_session'])]);
+        self::assertNotNull($row['mfa_at'] ?? null);
+        self::assertSame(0, (int) $row['revoked']);
+        self::assertSame(200, $web->get('/ui/')->status, 'the session is live');
+        $audit = json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'login.ok' AND staff_user_id = ?", [$u['id']]), true);
+        self::assertTrue($audit['without_code'] ?? null);
+        self::assertSame($until, $audit['code_off_until'] ?? null);
+        self::assertStringContainsString('signed in without the 2-step code: switched off until ' . $until, (string) ($audit['note'] ?? ''));
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM login_attempt WHERE login = ? AND success = 1 AND step = 'password'", [$u['email']]));
+        self::assertNotNull(self::$db->value('SELECT last_login_at FROM staff_user WHERE id = ?', [$u['id']]));
+
+        // A code sent anyway is ignored; signing out ends the session as always.
+        $out = $web->post('/ui/logout', ['csrf' => $this->token($web)]);
+        self::assertSame([303, '/ui/login'], [$out->status, $out->location()]);
+        self::assertStringContainsString('Max-Age=0', (string) $out->setCookie('cw_session'));
+        [$web, $page] = $this->loginPage();
+        $again = $web->post('/ui/login', ['csrf' => $page->form('/ui/login')['csrf'], 'email' => $u['email'], 'password' => $u['password'], 'code' => '000000']);
+        self::assertSame(303, $again->status, $again->describe());
+    }
+
+    public function testEverythingElseStaysWhileItIsOn(): void
+    {
+        $this->store(self::uk('+1 day'));
+        $login = $this->loginService();
+        $ip = '198.51.100.77';
+
+        // The throttle: ten wrong passwords lock the account, the right one is then refused too.
+        $u = $this->uiUser('mapper');
+        for ($i = 1; $i <= LoginLimiter::ACCOUNT_MAX; $i++) {
+            self::assertSame('invalid', $login->attempt($u['email'], 'wrong password ' . $i, '', $ip, null, null)['status'], "failure {$i}");
+        }
+        self::assertSame('locked', $login->attempt($u['email'], $u['password'], '', $ip, null, null)['status']);
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM staff_session WHERE staff_user_id = ?', [$u['id']]));
+
+        // A one-time password still leads to choosing a new one first.
+        $first = $this->uiUser('viewer', true);
+        [$web, $page] = $this->loginPage();
+        $r = $web->post('/ui/login', ['csrf' => $page->form('/ui/login')['csrf'], 'email' => $first['email'], 'password' => $first['password']]);
+        self::assertSame([303, '/ui/password'], [$r->status, $r->location()]);
+        self::assertSame('/ui/password', $web->get('/ui/')->location());
+
+        // An account switched off, or one whose sign-up sheet was never used (whatever its password), never signs in.
+        $off = $this->uiUser('mapper');
+        self::$db->exec('UPDATE staff_user SET is_active = 0 WHERE id = ?', [$off['id']]);
+        self::assertSame('invalid', $login->attempt($off['email'], $off['password'], '', '198.51.100.78', null, null)['status']);
+        $admin = $this->uiUser('admin');
+        $sheet = (new StaffAdmin(self::$appDb))->enrol(Caller::staff($admin['id']), 'sheet@test.example', ['buyer'], self::$box, 'Sheet Person');
+        self::$db->exec('UPDATE staff_user SET password_hash = ? WHERE id = ?', [password_hash('a known password 2026', PASSWORD_ARGON2ID), $sheet['id']]);
+        self::assertSame('invalid', $login->attempt('sheet@test.example', 'a known password 2026', '', '198.51.100.79', null, null)['status'], 'a sign-up account sets itself up first');
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM staff_session WHERE staff_user_id IN (?, ?)', [$off['id'], $sheet['id']]));
+
+        // A "new sign-in code" waiting (its set-up stays offered) does not block the sign-in; the code waits for when 2-step is back.
+        $lost = $this->uiUser('buyer');
+        (new StaffAdmin(self::$appDb))->resetAuthenticator(Caller::staff($admin['id']), $lost['id'], self::$box);
+        self::assertSame('reset', (string) self::$db->value('SELECT totp_state FROM staff_user WHERE id = ?', [$lost['id']]));
+        self::assertSame('ok', $login->attempt($lost['email'], $lost['password'], '', '198.51.100.80', null, null)['status']);
+        self::assertSame('reset', (string) self::$db->value('SELECT totp_state FROM staff_user WHERE id = ?', [$lost['id']]));
+
+        // The session limits still hold.
+        $v = $this->uiUser('viewer');
+        [$web, $page] = $this->loginPage();
+        $web->post('/ui/login', ['csrf' => $page->form('/ui/login')['csrf'], 'email' => $v['email'], 'password' => $v['password']]);
+        self::$db->exec('UPDATE staff_session SET last_seen_at = NOW(6) - INTERVAL 31 MINUTE WHERE id = ?', [hash('sha256', $web->cookies['cw_session'])]);
+        self::assertSame('/ui/login?why=signed_out', $web->get('/ui/')->location());
+    }
+
+    public function testItEndsByItselfAtItsTime(): void
+    {
+        $until = self::uk('+2 minutes');
+        $this->store($until);
+        $at = SecondStep::offUntil(self::$appDb);
+        self::assertNotNull($at);
+        self::assertNull(SecondStep::offUntil(self::$appDb, Clock::now()->modify('+3 minutes')), 'after its time, the code is asked for again');
+        self::assertNotNull(SecondStep::offUntil(self::$appDb, Clock::now()->modify('+1 minute')));
+
+        // A session made while it was on carries on to its own limits; a new sign-in needs the code again.
+        $u = $this->uiUser('mapper');
+        [$web, $page] = $this->loginPage();
+        self::assertSame(303, $web->post('/ui/login', ['csrf' => $page->form('/ui/login')['csrf'], 'email' => $u['email'], 'password' => $u['password']])->status);
+        $this->store(self::uk('-1 minute'));
+        self::assertSame(200, $web->get('/ui/')->status);
+        self::assertSame('invalid', $this->loginService()->attempt($u['email'], $u['password'], '', '198.51.100.81', null, null)['status']);
+    }
+
+    public function testTheSettingIsBoundedAndSaysItIsARisk(): void
+    {
+        self::assertStringContainsString('security risk', strtolower(Words::SETTING_HELP[self::KEY]));
+        self::assertStringContainsString('by itself', Words::SETTING_HELP[self::KEY], 'and when it ends');
+        self::assertSame('Staff', Words::settingTopic(self::KEY));
+        $settings = new Settings(self::$db);
+        foreach (['', self::uk('+1 hour'), self::uk('+89 days'), self::uk('-2 days')] as $ok) {
+            $settings->checkRule(self::KEY, $ok);
+        }
+        foreach ([self::uk('+91 days'), '2027-12-31 10:00', 'tomorrow', '2026-10-27', '2026-10-27T18:00', '27/10/2026 18:00', '2026-02-30 10:00',
+            '2026-10-25 01:30', '2026-10-27 24:00'] as $bad) {
+            try {
+                $settings->checkRule(self::KEY, $bad);
+                self::fail("{$bad} is refused");
+            } catch (CwException $e) {
+                self::assertSame('bad_value', $e->errorCode, $bad);
+            }
+        }
+
+        // On the Settings page: settings.manage and a reason, the bound refused, a change takes effect at once both ways.
+        $owner = $this->signIn($this->uiUser('reviewer'));
+        $form = $owner->get('/ui/reference/settings/setting', ['key' => self::KEY])->form('/ui/reference/settings/setting');
+        self::assertNotSame([], $form);
+        $refused = $owner->post('/ui/reference/settings/setting', ['value' => self::uk('+100 days'), 'reason' => 'too long on purpose'] + $form);
+        self::assertSame(400, $refused->status, $refused->describe());
+        self::assertSame('""', (string) self::$db->value('SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ?', [self::KEY]), 'nothing saved');
+        $noReason = $owner->post('/ui/reference/settings/setting', ['value' => self::uk('+1 day'), 'reason' => ''] + $form);
+        self::assertNotSame(303, $noReason->status, 'a reason is needed');
+        $until = self::uk('+3 days');
+        $saved = $owner->post('/ui/reference/settings/setting', ['value' => $until, 'reason' => 'the owner: off until the phones are sorted'] + $form);
+        self::assertSame(303, $saved->status, $saved->describe());
+        self::assertNotNull(SecondStep::offUntil(self::$appDb));
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'setting.change' AND entity_id = ?", [self::KEY]));
+        $form = $owner->get('/ui/reference/settings/setting', ['key' => self::KEY])->form('/ui/reference/settings/setting');
+        self::assertSame(303, $owner->post('/ui/reference/settings/setting', ['value' => '', 'reason' => 'the phones are sorted: back on'] + $form)->status);
+        self::assertNull(SecondStep::offUntil(self::$appDb), 'emptied: the code is asked for again at once');
+
+        // A buyer cannot change it.
+        $buyer = $this->signIn($this->uiUser('buyer'));
+        self::assertSame(403, $buyer->post('/ui/reference/settings/setting', ['csrf' => $this->token($buyer), 'key' => self::KEY, 'seen' => '1',
+            'value' => self::uk('+1 day'), 'reason' => 'not mine to change'])->status);
+    }
+
+    public function testAdminsAndReviewersSeeAWarningOnTheDashboardAndSettingsSystem(): void
+    {
+        $reviewer = $this->signIn($this->uiUser('reviewer'));
+        $admin = $this->signIn($this->uiUser('admin'));
+        $buyer = $this->signIn($this->uiUser('buyer'));
+        $warning = static fn (string $until): string => sprintf(Words::TASK['code_off']['title'], self::shown($until));
+        foreach ([$reviewer, $admin] as $web) {
+            self::assertStringNotContainsString('2-step verification is OFF', $web->get('/ui/')->text(), 'off: no warning');
+            self::assertStringNotContainsString('2-step verification is OFF', $web->get('/ui/reference/settings')->text());
+        }
+
+        $until = self::uk('+5 hours');
+        $this->store($until);
+        foreach (['reviewer' => $reviewer, 'admin' => $admin] as $who => $web) {
+            $home = $web->get('/ui/');
+            self::assertSame(200, $home->status, $home->describe());
+            self::assertStringContainsString($warning($until), $home->text(), "{$who}: the Dashboard says so");
+            self::assertContains('/ui/reference/settings/setting?key=' . self::KEY, $home->hrefs(), "{$who}: and leads to the setting");
+            $system = $web->get('/ui/reference/settings');
+            self::assertSame(200, $system->status, $system->describe());
+            self::assertStringContainsString(Words::say('SETTINGS_PAGE', 'code_off', self::shown($until)), $system->text(), "{$who}: Settings › System says so");
+        }
+        self::assertStringStartsWith('2-step verification is OFF until', $warning($until));
+        self::assertStringNotContainsString('2-step verification is OFF', $buyer->get('/ui/')->text(), 'a buyer can do nothing about it');
+        $this->store(self::uk('-1 minute'));
+        self::assertStringNotContainsString('2-step verification is OFF', $reviewer->get('/ui/')->text(), 'past: gone by itself');
+    }
+}

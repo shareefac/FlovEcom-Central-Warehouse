@@ -1067,6 +1067,13 @@ page (30 by default, at most 30 days) or `session.absolute_hours` after signing 
 under Staff on the Settings page (`docs/decisions.md` SL1-SL5). The cookie lives as long as the second (`Max-Age`), so closing the
 browser does not sign out; signing out, a password change and Users > "Sign them out everywhere" still end a session at once.
 
+2-step verification can be switched off for a while (the owner's decision of 20 Oct 2026, against advice; `docs/decisions.md` TF1-TF6):
+the setting `auth.totp_off_until` under Staff on the Settings page takes a UK time (`2026-10-27 18:00`, at most 90 days ahead). Until
+then the sign-in asks for the e-mail and password only, and every such sign-in is in the audit log as `login.ok` with `without_code`;
+the Dashboard (Admins, Reviewers) and Settings › System say "2-step verification is OFF until …". At that time the code is asked for
+again by itself; to switch it back on at once, empty the setting (with a reason). Sessions made meanwhile keep going to their limits: sign
+people out on Users if they must sign in again with the code.
+
 ### Documents on the screens (Phase I-1)
 
 No document type is live in I-1 (decision I27): the Review queue says "Nothing is waiting for review", the documents list

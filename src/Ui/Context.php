@@ -100,6 +100,23 @@ final class Context
         return $this->sessions ??= new Sessions($this->db);
     }
 
+    /** @var array{0: ?string}|null the switch of the code, read once per request (codeOffUntil()) */
+    private ?array $codeOff = null;
+
+    /**
+     * Until when the sign-in asks for no 6-digit code (Auth\SecondStep, the setting auth.totp_off_until; docs/decisions.md TF1-TF6), as a
+     * UTC database time for `$when`, or null: the code is asked for. Read once per request, for what the pages say (the sign-in page,
+     * the Dashboard's and Settings › System's warnings); Auth\Login reads it again itself under the sign-in's locks.
+     */
+    public function codeOffUntil(): ?string
+    {
+        if ($this->codeOff === null) {
+            $at = \CW\Auth\SecondStep::offUntil($this->db);
+            $this->codeOff = [$at === null ? null : \CW\Clock::db($at)];
+        }
+        return $this->codeOff[0];
+    }
+
     /** The box that seals TOTP secrets (app.env ui_secret_key). */
     public function secretBox(): SecretBox
     {

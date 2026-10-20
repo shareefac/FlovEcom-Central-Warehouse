@@ -158,6 +158,8 @@ final class ReferenceController
             'vat' => $ctx->db->all('SELECT code, label, rate_percent, is_active FROM vat_code ORDER BY sort_order, code'),
             'canChange' => $ctx->me()->can('settings.manage'),
             'lookOnly' => $ctx->me()->can('settings.manage') ? null : Words::CONFIG['look_only'],
+            // 2-step verification switched off for a while (auth.totp_off_until, TF5): a warning at the top while it is.
+            'codeOffUntil' => $ctx->codeOffUntil(),
         ], 200, ['title' => Words::MENU['settings'], 'active' => 'settings']);
     }
 
