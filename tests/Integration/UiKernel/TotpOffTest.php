@@ -505,6 +505,14 @@ final class TotpOffTest extends KernelUiTestCase
             self::assertStringContainsString(Words::say('SETTINGS_PAGE', 'code_off', self::shown($until)), $system->text(), "{$who}: Settings › System says so");
         }
         self::assertStringStartsWith('2-step verification is OFF until', $warning($until));
+        // The fourth Codex review (low): what the Users pages say about signing in again promises no code while it may be off (TF15).
+        foreach (['sign_out_all_note', 'allow_note'] as $key) {
+            self::assertStringNotContainsString('code', Words::STAFF[$key], $key);
+        }
+        $p = $this->uiUser('buyer');
+        $person = $admin->get('/ui/people/' . $p['id']);
+        self::assertSame(200, $person->status, $person->describe());
+        self::assertStringNotContainsString('password and code', $person->text());
         self::assertStringNotContainsString('2-step verification is OFF', $buyer->get('/ui/')->text(), 'a buyer can do nothing about it');
         $this->store(self::uk('-1 minute'));
         self::assertStringNotContainsString('2-step verification is OFF', $reviewer->get('/ui/')->text(), 'past: gone by itself');

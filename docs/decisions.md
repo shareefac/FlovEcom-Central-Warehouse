@@ -10892,3 +10892,13 @@ the stored password is still the one checked, the account is active and the sess
 too, in the order of the resets: the account, then its sessions); otherwise nothing is written and the answer is `wrong_current`.
 `testAPasswordChangeThatWaitedDoesNotUndoWhatHappenedMeanwhile` (red first: `runs/sessions2_review3_red_kept.log`).
 
+### The fourth Codex review of the switch (on `7c72a37`; `runs/sessions5_codex_review.txt`): no high or medium finding
+
+TF10-TF14 close the reported races; no password bypass, lock-order cycle, missing grant of the app login, unaudited sign-in without the
+code or cookie regression was found.
+
+**TF15. (LOW) Words that promised the code.** The Users pages said "They can sign in again straight away with their password and code"
+(Sign them out everywhere) and "They sign in with their own password and the code on their phone" (switching an account back on); both
+now say "as usual", true either way. Left as the reviewer noted them, not built: a test that expires the switch inside a whole sign-in
+(TF12 is tested on `Sessions::createBefore` itself and on the order of the locks), and tests with two processes really blocked on each
+other's locks (the races are tested by stepping in between the statements with `HookedStatement`).

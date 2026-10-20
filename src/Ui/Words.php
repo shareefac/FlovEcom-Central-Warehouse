@@ -3889,7 +3889,7 @@ final class Words
         'stop_confirm' => 'Yes, sign them out now',
         'stop_unconfirmed' => 'Tick "Yes, sign them out now" first. Nothing was changed: the person can still sign in.',
         'allow' => 'Let this person sign in again',
-        'allow_note' => 'They sign in with their own password and the code on their phone.',
+        'allow_note' => 'They sign in again as usual, with their own password.', // no promise of the code: it may be switched off (TF15)
         'test_off' => 'This is a test account. It stays switched off for safety. For a real person, ask the developer to create a proper account.',
         'history' => 'History of their jobs',
         'no_history' => 'This person was never given a job.',
@@ -3928,7 +3928,7 @@ final class Words
         'device_from' => 'From address',
         'sign_out_device' => 'Sign out this device',
         'sign_out_all' => 'Sign them out everywhere',
-        'sign_out_all_note' => 'They can sign in again straight away with their password and code.',
+        'sign_out_all_note' => 'They can sign in again straight away, as usual.', // no promise of the code (TF15)
         'setup_open' => 'Waiting to set up their sign-in until %s.',
         'setup_over' => 'Their time to set up the sign-in ran out on %s. Make a new sign-up sheet for them.',
         'new_code' => 'Make a new sign-in code',
