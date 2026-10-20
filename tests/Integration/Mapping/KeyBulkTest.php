@@ -468,6 +468,43 @@ final class KeyBulkTest extends MappingTestCase
     }
 
     /**
+     * A change of a spot check's match that waits for a second person (docs/decisions.md DG1) is applied only with the spot check's
+     * owner as its decider or its approver. The owner's own change (here a relink with 2 per sale, which needs a second matching lead)
+     * is the owner's decision: another lead's second OK applies it, as the two-person rule asks, and the spot check then fails (the
+     * page warns the owner: it stops the bulk link for good). A change asked for by someone else (here while the owner had lost the
+     * matching lead's job, so the spot check kept nothing) is refused at another lead's approval once the owner has the job again;
+     * it can still be cancelled.
+     */
+    public function testAnApprovalOfAChangeToASpotChecksMatchNeedsItsOwnerAsTheDeciderOrTheApprover(): void
+    {
+        $pop = $this->population(16, 8);
+        $owner = $pop['owner'];
+        $this->samples()->create($owner, 'own5', 20, true);
+        $m = $this->confirmMembers($owner, 'own5', 2);
+        [$m0, $m1] = [(int) $m[0]['listing_id'], (int) $m[1]['listing_id']];
+        [$otherLead, $mapper] = [$this->staffUser('mapping_lead'), $this->staffUser('mapper')];
+        $relink = fn (Caller $who, int $lid): array => $this->decide($who, 'link', $lid, ['sku_id' => (int) $this->link($lid)['sku_id'], 'units_per_item' => 2]);
+
+        self::$db->exec("UPDATE staff_role SET revoked_at = NOW(6) WHERE staff_user_id = ? AND role = 'mapping_lead'", [$owner->staffUserId]);
+        $asked = $relink($mapper, $m1);
+        self::assertSame(['pending_second', ['units_per_item']], [$asked['state'], $asked['needs_second']]);
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'mapping_lead')", [$owner->staffUserId]);
+        self::assertSame([$m1], array_keys($this->samples()->keeping([$m1])), 'kept again: its match is still confirmed');
+        $e = self::refused(403, 'spot_check_other', fn () => $this->ds->approve($otherLead, $asked['decision_id']));
+        self::assertSame([$m1, 'own5', true], [$e->detail['listing_id'], $e->detail['sample'], $e->detail['done']]);
+        self::assertSame(['pending_second', 1], [(string) self::$db->value('SELECT state FROM match_decision WHERE id = ?', [$asked['decision_id']]),
+            (int) $this->link($m1)['units_per_item']]);
+        self::assertSame('withdrawn', $this->ds->withdraw($otherLead, $asked['decision_id'])['state']);
+
+        $own = $relink($owner, $m0);
+        self::assertSame('pending_second', $own['state']);
+        self::assertSame('waiting', $this->samples()->status('own5')['verdict'], 'a change that waits names no suggestion: the spot check has not failed yet');
+        self::assertSame('applied', $this->ds->approve($otherLead, $own['decision_id'])['state'], 'the owner decided it');
+        self::assertSame([2, 'changed_since', 'failed'], [(int) $this->link($m0)['units_per_item'], $this->samples()->status('own5')['members'][0]['state'],
+            $this->samples()->status('own5')['verdict']]);
+    }
+
+    /**
      * A complete spot check still keeps its confirmed matches for its owner (docs/decisions.md DG1, as the page has since U71): a change
      * by anyone else would fail it after all (changed_since), and its bulk confirm would refuse.
      */

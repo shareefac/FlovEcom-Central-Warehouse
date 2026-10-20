@@ -62,7 +62,8 @@ use CW\Stock;
  *
  * Who decides a spot check's match (M28; docs/decisions.md DG1): while the spot check has not failed,
  * its owner alone (KeySample::keeping), for this listing and for every listing a merge moves; anyone
- * else is refused, 403 spot_check_other, whatever the caller. The same "No, wrong product" again by the
+ * else is refused, 403 spot_check_other, whatever the caller. A decision that waits for a second person
+ * is applied only with the owner as its decider or its approver. The same "No, wrong product" again by the
  * same person (a double send) writes nothing and answers as the first did (`repeated`).
  *
  * Relinking a listing whose units are in flight on a counted item queues a recount of both items
@@ -363,6 +364,10 @@ final class DecisionService
             }
             $l = $this->lockListing((int) $d['listing_id']);
             $d = $this->pendingDecision($decisionId); // re-read under the listing lock
+            // A spot check's match (DG1): the change waited for a second person; it is applied with the spot check's owner as its
+            // decider (the owner's own change: the second OK is another lead's by rule) or as its approver, never by two others.
+            $people = [$staff['id'], (int) $d['decided_by']];
+            $this->keepSpotChecks($people, [$l['id']]);
             if ($d['action'] === 'merge_skus') {
                 $this->lockListingsOf((int) $d['merge_from_sku_id']);
             }
@@ -414,7 +419,7 @@ final class DecisionService
                 'decision_id' => $decisionId, 'action' => $r['action'], 'decided_by' => (int) $d['decided_by'], 'reason' => $reason,
                 'needs_second' => json_decode((string) ($d['needs_second'] ?? '[]'), true),
             ]);
-            return $this->effect($caller, $decisionId, $r, $l, $target, $now, false);
+            return $this->effect($caller, $decisionId, $r, $l, $target, $now, false, $people);
         });
     }
 
@@ -623,7 +628,7 @@ final class DecisionService
         if ($staff !== null && $action !== 'suggest') {
             // A spot check's match is its owner's while the spot check is open (M28, docs/decisions.md DG1), whoever calls: first,
             // because no other answer applies to anyone else.
-            $this->keepSpotChecks($staff['id'], [$l['id']]);
+            $this->keepSpotChecks([$staff['id']], [$l['id']]);
         }
         if ($l['map_version'] !== $r['expected_map_version']) {
             throw new CwException('map_version_conflict', 'the listing changed since it was shown; reload it', 409,
@@ -732,7 +737,7 @@ final class DecisionService
                 'map_version' => $l['map_version'], 'status' => $l['status'], 'sku_id' => $l['linked'] ? $l['sku_id'] : null,
                 'units_per_item' => $l['units_per_item'], 'needs_second' => $needs, 'adopted' => 0];
         }
-        return $this->effect($caller, $decisionId, $r, $l, $target, $now, true);
+        return $this->effect($caller, $decisionId, $r, $l, $target, $now, true, $staff === null ? [] : [$staff['id']]);
     }
 
     /**
@@ -995,9 +1000,11 @@ final class DecisionService
      * @param array<string, mixed> $target validate() result (+ minted sku)
      * @param bool $onePerson applied by its decider alone (not by an approval): the stock of a merge or split re-checks under
      *        the balance locks that neither item was counted meanwhile (M31)
+     * @param list<int> $people who applies it: the decider, or the approver and the decider (a merge moves a listing an open spot
+     *        check keeps only with its owner among them, DG1)
      * @return array<string, mixed>
      */
-    private function effect(Caller $caller, int $decisionId, array $r, array $l, array $target, string $now, bool $onePerson): array
+    private function effect(Caller $caller, int $decisionId, array $r, array $l, array $target, string $now, bool $onePerson, array $people): array
     {
         $action = $r['action'];
         $id = $l['id'];
@@ -1077,7 +1084,7 @@ final class DecisionService
             case 'merge_skus':
                 $keep = $target['sku'];
                 $from = $target['from'];
-                $moved = $this->merge($decisionId, $from['id'], $keep['id'], $now, $caller->staffUserId);
+                $moved = $this->merge($decisionId, $from['id'], $keep['id'], $now, $people);
                 $this->settleProposal($r['proposal_id']);
                 // The other merge suggestions this merge fulfilled (a listing of the merged item that proposed the kept item): nothing
                 // is left to merge for them (M34). Only listings this decision holds locked.
@@ -1158,12 +1165,13 @@ final class DecisionService
      * Moves every listing linked to $fromSku to $keepSku (same u and status), one history period
      * each, and marks $fromSku merged. Listings are locked in id order (the anchor is already
      * held). Their sold units keep their sale-time snapshot (the old item), like any relink. A listing
-     * that an open spot check keeps for its owner is moved only by that owner (the person applying it:
-     * the decider, or the approver of a pending merge; docs/decisions.md DG1): 403 spot_check_other.
+     * that an open spot check keeps for its owner is moved only with that owner among $people (the
+     * decider, or the approver and the decider of a pending merge; docs/decisions.md DG1): 403 spot_check_other.
      *
+     * @param list<int> $people
      * @return array<int, int> listing id => its new map_version
      */
-    private function merge(int $decisionId, int $fromSku, int $keepSku, string $now, ?int $staffId): array
+    private function merge(int $decisionId, int $fromSku, int $keepSku, string $now, array $people): array
     {
         $ids = array_map('intval', $this->db->column(
             "SELECT id FROM channel_listing WHERE sku_id = ? AND status IN ('mapped', 'quarantined') ORDER BY id",
@@ -1175,8 +1183,8 @@ final class DecisionService
             if (!$row['linked'] || $row['sku_id'] !== $fromSku) {
                 continue;
             }
-            if ($staffId !== null) {
-                $this->keepSpotChecks($staffId, [$lid]);
+            if ($people !== []) {
+                $this->keepSpotChecks($people, [$lid]);
             }
             if ($this->db->value('SELECT id FROM match_decision WHERE pending_listing_id = ? AND id <> ?', [$lid, $decisionId]) !== null) {
                 throw new CwException('pending_second_exists', "listing {$lid} of the merged item has a pending decision", 409, ['listing_id' => $lid]);
@@ -1570,15 +1578,17 @@ final class DecisionService
 
     /**
      * A spot check's matches are its owner's while it is open (M28; docs/decisions.md DG1; the review page has said so since U47, U71):
-     * a decision by anyone else that would change one of these listings is refused before anything is written, 403 spot_check_other,
-     * with the listing, the spot check and its owner (`done`: the match was answered already, its link is what would change).
+     * a decision that would change one of these listings without the owner among $people (the decider; for an approval, the approver
+     * and the decider) is refused before anything is written, 403 spot_check_other, with the listing, the spot check and its owner
+     * (`done`: the match was answered already, its link is what would change).
      *
+     * @param list<int> $people
      * @param list<int> $listingIds
      */
-    private function keepSpotChecks(int $staffId, array $listingIds): void
+    private function keepSpotChecks(array $people, array $listingIds): void
     {
         foreach ((new KeySample($this->db))->keeping($listingIds) as $lid => $k) {
-            if ($k['owner_id'] !== $staffId) {
+            if (!in_array($k['owner_id'], $people, true)) {
                 throw new CwException('spot_check_other', "listing {$lid} is a match of spot check {$k['sample']}: only its owner decides it while it is open", 403,
                     ['listing_id' => $lid] + $k);
             }

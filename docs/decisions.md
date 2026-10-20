@@ -10928,8 +10928,13 @@ gets **403 `spot_check_other`** with the listing, the spot check, its owner and 
   job): no confirmation of theirs would count, so it can never be completed, and its matches would be stuck, decidable by nobody (the
   page still shows others no form there; a lead can now decide such a match). A listing that is a match of two spot checks (the older
   failed when its suggestion was replaced) is kept by the newest that keeps it.
-- A merge moves every listing of the item it joins away (M31), named or not: `merge()` asks the same for each listing it moves, as the
-  person applying it (the decider, or the lead approving a pending merge). The Duplicates page shows `DUP_ERROR['spot_check_other']`.
+- A decision that waits for a second person is applied (`approve()`, under the listing's lock) only with the owner as its decider or
+  its approver. The owner's own change of a confirmed match (a relink with 2 per sale, say) is the owner's decision, and the two-person
+  rule wants another lead's second OK: it applies, and the spot check fails (the page warns the owner first, U71). Such a waiting change
+  names no suggestion, so the spot check has not failed while it waits. A change asked for by two other people is refused.
+- A merge moves every listing of the item it joins away (M31), named or not: `merge()` asks the same for each listing it moves, with
+  the decider (or, for a pending merge, the approver and the decider) as the people one of whom must be the owner. The Duplicates page
+  shows `DUP_ERROR['spot_check_other']`.
 - `BulkDecisions` already skips a spot check's matches before a row is sent (OneAtATime); a spot check drawn between that check and the
   row's decision now ends as the same skip (`in_spot_check`, with the spot check's name), not as "refused".
 - The page is unchanged: it already showed anyone else no form (U47, U71). The words: `MATCH_ERROR['spot_check_other']` ("Not saved:
@@ -10968,8 +10973,11 @@ second send is refused as stale). Anything else is still a new answer, recorded 
 item, a ticked list's, or the same once something else was decided on the listing since.
 
 **DG4. The other POST routes under /ui/review, checked.**
-- `decision/{id}/approve` and `/withdraw`: a pending decision on a spot check's match means the spot check has failed already
-  (`waiting_second`); an approved merge is DG1's `merge()` check, as the approver. No other gap.
+- `decision/{id}/approve` and `/withdraw`: an approval re-asks DG1 under the listing's lock (the owner as decider or approver), for the
+  listing and for every listing a merge moves (DG1 above). A pending decision that names a spot check's suggestion has failed it already
+  (`waiting_second`); one that names none (a change of a confirmed match) has not, which is why the approval asks. A withdrawal changes
+  no link. Seen in passing, not changed: withdrawing a waiting decision that named a match's suggestion puts that match back to "to
+  answer" (KeySample reads only `pending_second` rows), so a spot check failed by such a decision is waiting again.
 - `bulk` (the lists, Store Products, New Variants) and `products/bulk/apply` (By Item): every row through `BulkDecisions`, which skips
   held back, a spot check's matches and the check on arrival's before and under the row's lock (M63, M64); the preview saves nothing. No
   gap; DG1's mapping above for the race.
@@ -11018,3 +11026,14 @@ pass with `seen()` read before the lock). Two tests force the overlap with a sec
 `testASpotCheckDrawnWhileATickedBatchRunsSkipsItsMatch` (a spot check drawn while a ticked batch's row waits: skipped `in_spot_check`
 with its name, nothing decided). Both pass, and both fail on a copy with the read moved before the lock and with BulkDecisions' mapping
 removed (`runs/decideguard2_mut1.log`).
+
+### The third Codex review (on `0c6ce17`; `runs/decideguard2_codex_review3.txt`): no HIGH, one MEDIUM and one LOW, fixed test-first
+
+- **MEDIUM: an approval did not ask DG1.** A change of a confirmed match that waits for a second person names no suggestion, so
+  KeySample does not count it and the spot check still keeps the match; `approve()` did not ask who the owner is, so a change asked
+  for by someone else (made while the owner could not answer, or before this guard) could be approved by any other lead. It now asks
+  under the listing's lock, with the approver and the decider as the people one of whom must be the owner (DG1, DG4 above).
+  `KeyBulkTest::testAnApprovalOfAChangeToASpotChecksMatchNeedsItsOwnerAsTheDeciderOrTheApprover` (failed first:
+  `runs/decideguard2_r3_red.log`).
+- **LOW: DG3's suggestion was not pinned.** `testTheSameNoTwiceIsRecordedOnce` now ends with a newer suggestion that replaced the
+  named one without moving map_version: the "No" about it is a new answer.

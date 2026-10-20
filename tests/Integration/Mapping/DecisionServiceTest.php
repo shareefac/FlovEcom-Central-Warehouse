@@ -226,6 +226,13 @@ final class DecisionServiceTest extends MappingTestCase
         $fresh = $this->decide($mapper, 'reject', $e, ['reason' => null] + $no);
         self::assertSame([null, 2, 8], [$fresh['repeated'] ?? null, $fresh['map_version'], $written()[0]]);
         self::assertTrue($this->decide($mapper, 'reject', $e, ['reason' => null] + $no)['repeated'], 'and that one, sent twice, is recorded once');
+        // A newer suggestion replaced the one it named (a new matching run does not move map_version): the "No" about it is new.
+        $p2 = $this->propose($e, 'Check', $a, [], false, 'run-2');
+        self::assertSame([2, 'superseded'], [$this->version($e), (string) self::$db->value('SELECT status FROM match_proposal WHERE id = ?', [$pid])]);
+        $audit = $written()[2];
+        $newer = $this->decide($mapper, 'reject', $e, ['reason' => null, 'proposal_id' => $p2] + $no);
+        self::assertSame([null, $p2, 9, $audit + 1], [$newer['repeated'] ?? null, (int) self::$db->value('SELECT proposal_id FROM match_decision WHERE id = ?', [$newer['decision_id']]),
+            $written()[0], $written()[2]]);
     }
 
     /**
