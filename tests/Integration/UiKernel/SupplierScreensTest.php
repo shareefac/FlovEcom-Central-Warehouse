@@ -222,6 +222,59 @@ final class SupplierScreensTest extends KernelUiTestCase
         }
     }
 
+    /**
+     * The 6.3 browser test (19 Oct 2026): with the second person switched off, the draft, its button and the notice after it say what
+     * happens (usable at once, marked "approved alone"); its maker, a reviewer too, is told another reviewer gives the OK afterwards
+     * and orders are not stopped; a request that waits from before the switch went off says how to use the supplier now.
+     */
+    public function testWithTheSecondPersonOffThePagesSayTheSupplierIsUsableAtOnce(): void
+    {
+        $ownerUser = $this->uiUser(['purchasing_manager', 'reviewer']);
+        $was = self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'approvals.supplier_activation'");
+        try {
+            // Asked while the rule was on; then the rule goes off: the waiting page says how to use the supplier now.
+            $sup = new Suppliers(self::$db);
+            $d = $this->draft($ownerUser['id'], ['name' => 'Waited Supplies']);
+            $sup->requestActivation(Caller::staff($ownerUser['id']), (int) $d['id'], (int) $d['version']);
+            $owner = $this->signIn($ownerUser);
+            self::assertStringNotContainsString(Words::SUPPLIER['waiting_rule_off'], $owner->get('/ui/purchasing/suppliers/' . $d['id'])->text(), 'the rule is on');
+            (new \CW\Settings(self::$db))->set(Caller::system('settings'), 'approvals.supplier_activation', 'false', 'one person for this test');
+            self::assertStringContainsString(Words::SUPPLIER['waiting_rule_off'], $owner->get('/ui/purchasing/suppliers/' . $d['id'])->text());
+
+            // Made on the form: the notice says what to press.
+            $new = $owner->get('/ui/purchasing/suppliers/new');
+            $r = $owner->post('/ui/purchasing/suppliers', ['name' => 'Alone Now Supplies', 'code' => '', 'email' => 'orders@alone.example'] + $new->form('/ui/purchasing/suppliers'));
+            self::assertSame(303, $r->status, $r->describe());
+            $id = self::supplierId($r);
+            $card = $owner->follow($r);
+            $xp = new \DOMXPath($card->dom());
+            self::assertSame(Words::SUPPLIER_NOTICE['created_alone'], trim((string) $xp->evaluate('string(//p[contains(@class, "notice")])')));
+            // Complete it, then its button says "Make it usable".
+            self::$db->exec("UPDATE supplier SET address_line1 = '2 Mill Lane', postcode = 'M1 1AA', payment_terms = '30 days', dd_checked_on = CURRENT_DATE, "
+                . 'dd_checked_by = ?, dd_next_review_on = CURRENT_DATE + INTERVAL 1 YEAR WHERE id = ?', [$ownerUser['id'], $id]);
+            $card = $owner->get('/ui/purchasing/suppliers/' . $id);
+            $xp = new \DOMXPath($card->dom());
+            self::assertSame(Words::SUPPLIER['ask_alone'], trim((string) $xp->evaluate('string(//form[contains(@action, "/request-activation")]//span[@class="btn-title"])')),
+                $card->describe());
+            self::assertStringContainsString(Words::SUPPLIER['ask_alone_does'], $card->text());
+            self::assertStringContainsString(Words::SUPPLIER['draft_todo_alone'], $card->text());
+            self::assertStringNotContainsString(Words::SUPPLIER['ask'], $card->text(), 'nothing says a reviewer must approve it first');
+
+            // Pressed: usable at once, and the notice says so (not "a reviewer must approve").
+            $r = $owner->post('/ui/purchasing/suppliers/' . $id . '/request-activation', $card->form('/ui/purchasing/suppliers/' . $id . '/request-activation'));
+            self::assertSame(303, $r->status, $r->describe());
+            $page = $owner->follow($r);
+            self::assertSame(Words::SUPPLIER_NOTICE['made_usable'], trim((string) (new \DOMXPath($page->dom()))->evaluate('string(//p[contains(@class, "notice")])')));
+            self::assertSame('active', self::$db->value('SELECT status FROM supplier WHERE id = ?', [$id]));
+            // Its maker, a reviewer too: another reviewer gives the OK afterwards; never "another reviewer must decide" as if it waited.
+            self::assertStringContainsString(Words::SUPPLIER['alone_yours'], $page->text());
+            self::assertStringNotContainsString(Words::REFUSAL['own_supplier'], $page->text());
+        } finally {
+            self::$db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON), updated_actor = 'system:migrate' WHERE setting_key = 'approvals.supplier_activation'",
+                [(string) $was]);
+        }
+    }
+
     public function testAChangeReviewAppearsInTheQueueAndIsDecidedOnTheCard(): void
     {
         $buyerUser = $this->uiUser('buyer');

@@ -50,7 +50,7 @@
 <?php if ($show === 'accepted'): ?>
       <td data-label="<?= $word('INVOICES', 'accepted_by') ?>"><?= $e($r['accepted_by_name'] ?? '') ?><span class="o-sub"><?= $e($r['accept_note'] ?? '') ?></span></td>
 <?php endif; ?>
-      <td class="c-status"><?= $stateChip('MATCH_STATE', $r['match_state']) ?></td>
+      <td class="c-status"><?= $stateChip('MATCH_STATE', $r['match_state']) ?><?php foreach ($r['claims'] as $claim): ?><span class="o-sub"><?= $e($claim) ?></span><?php endforeach; ?></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Admin\ApprovalRules;
 use CW\CwException;
 use CW\Db;
 use CW\OpResult;
@@ -87,8 +88,10 @@ final class SuppliersController
         try {
             $r = FormOnce::run($ctx, 'ui.supplier.create', $fields, static function (Db $db) use ($ctx, $fields): OpResult {
                 $s = $ctx->suppliers()->create($ctx->caller(), $fields);
+                // The notice names the button the draft will show: "Make it usable" when the second person is switched off.
+                $notice = ApprovalRules::on($db, 'approvals.supplier_activation') ? 'created' : 'created_alone';
                 return OpResult::of(303, ['result' => 'created', 'supplier_id' => (int) $s['id'],
-                    'redirect' => Html::url('/ui/purchasing/suppliers/' . (int) $s['id'], ['notice' => 'created'])]);
+                    'redirect' => Html::url('/ui/purchasing/suppliers/' . (int) $s['id'], ['notice' => $notice])]);
             });
         } catch (CwException $e) {
             return $this->form($ctx, null, $fields, $ctx->req->field(FormOnce::FIELD) ?? FormOnce::newKey(), $e->httpStatus, $e);
@@ -176,11 +179,12 @@ final class SuppliersController
         $id = $ctx->id();
         $version = UiRequest::id($ctx->req->field('version'));
         try {
-            $ctx->suppliers()->requestActivation($ctx->caller(), $id, $version ?? 0);
+            $s = $ctx->suppliers()->requestActivation($ctx->caller(), $id, $version ?? 0);
         } catch (CwException $e) {
             return $this->card($ctx, $id, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url('/ui/purchasing/suppliers/' . $id, ['notice' => 'requested']));
+        // With the second person switched off the request made it usable at once ("approved alone"): the notice says so.
+        return HtmlResponse::redirect(Html::url('/ui/purchasing/suppliers/' . $id, ['notice' => ($s['status'] ?? '') === 'active' ? 'made_usable' : 'requested']));
     }
 
     /** A reviewer's OK afterwards of a supplier made usable by one person alone (M2, Y49): the "approved alone" mark goes. */
@@ -388,7 +392,13 @@ final class SuppliersController
                     : Words::say('SUPPLIER', 'alone_route_text', (string) ($name($s['import_route_approved_by']) ?? ''), Html::when((string) $s['import_route_approved_at'])),
                 'checked' => $checked ? Words::say('SUPPLIER', 'alone_checked', (string) ($name($s['alone_checked_by']) ?? ''), Html::when((string) $s['alone_checked_at'])) : null,
                 'may_check' => !$checked && $no === null,
-                'refusal' => $checked || $no === null ? null : (($no['code'] ?? '') === 'role_not_allowed' ? Words::SUPPLIER['alone_look'] : Words::refusal($no)),
+                // Its own maker or approver: another reviewer gives this OK afterwards, and orders are not stopped (never the waiting
+                // supplier's "another reviewer must decide"; the 6.3 browser test).
+                'refusal' => $checked || $no === null ? null : match ($no['code'] ?? '') {
+                    'role_not_allowed' => Words::SUPPLIER['alone_look'],
+                    'own_supplier' => Words::SUPPLIER['alone_yours'],
+                    default => Words::refusal($no),
+                },
             ];
         }
         // The details that are empty are named once (F373).
@@ -418,6 +428,8 @@ final class SuppliersController
             'items' => ['n' => (int) ($items['n'] ?? 0), 'active' => (int) ($items['active'] ?? 0), 'preferred' => (int) ($items['preferred'] ?? 0),
                 'no_price' => (int) ($items['no_price'] ?? 0)],
             'canManage' => $canManage,
+            // The second person (Settings › Approval Rules): off, one person makes a supplier usable ("Make it usable").
+            'secondPerson' => ApprovalRules::on($db, 'approvals.supplier_activation'),
             'arrivals' => ArrivalsController::supplierBox($ctx, (int) $s['id'], (string) $s['status']), // pack J (PJ5, PJ6): goods on their way
             'recentPos' => $recentPos,
             'canOrder' => $canPost && $s['status'] !== 'inactive',

@@ -976,6 +976,27 @@ final class SupplierInvoices
     }
 
     /**
+     * The final returns (debit notes) that claim against each invoice and are not cancelled (supplier_return.invoice_document_id: a
+     * claim of what did not come, pack J, or a return started from the invoice): invoice id => its claims, oldest first.
+     *
+     * @param list<int> $invoiceIds
+     * @return array<int, list<array{id: int, number: string, claim_total: string}>>
+     */
+    public function claimsOn(array $invoiceIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $invoiceIds)));
+        if ($ids === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($this->db->all('SELECT r.invoice_document_id AS invoice_id, d.id, d.number, r.claim_total FROM supplier_return r JOIN document d ON d.id = r.document_id '
+            . "WHERE r.invoice_document_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ") AND d.status = 'posted' AND d.reverses_id IS NULL ORDER BY d.id", $ids) as $r) {
+            $out[(int) $r['invoice_id']][] = ['id' => (int) $r['id'], 'number' => (string) $r['number'], 'claim_total' => (string) $r['claim_total']];
+        }
+        return $out;
+    }
+
+    /**
      * The "To match" list: posted invoices whose match needs review (or, $show 'accepted', whose differences a person accepted), oldest
      * first (they wait longest), at most LIST_LIMIT. One read on (match_state, document_id).
      *

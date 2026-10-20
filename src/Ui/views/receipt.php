@@ -140,7 +140,9 @@
 <?php if (($invoiceBook ?? null) !== null): ?>
 <section aria-labelledby="receipt-inv-h">
   <h2 id="receipt-inv-h"><?= $word('INVOICES', 'receipt_invoices') ?></h2>
-<?php if ($invoiceBook['invoices'] === []): ?>
+<?php if ($invoiceBook['invoices'] === [] && ($arrivalBox ?? null) !== null): ?>
+  <p><?= $word('INVOICES', 'receipt_arrival') ?> <a href="<?= $u('/ui/purchasing/invoices/' . $arrivalBox['invoice']['id']) ?>"><?= $e($arrivalBox['invoice']['number']) ?></a></p>
+<?php elseif ($invoiceBook['invoices'] === []): ?>
   <p class="muted"><?= $word('INVOICES', 'receipt_none') ?></p>
 <?php else: ?>
   <ul>

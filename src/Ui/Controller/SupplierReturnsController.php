@@ -130,7 +130,7 @@ final class SupplierReturnsController
         $notice = null;
         if ($n !== null) {
             $notice = match (true) {
-                $n === 'posted' || $n === 'reversed' => Words::say('RETURN_NOTICE', $n, (string) ($ctx->req->param('number') ?? '')),
+                $n === 'posted' || $n === 'posted_claim' || $n === 'reversed' => Words::say('RETURN_NOTICE', $n, (string) ($ctx->req->param('number') ?? '')),
                 isset(Words::RETURN_NOTICE[$n]) => Words::RETURN_NOTICE[$n],
                 isset(Words::INVOICE_NOTICE[$n]) => Words::INVOICE_NOTICE[$n],
                 isset(Words::RECORD_NOTICE[$n]) => Words::RECORD_NOTICE[$n],
@@ -201,7 +201,12 @@ final class SupplierReturnsController
     {
         return $this->act($ctx, static function (SupplierReturns $sr, int $id, int $version) use ($ctx): array {
             $d = $sr->post($ctx->caller(), $id, $version);
-            return $d->status === 'awaiting_approval' ? ['notice' => 'submitted'] : ['notice' => 'posted', 'query' => ['number' => $d->number]];
+            if ($d->status === 'awaiting_approval') {
+                return ['notice' => 'submitted'];
+            }
+            // A claim without goods (what did not come) moved no stock: its notice says so.
+            $goods = (int) $ctx->db->value('SELECT COUNT(*) FROM document_line WHERE document_id = ? AND sku_id IS NOT NULL', [$d->id]);
+            return ['notice' => $goods > 0 ? 'posted' : 'posted_claim', 'query' => ['number' => $d->number]];
         });
     }
 
@@ -298,6 +303,8 @@ final class SupplierReturnsController
             'title' => Words::docTitle('DN', $doc->number, (string) ($rec['supplier_name'] ?? ''), $doc->isReversal() ? (string) ($rec['reverses_number'] ?? '#' . $doc->reversesId) : null),
             'facts' => self::facts($rec, $doc),
             'lines' => $lines,
+            // A claim without goods (what did not come): nothing leaves the stock, and its page says so.
+            'claimOnly' => $lines !== [] && array_filter($lines, static fn (array $l): bool => ($l['sku_id'] ?? null) !== null) === [],
             'total' => $total,
             'problems' => $editable ? array_map(static fn (array $p): string => InvoicesController::problemText($p), $sr->problems($id)) : [],
             'editable' => $editable,

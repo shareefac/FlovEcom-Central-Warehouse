@@ -1,5 +1,5 @@
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $e($k['tab']) ?></a></p>
-<?= $head((string) $title, intro: 'supplier_invoice', look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($storedMatch !== null ? ' ' . $stateChip('MATCH_STATE', $storedMatch) : '')) ?>
+<?= $head((string) $title, intro: $doc->status === 'posted' ? 'supplier_invoice_final' : 'supplier_invoice', look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($storedMatch !== null ? ' ' . $stateChip('MATCH_STATE', $storedMatch) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php if (count($problemsOfError) > 1): ?>
@@ -451,9 +451,12 @@
 <?php endif; ?>
 </section>
 <?php endif; ?>
-<?php if ($kind === 'invoice' && !$doc->isReversal() && ($rec['credit_notes'] !== [] || $canCredit)): ?>
+<?php if ($kind === 'invoice' && !$doc->isReversal() && ($rec['credit_notes'] !== [] || $canCredit || $claims !== [])): ?>
 <section aria-labelledby="credits-h">
   <h2 id="credits-h"><?= $word('INVOICES', 'credit_notes') ?></h2>
+<?php foreach ($claims as $c): ?>
+  <p><?= $say('INVOICES', 'claimed_on', (string) $c['number'], \CW\Ui\Html::money((string) $c['claim_total'])) ?> <a href="<?= $u('/ui/purchasing/returns/' . $c['id']) ?>"><?= $e($c['number']) ?></a></p>
+<?php endforeach; ?>
 <?php if ($rec['credit_notes'] === []): ?>
   <p class="muted"><?= $word('INVOICES', 'no_credit_notes') ?></p>
 <?php else: ?>

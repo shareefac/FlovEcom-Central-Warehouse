@@ -1,5 +1,5 @@
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $word('MENU', 'returns') ?></a></p>
-<?= $head((string) $title, intro: 'supplier_return', look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($rec['credit_state'] !== null && !$doc->isReversal() ? ' ' . $stateChip('CREDIT_STATE', $rec['credit_state']) : '')) ?>
+<?= $head((string) $title, intro: $doc->status === 'posted' ? 'supplier_return_final' : ($claimOnly ? 'supplier_return_claim' : 'supplier_return'), look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($rec['credit_state'] !== null && !$doc->isReversal() ? ' ' . $stateChip('CREDIT_STATE', $rec['credit_state']) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -250,7 +250,7 @@
 </details>
 <section class="card final-box" aria-labelledby="final-h">
   <h2 id="final-h"><?= $word('RETURNS', 'post_title') ?></h2>
-  <p><?= $word('RETURNS', 'post_does') ?></p>
+  <p><?= $word('RETURNS', $claimOnly ? 'post_does_claim' : 'post_does') ?></p>
 <?php if ($ruleWaits): ?>
   <p class="muted"><?= $word('STOCK_OPS', 'final_waits') ?></p>
 <?php endif; ?>

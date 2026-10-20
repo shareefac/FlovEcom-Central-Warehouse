@@ -101,10 +101,13 @@ final class InvoicesController
     {
         $show = $ctx->req->param('show') === 'accepted' ? 'accepted' : 'needs_review';
         $rows = $ctx->supplierInvoices()->toMatch($show);
+        $claims = $ctx->supplierInvoices()->claimsOn(array_map(static fn (array $r): int => (int) $r['id'], $rows));
         $notice = $ctx->req->param('notice');
         return $ctx->page('invoices_to_match', [
             'show' => $show,
-            'rows' => array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id']], $rows),
+            'rows' => array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id'],
+                'claims' => array_map(static fn (array $c): string => Words::say('INVOICES', 'claimed_on', $c['number'], Html::money($c['claim_total'])),
+                    $claims[(int) $r['id']] ?? [])], $rows),
             'limit' => SupplierInvoices::LIST_LIMIT,
             'canRecheck' => Documents::mayPost($ctx->me()->roles, 'SINV') && $rows !== [],
             'rules' => self::rulesText($ctx),
@@ -504,6 +507,8 @@ final class InvoicesController
         }
         return $ctx->page('supplier_invoice', [
             'kind' => $kind,
+            // The final returns (debit notes) that claim against this invoice (the 6.3 browser test).
+            'claims' => $kind === 'invoice' ? ($ctx->supplierInvoices()->claimsOn([$doc->id])[$doc->id] ?? []) : [],
             'k' => $k,
             'base' => SupplierInvoices::PATHS[$kind],
             'doc' => $doc,

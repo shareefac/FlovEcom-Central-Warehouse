@@ -370,6 +370,7 @@ final class Words
         'orders_open' => '%s open',
         'orders_waiting' => '%s waiting for OK',
         'goods_in_text' => '%s not booked in',
+        'goods_in_arriving' => '%s arriving', // final invoices with goods on their way (Goods In › Arriving)
         'stock_text' => '%s booked in this week',
     ];
 
@@ -667,7 +668,13 @@ final class Words
             'Start one from a delivery\'s damaged or unstamped goods, or by hand.'],
         'supplier_invoice' => ['A supplier\'s paper as it was booked: what it bills, and how it matches the order and the delivery.',
             'While it is a draft, check the lines against the paper, type the totals, then make it final.'],
+        'supplier_invoice_final' => ['A supplier\'s paper as it was booked: what it bills, and how it matches the order and the delivery.',
+            'It is final and is not changed any more: below, how it matches and what credits it.'],
         'supplier_return' => ['Goods going back to a supplier, and what we claim for them.', 'While it is a draft, check the lines, then make it final: the stock goes out.'],
+        // A claim without goods (what did not come, pack J): nothing leaves the stock.
+        'supplier_return_claim' => ['What we claim from a supplier for goods that did not come.',
+            'While it is a draft, check the claim, then make it final: nothing leaves the stock, the claim is our debit note.'],
+        'supplier_return_final' => ['Goods going back to a supplier, and what we claim for them.', 'It is final: the supplier answers it with a credit note.'],
         // Pack F (docs/decisions.md PF6-PF9): Approvals › From the stores.
         'queue_suspense' => ['Lines of ERPNext deliveries, supplier returns, sales and corrections that the warehouse system could not match to an item.',
             'Type the item\'s code and place the line, or close it with a note when there is nothing to book.'],
@@ -6360,6 +6367,7 @@ final class Words
         'waiting_locked' => 'It cannot be changed while it waits.',
         'draft' => 'This supplier is a draft. You cannot order from it until a reviewer approves it.',
         'draft_todo' => 'Fill in the missing details, then press "Ask a reviewer to approve".',
+        'draft_todo_alone' => 'Fill in the missing details, then press "Make it usable".',
         'stopped' => 'No: we stopped ordering from it on %s (%s: %s).',
         'stopped_plain' => 'No: we stopped ordering from it.',
         'stopped_again' => 'To order from it again, a reviewer must approve it again.',
@@ -6367,6 +6375,10 @@ final class Words
         'ask' => 'Ask a reviewer to approve',
         'ask_again' => 'Ask a reviewer to approve it again',
         'ask_does' => 'A reviewer checks the details and the background check. Nothing can be ordered until they say yes.',
+        // The second person switched off (Settings › Approval Rules, approvals.supplier_activation): one person makes it usable.
+        'ask_alone' => 'Make it usable',
+        'ask_alone_does' => 'The second person is switched off: you can order from it at once. It is marked "approved alone" until another reviewer gives their OK.',
+        'waiting_rule_off' => 'The second person is switched off now: cancel your request, then press "Make it usable" to order from it at once.',
         // The reviewer's boxes
         'task_activation' => 'New supplier – waiting for a reviewer\'s OK (no orders until then)',
         'task_reactivation' => 'Supplier to be used again – waiting for a reviewer\'s OK (no orders until then)',
@@ -6473,7 +6485,7 @@ final class Words
         'alone_done' => 'Checked',
         'alone_does' => 'Check the details and the proof documents, then give your OK: the "approved alone" mark goes. Nothing else changes.',
         'alone_ok' => 'OK: I checked this supplier',
-        'alone_yours' => 'You made this supplier usable alone, so another reviewer checks it.',
+        'alone_yours' => 'You made, changed or approved this supplier, so another reviewer gives this OK. Orders are not stopped meanwhile.',
         'alone_look' => 'A reviewer checks it and gives the OK.',
     ];
 
@@ -6585,11 +6597,13 @@ final class Words
         'arrivals_saved' => 'Saved: what happens to the goods of its invoices on their way.', // pack J
         'arrivals_refused' => 'Not saved: choose how its invoices come in.', // pack J
         'created' => 'Supplier saved as a draft. Add the background check, then press "Ask a reviewer to approve".',
+        'created_alone' => 'Supplier saved as a draft. Add the background check, then press "Make it usable".',
         'saved' => 'Saved.',
         'saved_review' => 'Saved. You can still order from it: a reviewer checks the change within 7 days.',
         'saved_route' => 'Saved. How duty stamps are put on the goods changed: no orders to this supplier until a reviewer approves it.',
         'unchanged' => 'Nothing changed.',
         'requested' => 'Sent: a reviewer must approve the supplier before you can order from it.',
+        'made_usable' => 'Done: you can order from this supplier now. The second person is switched off, so it is marked "approved alone" until another reviewer gives their OK.',
         'withdrawn' => 'Request cancelled: the supplier is a draft again.',
         'approved' => 'Done: you said OK.',
         'rejected' => 'Done: you said not OK. Your note is kept on the supplier.',
@@ -9305,6 +9319,9 @@ final class Words
         // A delivery's page (Purchasing › Goods In).
         'receipt_invoices' => 'Its supplier invoice',
         'receipt_none' => 'No supplier invoice bills this delivery yet.',
+        'receipt_arrival' => 'Its goods were billed before they came, on', // + the invoice (Goods In › Arriving, pack J)
+        // An invoice a final return (debit note) claims against: on To match and on its page.
+        'claimed_on' => 'Claimed from the supplier on %s (%s): waiting for their credit note.',
         'receipt_left' => '%s items of it are still to invoice.',
     ];
 
@@ -9540,6 +9557,7 @@ final class Words
         'details' => 'The return\'s details',
         'post_title' => 'Make it final',
         'post_does' => 'The goods leave the stock now, from where each line says, and the claim is our debit note.',
+        'post_does_claim' => 'Nothing leaves the stock: the claim is our debit note.',
         'post_button' => 'Make the return final',
         'no_credit_notes' => 'No credit note answers this return yet.',
         'book_credit' => 'Book the supplier\'s credit note',
@@ -9556,6 +9574,7 @@ final class Words
         'item_added' => 'Added.',
         'claim_added' => 'Added.',
         'posted' => 'Done: %s is final and the goods left the stock.',
+        'posted_claim' => 'Done: %s is final: our claim (a debit note) is recorded. No stock moved.',
         'reversed' => 'Cancelled by %s: the goods are back in stock.',
         'reversal_submitted' => 'The cancellation puts many goods back: it waits for a reviewer\'s OK.',
         'submitted' => 'Sent to a reviewer: it is final when they say OK.',

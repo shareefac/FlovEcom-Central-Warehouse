@@ -100,11 +100,14 @@
 <?php endif; ?>
 <?php elseif ($s['status'] === 'pending_approval'): ?>
   <p><strong><?= $word('SUPPLIER', 'waiting') ?></strong> <?= $word('SUPPLIER', 'waiting_locked') ?></p>
+<?php if (!$secondPerson && ($open['activation']['may_withdraw'] ?? false)): ?>
+  <p class="note"><?= $word('SUPPLIER', 'waiting_rule_off') ?></p>
+<?php endif; ?>
 <?php else: ?>
 <?php if ($s['status'] === 'inactive'): ?>
   <p><?php if ($s['deactivated_at'] !== null): ?><?= $say('SUPPLIER', 'stopped', \CW\Ui\Html::day((string) $s['deactivated_at']), (string) ($people['deactivated'] ?? \CW\Ui\Words::ANOMALIES['set_up']), (string) $s['deactivate_reason']) ?><?php else: ?><?= $word('SUPPLIER', 'stopped_plain') ?><?php endif; ?> <?= $word('SUPPLIER', 'stopped_again') ?></p>
 <?php else: ?>
-  <p><?= $word('SUPPLIER', 'draft') ?><?php if ($canRequest): ?> <?= $word('SUPPLIER', 'draft_todo') ?><?php endif; ?></p>
+  <p><?= $word('SUPPLIER', 'draft') ?><?php if ($canRequest): ?> <?= $word('SUPPLIER', $secondPerson ? 'draft_todo' : 'draft_todo_alone') ?><?php endif; ?></p>
 <?php endif; ?>
 <?php if ($canRequest && $missing !== []): ?>
   <p class="note"><?= $say('SUPPLIER', 'missing', $missingText) ?></p>
@@ -112,7 +115,7 @@
   <form class="quick" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/request-activation') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
-    <button type="submit" class="primary btn big"><span class="btn-title"><?php if ($s['approved_at'] === null): ?><?= $word('SUPPLIER', 'ask') ?><?php else: ?><?= $word('SUPPLIER', 'ask_again') ?><?php endif; ?></span> <span class="sub"><?= $word('SUPPLIER', 'ask_does') ?></span></button>
+    <button type="submit" class="primary btn big"><span class="btn-title"><?php if (!$secondPerson): ?><?= $word('SUPPLIER', 'ask_alone') ?><?php elseif ($s['approved_at'] === null): ?><?= $word('SUPPLIER', 'ask') ?><?php else: ?><?= $word('SUPPLIER', 'ask_again') ?><?php endif; ?></span> <span class="sub"><?= $word('SUPPLIER', $secondPerson ? 'ask_does' : 'ask_alone_does') ?></span></button>
   </form>
 <?php endif; ?>
 <?php endif; ?>

@@ -63,7 +63,10 @@ final class FlowCounts
                 $text = Words::say('FLOW', 'orders_open', (int) ($r['open_n'] ?? 0));
                 return $waiting > 0 ? $text . ' · ' . Words::say('FLOW', 'orders_waiting', $waiting) : $text;
             case 'goods_in':
-                return Words::say('FLOW', 'goods_in_text', (int) $db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'GRN' AND status = 'draft'"));
+                $text = Words::say('FLOW', 'goods_in_text', (int) $db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'GRN' AND status = 'draft'"));
+                // Final invoices whose goods are on their way (Goods In › Arriving): not booked in yet either (the 6.3 browser test).
+                $arriving = (int) $db->value("SELECT COUNT(DISTINCT sinv_document_id) FROM invoice_arrival WHERE state = 'open'");
+                return $arriving > 0 ? $text . ' · ' . Words::say('FLOW', 'goods_in_arriving', $arriving) : $text;
             default:
                 return Words::say('FLOW', 'stock_text', (int) $db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'GRN' AND status = 'posted' "
                     . 'AND posted_at >= NOW(6) - INTERVAL ' . self::RECENT_DAYS . ' DAY'));
