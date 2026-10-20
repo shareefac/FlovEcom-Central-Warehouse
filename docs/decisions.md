@@ -10882,3 +10882,13 @@ key): a deadlock (retried, but avoidable). The sign-in now locks the setting's r
 the two reads (`testASessionWithoutTheCodeIsMadeOnlyBeforeTheEndByTheDatabaseClockAndTheLocksKeepTheirOrder`, which also proves
 `createBefore` on both sides of the end); a two-process deadlock test was not written.
 
+### The third Codex review of the switch (on `737b3f1`; `runs/sessions4_codex_review.txt`): TF10-TF13 close their races; one older race, fixed
+
+**TF14. (HIGH, older than the switch) A password change that waited could undo a reset.** `Login::changePassword` checked the current
+password, let the limiter's locks go, then wrote the new password and a new session unconditionally: a reset by an admin, another
+change, or a sign-out of the session it came from, made in between, was overwritten (the waiting request got a fresh session). Signing in
+without the code makes that first session easy to get, so it is closed here. The write now runs only if, under the account's row lock,
+the stored password is still the one checked, the account is active and the session the change came from is still live (its row locked
+too, in the order of the resets: the account, then its sessions); otherwise nothing is written and the answer is `wrong_current`.
+`testAPasswordChangeThatWaitedDoesNotUndoWhatHappenedMeanwhile` (red first: `runs/sessions2_review3_red_kept.log`).
+

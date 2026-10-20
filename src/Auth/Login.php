@@ -162,7 +162,8 @@ final class Login
      * person ends, the one the change was made from included, and a new session is issued for it: a
      * copied session cookie (the usual reason to change a password) and the session opened with a
      * one-time password both die here. Failures count towards the same throttle as sign-in (and run under
-     * its locks).
+     * its locks). The write re-checks under the account's row lock that the password checked is still the
+     * one stored, the account active and the session it came from live (TF14): `wrong_current` otherwise.
      *
      * @return array{status: 'ok'|'wrong_current'|'locked', token: ?string}
      */
@@ -194,7 +195,15 @@ final class Login
             return ['status' => $checked, 'token' => null];
         }
         $hash = password_hash($new, PASSWORD_ARGON2ID);
-        $session = $this->db->transaction(function (Db $db) use ($staffUserId, $currentSessionId, $ip, $userAgent, $hash): array {
+        $session = $this->db->transaction(function (Db $db) use ($staffUserId, $currentSessionId, $ip, $userAgent, $hash, $u): ?array {
+            // Under the account's row lock (TF14): still the password that was checked, the account active, and the session the change
+            // is made from still live. A reset, another change or a sign-out that came first wins; this change writes nothing.
+            $now = $db->one('SELECT password_hash, is_active FROM staff_user WHERE id = ? FOR UPDATE', [$staffUserId]);
+            if ($now === null || (int) $now['is_active'] !== 1 || !hash_equals((string) $u['password_hash'], (string) $now['password_hash'])
+                || $db->value('SELECT 1 FROM staff_session WHERE id = ? AND staff_user_id = ? AND ' . $this->sessions->liveSql() . ' FOR UPDATE',
+                    [$currentSessionId, $staffUserId]) === null) {
+                return null;
+            }
             // A "new sign-in code" step waiting ends with the old password (TF11): it was started with it, perhaps by someone else.
             $db->exec('UPDATE staff_user SET password_hash = ?, password_must_change = 0, ' . \CW\Staff\StaffAdmin::CLEAR_NEXT . ' WHERE id = ?', [$hash, $staffUserId]);
             $ended = $this->sessions->revokeAll($staffUserId);
@@ -204,6 +213,9 @@ final class Login
             ]);
             return $session;
         });
+        if ($session === null) {
+            return ['status' => 'wrong_current', 'token' => null];
+        }
         return ['status' => 'ok', 'token' => $session['token']];
     }
 

@@ -389,6 +389,38 @@ final class TotpOffTest extends KernelUiTestCase
         self::assertSame(['switch', 'account'], $order);
     }
 
+    /**
+     * The third Codex review of the switch (HIGH, older than the switch; a sign-in without the code makes the first session easy): a
+     * password change that was verified and then waited must not undo a reset, or a sign-out of the session it came from, made meanwhile.
+     */
+    public function testAPasswordChangeThatWaitedDoesNotUndoWhatHappenedMeanwhile(): void
+    {
+        $admin = $this->uiUser('admin');
+        $meanwhile = [
+            'a reset' => static fn (array $u): \Closure => static function () use ($u, $admin): void {
+                self::assertSame('done', (new StaffAdmin(self::$appDb))->resetPassword(Caller::staff($admin['id']), $u['id'])['result']);
+            },
+            'a sign-out everywhere' => static fn (array $u): \Closure => static function () use ($u, $admin): void {
+                self::assertSame(1, (new StaffAdmin(self::$appDb))->signOut(Caller::staff($admin['id']), $u['id'], null));
+            },
+        ];
+        foreach ($meanwhile as $what => $make) {
+            $u = $this->uiUser('buyer');
+            $login = $this->hookedLogin();
+            $ok = $login->attempt($u['email'], $u['password'], self::code($u['secret']), '198.51.100.96', null, null);
+            self::assertSame('ok', $ok['status']);
+            $before = (string) self::$db->value('SELECT password_hash FROM staff_user WHERE id = ?', [$u['id']]);
+            // After the current password was checked (the limiter's locks are let go), before anything is written.
+            HookedStatement::$before['SELECT RELEASE_LOCK('] = $make($u);
+            $r = $login->changePassword($u['id'], hash('sha256', (string) $ok['token']), '198.51.100.96', null, $u['password'], 'a waiting passphrase 2026');
+            self::assertSame('wrong_current', $r['status'], $what);
+            $now = (string) self::$db->value('SELECT password_hash FROM staff_user WHERE id = ?', [$u['id']]);
+            self::assertFalse(password_verify('a waiting passphrase 2026', $now), "{$what}: the waiting change wrote nothing");
+            self::assertSame($what === 'a reset', $now !== $before, $what);
+            self::assertSame(0, self::live($u['id']), "{$what}: no new session");
+        }
+    }
+
     public function testItEndsByItselfAtItsTime(): void
     {
         $until = self::uk('+2 minutes');
