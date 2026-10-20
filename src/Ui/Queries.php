@@ -1139,18 +1139,24 @@ final class Queries
      * One word of the search of a store's waiting variants (waitingListings), asked of everything the variant has, cheapest first (an
      * OR stops at the first place that has it): its option number, names, brand, the website's number of its product (the stored state
      * of 0028) and web address, in the table's collation; any part of a barcode; any value of its attributes (keys are not words); the
-     * flavour, range and range words the matching read (the features); the product's number, strength, size and range numbers there.
-     * JSON_SEARCH is asked with the word in the table's collation, so a word is found whatever its case or accents, as in the names.
-     * A variant with no profile has its option number only. Its five `?` all take the same `%word%`. (Measured on 10,000 profiles:
-     * a word costs about twice the names-only search of before; the JSON values are read only where the names do not have it.)
+     * flavour, range and range words the matching read (the features). JSON_SEARCH reads string values only (never a key), asked with
+     * the word in the table's collation, so a word is found whatever its case or accents, as in the names. A word with a digit is also
+     * asked of the numbers (WAITING_NUMBER): an attribute's value that is a number (`$**.value`, as the variant's page reads them), the
+     * features' product number, strength, size and range numbers, as text. A variant with no profile has its option number only.
+     * Every `?` takes the same `%word%`. (Measured on 10,000 profiles: a word costs about twice the names-only search of before; the
+     * JSON values are read only where the names do not have it.)
      */
-    private const WAITING_WORD = "(CONCAT_WS(' ', cl.external_variant_id, lp.product_title, lp.variant_title, lp.brand, lp.site_product_id, lp.perma_link) LIKE ? "
+    private const WAITING_WORD = "CONCAT_WS(' ', cl.external_variant_id, lp.product_title, lp.variant_title, lp.brand, lp.site_product_id, lp.perma_link) LIKE ? "
         . "OR JSON_SEARCH(lp.barcodes, 'one', ?) IS NOT NULL "
         . "OR JSON_SEARCH(lp.attributes, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci) IS NOT NULL "
-        . "OR JSON_SEARCH(lp.features, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci, NULL, '$.flavour_tokens', '$.line_tokens', '$.line_modifiers') IS NOT NULL "
-        . "OR CAST(JSON_EXTRACT(lp.features, '$.product_id', '$.strength_mg', '$.volume_ml', '$.line_numbers') AS CHAR CHARACTER SET utf8mb4) LIKE ?)";
+        . "OR JSON_SEARCH(lp.features, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci, NULL, '$.flavour_tokens', '$.line_tokens', '$.line_modifiers') IS NOT NULL";
     /** How many `?` WAITING_WORD has. */
-    private const WAITING_WORD_PARAMS = 5;
+    private const WAITING_WORD_PARAMS = 4;
+    /** The numbers a word with a digit is also asked of (see WAITING_WORD): a number holds nothing but digits and its signs. */
+    private const WAITING_NUMBER = "CAST(JSON_EXTRACT(lp.attributes, '$**.value') AS CHAR CHARACTER SET utf8mb4) LIKE ? "
+        . "OR CAST(JSON_EXTRACT(lp.features, '$.product_id', '$.strength_mg', '$.volume_ml', '$.line_numbers') AS CHAR CHARACTER SET utf8mb4) LIKE ?";
+    /** How many `?` WAITING_NUMBER has. */
+    private const WAITING_NUMBER_PARAMS = 2;
 
     /**
      * The picker's search (and its quick match in a cell of By Item): one small page of a store's variants that still wait for a
@@ -1178,8 +1184,9 @@ final class Queries
             $and = [];
             $like = [];
             foreach ($words as $w) {
-                $and[] = self::WAITING_WORD;
-                array_push($like, ...array_fill(0, self::WAITING_WORD_PARAMS, '%' . self::escapeLike($w) . '%'));
+                $number = preg_match('/\d/u', $w) === 1;
+                $and[] = '(' . self::WAITING_WORD . ($number ? ' OR ' . self::WAITING_NUMBER : '') . ')';
+                array_push($like, ...array_fill(0, self::WAITING_WORD_PARAMS + ($number ? self::WAITING_NUMBER_PARAMS : 0), '%' . self::escapeLike($w) . '%'));
             }
             $where[] = '(cl.external_variant_id = ? OR JSON_SEARCH(lp.barcodes, \'one\', ?) IS NOT NULL OR (' . implode(' AND ', $and) . '))';
             array_push($params, $q, self::escapeLike($q), ...$like);

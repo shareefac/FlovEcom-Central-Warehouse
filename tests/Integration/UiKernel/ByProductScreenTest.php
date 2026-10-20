@@ -8,6 +8,7 @@ use CW\Caller;
 use CW\Mapping\DecisionService;
 use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
+use CW\Mapping\OneAtATime;
 use CW\Output\CsvWriter;
 use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
@@ -1157,6 +1158,13 @@ final class ByProductScreenTest extends KernelUiTestCase
             'its search comes along, for Back from the variant\'s page');
         self::assertArrayNotHasKey('proposal_id', $row['match'] ?? [], 'nothing is suggested for it');
         self::assertStringContainsString(Words::say('BY_PRODUCT', 'pick_search', 'Alt Store'), $found->text());
+        // An emptied box is the person's search too (as the picker's): the suggestions, then every waiting variant, best sellers
+        // first; its forms carry the emptied search for Back.
+        $firstAlt = (int) self::$db->value("SELECT id FROM channel_listing WHERE external_variant_id = 'first-alt'");
+        $emptied = self::optionsOf($web, $sku, 'alt', '');
+        self::assertSame([$strong => 'suggested', $likely => 'suggested', $plain => 'found', $firstAlt => 'found'], self::quickRows($emptied));
+        self::assertSame(' ', self::quickRow($emptied, $plain)['match']['pq'] ?? null);
+        self::assertStringNotContainsString(Words::say('BY_PRODUCT', 'quick_first', 'Elux Blue Razz'), $emptied->text());
         $none = self::optionsOf($web, $sku, 'alt', 'zzz');
         self::assertSame([$strong => 'suggested', $likely => 'suggested'], self::quickRows($none));
         self::assertStringContainsString(Words::BY_PRODUCT['pick_found_no_more'], $none->text());
@@ -1199,6 +1207,9 @@ final class ByProductScreenTest extends KernelUiTestCase
         $feature = $this->profiled($a, 'U4', ['product_title' => 'Fruit bar', 'units_30d' => 2, 'features' => ['flavour_tokens' => ['kiwi', 'passion'], 'strength_mg' => 17,
             'volume_ml' => 13, 'line_tokens' => ['nebula'], 'product_id' => 99123]]);
         $titled = $this->profiled($a, 'U5', ['product_title' => 'Watermelon Ice', 'units_30d' => 1]);
+        // An attribute whose value is a number (Codex's review: JSON_SEARCH reads strings only).
+        $numeric = $this->profiled($a, 'U6', ['product_title' => 'Cloud stick', 'units_30d' => 0]);
+        self::$db->exec('UPDATE listing_profile SET attributes = CAST(? AS JSON) WHERE listing_id = ?', ['{"items": [{"name": "Puff count", "value": 6000}]}', $numeric]);
         $bare = $this->listing($a, 'NOPROFILE7', null);
         $web = $this->signIn($this->uiUser('mapper'));
         $fold = self::fold($web->get('/ui/review/products'), $sku, 'Alt Store');
@@ -1215,6 +1226,9 @@ final class ByProductScreenTest extends KernelUiTestCase
             'nicotine' => [$attr],                       // an attribute's name is a word of it too ...
             'items' => [],                               // ... the JSON's own keys are not
             'value' => [],
+            '6000' => [$numeric],                        // a value that is a number, as text
+            '600' => [$numeric],
+            'puff count' => [$numeric],
             'special-edition' => [$attr],                // the web address
             'P-77812' => [$attr],                        // the website's number of its product
             '7812' => [$attr],
@@ -1379,6 +1393,82 @@ final class ByProductScreenTest extends KernelUiTestCase
             self::assertNotNull(self::quickRow($fragment, $free)['match'], 'a free one has its "Match to …"');
             self::assertSame(count($spot) + 1, count(array_filter(array_keys(self::quickRows($fragment)), static fn (int $l): bool => self::quickRow($fragment, $l)['match'] === null)),
                 'every spot check match and the held one, no other');
+        } finally {
+            self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [$saved, 'approvals.spot_check_size']);
+        }
+    }
+
+    /**
+     * The fragment's rows decided one at a time cost the same few statements however many spot checks they are in (Codex's review:
+     * OneAtATime::of() asked KeySample for each spot check's verdict, one by one). OneAtATime::ofWaiting() answers as of() does for
+     * variants that still wait, without a verdict: such a variant is never a confirmed match, so a spot check that holds one is not
+     * complete. Counted in statements sent (the session's own counter; its own read is one of them).
+     */
+    public function testTheFragmentReadsTheSpotChecksOfItsRowsInOneGoHoweverManyThereAre(): void
+    {
+        $this->keySetup();
+        $saved = (string) self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'approvals.spot_check_size'");
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('5' AS JSON) WHERE setting_key = 'approvals.spot_check_size'");
+        try {
+            $lead = $this->staffUser('mapping_lead');
+            $samples = [];
+            $members = [];
+            for ($s = 1; $s <= 3; $s++) {
+                for ($i = 0; $i < 9; $i++) {
+                    $this->firstMatch($this->vpgItem(), 90 + $i, [], [], null, [], 900 - $i);
+                }
+                $k = (new KeySample(self::$db))->create($lead, 'sc' . $s, 5, true);
+                $samples[$s] = (int) $k['sample_id'];
+                $members[$s] = array_map('intval', array_column($k['members'], 'listing_id'));
+            }
+            $waiting = array_map('intval', self::$db->column("SELECT id FROM channel_listing WHERE channel_id = ? AND status IN ('unmapped', 'suggested') ORDER BY id",
+                [$this->altSite->channelId]));
+            self::assertCount(27, $waiting);
+            $answer = OneAtATime::ofWaiting(self::$db, $waiting);
+            self::assertEquals(OneAtATime::of(self::$db, $waiting), $answer, 'the same answer as of() for variants that still wait');
+            self::assertCount(15, $answer, 'the 15 matches of the three spot checks');
+            $sent = static function (callable $fn): int {
+                $n = static fn (): int => (int) self::$db->pdo()->query("SHOW SESSION STATUS LIKE 'Questions'")->fetch(\PDO::FETCH_NUM)[1];
+                $before = $n();
+                $fn();
+                return $n() - $before - 1;
+            };
+            $one = $sent(static fn (): array => OneAtATime::ofWaiting(self::$db, $members[1]));
+            self::assertSame($one, $sent(static fn (): array => OneAtATime::ofWaiting(self::$db, $waiting)), 'one spot check or three: the same statements');
+            self::assertLessThan($sent(static fn (): array => OneAtATime::of(self::$db, $waiting)), $sent(static fn (): array => OneAtATime::ofWaiting(self::$db, $waiting)),
+                'of() reads each spot check\'s verdict');
+
+            // Through the fragment, as the kernel's own connection (cw_app) sends it: the rows of one spot check, then rows of all three.
+            $kit = $this->item('legacy', 0, 'Other kit');
+            $web = $this->signIn($this->uiUser('mapper'));
+            $fragment = static function (string $q) use ($web, $kit): array {
+                $n = static fn (): int => (int) self::$appDb->pdo()->query("SHOW SESSION STATUS LIKE 'Questions'")->fetch(\PDO::FETCH_NUM)[1];
+                $before = $n();
+                $r = $web->get("/ui/review/products/{$kit}/map/options", ['channel' => 'alt', 'q' => $q]);
+                return [$n() - $before - 1, $r];
+            };
+            $fragment('warm up');
+            // One match of the first spot check by its option number ("A<n>": the one with the most digits, so no other holds it).
+            $options = array_map('strval', self::$db->column('SELECT external_variant_id FROM channel_listing WHERE id IN (' . implode(',', $members[1]) . ')'));
+            usort($options, static fn (string $x, string $y): int => [strlen($y), $y] <=> [strlen($x), $x]);
+            [$few, $r1] = $fragment($options[0]);
+            self::assertCount(1, self::quickRows($r1));
+            [$many, $r3] = $fragment('Electrofag listing');
+            self::assertSame([200, 200], [$r1->status, $r3->status]);
+            $spotLinks = static function (UiResponse $r): array {
+                $out = [];
+                foreach (array_keys(self::quickRows($r)) as $lid) {
+                    $href = self::quickRow($r, $lid)['links'][Words::ONE_AT_A_TIME['open_spot']] ?? null;
+                    if ($href !== null) {
+                        $out[$href] = true;
+                    }
+                }
+                return array_keys($out);
+            };
+            self::assertSame(['/ui/review/samples/' . $samples[1]], $spotLinks($r1));
+            self::assertEqualsCanonicalizing(array_map(static fn (int $sid): string => '/ui/review/samples/' . $sid, $samples), $spotLinks($r3), 'rows of all three spot checks');
+            self::assertCount(Queries::PICK_PER_PAGE, self::quickRows($r3));
+            self::assertSame($few, $many, 'the same statements for 1 row of one spot check and 20 rows of three');
         } finally {
             self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [$saved, 'approvals.spot_check_size']);
         }

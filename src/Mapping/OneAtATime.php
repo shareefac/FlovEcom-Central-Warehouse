@@ -80,6 +80,49 @@ final class OneAtATime
     }
 
     /**
+     * of() for variants that still wait for a match (unmapped or suggested, no decision waiting for a second OK: what By Item's quick
+     * match lists, Ui\Queries::waitingListings and suggestedFor), in the same few reads however many spot checks they are in: the
+     * holds, the matches of spot checks, the check on arrival's suggestions. A spot check's verdict is not asked (of() asks KeySample
+     * for it, spot check by spot check): KeySample counts a match confirmed only while its listing is linked by the owner's own link,
+     * so a variant that still waits is never a confirmed match, and a spot check that holds one is not complete. The answer is of()'s
+     * for such a variant (a test holds them equal); for any other variant ask of().
+     *
+     * @param list<int> $listingIds variants that still wait for a match
+     * @param list<int>|null $arrivalRuns arrivalRuns() when the caller has read them; read here when not given
+     * @return array<int, array{code: string, detail: array<string, mixed>, sample_id: int, sample: string}>
+     */
+    public static function ofWaiting(Db $db, array $listingIds, ?array $arrivalRuns = null): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $listingIds)));
+        if ($ids === []) {
+            return [];
+        }
+        $held = KeyHold::activeForListings($db, $ids);
+        $spot = [];
+        foreach (array_chunk($ids, 500) as $chunk) {
+            foreach ($db->all('SELECT m.listing_id, m.sample_id, k.name FROM key_sample_member m JOIN key_sample k ON k.id = m.sample_id '
+                . 'WHERE ' . self::MEMBER . ' AND m.listing_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ') ORDER BY m.sample_id', $chunk) as $m) {
+                // The oldest spot check first, as spotChecksOf() takes it.
+                $spot[(int) $m['listing_id']] ??= ['id' => (int) $m['sample_id'], 'name' => (string) $m['name']];
+            }
+        }
+        $arrival = self::onArrival($db, $ids, $arrivalRuns ?? self::arrivalRuns($db));
+        $out = [];
+        foreach ($ids as $lid) {
+            if (isset($held[$lid])) {
+                $h = $held[$lid];
+                $out[$lid] = ['code' => self::HELD, 'detail' => ['reason' => $h['reason'], 'by' => $h['by'], 'at' => $h['at']], 'sample_id' => $h['sample_id'],
+                    'sample' => $h['sample']];
+            } elseif (isset($spot[$lid])) {
+                $out[$lid] = ['code' => self::SPOT, 'detail' => ['sample' => $spot[$lid]['name']], 'sample_id' => $spot[$lid]['id'], 'sample' => $spot[$lid]['name']];
+            } elseif (isset($arrival[$lid])) {
+                $out[$lid] = ['code' => self::ARRIVAL, 'detail' => [], 'sample_id' => 0, 'sample' => ''];
+            }
+        }
+        return $out;
+    }
+
+    /**
      * The match_run rows whose OPEN suggestions are decided one at a time now (M64): the check on arrival's runs that still have
      * an open suggestion; of both its sources while `mapping.arrival_bulk_confirm` is off, only the ones with a warning
      * (ArrivalCheck::SOURCE_WARNED) while it is on. Read from two indexes and no row: the runs by their id's first letters (the

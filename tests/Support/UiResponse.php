@@ -83,7 +83,8 @@ final class UiResponse
      * hidden, text, number, search fields, the checked radio of each group, checked boxes and
      * the first option of a select; with $textareas also every textarea (its text). Disabled controls are left out. A control
      * belongs to the form it names with form="<id>", wherever it is (By Item's search box in a cell sits inside the list's bulk
-     * form and names its own GET form), else to the form around it: as a browser reads it.
+     * form and names its own GET form), else to the NEAREST form around it (a form inside a form keeps its fields): as a browser
+     * reads it.
      *
      * @return array<string, string>
      */
@@ -100,8 +101,8 @@ final class UiResponse
                     return $id !== '' && $el->getAttribute('form') === $id;
                 }
                 for ($p = $el->parentNode; $p !== null; $p = $p->parentNode) {
-                    if ($p->isSameNode($form)) {
-                        return true;
+                    if ($p instanceof \DOMElement && strtolower($p->nodeName) === 'form') {
+                        return $p->isSameNode($form);
                     }
                 }
                 return false;

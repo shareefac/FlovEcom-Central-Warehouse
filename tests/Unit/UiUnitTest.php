@@ -833,5 +833,7 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("{ credentials: 'same-origin', method: 'GET'", $js);
         self::assertStringContainsString("new window.DOMParser().parseFromString(html, 'text/html')", $js);
         self::assertStringContainsString("doc.querySelector('[data-qp-fragment]')", $js, 'shown only when it is the fragment');
+        // Codex's review: a box the person emptied is their search (every waiting variant, as the picker's `q=`), not the opening.
+        self::assertStringContainsString('return touched ? input.value.trim() : null;', $js);
     }
 }

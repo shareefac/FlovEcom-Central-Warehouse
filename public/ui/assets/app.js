@@ -199,7 +199,8 @@
   // By Item's quick match (the owner's request of 20 Oct 2026: "directly add dropdown with full details"). "Match…" in a cell of a
   // store that has no variant for the item is a <details> with a search box. Without the script its Search opens the picker page (a
   // GET form after the list, which the box and its button name with form=: the list sits inside the bulk form). With it, opening the
-  // fold and typing (250 ms after the last key; 2 letters or more, or an emptied box for the plain opening) show the store's variants
+  // fold and typing (250 ms after the last key; 2 letters or more, or an emptied box: every waiting variant, best sellers first, as
+  // the picker's empty search) show the store's variants
   // in the cell: the read-only fragment at the address in data-options, a path of this site (the suggestions for the item first, then
   // the search), parsed inert by DOMParser (nothing in it runs) and shown only when its root says it is that fragment
   // (data-qp-fragment). Anything else (the sign-in page of a session that ended, an error page, no network) shows the page's words
@@ -229,10 +230,10 @@
       p.textContent = text;
       return p;
     };
-    // null: the plain opening (the suggestions; the item's own words when nothing is suggested); else the person's words.
+    // null: the plain opening (the suggestions; the item's own words when nothing is suggested); once the person typed, their words,
+    // also none at all (`q=`: every waiting variant, as the picker's emptied search).
     var words = function () {
-      var v = input.value.trim();
-      return !touched || v === '' ? null : v;
+      return touched ? input.value.trim() : null;
     };
     var load = function (q) {
       var key = q === null ? '' : '&q=' + encodeURIComponent(q);

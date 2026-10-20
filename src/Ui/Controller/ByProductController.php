@@ -321,8 +321,9 @@ final class ByProductController
         $c = self::choices($ctx, $id, $sku, $store, $bp, $ctx->queries()->barcodesOfMany([$id])[$id] ?? [], $typed, 1);
         $lead = $ctx->me()->isLead();
         // One read for every row of the fragment: the variants no one answers from a list (OneAtATime: held back, a spot check's
-        // match, found on arrival), with the line the lists say for them.
-        $once = OneAtATime::of($ctx->db, array_column([...$c['suggested'], ...$c['found']], 'listing_id'));
+        // match, found on arrival), with the line the lists say for them. Every row still waits for a match (suggestedFor and
+        // waitingListings), so ofWaiting() answers in the same few statements however many spot checks the rows are in.
+        $once = OneAtATime::ofWaiting($ctx->db, array_column([...$c['suggested'], ...$c['found']], 'listing_id'));
         $mark = static function (array $r) use ($once, $lead): array {
             $why = ReviewController::oneAtATime($once[$r['listing_id']] ?? null);
             $r['why'] = $why !== null ? ['text' => $why['text'], 'link' => $why['link']]
