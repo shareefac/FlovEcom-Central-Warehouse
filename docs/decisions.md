@@ -10855,3 +10855,30 @@ back and it is refused as a sign-in without the code it now needs. `testTheSwitc
 it says "and signs in again". The sign-in page's own sentence while the switch is on is "Use your e-mail and your password"
 (`PAGE_INTRO['login_no_code']`).
 
+### The second Codex review of the switch (on `e367271`, rebased onto `0a32e63`; `runs/sessions3_codex_review.txt`): four findings, all fixed test-first
+
+Each test failed on `e367271` (`runs/sessions2_review2_red_kept.log`) and passes now; no other serious issue was found (cookie handling,
+audit, throttle, replay guard, UK times, the bound, permissions, grants, the baseline).
+
+**TF10. Finding 2 (HIGH, older than the switch): the hand-off to a "new sign-in code" step had no lock.** For an account with a new
+sign-in code waiting, the step (the rotate-and-confirm page, `Enrolment::beginFromLogin`) was started after checks made without locks: a
+password set or a sheet replaced on the server in between still started a step with what was replaced, and the step then gave a session.
+The hand-off now runs in the transaction and under the account's row lock of TF7 (`Login::unchanged`).
+`testANewSignInCodeHandOffAfterTheAccountChangedIsRefused`.
+
+**TF11. Finding 1 (HIGH): a password change left a waiting step behind.** With the switch on, an account with a new sign-in code waiting
+can hold a session (TF3); someone who knew the old password and the sheet's code could start the code's step later, and confirm it after
+the person changed the password, getting a session without the new password. `Login::changePassword` now ends a waiting step in the
+same statement (`StaffAdmin::CLEAR_NEXT`). If that step had already taken the sheet's secret, the person asks an admin for a new
+sign-in code once the code is back. `testAPasswordChangeEndsAWaitingNewSignInCodeStep`.
+
+**TF12. Finding 3 (MEDIUM): time passes while a sign-in waits for a lock.** The share lock of TF8 stops changes of the setting, not the
+clock: the session without the code is now made by one statement that also checks the database's clock is still before the end
+(`Sessions::createBefore`: `INSERT ... SELECT ... WHERE NOW(6) < ?`); after the end, everything is rolled back and the code is asked for.
+
+**TF13. Finding 4 (LOW): the locks in the order of a settings change.** The sign-in without the code held the account's row and waited
+for the setting's row, while a settings change by the same person holds the setting's row and then the person's (the history's foreign
+key): a deadlock (retried, but avoidable). The sign-in now locks the setting's row first, then the account's. The test checks the order of
+the two reads (`testASessionWithoutTheCodeIsMadeOnlyBeforeTheEndByTheDatabaseClockAndTheLocksKeepTheirOrder`, which also proves
+`createBefore` on both sides of the end); a two-process deadlock test was not written.
+

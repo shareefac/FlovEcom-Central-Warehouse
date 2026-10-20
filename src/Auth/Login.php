@@ -108,8 +108,10 @@ final class Login
             return $this->fail($login, $id, $ip, 'totp');
         }
         if ($user['totp_state'] === 'reset') {
-            // A "new sign-in code" with the current password: no session; the person confirms a fresh secret on their own page first.
-            $next = (new \CW\Staff\Enrolment($this->db, $this->limiter, $this->box))->beginFromLogin($id, $step, $ip);
+            // A "new sign-in code" with the current password: no session; the person confirms a fresh secret on their own page first. The
+            // hand-off holds the account's row lock too (TF10): a password or a sheet replaced since the checks above starts no step.
+            $next = $this->db->transaction(fn (Db $db): ?string => self::unchanged($db, $user)
+                ? (new \CW\Staff\Enrolment($db, $this->limiter, $this->box))->beginFromLogin($id, $step, $ip) : null);
             if ($next === null) {
                 return $this->fail($login, $id, $ip, 'totp'); // the same code, used a moment ago
             }
@@ -193,7 +195,8 @@ final class Login
         }
         $hash = password_hash($new, PASSWORD_ARGON2ID);
         $session = $this->db->transaction(function (Db $db) use ($staffUserId, $currentSessionId, $ip, $userAgent, $hash): array {
-            $db->exec('UPDATE staff_user SET password_hash = ?, password_must_change = 0 WHERE id = ?', [$hash, $staffUserId]);
+            // A "new sign-in code" step waiting ends with the old password (TF11): it was started with it, perhaps by someone else.
+            $db->exec('UPDATE staff_user SET password_hash = ?, password_must_change = 0, ' . \CW\Staff\StaffAdmin::CLEAR_NEXT . ' WHERE id = ?', [$hash, $staffUserId]);
             $ended = $this->sessions->revokeAll($staffUserId);
             $session = $this->sessions->create($staffUserId, $ip, $userAgent);
             Audit::write($db, Caller::staff($staffUserId, $ip), 'password.change', 'staff_user', (string) $staffUserId, null, [
@@ -206,12 +209,12 @@ final class Login
 
     /**
      * The sign-in while the code is switched off (TF3): the password was right, the account is active and set up. Under the limiter's
-     * locks, like every sign-in, and in one transaction holding the account's row lock (TF7): the account still as it was checked
-     * (unchanged()), then the switch read again sharing its row's lock with a change (TF8: one that ended or was emptied while this
-     * sign-in waited asks for the code, and rolls back what was written; a change made from then on waits for this sign-in), then a new
-     * session (Sessions::create marks its second step done, as a live session needs), the old cookie's session revoked and audit
-     * `login.ok` with `without_code` and the time it was switched off until. A successful attempt is recorded after (it resets the
-     * account's failures as any completed sign-in does).
+     * locks, like every sign-in, and in one transaction: the switch read again sharing its row's lock with a change (TF8: one that ended or
+     * was emptied while this sign-in waited asks for the code, and rolls back what was written; a change made from then on waits for this
+     * sign-in), then the account's row lock and the account still as it was checked (unchanged(), TF7), the old cookie's session revoked,
+     * then a new session made only while the database's clock is before the end (Sessions::createBefore, TF12; it marks the second step
+     * done, as a live session needs) and audit `login.ok` with `without_code` and the time it was switched off until. A successful attempt
+     * is recorded after (it resets the account's failures as any completed sign-in does).
      *
      * @param array<string, mixed> $user the row the checks read
      * @return array{status: 'ok'|'invalid', token: ?string, must_change: bool}
@@ -221,14 +224,18 @@ final class Login
         $id = (int) $user['id'];
         try {
             $session = $this->db->transaction(function (Db $db) use ($user, $id, $ip, $userAgent, $oldToken): ?array {
+                // The switch's row first, then the account's: the order of a settings change (its row, then the person through the
+                // history's foreign key), so the two never wait for each other (TF13).
+                $until = SecondStep::offUntil($db, null, true)
+                    ?? throw new CwException('code_needed', 'the 2-step code is asked for again', 401);
                 if (!self::unchanged($db, $user)) {
                     return null;
                 }
                 $db->exec('UPDATE staff_user SET last_login_at = NOW(6) WHERE id = ?', [$id]);
-                $until = SecondStep::offUntil($db, null, true)
-                    ?? throw new CwException('code_needed', 'the 2-step code is asked for again', 401);
                 $this->sessions->revokeToken($oldToken);
-                $session = $this->sessions->create($id, $ip, $userAgent);
+                // Made only while the database's clock is still before the end (TF12): time passes while a lock is waited for.
+                $session = $this->sessions->createBefore($id, $ip, $userAgent, $until)
+                    ?? throw new CwException('code_needed', 'the 2-step code is asked for again', 401);
                 $text = SecondStep::text($until);
                 Audit::write($db, Caller::staff($id, $ip), 'login.ok', 'staff_user', (string) $id, null, ['session' => substr($session['id'], 0, 8),
                     'without_code' => true, 'code_off_until' => $text, 'note' => 'signed in without the 2-step code: switched off until ' . $text . ' (UK time)']);

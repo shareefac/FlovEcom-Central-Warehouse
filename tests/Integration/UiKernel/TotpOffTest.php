@@ -11,7 +11,10 @@ use CW\Clock;
 use CW\CwException;
 use CW\Db;
 use CW\Settings;
+use CW\Auth\Sessions;
+use CW\Staff\Enrolment;
 use CW\Staff\StaffAdmin;
+use CW\Staff\Totp;
 use CW\Tests\Support\HookedStatement;
 use CW\Tests\Support\KernelUiTestCase;
 use CW\Tests\Support\TestDb;
@@ -29,6 +32,8 @@ use CW\Ui\Words;
 final class TotpOffTest extends KernelUiTestCase
 {
     private const KEY = SecondStep::SETTING;
+    /** The start of every read of the switch (SecondStep::offUntil; the one under the locks adds FOR SHARE). */
+    private const SWITCH_READ = "SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ? AND value_type = 'string'";
 
     /** @var array{v: string, provisional: int, actor: string}|null the row as it was */
     private ?array $saved = null;
@@ -273,14 +278,115 @@ final class TotpOffTest extends KernelUiTestCase
         foreach (['emptied' => '', 'its time passed' => self::uk('-1 minute')] as $what => $then) {
             $this->store(self::uk('+1 hour'));
             $u = $this->uiUser('buyer');
-            HookedStatement::$before['UPDATE staff_user SET last_login_at'] = function () use ($then): void {
+            $this->atSecondRead(function () use ($then): void {
                 $this->store($then);
-            };
+            });
             $r = $this->hookedLogin()->attempt($u['email'], $u['password'], '', '198.51.100.92', null, null);
             self::assertSame('invalid', $r['status'], $what);
             self::assertSame(0, self::live($u['id']), $what);
             self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'login.ok' AND staff_user_id = ?", [$u['id']]), $what);
         }
+    }
+
+    /** Runs $fn just before the second read of the switch in this process (the one under the locks; the first is the look before). */
+    private function atSecondRead(\Closure $fn): void
+    {
+        $first = true;
+        $step = function () use (&$first, &$step, $fn): void {
+            if ($first) {
+                $first = false;
+                HookedStatement::$before[self::SWITCH_READ] = $step;
+                return;
+            }
+            $fn();
+        };
+        HookedStatement::$before[self::SWITCH_READ] = $step;
+    }
+
+    /**
+     * The second Codex review of the switch, finding 1 (HIGH): with the switch on, an account with a "new sign-in code" waiting can have a
+     * session. Someone who knew the old password and the sheet's code may have started the code's step meanwhile; the person's password
+     * change must end that step, or it would still hand out a session without the new password.
+     */
+    public function testAPasswordChangeEndsAWaitingNewSignInCodeStep(): void
+    {
+        $admin = $this->uiUser('admin');
+        $victim = $this->uiUser('buyer');
+        $sheet = (new StaffAdmin(self::$appDb))->resetAuthenticator(Caller::staff($admin['id']), $victim['id'], self::$box);
+        self::assertSame('done', $sheet['result']);
+        $login = $this->loginService();
+        // The switch on: the person signs in with the password alone (the new sign-in code waits).
+        $this->store(self::uk('+1 day'));
+        $ok = $login->attempt($victim['email'], $victim['password'], '', '198.51.100.41', null, null);
+        self::assertSame('ok', $ok['status']);
+        // The switch off again: someone with the old password and the sheet's code starts the step (the rotate-and-confirm page).
+        $this->store('');
+        $next = $login->attempt($victim['email'], $victim['password'], Totp::code((string) $sheet['secret']), '203.0.113.40', null, null);
+        self::assertSame('new_code', $next['status']);
+        $en = new Enrolment(self::$appDb, new LoginLimiter(self::$appDb), self::$box);
+        $fresh = (string) ($en->pending($next['token'])['secret'] ?? '');
+        self::assertNotSame('', $fresh);
+        // The person, still signed in, changes the password.
+        $changed = $login->changePassword($victim['id'], hash('sha256', (string) $ok['token']), '198.51.100.41', null, $victim['password'], 'a brand new passphrase 2026');
+        self::assertSame('ok', $changed['status']);
+        self::assertNull($en->pending($next['token']), 'the waiting step ended with the password');
+        self::assertNull(self::$db->value('SELECT totp_next_token FROM staff_user WHERE id = ?', [$victim['id']]));
+        self::assertSame('gone', $en->confirm($next['token'], Totp::code($fresh), null, '203.0.113.40', null, null)['status']);
+        self::assertSame(1, self::live($victim['id']), 'only the session of the password change');
+    }
+
+    /**
+     * The second Codex review of the switch, finding 2 (HIGH, older than the switch): the hand-off to a "new sign-in code" step was made
+     * without the account's lock, so a password reset or a new sheet made on the server between the checks and the hand-off still
+     * started a step (and then a session) with what was replaced.
+     */
+    public function testANewSignInCodeHandOffAfterTheAccountChangedIsRefused(): void
+    {
+        $admin = $this->uiUser('admin');
+        $changes = [
+            'password' => static fn (int $id): \Closure => static function () use ($id): void {
+                self::$db->exec('UPDATE staff_user SET password_hash = ? WHERE id = ?', [password_hash('set on the server 2026', PASSWORD_ARGON2ID), $id]);
+            },
+            'secret' => static fn (int $id): \Closure => static function () use ($id): void {
+                self::$db->exec('UPDATE staff_user SET totp_secret_enc = ? WHERE id = ?', [self::$box->encrypt(Totp::newSecret()), $id]);
+            },
+        ];
+        foreach ($changes as $what => $make) {
+            $u = $this->uiUser('buyer');
+            $sheet = (new StaffAdmin(self::$appDb))->resetAuthenticator(Caller::staff($admin['id']), $u['id'], self::$box);
+            HookedStatement::$before['SELECT totp_last_step FROM staff_user'] = $make($u['id']);
+            $r = $this->hookedLogin()->attempt($u['email'], $u['password'], Totp::code((string) $sheet['secret']), '198.51.100.93', null, null);
+            self::assertSame('invalid', $r['status'], $what);
+            self::assertNull(self::$db->value('SELECT totp_next_token FROM staff_user WHERE id = ?', [$u['id']]), "{$what}: no step started");
+        }
+    }
+
+    /**
+     * The second Codex review of the switch, findings 3 and 4: the session is made only while the database's clock is still before the
+     * switch's end (time passes while a sign-in waits for a lock, and the setting's share lock does not stop it), and the switch's row is
+     * locked before the account's, in the order of a settings change (its row, then the person through the history's foreign key).
+     */
+    public function testASessionWithoutTheCodeIsMadeOnlyBeforeTheEndByTheDatabaseClockAndTheLocksKeepTheirOrder(): void
+    {
+        $u = $this->uiUser('buyer');
+        $sessions = new Sessions(self::$appDb);
+        self::assertNull($sessions->createBefore($u['id'], '198.51.100.94', null, Clock::now()->modify('-1 second')), 'past its end: no session');
+        self::assertSame(0, self::live($u['id']));
+        $made = $sessions->createBefore($u['id'], '198.51.100.94', null, Clock::now()->modify('+1 minute'));
+        self::assertNotNull($made);
+        self::assertSame(1, self::live($u['id']));
+
+        $this->store(self::uk('+1 day'));
+        $order = [];
+        $this->atSecondRead(function () use (&$order): void {
+            $order[] = 'switch';
+        });
+        HookedStatement::$before['SELECT password_hash, totp_secret_enc, totp_state, is_active FROM staff_user WHERE id = ? FOR UPDATE'] = function () use (&$order): void {
+            $order[] = 'account';
+        };
+        $v = $this->uiUser('viewer');
+        self::assertSame('ok', $this->hookedLogin()->attempt($v['email'], $v['password'], '', '198.51.100.95', null, null)['status']);
+        self::assertSame(['switch', 'account'], $order);
     }
 
     public function testItEndsByItselfAtItsTime(): void

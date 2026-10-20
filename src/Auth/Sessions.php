@@ -83,6 +83,23 @@ final class Sessions
         return ['token' => $token, 'id' => $id];
     }
 
+    /**
+     * As create(), but only while the database's clock is still before $before (one statement: the check and the row together); null
+     * when it is not. The sign-in without the code while 2-step is switched off (Auth\Login, docs/decisions.md TF12).
+     *
+     * @return array{token: string, id: string}|null
+     */
+    public function createBefore(int $staffUserId, string $ip, ?string $userAgent, \DateTimeImmutable $before): ?array
+    {
+        $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $id = hash('sha256', $token);
+        $made = $this->db->exec(
+            'INSERT INTO staff_session (id, staff_user_id, mfa_at, ip, user_agent_hash) SELECT ?, ?, NOW(6), ?, ? FROM DUAL WHERE NOW(6) < ?',
+            [$id, $staffUserId, mb_substr($ip, 0, 45), $userAgent === null || $userAgent === '' ? null : hash('sha256', $userAgent), \CW\Clock::db($before)],
+        );
+        return $made === 1 ? ['token' => $token, 'id' => $id] : null;
+    }
+
     /** The live session behind a cookie token (and marks it seen), or null. */
     public function resolve(?string $token): ?StaffIdentity
     {
