@@ -10831,3 +10831,27 @@ up to its own limits (SL1; with raised limits that can be long): to end them at 
 everywhere"). Ending sessions made without the code when the switch ends was not built (the request kept everything else as it is); it
 would need a mark on the session row.
 
+### The Codex review of the switch (on `43bb353`; `runs/sessions2_codex_review.txt`): three findings, all fixed; the two races shown by a test first
+
+The reviewer found no other serious defect: the ordinary path keeps the password, account and throttle checks, every sign-in without the
+code leaves its audit row, the UK times that happen twice or not at all are refused, the permission is checked on the server, and the
+baseline follows rule 5. Both race tests failed on `43bb353` (`runs/sessions2_review1_red.log`) and pass now.
+
+**TF7. Finding 1 (HIGH): a password reset between the password check and the new session.** The password was checked on a read
+without locks; the limiter's named locks do not stop an admin's reset. A reset (or the account switched off) that committed between the
+check and the session left a live session made with the old password. Both ways of signing in now hold the account's row lock (`SELECT
+... FOR UPDATE`, the lock the resets and switching an account off take) from a check that it is still the account that was verified
+(`Login::unchanged`: the same password hash, the same secret and state, active) to the session and its audit row, in one transaction;
+a reset that waits for it then ends that session with the others. The sign-in with the code had the same race on main (a session after a
+reset, with the old password and a valid code); it is closed too. `TotpOffTest::testAResetOrSwitchOffBetweenThePasswordCheckAndTheSessionWins`
+and `...TheCodeCheckAndTheSessionWins` step in with `HookedStatement`.
+
+**TF8. Finding 2 (MEDIUM): a sign-in that waited could cross the end of the switch.** The switch was read once, before the writes. In
+the same transaction, after the row lock, it is now read again with `FOR SHARE` (`SecondStep::offUntil($db, null, true)`): a change made
+before is seen, a change made after waits for the sign-in. If it ended or was emptied meanwhile, everything the sign-in wrote is rolled
+back and it is refused as a sign-in without the code it now needs. `testTheSwitchEndingWhileASignInIsUnderWayAsksForTheCode`.
+
+**TF9. Finding 3 (LOW): words that promised the code.** The idle limit's help said "They sign in again with their password and code";
+it says "and signs in again". The sign-in page's own sentence while the switch is on is "Use your e-mail and your password"
+(`PAGE_INTRO['login_no_code']`).
+

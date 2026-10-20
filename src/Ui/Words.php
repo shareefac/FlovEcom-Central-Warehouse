@@ -515,6 +515,8 @@ final class Words
      */
     public const PAGE_INTRO = [
         'login' => ['Sign in to the Vape and Go stock system.', 'Use your e-mail, your password and the 6-digit code from the code app on your phone.'],
+        // While 2-step verification is switched off for a while (auth.totp_off_until, TF4).
+        'login_no_code' => ['Sign in to the Vape and Go stock system.', 'Use your e-mail and your password.'],
         'password' => ['Choose a new password of at least 12 characters.', 'You stay signed in here.'],
         'home' => ['What is waiting for you today.', 'Start with the top card.'],
         'queue_Key' => ['Same barcode, or copied from the other website, and the AI agrees.', 'Check the names, then press Yes. A few seconds each.'],
@@ -3722,7 +3724,7 @@ final class Words
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
         // How long a person stays signed in (0047, docs/decisions.md SL4): the words never repeat the value (rule 20).
-        'session.idle_minutes' => 'A person who opens no page for this many minutes is signed out. They sign in again with their password and code. '
+        'session.idle_minutes' => 'A person who opens no page for this many minutes is signed out, and signs in again. '
             . '1,440 minutes is a day; 10,080 is a week. A change applies from each person\'s next page.',
         'session.absolute_hours' => 'However active a person is, they are signed out this many hours after signing in. Closing the browser does not '
             . 'sign them out, so on a shared computer they should sign out themselves. 24 hours is a day; 168 is a week. A shorter time applies at '

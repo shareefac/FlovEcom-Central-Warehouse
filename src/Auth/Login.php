@@ -6,6 +6,7 @@ namespace CW\Auth;
 
 use CW\Audit;
 use CW\Caller;
+use CW\CwException;
 use CW\Db;
 use CW\Staff\SecretBox;
 use CW\Staff\Totp;
@@ -96,9 +97,9 @@ final class Login
         if (!$passwordOk || (int) $user['is_active'] !== 1 || $user['totp_secret_enc'] === null || $user['totp_state'] === 'signup') {
             return $this->fail($login, $id, $ip, 'password');
         }
-        $codeOff = SecondStep::offUntil($this->db);
-        if ($codeOff !== null) {
-            return $this->withoutCode($login, $id, $ip, $userAgent, $oldToken, $codeOff, (int) $user['password_must_change'] === 1);
+        // A first look, without locks, at which way this sign-in goes; withoutCode() looks again under the locks (TF3).
+        if (SecondStep::offUntil($this->db) !== null) {
+            return $this->withoutCode($login, $user, $ip, $userAgent, $oldToken);
         }
         $secret = $this->box->decrypt((string) $user['totp_secret_enc']);
         $last = $this->db->value('SELECT totp_last_step FROM staff_user WHERE id = ?', [$id]);
@@ -114,18 +115,44 @@ final class Login
             }
             return ['status' => 'new_code', 'token' => $next, 'must_change' => false];
         }
-        $claimed = $this->db->exec(
-            'UPDATE staff_user SET totp_last_step = ?, last_login_at = NOW(6) WHERE id = ? AND (totp_last_step IS NULL OR totp_last_step < ?)',
-            [$step, $id, $step],
-        );
-        if ($claimed !== 1) {
-            return $this->fail($login, $id, $ip, 'totp'); // the same code, used a moment ago
+        // The account's row lock from the check of what was verified to the session and its audit row (TF7): a password reset, a new
+        // secret or the account switched off since the checks above wins (the resets take the same lock, then end every session).
+        $session = $this->db->transaction(function (Db $db) use ($user, $id, $step, $ip, $userAgent, $oldToken): ?array {
+            if (!self::unchanged($db, $user)) {
+                return null;
+            }
+            $claimed = $db->exec(
+                'UPDATE staff_user SET totp_last_step = ?, last_login_at = NOW(6) WHERE id = ? AND (totp_last_step IS NULL OR totp_last_step < ?)',
+                [$step, $id, $step],
+            );
+            if ($claimed !== 1) {
+                return null; // the same code, used a moment ago
+            }
+            $this->sessions->revokeToken($oldToken);
+            $session = $this->sessions->create($id, $ip, $userAgent);
+            Audit::write($db, Caller::staff($id, $ip), 'login.ok', 'staff_user', (string) $id, null, ['session' => substr($session['id'], 0, 8)]);
+            return $session;
+        });
+        if ($session === null) {
+            return $this->fail($login, $id, $ip, 'totp');
         }
-        $this->sessions->revokeToken($oldToken);
-        $session = $this->sessions->create($id, $ip, $userAgent);
         $this->limiter->record($login, $id, $ip, 'totp', true);
-        Audit::write($this->db, Caller::staff($id, $ip), 'login.ok', 'staff_user', (string) $id, null, ['session' => substr($session['id'], 0, 8)]);
         return ['status' => 'ok', 'token' => $session['token'], 'must_change' => (int) $user['password_must_change'] === 1];
+    }
+
+    /**
+     * Under the account's row lock (FOR UPDATE, the lock the resets and switching an account off take): whether it is still the account
+     * that was checked, the same password, the same secret and state, and active (TF7: Codex review of the switch, finding 1).
+     *
+     * @param array<string, mixed> $user the row the checks read
+     */
+    private static function unchanged(Db $db, array $user): bool
+    {
+        $now = $db->one('SELECT password_hash, totp_secret_enc, totp_state, is_active FROM staff_user WHERE id = ? FOR UPDATE', [(int) $user['id']]);
+        return $now !== null && (int) $now['is_active'] === 1 && $now['totp_secret_enc'] !== null && $user['totp_secret_enc'] !== null
+            && hash_equals((string) $user['password_hash'], (string) $now['password_hash'])
+            && hash_equals((string) $user['totp_secret_enc'], (string) $now['totp_secret_enc'])
+            && (string) $now['totp_state'] === (string) $user['totp_state'];
     }
 
     /**
@@ -179,22 +206,45 @@ final class Login
 
     /**
      * The sign-in while the code is switched off (TF3): the password was right, the account is active and set up. Under the limiter's
-     * locks, like every sign-in: a new session (Sessions::create marks its second step done, as a live session needs), the old cookie's
-     * session revoked, a successful attempt recorded (which resets the account's failures as any completed sign-in does), and audit
-     * `login.ok` with `without_code` and the time it was switched off until.
+     * locks, like every sign-in, and in one transaction holding the account's row lock (TF7): the account still as it was checked
+     * (unchanged()), then the switch read again sharing its row's lock with a change (TF8: one that ended or was emptied while this
+     * sign-in waited asks for the code, and rolls back what was written; a change made from then on waits for this sign-in), then a new
+     * session (Sessions::create marks its second step done, as a live session needs), the old cookie's session revoked and audit
+     * `login.ok` with `without_code` and the time it was switched off until. A successful attempt is recorded after (it resets the
+     * account's failures as any completed sign-in does).
      *
-     * @return array{status: 'ok', token: string, must_change: bool}
+     * @param array<string, mixed> $user the row the checks read
+     * @return array{status: 'ok'|'invalid', token: ?string, must_change: bool}
      */
-    private function withoutCode(?string $login, int $id, string $ip, ?string $userAgent, ?string $oldToken, \DateTimeImmutable $until, bool $mustChange): array
+    private function withoutCode(?string $login, array $user, string $ip, ?string $userAgent, ?string $oldToken): array
     {
-        $this->db->exec('UPDATE staff_user SET last_login_at = NOW(6) WHERE id = ?', [$id]);
-        $this->sessions->revokeToken($oldToken);
-        $session = $this->sessions->create($id, $ip, $userAgent);
+        $id = (int) $user['id'];
+        try {
+            $session = $this->db->transaction(function (Db $db) use ($user, $id, $ip, $userAgent, $oldToken): ?array {
+                if (!self::unchanged($db, $user)) {
+                    return null;
+                }
+                $db->exec('UPDATE staff_user SET last_login_at = NOW(6) WHERE id = ?', [$id]);
+                $until = SecondStep::offUntil($db, null, true)
+                    ?? throw new CwException('code_needed', 'the 2-step code is asked for again', 401);
+                $this->sessions->revokeToken($oldToken);
+                $session = $this->sessions->create($id, $ip, $userAgent);
+                $text = SecondStep::text($until);
+                Audit::write($db, Caller::staff($id, $ip), 'login.ok', 'staff_user', (string) $id, null, ['session' => substr($session['id'], 0, 8),
+                    'without_code' => true, 'code_off_until' => $text, 'note' => 'signed in without the 2-step code: switched off until ' . $text . ' (UK time)']);
+                return $session;
+            });
+        } catch (CwException $e) {
+            if ($e->errorCode !== 'code_needed') {
+                throw $e;
+            }
+            return $this->fail($login, $id, $ip, 'totp'); // the switch ended meanwhile: the code was needed and not given
+        }
+        if ($session === null) {
+            return $this->fail($login, $id, $ip, 'password');
+        }
         $this->limiter->record($login, $id, $ip, 'password', true);
-        $text = SecondStep::text($until);
-        Audit::write($this->db, Caller::staff($id, $ip), 'login.ok', 'staff_user', (string) $id, null, ['session' => substr($session['id'], 0, 8),
-            'without_code' => true, 'code_off_until' => $text, 'note' => 'signed in without the 2-step code: switched off until ' . $text . ' (UK time)']);
-        return ['status' => 'ok', 'token' => $session['token'], 'must_change' => $mustChange];
+        return ['status' => 'ok', 'token' => $session['token'], 'must_change' => (int) $user['password_must_change'] === 1];
     }
 
     /** Signs the session out (audit `logout`). */

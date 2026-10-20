@@ -9,9 +9,12 @@ use CW\Auth\SecondStep;
 use CW\Caller;
 use CW\Clock;
 use CW\CwException;
+use CW\Db;
 use CW\Settings;
 use CW\Staff\StaffAdmin;
+use CW\Tests\Support\HookedStatement;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Tests\Support\TestDb;
 use CW\Ui\Html;
 use CW\Ui\Words;
 
@@ -44,7 +47,22 @@ final class TotpOffTest extends KernelUiTestCase
             self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON), provisional = ?, updated_actor = ? WHERE setting_key = ?',
                 [$this->saved['v'], $this->saved['provisional'], $this->saved['actor'], self::KEY]);
         }
+        HookedStatement::$before = [];
         parent::tearDown();
+    }
+
+    /** The sign-in service on an app-login connection of its own whose statements a test can step in before (HookedStatement). */
+    private function hookedLogin(): \CW\Auth\Login
+    {
+        $db = Db::connect(TestDb::config()->dbApp()->withDatabase(TestDb::name()));
+        $db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [HookedStatement::class, []]);
+        return $this->loginService($db);
+    }
+
+    /** Live sessions of a person. */
+    private static function live(int $id): int
+    {
+        return (int) self::$db->value('SELECT COUNT(*) FROM staff_session WHERE staff_user_id = ? AND revoked = 0', [$id]);
     }
 
     /** A UK time ("Y-m-d H:i", as typed on the Settings page) at $modify from now. */
@@ -194,6 +212,75 @@ final class TotpOffTest extends KernelUiTestCase
         $web->post('/ui/login', ['csrf' => $page->form('/ui/login')['csrf'], 'email' => $v['email'], 'password' => $v['password']]);
         self::$db->exec('UPDATE staff_session SET last_seen_at = NOW(6) - INTERVAL 31 MINUTE WHERE id = ?', [hash('sha256', $web->cookies['cw_session'])]);
         self::assertSame('/ui/login?why=signed_out', $web->get('/ui/')->location());
+    }
+
+    /**
+     * Codex review of part 2, finding 1 (HIGH): the password is checked on a read without locks; a reset of the password, or the account
+     * switched off, between that check and the new session must win. Both ways of signing in hold the account's row lock from the check of
+     * what they verified (the password, the secret, active) to the session and its audit row, as the resets take it.
+     */
+    public function testAResetOrSwitchOffBetweenThePasswordCheckAndTheSessionWins(): void
+    {
+        [$reset, $switchOff] = $this->steppingIn();
+
+        // With the code switched off: the step in comes after the password check, at the first look at the switch.
+        $this->store(self::uk('+1 day'));
+        foreach (['reset' => $reset, 'off' => $switchOff] as $what => $make) {
+            $u = $this->uiUser('buyer');
+            HookedStatement::$before["SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ? AND value_type = 'string'"] = $make($u);
+            $r = $this->hookedLogin()->attempt($u['email'], $u['password'], '', '198.51.100.90', null, null);
+            self::assertSame('invalid', $r['status'], "without the code, {$what}: the old password signs nobody in");
+            self::assertSame(0, self::live($u['id']), $what);
+            self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'login.ok' AND staff_user_id = ?", [$u['id']]), $what);
+        }
+    }
+
+    /** The same race on the ordinary sign-in, with the code (older than the switch: main had it too). */
+    public function testAResetOrSwitchOffBetweenTheCodeCheckAndTheSessionWins(): void
+    {
+        [$reset, $switchOff] = $this->steppingIn();
+        foreach (['reset' => $reset, 'off' => $switchOff] as $what => $make) {
+            $u = $this->uiUser('buyer');
+            HookedStatement::$before['SELECT totp_last_step FROM staff_user'] = $make($u);
+            self::$db->exec('UPDATE staff_user SET totp_last_step = NULL WHERE id = ?', [$u['id']]);
+            $r = $this->hookedLogin()->attempt($u['email'], $u['password'], self::code($u['secret']), '198.51.100.91', null, null);
+            self::assertSame('invalid', $r['status'], "with the code, {$what}");
+            self::assertSame(0, self::live($u['id']), $what);
+        }
+    }
+
+    /** @return array{0: \Closure(array): \Closure, 1: \Closure(array): \Closure} what steps in: an admin's password reset, the account switched off */
+    private function steppingIn(): array
+    {
+        $admin = $this->uiUser('admin');
+        $reset = function (array $u) use ($admin): \Closure {
+            return function () use ($u, $admin): void {
+                self::assertSame('done', (new StaffAdmin(self::$appDb))->resetPassword(Caller::staff($admin['id']), $u['id'])['result']);
+            };
+        };
+        $switchOff = static fn (array $u): \Closure => static function () use ($u): void {
+            self::$db->exec('UPDATE staff_user SET is_active = 0 WHERE id = ?', [$u['id']]);
+        };
+        return [$reset, $switchOff];
+    }
+
+    /**
+     * Codex review of part 2, finding 2 (MEDIUM): a sign-in that read "switched off" and then waited must not create its session after
+     * the switch ended or was emptied meanwhile. The switch is read again, sharing its row's lock with a change, just before the session.
+     */
+    public function testTheSwitchEndingWhileASignInIsUnderWayAsksForTheCode(): void
+    {
+        foreach (['emptied' => '', 'its time passed' => self::uk('-1 minute')] as $what => $then) {
+            $this->store(self::uk('+1 hour'));
+            $u = $this->uiUser('buyer');
+            HookedStatement::$before['UPDATE staff_user SET last_login_at'] = function () use ($then): void {
+                $this->store($then);
+            };
+            $r = $this->hookedLogin()->attempt($u['email'], $u['password'], '', '198.51.100.92', null, null);
+            self::assertSame('invalid', $r['status'], $what);
+            self::assertSame(0, self::live($u['id']), $what);
+            self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'login.ok' AND staff_user_id = ?", [$u['id']]), $what);
+        }
     }
 
     public function testItEndsByItselfAtItsTime(): void

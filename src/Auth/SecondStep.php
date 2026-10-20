@@ -23,10 +23,14 @@ final class SecondStep
     /** The form of the setting's text. */
     public const FORM = '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/D';
 
-    /** The moment (UTC) until which the sign-in asks for no code, or null: the code is asked for. $now: the clock (tests). */
-    public static function offUntil(Db $db, ?\DateTimeImmutable $now = null): ?\DateTimeImmutable
+    /**
+     * The moment (UTC) until which the sign-in asks for no code, or null: the code is asked for. $now: the clock (tests). $lock (inside a
+     * transaction): the setting's row is read FOR SHARE, so a change of it waits for the transaction, and one made before is seen (TF8).
+     */
+    public static function offUntil(Db $db, ?\DateTimeImmutable $now = null, bool $lock = false): ?\DateTimeImmutable
     {
-        $raw = $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ? AND value_type = 'string'", [self::SETTING]);
+        $raw = $db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = ? AND value_type = 'string'" . ($lock ? ' FOR SHARE' : ''),
+            [self::SETTING]);
         $text = $raw === null ? null : json_decode((string) $raw, false, 4);
         $at = is_string($text) ? self::moment($text) : null;
         $now ??= Clock::now();
