@@ -11037,3 +11037,16 @@ removed (`runs/decideguard2_mut1.log`).
   `runs/decideguard2_r3_red.log`).
 - **LOW: DG3's suggestion was not pinned.** `testTheSameNoTwiceIsRecordedOnce` now ends with a newer suggestion that replaced the
   named one without moving map_version: the "No" about it is a new answer.
+
+### The fourth Codex review (on `8e044a0`; `runs/decideguard2_codex_review4.txt`): no HIGH or MEDIUM, two LOW
+
+- **LOW: the spot check owner's forms behind their warnings were not sent as drawn.** `KeySampleScreenTest::testAnAnswerToAnotherLeadsSpotCheckIsRefusedWhateverItCarries`
+  now sends the owner's own "Change this match" and "Not a match" forms as the page draws them (each carries `seen`); it fails on a
+  copy whose `listing_form.php` drops `seen` (`runs/decideguard2_mut2.log`).
+- **LOW, left open: the approval's DG1 check is not pinned by a forced overlap.** It is read in `approve()` after the listing's lock,
+  as the decision's is; a two-session test like DG2's (`testAHoldThatCommitsWhileAPageDecisionWaitsForTheListingIsSeen`) would pin it.
+
+Tests (20 Oct 2026, slot `decideguard2`, on cw-test): the full suite `OK, but some tests were skipped! Tests: 1820, Assertions: 116405,
+Skipped: 81` on `8e044a0` (`runs/decideguard2_full4.log`; the 81 are the HTTP tests of slots `ui` and `api`), and green after the last
+test change. Nothing was run on `cw_staging` or production; the staff Claude guide (`/root/cw_work/STAFF_CLAUDE_MAPPING_GUIDE.md`, 5.1 and
+5.4: "Held back and in a spot check are not server refusals") needs its words changed once this is merged.

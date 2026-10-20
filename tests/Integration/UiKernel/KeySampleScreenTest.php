@@ -7,8 +7,10 @@ namespace CW\Tests\Integration\UiKernel;
 use CW\Caller;
 use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
+use CW\Mapping\OneAtATime;
 use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Tests\Support\UiResponse;
 use CW\Ui\ByProductContext;
 use CW\Ui\Words;
 
@@ -336,10 +338,19 @@ final class KeySampleScreenTest extends KernelUiTestCase
         }
         self::assertSame([1, 'confirmed'], [$decisions($first['listing_id']), (new KeySample(self::$db))->status($sid)['members'][0]['state']]);
 
-        // Failed ("Not a match" from the page): the matches left are still decided one at a time, from the page.
-        $form = $web->get('/ui/review/listing/' . $second['listing_id'], ['sample' => (string) $sid])->form('/ui/review/listing/' . $second['listing_id'] . '/decide');
-        self::assertSame(303, $web->post('/ui/review/listing/' . $second['listing_id'] . '/decide', ['action' => 'reject'] + $form)->status);
-        self::assertSame('failed', (new KeySample(self::$db))->status($sid)['verdict']);
+        // The owner's own forms behind their warnings, as the page draws them (each carries what the page showed): "Change this match"
+        // on the confirmed one (it stops the bulk link for good: the spot check fails), then "Not a match" on another match.
+        $change = self::formIn($web->get('/ui/review/listing/' . $first['listing_id'], ['sample' => (string) $sid]), '//details[@id="change-match"]//form');
+        self::assertSame(OneAtATime::SPOT . ':' . $sid, $change['seen'] ?? null);
+        $r = $web->post($path, ['action' => 'unlink', 'reason' => 'checked again: another flavour'] + $change);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame([null, 'failed'], [$this->link($first['listing_id'])['sku_id'], (new KeySample(self::$db))->status($sid)['verdict']]);
+        $no = self::formIn($web->get('/ui/review/listing/' . $second['listing_id'], ['sample' => (string) $sid]), '//details[@id="not-a-match"]//form');
+        self::assertSame(['reject', OneAtATime::SPOT . ':' . $sid], [$no['action'] ?? null, $no['seen'] ?? null], '"No, wrong product" is its first answer');
+        $r = $web->post('/ui/review/listing/' . $second['listing_id'] . '/decide', $no);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame(1, $decisions($second['listing_id']));
+        // Failed: the matches left are still decided one at a time, from the page.
         $p = self::proposalRow((int) $third['proposal_id']);
         $r = $other->post('/ui/review/listing/' . $third['listing_id'] . '/decide', ['csrf' => $tokens[0], 'action' => 'link', 'sku_id' => (string) $p['proposed_sku_id'],
             'units_per_item' => '1', 'proposal_id' => (string) $third['proposal_id'],
@@ -414,6 +425,31 @@ final class KeySampleScreenTest extends KernelUiTestCase
         $r = $web->post($path($free), $bare($free, $csrf));
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame([1, 'mapped'], $decided((int) $free['listing_id']));
+    }
+
+    /** The fields the form found by $xpath sends (its inputs but buttons, the ticked radios), as UiResponse::form() reads the first one. @return array<string, string> */
+    private static function formIn(UiResponse $r, string $xpath): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $form = $xp->query($xpath)->item(0);
+        self::assertInstanceOf(\DOMElement::class, $form, $xpath . ': ' . $r->describe());
+        $out = [];
+        foreach ($xp->query('.//input', $form) as $in) {
+            /** @var \DOMElement $in */
+            $name = $in->getAttribute('name');
+            $type = strtolower($in->getAttribute('type') ?: 'text');
+            if ($name === '' || $in->hasAttribute('disabled') || in_array($type, ['submit', 'button', 'reset', 'file'], true)) {
+                continue;
+            }
+            if (in_array($type, ['radio', 'checkbox'], true)) {
+                if ($in->hasAttribute('checked')) {
+                    $out[$name] = $in->getAttribute('value') ?: 'on';
+                }
+                continue;
+            }
+            $out[$name] = $in->getAttribute('value');
+        }
+        return $out;
     }
 
     public function testAllConfirmedSaysTheBulkConfirmMayRun(): void
