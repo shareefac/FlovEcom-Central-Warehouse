@@ -1399,6 +1399,91 @@ final class ByProductScreenTest extends KernelUiTestCase
     }
 
     /**
+     * The fold hides "Match to …" for a variant decided one at a time, and the server refuses it all the same (docs/decisions.md DG1,
+     * DG2): a fold drawn BEFORE the variant became another lead's spot check's match or was held back still has the button, and its
+     * form lands on the variant's own page with the refusal in words, nothing saved. Another matching lead: 403, the spot check's
+     * owner named, and no answer form for them there. The spot check's owner (its match is answered on its own page, one at a time) and
+     * anyone on a held variant: 409, and the page drawn again shows why (the spot check's box, the hold's note) with its own answer
+     * form and the way back to the picker. The same stale fold's button on a variant that is neither is saved as before.
+     */
+    public function testAStaleMatchButtonOnAnotherLeadsSpotCheckOrAHeldVariantIsRefusedOnTheVariantsPage(): void
+    {
+        $this->keySetup();
+        $saved = (string) self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'approvals.spot_check_size'");
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('5' AS JSON) WHERE setting_key = 'approvals.spot_check_size'");
+        try {
+            $pop = [];
+            for ($i = 0; $i < 9; $i++) {
+                $pop[] = $this->firstMatch($this->vpgItem(), 90 + $i, [], [], null, [], 900 - $i);
+            }
+            $kit = $this->item('legacy', 0, 'Other kit');
+            $owner = $this->uiUser('mapping_lead');
+            $mine = $this->signIn($owner);
+            $other = $this->signIn($this->uiUser('mapping_lead'), $this->browser('198.51.100.31'));
+            $mapper = $this->signIn($this->uiUser('mapper'), $this->browser('198.51.100.32'));
+            // The folds, drawn while every variant is free: each has its "Match to …".
+            $folds = [];
+            foreach (['mine' => $mine, 'other' => $other, 'mapper' => $mapper] as $who => $web) {
+                $folds[$who] = self::optionsOf($web, $kit, 'alt', 'Electrofag listing');
+                self::assertSame(200, $folds[$who]->status, $folds[$who]->describe());
+                self::assertCount(9, self::quickRows($folds[$who]));
+            }
+            $sample = (new KeySample(self::$db))->create(Caller::staff($owner['id']), 'sc-late', 5, true);
+            $spot = array_map('intval', array_column($sample['members'], 'listing_id'));
+            $others = array_values(array_filter($pop, static fn (array $m): bool => !in_array($m['listing'], $spot, true)));
+            (new KeyHold(self::$db))->run(Caller::staff($owner['id']), 'sc-late',
+                KeyHold::parse("proposal_id,listing_id,reason\n{$others[0]['proposal']},{$others[0]['listing']},Pack size differs\n"), false, true);
+            [$held, $free] = [$others[0]['listing'], $others[1]['listing']];
+            $ownerName = (string) self::$db->value('SELECT display_name FROM staff_user WHERE id = ?', [$owner['id']]);
+            $decided = static fn (int $lid): int => (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE listing_id = ? AND action <> 'suggest'", [$lid]);
+            $back = "/ui/review/products/{$kit}/map?channel=alt";
+
+            // Another matching lead's button on the spot check's match: 403 on its page, the owner named, no answer form.
+            $form = self::quickRow($folds['other'], $spot[0])['match'];
+            self::assertNotNull($form);
+            $r = $other->post("/ui/review/listing/{$spot[0]}/decide", $form);
+            self::assertSame(403, $r->status, $r->describe());
+            self::assertStringContainsString(Words::say('MATCH_ERROR', 'spot_check_other', $ownerName), $r->text());
+            self::assertStringContainsString(Words::say('SPOT', 'other', $ownerName), $r->text(), 'the variant\'s page');
+            self::assertFalse($r->hasForm('/decide'));
+            self::assertStringStartsWith($back, (string) (new \DOMXPath($r->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'), 'Back to the picker');
+            // ... and a Matcher's.
+            $r = $mapper->post("/ui/review/listing/{$spot[1]}/decide", (array) self::quickRow($folds['mapper'], $spot[1])['match']);
+            self::assertSame(403, $r->status, $r->describe());
+            self::assertStringContainsString(Words::say('MATCH_ERROR', 'spot_check_other', $ownerName), $r->text());
+            // The owner's own button: the match is answered on its own page, which is drawn again with the spot check's box.
+            $r = $mine->post("/ui/review/listing/{$spot[0]}/decide", (array) self::quickRow($folds['mine'], $spot[0])['match']);
+            self::assertSame(409, $r->status, $r->describe());
+            self::assertStringContainsString(Words::MATCH_ERROR['one_at_a_time'], $r->text());
+            self::assertStringContainsString(Words::SPOT['mine'], $r->text());
+            self::assertTrue($r->hasForm("/ui/review/listing/{$spot[0]}/decide"), 'answered there');
+            // Held back since: 409 on its page, with the hold's note and its answer form, which leads back to the picker.
+            $r = $mapper->post("/ui/review/listing/{$held}/decide", (array) self::quickRow($folds['mapper'], $held)['match']);
+            self::assertSame(409, $r->status, $r->describe());
+            self::assertStringContainsString(Words::MATCH_ERROR['one_at_a_time'], $r->text());
+            self::assertStringContainsString('Check this one by hand: "Pack size differs"', $r->text());
+            $page = $r->form("/ui/review/listing/{$held}/decide");
+            self::assertSame(['product', (string) $kit, 'alt'], [$page['via'] ?? null, $page['product'] ?? null, $page['channel'] ?? null]);
+            self::assertSame([0, 0, 0, 0], [$decided($spot[0]), $decided($spot[1]), $decided($held), $decided($free)], 'nothing was saved');
+            self::assertSame(['waiting', 0], [(new KeySample(self::$db))->status('sc-late')['verdict'], (new KeySample(self::$db))->status('sc-late')['decided']],
+                'the spot check goes on');
+            // The page's own form, drawn again there (the item picked, its answer "Yes"): saved, and back to By Item.
+            self::assertSame([(string) $kit, OneAtATime::HELD . ':' . self::$db->value('SELECT id FROM key_bulk_hold WHERE listing_id = ?', [$held])],
+                [$page['sku_id'] ?? null, $page['seen'] ?? null]);
+            $r = $mapper->post("/ui/review/listing/{$held}/decide", ['action' => 'link'] + $page);
+            self::assertSame(303, $r->status, $r->describe());
+            self::assertStringStartsWith('/ui/review/products?', (string) $r->location());
+            self::assertSame([1, $kit], [$decided($held), (int) $this->link($held)['sku_id']]);
+            // A variant that is neither: the stale fold's button is saved as before.
+            $r = $mapper->post("/ui/review/listing/{$free}/decide", (array) self::quickRow($folds['mapper'], $free)['match']);
+            self::assertSame(303, $r->status, $r->describe());
+            self::assertSame([1, $kit], [$decided($free), (int) $this->link($free)['sku_id']]);
+        } finally {
+            self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [$saved, 'approvals.spot_check_size']);
+        }
+    }
+
+    /**
      * The fragment's rows decided one at a time cost the same few statements however many spot checks they are in (Codex's review:
      * OneAtATime::of() asked KeySample for each spot check's verdict, one by one). OneAtATime::ofWaiting() answers as of() does for
      * variants that still wait, without a verdict: such a variant is never a confirmed match, so a spot check that holds one is not

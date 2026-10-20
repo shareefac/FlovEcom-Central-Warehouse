@@ -188,6 +188,41 @@ final class DecisionServiceTest extends MappingTestCase
         self::assertSame('applied', $this->decide($mapper, 'link', $e2, ['sku_id' => $legacy])['state']);
     }
 
+    /**
+     * "No, wrong product" sent twice by the same person (a double click: the screen's form has no form_key, docs/decisions.md DG3):
+     * the second is the same answer as the listing's last one, so it writes nothing (no decision, no reject, no audit row) and answers
+     * as the first did. Anything else is a new answer and is recorded as before: a ticked list's, another person's, the same person's
+     * once someone else answered since, with another note, or about another item.
+     */
+    public function testTheSameNoTwiceIsRecordedOnce(): void
+    {
+        $alt = $this->site('alt');
+        [$mapper, $other] = [$this->staffUser('mapper'), $this->staffUser('mapper')];
+        [$a, $b] = [$this->item('legacy'), $this->item('legacy')];
+        $e = $this->listing($alt, 'E', null);
+        $pid = $this->propose($e, 'Check', $a);
+        $written = static fn (): array => [(int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE action = 'reject'"),
+            (int) self::$db->value('SELECT COUNT(*) FROM match_reject'), (int) self::$db->value('SELECT COUNT(*) FROM audit_log')];
+        $no = ['sku_id' => $a, 'proposal_id' => $pid, 'reason' => 'strength differs'];
+        $first = $this->decide($mapper, 'reject', $e, $no);
+        $after = $written();
+        self::assertSame([1, 1], array_slice($after, 0, 2));
+        $again = $this->decide($mapper, 'reject', $e, $no);
+        self::assertSame($after, $written(), 'nothing more was written');
+        self::assertSame([$first['decision_id'], 'reject', 'applied', 1, 'suggested', null, true],
+            [$again['decision_id'], $again['action'], $again['state'], $again['map_version'], $again['status'], $again['sku_id'], $again['repeated'] ?? null]);
+        self::assertArrayNotHasKey('repeated', $first);
+        self::assertSame(1, $this->version($e));
+
+        $this->decide($mapper, 'reject', $e, $no + ['bulk_batch_id' => 'screen:t1']);
+        $this->decide($other, 'reject', $e, $no);
+        $this->decide($mapper, 'reject', $e, $no);
+        $this->decide($mapper, 'reject', $e, ['reason' => 'and the pack size'] + $no);
+        $this->decide($mapper, 'reject', $e, ['sku_id' => $b] + $no);
+        self::assertSame([6, 2], array_slice($written(), 0, 2), 'five new answers, about two items');
+        self::assertArrayNotHasKey('repeated', $this->decide($mapper, 'reject', $e, ['reason' => null] + $no));
+    }
+
     public function testRejectKeepsTheProposalOpenAndALaterLinkToTheRejectedItemNeedsASecondPerson(): void
     {
         $alt = $this->site('alt');

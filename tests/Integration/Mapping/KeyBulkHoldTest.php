@@ -10,6 +10,7 @@ use CW\Mapping\KeyBulk;
 use CW\Mapping\KeyEligibility;
 use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
+use CW\Mapping\OneAtATime;
 use CW\Mapping\Reband;
 use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\MappingTestCase;
@@ -266,6 +267,45 @@ final class KeyBulkHoldTest extends MappingTestCase
         self::assertSame('No: the pack size differs after all', KeyHold::activeForListings(self::$db, [$b['listing']])[$b['listing']]['reason']);
         self::assertSame(0, $this->bulk()->confirm($owner, 'h1', true)['applied']);
         self::assertSame(['open', 'suggested'], [self::proposalRow($b['proposal'])['status'], $this->link($b['listing'])['status']]);
+    }
+
+    /**
+     * A decision taken on a variant's own page (ReviewController::decide sends `seen`: what the page showed, OneAtATime::seen()) is
+     * checked under the listing's lock against what is in force now (docs/decisions.md DG2): on a held listing it needs the hold the
+     * page showed (none, a made-up one, or one released and written again since: 409 one_at_a_time, nothing written); a listing that is
+     * not held needs nothing. A caller that is not a page (a bulk action, the bulk confirm, a tool: no `seen`) keeps its own rules.
+     * A hold does not stop a person's decision (M30): anyone who may decide decides it on its page.
+     */
+    public function testAPageDecisionOnAHeldListingNeedsTheHoldThePageShowed(): void
+    {
+        $x = $this->readySample('h9');
+        [$a, $b, $c] = $x['rest'];
+        $this->holds()->run($x['owner'], 'h9', self::rowsOf([[$a['proposal'], $a['listing'], 'Strength 10mg vs 20mg'], [$c['proposal'], $c['listing'], 'Pack of 3']]),
+            false, true);
+        $mapper = $this->staffUser('mapper');
+        $req = static fn (array $m, array $over = []): array => $over + ['sku_id' => $m['sku'], 'units_per_item' => 1, 'proposal_id' => $m['proposal']];
+        $hold = (int) self::$db->value("SELECT id FROM key_bulk_hold WHERE listing_id = ? AND kind = 'hold'", [$a['listing']]);
+        self::assertSame(OneAtATime::HELD . ':' . $hold, OneAtATime::seen(self::$db, $a['listing']));
+        $decisions = fn (): int => $this->rowCount("SELECT COUNT(*) FROM match_decision WHERE action <> 'suggest'");
+        $before = $decisions();
+        $e = self::refused(409, 'one_at_a_time', fn () => $this->decide($mapper, 'link', $a['listing'], $req($a, ['seen' => null])));
+        self::assertSame([OneAtATime::HELD, null], [$e->detail['kind'], $e->detail['seen']]);
+        self::refused(409, 'one_at_a_time', fn () => $this->decide($mapper, 'link', $a['listing'], $req($a, ['seen' => OneAtATime::HELD . ':999999'])));
+        self::refused(409, 'one_at_a_time', fn () => $this->decide($mapper, 'ignore', $a['listing'], ['proposal_id' => $a['proposal'], 'reason' => 'x', 'seen' => null]));
+        self::refused(400, 'bad_request', fn () => $this->decide($mapper, 'link', $a['listing'], $req($a, ['seen' => ['held', $hold]])));
+        self::assertSame($before, $decisions(), 'nothing was written');
+        self::assertSame('applied', $this->decide($mapper, 'link', $a['listing'], $req($a, ['seen' => OneAtATime::HELD . ':' . $hold]))['state']);
+        // Not held: a page decision needs nothing.
+        self::assertNull(OneAtATime::seen(self::$db, $b['listing']));
+        self::assertSame('applied', $this->decide($mapper, 'link', $b['listing'], $req($b, ['seen' => null]))['state']);
+        // Released and held again since the page was drawn: the page showed another hold.
+        $was = (string) OneAtATime::seen(self::$db, $c['listing']);
+        $this->holds()->run($x['owner'], 'h9', self::rowsOf([[$c['proposal'], $c['listing'], 'looked fine']]), true, true);
+        $this->holds()->run($x['owner'], 'h9', self::rowsOf([[$c['proposal'], $c['listing'], 'No: the pack size differs after all']]), false, true);
+        self::assertNotSame($was, OneAtATime::seen(self::$db, $c['listing']));
+        self::refused(409, 'one_at_a_time', fn () => $this->decide($mapper, 'link', $c['listing'], $req($c, ['seen' => $was])));
+        // Not a page: the service's other callers keep their own rules (the bulk confirm leaves a held listing out by its eligibility).
+        self::assertSame('applied', $this->decide($x['owner'], 'link', $c['listing'], $req($c))['state']);
     }
 
     public function testTheSchemaHoldsTheRulesToo(): void

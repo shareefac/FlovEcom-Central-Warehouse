@@ -696,6 +696,17 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::BAND_HELP['Check'], $own->text(), 'not "the AI thinks"');
         self::assertStringContainsString('Its barcode is on this item', $own->text());
         self::assertTrue($own->hasForm('/ui/review/listing/' . $f['clean'] . '/decide'), 'and it can be decided there');
+        // There, and only there (docs/decisions.md DG2): the decision's fields without what its page showed (a script, By Item's quick
+        // match) are refused and nothing is saved; the page's own form is saved.
+        $form = $own->form('/ui/review/listing/' . $f['clean'] . '/decide');
+        $r = $web->post('/ui/review/listing/' . $f['clean'] . '/decide', ['action' => 'ignore', 'reason' => 'not ours'] + array_diff_key($form, ['seen' => true]));
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertStringContainsString(Words::MATCH_ERROR['one_at_a_time'], $r->text());
+        self::assertSame('suggested', $this->link($f['clean'])['status'], 'nothing was saved');
+        self::assertSame(OneAtATime::ARRIVAL . ':' . self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$f['clean']]), $form['seen'] ?? null);
+        $r = $web->post('/ui/review/listing/' . $f['clean'] . '/decide', ['action' => 'ignore', 'reason' => 'not ours'] + $form);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('ignored', $this->link($f['clean'])['status']);
     }
 
     public function testAHandMadeFormThatTicksARowFoundOnArrivalIsSkippedOnEveryListAndTheOtherListsGiveItNoTickBox(): void

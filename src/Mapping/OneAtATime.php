@@ -32,6 +32,10 @@ use CW\Db;
  * variants that are a match of any spot check and still to decide), named to the SQL by their ids; the check on arrival's
  * suggestions are the open ones of arrivalRuns(), named to the SQL by those run ids (arrivalSql()), which of() reads too.
  *
+ * The variant's own page is where such a variant is decided, one at a time (docs/decisions.md DG2): its decision forms carry what the
+ * page showed of it (seen()), and DecisionService asks seen() again under the listing's lock, so a decision sent without the page
+ * as it is now (a hand-made form, another page's button, a page drawn before the hold) is refused, 409 one_at_a_time.
+ *
  * Read only. Nothing here decides anything, and the rule itself is unchanged: a hand-made form that names such a row is skipped
  * exactly as before.
  */
@@ -120,6 +124,24 @@ final class OneAtATime
             }
         }
         return $out;
+    }
+
+    /**
+     * What a variant's own page shows of this, as its decision forms carry it (`seen`, docs/decisions.md DG2): `held:<hold id>`,
+     * `in_spot_check:<spot check id>` or `on_arrival:<suggestion id>`, by of()'s rule and in its order; null when the variant is none
+     * of them. The page draws it into its forms; DecisionService asks it again under the listing's lock and refuses a decision from a
+     * page that names anything else (409 one_at_a_time). The ids make it a statement about THIS hold, spot check or suggestion: a hold
+     * released and written again since the page was drawn is another one, whose note the person has not seen.
+     */
+    public static function seen(Db $db, int $listingId): ?string
+    {
+        $why = self::of($db, [$listingId])[$listingId] ?? null;
+        return match ($why['code'] ?? null) {
+            null => null,
+            self::HELD => self::HELD . ':' . (KeyHold::activeForListings($db, [$listingId])[$listingId]['hold_id'] ?? 0),
+            self::SPOT => self::SPOT . ':' . $why['sample_id'],
+            default => self::ARRIVAL . ':' . (int) $db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$listingId]),
+        };
     }
 
     /**

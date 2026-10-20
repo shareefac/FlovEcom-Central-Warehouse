@@ -56,7 +56,14 @@ use CW\Stock;
  * What the person saw (design I7): the listing's map_version (which also moves when the site changes
  * the listing's identity, identityChanged()) and the proposal (a decision on a listing with an open
  * proposal must name it; approving is refused once another proposal is open): 409 otherwise. A
- * decision settles only the proposal it named. Relinking a listing whose units are in flight on a
+ * decision settles only the proposal it named. A decision from the variant's own page also says what
+ * that page showed of a variant decided one at a time (`seen`: held back, a spot check's match, found
+ * on arrival; OneAtATime::seen): it must be what is in force under the lock, else 409 one_at_a_time.
+ *
+ * Who decides a spot check's match (M28; docs/decisions.md DG1): while the spot check has not failed,
+ * its owner alone (KeySample::keeping), for this listing and for every listing a merge moves; anyone
+ * else is refused, 403 spot_check_other, whatever the caller. The same "No, wrong product" again by the
+ * same person (a double send) writes nothing and answers as the first did (`repeated`). Relinking a listing whose units are in flight on a
  * counted item queues a recount of both items (remapCorrection, design A.9 rule 5).
  *
  * Lock order (docs/decisions.md M4): reservation rows -> channel_listing (X) -> sku (S, X only
@@ -611,6 +618,11 @@ final class DecisionService
             $this->lockUnlinkedUnitReservations($r['listing_id']);
         }
         $l = $this->lockListing($r['listing_id']);
+        if ($staff !== null && $action !== 'suggest') {
+            // A spot check's match is its owner's while the spot check is open (M28, docs/decisions.md DG1), whoever calls: first,
+            // because no other answer applies to anyone else.
+            $this->keepSpotChecks($staff['id'], [$l['id']]);
+        }
         if ($l['map_version'] !== $r['expected_map_version']) {
             throw new CwException('map_version_conflict', 'the listing changed since it was shown; reload it', 409,
                 ['current_map_version' => $l['map_version'], 'expected_map_version' => $r['expected_map_version'],
@@ -641,6 +653,16 @@ final class DecisionService
             throw new CwException('proposal_changed', 'the listing has an open proposal this decision does not name; reload it', 409,
                 ['open_proposal_id' => $open['id'], 'band' => $open['band']]);
         }
+        if ($r['page'] && $action !== 'suggest') {
+            // A variant decided one at a time (held back, a spot check's match, found on arrival) is decided from ITS page as it is now
+            // (docs/decisions.md DG2): the page's forms say what it showed, and anything else is refused (a hand-made form, another page's
+            // button, a page drawn before the variant was set aside). Read under the listing's lock: a hold is written under it too.
+            $now = OneAtATime::seen($this->db, $l['id']);
+            if ($now !== null && $now !== $r['seen']) {
+                throw new CwException('one_at_a_time', "this listing is decided one at a time, on its own page as it is now ({$now}); reload it", 409,
+                    ['kind' => explode(':', $now)[0], 'seen' => $r['seen']]);
+            }
+        }
         if ($action === 'merge_skus' && $l['linked'] && $l['sku_id'] === $r['merge_from_sku_id']) {
             $this->lockListingsOf($l['sku_id']);
         }
@@ -649,6 +671,12 @@ final class DecisionService
         }
 
         $target = $this->validate($r, $l, $open, true, $staff !== null && self::isLead($staff));
+        if ($action === 'reject' && $staff !== null && $r['bulk_batch_id'] === null) {
+            $same = $this->sameNoAgain($staff['id'], $r, $l);
+            if ($same !== null) {
+                return $same;
+            }
+        }
         $needs = $target['needs_second'];
         $state = $needs === [] ? 'applied' : 'pending_second';
         if ($mint !== null && $state !== 'applied') {
@@ -1041,7 +1069,7 @@ final class DecisionService
             case 'merge_skus':
                 $keep = $target['sku'];
                 $from = $target['from'];
-                $moved = $this->merge($decisionId, $from['id'], $keep['id'], $now);
+                $moved = $this->merge($decisionId, $from['id'], $keep['id'], $now, $caller->staffUserId);
                 $this->settleProposal($r['proposal_id']);
                 // The other merge suggestions this merge fulfilled (a listing of the merged item that proposed the kept item): nothing
                 // is left to merge for them (M34). Only listings this decision holds locked.
@@ -1121,11 +1149,13 @@ final class DecisionService
     /**
      * Moves every listing linked to $fromSku to $keepSku (same u and status), one history period
      * each, and marks $fromSku merged. Listings are locked in id order (the anchor is already
-     * held). Their sold units keep their sale-time snapshot (the old item), like any relink.
+     * held). Their sold units keep their sale-time snapshot (the old item), like any relink. A listing
+     * that an open spot check keeps for its owner is moved only by that owner (the person applying it:
+     * the decider, or the approver of a pending merge; docs/decisions.md DG1): 403 spot_check_other.
      *
      * @return array<int, int> listing id => its new map_version
      */
-    private function merge(int $decisionId, int $fromSku, int $keepSku, string $now): array
+    private function merge(int $decisionId, int $fromSku, int $keepSku, string $now, ?int $staffId): array
     {
         $ids = array_map('intval', $this->db->column(
             "SELECT id FROM channel_listing WHERE sku_id = ? AND status IN ('mapped', 'quarantined') ORDER BY id",
@@ -1136,6 +1166,9 @@ final class DecisionService
             $row = $this->lockListing($lid);
             if (!$row['linked'] || $row['sku_id'] !== $fromSku) {
                 continue;
+            }
+            if ($staffId !== null) {
+                $this->keepSpotChecks($staffId, [$lid]);
             }
             if ($this->db->value('SELECT id FROM match_decision WHERE pending_listing_id = ? AND id <> ?', [$lid, $decisionId]) !== null) {
                 throw new CwException('pending_second_exists', "listing {$lid} of the merged item has a pending decision", 409, ['listing_id' => $lid]);
@@ -1527,6 +1560,49 @@ final class DecisionService
         return ['id' => $caller->staffUserId, 'roles' => StaffRoles::active($this->db, $caller->staffUserId)];
     }
 
+    /**
+     * A spot check's matches are its owner's while it is open (M28; docs/decisions.md DG1; the review page has said so since U47, U71):
+     * a decision by anyone else that would change one of these listings is refused before anything is written, 403 spot_check_other,
+     * with the listing, the spot check and its owner (`done`: the match was answered already, its link is what would change).
+     *
+     * @param list<int> $listingIds
+     */
+    private function keepSpotChecks(int $staffId, array $listingIds): void
+    {
+        foreach ((new KeySample($this->db))->keeping($listingIds) as $lid => $k) {
+            if ($k['owner_id'] !== $staffId) {
+                throw new CwException('spot_check_other', "listing {$lid} is a match of spot check {$k['sample']}: only its owner decides it while it is open", 403,
+                    ['listing_id' => $lid] + $k);
+            }
+        }
+    }
+
+    /**
+     * "No, wrong product" again (docs/decisions.md DG3): the same person's reject of the same item, about the same suggestion and with
+     * the same note, when that reject is the listing's latest decision (a reject does not move map_version, so a second send of the
+     * page's form, which has no one-time key, would write it twice). Nothing is written; the answer is the first one's, with
+     * `repeated`. Anything else is a new answer, recorded as before: another person's, another note, another item, a ticked list's,
+     * or the same one once something else was decided on the listing since.
+     *
+     * @param array<string, mixed> $r
+     * @param array<string, mixed> $l locked listing
+     * @return array<string, mixed>|null
+     */
+    private function sameNoAgain(int $staffId, array $r, array $l): ?array
+    {
+        $last = $this->db->one("SELECT id, action, state, sku_id, proposal_id, decided_by, reason, bulk_batch_id FROM match_decision WHERE listing_id = ? "
+            . "AND action <> 'suggest' ORDER BY id DESC LIMIT 1", [$l['id']]);
+        if ($last === null || $last['action'] !== 'reject' || $last['state'] !== 'applied' || $last['bulk_batch_id'] !== null
+            || (int) $last['decided_by'] !== $staffId || (int) $last['sku_id'] !== $r['sku_id']
+            || ($last['proposal_id'] === null ? null : (int) $last['proposal_id']) !== $r['proposal_id']
+            || ($last['reason'] === null ? null : (string) $last['reason']) !== $r['reason']) {
+            return null;
+        }
+        return ['decision_id' => (int) $last['id'], 'action' => 'reject', 'state' => 'applied', 'listing_id' => $l['id'], 'map_version' => $l['map_version'],
+            'status' => $l['status'], 'sku_id' => $l['linked'] ? $l['sku_id'] : null, 'units_per_item' => $l['units_per_item'], 'needs_second' => [],
+            'adopted' => 0, 'repeated' => true];
+    }
+
     /** Whether a bulk batch id is one of the screens' batches (SCREEN_BATCH_PREFIX, M49). */
     public static function isScreenBatch(?string $batch): bool
     {
@@ -1887,6 +1963,15 @@ final class DecisionService
             throw new CwException('bad_request', 'bulk_batch_id must be 1-64 of [A-Za-z0-9._:-]', 400, ['field' => 'bulk_batch_id']);
         }
         $r['bulk_batch_id'] = $bulk;
+        // What the variant's own page showed of it (OneAtATime::seen, docs/decisions.md DG2): sent by the review page's decide route,
+        // always (null or '': it showed none). The other callers send nothing and keep their own rules (a bulk action skips such a
+        // variant itself, the bulk confirm by its eligibility).
+        $r['page'] = array_key_exists('seen', $req);
+        $seen = $req['seen'] ?? null;
+        if ($seen !== null && (!is_string($seen) || strlen($seen) > 64)) {
+            throw new CwException('bad_request', 'seen is what the page showed: a short text, or nothing', 400, ['field' => 'seen']);
+        }
+        $r['seen'] = $seen === '' ? null : $seen;
         if (!in_array($action, self::LINK_OUTCOMES, true) && $r['units_per_item'] !== null) {
             throw new CwException('bad_request', 'units_per_item is for link / new_item only', 400, ['field' => 'units_per_item']);
         }

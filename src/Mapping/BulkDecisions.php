@@ -405,6 +405,12 @@ final class BulkDecisions
             $this->record($batchId, $seq, $row, 'skipped', 'refused', ['code' => 'database', 'message' => 'the database refused this row: try it again'], null);
             return ['skipped', 'refused'];
         } catch (CwException $e) {
+            if ($e->errorCode === 'spot_check_other') {
+                // A spot check drawn since the checks above (DecisionService refuses anyone but its owner, docs/decisions.md DG1): the
+                // row is skipped as those checks would have skipped it, with the spot check's name.
+                $this->record($batchId, $seq, $row, 'skipped', OneAtATime::SPOT, ['sample' => (string) ($e->detail['sample'] ?? '')], null);
+                return ['skipped', OneAtATime::SPOT];
+            }
             $code = $e->errorCode === 'bulk_skip' ? (string) $e->detail['skip'] : (self::REFUSAL_SKIP[$e->errorCode] ?? 'refused');
             $detail = $e->errorCode === 'bulk_skip' ? (is_array($e->detail['detail'] ?? null) ? $e->detail['detail'] : [])
                 : ['code' => $e->errorCode, 'message' => mb_substr($e->getMessage(), 0, 300)];

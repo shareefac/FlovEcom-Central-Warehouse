@@ -4497,6 +4497,11 @@ final class Words
         'bad_units' => 'Not saved: "How many does 1 sale use?" must be a whole number from 1 to %s.',
         'not_allowed' => 'You can look at this, but only Matchers and Matching leads can match products. Nothing was changed.',
         'unknown_decision' => 'We cannot find this decision. It may be closed already. Nothing was changed.',
+        // A spot check's match, sent by someone else than its owner, and a variant decided one at a time sent without its page as it is
+        // now (docs/decisions.md DG1, DG2).
+        'spot_check_other' => 'Not saved: %s is checking this one in a spot check. A decision by anyone else would fail the spot check.',
+        'spot_check_other_done' => 'Not saved: %s checked this one in a spot check. A change by anyone else would fail the spot check.',
+        'one_at_a_time' => 'Not saved: this website product is decided one at a time, on its own page. The page now shows why. Read it, then answer again.',
         'other' => '%s Nothing was saved.',
         // The page's own checks, before anything is sent
         'choose' => 'Choose an answer first. Nothing was saved.',
@@ -5325,6 +5330,7 @@ final class Words
         'not_merged' => 'This page was not moved here by a join (or was matched again since): change it on its own page instead. Nothing was saved.',
         'former_merged_elsewhere' => 'The product this page had before was joined into another product since: make it a new product instead. Nothing was saved.',
         'lead_required' => 'Only a matching lead can do this. Nothing was saved.',
+        'spot_check_other' => 'One of these pages is in a spot check that %s is checking. A change by anyone else would fail it. Nothing was saved.',
         'idempotency_key_reused' => 'This form was already sent with other choices: reload the page and decide again.',
         'split_chain' => 'This page came onto its product through two joins, so the system cannot tell which join was wrong: make it a new product instead '
             . '(no stock moves; the next shelf count settles it). Nothing was saved.',

@@ -515,7 +515,11 @@ final class ReviewController
         } elseif ($band === 'New item' && $proposal !== null && (bool) $proposal['proposed_new_item'] && $pick === null && $pending === null && !$clash) {
             $preselect = 'new_item';
         }
-        $defaults = ['action' => $preselect ?? '', 'units' => (string) $units, 'reason' => '', 'sku_id' => $target !== null ? (string) $target['id'] : ''];
+        // What this page shows of a variant decided one at a time (held back, a spot check's match, found on arrival): every decision
+        // form carries it, and the service refuses a decision that names anything else than what is in force (docs/decisions.md DG2).
+        // Always the page's own (a refused form is drawn again with what is in force now, so the next send is the page's).
+        $defaults = ['action' => $preselect ?? '', 'units' => (string) $units, 'reason' => '', 'sku_id' => $target !== null ? (string) $target['id'] : '',
+            'seen' => OneAtATime::seen($ctx->db, $id) ?? ''];
         foreach (DecisionService::CARD_FIELDS as $f) {
             $defaults['card_' . $f] = Html::dec($card[$f] ?? null);
         }
@@ -976,7 +980,9 @@ final class ReviewController
         if ($version === null) {
             return $refuse(Words::ERROR['bad_form'], null, 400);
         }
-        $request = ['action' => $action, 'listing_id' => $id, 'expected_map_version' => $version];
+        // What the page showed of a variant decided one at a time (OneAtATime::seen): always sent from here, so the service checks it
+        // under the listing's lock (docs/decisions.md DG2). A form without it showed none.
+        $request = ['action' => $action, 'listing_id' => $id, 'expected_map_version' => $version, 'seen' => trim($req->field('seen') ?? '')];
         $proposalId = UiRequest::id($req->field('proposal_id'));
         if ($proposalId !== null) {
             $request['proposal_id'] = $proposalId;
@@ -1106,6 +1112,9 @@ final class ReviewController
         $code = $e->errorCode;
         return match (true) {
             $code === 'lead_required' => Words::MATCH_ERROR[$where === 'decide' ? 'lead_required' : 'lead_required_' . $where],
+            // Another lead's spot check (docs/decisions.md DG1): who it is, and whether the match was answered already.
+            $code === 'spot_check_other' => Words::say('MATCH_ERROR', ($e->detail['done'] ?? false) === true ? 'spot_check_other_done' : 'spot_check_other',
+                (is_string($e->detail['owner'] ?? null) ? self::s($e->detail['owner'], 120) : null) ?? Words::ROLE['mapping_lead']),
             $code === 'map_version_conflict', $code === 'proposal_changed' => Words::MATCH_ERROR[$code . ($settle ? '_settle' : '')],
             $code === 'bad_card' => self::badCard(is_string($e->detail['field'] ?? null) ? substr($e->detail['field'], 5) : ''),
             $code === 'bad_units' => Words::say('MATCH_ERROR', 'bad_units', DecisionService::MAX_UNITS),

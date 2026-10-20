@@ -393,6 +393,79 @@ final class KeyBulkTest extends MappingTestCase
         }
     }
 
+    /**
+     * While a spot check is open (it has not failed), its matches are its owner's, whoever calls the service (docs/decisions.md DG1;
+     * until then the page alone kept them, U47, U64, U71): another mapping lead and a Matcher are refused (403 spot_check_other,
+     * naming the variant, the spot check and its owner) whatever the answer, and nothing is written, so the spot check goes on. A
+     * match the owner confirmed stays theirs to change. Once the spot check has failed there is nothing more to lose: the service
+     * takes another person's decision again (the screens still keep its matches one at a time, KeySampleScreenTest).
+     */
+    public function testOnlyTheOwnerDecidesASpotChecksMatchWhileItIsOpen(): void
+    {
+        $pop = $this->population(16, 8);
+        $owner = $pop['owner'];
+        $s = $this->samples()->create($owner, 'own1', 20, true);
+        $m = $s['members'];
+        [$otherLead, $mapper] = [$this->staffUser('mapping_lead'), $this->staffUser('mapper')];
+        $written = fn (): array => [$this->rows("SELECT COUNT(*) FROM match_decision WHERE action <> 'suggest'"), $this->rows('SELECT COUNT(*) FROM match_reject'),
+            $this->rows('SELECT COUNT(*) FROM audit_log')];
+        $before = $written();
+        $p0 = self::proposalRow($m[0]['proposal_id']);
+        $ownerName = (string) self::$db->value('SELECT display_name FROM staff_user WHERE id = ?', [$owner->staffUserId]);
+        foreach ([$otherLead, $mapper] as $who) {
+            $e = self::refused(403, 'spot_check_other', fn () => $this->confirm($who, $m[0]['proposal_id']));
+            self::assertSame([(int) $m[0]['listing_id'], (int) $s['sample_id'], 'own1', $owner->staffUserId, $ownerName, false],
+                [$e->detail['listing_id'], $e->detail['sample_id'], $e->detail['sample'], $e->detail['owner_id'], $e->detail['owner'], $e->detail['done']]);
+            foreach ([['reject', ['sku_id' => (int) $p0['proposed_sku_id']]], ['ignore', ['reason' => 'gone']], ['new_item', []], ['send_back', []]] as [$action, $req]) {
+                self::refused(403, 'spot_check_other', fn () => $this->decide($who, $action, $m[0]['listing_id'], $req + ['proposal_id' => $m[0]['proposal_id']]));
+            }
+        }
+        self::assertSame($before, $written(), 'nothing was written');
+        $st = $this->samples()->status('own1');
+        self::assertSame(['waiting', 'open'], [$st['verdict'], $st['members'][0]['state']], 'the spot check goes on');
+
+        // The owner confirms it; changing it is still the owner's alone.
+        self::assertSame('applied', $this->confirm($owner, $m[0]['proposal_id'])['state']);
+        $e = self::refused(403, 'spot_check_other', fn () => $this->decide($otherLead, 'unlink', $m[0]['listing_id'], ['reason' => 'wrong']));
+        self::assertTrue($e->detail['done']);
+        self::refused(403, 'spot_check_other', fn () => $this->decide($mapper, 'link', $m[0]['listing_id'],
+            ['sku_id' => (int) self::proposalRow($m[1]['proposal_id'])['proposed_sku_id']]));
+        self::assertSame('confirmed', $this->samples()->status('own1')['members'][0]['state']);
+
+        // Failed (the owner's "Not a match" on the second): nothing more to lose.
+        $p1 = self::proposalRow($m[1]['proposal_id']);
+        $this->decide($owner, 'reject', $m[1]['listing_id'], ['sku_id' => (int) $p1['proposed_sku_id'], 'proposal_id' => $m[1]['proposal_id']]);
+        self::assertSame('failed', $this->samples()->status('own1')['verdict']);
+        self::assertSame('applied', $this->confirm($otherLead, $m[2]['proposal_id'])['state']);
+        self::assertSame('applied', $this->decide($mapper, 'unlink', $m[0]['listing_id'], ['reason' => 'checked again'])['state']);
+    }
+
+    /**
+     * A merge moves every variant of the item it joins away (M31), so it can change the match of a spot check's confirmed match it
+     * does not name (KeySample: changed_since, the spot check fails). While the spot check is open such a merge is its owner's too
+     * (403 spot_check_other, naming that variant; nothing is written); the owner's own merge is not refused.
+     */
+    public function testAMergeThatMovesAnOpenSpotChecksConfirmedMatchIsTheOwnersAlone(): void
+    {
+        $pop = $this->population(16, 8);
+        $owner = $pop['owner'];
+        $s = $this->samples()->create($owner, 'own2', 20, true);
+        $m = $s['members'][0];
+        $this->confirm($owner, $m['proposal_id']);
+        $from = (int) self::proposalRow($m['proposal_id'])['proposed_sku_id'];
+        $anchor = self::vpgListingOf($from); // the Vape and Go variant the item was minted from: linked to it, as the match is
+        $keep = $this->vpgItem();
+        $merge = fn (Caller $who): array => $this->decide($who, 'merge_skus', $anchor, ['sku_id' => $keep, 'merge_from_sku_id' => $from]);
+        $merges = fn (): int => $this->rows("SELECT COUNT(*) FROM match_decision WHERE action = 'merge_skus'");
+        $before = $merges();
+        $e = self::refused(403, 'spot_check_other', fn () => $merge($this->staffUser('mapping_lead')));
+        self::assertSame([(int) $m['listing_id'], 'own2', true], [$e->detail['listing_id'], $e->detail['sample'], $e->detail['done']]);
+        self::assertSame([$before, $from, $from], [$merges(), (int) $this->link($m['listing_id'])['sku_id'], (int) $this->link($anchor)['sku_id']], 'nothing was written');
+        self::assertSame('confirmed', $this->samples()->status('own2')['members'][0]['state']);
+        self::assertSame('applied', $merge($owner)['state']);
+        self::assertSame($keep, (int) $this->link($m['listing_id'])['sku_id']);
+    }
+
     public function testOneRejectionStopsTheBulkConfirmAndNoNewSampleGetsPastIt(): void
     {
         $pop = $this->population(16, 8);

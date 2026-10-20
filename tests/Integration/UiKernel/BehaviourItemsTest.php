@@ -359,6 +359,34 @@ final class BehaviourItemsTest extends KernelUiTestCase
         self::assertTrue($mapper->get('/ui/review/listing/' . $open)->hasForm('/decide'));
     }
 
+    /**
+     * "No, wrong product" sent twice (a double click, or a script that sends again: the form has no form_key, docs/decisions.md DG3):
+     * the second is the same answer, so it saves nothing more and answers as the first did (the same page and notice). "No" about
+     * another product is a new answer and is saved.
+     */
+    public function testASecondNoWrongProductForTheSameProductSavesNothingMore(): void
+    {
+        $alt = $this->site('alt');
+        $a = $this->item('legacy', 0, 'Suggested Blue Razz');
+        $b = $this->item('legacy', 0, 'Picked Blue Razz');
+        $id = $this->queued($alt, 'R1', 'Check', $a, ['product_title' => 'Blue Razz 10ml']);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $form = ['action' => 'reject'] + $this->decideForm($web, $id);
+        self::assertSame((string) $a, $form['sku_id']);
+        $rejects = static fn (): array => [(int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE listing_id = ? AND action = 'reject'", [$id]),
+            (int) self::$db->value('SELECT COUNT(*) FROM match_reject WHERE listing_id = ?', [$id]),
+            (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'mapping.reject'")];
+        $first = $web->post('/ui/review/listing/' . $id . '/decide', $form);
+        self::assertSame(303, $first->status, $first->describe());
+        self::assertSame([1, 1, 1], $rejects());
+        $again = $web->post('/ui/review/listing/' . $id . '/decide', $form);
+        self::assertSame([303, $first->location()], [$again->status, $again->location()], $again->describe());
+        self::assertSame([1, 1, 1], $rejects(), 'nothing more was saved');
+        $r = $web->post('/ui/review/listing/' . $id . '/decide', ['sku_id' => (string) $b] + $form);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame([2, 2, 2], $rejects());
+    }
+
     // ---- helpers ------------------------------------------------------------------------------------------------------
 
     /**

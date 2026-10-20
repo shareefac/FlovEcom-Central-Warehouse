@@ -485,6 +485,8 @@ final class DuplicatesController
             'idempotency_key_reused', 'split_chain' => Words::DUP_ERROR[$e->errorCode],
             'proposal_changed', 'proposal_closed' => Words::DUP_ERROR['proposal_changed'],
             'protected_merge', 'protected_split' => Words::DUP_ERROR['protected'],
+            // A join that would move a match of another lead's open spot check (docs/decisions.md DG1).
+            'spot_check_other' => Words::say('DUP_ERROR', 'spot_check_other', is_string($e->detail['owner'] ?? null) ? $e->detail['owner'] : Words::ROLE['mapping_lead']),
             'keeper_changed', 'form_incomplete', 'nothing_chosen', 'elsewhere', 'confirm_needed' => $e->getMessage(),
             default => Words::say('DUP_ERROR', 'other', ucfirst(rtrim($e->getMessage(), '.')) . '.'),
         };

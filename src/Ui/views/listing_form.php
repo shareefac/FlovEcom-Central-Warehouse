@@ -5,6 +5,9 @@
   <input type="hidden" name="proposal_id" value="<?= $e($proposal['id']) ?>">
 <?php endif; ?>
   <input type="hidden" name="sku_id" value="<?= $e($form['sku_id']) ?>">
+<?php if (($form['seen'] ?? '') !== ''): ?>
+  <input type="hidden" name="seen" value="<?= $e($form['seen']) ?>">
+<?php endif; ?>
 <?php foreach ($qq as $key => $value): ?>
 <?php if ($value !== null && $value !== ''): ?>
   <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">

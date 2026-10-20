@@ -379,10 +379,10 @@ final class WordsTest extends TestCase
             'FIELD_STATE' => ['same', 'differs', 'alike', 'unknown'],
             'MATCH_ERROR' => ['map_version_conflict', 'proposal_changed', 'proposal_closed', 'proposal_mismatch', 'lead_required', 'same_person', 'not_pending',
                 'pending_second_exists', 'already_linked', 'no_change', 'name_required', 'bad_card', 'unknown_sku', 'sku_merged', 'reject_current_link',
-                'no_open_proposal', 'bad_units', 'unknown_decision'],
+                'no_open_proposal', 'bad_units', 'unknown_decision', 'spot_check_other', 'spot_check_other_done', 'one_at_a_time'],
             'DUP_ERROR' => ['map_version_conflict', 'proposal_changed', 'pending_second_exists', 'rejected_pair', 'protected', 'counted_meanwhile', 'not_merged',
                 'former_merged_elsewhere', 'lead_required', 'idempotency_key_reused', 'split_chain', 'keeper_changed', 'form_incomplete', 'nothing_chosen',
-                'elsewhere', 'confirm_needed'],
+                'elsewhere', 'confirm_needed', 'spot_check_other'],
             'ERROR' => ['unknown_listing', 'unknown_item', 'unknown_group', 'unknown_sample', 'unknown_store', 'item_joined'],
             // By Item (U113-U122): a cell's states, the coverage filters, the picker's barcode marks, and the words its two pages
             // take by name.
@@ -829,6 +829,12 @@ final class WordsTest extends TestCase
         self::assertSame(Words::MATCH_ERROR['not_allowed'], ReviewController::plain($e('role_not_allowed'), 'decide'));
         self::assertSame('The service text. Nothing was saved.', ReviewController::plain($e('some_new_code'), 'decide'), 'a code without words: the service\'s message');
         self::assertSame(Words::MATCH_ERROR['same_person'], ReviewController::plain($e('same_person'), 'approve'));
+        // Another lead's spot check: who, and whether its match was answered already; a variant decided one at a time (docs/decisions.md
+        // DG1, DG2).
+        self::assertSame(Words::say('MATCH_ERROR', 'spot_check_other', 'Asha'), ReviewController::plain($e('spot_check_other', ['owner' => 'Asha', 'done' => false]), 'decide'));
+        self::assertSame(Words::say('MATCH_ERROR', 'spot_check_other_done', 'Asha'), ReviewController::plain($e('spot_check_other', ['owner' => 'Asha', 'done' => true]), 'decide'));
+        self::assertSame(Words::say('MATCH_ERROR', 'spot_check_other', Words::ROLE['mapping_lead']), ReviewController::plain($e('spot_check_other'), 'decide'), 'no name: the job');
+        self::assertSame(Words::MATCH_ERROR['one_at_a_time'], ReviewController::plain($e('one_at_a_time', ['kind' => 'held', 'seen' => null]), 'decide'));
     }
 
     public function testSayDocTitlesSettingsAndRefusals(): void

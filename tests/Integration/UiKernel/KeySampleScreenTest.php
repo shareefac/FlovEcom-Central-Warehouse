@@ -9,6 +9,7 @@ use CW\Mapping\KeyHold;
 use CW\Mapping\KeySample;
 use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Ui\ByProductContext;
 use CW\Ui\Words;
 
 /**
@@ -276,6 +277,143 @@ final class KeySampleScreenTest extends KernelUiTestCase
         $fp = $web->get('/ui/review/listing/' . $free['listing_id']);
         self::assertStringContainsString('Check this one by hand: "Held too late"', $fp->text());
         self::assertStringContainsString(Words::LISTING['held_decided'], $fp->text());
+    }
+
+    /**
+     * A spot check's matches are its owner's on the server too (docs/decisions.md DG1, DG2), not only on the page (U47, U64, U71): an answer
+     * sent by anyone else is refused (403) whatever it carries, even every field of the owner's own page, and nothing is saved, so the
+     * spot check goes on; its confirmed match stays the owner's to change. The owner's own answer must come from the variant's page (a
+     * form the page did not draw, as a script or another page's button would send it, is refused with 409 and the page drawn again),
+     * and the page's own forms are saved as before. Once the spot check has failed the screens still keep its matches one at a time
+     * (OneAtATime): a form that did not come from the page is refused.
+     */
+    public function testAnAnswerToAnotherLeadsSpotCheckIsRefusedWhateverItCarries(): void
+    {
+        $this->keySetup();
+        $owner = $this->uiUser(['mapping_lead', 'reviewer']);
+        for ($i = 0; $i < 22; $i++) {
+            $this->firstMatch($this->vpgItem("Acme Bar {$i} 20mg"), 90 + $i % 10);
+        }
+        $s = (new KeySample(self::$db))->create(Caller::staff($owner['id']), 'guard-1', 20, true);
+        $sid = (int) $s['sample_id'];
+        [$first, $second, $third] = $s['members'];
+        $decisions = static fn (int $lid): int => (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE listing_id = ? AND action <> 'suggest'", [$lid]);
+        $web = $this->signIn($owner);
+        $path = '/ui/review/listing/' . $first['listing_id'] . '/decide';
+        $yes = $web->get('/ui/review/listing/' . $first['listing_id'], ['sample' => (string) $sid])->form($path); // the owner's "Yes, same product"
+        self::assertSame(['link', '1', (string) $first['proposal_id']], [$yes['action'] ?? null, $yes['units_per_item'] ?? null, $yes['proposal_id'] ?? null]);
+        $other = $this->signIn($this->uiUser('mapping_lead'), $this->browser('198.51.100.22'));
+        $matcher = $this->signIn($this->uiUser('mapper'), $this->browser('198.51.100.23'));
+        $tokens = [$this->token($other), $this->token($matcher)];
+        foreach ([[$other, 0, []], [$other, 0, ['action' => 'reject']], [$matcher, 1, []], [$matcher, 1, ['action' => 'ignore', 'reason' => 'not sold any more']]] as [$who, $t, $over]) {
+            $r = $who->post($path, ['csrf' => $tokens[$t]] + $over + $yes);
+            self::assertSame(403, $r->status, json_encode($over) . ': ' . $r->describe());
+            self::assertStringContainsString(Words::say('MATCH_ERROR', 'spot_check_other', 'Mapping_lead-reviewer 1'), $r->text());
+            self::assertFalse($r->hasForm('/decide'), 'the page drawn again has no answer form for them either');
+        }
+        self::assertSame(0, $decisions($first['listing_id']), 'nothing was saved');
+        $st = (new KeySample(self::$db))->status($sid);
+        self::assertSame(['waiting', 'open'], [$st['verdict'], $st['members'][0]['state']], 'the spot check goes on');
+
+        // The owner, with a form the page did not draw (no word of what it showed: a script, another page's button): refused, and the
+        // page drawn again is the spot check's, whose own "Yes" is saved (the normal path).
+        $hand = array_diff_key($yes, ['seen' => true, 'sample' => true]);
+        $r = $web->post($path, $hand);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertStringContainsString(Words::MATCH_ERROR['one_at_a_time'], $r->text());
+        self::assertSame(0, $decisions($first['listing_id']));
+        $r = $web->post($path, $r->form($path));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('confirmed', (new KeySample(self::$db))->status($sid)['members'][0]['state']);
+
+        // Answered: changing its match is the owner's alone (U71), by any form.
+        $otherSku = (int) self::$db->value('SELECT proposed_sku_id FROM match_proposal WHERE id = ?', [$second['proposal_id']]);
+        $version = (string) self::$db->value('SELECT map_version FROM channel_listing WHERE id = ?', [$first['listing_id']]);
+        foreach ([['action' => 'unlink', 'reason' => 'wrong match'], ['action' => 'link', 'sku_id' => (string) $otherSku, 'units_per_item' => '1']] as $over) {
+            $r = $other->post($path, $over + ['csrf' => $tokens[0], 'expected_map_version' => $version]);
+            self::assertSame(403, $r->status, $r->describe());
+            self::assertStringContainsString(Words::say('MATCH_ERROR', 'spot_check_other_done', 'Mapping_lead-reviewer 1'), $r->text());
+        }
+        self::assertSame([1, 'confirmed'], [$decisions($first['listing_id']), (new KeySample(self::$db))->status($sid)['members'][0]['state']]);
+
+        // Failed ("Not a match" from the page): the matches left are still decided one at a time, from the page.
+        $form = $web->get('/ui/review/listing/' . $second['listing_id'], ['sample' => (string) $sid])->form('/ui/review/listing/' . $second['listing_id'] . '/decide');
+        self::assertSame(303, $web->post('/ui/review/listing/' . $second['listing_id'] . '/decide', ['action' => 'reject'] + $form)->status);
+        self::assertSame('failed', (new KeySample(self::$db))->status($sid)['verdict']);
+        $p = self::proposalRow((int) $third['proposal_id']);
+        $r = $other->post('/ui/review/listing/' . $third['listing_id'] . '/decide', ['csrf' => $tokens[0], 'action' => 'link', 'sku_id' => (string) $p['proposed_sku_id'],
+            'units_per_item' => '1', 'proposal_id' => (string) $third['proposal_id'],
+            'expected_map_version' => (string) self::$db->value('SELECT map_version FROM channel_listing WHERE id = ?', [$third['listing_id']])]);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertStringContainsString(Words::MATCH_ERROR['one_at_a_time'], $r->text());
+        self::assertSame(0, $decisions($third['listing_id']));
+    }
+
+    /**
+     * A held-back variant is decided one at a time on ITS OWN PAGE (M30, U139; docs/decisions.md DG2). Its page's forms say what the
+     * page showed, and the server refuses a decision that did not come from that page as it is now: a form made by hand or by a script,
+     * another page's button (By Item's quick match sends the decision's fields and its way back), a made-up note, or a page drawn before
+     * the variant was set aside. Nothing is saved; the page drawn again shows why and decides it. The page's own form is saved as before,
+     * by anyone who may decide (a hold does not stop a person's decision), and a variant that is not held needs nothing more.
+     */
+    public function testAHeldVariantIsDecidedOnlyFromItsOwnPage(): void
+    {
+        $this->keySetup();
+        $owner = $this->uiUser(['mapping_lead', 'reviewer']);
+        for ($i = 0; $i < 23; $i++) {
+            $this->firstMatch($this->vpgItem("Acme Bar {$i} 20mg"), 90 + $i % 10);
+        }
+        $s = (new KeySample(self::$db))->create(Caller::staff($owner['id']), 'held-1', 20, true);
+        [$held, $late, $free] = self::$db->all('SELECT proposal_id, listing_id FROM key_sample_member WHERE sample_id = ? AND position IS NULL ORDER BY proposal_id',
+            [(int) $s['sample_id']]);
+        $hold = static function (array $row, string $why) use ($owner): void {
+            self::assertSame(1, (new KeyHold(self::$db))->run(Caller::staff($owner['id']), 'held-1',
+                KeyHold::parse("proposal_id,listing_id,reason\n{$row['proposal_id']},{$row['listing_id']},\"{$why}\"\n"), false, true)['written']);
+        };
+        $hold($held, 'Flavour differs: mango ice vs mango');
+        $decided = static fn (int $lid): array => [(int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE listing_id = ? AND action <> 'suggest'", [$lid]),
+            (string) self::$db->value('SELECT status FROM channel_listing WHERE id = ?', [$lid])];
+        $path = static fn (array $row): string => '/ui/review/listing/' . $row['listing_id'] . '/decide';
+        // What a script or By Item's quick match sends: the decision's fields, nothing of what the variant's page showed.
+        $bare = static function (array $row, string $csrf): array {
+            $p = self::proposalRow((int) $row['proposal_id']);
+            return ['csrf' => $csrf, 'action' => 'link', 'sku_id' => (string) $p['proposed_sku_id'], 'units_per_item' => '1', 'proposal_id' => (string) $row['proposal_id'],
+                'expected_map_version' => (string) self::$db->value('SELECT map_version FROM channel_listing WHERE id = ?', [$row['listing_id']])];
+        };
+        $web = $this->signIn($this->uiUser('mapper'));
+        $csrf = $this->token($web);
+        $page = $web->get('/ui/review/listing/' . $held['listing_id'], ['queue' => 'Key']);
+        self::assertStringContainsString('Check this one by hand: "Flavour differs: mango ice vs mango"', $page->text());
+        $form = $page->form($path($held));
+        foreach ([$bare($held, $csrf), $bare($held, $csrf) + ['via' => ByProductContext::TOKEN, 'product' => (string) self::proposalRow((int) $held['proposal_id'])['proposed_sku_id'],
+            'channel' => 'alt'], ['seen' => 'held:999999'] + $bare($held, $csrf)] as $sent) {
+            $r = $web->post($path($held), $sent);
+            self::assertSame(409, $r->status, $r->describe());
+            self::assertStringContainsString(Words::MATCH_ERROR['one_at_a_time'], $r->text());
+            self::assertStringContainsString('Check this one by hand: "Flavour differs: mango ice vs mango"', $r->text(), 'the page drawn again shows why');
+            self::assertTrue($r->hasForm($path($held)), 'and decides it');
+        }
+        self::assertSame([0, 'suggested'], $decided((int) $held['listing_id']), 'nothing was saved');
+
+        // A page drawn before the variant was set aside: refused once, then decided from the page drawn again.
+        $before = $web->get('/ui/review/listing/' . $late['listing_id'], ['queue' => 'Key'])->form($path($late));
+        $hold($late, 'Pack of 3 on the Vape and Go page');
+        $r = $web->post($path($late), $before);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertStringContainsString('Check this one by hand: "Pack of 3 on the Vape and Go page"', $r->text());
+        self::assertSame([0, 'suggested'], $decided((int) $late['listing_id']));
+        $r = $web->post($path($late), $r->form($path($late)));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame([1, 'mapped'], $decided((int) $late['listing_id']));
+
+        // The normal path: the page's own form, drawn while the variant is held, by a Matcher.
+        $r = $web->post($path($held), $form);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame([1, 'mapped'], $decided((int) $held['listing_id']));
+        // A variant not held: the decision's fields are enough, as before.
+        $r = $web->post($path($free), $bare($free, $csrf));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame([1, 'mapped'], $decided((int) $free['listing_id']));
     }
 
     public function testAllConfirmedSaysTheBulkConfirmMayRun(): void

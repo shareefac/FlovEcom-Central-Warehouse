@@ -356,6 +356,54 @@ final class KeySample
         return $out;
     }
 
+    /**
+     * The variants a spot check keeps for its owner now (M28, U47, U71; docs/decisions.md DG1): of these listings, the ones that are
+     * one of the matches (with a position) of a spot check that has not failed, each with that spot check and its owner. While a spot
+     * check has not failed, each of its matches is still to answer (`done` false) or confirmed by its owner (`done` true), and a
+     * decision on it by anyone else fails it (decided otherwise, confirmed by another, changed since): DecisionService asks here under
+     * the listing's lock before a person's decision (and for every variant a merge moves) and refuses anyone but the owner. A failed
+     * spot check keeps nothing (nothing more to lose; its matches are still one at a time on the screens, OneAtATime). A listing that
+     * is a match of two spot checks (the older one failed when its suggestion was replaced) is kept by the newest that keeps it.
+     *
+     * @param list<int> $listingIds
+     * @return array<int, array{sample_id: int, sample: string, owner_id: int, owner: ?string, done: bool}> listing id => the spot check
+     */
+    public function keeping(array $listingIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $listingIds)));
+        if ($ids === []) {
+            return [];
+        }
+        $rows = $this->db->all('SELECT listing_id, sample_id FROM key_sample_member WHERE position IS NOT NULL AND listing_id IN ('
+            . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY sample_id DESC', $ids);
+        $samples = [];
+        $out = [];
+        foreach ($rows as $r) {
+            $lid = (int) $r['listing_id'];
+            $sid = (int) $r['sample_id'];
+            if (isset($out[$lid])) {
+                continue;
+            }
+            if (!array_key_exists($sid, $samples)) {
+                $k = $this->find($sid);
+                $samples[$sid] = null;
+                if ($k !== null) {
+                    [$members, $count] = $this->memberStates($k);
+                    if (self::verdictOf($count, count($members), (int) $k['sample_size']) !== 'failed') {
+                        $samples[$sid] = ['k' => $k, 'states' => array_column($members, 'state', 'listing_id')];
+                    }
+                }
+            }
+            $s = $samples[$sid];
+            if ($s === null) {
+                continue;
+            }
+            $out[$lid] = ['sample_id' => $sid, 'sample' => (string) $s['k']['name'], 'owner_id' => (int) $s['k']['created_by'],
+                'owner' => $s['k']['created_by_name'] === null ? null : (string) $s['k']['created_by_name'], 'done' => ($s['states'][$lid] ?? 'open') !== 'open'];
+        }
+        return $out;
+    }
+
     /** @param array{open: int, confirmed: int, failed: int} $count */
     private static function verdictOf(array $count, int $members, int $size): string
     {

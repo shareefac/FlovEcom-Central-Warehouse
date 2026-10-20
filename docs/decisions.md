@@ -10902,3 +10902,89 @@ code or cookie regression was found.
 now say "as usual", true either way. Left as the reviewer noted them, not built: a test that expires the switch inside a whole sign-in
 (TF12 is tested on `Sessions::createBefore` itself and on the order of the locks), and tests with two processes really blocked on each
 other's locks (the races are tested by stepping in between the statements with `HookedStatement`).
+
+## The decide guard: what the pages only hid is refused by the service (worktree `mapping-decide-guard-2`, 20 Oct 2026; DG1-DG5)
+
+Staff will drive CW with their own Claude in Chrome, which may send a form straight to the server. Three rules of the matching pages
+were kept only by the page not drawing a form (the staff Claude guide, section 8; a Codex review of the quick-pick branch): a spot
+check's match was the owner's on the page (U47, U64, U71: "the service still takes such a POST, as before"), a variant held back (M30),
+a spot check's match and a variant found on arrival (M64) were decided one at a time on their own page while no other page offered them
+(OneAtATime, M63; By Item's quick match, docs/dev.md "The quick match", hides its "Match to …" for them), and "No, wrong product" sent twice was recorded twice
+(the decide form has no one-time key, and a reject does not move map_version). Numbered DG (not M67: the stopped branch
+`mapping-arrival-2b` uses that number). Code: `src/Mapping/{DecisionService,KeySample,OneAtATime,BulkDecisions}.php`,
+`src/Ui/Controller/{ReviewController,DuplicatesController}.php`, `src/Ui/views/{listing_form,listing_decide}.php`, `src/Ui/Words.php`.
+Tests: new cases in `tests/Integration/Mapping/{KeyBulkTest,KeyBulkHoldTest,DecisionServiceTest}.php`,
+`tests/Integration/UiKernel/{KeySampleScreenTest,OneAtATimeScreenTest,BehaviourItemsTest}.php` and `tests/Unit/WordsTest.php`.
+
+**DG1. A spot check's match is its owner's in the service (amends U47, U64, U71).** `DecisionService::run`, inside the decision's
+transaction and right after the listing's lock, asks `KeySample::keeping()` for a person's decision (every action but the system's
+`suggest`, every caller: the variant's page, a direct POST, the quick match, a ticked list, Duplicates, the tools): is the listing one of
+the matches (with a position) of a spot check that has not failed? Then only its owner (`key_sample.created_by`) decides it; anyone else
+gets **403 `spot_check_other`** with the listing, the spot check, its owner and `done` (answered already), and nothing is written.
+- "Open" is "not failed": while a spot check waits, each match is still to answer or confirmed by its owner, and any other person's
+  decision fails it for good (`confirmed_by_other`, `decided_otherwise`, `changed_since`). A complete spot check keeps its confirmed
+  matches too (a change would fail it after all). A failed one keeps nothing: there is nothing more to lose, and its matches are still
+  one at a time on the screens (DG2). A listing that is a match of two spot checks (the older failed when its suggestion was replaced)
+  is kept by the newest that keeps it.
+- A merge moves every listing of the item it joins away (M31), named or not: `merge()` asks the same for each listing it moves, as the
+  person applying it (the decider, or the lead approving a pending merge). The Duplicates page shows `DUP_ERROR['spot_check_other']`.
+- `BulkDecisions` already skips a spot check's matches before a row is sent (OneAtATime); a spot check drawn between that check and the
+  row's decision now ends as the same skip (`in_spot_check`, with the spot check's name), not as "refused".
+- The page is unchanged: it already showed anyone else no form (U47, U71). The words: `MATCH_ERROR['spot_check_other']` ("Not saved:
+  <owner> is checking this one in a spot check. A decision by anyone else would fail the spot check.") and `spot_check_other_done`
+  for an answered one.
+
+**DG2. A variant decided one at a time is decided from its own page as it is now (amends M30 "the screens", M63, M64).**
+`OneAtATime::seen()` says what a variant's page shows of it, by `of()`'s rule and order: `held:<hold id>`, `in_spot_check:<spot check
+id>`, `on_arrival:<suggestion id>`, or nothing. The review page puts it into every decision form it draws (the answers, the quick yes,
+the spot check's yes and its "Not a match", "Change this match"; a hidden `seen`, drawn only when there is something to say), and the
+decide route always sends it (empty: the page showed none). `DecisionService` reads `seen()` again under the listing's lock: when the
+variant is one of these now and the form names anything else, **409 `one_at_a_time`**, nothing written, and the page is drawn again as
+it is now (with the hold's note, the spot check's box or the check on arrival's clue), so the next send is the page's own.
+- What it stops: a form made by hand or by a script, another page's button (By Item's "Match to …" sends the decision's fields and
+  its way back, no `seen`; a fold drawn before the variant became one of these still has the button), a made-up value, a page drawn before the variant was set aside (a hold does not move
+  map_version, so nothing else noticed: the person never saw the note), a hold released and written again since (another hold id).
+- What it keeps: a hold does not stop a person's decision (M30): anyone who may decide answers a held variant on its page, as before.
+  The spot check's owner answers its matches on the variant's page as before. Only the decide route sends `seen`: the service's other
+  callers keep their own rules (BulkDecisions skips these variants itself, the bulk confirm leaves a held listing out by its
+  eligibility and refuses `held_meanwhile`, the tools are the leads').
+- Why a field and not a refusal of the kinds: the rule is "on its own page", and only the page can say it was there. `seen` is checked
+  like `expected_map_version` and `proposal_id` (design I7: what the person saw); it is not a secret (a person can copy it), it stops the
+  accidental paths. `MATCH_ERROR['one_at_a_time']`: "Not saved: this website product is decided one at a time, on its own page. The page
+  now shows why. Read it, then answer again."
+
+**DG3. The same "No, wrong product" twice is recorded once.** A reject does not move map_version, so a double click (or a script that
+sends again) wrote a second decision and audit row. Now, under the listing's lock, a person's reject that is exactly the listing's
+latest decision again (same person, same item, same suggestion, same note, not in a ticked list's batch) writes nothing and answers as
+the first did (the same decision id, `repeated`); the screen shows the same page and notice, so a double click is no error. Chosen over
+a refusal because the person did nothing wrong (the browser shows the second answer: "Not saved" would say the first failed) and
+over a one-time key because the form has none and the rest of the decide form needs none (every other answer moves map_version, so a
+second send is refused as stale). Anything else is still a new answer, recorded as before: another person's "No", another note, another
+item, a ticked list's, or the same once something else was decided on the listing since.
+
+**DG4. The other POST routes under /ui/review, checked.**
+- `decision/{id}/approve` and `/withdraw`: a pending decision on a spot check's match means the spot check has failed already
+  (`waiting_second`); an approved merge is DG1's `merge()` check, as the approver. No other gap.
+- `bulk` (the lists, Store Products, New Variants) and `products/bulk/apply` (By Item): every row through `BulkDecisions`, which skips
+  held back, a spot check's matches and the check on arrival's before and under the row's lock (M63, M64); the preview saves nothing. No
+  gap; DG1's mapping above for the race.
+- `duplicates/{id}/decide` and `/split`: lead only, a one-time `form_key`; every request through `DecisionService` (DG1, including
+  the listings a merge moves). A split moves back only listings the merge moved, which a spot check drawn later cannot have confirmed.
+- `/ui/items/barcodes/{id}/decide` (not under /ui/review): barcode rulings, no listing's link; a one-time `form_key`. No gap.
+- Left open: **a matched variant (U69, behaviour item 13)**. The page shows a Matcher no form on a matched variant ("Ask a matching lead
+  to change it"), and the route and the service still take a Matcher's unlink or relink, as U69 recorded on purpose. Not a one-at-a-time
+  rule and not a spot check: a policy for the owner (a 403 for a Matcher's change of a match would also apply to every other caller).
+
+**DG5. Tests.** Red first (`runs/decideguard2_red1.log` to `red4.log`; red4 on the quick-pick code, 0a32e63): another lead's and a Matcher's answer to a
+spot check's match were saved, a held variant's bare form was saved, a merge moved a confirmed match, the same "No" was written twice.
+Green after the change. `KeyBulkTest::testOnlyTheOwnerDecidesASpotChecksMatchWhileItIsOpen` (every answer by another lead and a
+Matcher, open and answered, then after the failure), `testAMergeThatMovesAnOpenSpotChecksConfirmedMatchIsTheOwnersAlone`;
+`KeyBulkHoldTest::testAPageDecisionOnAHeldListingNeedsTheHoldThePageShowed` (none, made up, a type, released and held again; not held;
+not a page); `DecisionServiceTest::testTheSameNoTwiceIsRecordedOnce`; `KeySampleScreenTest::testAnAnswerToAnotherLeadsSpotCheckIsRefusedWhateverItCarries`
+(the owner's own form posted by others, the owner's hand-made form, the owner's page form: saved; after the failure) and
+`testAHeldVariantIsDecidedOnlyFromItsOwnPage` (a script, By Item's quick match fields, a made-up note, a page drawn before the hold, the
+page's own form by a Matcher, a variant not held); `OneAtATimeScreenTest` (a variant found on arrival: the page's form carries
+`on_arrival:<id>`, a form without it is refused, the page's is saved); `BehaviourItemsTest::testASecondNoWrongProductForTheSameProductSavesNothingMore`;
+`ByProductScreenTest::testAStaleMatchButtonOnAnotherLeadsSpotCheckOrAHeldVariantIsRefusedOnTheVariantsPage` (a fold drawn before
+the spot check and the hold: another lead's and a Matcher's button 403, the owner's and a held variant's 409, each on the variant's page
+with its words and the way back; the page's own form and a free variant's button saved); `WordsTest` (the new codes have words; `plain()` names the owner, or the job when no name is known).
