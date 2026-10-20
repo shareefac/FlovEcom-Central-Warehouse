@@ -197,6 +197,20 @@ final class SupplierReturnsController
         }, ['claim' => $typed]);
     }
 
+    /**
+     * The page intro (Words::PAGE_INTRO) of a return: what it is (goods, or a claim only: goods that did not come, an overcharge), and
+     * whether it is final. A cancellation tells what it did only once it is final: waiting for an OK, refused or stopped, it changed
+     * nothing.
+     */
+    public static function introKey(bool $isReversal, string $status, bool $claimOnly): string
+    {
+        return match (true) {
+            $isReversal => $status === 'posted' ? 'supplier_return_reversal' : 'supplier_return_reversal_pending',
+            $status === 'posted' => $claimOnly ? 'supplier_return_claim_final' : 'supplier_return_final',
+            default => $claimOnly ? 'supplier_return_claim' : 'supplier_return',
+        };
+    }
+
     public function post(Context $ctx): HtmlResponse
     {
         return $this->act($ctx, static function (SupplierReturns $sr, int $id, int $version) use ($ctx): array {
@@ -308,11 +322,7 @@ final class SupplierReturnsController
             // A claim without goods (what did not come, an overcharge): nothing leaves the stock, and its page says so.
             'claimOnly' => $claimOnly,
             // What the record is: goods or a claim only, a draft or final, or the cancellation of one.
-            'introKey' => match (true) {
-                $doc->isReversal() => 'supplier_return_reversal',
-                $doc->status === 'posted' => $claimOnly ? 'supplier_return_claim_final' : 'supplier_return_final',
-                default => $claimOnly ? 'supplier_return_claim' : 'supplier_return',
-            },
+            'introKey' => self::introKey($doc->isReversal(), $doc->status, $claimOnly),
             'total' => $total,
             'problems' => $editable ? array_map(static fn (array $p): string => InvoicesController::problemText($p), $sr->problems($id)) : [],
             'editable' => $editable,

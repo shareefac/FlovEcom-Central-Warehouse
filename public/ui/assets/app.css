@@ -1244,7 +1244,8 @@ table.po-lines input, table.po-lines select { min-height: 44px; padding: 6px 8px
 table.po-lines select { width: 8rem; } /* "S – Standard rate 20%": the open list shows it whole; the table stays narrow */
 table.po-lines th, table.po-lines td { padding: 10px 8px; }
 /* What a line without an item is for (a charge on an invoice, a claim on a return): readable, never a 30 px box. */
-table.lines input.line-what { width: 100%; min-width: min(14rem, 100%); }
+table.lines input.line-what { width: 100%; min-width: 14rem; }
+@media (max-width: 640px) { table.lines input.line-what { min-width: 0; } }
 table input.short, table input.units { width: 6rem; }
 table.po-lines label.choice { display: flex; min-height: 0; padding: 4px 0; border: 0; font-size: 14px; }
 /* An inline task panel (choose one of several): a white card with a 1.5 px pink edge */

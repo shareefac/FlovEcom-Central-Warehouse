@@ -97,6 +97,19 @@ final class InvoicesController
     }
 
     /** GET to-match: posted invoices whose match needs a person (or, show=accepted, whose differences were accepted). */
+    /**
+     * The page intro (Words::PAGE_INTRO) of a supplier's paper: an invoice or a credit note, a draft or final, or the cancellation of
+     * one (which tells what it did only once it is final).
+     */
+    public static function introKey(bool $isReversal, string $kind, string $status): string
+    {
+        return match (true) {
+            $isReversal => $status === 'posted' ? 'supplier_paper_reversal' : 'supplier_paper_reversal_pending',
+            $kind === 'credit_note' => $status === 'posted' ? 'supplier_credit_note_final' : 'supplier_credit_note',
+            default => $status === 'posted' ? 'supplier_invoice_final' : 'supplier_invoice',
+        };
+    }
+
     /** A claim against an invoice in words, by how much the supplier credited of it. @param array{number: string, claim_total: string, credit_state: ?string} $c */
     private static function claimText(array $c): string
     {
@@ -517,11 +530,7 @@ final class InvoicesController
             'claims' => $kind === 'invoice' && !$doc->isReversal()
                 ? array_map(static fn (array $c): array => $c + ['text' => self::claimText($c)], $ctx->supplierInvoices()->claimsOn([$doc->id])[$doc->id] ?? []) : [],
             // What the record is: an invoice or a credit note, a draft or final, or the cancellation of one.
-            'introKey' => match (true) {
-                $doc->isReversal() => 'supplier_paper_reversal',
-                $kind === 'credit_note' => $doc->status === 'posted' ? 'supplier_credit_note_final' : 'supplier_credit_note',
-                default => $doc->status === 'posted' ? 'supplier_invoice_final' : 'supplier_invoice',
-            },
+            'introKey' => self::introKey($doc->isReversal(), $kind, $doc->status),
             'k' => $k,
             'base' => SupplierInvoices::PATHS[$kind],
             'doc' => $doc,

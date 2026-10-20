@@ -675,6 +675,8 @@ final class Words
         'supplier_credit_note_final' => ['A supplier\'s credit note as it was booked: what it takes off an invoice or answers of our claim.',
             'It is final and is not changed any more.'],
         'supplier_paper_reversal' => ['The cancellation of a supplier\'s invoice or credit note.', 'It undoes the record it cancels, and is not changed any more.'],
+        'supplier_paper_reversal_pending' => ['The cancellation of a supplier\'s invoice or credit note.',
+            'It changes nothing until it is final: until then the record it would cancel stands.'],
         'supplier_return' => ['Goods going back to a supplier, and what we claim for them.', 'While it is a draft, check the lines, then make it final: the stock goes out.'],
         // A claim without goods (what did not come, pack J): nothing leaves the stock.
         'supplier_return_claim' => ['What we claim from a supplier without sending goods back: goods that did not come, or an overcharge.',
@@ -683,6 +685,8 @@ final class Words
         'supplier_return_claim_final' => ['What we claim from a supplier without sending goods back: goods that did not come, or an overcharge.',
             'It is final: the supplier answers it with a credit note.'],
         'supplier_return_reversal' => ['The cancellation of a return to a supplier.', 'It withdraws the return\'s claim; any goods the return took out are back in stock.'],
+        'supplier_return_reversal_pending' => ['The cancellation of a return to a supplier.',
+            'It changes nothing until it is final: until then the return, its claim and its stock stand.'],
         // Pack F (docs/decisions.md PF6-PF9): Approvals › From the stores.
         'queue_suspense' => ['Lines of ERPNext deliveries, supplier returns, sales and corrections that the warehouse system could not match to an item.',
             'Type the item\'s code and place the line, or close it with a note when there is nothing to book.'],
@@ -9330,7 +9334,7 @@ final class Words
         // A delivery's page (Purchasing › Goods In).
         'receipt_invoices' => 'Its supplier invoice',
         'receipt_none' => 'No supplier invoice bills this delivery yet.',
-        'receipt_arrival' => 'Its goods were billed before they came, on', // + the invoice (Goods In › Arriving, pack J)
+        'receipt_arrival' => 'It was received against the supplier invoice', // + the invoice (Goods In › Arriving, or booked as received; pack J)
         // An invoice a final return (debit note) claims against: on To match and on its page.
         'claimed_on' => 'Claimed from the supplier on %s (%s): waiting for their credit note.',
         'claimed_part' => 'Claimed from the supplier on %s (%s): part of it credited so far.',
