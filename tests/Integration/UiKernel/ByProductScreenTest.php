@@ -5,12 +5,17 @@ declare(strict_types=1);
 namespace CW\Tests\Integration\UiKernel;
 
 use CW\Caller;
+use CW\Mapping\DecisionService;
+use CW\Mapping\KeyHold;
+use CW\Mapping\KeySample;
 use CW\Output\CsvWriter;
 use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\UiResponse;
 use CW\Ui\ByProductContext;
 use CW\Ui\Controller\ByProductController;
+use CW\Ui\Html;
 use CW\Ui\Queries;
 use CW\Ui\Words;
 
@@ -25,9 +30,18 @@ use CW\Ui\Words;
  * suggested; its pager, also for an emptied search; the barcode mark), "Choose" opening the existing variant's page with the item
  * picked, Back from there to the picker as the person left it, the decision made THERE leading back to By Item with its notice,
  * and the odd addresses answered in words.
+ *
+ * The quick match (the owner's request of 20 Oct 2026: "directly add dropdown with full details, need search all attribute for
+ * product"): "Match…" on a cell of a store that has no variant for the item is a fold with a search box. Without app.js its Search
+ * opens the picker (a GET form of its own, outside the list's bulk form); with it the fold shows the read-only fragment of
+ * `…/map/options` (the suggestions for the item first, then the search, each variant with its details and a "Match to …" form that
+ * posts to the variant's own decide route). The search of the store's waiting variants (the picker's and the fold's) reads every
+ * word in the names, the brand, the attributes, the web address, the website's numbers, the barcodes and the features.
  */
 final class ByProductScreenTest extends KernelUiTestCase
 {
+    use KeyFixtures;
+
     /** Three stores named as the channel table names them, each with one variant nobody matched. @return array{a: Caller, b: Caller, c: Caller} */
     private function stores(): array
     {
@@ -122,6 +136,65 @@ final class ByProductScreenTest extends KernelUiTestCase
         return $out;
     }
 
+    /** The quick match fold of one cell ("Match…" on a store that has no variant for the item), or null. */
+    private static function fold(UiResponse $r, int $sku, string $store): ?\DOMElement
+    {
+        $n = (new \DOMXPath($r->dom()))->query('//tr[@id="p-' . $sku . '"]/td[@data-label="' . $store . '"]//details[@data-quick-pick]')->item(0);
+        return $n instanceof \DOMElement ? $n : null;
+    }
+
+    /** The fragment the fold shows (GET of its data-options, with the box's words when the person typed). */
+    private static function options(KernelBrowser $web, \DOMElement $fold, ?string $q = null): UiResponse
+    {
+        return self::open($web, $fold->getAttribute('data-options') . ($q === null ? '' : '&q=' . rawurlencode($q)));
+    }
+
+    /**
+     * The fragment of one item on one store as app.js asks for it (no q: the opening). A store that suggests a variant for the item
+     * makes its cell "Suggested", which has no fold; the route answers for any item and store all the same, as the picker does.
+     */
+    private static function optionsOf(KernelBrowser $web, int $sku, string $channel, ?string $q = null): UiResponse
+    {
+        return $web->get("/ui/review/products/{$sku}/map/options", ['channel' => $channel] + ($q === null ? [] : ['q' => $q]));
+    }
+
+    /** The fragment's rows, in order: listing id => the list it is in (`suggested` or `found`). @return array<int, string> */
+    private static function quickRows(UiResponse $r): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $out = [];
+        foreach ($xp->query('//div[@data-qp-fragment]//ul[contains(@class, "qp-list")]/li[@data-listing-id]') as $li) {
+            /** @var \DOMElement $li */
+            $list = $li->parentNode instanceof \DOMElement && str_contains($li->parentNode->getAttribute('class'), 'qp-suggested') ? 'suggested' : 'found';
+            $out[(int) $li->getAttribute('data-listing-id')] = $list;
+        }
+        return $out;
+    }
+
+    /** One row of the fragment: its text, its facts (label => value), its Match form's fields (null: no form) and its links. @return array{text: string, facts: array<string, string>, match: ?array<string, string>, links: array<string, string>, li: \DOMElement} */
+    private static function quickRow(UiResponse $r, int $listing): array
+    {
+        $xp = new \DOMXPath($r->dom());
+        $li = $xp->query('//div[@data-qp-fragment]//li[@data-listing-id="' . $listing . '"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $li, "variant {$listing} is a row of the fragment");
+        $facts = [];
+        foreach ($xp->query('.//dl[contains(@class, "qp-facts")]/dt', $li) as $dt) {
+            $dd = $dt->nextSibling;
+            while ($dd !== null && !($dd instanceof \DOMElement)) {
+                $dd = $dd->nextSibling;
+            }
+            $facts[self::squash($dt->textContent)] = self::squash($dd?->textContent);
+        }
+        $links = [];
+        foreach ($xp->query('.//a', $li) as $a) {
+            /** @var \DOMElement $a */
+            $links[self::squash($a->textContent)] = $a->getAttribute('href');
+        }
+        $form = $xp->query('.//form[contains(@class, "qp-match")]', $li)->item(0);
+        return ['text' => self::squash($li->textContent), 'facts' => $facts, 'links' => $links, 'li' => $li,
+            'match' => $form instanceof \DOMElement ? $r->form('/ui/review/listing/' . $listing . '/decide') : null];
+    }
+
     public function testEveryWarehouseItemHasOneCellPerStoreAndAFourthStoreIsAFourthColumn(): void
     {
         ['a' => $a, 'b' => $b, 'c' => $c] = $this->stores();
@@ -177,8 +250,9 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertStringStartsWith(Words::PRODUCT_STORE['none'], $cells['Cee Store']);
         self::assertSame(Words::say('BY_PRODUCT', 'summary', 0, 3), $cells[Words::BY_PRODUCT['stores_matched']]);
         self::assertSame('/ui/review/listing/' . $b3, self::links($page, $bravo, 'Big Store')['Bravo on Big']);
-        self::assertSame(array_fill_keys(['Alt Store', 'Big Store', 'Cee Store'], Words::PRODUCT_STORE['none'] . ' ' . Words::BY_PRODUCT['map']),
-            array_slice(self::cells($page, $charlie), 0, 3));
+        // (the quick match's fold: "Match…", its Search and the way to the matching page; its search box holds no text node)
+        self::assertSame(array_fill_keys(['Alt Store', 'Big Store', 'Cee Store'], Words::PRODUCT_STORE['none'] . ' ' . Words::BY_PRODUCT['map'] . ' ' . Words::UI['search']
+            . ' ' . Words::BY_PRODUCT['quick_page']), array_slice(self::cells($page, $charlie), 0, 3));
         self::assertSame(['suggested', 'suggested'], [$this->link($a2)['status'], $this->link($b3)['status']], 'looking decides nothing');
 
         // A fourth row in the channel table is a fourth column, with no code change: also before its product list is loaded.
@@ -253,7 +327,8 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame(['Alpha on Alt' => '/ui/review/listing/' . self::$db->value('SELECT id FROM channel_listing WHERE external_variant_id = ?', ['A1']),
             Words::BY_PRODUCT['map_more'] => "/ui/review/products/{$alpha}/map?channel=alt"], self::links($page, $alpha, 'Alt Store'),
             'a matched item can get one more variant of the store');
-        self::assertSame([Words::BY_PRODUCT['map'] => "/ui/review/products/{$alpha}/map?channel=cee"], self::links($page, $alpha, 'Cee Store'));
+        self::assertSame([Words::BY_PRODUCT['quick_page'] => "/ui/review/products/{$alpha}/map?channel=cee"], self::links($page, $alpha, 'Cee Store'),
+            'the quick match\'s fold keeps the plain way to the picker');
         $review = "/ui/review/listing/{$a2}?via=product&product={$bravo}&channel=alt";
         self::assertSame(['Bravo on Alt' => $review, Words::BY_PRODUCT['review'] => $review, Words::BY_PRODUCT['map_other'] => "/ui/review/products/{$bravo}/map?channel=alt"],
             self::links($page, $bravo, 'Alt Store'), 'a suggestion is answered on its own page, which leads back here');
@@ -750,7 +825,7 @@ final class ByProductScreenTest extends KernelUiTestCase
 
         // From the list: "Match…" on the cell of the store where it is missing, then "Choose".
         $list = $web->get('/ui/review/products');
-        $picker = self::open($web, self::links($list, $sku, 'Alt Store')[Words::BY_PRODUCT['map']]);
+        $picker = self::open($web, self::links($list, $sku, 'Alt Store')[Words::BY_PRODUCT['quick_page']]);
         self::assertSame(200, $picker->status, $picker->describe());
         $choose = array_column(self::picks($picker, 'found'), 4, 0);
         self::assertSame("/ui/review/listing/{$one}?pick={$sku}&via=product&product={$sku}&channel=alt", $choose['Elux Legend']);
@@ -935,5 +1010,443 @@ final class ByProductScreenTest extends KernelUiTestCase
         self::assertSame('Vaporesso XROS 600', ByProductController::firstSearch(['name' => 'Vaporesso XROS 3 600 10ml 2 ml', 'brand' => 'Vaporesso', 'flavour' => null]));
         self::assertSame('', ByProductController::firstSearch(['name' => '10 ml', 'brand' => null, 'flavour' => null]));
         self::assertSame('', ByProductController::firstSearch([]));
+    }
+
+    // ------------------------------------------------------------------------------------------------------------------
+    // The quick match (the owner's request of 20 Oct 2026: "directly add dropdown with full details, need search all attribute")
+
+    /**
+     * Without app.js the fold is a plain search that opens the picker: its box and button name a GET form of their own, which sits
+     * OUTSIDE the list's bulk form (a form inside a form is no form), with the store, the list's filter, search and rows. The box is
+     * filled in with the item's own words, as the picker's first search. Only a cell of a store that has no variant for the item
+     * has it, and only for whoever may decide.
+     */
+    public function testACellNotOnTheStoreHoldsASearchThatOpensThePickerWithoutTheScript(): void
+    {
+        ['a' => $a] = $this->stores();
+        $sku = $this->item('legacy', 0, 'Elux Legend 3500 Blue Razz 20mg');
+        self::$db->exec("UPDATE sku SET brand = 'Elux', flavour = 'Blue Razz' WHERE id = ?", [$sku]);
+        $matched = $this->item('legacy', 0, 'Elux matched kit');
+        $this->profiled($a, 'M1', ['product_title' => 'Matched on Alt'], $matched);
+        $suggested = $this->item('legacy', 0, 'Elux suggested kit');
+        $this->queued($a, 'S1', 'Check', $suggested, ['product_title' => 'Suggested on Alt']);
+        $this->profiled($a, 'U1', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz', 'units_30d' => 5]);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $code = self::cw($sku);
+
+        $page = $web->get('/ui/review/products', ['q' => 'elux', 'n' => '100']);
+        self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
+        $fold = self::fold($page, $sku, 'Alt Store');
+        self::assertNotNull($fold, 'a store with no variant for the item: the fold');
+        $xp = new \DOMXPath($fold->ownerDocument);
+        self::assertSame(["/ui/review/products/{$sku}/map/options?channel=alt&lq=elux&ln=100", (string) $sku, 'alt', Words::BY_PRODUCT['quick_loading'], Words::BY_PRODUCT['quick_failed']],
+            [$fold->getAttribute('data-options'), $fold->getAttribute('data-sku-id'), $fold->getAttribute('data-channel'), $fold->getAttribute('data-loading'),
+                $fold->getAttribute('data-failed')], 'the fragment\'s address and the words app.js shows come from the page');
+        self::assertSame(Words::BY_PRODUCT['map'], self::squash($xp->evaluate('string(summary)', $fold)), 'it opens with "Match…"');
+        $box = $xp->query('.//input[@name="q"]', $fold)->item(0);
+        self::assertInstanceOf(\DOMElement::class, $box);
+        $id = $box->getAttribute('form');
+        self::assertMatchesRegularExpression('/^qp-' . $sku . '-\d+$/D', $id);
+        self::assertSame(['Elux Blue Razz', 'search', '100', Words::say('BY_PRODUCT', 'quick_label', 'Alt Store', $code)],
+            [$box->getAttribute('value'), $box->getAttribute('type'), $box->getAttribute('maxlength'), $box->getAttribute('aria-label')],
+            'filled in with the item\'s own words, as the picker\'s first search');
+        self::assertTrue($box->hasAttribute('data-qp-q'));
+        self::assertSame(Words::UI['search'], self::squash($xp->evaluate('string(.//button[@type="submit"][@form="' . $id . '"])', $fold)));
+        self::assertSame(1, $xp->query('.//*[@data-qp-results]', $fold)->length, 'where app.js puts the variants');
+        // The form itself: a GET of the picker, not inside the bulk form (the list's own POST form around the table).
+        self::assertSame(1, $xp->query('//form[@id="' . $id . '"][@method="get"][@action="/ui/review/products/' . $sku . '/map"]')->length);
+        self::assertSame(1, $xp->query('//form[@data-bulk]')->length, 'a person who may decide has the bulk form around the list');
+        self::assertSame(0, $xp->query('//form[@data-bulk]//form')->length, 'no form inside the bulk form');
+        $sent = $page->form("/ui/review/products/{$sku}/map");
+        ksort($sent);
+        self::assertSame(['channel' => 'alt', 'ln' => '100', 'lq' => 'elux', 'q' => 'Elux Blue Razz'], $sent, 'what a browser sends: the box names its form');
+        self::assertSame(['elux', '100'], [$page->form('/ui/review/products/bulk')['q'], $page->form('/ui/review/products/bulk')['n']],
+            'the bulk form keeps the list\'s own search: the box is not one of its fields');
+        $picker = $web->get("/ui/review/products/{$sku}/map", $sent);
+        self::assertSame(200, $picker->status, $picker->describe());
+        self::assertSame(['Elux Legend'], array_column(self::picks($picker, 'found'), 0), 'the picker, searched with those words');
+        self::assertSame('/ui/review/products?q=elux&n=100&at=' . $sku . '#p-' . $sku, (new \DOMXPath($picker->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame([Words::BY_PRODUCT['quick_page'] => "/ui/review/products/{$sku}/map?channel=alt&lq=elux&ln=100"], self::links($page, $sku, 'Alt Store'));
+
+        // Only "Not on this store" has it: a matched or a suggested cell keeps its links; each store's fold is its own.
+        self::assertNull(self::fold($page, $matched, 'Alt Store'));
+        self::assertSame(Words::BY_PRODUCT['map_more'], array_key_last(self::links($page, $matched, 'Alt Store')));
+        self::assertNull(self::fold($page, $suggested, 'Alt Store'));
+        $big = self::fold($page, $sku, 'Big Store');
+        self::assertNotNull($big);
+        self::assertSame("/ui/review/products/{$sku}/map/options?channel=vbig&lq=elux&ln=100", $big->getAttribute('data-options'));
+        self::assertNotSame($id, (new \DOMXPath($big->ownerDocument))->evaluate('string(.//input[@name="q"]/@form)', $big));
+        // Someone who can only look: no fold, no address of the fragment.
+        $look = $this->signIn($this->uiUser('viewer'))->get('/ui/review/products');
+        self::assertSame(0, (new \DOMXPath($look->dom()))->query('//details[@data-quick-pick]')->length);
+        self::assertStringNotContainsString('/map/options', $look->body);
+    }
+
+    /**
+     * The fragment: no layout, its root marked (app.js shows nothing else), the suggestions for the item first (the strongest first),
+     * then, once the person searched (or on opening, when nothing is suggested), the store's waiting variants that have every word.
+     * Each row carries the variant's details and data attributes, and a "Match to …" form with all that the variant's decide route
+     * needs and the way back to this row of the list.
+     */
+    public function testTheFragmentShowsTheSuggestionsFirstThenTheSearchEachWithItsDetailsAndAMatchForm(): void
+    {
+        ['a' => $a, 'b' => $b] = $this->stores();
+        $sku = $this->item('legacy', 0, 'Elux Legend 3500 Blue Razz 20mg');
+        self::$db->exec("UPDATE sku SET brand = 'Elux', flavour = 'Blue Razz' WHERE id = ?", [$sku]);
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id) VALUES ('5056168812345', ?)", [$sku]);
+        $code = self::cw($sku);
+        $likely = $this->queued($a, 'S1', 'Check', $sku, ['product_title' => 'Elux Blue Razz likely', 'units_30d' => 1], ['ai_units_per_item' => 10]);
+        $strong = $this->queued($a, 'S2', 'Key', $sku, ['product_title' => 'Elux Blue Razz strong', 'variant_title' => '20mg 2ml', 'brand' => 'Elux', 'units_30d' => 2,
+            'units_365d' => 40, 'barcodes' => ['05056168812345'], 'features' => ['strength_mg' => 20, 'volume_ml' => 2, 'flavour_tokens' => ['blue', 'razz'], 'line_tokens' => ['legend']]]);
+        self::$db->exec('UPDATE listing_profile SET price = 4.99 WHERE listing_id = ?', [$strong]);
+        $plain = $this->profiled($a, 'U1', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz', 'brand' => 'Elux Vapes', 'units_30d' => 7, 'barcodes' => ['5000000000017']]);
+        $web = $this->signIn($this->uiUser('mapper'));
+        self::assertNull(self::fold($web->get('/ui/review/products'), $sku, 'Alt Store'), 'a store that suggests a variant: "Suggested", no fold');
+
+        // Opening: the suggestions only (as the picker's plain opening: the item's words are not run while something is suggested).
+        $open = self::optionsOf($web, $sku, 'alt');
+        self::assertSame(200, $open->status, $open->describe() . implode("\n", self::$log));
+        self::assertStringNotContainsString('<html', strtolower($open->body), 'a fragment: no layout');
+        self::assertStringNotContainsString('<nav', $open->body);
+        self::assertSame(0, substr_count(strtolower($open->body), '<script'));
+        $xp = new \DOMXPath($open->dom());
+        $root = $xp->query('//div[@data-qp-fragment]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $root, 'its root says what it is (app.js shows nothing else)');
+        self::assertSame([(string) $sku, 'alt'], [$root->getAttribute('data-sku-id'), $root->getAttribute('data-channel')]);
+        self::assertSame([$strong => 'suggested', $likely => 'suggested'], self::quickRows($open), 'the strongest suggestion first');
+        self::assertStringContainsString(Words::BY_PRODUCT['quick_search_first'], $open->text());
+        self::assertStringContainsString(Words::BY_PRODUCT['pick_suggested'], $open->text());
+
+        // A row: what the variant is, with every detail the picker shows and the features where they are known.
+        $row = self::quickRow($open, $strong);
+        foreach (['data-listing-id' => (string) $strong, 'data-sku-id' => (string) $sku, 'data-channel' => 'alt'] as $attr => $value) {
+            self::assertSame($value, $row['li']->getAttribute($attr), $attr);
+        }
+        self::assertStringStartsWith('Elux Blue Razz strong 20mg 2ml', $row['text']);
+        foreach ([Words::STORE_STATE['suggested'], Words::BAND['Key'], Words::BY_PRODUCT['pick_barcode_same']] as $word) {
+            self::assertStringContainsString($word, $row['text']);
+        }
+        self::assertSame([Words::FIELD['brand'] => 'Elux', Words::LISTING['option'] => 'S2', Words::FIELD['strength_mg'] => '20', Words::FIELD['volume_ml'] => '2',
+            Words::FIELD['flavour'] => 'blue razz', Words::FIELD['line'] => 'legend', Words::FIELD['barcodes'] => '05056168812345', Words::BY_PRODUCT['pick_price'] => '£4.99',
+            Words::QUEUE['sold_30'] => '2', Words::QUEUE['sold_365'] => '40'], $row['facts']);
+        $back = ['via' => 'product', 'product' => (string) $sku, 'channel' => 'alt'];
+        self::assertSame(['csrf' => $this->token($web), 'action' => 'link', 'sku_id' => (string) $sku, 'expected_map_version' => (string) $this->version($strong),
+            'proposal_id' => (string) $this->proposalOf($strong)] + $back + ['units_per_item' => '1'], $row['match'], 'all that the decide route needs, and the way back');
+        $button = $xp->query('//li[@data-listing-id="' . $strong . '"]//form[contains(@class, "qp-match")]//button[@type="submit"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $button);
+        self::assertSame([Words::say('BY_PRODUCT', 'quick_match', $code), Words::say('BY_PRODUCT', 'quick_match_named', 'Elux Blue Razz strong', $code), (string) $strong, (string) $sku, 'alt'],
+            [self::squash($button->textContent), $button->getAttribute('title'), $button->getAttribute('data-listing-id'), $button->getAttribute('data-sku-id'),
+                $button->getAttribute('data-channel')]);
+        self::assertSame("/ui/review/listing/{$strong}?pick={$sku}&via=product&product={$sku}&channel=alt", $row['links']['Elux Blue Razz strong'], 'its name opens its page, the item picked');
+        // The suggestion says how many one sale uses: the number goes in the form, and it can be changed there.
+        $likelyRow = self::quickRow($open, $likely);
+        self::assertSame('10', $likelyRow['match']['units_per_item'] ?? null);
+        self::assertStringContainsString(Words::BAND['Check'], $likelyRow['text']);
+        self::assertStringContainsString(Words::BY_PRODUCT['pick_barcode_unknown'], $likelyRow['text']);
+        self::assertSame(1, (new \DOMXPath($open->dom()))->query('//li[@data-listing-id="' . $likely . '"]//input[@type="number"][@name="units_per_item"][@min="1"][@max="'
+            . DecisionService::MAX_UNITS . '"]')->length);
+
+        // The person's search: the suggestions stay first, then the waiting variants with every word (not the ones listed above).
+        $found = self::optionsOf($web, $sku, 'alt', 'blue razz');
+        self::assertSame([$strong => 'suggested', $likely => 'suggested', $plain => 'found'], self::quickRows($found));
+        $row = self::quickRow($found, $plain);
+        self::assertStringContainsString(Words::STORE_STATE['not_matched'], $row['text']);
+        self::assertStringContainsString(Words::BY_PRODUCT['pick_barcode_differs'], $row['text']);
+        self::assertStringNotContainsString(Words::BAND['Key'], $row['text'], 'no strength: nothing suggests it for this item');
+        self::assertSame(['action' => 'link', 'sku_id' => (string) $sku, 'pq' => 'blue razz'], array_intersect_key($row['match'] ?? [], ['action' => 1, 'sku_id' => 1, 'pq' => 1]),
+            'its search comes along, for Back from the variant\'s page');
+        self::assertArrayNotHasKey('proposal_id', $row['match'] ?? [], 'nothing is suggested for it');
+        self::assertStringContainsString(Words::say('BY_PRODUCT', 'pick_search', 'Alt Store'), $found->text());
+        $none = self::optionsOf($web, $sku, 'alt', 'zzz');
+        self::assertSame([$strong => 'suggested', $likely => 'suggested'], self::quickRows($none));
+        self::assertStringContainsString(Words::BY_PRODUCT['pick_found_no_more'], $none->text());
+
+        // Nothing suggested on Big: opening runs the item's own words there, and says so.
+        $this->profiled($b, 'B1', ['product_title' => 'Elux Blue Razz on Big', 'units_30d' => 3]);
+        $onBig = self::options($web, self::fold($web->get('/ui/review/products'), $sku, 'Big Store'));
+        self::assertSame(200, $onBig->status, $onBig->describe());
+        self::assertSame(['found'], array_values(array_unique(self::quickRows($onBig))));
+        self::assertStringContainsString(Words::BY_PRODUCT['quick_suggested_none'], $onBig->text());
+        self::assertStringContainsString(Words::say('BY_PRODUCT', 'quick_first', 'Elux Blue Razz'), $onBig->text());
+
+        // At most a page of them (the picker's 20), and the way to the rest on the matching page, with the search.
+        for ($i = 1; $i <= 25; $i++) {
+            $this->profiled($a, 'F' . $i, ['product_title' => sprintf('Pager item %02d', $i), 'units_30d' => 100 - $i]);
+        }
+        $many = self::optionsOf($web, $sku, 'alt', 'pager item');
+        self::assertCount(2 + Queries::PICK_PER_PAGE, self::quickRows($many));
+        $more = (string) (new \DOMXPath($many->dom()))->evaluate('string(//div[@data-qp-fragment]//a[normalize-space(.)="' . Words::BY_PRODUCT['quick_more'] . '"]/@href)');
+        self::assertSame("/ui/review/products/{$sku}/map?channel=alt&q=pager%20item", $more);
+        self::assertStringNotContainsString(Words::BY_PRODUCT['quick_more'], $found->text(), 'no "more" when every one is shown');
+        self::assertStringContainsString(Words::BY_PRODUCT['quick_hint'], $found->text());
+    }
+
+    /**
+     * "Search all attribute" (the owner, 20 Oct 2026): every word of the search must be somewhere in the variant: its names and
+     * brand (as before), its attributes, its web address, the website's number of its product, its option number, any part of a
+     * barcode, the features the matching read from it (strength, size, flavour, range). The picker and the fold search alike.
+     */
+    public function testTheSearchOfTheStoresWaitingVariantsReadsEveryAttribute(): void
+    {
+        ['a' => $a] = $this->stores();
+        $sku = $this->item('legacy', 0, 'Mystery kit');
+        $attr = $this->profiled($a, 'U2', ['product_title' => 'Mystery bar', 'units_30d' => 4]);
+        self::$db->exec('UPDATE listing_profile SET attributes = CAST(? AS JSON), perma_link = ?, site_product_id = ? WHERE listing_id = ?',
+            ['{"items": [{"name": "Flavour", "value": "Watermelon Chill"}, {"name": "Nicotine Strength", "value": "11mg"}, {"name": "Note", "value": "Café Crème"}]}',
+                'https://alt.example/shop/mystery-bar-special-edition/',
+                'P-77812', $attr]);
+        $barcode = $this->profiled($a, 'U3', ['product_title' => 'Plain thing', 'units_30d' => 3, 'barcodes' => ['5012345678900', '0000000000001']]);
+        $feature = $this->profiled($a, 'U4', ['product_title' => 'Fruit bar', 'units_30d' => 2, 'features' => ['flavour_tokens' => ['kiwi', 'passion'], 'strength_mg' => 17,
+            'volume_ml' => 13, 'line_tokens' => ['nebula'], 'product_id' => 99123]]);
+        $titled = $this->profiled($a, 'U5', ['product_title' => 'Watermelon Ice', 'units_30d' => 1]);
+        $bare = $this->listing($a, 'NOPROFILE7', null);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $fold = self::fold($web->get('/ui/review/products'), $sku, 'Alt Store');
+        self::assertNotNull($fold);
+        $q = new Queries(self::$db);
+        $ids = static fn (string $text): array => $q->waitingListings($a->channelId, $text, 1)['ids'];
+        $cases = [
+            'watermelon' => [$attr, $titled],            // an attribute's value, and a name as before
+            'watermelon chill' => [$attr],               // both words in one attribute
+            'chill mystery' => [$attr],                  // the words in two places: the attribute and the name
+            'chill plain' => [],                         // every word, not any
+            '11mg' => [$attr],
+            'CREME cafe' => [$attr],                     // whatever its case and accents
+            'nicotine' => [$attr],                       // an attribute's name is a word of it too ...
+            'items' => [],                               // ... the JSON's own keys are not
+            'value' => [],
+            'special-edition' => [$attr],                // the web address
+            'P-77812' => [$attr],                        // the website's number of its product
+            '7812' => [$attr],
+            '1234567' => [$barcode],                     // a part of a barcode
+            '5012345678900' => [$barcode],               // a whole one, as before
+            'kiwi' => [$feature],                        // the features: flavour, strength, size, range, the product's number
+            'nebula passion' => [$feature],
+            '99123' => [$feature],
+            'U4' => [$feature],                          // the option number, as before
+            'NOPROFILE7' => [$bare],                     // also a variant whose details never came
+            'nosuchword' => [],
+        ];
+        foreach ($cases as $text => $want) {
+            self::assertEqualsCanonicalizing($want, $ids((string) $text), "the store's search: {$text}");
+            self::assertEqualsCanonicalizing($want, array_keys(self::quickRows(self::options($web, $fold, (string) $text))), "the fold: {$text}");
+        }
+        self::assertSame(['Mystery bar'], array_column(self::picks($web->get("/ui/review/products/{$sku}/map", ['channel' => 'alt', 'q' => 'watermelon chill']), 'found'), 0),
+            'the picker searches the same way');
+        // Words that are LIKE's own signs are only text; a long or odd text is no failure.
+        foreach (['%', '_', '\\', "50%_off", str_repeat('ab ', 40), "caf\xE9", "\u{3000}"] as $odd) {
+            self::assertSame(200, self::options($web, $fold, $odd)->status, bin2hex($odd));
+        }
+        self::assertSame([], $ids('%'));
+        self::assertSame([], $ids('_'));
+    }
+
+    /**
+     * "Match to …" from the fold: DecisionService links the variant (the same decide route as the variant's page), and the person is
+     * back on the list at that item, with the list as they had it and the notice; the cell says Matched. A pack size other than 1
+     * goes to a second OK, and the list says that too.
+     */
+    public function testMatchInTheFoldLinksTheVariantAndTheListShowsItMatched(): void
+    {
+        ['a' => $a, 'b' => $b] = $this->stores();
+        $sku = $this->item('legacy', 0, 'Elux Legend Blue Razz');
+        $one = $this->profiled($a, 'U1', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz', 'units_30d' => 9]);
+        $pack = $this->profiled($b, 'P1', ['product_title' => 'Elux Legend Blue Razz box of 10', 'units_30d' => 5]);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $code = self::cw($sku);
+        $list = $web->get('/ui/review/products', ['cov' => 'missing-alt', 'q' => 'elux']);
+        $fragment = self::options($web, self::fold($list, $sku, 'Alt Store'), 'legend');
+        $form = self::quickRow($fragment, $one)['match'];
+        self::assertNotNull($form);
+        self::assertSame(['missing-alt', 'elux', 'legend'], [$form['cov'], $form['lq'], $form['pq']]);
+        $r = $web->post("/ui/review/listing/{$one}/decide", $form);
+        self::assertSame(303, $r->status, $r->describe() . implode("\n", self::$log));
+        self::assertSame("/ui/review/products?cov=missing-alt&q=elux&at={$sku}&notice=decided_link&prev={$one}#p-{$sku}", $r->location(),
+            'back on the list as the person had it, at the item');
+        self::assertSame([$sku, 1, 'mapped'], [(int) $this->link($one)['sku_id'], (int) $this->link($one)['units_per_item'], $this->link($one)['status']]);
+        $back = $web->follow($r);
+        self::assertSame(200, $back->status, $back->describe());
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', '"Elux Legend Blue Razz"', $code), $back->text());
+        self::assertSame([$sku], self::ids($back), 'it is on Alt now: shown once, first');
+        self::assertStringStartsWith(Words::PRODUCT_STORE['matched'] . ' Elux Legend Blue Razz', self::cells($back, $sku)['Alt Store']);
+        self::assertNull(self::fold($back, $sku, 'Alt Store'), 'a matched cell has no fold');
+        self::assertStringContainsString('here', (new \DOMXPath($back->dom()))->evaluate('string(//tr[@id="p-' . $sku . '"]/@class)'));
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE listing_id = ? AND action = 'link' AND state = 'applied'", [$one]));
+
+        // A box of 10: the number is changed in the fold; a matching lead gives the second OK, and the list says it waits.
+        $form = self::quickRow(self::options($web, self::fold($back, $sku, 'Big Store'), 'box'), $pack)['match'];
+        self::assertNotNull($form);
+        $r = $web->post("/ui/review/listing/{$pack}/decide", ['units_per_item' => '10'] + $form);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame("/ui/review/products?cov=missing-alt&q=elux&at={$sku}&notice=pending_second&prev={$pack}#p-{$sku}", $r->location());
+        self::assertSame('unmapped', $this->link($pack)['status'], 'not live: it waits for a matching lead');
+        $waits = $web->follow($r);
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'pending_second', '"Elux Legend Blue Razz box of 10"'), $waits->text());
+        self::assertStringStartsWith(Words::PRODUCT_STORE['waiting'], self::cells($waits, $sku)['Big Store']);
+    }
+
+    /**
+     * A refused "Match to …" is never silent: it lands on the variant's own page with that page's words and its answer form, which
+     * still leads back to the picker as the fold had it. The fold offers no "Match to …" where that page would not let this person
+     * answer at once: a suggestion whose clues disagree (a matching lead's), and a variant decided one at a time (held back, a spot
+     * check's match): there it is "Choose" (the variant's page) and the line the lists say.
+     */
+    public function testARefusedMatchLandsOnTheVariantsPageWithItsWordsAndRowsDecidedOneAtATimeOpenThatPage(): void
+    {
+        ['a' => $a] = $this->stores();
+        $sku = $this->item('legacy', 0, 'Elux Legend Blue Razz');
+        $one = $this->profiled($a, 'U1', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz', 'units_30d' => 9]);
+        $two = $this->profiled($a, 'U2', ['product_title' => 'Elux Legend two', 'units_30d' => 8]);
+        $clash = $this->queued($a, 'C1', 'Conflict', $sku, ['product_title' => 'Elux Legend clues disagree', 'units_30d' => 7]);
+        $mapper = $this->signIn($this->uiUser('mapper'));
+        $fragment = self::optionsOf($mapper, $sku, 'alt', 'legend');
+        self::assertSame([$clash => 'suggested', $one => 'found', $two => 'found'], self::quickRows($fragment));
+
+        // The variant changed after the fold was drawn (renamed on the website, say): its page, with its words, and Back to the picker.
+        $form = self::quickRow($fragment, $one)['match'];
+        self::$db->exec('UPDATE channel_listing SET map_version = map_version + 1 WHERE id = ?', [$one]);
+        $stale = $mapper->post("/ui/review/listing/{$one}/decide", $form);
+        self::assertSame(409, $stale->status, $stale->describe());
+        self::assertStringContainsString(Words::MATCH_ERROR['map_version_conflict'], $stale->text());
+        self::assertSame("/ui/review/products/{$sku}/map?channel=alt&q=legend", (new \DOMXPath($stale->dom()))->evaluate('string(//p[@class="crumbs"]/a/@href)'));
+        self::assertSame(['product', (string) $sku, 'alt', (string) $sku], [$stale->form('/decide')['via'], $stale->form('/decide')['product'], $stale->form('/decide')['channel'],
+            $stale->form('/decide')['sku_id']], 'its answer form, with the item picked and the way back');
+        self::assertSame('unmapped', $this->link($one)['status'], 'nothing was saved');
+        // A suggestion arrived after the fold was drawn: the form names none, so the page shows the new one first.
+        $form = self::quickRow($fragment, $two)['match'];
+        $this->propose($two, 'Check', $this->item('legacy', 0, 'Another kit'), [], false);
+        $newer = $mapper->post("/ui/review/listing/{$two}/decide", $form);
+        self::assertSame(409, $newer->status, $newer->describe());
+        self::assertStringContainsString(Words::MATCH_ERROR['proposal_changed'], $newer->text());
+        self::assertSame('unmapped', $this->link($two)['status']);
+
+        // Clues that disagree: a matching lead's. The mapper gets the variant's page and the line; a hand-made form is refused there.
+        $row = self::quickRow($fragment, $clash);
+        self::assertNull($row['match'], 'no "Match to …" for a suggestion only a matching lead decides');
+        self::assertStringContainsString(Words::LISTING['lead_only'], $row['text']);
+        self::assertSame("/ui/review/listing/{$clash}?pick={$sku}&via=product&product={$sku}&channel=alt&pq=legend", $row['links'][Words::BY_PRODUCT['pick_choose']]);
+        $lead = $this->signIn($this->uiUser('mapping_lead'));
+        $leads = self::quickRow(self::optionsOf($lead, $sku, 'alt', 'legend'), $clash)['match'];
+        self::assertNotNull($leads, 'a matching lead may');
+        $refused = $mapper->post("/ui/review/listing/{$clash}/decide", ['csrf' => $this->token($mapper)] + $leads);
+        self::assertSame(403, $refused->status, $refused->describe());
+        self::assertStringContainsString(Words::MATCH_ERROR['lead_required'], $refused->text());
+        self::assertSame('suggested', $this->link($clash)['status']);
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE action <> 'suggest'"), 'nothing was decided by any of them');
+    }
+
+    /** Held back and a spot check's match (OneAtATime): no "Match to …" in the fold, the lists' line, and "Choose" for the variant's page. */
+    public function testAVariantDecidedOneAtATimeHasNoMatchButtonInTheFold(): void
+    {
+        $this->keySetup();
+        $saved = (string) self::$db->value("SELECT CAST(value_json AS CHAR) FROM app_setting WHERE setting_key = 'approvals.spot_check_size'");
+        self::$db->exec("UPDATE app_setting SET value_json = CAST('5' AS JSON) WHERE setting_key = 'approvals.spot_check_size'");
+        try {
+            $lead = $this->staffUser('mapping_lead');
+            $pop = [];
+            for ($i = 0; $i < 9; $i++) {
+                $pop[] = $this->firstMatch($this->vpgItem(), 90 + $i, [], [], null, [], 900 - $i);
+            }
+            $sample = (new KeySample(self::$db))->create($lead, 'sc1', 5, true);
+            $spot = array_map('intval', array_column($sample['members'], 'listing_id'));
+            $others = array_values(array_filter($pop, static fn (array $m): bool => !in_array($m['listing'], $spot, true)));
+            (new KeyHold(self::$db))->run($lead, 'sc1', KeyHold::parse("proposal_id,listing_id,reason\n{$others[0]['proposal']},{$others[0]['listing']},Pack size differs\n"),
+                false, true);
+            $inSpot = $spot[0];
+            $free = $others[1]['listing'];
+            // Another item, on no store: its fold's search finds the strong matches of the others (a variant may be matched to any item).
+            $kit = $this->item('legacy', 0, 'Other kit');
+            $web = $this->signIn($this->uiUser('mapper'));
+            $page = $web->get('/ui/review/products', ['q' => self::cw($kit)]);
+            self::assertSame(200, $page->status, $page->describe());
+            $fold = self::fold($page, $kit, 'ALT test site');
+            self::assertNotNull($fold, 'the item is not on the store: its cell has the fold');
+            $fragment = self::options($web, $fold, 'Electrofag listing');
+            self::assertSame(200, $fragment->status, $fragment->describe() . implode("\n", self::$log));
+            self::assertCount(9, self::quickRows($fragment));
+            $hold = self::$db->one('SELECT h.created_at, u.display_name FROM key_bulk_hold h JOIN staff_user u ON u.id = h.staff_user_id WHERE h.listing_id = ?',
+                [$others[0]['listing']]) ?? [];
+            $held = self::quickRow($fragment, $others[0]['listing']);
+            self::assertNull($held['match'], 'held back: decided on its own page');
+            self::assertStringContainsString(Words::say('ONE_AT_A_TIME', 'held', Html::day((string) $hold['created_at']), (string) $hold['display_name']), $held['text']);
+            self::assertStringNotContainsString('Pack size differs', $held['text'], 'the hold\'s note stays on the variant\'s page');
+            self::assertStringStartsWith("/ui/review/listing/{$others[0]['listing']}?pick={$kit}&via=product&product={$kit}&channel=alt", $held['links'][Words::BY_PRODUCT['pick_choose']]);
+            $inCheck = self::quickRow($fragment, $inSpot);
+            self::assertNull($inCheck['match'], 'a spot check\'s match: its owner answers it, there');
+            self::assertStringContainsString(Words::say('ONE_AT_A_TIME', 'in_spot_check', 'sc1'), $inCheck['text']);
+            self::assertSame('/ui/review/samples/' . (int) $sample['sample_id'], $inCheck['links'][Words::ONE_AT_A_TIME['open_spot']]);
+            self::assertArrayHasKey(Words::BY_PRODUCT['pick_choose'], $inCheck['links']);
+            self::assertNotNull(self::quickRow($fragment, $free)['match'], 'a free one has its "Match to …"');
+            self::assertSame(count($spot) + 1, count(array_filter(array_keys(self::quickRows($fragment)), static fn (int $l): bool => self::quickRow($fragment, $l)['match'] === null)),
+                'every spot check match and the held one, no other');
+        } finally {
+            self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON) WHERE setting_key = ?', [$saved, 'approvals.spot_check_size']);
+        }
+    }
+
+    /**
+     * The fragment is the picker's: only for whoever may decide (403 in words otherwise, a sign-in without a session), 404 in words
+     * for an item, a joined item or a store that is not one, never a failure for odd values, and it only reads (405 for a POST). Its
+     * "Match to …" is a POST of the decide route: refused without the person's own token or the job, nothing linked.
+     */
+    public function testTheFragmentRefusesWhatThePickerRefusesAndItsMatchNeedsTheTokenAndTheJob(): void
+    {
+        ['a' => $a] = $this->stores();
+        $sku = $this->item('legacy', 0, 'Kit <b>"one"</b>');
+        $evil = '<script>alert(1)</script>"\'&';
+        $one = $this->profiled($a, 'U1', ['product_title' => 'Kit ' . $evil, 'variant_title' => '"><img src=x onerror=alert(1)>', 'brand' => 'B ' . $evil]);
+        $gone = $this->item('legacy', 0, 'Joined away');
+        self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$sku, $gone]);
+        $path = "/ui/review/products/{$sku}/map/options";
+        $mapper = $this->signIn($this->uiUser('mapper'));
+        $fragment = $mapper->get($path, ['channel' => 'alt', 'q' => 'kit']);
+        self::assertSame(200, $fragment->status, $fragment->describe() . implode("\n", self::$log));
+        self::assertSame([$one => 'found'], self::quickRows($fragment));
+        self::assertSame(0, substr_count(strtolower($fragment->body), '<script'), 'a name is text');
+        self::assertSame(0, substr_count(strtolower($fragment->body), '<img'));
+        self::assertStringContainsString('Kit ' . htmlspecialchars($evil, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8'), $fragment->body);
+        self::assertSame(['nosniff', 'DENY', 'no-store'], [$fragment->header('x-content-type-options'), $fragment->header('x-frame-options'), $fragment->header('cache-control')]);
+
+        foreach (['viewer', 'buyer', 'admin'] as $job) {
+            $r = $this->signIn($this->uiUser($job))->get($path, ['channel' => 'alt']);
+            self::assertSame([403, 'role_not_allowed'], [$r->status, $r->errorCode()], $job);
+            self::assertStringNotContainsString('data-qp-fragment', $r->body, $job);
+        }
+        $out = $this->browser()->get($path, ['channel' => 'alt']);
+        self::assertSame(303, $out->status, 'no session: the sign-in page');
+        self::assertStringStartsWith('/ui/login', (string) $out->location());
+        $r = $mapper->get('/ui/review/products/999999/map/options', ['channel' => 'alt']);
+        self::assertSame([404, 'unknown_item'], [$r->status, $r->errorCode()]);
+        $r = $mapper->get("/ui/review/products/{$gone}/map/options", ['channel' => 'alt']);
+        self::assertSame([404, 'item_joined'], [$r->status, $r->errorCode()]);
+        foreach ([['channel' => 'nosuch'], [], ['channel' => ''], ['channel' => 'ALT']] as $query) {
+            $r = $mapper->get($path, $query);
+            self::assertSame([404, 'unknown_store'], [$r->status, $r->errorCode()], json_encode($query));
+            self::assertStringContainsString(Words::ERROR['unknown_store'], $r->text());
+        }
+        self::assertSame(404, $mapper->send('GET', $path, ['channel' => ['alt']], [])->status, 'a list is not a store');
+        foreach (['/ui/review/products/0/map/options', '/ui/review/products/abc/map/options', '/ui/review/products/' . str_repeat('9', 30) . '/map/options'] as $odd) {
+            self::assertSame(404, $mapper->get($odd, ['channel' => 'alt'])->status, $odd);
+        }
+        foreach ([['q' => str_repeat('é', 500)], ['q' => "\xFF"], ['q' => '', 'cov' => 'nonsense', 'lq' => str_repeat('x', 500), 'ln' => '7'], ['cov' => 'missing-nosuch']] as $query) {
+            self::assertSame(200, $mapper->get($path, ['channel' => 'alt'] + $query)->status, (string) json_encode($query, JSON_INVALID_UTF8_SUBSTITUTE));
+        }
+        self::assertSame(200, $mapper->send('GET', $path, ['channel' => 'alt', 'q' => ['a'], 'cov' => ['x'], 'lq' => ['y']], [])->status);
+        self::assertSame(405, $mapper->post($path, ['csrf' => $this->token($mapper), 'channel' => 'alt'])->status, 'it only reads');
+
+        // The Match form is the decide route's: the person's own token and the job, or nothing happens.
+        $form = self::quickRow($fragment, $one)['match'];
+        self::assertNotNull($form);
+        foreach ([array_diff_key($form, ['csrf' => 1]), ['csrf' => 'x' . $form['csrf']] + $form] as $i => $bad) {
+            $r = $mapper->post("/ui/review/listing/{$one}/decide", $bad);
+            self::assertSame([403, 'csrf'], [$r->status, $r->errorCode()], (string) $i);
+        }
+        $other = $this->signIn($this->uiUser('mapper'));
+        self::assertSame(403, $other->post("/ui/review/listing/{$one}/decide", $form)->status, 'another person\'s token');
+        $viewer = $this->signIn($this->uiUser('viewer'));
+        $r = $viewer->post("/ui/review/listing/{$one}/decide", ['csrf' => $this->token($viewer)] + $form);
+        self::assertSame([403, 'role_not_allowed'], [$r->status, $r->errorCode()]);
+        self::assertSame(['unmapped', 0], [$this->link($one)['status'], (int) self::$db->value("SELECT COUNT(*) FROM match_decision WHERE action <> 'suggest'")],
+            'nothing was linked');
     }
 }

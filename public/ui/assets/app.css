@@ -1773,6 +1773,40 @@ table.by-product tbody tr.here > * { background: var(--row-selected); }
 table.by-product td.c-pick { vertical-align: top; }
 /* The line under the bar that says what its actions do (the store choice before its buttons: section 21) */
 .bulk-note { max-width: 100ch; }
+/* By Item's quick match (the owner's request of 20 Oct 2026): "Match…" is a fold in the cell; open, it holds the search box and the
+   store's variants (the fragment app.js draws): one small card per variant, its details as label and value, its "Match to …" form.
+   It opens in the cell (the list's box scrolls sideways when it grows), so nothing floats over the list or is cut off by its box. */
+table.by-product details.quick-pick { border: 0; border-radius: 0; padding: 0; margin: 2px 0 0; background: none; }
+table.by-product details.quick-pick > summary { display: inline-flex; min-height: 36px; margin: 0; list-style: none; }
+table.by-product details.quick-pick > summary::-webkit-details-marker { display: none; }
+table.by-product details.quick-pick[open] { min-width: min(26rem, 100%); }
+table.by-product details.quick-pick > :last-child:not(summary) { margin-bottom: 0; }
+.quick-pick .qp-search { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.quick-pick .qp-search input[type="search"] { flex: 1 1 10rem; min-width: 0; min-height: 36px; font-size: 16px; }
+.quick-pick .qp-page, .quick-pick .qp-more { margin: 6px 0 0; }
+.quick-pick .qp-h { margin: 10px 0 4px; color: var(--ink); font-weight: 600; }
+.quick-pick .qp-note { margin: 4px 0; }
+.quick-pick .qp-error { margin: 6px 0; color: var(--st-red); font-weight: 600; }
+.quick-pick .qp-list { display: grid; gap: 8px; margin: 6px 0; padding: 0; list-style: none; }
+.quick-pick .qp-row { padding: 10px 12px; border: 1px solid var(--hairline); border-radius: var(--r-12); background: var(--card); }
+.quick-pick .qp-row .qp-name { margin: 0; overflow-wrap: anywhere; }
+.quick-pick .qp-row .qp-name .o-name { font-weight: 600; }
+.quick-pick .qp-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 6px 0 0; }
+.quick-pick dl.qp-facts { grid-template-columns: max-content minmax(0, 1fr); margin: 6px 0 0; gap: 2px 12px; font-size: 13px; }
+.quick-pick dl.qp-facts dt { margin-top: 0; }
+.quick-pick .qp-why { margin: 6px 0 0; color: var(--ink-2); }
+.quick-pick .qp-open { margin: 8px 0 0; }
+.quick-pick form.qp-match { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 10px; margin: 8px 0 0; }
+.quick-pick .qp-units { display: inline-flex; flex-direction: column; gap: 2px; color: var(--ink-2); font-size: 12px; }
+.quick-pick .qp-units input { width: 6rem; min-height: 36px; font-size: 16px; }
+@media (max-width: 699.98px), (pointer: coarse) {
+  table.by-product details.quick-pick > summary, .quick-pick .qp-search input[type="search"], .quick-pick .qp-units input, .quick-pick .btn { min-height: 44px; }
+}
+@container (max-width: 640px) {
+  /* As a card: an open fold takes the card's whole width, under the store's name */
+  table.stack.by-product td.c-store:has(> details.quick-pick[open]) { grid-template-columns: minmax(0, 1fr); }
+  table.stack.by-product td.c-store:has(> details.quick-pick[open]) > * { grid-column: 1 / -1; }
+}
 /* The preview: one line per variant, what will happen (and why) in its last cell; the one button stays in sight (.actions.sticky) */
 table.by-item-preview td.c-wide { text-align: left; }
 table.by-item-preview td.c-wide .why { display: block; margin-top: 4px; color: var(--ink-2); }

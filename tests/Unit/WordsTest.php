@@ -445,6 +445,9 @@ final class WordsTest extends TestCase
         self::assertSame(['Match CW-000041 on Alt Store', 'Suggested for this item', 'Other variants of Alt Store still waiting for a match'],
             [Words::say('BY_PRODUCT', 'pick_title', 'CW-000041', 'Alt Store'), Words::BY_PRODUCT['pick_suggested'], Words::say('BY_PRODUCT', 'pick_search', 'Alt Store')]);
         self::assertSame('See where it is matched', Words::ITEM['coverage_link']);
+        // The quick match in a cell (the owner's request of 20 Oct 2026): the fold still opens with "Match…"; its button names the item.
+        self::assertSame(['Match to CW-000041', 'Match Elux Legend to CW-000041', 'Open the matching page'], [Words::say('BY_PRODUCT', 'quick_match', 'CW-000041'),
+            Words::say('BY_PRODUCT', 'quick_match_named', 'Elux Legend', 'CW-000041'), Words::BY_PRODUCT['quick_page']]);
         $texts = array_merge(array_values(Words::BY_PRODUCT), array_values(Words::PRODUCT_STORE), Words::PAGE_INTRO['by_product'], Words::PAGE_INTRO['by_product_map'],
             [Words::MENU['by_product'], Words::MENU_HELP['by_product'], Words::ERROR['unknown_store'], Words::ERROR['item_joined'], Words::ITEM['coverage_link']]);
         foreach ($texts as $text) {

@@ -44,6 +44,7 @@ final class UiTemplatesTest extends TestCase
             'setting', 'config_history', 'approvals', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet', 'enrol',
             'staff_requests', 'new_code', 'stock', 'stock_movements', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result',
             'stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box', 'stock_reservations', 'stock_reservation', 'by_product', 'by_product_map',
+            'by_product_options', // By Item's quick match: the fragment app.js draws into a cell (the owner's request of 20 Oct 2026)
             'by_item_preview', 'new_variants', 'one_at_a_time',
             'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before',
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D
@@ -195,7 +196,7 @@ final class UiTemplatesTest extends TestCase
         $templates = self::templates();
         foreach (['queue', 'listing', 'listing_form', 'listing_decide', 'pending', 'pending_actions', 'pending_decision', 'samples', 'sample', 'duplicates', 'duplicate_group',
             'search', 'item', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result', 'by_product', 'by_product_map',
-            'by_item_preview', 'new_variants', 'one_at_a_time'] as $name) {
+            'by_product_options', 'by_item_preview', 'new_variants', 'one_at_a_time'] as $name) {
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {

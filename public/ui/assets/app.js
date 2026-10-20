@@ -183,7 +183,7 @@
   });
 
   // A form that changes something is sent once: the button is disabled on the first submit.
-  each(document.querySelectorAll('form[method="post"]'), function (form) {
+  var sendOnce = function (form) {
     form.addEventListener('submit', function (ev) {
       if (ev.defaultPrevented) {
         return;
@@ -193,6 +193,117 @@
         each(buttons, function (b) { b.disabled = true; });
       }, 0);
     });
+  };
+  each(document.querySelectorAll('form[method="post"]'), sendOnce);
+
+  // By Item's quick match (the owner's request of 20 Oct 2026: "directly add dropdown with full details"). "Match…" in a cell of a
+  // store that has no variant for the item is a <details> with a search box. Without the script its Search opens the picker page (a
+  // GET form after the list, which the box and its button name with form=: the list sits inside the bulk form). With it, opening the
+  // fold and typing (250 ms after the last key; 2 letters or more, or an emptied box for the plain opening) show the store's variants
+  // in the cell: the read-only fragment at the address in data-options, a path of this site (the suggestions for the item first, then
+  // the search), parsed inert by DOMParser (nothing in it runs) and shown only when its root says it is that fragment
+  // (data-qp-fragment). Anything else (the sign-in page of a session that ended, an error page, no network) shows the page's words
+  // for it (data-failed) beside the fold's way to the matching page: never a part of another page, never nothing. A row's "Match to …"
+  // is a plain POST form of the variant's own decide route, so a refusal lands on the variant's page with its words, as from there.
+  // In the document the rows sit inside the list's bulk form, but a control belongs to the form nearest it: neither sends the other's.
+  each(document.querySelectorAll('details[data-quick-pick]'), function (box) {
+    var base = box.getAttribute('data-options') || '';
+    var out = box.querySelector('[data-qp-results]');
+    var input = box.querySelector('input[data-qp-q]');
+    if (base.indexOf('/ui/review/products/') !== 0 || base.indexOf('?') < 0 || !out || !input || !window.fetch || !window.DOMParser) {
+      return;
+    }
+    var timer = 0;
+    var asked = null;
+    var turn = 0;
+    var touched = false;
+    var show = function (node) {
+      while (out.firstChild) {
+        out.removeChild(out.firstChild);
+      }
+      out.appendChild(node);
+    };
+    var line = function (text, cls) {
+      var p = document.createElement('p');
+      p.className = cls;
+      p.textContent = text;
+      return p;
+    };
+    // null: the plain opening (the suggestions; the item's own words when nothing is suggested); else the person's words.
+    var words = function () {
+      var v = input.value.trim();
+      return !touched || v === '' ? null : v;
+    };
+    var load = function (q) {
+      var key = q === null ? '' : '&q=' + encodeURIComponent(q);
+      if (key === asked) {
+        return;
+      }
+      asked = key;
+      var mine = ++turn;
+      out.setAttribute('aria-busy', 'true');
+      show(line(box.getAttribute('data-loading') || '', 'qp-wait muted'));
+      window.fetch(base + key, { credentials: 'same-origin', method: 'GET', headers: { Accept: 'text/html' } })
+        .then(function (r) {
+          if (!r.ok || r.redirected) {
+            throw new Error('not the variants');
+          }
+          return r.text();
+        })
+        .then(function (html) {
+          if (mine !== turn) {
+            return;
+          }
+          var doc = new window.DOMParser().parseFromString(html, 'text/html');
+          var part = doc.querySelector('[data-qp-fragment]');
+          if (!part) {
+            throw new Error('not the variants');
+          }
+          var node = document.importNode(part, true);
+          each(node.querySelectorAll('form[method="post"]'), sendOnce);
+          show(node);
+          out.removeAttribute('aria-busy');
+        })
+        .catch(function () {
+          if (mine !== turn) {
+            return;
+          }
+          asked = null; // the next try asks again
+          var p = line(box.getAttribute('data-failed') || '', 'qp-error');
+          p.setAttribute('role', 'alert');
+          show(p);
+          out.removeAttribute('aria-busy');
+        });
+    };
+    box.addEventListener('toggle', function () {
+      if (box.open) {
+        load(words());
+      }
+    });
+    input.addEventListener('input', function () {
+      touched = true;
+      window.clearTimeout(timer);
+      var v = input.value.trim();
+      if (v.length === 1) {
+        return; // one letter finds too much: wait for the next
+      }
+      timer = window.setTimeout(function () { load(words()); }, 250);
+    });
+    if (input.form) {
+      // Search (or Enter) with the script: the variants in the fold at once; the fold's link still opens the matching page.
+      input.form.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        touched = true;
+        window.clearTimeout(timer);
+        if (!box.open) {
+          box.open = true;
+        }
+        load(words());
+      });
+    }
+    if (box.open) {
+      load(words());
+    }
   });
 
   // Coming back with the back button must not leave a disabled button behind.

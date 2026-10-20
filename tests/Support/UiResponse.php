@@ -81,18 +81,36 @@ final class UiResponse
     /**
      * The fields a browser would submit for the (first) form whose action contains $action:
      * hidden, text, number, search fields, the checked radio of each group, checked boxes and
-     * the first option of a select; with $textareas also every textarea (its text). Disabled controls are left out.
+     * the first option of a select; with $textareas also every textarea (its text). Disabled controls are left out. A control
+     * belongs to the form it names with form="<id>", wherever it is (By Item's search box in a cell sits inside the list's bulk
+     * form and names its own GET form), else to the form around it: as a browser reads it.
      *
      * @return array<string, string>
      */
     public function form(string $action, bool $textareas = false): array
     {
-        foreach ($this->dom()->getElementsByTagName('form') as $form) {
+        $dom = $this->dom();
+        foreach ($dom->getElementsByTagName('form') as $form) {
             if (!str_contains($form->getAttribute('action'), $action)) {
                 continue;
             }
+            $id = $form->getAttribute('id');
+            $owns = static function (\DOMElement $el) use ($form, $id): bool {
+                if ($el->hasAttribute('form')) {
+                    return $id !== '' && $el->getAttribute('form') === $id;
+                }
+                for ($p = $el->parentNode; $p !== null; $p = $p->parentNode) {
+                    if ($p->isSameNode($form)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
             $out = [];
-            foreach ($form->getElementsByTagName('input') as $in) {
+            foreach ($dom->getElementsByTagName('input') as $in) {
+                if (!$owns($in)) {
+                    continue;
+                }
                 $name = $in->getAttribute('name');
                 if ($name === '' || $in->hasAttribute('disabled')) {
                     continue;
@@ -109,7 +127,10 @@ final class UiResponse
                 }
                 $out[$name] = $in->getAttribute('value');
             }
-            foreach ($form->getElementsByTagName('select') as $sel) {
+            foreach ($dom->getElementsByTagName('select') as $sel) {
+                if (!$owns($sel)) {
+                    continue;
+                }
                 $options = $sel->getElementsByTagName('option');
                 $chosen = null;
                 foreach ($options as $o) {
@@ -120,8 +141,8 @@ final class UiResponse
                 $out[$sel->getAttribute('name')] = (string) $chosen;
             }
             if ($textareas) {
-                foreach ($form->getElementsByTagName('textarea') as $ta) {
-                    if ($ta->getAttribute('name') !== '' && !$ta->hasAttribute('disabled')) {
+                foreach ($dom->getElementsByTagName('textarea') as $ta) {
+                    if ($owns($ta) && $ta->getAttribute('name') !== '' && !$ta->hasAttribute('disabled')) {
                         // A browser drops the one line break that may follow the opening tag.
                         $out[$ta->getAttribute('name')] = (string) preg_replace('/^\r?\n/', '', (string) $ta->textContent);
                     }

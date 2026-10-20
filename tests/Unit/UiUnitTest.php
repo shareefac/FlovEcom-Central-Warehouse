@@ -369,6 +369,10 @@ final class UiUnitTest extends TestCase
         self::assertSame('linking.view', $byPath['GET /ui/review/products']);
         self::assertSame('linking.view', $byPath['GET /ui/review/products.csv']);
         self::assertSame(Route::DECIDE, $byPath['GET /ui/review/products/{id}/map']);
+        // Its quick match (the owner's request of 20 Oct 2026): the picker's variants as a fragment for a cell of the list, read only,
+        // for the same people; its "Match to …" is the decide route above.
+        self::assertSame(Route::DECIDE, $byPath['GET /ui/review/products/{id}/map/options']);
+        self::assertArrayNotHasKey('POST /ui/review/products/{id}/map/options', $byPath);
         self::assertSame(['POST /ui/review/products/bulk', 'POST /ui/review/products/bulk/apply'],
             array_values(array_filter(array_keys($byPath), static fn (string $k): bool => str_starts_with($k, 'POST /ui/review/products'))));
         self::assertSame([Route::DECIDE, Route::DECIDE], [$byPath['POST /ui/review/products/bulk'], $byPath['POST /ui/review/products/bulk/apply']]);
@@ -818,6 +822,16 @@ final class UiUnitTest extends TestCase
         self::assertDoesNotMatchRegularExpression('#(?:@import|url\(\s*["\']?(?:https?:)?//)#i', $css, 'the CSS fetches nothing from elsewhere');
         self::assertDoesNotMatchRegularExpression('/\b(eval|Function)\s*\(|new\s+Function|document\.write|innerHTML|outerHTML|insertAdjacentHTML|setTimeout\s*\(\s*["\']|setInterval\s*\(\s*["\']/', $js, 'nothing the CSP would have to allow, nothing that builds markup from strings');
         self::assertDoesNotMatchRegularExpression('#https?://#', $js, 'no third-party host');
-        self::assertDoesNotMatchRegularExpression('/\b(fetch|XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/', $js, 'the script only enhances forms: it never talks to the network');
+        // The script enhances forms; the one thing it reads from the network is By Item's quick match (the owner's request of 20 Oct
+        // 2026): the read-only fragment of this site's own route, named by the page (data-options, a path under /ui/review/products/),
+        // sent with the session's cookie only to this site, parsed inert (DOMParser: nothing in it runs) and shown only when its root
+        // says it is that fragment. Nothing else talks to the network, and nothing is sent but the GET.
+        self::assertDoesNotMatchRegularExpression('/\b(XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/', $js, 'no other way to the network');
+        self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the quick match\'s fragment');
+        self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'its address is the page\'s');
+        self::assertStringContainsString("base.indexOf('/ui/review/products/') !== 0", $js, 'a path of this site\'s own route, nothing else');
+        self::assertStringContainsString("{ credentials: 'same-origin', method: 'GET'", $js);
+        self::assertStringContainsString("new window.DOMParser().parseFromString(html, 'text/html')", $js);
+        self::assertStringContainsString("doc.querySelector('[data-qp-fragment]')", $js, 'shown only when it is the fragment');
     }
 }

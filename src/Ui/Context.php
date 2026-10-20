@@ -252,6 +252,17 @@ final class Context
     }
 
     /**
+     * A part of a page without the layout, for app.js to put into the page it came from (By Item's quick match: a cell's variants).
+     * The same templates, helpers and CSRF token as a page; the kernel adds the same headers.
+     *
+     * @param array<string, mixed> $vars
+     */
+    public function fragment(string $template, array $vars, int $status = 200): HtmlResponse
+    {
+        return new HtmlResponse($status, (new View(View::defaultDir(), ['csrf' => $this->token(), 'who' => $this->who]))->render($template, $vars));
+    }
+
+    /**
      * The layout's variables for this person, all from Ui\Sections (the roles read for this request, I14): the sidebar (`nav`), the
      * current section's page bar with its tabs (`pagebar`), the current tab's segmented filter (`segments`), the page's create button
      * (`actions`), the buying flow on Purchasing (`flow`, Ui\FlowCounts), the phone's bottom bar (`tabs`), whether the find box is

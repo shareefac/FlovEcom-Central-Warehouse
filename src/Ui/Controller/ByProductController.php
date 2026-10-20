@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\CwException;
 use CW\Db;
 use CW\Mapping\BulkDecisions;
+use CW\Mapping\DecisionService;
+use CW\Mapping\OneAtATime;
 use CW\Mapping\Proposals;
 use CW\Matching\Gtin;
 use CW\Output\CsvWriter;
@@ -40,6 +43,14 @@ use CW\Ui\Words;
  * and presses an action of the bar under the list, for one store or all of them. The list only draws that form (each ticked row
  * sends the suggested variants it showed, every one of them: `cells_<item>`); ByItemBulkController shows the preview and applies
  * it. A cell whose every suggestion was marked "not a match" for the item before says so (M59).
+ *
+ * The quick match (the owner's request of 20 Oct 2026: "directly add dropdown with full details, need search all attribute for
+ * product"): in a cell of a store that has no variant for the item, "Match…" is a fold with the picker's search box. Without app.js
+ * its Search opens the picker (a GET form of its own after the list: the list sits in the bulk form, and a form inside a form is no
+ * form). With it the fold shows options(): the picker's two lists as a fragment, each variant with its details and a "Match to …"
+ * form that posts to the variant's own decide route (ReviewController::decide) with the way back to the row (ByProductContext): the
+ * decision, its rules and its refusals stay there, and a refusal lands on the variant's page with its words. A variant decided one
+ * at a time (OneAtATime) or one only a matching lead may decide gets "Choose" (its page) instead. Still no POST of this class.
  */
 final class ByProductController
 {
@@ -254,6 +265,112 @@ final class ByProductController
         $req = $ctx->req;
         $q = $ctx->queries();
         $id = $ctx->id();
+        $subject = self::subject($ctx, $id);
+        if ($subject instanceof HtmlResponse) {
+            return $subject;
+        }
+        ['sku' => $sku, 'store' => $store, 'bp' => $bp] = $subject;
+        $barcodes = $q->barcodesOfMany([$id])[$id] ?? [];
+        $page = min(UiRequest::id($req->param('page')) ?? 1, self::PICK_MAX_PAGE);
+        $c = self::choices($ctx, $id, $sku, $store, $bp, $barcodes, $req->param('q'), $page);
+        // What the store holds for the item now: a second variant can still be matched (one item on two pages).
+        $now = self::rows([['id' => $id, 'code' => $sku['code'], 'name' => $sku['name'], 'brand' => $sku['brand']]], [$store], self::marked($ctx->db, $q->productCells([$id])),
+            false, null, '')[0]['cells'][0];
+        // Previous and Next always name the search they page through: an emptied search too, which a link built from its values
+        // alone would lose (the next page would fall back to the first search).
+        $pager = $bp->withPicker($c['text'], 1);
+        return $ctx->page('by_product_map', [
+            'sku' => ['id' => $id, 'code' => self::s($sku['code']), 'name' => self::s($sku['name']), 'brand' => self::s($sku['brand']),
+                'strength' => $sku['strength_mg'] === null ? null : Html::dec($sku['strength_mg']), 'size' => $sku['volume_ml'] === null ? null : Html::dec($sku['volume_ml']),
+                'flavour' => self::s($sku['flavour']), 'line' => self::s($sku['line'])],
+            'barcodes' => $barcodes,
+            'store' => ['code' => $bp->channel, 'name' => $bp->channelName],
+            'now' => $now,
+            'suggested' => $c['suggested'],
+            'found' => $c['found'],
+            'ran' => $c['ran'],
+            'text' => $c['text'],
+            'keep' => ['channel' => $bp->channel, 'cov' => $bp->coverage, 'lq' => $bp->text === '' ? null : $bp->text, 'ln' => $bp->rows],
+            'action' => ByProductContext::LIST_PATH . '/' . $id . '/map',
+            'page_no' => $page,
+            'prev_link' => $c['ran'] && $page > 1 ? $pager->pickerUrl($page - 1) : null,
+            'next_link' => $c['more'] && $page < self::PICK_MAX_PAGE ? $pager->pickerUrl($page + 1) : null,
+            'back' => $bp->listUrl(),
+        ], 200, ['title' => Words::say('BY_PRODUCT', 'pick_title', (string) $sku['code'], $bp->channelName), 'active' => 'by_product', 'notice' => null]);
+    }
+
+    /**
+     * The quick match of a cell (GET …/map/options, read only, for whoever may open the picker): the picker's two lists of ONE store
+     * for ONE item as a fragment for app.js, without the layout, at most the picker's first page. No `q` is the picker's plain opening
+     * (the suggestions; the item's own words only when nothing is suggested), a `q` the person's search (an empty one: the suggestions
+     * and the store's best sellers). Each variant carries its details and, unless OneAtATime names it or its clues disagree and the
+     * person is no matching lead (the variant's page would not let them answer at once), a "Match to …" form: every field the decide
+     * route needs (the variant's map_version, its open suggestion, the units the suggestion gives for THIS item, else 1) and the way
+     * back to the row (ByProductContext, with the person's search for Back from the variant's page). An error is the picker's page
+     * in words (app.js shows its own line and the way to the picker for anything that is not the fragment).
+     */
+    public function options(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        $subject = self::subject($ctx, $id);
+        if ($subject instanceof HtmlResponse) {
+            return $subject;
+        }
+        ['sku' => $sku, 'store' => $store, 'bp' => $bp] = $subject;
+        $typed = $ctx->req->param('q');
+        $c = self::choices($ctx, $id, $sku, $store, $bp, $ctx->queries()->barcodesOfMany([$id])[$id] ?? [], $typed, 1);
+        $lead = $ctx->me()->isLead();
+        // One read for every row of the fragment: the variants no one answers from a list (OneAtATime: held back, a spot check's
+        // match, found on arrival), with the line the lists say for them.
+        $once = OneAtATime::of($ctx->db, array_column([...$c['suggested'], ...$c['found']], 'listing_id'));
+        $mark = static function (array $r) use ($once, $lead): array {
+            $why = ReviewController::oneAtATime($once[$r['listing_id']] ?? null);
+            $r['why'] = $why !== null ? ['text' => $why['text'], 'link' => $why['link']]
+                : ($r['open_band'] === 'Conflict' && !$lead ? ['text' => Words::LISTING['lead_only'], 'link' => null] : null);
+            $r['match'] = $r['why'] === null;
+            return $r;
+        };
+        $suggested = array_map($mark, $c['suggested']);
+        $found = array_map($mark, $c['found']);
+        $opening = $typed === null;
+        $notes = [];
+        if (!$c['ran']) {
+            $notes[] = Words::BY_PRODUCT['quick_search_first'];
+        } else {
+            if ($opening && $c['text'] !== '') {
+                $notes[] = Words::say('BY_PRODUCT', 'quick_first', $c['text']);
+            }
+            if ($found === []) {
+                $notes[] = $suggested === [] ? Words::BY_PRODUCT['pick_found_none'] : Words::BY_PRODUCT['pick_found_no_more'];
+            }
+        }
+        return $ctx->fragment('by_product_options', [
+            'sku' => ['id' => $id, 'code' => (string) $sku['code']],
+            'store' => ['code' => $bp->channel, 'name' => $bp->channelName],
+            'lists' => [
+                ['id' => 'suggested', 'title' => $suggested === [] ? null : Words::BY_PRODUCT['pick_suggested'],
+                    'notes' => $suggested === [] && $opening ? [Words::BY_PRODUCT['quick_suggested_none']] : [], 'rows' => $suggested],
+                ['id' => 'found', 'title' => $c['ran'] ? Words::say('BY_PRODUCT', 'pick_search', $bp->channelName) : null, 'notes' => $notes, 'rows' => $found],
+            ],
+            // The way back from the variant's page after a decision is the list at this row; Back on that page is the picker with
+            // the person's search (none on a plain opening).
+            'back' => $bp->withPicker($opening ? null : $c['text'], 1)->query(),
+            'more' => $c['more'] ? $bp->withPicker($c['text'], 1)->pickerUrl() : null,
+            'max_units' => DecisionService::MAX_UNITS,
+        ]);
+    }
+
+    /**
+     * The item and the store a picker or a quick match is about (`{id}`, `channel`), with the context it carries (the list's filter,
+     * search and rows); else the page that says why in words: an item that is not one or was joined into another one, a store that
+     * is not one.
+     *
+     * @return array{sku: array<string, mixed>, store: array{id: int, code: string, name: string}, bp: ByProductContext}|HtmlResponse
+     */
+    private static function subject(Context $ctx, int $id): array|HtmlResponse
+    {
+        $req = $ctx->req;
+        $q = $ctx->queries();
         $list = [ByProductContext::LIST_PATH, Words::MENU['by_product']];
         $sku = $q->skus([$id])[$id] ?? null;
         if ($sku === null) {
@@ -272,12 +389,26 @@ final class ByProductController
         $bp = new ByProductContext($id, (string) $store['code'], (int) $store['id'], (string) $store['name'],
             ByProductContext::coverage($req->param('cov'), $stores)['value'], ByProductContext::text($req->param('lq') ?? ''), null, null,
             ByProductContext::pageSize($req->param('ln')));
-        $barcodes = $q->barcodesOfMany([$id])[$id] ?? [];
-        // The first search comes from the item's own words; once the person has searched, it is theirs (also an empty one).
-        $typed = $req->param('q');
+        return ['sku' => $sku, 'store' => $store, 'bp' => $bp];
+    }
+
+    /**
+     * The variants of the store to choose from for the item: the ones the computer suggests for it (the strongest first), then, when
+     * the search runs, a page of the store's waiting variants with every word (Queries::waitingListings; not the suggested ones
+     * again). The first search comes from the item's own words; once the person has searched (`q`, also an empty one) it is theirs.
+     * Each row is a variant as the picker and the quick match show it, in one read of their profiles (Queries::pickerRows) and one
+     * of the item's barcodes (given).
+     *
+     * @param array<string, mixed> $sku
+     * @param array{id: int, code: string, name: string} $store
+     * @param list<string> $barcodes the item's own
+     * @return array{suggested: list<array<string, mixed>>, found: list<array<string, mixed>>, ran: bool, text: string, more: bool}
+     */
+    private static function choices(Context $ctx, int $id, array $sku, array $store, ByProductContext $bp, array $barcodes, ?string $typed, int $page): array
+    {
+        $q = $ctx->queries();
         $searched = $typed !== null;
         $text = $searched ? ByProductContext::text($typed) : self::firstSearch($sku);
-        $page = min(UiRequest::id($req->param('page')) ?? 1, self::PICK_MAX_PAGE);
         $suggestedIds = $q->suggestedFor($id, (int) $store['id']);
         $ran = $searched || $suggestedIds === [];
         $found = $ran ? $q->waitingListings((int) $store['id'], $text, $page) : ['ids' => [], 'more' => false];
@@ -293,7 +424,10 @@ final class ByProductController
             if ($r === null) {
                 return null;
             }
-            $theirs = array_map($key, Html::strings(Html::json($r['barcodes'])));
+            $codes = Html::strings(Html::json($r['barcodes']));
+            $theirs = array_map($key, $codes);
+            // A suggestion of THIS item gives its strength and its units; another item's is only "Suggested".
+            $mine = $r['proposed_sku_id'] !== null && (int) $r['proposed_sku_id'] === $id;
             return [
                 'listing_id' => $lid,
                 'title' => self::s($r['product_title']),
@@ -304,39 +438,49 @@ final class ByProductController
                 'units_30d' => $r['units_30d'],
                 'units_365d' => $r['units_365d'],
                 'state' => (string) $r['state'],
-                // The strength of its suggestion, when the suggestion is of THIS item (another item's is only "Suggested").
-                'band' => $r['band'] !== null && (int) $r['proposed_sku_id'] === $id ? (string) $r['band'] : null,
+                'band' => $r['band'] !== null && $mine ? (string) $r['band'] : null,
                 'barcode' => $own === [] || $theirs === [] ? 'unknown' : (array_intersect($own, $theirs) !== [] ? 'same' : 'differs'),
+                'barcodes' => array_values(array_filter(array_map(static fn (string $b): ?string => self::s($b), array_slice($codes, 0, 10)))),
+                'facts' => self::facts($r),
                 'choose' => Html::url('/ui/review/listing/' . $lid, $choose),
+                // What the quick match's "Match to …" sends, as the variant's page would: its version, its open suggestion (of any
+                // item: the decision must name it, I7) and how many one sale uses.
+                'map_version' => (int) $r['map_version'],
+                'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'],
+                'open_band' => $r['band'] === null ? null : (string) $r['band'],
+                'units' => $mine && $r['ai_units_per_item'] !== null ? max(1, min(DecisionService::MAX_UNITS, (int) $r['ai_units_per_item'])) : 1,
             ];
         };
         $suggested = array_values(array_filter(array_map($row, $suggestedIds)));
         usort($suggested, static fn (array $a, array $b): int => [array_search($a['band'], Proposals::BANDS, true), $a['listing_id']]
             <=> [array_search($b['band'], Proposals::BANDS, true), $b['listing_id']]);
-        // What the store holds for the item now: a second variant can still be matched (one item on two pages).
-        $now = self::rows([['id' => $id, 'code' => $sku['code'], 'name' => $sku['name'], 'brand' => $sku['brand']]], [$store], self::marked($ctx->db, $q->productCells([$id])),
-            false, null, '')[0]['cells'][0];
-        // Previous and Next always name the search they page through: an emptied search too, which a link built from its values
-        // alone would lose (the next page would fall back to the first search).
-        $pager = $bp->withPicker($text, 1);
-        return $ctx->page('by_product_map', [
-            'sku' => ['id' => $id, 'code' => self::s($sku['code']), 'name' => self::s($sku['name']), 'brand' => self::s($sku['brand']),
-                'strength' => $sku['strength_mg'] === null ? null : Html::dec($sku['strength_mg']), 'size' => $sku['volume_ml'] === null ? null : Html::dec($sku['volume_ml']),
-                'flavour' => self::s($sku['flavour']), 'line' => self::s($sku['line'])],
-            'barcodes' => $barcodes,
-            'store' => ['code' => $bp->channel, 'name' => $bp->channelName],
-            'now' => $now,
-            'suggested' => $suggested,
-            'found' => array_values(array_filter(array_map($row, $foundIds))),
-            'ran' => $ran,
-            'text' => $text,
-            'keep' => ['channel' => $bp->channel, 'cov' => $bp->coverage, 'lq' => $bp->text === '' ? null : $bp->text, 'ln' => $bp->rows],
-            'action' => ByProductContext::LIST_PATH . '/' . $id . '/map',
-            'page_no' => $page,
-            'prev_link' => $ran && $page > 1 ? $pager->pickerUrl($page - 1) : null,
-            'next_link' => $found['more'] && $page < self::PICK_MAX_PAGE ? $pager->pickerUrl($page + 1) : null,
-            'back' => $bp->listUrl(),
-        ], 200, ['title' => Words::say('BY_PRODUCT', 'pick_title', (string) $sku['code'], $bp->channelName), 'active' => 'by_product', 'notice' => null]);
+        return ['suggested' => $suggested, 'found' => array_values(array_filter(array_map($row, $foundIds))), 'ran' => $ran, 'text' => $text, 'more' => $found['more']];
+    }
+
+    /**
+     * What the matching read from a variant (its features), as the variant's page shows a new item's details (DecisionService::cardFrom):
+     * the strength, the size, the flavour and the range where they are known, by their field (Words::FIELD), in that order.
+     *
+     * @param array<string, mixed> $r a Queries::pickerRows row
+     * @return array<string, string>
+     */
+    private static function facts(array $r): array
+    {
+        try {
+            $card = DecisionService::cardFrom(['product_title' => $r['product_title'], 'variant_title' => $r['variant_title'], 'brand' => $r['brand']],
+                Html::json($r['features']));
+        } catch (CwException) {
+            return []; // no name at all: nothing the matching read either
+        }
+        $out = [];
+        foreach (['strength_mg', 'volume_ml', 'flavour', 'line'] as $field) {
+            $v = $card[$field] ?? null;
+            $v = is_float($v) || is_int($v) ? Html::dec($v) : self::s($v);
+            if ($v !== null && $v !== '') {
+                $out[$field] = mb_substr($v, 0, 200);
+            }
+        }
+        return $out;
     }
 
     /**
@@ -377,7 +521,7 @@ final class ByProductController
             $id = (int) $p['id'];
             $on = 0;
             $out = [];
-            foreach ($stores as $s) {
+            foreach ($stores as $si => $s) {
                 $has = $by[$id][(int) $s['id']] ?? [];
                 $suggested = $has['suggested'] ?? [];
                 // The strongest suggestion first; one whose pair was marked "not a match" before comes after the others (M59).
@@ -416,6 +560,18 @@ final class ByProductController
                     'review' => $review,
                     // "Match…" for the people who may decide: the picker of this item on this store.
                     'map' => $canDecide && $state !== 'waiting' ? $bp->pickerUrl() : null,
+                    'channel' => (string) $s['code'],
+                    // ... and where the store has nothing for the item, the quick match: the fold's search box (filled in with the
+                    // item's own words, as the picker's first search), the GET form it names (drawn after the list, outside the bulk
+                    // form), and the fragment app.js shows in the cell.
+                    'quick' => $canDecide && $state === 'none' ? [
+                        'form' => 'qp-' . $id . '-' . $si,
+                        'action' => ByProductContext::LIST_PATH . '/' . $id . '/map',
+                        'keep' => ['channel' => (string) $s['code'], 'cov' => $coverage, 'lq' => $text === '' ? null : $text, 'ln' => $n],
+                        'options' => $bp->optionsUrl(),
+                        'text' => self::firstSearch($p),
+                        'label' => Words::say('BY_PRODUCT', 'quick_label', (string) $s['name'], (string) $p['code']),
+                    ] : null,
                 ];
             }
             $name = self::s($p['name']);

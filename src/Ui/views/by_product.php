@@ -4,6 +4,9 @@
 // In the owner's words (U122) the row is an ITEM, what a store sells is a VARIANT, and "Product:" names the variant's parent page.
 // Since U123-U124: the number of rows is chosen above the list, and a person who may decide gets a tick box on every item a store
 // suggests a variant for, and the bar under the list (a plain form without app.js: its buttons open the preview, which saves nothing).
+// The quick match (the owner's request of 20 Oct 2026): a cell of a store that has no variant for the item has "Match…" as a fold
+// with a search box. Its box and its button name a GET form of the picker (form=), drawn after the list: the list is inside the bulk
+// form, and a form inside a form is no form. app.js shows the store's variants in the fold (data-options, by_product_options.php).
 ?>
 <?= $head(\CW\Ui\Words::MENU['by_product'], intro: 'by_product', look: $lookOnly) ?>
 <?php if ($stores === []): ?>
@@ -108,14 +111,19 @@
 <?php if ($c['also_suggested'] > 0): ?>
         <span class="o-sub"><?= $say('BY_PRODUCT', 'also_suggested', $c['also_suggested']) ?></span>
 <?php endif; ?>
-<?php if ($c['review'] !== null || $c['map'] !== null): ?>
+<?php if ($c['quick'] !== null): ?>
+        <details class="quick-pick" data-quick-pick data-options="<?= $e($c['quick']['options']) ?>" data-sku-id="<?= $e($r['id']) ?>" data-channel="<?= $e($c['channel']) ?>" data-loading="<?= $word('BY_PRODUCT', 'quick_loading') ?>" data-failed="<?= $word('BY_PRODUCT', 'quick_failed') ?>">
+          <summary class="btn sm secondary" title="<?= $say('BY_PRODUCT', 'map_named', $c['store'], (string) $r['code']) ?>"><?= $word('BY_PRODUCT', 'map') ?></summary>
+          <span class="qp-search"><input type="search" name="q" form="<?= $e($c['quick']['form']) ?>" value="<?= $e($c['quick']['text']) ?>" maxlength="100" aria-label="<?= $e($c['quick']['label']) ?>" data-qp-q> <button type="submit" class="btn sm" form="<?= $e($c['quick']['form']) ?>"><?= $word('UI', 'search') ?></button></span>
+          <div class="qp-results" data-qp-results aria-live="polite"></div>
+          <p class="qp-page"><a href="<?= $e($c['map']) ?>"><?= $word('BY_PRODUCT', 'quick_page') ?></a></p>
+        </details>
+<?php elseif ($c['review'] !== null || $c['map'] !== null): ?>
         <span class="o-line cell-actions">
 <?php if ($c['review'] !== null): ?>
           <a class="btn sm primary" href="<?= $e($c['review']) ?>"><?= $word('BY_PRODUCT', 'review') ?></a>
 <?php endif; ?>
-<?php if ($c['map'] !== null && $c['state'] === 'none'): ?>
-          <a class="btn sm secondary" href="<?= $e($c['map']) ?>" title="<?= $say('BY_PRODUCT', 'map_named', $c['store'], (string) $r['code']) ?>"><?= $word('BY_PRODUCT', 'map') ?></a>
-<?php elseif ($c['map'] !== null): ?>
+<?php if ($c['map'] !== null): ?>
           <a class="map-more" href="<?= $e($c['map']) ?>" title="<?= $say('BY_PRODUCT', 'map_named', $c['store'], (string) $r['code']) ?>"><?php if ($c['state'] === 'matched'): ?><?= $word('BY_PRODUCT', 'map_more') ?><?php else: ?><?= $word('BY_PRODUCT', 'map_other') ?><?php endif; ?></a>
 <?php endif; ?>
         </span>
@@ -133,6 +141,19 @@
 </form>
 <p class="muted bulk-note"><?= $say('BY_ITEM_BULK', 'limit', $bulkMax) ?> <?= $word('BY_ITEM_BULK', 'undo_note') ?><?php if ($manualNote): ?> <?= $word('BY_ITEM_BULK', 'manual_note') ?><?php endif; ?></p>
 <?php endif; ?>
+<?php foreach ($rows as $r): ?>
+<?php foreach ($r['cells'] as $c): ?>
+<?php if ($c['quick'] !== null): ?>
+<form class="qp-form" method="get" id="<?= $e($c['quick']['form']) ?>" action="<?= $e($c['quick']['action']) ?>">
+<?php foreach ($c['quick']['keep'] as $key => $value): ?>
+<?php if ($value !== null && $value !== ''): ?>
+  <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
+<?php endif; ?>
+<?php endforeach; ?>
+</form>
+<?php endif; ?>
+<?php endforeach; ?>
+<?php endforeach; ?>
 <?php endif; ?>
 
 <?php if ($pages > 1): ?>

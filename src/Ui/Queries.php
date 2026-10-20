@@ -1028,7 +1028,7 @@ final class Queries
      * Products by id, in id order: the rows of a page of By Item (and of a slice of its CSV).
      *
      * @param list<int> $ids
-     * @return list<array<string, mixed>> id, code, name, brand
+     * @return list<array<string, mixed>> id, code, name, brand, flavour (the quick match's first words: ByProductController::firstSearch)
      */
     public function productRows(array $ids): array
     {
@@ -1036,7 +1036,7 @@ final class Queries
             return [];
         }
         // Pack B (PB12): with the item's family (By Item names it), two primary-key joins.
-        return $this->db->all('SELECT s.id, s.code, s.name, s.brand, f.name AS family_name FROM sku s LEFT JOIN item_family_member fm ON fm.sku_id = s.id '
+        return $this->db->all('SELECT s.id, s.code, s.name, s.brand, s.flavour, f.name AS family_name FROM sku s LEFT JOIN item_family_member fm ON fm.sku_id = s.id '
             . 'LEFT JOIN item_family f ON f.id = fm.family_id WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY s.id', $ids);
     }
 
@@ -1136,10 +1136,30 @@ final class Queries
     }
 
     /**
-     * The picker's search: one small page of a store's website products that still wait for a match, best sellers first (30
-     * days, then a year). The text is what Store Products searches (name, option name, brand, the option number, a barcode), word
-     * by word as the Find page does: every word must be in the name, option name or brand. No count: one more row than the page
-     * says whether there is a next one (with a text every waiting product of the store is read once, not twice).
+     * One word of the search of a store's waiting variants (waitingListings), asked of everything the variant has, cheapest first (an
+     * OR stops at the first place that has it): its option number, names, brand, the website's number of its product (the stored state
+     * of 0028) and web address, in the table's collation; any part of a barcode; any value of its attributes (keys are not words); the
+     * flavour, range and range words the matching read (the features); the product's number, strength, size and range numbers there.
+     * JSON_SEARCH is asked with the word in the table's collation, so a word is found whatever its case or accents, as in the names.
+     * A variant with no profile has its option number only. Its five `?` all take the same `%word%`. (Measured on 10,000 profiles:
+     * a word costs about twice the names-only search of before; the JSON values are read only where the names do not have it.)
+     */
+    private const WAITING_WORD = "(CONCAT_WS(' ', cl.external_variant_id, lp.product_title, lp.variant_title, lp.brand, lp.site_product_id, lp.perma_link) LIKE ? "
+        . "OR JSON_SEARCH(lp.barcodes, 'one', ?) IS NOT NULL "
+        . "OR JSON_SEARCH(lp.attributes, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci) IS NOT NULL "
+        . "OR JSON_SEARCH(lp.features, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci, NULL, '$.flavour_tokens', '$.line_tokens', '$.line_modifiers') IS NOT NULL "
+        . "OR CAST(JSON_EXTRACT(lp.features, '$.product_id', '$.strength_mg', '$.volume_ml', '$.line_numbers') AS CHAR CHARACTER SET utf8mb4) LIKE ?)";
+    /** How many `?` WAITING_WORD has. */
+    private const WAITING_WORD_PARAMS = 5;
+
+    /**
+     * The picker's search (and its quick match in a cell of By Item): one small page of a store's variants that still wait for a
+     * match, best sellers first (30 days, then a year). A text is up to 6 words, and every word must be somewhere in the variant
+     * (WAITING_WORD: its option number, names, brand, web address, the website's number of its product, any part of a barcode, its
+     * attributes, its features; the owner's "search all attribute", 20 Oct 2026), or the whole text is its option number or one of
+     * its barcodes as before. The longest word is asked first: a variant it rules out is not read for the others. Every waiting
+     * variant of the store is read once (a LIKE scan of about 10,000 profiles, in one statement); no count: one more row than the
+     * page says whether there is a next one.
      *
      * @return array{ids: list<int>, more: bool}
      */
@@ -1154,11 +1174,12 @@ final class Queries
             return ['ids' => [], 'more' => false];
         }
         if ($words !== []) {
+            usort($words, static fn (string $a, string $b): int => mb_strlen($b) <=> mb_strlen($a));
             $and = [];
             $like = [];
             foreach ($words as $w) {
-                $and[] = "CONCAT_WS(' ', lp.product_title, lp.variant_title, lp.brand) LIKE ?";
-                $like[] = '%' . self::escapeLike($w) . '%';
+                $and[] = self::WAITING_WORD;
+                array_push($like, ...array_fill(0, self::WAITING_WORD_PARAMS, '%' . self::escapeLike($w) . '%'));
             }
             $where[] = '(cl.external_variant_id = ? OR JSON_SEARCH(lp.barcodes, \'one\', ?) IS NOT NULL OR (' . implode(' AND ', $and) . '))';
             array_push($params, $q, self::escapeLike($q), ...$like);
@@ -1172,7 +1193,9 @@ final class Queries
     }
 
     /**
-     * The picker's rows: website products with their state (STORE_STATES), name, price, units sold, barcodes and open suggestion.
+     * The picker's rows: website products with their state (STORE_STATES), name, price, units sold, barcodes and open suggestion;
+     * for By Item's quick match also what its "Match to …" form sends (the variant's map_version, the open suggestion's number and
+     * its units) and the features the matching read (strength, size, flavour, range). One read by primary key for a page of them.
      *
      * @param list<int> $listingIds
      * @return array<int, array<string, mixed>> listing id => row
@@ -1185,8 +1208,9 @@ final class Queries
         }
         $out = [];
         foreach ($this->db->all(
-            'SELECT cl.id AS listing_id, cl.channel_id, cl.external_variant_id, ' . self::STATE_SQL . ' AS state, lp.product_title, lp.variant_title, lp.brand, '
-            . 'lp.price, lp.barcodes, lp.units_30d, lp.units_365d, p.band, p.proposed_sku_id FROM channel_listing cl ' . self::STATE_JOINS
+            'SELECT cl.id AS listing_id, cl.channel_id, cl.external_variant_id, cl.map_version, ' . self::STATE_SQL . ' AS state, lp.product_title, lp.variant_title, lp.brand, '
+            . 'lp.price, lp.barcodes, lp.units_30d, lp.units_365d, lp.features, p.id AS proposal_id, p.band, p.proposed_sku_id, p.ai_units_per_item FROM channel_listing cl '
+            . self::STATE_JOINS
             . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE cl.id IN (' . implode(',', array_fill(0, count($listingIds), '?')) . ')',
             $listingIds,
         ) as $r) {

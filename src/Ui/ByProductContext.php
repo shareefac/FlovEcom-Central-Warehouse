@@ -189,4 +189,15 @@ final class ByProductContext
         $page ??= $this->pickerPage;
         return $url . ($this->pickerText === null ? '' : '&q=' . rawurlencode($this->pickerText)) . ($page !== null && $page > 1 ? '&page=' . $page : '');
     }
+
+    /**
+     * The quick match's fragment of this item on this store (By Item's cell, the owner's request of 20 Oct 2026): the picker's
+     * address with `/options`, the list's filter, search and rows, and no search of its own. It always holds `?channel=`, so app.js
+     * adds the person's words as `&q=` (no `q` is the picker's plain opening).
+     */
+    public function optionsUrl(): string
+    {
+        return Html::url(self::LIST_PATH . '/' . $this->skuId . '/map/options', ['channel' => $this->channel, 'cov' => $this->coverage,
+            'lq' => $this->text === '' ? null : $this->text, 'ln' => $this->rows]);
+    }
 }

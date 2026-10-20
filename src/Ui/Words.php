@@ -4704,7 +4704,8 @@ final class Words
 
     /**
      * The list and its picker ("Match…"). The %s of `missing`, `map_named`, `pick_title`, `pick_crumb`, `pick_now` and `pick_search`
-     * is a store's name, read from the channel table: no store is named here.
+     * is a store's name, read from the channel table: no store is named here. The `quick_` words are the quick match in a cell of
+     * the list (the owner's request of 20 Oct 2026); `quick_loading` and `quick_failed` are shown by app.js (data- attributes).
      */
     public const BY_PRODUCT = [
         'no_stores' => 'No store is set up in this system yet.',
@@ -4738,7 +4739,8 @@ final class Words
         'empty_text' => 'They are made when a store\'s list is loaded, or when a variant is created as a new item.',
         'empty_filter' => 'No warehouse item fits your search or filter.',
         'empty_filter_text' => 'Other items are hidden by it.',
-        'note' => 'One at a time: "Match…" and "Review" open the variant\'s own page, where you compare the two and say yes. '
+        'note' => 'One at a time: "Match…" looks for the variant right in the cell, and its "Match to" button matches it at once. '
+            . '"Review" and "Choose" open the variant\'s own page, where you compare the two and say yes. '
             . 'Many at once: tick the items and use the bar under the list. It shows a preview before anything is saved.',
         'note_look' => '"Matched", "Suggested" and the other words say what each store has for the item. Open a variant to see it.',
         'rows' => 'Rows',
@@ -4769,6 +4771,19 @@ final class Words
         'pick_choose_named' => 'Choose %s',
         'pick_page' => 'Page %s',
         'pick_next_step' => '"Choose" opens that variant next to this warehouse item. Nothing is matched until you say yes there.',
+        // The quick match in a cell of the list: "Match…" opens a search, and the store's variants are shown right there
+        'quick_label' => 'Look for the variant of %s for %s',
+        'quick_page' => 'Open the matching page',
+        'quick_loading' => 'Looking for variants…',
+        'quick_failed' => 'The variants could not be shown here, and nothing was saved. Open the matching page instead.',
+        'quick_suggested_none' => 'The computer suggests no variant of this store for it.',
+        'quick_first' => 'Found with the item\'s own words: %s.',
+        'quick_search_first' => 'To look for other variants of this store, type in the box above.',
+        'quick_more' => 'More on the matching page',
+        'quick_hint' => 'Every word must be in its name, brand, details, web address, numbers or barcodes.',
+        'quick_units' => 'How many does 1 sale use?',
+        'quick_match' => 'Match to %s',
+        'quick_match_named' => 'Match %s to %s',
     ];
 
     /**

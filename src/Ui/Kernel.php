@@ -429,6 +429,8 @@ final class Kernel
         $r->add('GET', '/ui/review/products', 'linking.view', $byProduct->index(...));
         $r->add('GET', '/ui/review/products.csv', 'linking.view', $byProduct->csv(...));
         $r->add('GET', '/ui/review/products/{id}/map', Route::DECIDE, $byProduct->map(...));
+        // Its quick match in a cell of the list (the owner's request of 20 Oct 2026): the same variants as a fragment, read only.
+        $r->add('GET', '/ui/review/products/{id}/map/options', Route::DECIDE, $byProduct->options(...));
         // By Item's bulk action (M55-M59, U123-U130), for whoever may decide: the preview of what would happen to the suggested
         // variants of the ticked items (a POST because it carries the ticked rows; it saves nothing), and its apply, which goes
         // row by row through BulkDecisions and DecisionService and ends on the batch page above.
