@@ -170,7 +170,7 @@ final class AuthController
         if (strlen($setup) > 64) {
             $setup = '';
         }
-        $result = (new Enrolment($ctx->db, new LoginLimiter($ctx->db), $ctx->secretBox()))->start($email, $setup, $code, $req->ip, $req->header('user-agent'));
+        $result = (new Enrolment($ctx->db, new LoginLimiter($ctx->db), $ctx->secretBox(), $ctx->sessions()))->start($email, $setup, $code, $req->ip, $req->header('user-agent'));
         if ($result['status'] === 'next' && $result['token'] !== null) {
             return HtmlResponse::redirect('/ui/new-code')->withCookie(Kernel::SETUP_COOKIE, $result['token'], $req->secure, Enrolment::NEXT_MINUTES * 60);
         }
@@ -197,7 +197,7 @@ final class AuthController
     {
         $req = $ctx->req;
         $token = $req->cookie(Kernel::SETUP_COOKIE);
-        $svc = new Enrolment($ctx->db, new LoginLimiter($ctx->db), $ctx->secretBox());
+        $svc = new Enrolment($ctx->db, new LoginLimiter($ctx->db), $ctx->secretBox(), $ctx->sessions());
         $p = $svc->pending($token);
         if ($p === null) {
             return $this->newCodePage($ctx, null, 410);
@@ -248,7 +248,7 @@ final class AuthController
     /** The person's own page with the fresh secret ($p null: the step is over, the page says so and offers the sign-in). */
     private function newCodePage(Context $ctx, ?string $error, int $status): HtmlResponse
     {
-        $p = (new Enrolment($ctx->db, new LoginLimiter($ctx->db), $ctx->secretBox()))->pending($ctx->req->cookie(Kernel::SETUP_COOKIE));
+        $p = (new Enrolment($ctx->db, new LoginLimiter($ctx->db), $ctx->secretBox(), $ctx->sessions()))->pending($ctx->req->cookie(Kernel::SETUP_COOKIE));
         $pre = $ctx->pre;
         $fresh = $pre === null;
         $pre ??= rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');

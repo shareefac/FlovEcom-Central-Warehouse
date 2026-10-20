@@ -10737,7 +10737,8 @@ allowed and simply never decides (the absolute limit ends the session first).
 
 **SL2. Read once per request; a bad value is the limit of before.** `Sessions::limits()` reads both in one statement, once per instance;
 the kernel makes one `Sessions` per request and hands it to the controllers (`Ui\Context::sessions()`: the sign-in, the password change,
-the finished set-up, the Users page's devices), so a request sees one set. A setting that is missing (a schema before 0047), not a whole
+the finished set-up, the Users page's devices and its actions through `Staff\StaffAdmin`, the end of a set-up through `Staff\Enrolment`),
+so a request sees one set (a tool on the server, `bin/reset_staff.php`, makes its own). A setting that is missing (a schema before 0047), not a whole
 number, or outside its rule (only SQL could store one) reads as its default (`IDLE_SECONDS` = 1800, `ABSOLUTE_SECONDS` = 43200), each
 on its own. `Sessions::liveSql()` is the one condition of a live session: `resolve()`, `revokeAll()` (what "signed out N devices" counts)
 and `Staff\StaffSessions::live()` (Settings > Users, signed-in devices) all use it. A change applies to the next request of everyone
@@ -10747,7 +10748,8 @@ signed in: a session idle or old beyond a lowered limit ends at its next page, o
 as U2) now carries `Max-Age` = the absolute limit in seconds at sign-in, at a password change and at the end of a set-up
 (`AuthController::withSession`), so closing the browser does not sign the person out. The server still decides: either limit, signing
 out (POST, revokes the row, `Max-Age=0`), a password change (every session revoked, this browser gets a new one), an admin's sign-out,
-switching the account off, and the kernel clears the cookie of an ended session on its next request. Nothing about session fixation
+switching the account off, and the kernel clears a cookie that resolves to nobody on whatever it answers next (a public page too,
+unless the answer sets a new one: `Kernel::dispatch`). Nothing about session fixation
 changed: every sign-in makes a new random token and revokes the one the browser brought. A raised absolute limit reaches a cookie at the
 person's next sign-in (the browser keeps the Max-Age it was given); cookies issued before this change have no Max-Age and still end
 with the browser.
@@ -10762,3 +10764,20 @@ allow. What stays in place: the cookie is HttpOnly and SameSite=Strict, the CSRF
 every signed-in device with an admin's "sign out", a password change signs out everywhere, and the sign-in still needs the password and
 the code. There is no "signed in until" column on the Users page (it lists when each device signed in and was last active); none was
 added.
+
+### The Codex review (on `5dbba5b`, the same patch as `37ed1fe` rebased onto main `f471402`; `runs/sessions_codex_review1.txt`): two findings, both fixed test-first
+
+No serious security or expiry defect. Both tests failed first (`runs/sessions1_review1_red.log`) and pass now.
+
+**SL6. Finding 1 (MEDIUM): some requests read the limits twice.** `StaffAdmin` (an admin's sign-out, the resets, switching an account
+off) and `Enrolment` (the end of a set-up) made their own `Sessions`, so such a request read the limits a second time: a change made
+between the two reads could count a live session under one value and judge it under another (the "signed out N devices" notice and its
+audit row). Both take the request's `Sessions` now (an optional last constructor argument; `PeopleController` and `AuthController` pass
+`$ctx->sessions()`). `SessionLimitsTest::testTheLimitsAreReadOncePerRequestWhateverTheRequestDoes` counts the reads of a request
+(`HookedStatement` on the kernel's own connection): one for a page, a sign-in (with and without a live cookie), signing someone out
+everywhere, a reset, switching an account off, a password change and the end of a set-up; none for a page without a cookie.
+
+**SL7. Finding 2 (LOW): a public page left an ended cookie behind.** Only the pages that need a session cleared a cookie that resolved
+to nobody; the sign-in page opened after the session ended (or a failed sign-in) left it, and with Max-Age it now outlives the browser.
+`Kernel::dispatch` clears it on every answer that sets no session cookie of its own (a successful sign-in sets only the new one); the
+protected branch no longer clears it itself. Server-side revocation was never bypassed. `testAnEndedCookieIsClearedOnThePublicPagesToo`.

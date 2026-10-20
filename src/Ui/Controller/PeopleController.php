@@ -141,7 +141,7 @@ final class PeopleController
         }
         $typed = ['name' => (string) ($req->field('name') ?? ''), 'email' => (string) ($req->field('email') ?? ''), 'roles' => $roles];
         try {
-            $made = (new StaffAdmin($ctx->db))->enrol($ctx->caller(), $typed['email'], $roles, $ctx->secretBox(), $typed['name']);
+            $made = (new StaffAdmin($ctx->db, $ctx->sessions()))->enrol($ctx->caller(), $typed['email'], $roles, $ctx->secretBox(), $typed['name']);
         } catch (CwException $e) {
             return $this->listPage($ctx, StaffRoles::people($ctx->db), [], $e->httpStatus, $e, $typed);
         }
@@ -152,19 +152,19 @@ final class PeopleController
     /** A new sign-up sheet for someone who never finished setting up (Y41): the sheet once. Needs its tick; runs once (FormOnce). */
     public function newSheet(Context $ctx): HtmlResponse
     {
-        return $this->reset($ctx, 'sheet', static fn (Context $ctx, Db $db, int $id): array => (new StaffAdmin($db))->newSheet($ctx->caller(), $id, $ctx->secretBox()));
+        return $this->reset($ctx, 'sheet', static fn (Context $ctx, Db $db, int $id): array => (new StaffAdmin($db, $ctx->sessions()))->newSheet($ctx->caller(), $id, $ctx->secretBox()));
     }
 
     /** A new sign-in code for a lost or new phone (Y22, Y43): the sheet with the QR code, once. Needs its tick; runs once (FormOnce, M4). */
     public function authenticator(Context $ctx): HtmlResponse
     {
-        return $this->reset($ctx, 'code', static fn (Context $ctx, Db $db, int $id): array => (new StaffAdmin($db))->resetAuthenticator($ctx->caller(), $id, $ctx->secretBox()));
+        return $this->reset($ctx, 'code', static fn (Context $ctx, Db $db, int $id): array => (new StaffAdmin($db, $ctx->sessions()))->resetAuthenticator($ctx->caller(), $id, $ctx->secretBox()));
     }
 
     /** Lets the person choose a new password (Y22, Y43): the sheet with the set-up code, once. Needs its tick; runs once (FormOnce). */
     public function password(Context $ctx): HtmlResponse
     {
-        return $this->reset($ctx, 'password', static fn (Context $ctx, Db $db, int $id): array => (new StaffAdmin($db))->resetPassword($ctx->caller(), $id));
+        return $this->reset($ctx, 'password', static fn (Context $ctx, Db $db, int $id): array => (new StaffAdmin($db, $ctx->sessions()))->resetPassword($ctx->caller(), $id));
     }
 
     /**
@@ -205,7 +205,7 @@ final class PeopleController
         $which = (string) ($ctx->req->field('session') ?? '');
         $back = $ctx->req->field('back') === 'list' ? '/ui/people' : "/ui/people/{$id}";
         try {
-            $ended = (new StaffAdmin($ctx->db))->signOut($ctx->caller(), $id, $which === 'all' ? null : $which);
+            $ended = (new StaffAdmin($ctx->db, $ctx->sessions()))->signOut($ctx->caller(), $id, $which === 'all' ? null : $which);
         } catch (CwException $e) {
             return $this->personPage($ctx, $id, $e->httpStatus, $e, null);
         }
@@ -315,7 +315,7 @@ final class PeopleController
             return $this->personPage($ctx, $id, 400, new CwException('bad_form', Words::ERROR['bad_form'], 400), $chosen);
         }
         try {
-            $r = (new StaffAdmin($ctx->db))->setRoles($ctx->caller(), $id, $chosen, $seen === '' ? [] : explode(',', $seen));
+            $r = (new StaffAdmin($ctx->db, $ctx->sessions()))->setRoles($ctx->caller(), $id, $chosen, $seen === '' ? [] : explode(',', $seen));
         } catch (CwException $e) {
             return $this->personPage($ctx, $id, $e->httpStatus, $e, $chosen);
         }
@@ -339,7 +339,7 @@ final class PeopleController
             return $this->personPage($ctx, $id, 422, new CwException('unconfirmed', Words::STAFF['stop_unconfirmed'], 422), null);
         }
         try {
-            (new StaffAdmin($ctx->db))->setActive($ctx->caller(), $id, $want === '1');
+            (new StaffAdmin($ctx->db, $ctx->sessions()))->setActive($ctx->caller(), $id, $want === '1');
         } catch (CwException $e) {
             return $this->personPage($ctx, $id, $e->httpStatus, $e, null);
         }

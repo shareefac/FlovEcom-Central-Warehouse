@@ -8,14 +8,18 @@ use CW\Auth\LoginLimiter;
 use CW\Auth\Sessions;
 use CW\Caller;
 use CW\CwException;
+use CW\Db;
 use CW\Settings;
 use CW\Staff\Enrolment;
 use CW\Staff\StaffAdmin;
 use CW\Staff\StaffSessions;
 use CW\Staff\Totp;
+use CW\Tests\Support\HookedStatement;
 use CW\Tests\Support\KernelBrowser;
 use CW\Tests\Support\KernelUiTestCase;
+use CW\Tests\Support\TestDb;
 use CW\Tests\Support\UiResponse;
+use CW\Ui\Kernel;
 use CW\Ui\Words;
 
 /**
@@ -31,6 +35,11 @@ final class SessionLimitsTest extends KernelUiTestCase
     private const IDLE = 'session.idle_minutes';
     private const ABSOLUTE = 'session.absolute_hours';
     private const MISSING = '.missing_in_test';
+    /** The one statement that reads the limits (Sessions::limits). */
+    private const LIMITS_SQL = "SELECT setting_key, CAST(value_json AS CHAR) AS v FROM app_setting WHERE value_type = 'int' AND setting_key IN";
+
+    /** How many times the limits were read through the counting kernel (counted()). */
+    private int $reads = 0;
 
     /** @var array<string, array{v: string, provisional: int, actor: string}> setting key => the row as it was */
     private array $saved = [];
@@ -54,7 +63,38 @@ final class SessionLimitsTest extends KernelUiTestCase
                 [$r['v'], $r['provisional'], $r['actor'], $key]);
         }
         $this->saved = [];
+        HookedStatement::$before = [];
         parent::tearDown();
+    }
+
+    /**
+     * A browser on a kernel of its own app-login connection, whose every read of the limits is counted in $reads (HookedStatement,
+     * re-armed after each read).
+     */
+    private function counted(): KernelBrowser
+    {
+        $db = Db::connect(TestDb::config()->dbApp()->withDatabase(TestDb::name()));
+        $db->pdo()->setAttribute(\PDO::ATTR_STATEMENT_CLASS, [HookedStatement::class, []]);
+        $this->countReads();
+        $key = self::$uiKey;
+        return new KernelBrowser(new Kernel(static fn (): Db => $db, static fn (): string => $key, static function (string $m): void {
+        }, fn (Db $d): array => $this->handlers($d)));
+    }
+
+    private function countReads(): void
+    {
+        HookedStatement::$before[self::LIMITS_SQL] = function (): void {
+            $this->reads++;
+            $this->countReads();
+        };
+    }
+
+    /** The number of reads of the limits $request made. */
+    private function readsOf(\Closure $request): int
+    {
+        $this->reads = 0;
+        $request();
+        return $this->reads;
     }
 
     /** Stores a setting's JSON text as only the admin login could (a value the rule may refuse). */
@@ -325,6 +365,112 @@ final class SessionLimitsTest extends KernelUiTestCase
         self::assertSame(2592000, (new Sessions(self::$appDb))->limits()['idle']);
         self::assertSame(2, (int) self::$db->value("SELECT MAX(version) FROM config_change WHERE subject_type = 'setting' AND subject_key = ?", [self::IDLE]));
         self::assertSame(200, $this->after($owner, 120, 120)->status, 'two hours away: still in');
+    }
+
+    /**
+     * Codex review round 1, finding 1: every request reads the limits ONCE, whatever it does (the kernel's Sessions, handed to the
+     * sign-in, the password change, the finished set-up and the Users page's services), so one request cannot count a session under
+     * one limit and judge it under another.
+     */
+    public function testTheLimitsAreReadOncePerRequestWhateverTheRequestDoes(): void
+    {
+        $admin = $this->uiUser('admin');
+        $p = $this->uiUser('buyer');
+        $boss = $this->counted();
+        self::assertSame(1, $this->readsOf(fn () => $this->login($admin, $boss)), 'a sign-in (the cookie\'s lifetime)');
+        self::assertSame(1, $this->readsOf(fn () => self::assertSame(200, $boss->get('/ui/')->status)), 'a page');
+        self::assertSame(0, $this->readsOf(fn () => $this->counted()->get('/ui/login')), 'a page without a session cookie reads nothing');
+        $first = $this->counted();
+        $this->login($p, $first);
+        $again = $this->counted();
+        $csrf = $again->get('/ui/login')->form('/ui/login')['csrf'] ?? '';
+        $again->cookies['cw_session'] = $first->cookies['cw_session']; // a sign-in form opened before the browser was signed in (rotation)
+        self::$db->exec('UPDATE staff_user SET totp_last_step = NULL WHERE id = ?', [$p['id']]);
+        self::assertSame(1, $this->readsOf(function () use ($again, $p, $csrf): void {
+            $r = $again->post('/ui/login', ['csrf' => $csrf, 'email' => $p['email'], 'password' => $p['password'], 'code' => self::code($p['secret'])]);
+            self::assertSame(303, $r->status, $r->describe());
+        }), 'a sign-in from a browser that holds a live session');
+        $csrf = $this->token($boss);
+
+        // The Users page's actions that end sessions: signing out everywhere, a reset, switching an account off.
+        $r = null;
+        self::assertSame(1, $this->readsOf(function () use ($boss, $p, $csrf, &$r): void {
+            $r = $boss->post('/ui/people/' . $p['id'] . '/sign-out', ['csrf' => $csrf, 'session' => 'all']);
+        }), 'signing someone out everywhere');
+        self::assertSame(303, $r->status, $r->describe());
+        $page = $boss->get('/ui/people/' . $p['id']);
+        $form = $page->form('/ui/people/' . $p['id'] . '/password');
+        self::assertNotSame([], $form, 'the reset form: ' . $page->describe());
+        self::assertSame(1, $this->readsOf(function () use ($boss, $p, $form, &$r): void {
+            $r = $boss->post('/ui/people/' . $p['id'] . '/password', ['confirm' => '1'] + $form);
+        }), 'letting someone choose a new password');
+        self::assertContains($r->status, [200, 303], $r->describe());
+        $form = $boss->get('/ui/people/' . $p['id'])->form('/ui/people/' . $p['id'] . '/active');
+        self::assertNotSame([], $form);
+        self::assertSame(1, $this->readsOf(function () use ($boss, $p, $form, &$r): void {
+            $r = $boss->post('/ui/people/' . $p['id'] . '/active', ['active' => '0', 'confirm' => '1'] + $form);
+        }), 'switching an account off');
+        self::assertSame(303, $r->status, $r->describe());
+
+        // A password change, and the end of a set-up at /ui/new-code.
+        $page = $boss->get('/ui/password');
+        self::assertSame(1, $this->readsOf(function () use ($boss, $admin, $page, &$r): void {
+            $r = $boss->post('/ui/password', ['csrf' => $page->form('/ui/password')['csrf'], 'current' => $admin['password'],
+                'new' => 'another long passphrase 2026', 'again' => 'another long passphrase 2026']);
+        }), 'a password change');
+        self::assertSame(303, $r->status, $r->describe());
+        $made = (new StaffAdmin(self::$appDb))->enrol(Caller::staff($admin['id']), 'counted@test.example', ['buyer'], self::$box, 'Counted Person');
+        parse_str((string) parse_url($made['otpauth'], PHP_URL_QUERY), $q);
+        $en = new Enrolment(self::$appDb, new LoginLimiter(self::$appDb), self::$box);
+        $start = $en->start('counted@test.example', $made['setup_code'], Totp::code((string) $q['secret']), '198.51.100.41', 'Phone');
+        $fresh = (string) ($en->pending($start['token'])['secret'] ?? '');
+        $web = $this->counted();
+        $web->cookies[Kernel::SETUP_COOKIE] = (string) $start['token'];
+        $page = $web->get('/ui/new-code');
+        self::assertSame(1, $this->readsOf(function () use ($web, $page, $fresh, &$r): void {
+            $r = $web->post('/ui/new-code', ['csrf' => $page->form('/ui/new-code')['csrf'], 'code' => Totp::code($fresh),
+                'new' => 'my own passphrase 2026', 'again' => 'my own passphrase 2026']);
+        }), 'the end of a set-up');
+        self::assertSame(303, $r->status, $r->describe());
+    }
+
+    /**
+     * Codex review round 1, finding 2: a cookie that resolves to nobody is cleared on a public page too (the sign-in page opened after
+     * the session ended, a failed sign-in), now that it outlives the browser; a sign-in that succeeds sets the new one only.
+     */
+    public function testAnEndedCookieIsClearedOnThePublicPagesToo(): void
+    {
+        $u = $this->uiUser('mapper');
+        $web = $this->signIn($u);
+        $old = $web->cookies['cw_session'];
+        self::$db->exec('UPDATE staff_session SET last_seen_at = NOW(6) - INTERVAL 31 MINUTE WHERE id = ?', [hash('sha256', $old)]);
+        $page = $web->get('/ui/login');
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertMatchesRegularExpression('/^cw_session=; Path=\/ui; HttpOnly; SameSite=Strict; Max-Age=0$/D', (string) $page->setCookie('cw_session'),
+            'the sign-in page clears the ended cookie');
+        self::assertArrayNotHasKey('cw_session', $web->cookies);
+        self::assertSame(1, self::revoked($old));
+
+        // A failed sign-in carrying the ended cookie clears it too; one that succeeds sets only the new cookie.
+        $web->cookies['cw_session'] = $old;
+        $csrf = $page->form('/ui/login')['csrf'];
+        $failed = $web->post('/ui/login', ['csrf' => $csrf, 'email' => $u['email'], 'password' => 'not the password at all', 'code' => '000000']);
+        self::assertSame(401, $failed->status);
+        self::assertStringContainsString('Max-Age=0', (string) $failed->setCookie('cw_session'));
+        $web->cookies['cw_session'] = $old;
+        $ok = $this->login($u, $web);
+        self::assertSame(['/ui/'], [$ok->location()]);
+        self::assertCount(1, array_filter($ok->headerValues('set-cookie'), static fn (string $c): bool => str_starts_with($c, 'cw_session=')), 'one session cookie');
+        self::assertStringContainsString('; Max-Age=' . Sessions::ABSOLUTE_SECONDS, (string) $ok->setCookie('cw_session'));
+        self::assertNotSame($old, $web->cookies['cw_session']);
+        self::assertSame(200, $web->get('/ui/')->status);
+
+        // A live cookie on the sign-in page is kept (the page leads on, as before); a cookie nobody issued is dropped.
+        $live = $web->get('/ui/login');
+        self::assertSame([303, null], [$live->status, $live->setCookie('cw_session')]);
+        $stranger = $this->browser();
+        $stranger->cookies['cw_session'] = str_repeat('A', 43);
+        self::assertStringContainsString('Max-Age=0', (string) $stranger->get('/ui/login')->setCookie('cw_session'));
     }
 
     public function testTheSignedOutWordsHoldForAnySetting(): void

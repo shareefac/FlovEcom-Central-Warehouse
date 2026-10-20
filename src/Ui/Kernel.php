@@ -206,10 +206,28 @@ final class Kernel
         $pre = $pre !== null && preg_match('/^[A-Za-z0-9_-]{43}$/D', $pre) === 1 ? $pre : null;
         $ctx = new Context($req, $db, $who, $csrf, $params, $rid, $pre, $key, $this->handlers, $this->log, $this->testSystem(), $sessions);
         try {
-            return $this->guarded($route, $ctx);
+            $res = $this->guarded($route, $ctx);
         } catch (CwException $e) {
-            return $ctx->error($e->httpStatus, $e->errorCode, $e->getMessage());
+            $res = $ctx->error($e->httpStatus, $e->errorCode, $e->getMessage());
         }
+        // A session cookie that resolved to nobody (its session ended, or nobody issued it) is cleared on every answer that does not set
+        // a new one: the public pages too (the sign-in page opened after the session ended, a failed sign-in), since the cookie outlives
+        // the browser (Max-Age, SL3; Codex review round 1, finding 2).
+        if ($who === null && $req->cookie(self::SESSION_COOKIE) !== null && !self::setsCookie($res, self::SESSION_COOKIE)) {
+            $res->withoutCookie(self::SESSION_COOKIE, $req->secure);
+        }
+        return $res;
+    }
+
+    /** Whether $res sets (or clears) the cookie $name. */
+    private static function setsCookie(HtmlResponse $res, string $name): bool
+    {
+        foreach ($res->headerValues('Set-Cookie') as $line) {
+            if (str_starts_with($line, $name . '=')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function guarded(Route $route, Context $ctx): HtmlResponse
@@ -228,8 +246,7 @@ final class Kernel
                 // sign-in page says why (plan F056). A cookie nobody issued is the same as none.
                 $id = $cookie === null ? null : Sessions::idOf($cookie);
                 $ended = $id !== null && $ctx->db->value('SELECT 1 FROM staff_session WHERE id = ?', [$id]) !== null;
-                $to = HtmlResponse::redirect(self::signInPath($req, $ended));
-                return $cookie === null ? $to : $to->withoutCookie(self::SESSION_COOKIE, $req->secure);
+                return HtmlResponse::redirect(self::signInPath($req, $ended)); // dispatch() clears the cookie
             }
             if ($who->mustChangePassword && !in_array($req->path, ['/ui/password', '/ui/logout'], true)) {
                 return HtmlResponse::redirect('/ui/password');

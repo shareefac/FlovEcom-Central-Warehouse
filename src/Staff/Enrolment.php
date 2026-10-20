@@ -41,7 +41,9 @@ final class Enrolment
     /** The default of staff.setup_max_fails. */
     public const MAX_FAILS = 5;
 
-    public function __construct(private readonly Db $db, private readonly LoginLimiter $limiter, private readonly SecretBox $box)
+    /** $sessions: the request's (Ui\Context::sessions(): the session limits read once per request, SL2); none: its own. */
+    public function __construct(private readonly Db $db, private readonly LoginLimiter $limiter, private readonly SecretBox $box,
+        private readonly ?Sessions $sessions = null)
     {
     }
 
@@ -154,7 +156,7 @@ final class Enrolment
                 if ($claimed !== 1) {
                     return null; // the step ended meanwhile (switched off, a new sheet, its time ran out)
                 }
-                $sessions = new Sessions($db);
+                $sessions = $this->sessions ?? new Sessions($db);
                 $sessions->revokeToken($oldToken);
                 $ended = $sessions->revokeAll($id);
                 $s = $sessions->create($id, $ip, $userAgent);

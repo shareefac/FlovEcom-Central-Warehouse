@@ -64,8 +64,17 @@ final class StaffAdmin
     /** Closes a set-up window (and its one-time code). */
     public const CLOSE_WINDOW = 'setup_until = NULL, setup_code_hash = NULL, setup_fails = 0';
 
-    public function __construct(private readonly Db $db)
+    /**
+     * $sessions: the request's (Ui\Context::sessions()), so a screen's action counts the sessions it ends under the limits the request
+     * read once (docs/decisions.md SL2); a tool on the server passes none and gets its own.
+     */
+    public function __construct(private readonly Db $db, private ?Sessions $sessions = null)
     {
+    }
+
+    private function sessions(): Sessions
+    {
+        return $this->sessions ??= new Sessions($this->db);
     }
 
     /**
@@ -188,7 +197,7 @@ final class StaffAdmin
                 $closed = $db->exec('UPDATE staff_user SET ' . self::CLOSE_WINDOW . ', ' . self::CLEAR_NEXT
                     . ' WHERE id = ? AND (setup_until IS NOT NULL OR totp_next_token IS NOT NULL)', [$staffUserId]);
             }
-            $ended = $active ? 0 : (new Sessions($db))->revokeAll($staffUserId);
+            $ended = $active ? 0 : $this->sessions()->revokeAll($staffUserId);
             $email = $u['email'] === null ? null : (string) $u['email'];
             if ($was === $active && $ended === 0 && $closed === 0) {
                 return ['id' => $staffUserId, 'email' => $email, 'active' => $active, 'sessions_ended' => 0, 'result' => 'unchanged'];
@@ -257,7 +266,7 @@ final class StaffAdmin
                 $set[] = self::CLOSE_WINDOW . ', ' . self::CLEAR_NEXT;
             }
             $db->exec('UPDATE staff_user SET ' . implode(', ', $set) . ' WHERE id = ?', [...$args, $id]);
-            $ended = (new Sessions($db))->revokeAll($id);
+            $ended = $this->sessions()->revokeAll($id);
             $action = $active === false ? 'staff.deactivate' : ($active === true && $hash === null && $enc === null ? 'staff.activate' : 'staff.reset');
             Audit::write($db, $caller, $action, 'staff_user', (string) $id, null, [
                 'email' => $email, 'new_password' => $hash !== null, 'new_totp' => $enc !== null, 'active' => $active, 'sessions_ended' => $ended,
@@ -347,7 +356,7 @@ final class StaffAdmin
             $db->exec('UPDATE staff_user SET totp_secret_enc = ?, totp_last_step = NULL, password_hash = ?, password_must_change = 0, '
                 . 'setup_until = NOW(6) + INTERVAL ? HOUR, setup_code_hash = ?, setup_fails = 0, setup_closed_at = NULL, ' . self::CLEAR_NEXT . ' WHERE id = ?',
                 [$enc, self::unknownPassword(), $hours, SetupCode::hash($code), $staffUserId]);
-            $ended = (new Sessions($db))->revokeAll($staffUserId);
+            $ended = $this->sessions()->revokeAll($staffUserId);
             $until = (string) $db->value('SELECT setup_until FROM staff_user WHERE id = ?', [$staffUserId]);
             Audit::write($db, $caller, 'staff.reset', 'staff_user', (string) $staffUserId, null,
                 ['email' => $u['email'], 'new_password' => false, 'new_totp' => true, 'new_sheet' => true, 'via' => 'screen', 'setup_until' => $until,
@@ -393,7 +402,7 @@ final class StaffAdmin
             }
             $db->exec("UPDATE staff_user SET totp_secret_enc = ?, totp_last_step = NULL, totp_state = 'reset', " . self::CLOSE_WINDOW . ', ' . self::CLEAR_NEXT
                 . ' WHERE id = ?', [$enc, $staffUserId]);
-            $ended = (new Sessions($db))->revokeAll($staffUserId);
+            $ended = $this->sessions()->revokeAll($staffUserId);
             Audit::write($db, $caller, 'staff.reset', 'staff_user', (string) $staffUserId, null,
                 ['email' => $u['email'], 'new_password' => false, 'new_totp' => true, 'via' => 'screen', 'sessions_ended' => $ended]);
             return ['result' => 'done', 'request' => null, 'email' => (string) $u['email'], 'sessions_ended' => $ended];
@@ -436,7 +445,7 @@ final class StaffAdmin
             $hours = Settings::number($db, 'staff.setup_hours', 48);
             $db->exec('UPDATE staff_user SET password_hash = ?, password_must_change = 0, setup_until = NOW(6) + INTERVAL ? HOUR, setup_code_hash = ?, '
                 . 'setup_fails = 0, setup_closed_at = NULL, ' . self::CLEAR_NEXT . ' WHERE id = ?', [$hash, $hours, SetupCode::hash($code), $staffUserId]);
-            $ended = (new Sessions($db))->revokeAll($staffUserId);
+            $ended = $this->sessions()->revokeAll($staffUserId);
             $until = (string) $db->value('SELECT setup_until FROM staff_user WHERE id = ?', [$staffUserId]);
             Audit::write($db, $caller, 'staff.reset', 'staff_user', (string) $staffUserId, null,
                 ['email' => $u['email'], 'new_password' => 'chosen_by_the_person', 'new_totp' => false, 'via' => 'screen', 'setup_until' => $until,
@@ -495,7 +504,7 @@ final class StaffAdmin
         }
         return $this->db->transaction(function (Db $db) use ($caller, $staffUserId, $handle): int {
             $u = $this->authorise($db, $caller, $staffUserId);
-            $ended = $handle === null ? (new Sessions($db))->revokeAll($staffUserId)
+            $ended = $handle === null ? $this->sessions()->revokeAll($staffUserId)
                 : $db->exec("UPDATE staff_session SET revoked = 1, revoked_at = NOW(6) WHERE staff_user_id = ? AND revoked = 0 AND id LIKE CONCAT(?, '%')",
                     [$staffUserId, $handle]);
             if ($ended > 0) {
