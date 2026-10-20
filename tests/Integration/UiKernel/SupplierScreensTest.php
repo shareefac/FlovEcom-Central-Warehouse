@@ -253,6 +253,8 @@ final class SupplierScreensTest extends KernelUiTestCase
             self::$db->exec("UPDATE supplier SET address_line1 = '2 Mill Lane', postcode = 'M1 1AA', payment_terms = '30 days', dd_checked_on = CURRENT_DATE, "
                 . 'dd_checked_by = ?, dd_next_review_on = CURRENT_DATE + INTERVAL 1 YEAR WHERE id = ?', [$ownerUser['id'], $id]);
             $card = $owner->get('/ui/purchasing/suppliers/' . $id);
+            self::assertStringContainsString(Words::SUPPLIER['draft_alone'], $card->text());
+            self::assertStringNotContainsString(Words::SUPPLIER['draft'], $card->text(), 'nothing says a reviewer must approve it');
             $xp = new \DOMXPath($card->dom());
             self::assertSame(Words::SUPPLIER['ask_alone'], trim((string) $xp->evaluate('string(//form[contains(@action, "/request-activation")]//span[@class="btn-title"])')),
                 $card->describe());
@@ -269,6 +271,20 @@ final class SupplierScreensTest extends KernelUiTestCase
             // Its maker, a reviewer too: another reviewer gives the OK afterwards; never "another reviewer must decide" as if it waited.
             self::assertStringContainsString(Words::SUPPLIER['alone_yours'], $page->text());
             self::assertStringNotContainsString(Words::REFUSAL['own_supplier'], $page->text());
+            self::assertStringContainsString(Words::SUPPLIER['stop_does_alone'], $page->text());
+            // Stopped: using it again needs no reviewer either.
+            $sup->deactivate(Caller::staff($ownerUser['id']), $id, (int) self::$db->value('SELECT version FROM supplier WHERE id = ?', [$id]), 'test stop');
+            $stopped = $owner->get('/ui/purchasing/suppliers/' . $id);
+            self::assertStringContainsString(Words::SUPPLIER['stopped_again_alone'], $stopped->text());
+            self::assertStringNotContainsString(Words::SUPPLIER['stopped_again'], $stopped->text());
+            // The rule back on: the create notice follows the rule now, also for a replay of the form (FormOnce keeps the address only).
+            (new \CW\Settings(self::$db))->set(Caller::system('settings'), 'approvals.supplier_activation', 'true', 'back on for this test');
+            $made = ['name' => 'Rule Back Supplies', 'code' => '', 'email' => 'orders@back.example'] + $owner->get('/ui/purchasing/suppliers/new')->form('/ui/purchasing/suppliers');
+            self::assertSame(Words::SUPPLIER_NOTICE['created'], trim((string) (new \DOMXPath($owner->follow($owner->post('/ui/purchasing/suppliers', $made))->dom()))
+                ->evaluate('string(//p[contains(@class, "notice")])')));
+            (new \CW\Settings(self::$db))->set(Caller::system('settings'), 'approvals.supplier_activation', 'false', 'off again for this test');
+            self::assertSame(Words::SUPPLIER_NOTICE['created_alone'], trim((string) (new \DOMXPath($owner->follow($owner->post('/ui/purchasing/suppliers', $made))->dom()))
+                ->evaluate('string(//p[contains(@class, "notice")])')), 'the replay lands on the same page, in the words of the rule now');
         } finally {
             self::$db->exec("UPDATE app_setting SET value_json = CAST(? AS JSON), updated_actor = 'system:migrate' WHERE setting_key = 'approvals.supplier_activation'",
                 [(string) $was]);

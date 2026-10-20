@@ -88,10 +88,8 @@ final class SuppliersController
         try {
             $r = FormOnce::run($ctx, 'ui.supplier.create', $fields, static function (Db $db) use ($ctx, $fields): OpResult {
                 $s = $ctx->suppliers()->create($ctx->caller(), $fields);
-                // The notice names the button the draft will show: "Make it usable" when the second person is switched off.
-                $notice = ApprovalRules::on($db, 'approvals.supplier_activation') ? 'created' : 'created_alone';
                 return OpResult::of(303, ['result' => 'created', 'supplier_id' => (int) $s['id'],
-                    'redirect' => Html::url('/ui/purchasing/suppliers/' . (int) $s['id'], ['notice' => $notice])]);
+                    'redirect' => Html::url('/ui/purchasing/suppliers/' . (int) $s['id'], ['notice' => 'created'])]);
             });
         } catch (CwException $e) {
             return $this->form($ctx, null, $fields, $ctx->req->field(FormOnce::FIELD) ?? FormOnce::newKey(), $e->httpStatus, $e);
@@ -101,7 +99,13 @@ final class SuppliersController
 
     public function show(Context $ctx): HtmlResponse
     {
-        return $this->card($ctx, $ctx->id(), 200, null, self::NOTICES[$ctx->req->param('notice') ?? ''] ?? null);
+        $n = (string) ($ctx->req->param('notice') ?? '');
+        // "created" names the button the draft shows now: "Make it usable" while the second person is switched off. Chosen here, not
+        // when it was made: a replayed create form (FormOnce) lands on its stored address.
+        if ($n === 'created' && !ApprovalRules::on($ctx->db, 'approvals.supplier_activation')) {
+            $n = 'created_alone';
+        }
+        return $this->card($ctx, $ctx->id(), 200, null, self::NOTICES[$n] ?? null);
     }
 
     public function editForm(Context $ctx): HtmlResponse

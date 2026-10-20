@@ -97,6 +97,13 @@ final class InvoicesController
     }
 
     /** GET to-match: posted invoices whose match needs a person (or, show=accepted, whose differences were accepted). */
+    /** A claim against an invoice in words, by how much the supplier credited of it. @param array{number: string, claim_total: string, credit_state: ?string} $c */
+    private static function claimText(array $c): string
+    {
+        return Words::say('INVOICES', match ($c['credit_state']) { 'credited' => 'claimed_credited', 'part' => 'claimed_part', default => 'claimed_on' },
+            $c['number'], Html::money($c['claim_total']));
+    }
+
     public function toMatch(Context $ctx, int $status = 200, ?CwException $error = null): HtmlResponse
     {
         $show = $ctx->req->param('show') === 'accepted' ? 'accepted' : 'needs_review';
@@ -106,8 +113,7 @@ final class InvoicesController
         return $ctx->page('invoices_to_match', [
             'show' => $show,
             'rows' => array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id'],
-                'claims' => array_map(static fn (array $c): string => Words::say('INVOICES', 'claimed_on', $c['number'], Html::money($c['claim_total'])),
-                    $claims[(int) $r['id']] ?? [])], $rows),
+                'claims' => array_map(static fn (array $c): string => self::claimText($c), $claims[(int) $r['id']] ?? [])], $rows),
             'limit' => SupplierInvoices::LIST_LIMIT,
             'canRecheck' => Documents::mayPost($ctx->me()->roles, 'SINV') && $rows !== [],
             'rules' => self::rulesText($ctx),
@@ -507,8 +513,15 @@ final class InvoicesController
         }
         return $ctx->page('supplier_invoice', [
             'kind' => $kind,
-            // The final returns (debit notes) that claim against this invoice (the 6.3 browser test).
-            'claims' => $kind === 'invoice' ? ($ctx->supplierInvoices()->claimsOn([$doc->id])[$doc->id] ?? []) : [],
+            // The final returns (debit notes) that claim against this invoice, each in words with its credit (the 6.3 browser test).
+            'claims' => $kind === 'invoice' && !$doc->isReversal()
+                ? array_map(static fn (array $c): array => $c + ['text' => self::claimText($c)], $ctx->supplierInvoices()->claimsOn([$doc->id])[$doc->id] ?? []) : [],
+            // What the record is: an invoice or a credit note, a draft or final, or the cancellation of one.
+            'introKey' => match (true) {
+                $doc->isReversal() => 'supplier_paper_reversal',
+                $kind === 'credit_note' => $doc->status === 'posted' ? 'supplier_credit_note_final' : 'supplier_credit_note',
+                default => $doc->status === 'posted' ? 'supplier_invoice_final' : 'supplier_invoice',
+            },
             'k' => $k,
             'base' => SupplierInvoices::PATHS[$kind],
             'doc' => $doc,

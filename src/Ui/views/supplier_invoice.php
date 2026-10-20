@@ -1,5 +1,5 @@
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $e($k['tab']) ?></a></p>
-<?= $head((string) $title, intro: $doc->status === 'posted' ? 'supplier_invoice_final' : 'supplier_invoice', look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($storedMatch !== null ? ' ' . $stateChip('MATCH_STATE', $storedMatch) : '')) ?>
+<?= $head((string) $title, intro: $introKey, look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($storedMatch !== null ? ' ' . $stateChip('MATCH_STATE', $storedMatch) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php if (count($problemsOfError) > 1): ?>
@@ -111,7 +111,7 @@
           <td class="num" data-label="<?= $word('INVOICES', 'pack_price') ?>"><input type="text" name="pp_<?= $e($l['line_no']) ?>" value="<?= $dec($l['pack_price']) ?>" inputmode="decimal" maxlength="16" aria-label="<?= $word('INVOICES', 'pack_price') ?>"></td>
           <td class="num" data-label="<?= $word('INVOICES', 'amount') ?>"><?= $money($l['amount']) ?></td>
 <?php else: ?>
-          <th scope="row" class="c-head"><input type="text" name="d_<?= $e($l['line_no']) ?>" value="<?= $e($l['description'] ?? '') ?>" maxlength="255" aria-label="<?= $word('INVOICES', 'description') ?>"></th>
+          <th scope="row" class="c-head"><input type="text" class="line-what" name="d_<?= $e($l['line_no']) ?>" value="<?= $e($l['description'] ?? '') ?>" maxlength="255" aria-label="<?= $word('INVOICES', 'description') ?>"></th>
           <td data-label="<?= $word('INVOICES', 'line_kind') ?>"><?= $e($l['kind_word']) ?></td>
           <td class="num" data-label="<?= $word('INVOICES', 'packs') ?>"></td>
           <td class="num" data-label="<?= $word('INVOICES', 'pack_price') ?>"></td>
@@ -455,7 +455,7 @@
 <section aria-labelledby="credits-h">
   <h2 id="credits-h"><?= $word('INVOICES', 'credit_notes') ?></h2>
 <?php foreach ($claims as $c): ?>
-  <p><?= $say('INVOICES', 'claimed_on', (string) $c['number'], \CW\Ui\Html::money((string) $c['claim_total'])) ?> <a href="<?= $u('/ui/purchasing/returns/' . $c['id']) ?>"><?= $e($c['number']) ?></a></p>
+  <p><?= $e($c['text']) ?> <a href="<?= $u('/ui/purchasing/returns/' . $c['id']) ?>"><?= $e($c['number']) ?></a></p>
 <?php endforeach; ?>
 <?php if ($rec['credit_notes'] === []): ?>
   <p class="muted"><?= $word('INVOICES', 'no_credit_notes') ?></p>

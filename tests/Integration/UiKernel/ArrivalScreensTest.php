@@ -161,7 +161,8 @@ final class ArrivalScreensTest extends KernelUiTestCase
         $dnNumber = (string) self::$db->value('SELECT number FROM document WHERE id = ?', [$dn]);
         $final = $desk->follow($r);
         self::assertSame(Words::say('RETURN_NOTICE', 'posted_claim', $dnNumber), trim((string) (new \DOMXPath($final->dom()))->evaluate('string(//p[contains(@class, "notice")])')));
-        self::assertStringContainsString(Words::PAGE_INTRO['supplier_return_final'][1], $final->text());
+        self::assertStringContainsString(Words::PAGE_INTRO['supplier_return_claim_final'][0], $final->text(), 'a claim, not goods going back');
+        self::assertStringNotContainsString(Words::PAGE_INTRO['supplier_return_final'][0], $final->text());
         // The invoice it claims against says so, on To match and on its page: nobody claims twice or accepts it by mistake.
         $claimed = Words::say('INVOICES', 'claimed_on', $dnNumber, '£6.00');
         $toMatch = $desk->get('/ui/purchasing/invoices/to-match');
@@ -169,6 +170,23 @@ final class ArrivalScreensTest extends KernelUiTestCase
         self::assertStringContainsString($number, $toMatch->text());
         self::assertStringContainsString($claimed, $toMatch->text());
         self::assertStringContainsString($claimed, $desk->get($path)->text());
+        // The supplier's credit note answers the claim: it reads as credited, never "waiting" (Codex review of the pack, finding 1).
+        $r = $desk->post(\CW\Ui\Controller\InvoicesController::FROM_RETURN, $final->form(\CW\Ui\Controller\InvoicesController::FROM_RETURN));
+        self::assertSame(303, $r->status, $r->describe());
+        $cn = self::idFrom($r->location(), '/ui/purchasing/credit-notes');
+        $cnPath = '/ui/purchasing/credit-notes/' . $cn;
+        $cnPage = $desk->get($cnPath);
+        self::assertStringContainsString(Words::PAGE_INTRO['supplier_credit_note'][0], $cnPage->text(), 'a credit note, not an invoice');
+        $form = ['invoice_number' => 'CN-ARR-1', 'invoice_date' => gmdate('Y-m-d'), 'net_total' => '6.00', 'vat_total' => '1.20'] + $cnPage->form($cnPath . '/details');
+        $r = $desk->post($cnPath . '/details', $form);
+        self::assertSame(303, $r->status, $r->describe());
+        $r = $desk->post($cnPath . '/post', $desk->get($cnPath)->form($cnPath . '/post'));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('posted', self::$db->value('SELECT status FROM document WHERE id = ?', [$cn]), $desk->follow($r)->describe());
+        self::assertStringContainsString(Words::PAGE_INTRO['supplier_credit_note_final'][1], $desk->get($cnPath)->text());
+        $invoice = $desk->get($path);
+        self::assertStringContainsString(Words::say('INVOICES', 'claimed_credited', $dnNumber, '£6.00'), $invoice->text());
+        self::assertStringNotContainsString($claimed, $invoice->text());
     }
 
     /**

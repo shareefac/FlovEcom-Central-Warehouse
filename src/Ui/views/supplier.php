@@ -89,7 +89,7 @@
 <?php if ($canDeactivate): ?>
   <details class="action">
     <summary><?= $word('SUPPLIER', 'stop') ?></summary>
-    <p class="hint"><?= $word('SUPPLIER', 'stop_does') ?></p>
+    <p class="hint"><?= $word('SUPPLIER', $secondPerson ? 'stop_does' : 'stop_does_alone') ?></p>
     <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/deactivate') ?>">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
@@ -105,9 +105,9 @@
 <?php endif; ?>
 <?php else: ?>
 <?php if ($s['status'] === 'inactive'): ?>
-  <p><?php if ($s['deactivated_at'] !== null): ?><?= $say('SUPPLIER', 'stopped', \CW\Ui\Html::day((string) $s['deactivated_at']), (string) ($people['deactivated'] ?? \CW\Ui\Words::ANOMALIES['set_up']), (string) $s['deactivate_reason']) ?><?php else: ?><?= $word('SUPPLIER', 'stopped_plain') ?><?php endif; ?> <?= $word('SUPPLIER', 'stopped_again') ?></p>
+  <p><?php if ($s['deactivated_at'] !== null): ?><?= $say('SUPPLIER', 'stopped', \CW\Ui\Html::day((string) $s['deactivated_at']), (string) ($people['deactivated'] ?? \CW\Ui\Words::ANOMALIES['set_up']), (string) $s['deactivate_reason']) ?><?php else: ?><?= $word('SUPPLIER', 'stopped_plain') ?><?php endif; ?> <?= $word('SUPPLIER', $secondPerson ? 'stopped_again' : 'stopped_again_alone') ?></p>
 <?php else: ?>
-  <p><?= $word('SUPPLIER', 'draft') ?><?php if ($canRequest): ?> <?= $word('SUPPLIER', $secondPerson ? 'draft_todo' : 'draft_todo_alone') ?><?php endif; ?></p>
+  <p><?= $word('SUPPLIER', $secondPerson ? 'draft' : 'draft_alone') ?><?php if ($canRequest): ?> <?= $word('SUPPLIER', $secondPerson ? 'draft_todo' : 'draft_todo_alone') ?><?php endif; ?></p>
 <?php endif; ?>
 <?php if ($canRequest && $missing !== []): ?>
   <p class="note"><?= $say('SUPPLIER', 'missing', $missingText) ?></p>

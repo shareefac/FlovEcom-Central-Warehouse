@@ -977,10 +977,12 @@ final class SupplierInvoices
 
     /**
      * The final returns (debit notes) that claim against each invoice and are not cancelled (supplier_return.invoice_document_id: a
-     * claim of what did not come, pack J, or a return started from the invoice): invoice id => its claims, oldest first.
+     * claim of what did not come, pack J, or a return started from the invoice): invoice id => its claims, oldest first, each with
+     * how much the supplier's final credit notes answered of it (SupplierReturns::creditState: open, part, credited; a cancelled
+     * credit note answers nothing).
      *
      * @param list<int> $invoiceIds
-     * @return array<int, list<array{id: int, number: string, claim_total: string}>>
+     * @return array<int, list<array{id: int, number: string, claim_total: string, credit_state: ?string}>>
      */
     public function claimsOn(array $invoiceIds): array
     {
@@ -989,9 +991,13 @@ final class SupplierInvoices
             return [];
         }
         $out = [];
-        foreach ($this->db->all('SELECT r.invoice_document_id AS invoice_id, d.id, d.number, r.claim_total FROM supplier_return r JOIN document d ON d.id = r.document_id '
+        foreach ($this->db->all('SELECT r.invoice_document_id AS invoice_id, d.id, d.number, r.claim_total, (SELECT COALESCE(SUM(c.net_total), 0) '
+            . "FROM supplier_invoice c JOIN document cd ON cd.id = c.document_id WHERE c.debit_note_document_id = d.id AND c.kind = 'credit_note' "
+            . "AND cd.status = 'posted') AS credited FROM supplier_return r JOIN document d ON d.id = r.document_id "
             . "WHERE r.invoice_document_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ") AND d.status = 'posted' AND d.reverses_id IS NULL ORDER BY d.id", $ids) as $r) {
-            $out[(int) $r['invoice_id']][] = ['id' => (int) $r['id'], 'number' => (string) $r['number'], 'claim_total' => (string) $r['claim_total']];
+            $out[(int) $r['invoice_id']][] = ['id' => (int) $r['id'], 'number' => (string) $r['number'], 'claim_total' => (string) $r['claim_total'],
+                'credit_state' => SupplierReturns::creditState($r['claim_total'] === null ? null : InvoiceMath::e2((string) $r['claim_total']),
+                    InvoiceMath::e2((string) $r['credited']))];
         }
         return $out;
     }

@@ -1,5 +1,5 @@
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $word('MENU', 'returns') ?></a></p>
-<?= $head((string) $title, intro: $doc->status === 'posted' ? 'supplier_return_final' : ($claimOnly ? 'supplier_return_claim' : 'supplier_return'), look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($rec['credit_state'] !== null && !$doc->isReversal() ? ' ' . $stateChip('CREDIT_STATE', $rec['credit_state']) : '')) ?>
+<?= $head((string) $title, intro: $introKey, look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($rec['credit_state'] !== null && !$doc->isReversal() ? ' ' . $stateChip('CREDIT_STATE', $rec['credit_state']) : '')) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -78,7 +78,7 @@
           <td class="num" data-label="<?= $word('RETURNS', 'price') ?>"><input type="text" name="c_<?= $e($l['line_no']) ?>" value="<?= $dec($l['unit_cost']) ?>" inputmode="decimal" maxlength="16" aria-label="<?= $word('RETURNS', 'price') ?>"></td>
           <td class="num" data-label="<?= $word('RETURNS', 'duty') ?>"><input type="text" name="t_<?= $e($l['line_no']) ?>" value="<?= $dec($l['duty_amount']) ?>" inputmode="decimal" maxlength="16" aria-label="<?= $word('RETURNS', 'duty') ?>"></td>
 <?php else: ?>
-          <th scope="row" class="c-head"><input type="text" name="d_<?= $e($l['line_no']) ?>" value="<?= $e($l['description'] ?? '') ?>" maxlength="255" aria-label="<?= $word('INVOICES', 'description') ?>"></th>
+          <th scope="row" class="c-head"><input type="text" class="line-what" name="d_<?= $e($l['line_no']) ?>" value="<?= $e($l['description'] ?? '') ?>" maxlength="255" aria-label="<?= $word('INVOICES', 'description') ?>"></th>
           <td class="num" data-label="<?= $word('STOCK_OPS', 'units') ?>"></td>
           <td data-label="<?= $word('RETURNS', 'from') ?>"></td>
           <td class="num" data-label="<?= $word('RETURNS', 'price') ?>"></td>

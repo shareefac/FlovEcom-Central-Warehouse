@@ -130,7 +130,7 @@ final class SupplierReturnsController
         $notice = null;
         if ($n !== null) {
             $notice = match (true) {
-                $n === 'posted' || $n === 'posted_claim' || $n === 'reversed' => Words::say('RETURN_NOTICE', $n, (string) ($ctx->req->param('number') ?? '')),
+                $n === 'posted' || $n === 'posted_claim' || $n === 'reversed' || $n === 'reversed_claim' => Words::say('RETURN_NOTICE', $n, (string) ($ctx->req->param('number') ?? '')),
                 isset(Words::RETURN_NOTICE[$n]) => Words::RETURN_NOTICE[$n],
                 isset(Words::INVOICE_NOTICE[$n]) => Words::INVOICE_NOTICE[$n],
                 isset(Words::RECORD_NOTICE[$n]) => Words::RECORD_NOTICE[$n],
@@ -233,7 +233,8 @@ final class SupplierReturnsController
             return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typedCancel' => ['code' => $code, 'note' => (string) $note]]);
         }
         return HtmlResponse::redirect(Html::url(SupplierReturns::PATH . '/' . $rev->id, $rev->status === 'awaiting_approval' ? ['notice' => 'reversal_submitted']
-            : ['notice' => 'reversed', 'number' => $rev->number]));
+            : ['notice' => (int) $ctx->db->value('SELECT COUNT(*) FROM document_line WHERE document_id = ? AND sku_id IS NOT NULL', [$rev->id]) > 0
+                ? 'reversed' : 'reversed_claim', 'number' => $rev->number]));
     }
 
     public function withdraw(Context $ctx): HtmlResponse
@@ -279,6 +280,7 @@ final class SupplierReturnsController
         $canPost = Documents::mayPost($me->roles, 'DN');
         $editable = $doc->status === 'draft' && $canPost && $doc->createdBy === $me->id;
         $lines = $sr->lines($id);
+        $claimOnly = $lines !== [] && array_filter($lines, static fn (array $l): bool => ($l['sku_id'] ?? null) !== null) === [];
         $tasks = DocumentsController::tasks($ctx->db, $id);
         $open = null;
         foreach ($tasks as $t) {
@@ -303,8 +305,14 @@ final class SupplierReturnsController
             'title' => Words::docTitle('DN', $doc->number, (string) ($rec['supplier_name'] ?? ''), $doc->isReversal() ? (string) ($rec['reverses_number'] ?? '#' . $doc->reversesId) : null),
             'facts' => self::facts($rec, $doc),
             'lines' => $lines,
-            // A claim without goods (what did not come): nothing leaves the stock, and its page says so.
-            'claimOnly' => $lines !== [] && array_filter($lines, static fn (array $l): bool => ($l['sku_id'] ?? null) !== null) === [],
+            // A claim without goods (what did not come, an overcharge): nothing leaves the stock, and its page says so.
+            'claimOnly' => $claimOnly,
+            // What the record is: goods or a claim only, a draft or final, or the cancellation of one.
+            'introKey' => match (true) {
+                $doc->isReversal() => 'supplier_return_reversal',
+                $doc->status === 'posted' => $claimOnly ? 'supplier_return_claim_final' : 'supplier_return_final',
+                default => $claimOnly ? 'supplier_return_claim' : 'supplier_return',
+            },
             'total' => $total,
             'problems' => $editable ? array_map(static fn (array $p): string => InvoicesController::problemText($p), $sr->problems($id)) : [],
             'editable' => $editable,

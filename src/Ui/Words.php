@@ -670,11 +670,19 @@ final class Words
             'While it is a draft, check the lines against the paper, type the totals, then make it final.'],
         'supplier_invoice_final' => ['A supplier\'s paper as it was booked: what it bills, and how it matches the order and the delivery.',
             'It is final and is not changed any more: below, how it matches and what credits it.'],
+        'supplier_credit_note' => ['A supplier\'s credit note as it was booked: what it takes off an invoice or answers of our claim.',
+            'While it is a draft, check the lines against the paper, type the totals, then make it final.'],
+        'supplier_credit_note_final' => ['A supplier\'s credit note as it was booked: what it takes off an invoice or answers of our claim.',
+            'It is final and is not changed any more.'],
+        'supplier_paper_reversal' => ['The cancellation of a supplier\'s invoice or credit note.', 'It undoes the record it cancels, and is not changed any more.'],
         'supplier_return' => ['Goods going back to a supplier, and what we claim for them.', 'While it is a draft, check the lines, then make it final: the stock goes out.'],
         // A claim without goods (what did not come, pack J): nothing leaves the stock.
-        'supplier_return_claim' => ['What we claim from a supplier for goods that did not come.',
+        'supplier_return_claim' => ['What we claim from a supplier without sending goods back: goods that did not come, or an overcharge.',
             'While it is a draft, check the claim, then make it final: nothing leaves the stock, the claim is our debit note.'],
         'supplier_return_final' => ['Goods going back to a supplier, and what we claim for them.', 'It is final: the supplier answers it with a credit note.'],
+        'supplier_return_claim_final' => ['What we claim from a supplier without sending goods back: goods that did not come, or an overcharge.',
+            'It is final: the supplier answers it with a credit note.'],
+        'supplier_return_reversal' => ['The cancellation of a return to a supplier.', 'It withdraws the return\'s claim; any goods the return took out are back in stock.'],
         // Pack F (docs/decisions.md PF6-PF9): Approvals › From the stores.
         'queue_suspense' => ['Lines of ERPNext deliveries, supplier returns, sales and corrections that the warehouse system could not match to an item.',
             'Type the item\'s code and place the line, or close it with a note when there is nothing to book.'],
@@ -6368,6 +6376,9 @@ final class Words
         'draft' => 'This supplier is a draft. You cannot order from it until a reviewer approves it.',
         'draft_todo' => 'Fill in the missing details, then press "Ask a reviewer to approve".',
         'draft_todo_alone' => 'Fill in the missing details, then press "Make it usable".',
+        'draft_alone' => 'This supplier is a draft. You cannot order from it until it is made usable.',
+        'stopped_again_alone' => 'To order from it again, make it usable again.',
+        'stop_does_alone' => 'It gets no new orders. Orders already confirmed are not affected. To order from it again, make it usable again.',
         'stopped' => 'No: we stopped ordering from it on %s (%s: %s).',
         'stopped_plain' => 'No: we stopped ordering from it.',
         'stopped_again' => 'To order from it again, a reviewer must approve it again.',
@@ -6485,7 +6496,7 @@ final class Words
         'alone_done' => 'Checked',
         'alone_does' => 'Check the details and the proof documents, then give your OK: the "approved alone" mark goes. Nothing else changes.',
         'alone_ok' => 'OK: I checked this supplier',
-        'alone_yours' => 'You made, changed or approved this supplier, so another reviewer gives this OK. Orders are not stopped meanwhile.',
+        'alone_yours' => 'You made, changed or approved this supplier, so another reviewer gives this OK afterwards.',
         'alone_look' => 'A reviewer checks it and gives the OK.',
     ];
 
@@ -9322,6 +9333,8 @@ final class Words
         'receipt_arrival' => 'Its goods were billed before they came, on', // + the invoice (Goods In › Arriving, pack J)
         // An invoice a final return (debit note) claims against: on To match and on its page.
         'claimed_on' => 'Claimed from the supplier on %s (%s): waiting for their credit note.',
+        'claimed_part' => 'Claimed from the supplier on %s (%s): part of it credited so far.',
+        'claimed_credited' => 'Claimed from the supplier on %s (%s): credited.',
         'receipt_left' => '%s items of it are still to invoice.',
     ];
 
@@ -9576,6 +9589,7 @@ final class Words
         'posted' => 'Done: %s is final and the goods left the stock.',
         'posted_claim' => 'Done: %s is final: our claim (a debit note) is recorded. No stock moved.',
         'reversed' => 'Cancelled by %s: the goods are back in stock.',
+        'reversed_claim' => 'Cancelled by %s: the claim is withdrawn.',
         'reversal_submitted' => 'The cancellation puts many goods back: it waits for a reviewer\'s OK.',
         'submitted' => 'Sent to a reviewer: it is final when they say OK.',
         'cancelled' => 'Stopped. It is kept, never deleted.',
