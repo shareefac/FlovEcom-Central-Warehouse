@@ -11004,7 +11004,17 @@ Each new test failed first (`runs/decideguard2_r1_red.log`) and passes now.
   `proposal_closed` before DG3. The replay is now recognised there (`testTheSameNoTwiceToAMergeSuggestionAnswersAsTheFirst`).
 - **LOW: DG1's edges were not pinned.** `KeyBulkTest::testACompleteSpotChecksConfirmedMatchesStayTheOwners`, and in
   `testAMergeThatMovesAnOpenSpotChecksConfirmedMatchIsTheOwnersAlone` a Matcher's pending merge refused at another lead's approval and
-  applied at the owner's. The bulk race (a spot check drawn between a list's checks and the row's decision) is not reproducible without
-  a second process at that moment; the mapping to `in_spot_check` is read, not tested.
+  applied at the owner's. The bulk race (a spot check drawn between a list's checks and the row's decision) is pinned in the second
+  round's tests, below.
 - Found while fixing: a spot check whose owner can no longer answer it kept its matches for nobody
   (`testASpotCheckWhoseOwnerCanNoLongerAnswerItKeepsNothing`; DG1 above).
+
+### The second Codex review (on `c864fb5`; `runs/decideguard2_codex_review2.txt`): no HIGH or MEDIUM, one LOW, pinned
+
+The first round's fixes were found present and correct. **LOW: the "under the listing's lock" of DG2 was not pinned** (the tests would
+pass with `seen()` read before the lock). Two tests force the overlap with a second session and a worker process (`OpWorkers`, as
+`testAHoldThatCommitsWhileTheBulkIsLinkingItsListingWins`): `KeyBulkHoldTest::testAHoldThatCommitsWhileAPageDecisionWaitsForTheListingIsSeen`
+(a hold commits while a page decision waits for the listing: 409 `one_at_a_time`, nothing written) and
+`testASpotCheckDrawnWhileATickedBatchRunsSkipsItsMatch` (a spot check drawn while a ticked batch's row waits: skipped `in_spot_check`
+with its name, nothing decided). Both pass, and both fail on a copy with the read moved before the lock and with BulkDecisions' mapping
+removed (`runs/decideguard2_mut1.log`).

@@ -14,6 +14,7 @@ use CW\Mapping\OneAtATime;
 use CW\Mapping\Reband;
 use CW\Tests\Support\KeyFixtures;
 use CW\Tests\Support\MappingTestCase;
+use CW\Tests\Support\OpWorkers;
 use CW\Tests\Support\TestDb;
 
 /**
@@ -26,6 +27,13 @@ use CW\Tests\Support\TestDb;
 final class KeyBulkHoldTest extends MappingTestCase
 {
     use KeyFixtures;
+    use OpWorkers;
+
+    protected function tearDown(): void
+    {
+        $this->stopWorkers();
+        parent::tearDown();
+    }
 
     private function bulk(): KeyBulk
     {
@@ -306,6 +314,75 @@ final class KeyBulkHoldTest extends MappingTestCase
         self::refused(409, 'one_at_a_time', fn () => $this->decide($mapper, 'link', $c['listing'], $req($c, ['seen' => $was])));
         // Not a page: the service's other callers keep their own rules (the bulk confirm leaves a held listing out by its eligibility).
         self::assertSame('applied', $this->decide($x['owner'], 'link', $c['listing'], $req($c))['state']);
+    }
+
+    /**
+     * The page's check is made under the listing's lock (docs/decisions.md DG2), so it sees a hold that commits while the decision
+     * waits for the listing: a page decision that showed no hold is refused, 409 one_at_a_time, and nothing is written. Forced to
+     * overlap: D writes the hold (KeyHold reads the listing FOR SHARE) and has not committed; the worker's page decision parks on the
+     * listing; D commits.
+     */
+    public function testAHoldThatCommitsWhileAPageDecisionWaitsForTheListingIsSeen(): void
+    {
+        $x = $this->readySample('h11');
+        $a = $x['rest'][0];
+        $mapper = $this->staffUser('mapper');
+        $d = self::session();
+        try {
+            self::assertSame(1, $this->holds($d)->run($x['owner'], 'h11', self::rowsOf([[$a['proposal'], $a['listing'], 'Pack of 3']]), false, true)['written']);
+            $w = $this->spawn([['op' => 'decide', 'staff_id' => $mapper->staffUserId, 'request' => ['action' => 'link', 'listing_id' => $a['listing'],
+                'sku_id' => $a['sku'], 'units_per_item' => 1, 'proposal_id' => $a['proposal'], 'expected_map_version' => $this->version($a['listing']), 'seen' => null]]]);
+            $this->waitForLock('channel_listing', 'WAITING');
+            $d->pdo()->commit();
+        } finally {
+            if ($d->inTransaction()) {
+                $d->pdo()->rollBack();
+            }
+        }
+        $r = $this->collect($w)['results'][0];
+        self::assertSame([409, 'one_at_a_time'], [$r['status'], $r['error'] ?? null], json_encode($r));
+        self::assertSame(['suggested', 0], [$this->link($a['listing'])['status'],
+            $this->rowCount("SELECT COUNT(*) FROM match_decision WHERE listing_id = ? AND action <> 'suggest'", [$a['listing']])]);
+    }
+
+    /**
+     * A spot check drawn while a ticked list's batch runs (docs/decisions.md DG1): the batch's checks before the first row cannot see
+     * it; the row's decision, which waits for the variant behind the spot check's writes, is refused by DecisionService (anyone but
+     * the owner), and the row is skipped as those checks would have skipped it: `in_spot_check`, with the spot check's name. Forced to
+     * overlap: D draws the spot check (its member rows hold the variant FOR SHARE, the foreign key) and has not committed; the worker's
+     * batch parks on the variant; D commits.
+     */
+    public function testASpotCheckDrawnWhileATickedBatchRunsSkipsItsMatch(): void
+    {
+        $this->keySetup();
+        $owner = $this->staffUser(['mapping_lead', 'reviewer']);
+        $made = [];
+        for ($i = 0; $i < 20; $i++) {
+            $made[] = $this->firstMatch($this->vpgItem(), 90 + $i % 10, [], [], null, [], 10 + $i);
+        }
+        $m = $made[0];
+        $lead = $this->staffUser('mapping_lead');
+        $row = ['listing_id' => $m['listing'], 'proposal_id' => $m['proposal'], 'map_version' => $this->version($m['listing'])];
+        $d = self::session();
+        try {
+            $s = (new KeySample($d))->create($owner, 'race-1', 20, true);
+            self::assertContains($m['listing'], array_map('intval', array_column($s['members'], 'listing_id')));
+            $w = $this->spawn([['op' => 'bulk', 'staff_id' => $lead->staffUserId, 'action' => 'link', 'rows' => [$row], 'context' => ['source' => 'review', 'band' => 'Key']]]);
+            $this->waitForLock('channel_listing', 'WAITING');
+            $d->pdo()->commit();
+        } finally {
+            if ($d->inTransaction()) {
+                $d->pdo()->rollBack();
+            }
+        }
+        $r = $this->collect($w, 60);
+        self::assertSame(200, $r['results'][0]['status'], json_encode($r));
+        $body = $r['results'][0]['body'];
+        self::assertSame([0, 0, 1], [$body['done'], $body['pending'], $body['skipped']], json_encode($body));
+        $batchRow = self::$db->one('SELECT outcome, skip_code, detail FROM mapping_batch_row WHERE batch_id = ?', [(int) $body['batch_id']]);
+        self::assertSame(['skipped', 'in_spot_check', ['sample' => 'race-1']], [$batchRow['outcome'], $batchRow['skip_code'], json_decode((string) $batchRow['detail'], true)]);
+        self::assertSame(['suggested', 0], [$this->link($m['listing'])['status'],
+            $this->rowCount("SELECT COUNT(*) FROM match_decision WHERE listing_id = ? AND action <> 'suggest'", [$m['listing']])]);
     }
 
     public function testTheSchemaHoldsTheRulesToo(): void
