@@ -3,15 +3,18 @@
 -- New Variants, the match-strength lists, By Item's quick match and picker) read and compared the text of EVERY profile it might find:
 -- 120 MB for 38,000 profiles, 250-500 ms a search on the test server. This file stores that text once, made normal as CW\Ui\SearchText
 -- makes a typed word (spaces and hyphens left out, "&" read as "and"; case and accents are the column's collation's, ai_ci), in narrow
--- columns with their own indexes, so a search reads one narrow index (5-13 MB) instead of the profiles.
+-- columns with their own indexes, so a search reads one narrow index (5-13 MB) instead of the profiles. search_names' index is read
+-- whole (a store's list, Find); search_all's leads with the listing, so the quick match reads only its store's waiting variants'
+-- entries, one look-up each (the longer text made a scan of every store's dearer than the look-ups: runs/searchux_comp_probe.txt).
 --
 --  * search_names: the product's title, the option's title and the brand (what the lists, Store Products, New Variants and Find search).
 --  * search_all: the same, then the website's product number, the web address, the barcodes, the attributes (every name and value of
 --    their JSON, without its keys: what JSON_SEARCH read) and the flavour, range and number features (everything By Item's quick match
 --    and its picker searched: Queries::waitingListings, the owner's "search all attribute" of 20 Oct 2026).
---  * search_long: 1 when that text is longer than the 760 characters an index column holds (InnoDB's 3072 bytes of utf8mb4). Such a
---    profile (none in the test data; a handful at most) is still searched as before, on its row, by this flag's index: nothing a search
---    found is lost.
+--  * search_on_row: 1 when the stored text is not the whole truth: longer than the 760 characters an index column holds (InnoDB's
+--    3072 bytes of utf8mb4), or a JSON value with an escape in it (a backslash, a quote, a tab: JSON_SEARCH read the value, the JSON
+--    text writes it escaped). Such a profile (none in the test data; a handful at most) is still searched as before, on its row, by
+--    this flag's index: nothing a search found is lost.
 --
 -- They are STORED GENERATED columns: MySQL writes them with the row, on every INSERT and UPDATE by anyone (the listing intake and
 -- import, CW\Mapping\ListingIngestService; the tools that write features; a test's fixture), so nothing can leave them behind, and no
@@ -32,11 +35,13 @@ ALTER TABLE listing_profile
     CAST(barcodes AS CHAR), REGEXP_REPLACE(CAST(attributes AS CHAR), '"(?:[^"\\\\]|\\\\.)*"\\s*:', ' '), CAST(JSON_EXTRACT(features, '$.flavour_tokens', '$.line_tokens', '$.line_modifiers', '$.product_id', '$.strength_mg',
     '$.volume_ml', '$.line_numbers') AS CHAR)), ' ', ''), '-', ''), '&', 'and'), 760)) STORED
     COMMENT 'search_names, then the product number, web address, barcodes, attributes and features, made normal for the quick match; written by MySQL',
-  ADD COLUMN search_long TINYINT(1) GENERATED ALWAYS AS (CHAR_LENGTH(REPLACE(REPLACE(REPLACE(CONCAT_WS(' ', product_title, variant_title, brand, site_product_id, perma_link,
+  ADD COLUMN search_on_row TINYINT(1) GENERATED ALWAYS AS (CHAR_LENGTH(REPLACE(REPLACE(REPLACE(CONCAT_WS(' ', product_title, variant_title, brand, site_product_id, perma_link,
     CAST(barcodes AS CHAR), REGEXP_REPLACE(CAST(attributes AS CHAR), '"(?:[^"\\\\]|\\\\.)*"\\s*:', ' '), CAST(JSON_EXTRACT(features, '$.flavour_tokens', '$.line_tokens', '$.line_modifiers', '$.product_id', '$.strength_mg',
-    '$.volume_ml', '$.line_numbers') AS CHAR)), ' ', ''), '-', ''), '&', 'and')) > 760) STORED
-    COMMENT '1 = search_all (and maybe search_names) was cut at 760 characters: this profile is searched on its row; written by MySQL',
+    '$.volume_ml', '$.line_numbers') AS CHAR)), ' ', ''), '-', ''), '&', 'and')) > 760
+    OR IFNULL(INSTR(CAST(attributes AS CHAR), '\\'), 0) > 0 OR IFNULL(INSTR(CAST(barcodes AS CHAR), '\\'), 0) > 0
+    OR IFNULL(INSTR(CAST(JSON_EXTRACT(features, '$.flavour_tokens', '$.line_tokens', '$.line_modifiers') AS CHAR), '\\'), 0) > 0) STORED
+    COMMENT '1 = search this profile on its row: its text is longer than the 760 characters, or a JSON value of it has an escape; written by MySQL',
   ADD INDEX ix_listing_profile_search_names (search_names),
-  ADD INDEX ix_listing_profile_search_all (search_all),
-  ADD INDEX ix_listing_profile_search_long (search_long),
+  ADD INDEX ix_listing_profile_search_all (listing_id, search_all),
+  ADD INDEX ix_listing_profile_search_on_row (search_on_row),
   ALGORITHM = COPY, LOCK = SHARED;

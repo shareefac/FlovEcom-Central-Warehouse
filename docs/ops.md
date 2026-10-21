@@ -1899,8 +1899,8 @@ php bin/import_listings.php --db=cw_staging --channel=electrofag --file=/srv/cw-
 Every word search of website products (Find, Store Products, New Variants, the match-strength lists, By Item's quick match and
 picker) reads one narrow index since 0049 instead of the profile of every variant: `listing_profile.search_names` (titles and
 brand) and `search_all` (the same and the product number, web address, barcodes, attributes and features), both made normal as a
-typed word is (spaces and hyphens left out, "&" as "and"), each with its index, and `search_long` (1 = the text was longer than
-the 760 characters an index holds: that profile is searched on its row, as before). They are **stored generated columns**: MySQL
+typed word is (spaces and hyphens left out, "&" as "and"), each with its index, and `search_on_row` (1 = the text is longer than
+the 760 characters an index holds, or a JSON value of it has an escape: that profile is searched on its row, as before). They are **stored generated columns**: MySQL
 writes them with every INSERT and UPDATE of a profile (the listing intake and import, the tools that write features), so nothing
 can forget them, no code writes them, and there is **no backfill tool**: the migration's copy of the table fills them for every
 profile.
@@ -1910,7 +1910,7 @@ step of its install), with the public vhost off as usual. 0049 COPIES `listing_p
 38,000 profiles of 120 MB on the test server (MySQL 8.4.8); reads go on, a listing push or import waits until it ends. The new code
 reads the new columns: the plain form (code without the schema) makes every product search of those pages fail until `--migrate`
 has run. No grant changes (no new table; a generated column needs no privilege to be written by MySQL). Check afterwards:
-`php bin/migrate.php --status` lists no PENDING file; `SELECT COUNT(*) FROM listing_profile WHERE search_long = 1` (expect a handful
+`php bin/migrate.php --status` lists no PENDING file; `SELECT COUNT(*) FROM listing_profile WHERE search_on_row = 1` (expect a handful
 at most) and `SELECT COUNT(*) FROM listing_profile WHERE search_names = ''` (the profiles with no title, brand or option title).
 
 ### The barcode sync (`bin/sync_barcodes.php`, I106–I108, I116–I118)

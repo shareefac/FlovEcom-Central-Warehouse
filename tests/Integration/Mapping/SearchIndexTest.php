@@ -70,7 +70,7 @@ final class SearchIndexTest extends MappingTestCase
     {
         $id = $this->push('9002', ['product_title' => str_repeat('Long name ', 50), 'variant_title' => str_repeat('Longer still ', 38) . 'Zebrafruit', 'brand' => 'Acme']);
         $this->propose($id, 'Check', self::makeSku('Zebrafruit item'));
-        self::assertSame([1, 760], array_map('intval', array_values((array) self::$db->one('SELECT search_long, CHAR_LENGTH(search_names) FROM listing_profile WHERE listing_id = ?', [$id]))));
+        self::assertSame([1, 760], array_map('intval', array_values((array) self::$db->one('SELECT search_on_row, CHAR_LENGTH(search_names) FROM listing_profile WHERE listing_id = ?', [$id]))));
         self::assertStringNotContainsString('Zebrafruit', (string) self::$db->value('SELECT search_names FROM listing_profile WHERE listing_id = ?', [$id]), 'the word is past the cut');
         self::assertSame(['store' => [$id], 'new' => [$id], 'find' => [$id], 'list' => [$id], 'quick' => [$id]], $this->finds('zebrafruit acme'));
     }
@@ -96,5 +96,33 @@ final class SearchIndexTest extends MappingTestCase
         $plan = self::$db->one('EXPLAIN SELECT s.listing_id FROM listing_profile s FORCE INDEX (ix_listing_profile_search_all) WHERE s.search_all LIKE ?', ['%option%']);
         self::assertStringContainsString('Using index', (string) $plan['Extra']);
         self::assertCount(30, $this->finds('acme option')['store']);
+    }
+
+    /**
+     * Codex's review of 7307ab1 (runs/searchix_codex_review.txt): what the quick match found before is found, also where the stored
+     * text is not the text: an attribute whose value has a backslash or a tab (its JSON text writes them escaped), a variant with no
+     * profile found by a part of its option number, an option number with "&", and a word that runs from the option number into the
+     * product's title.
+     */
+    public function testCodexR1EscapedJsonValuesProfilelessOptionsAmpersandOptionsAndWordsAcrossTheOptionNumber(): void
+    {
+        $store = (int) $this->alt->channelId;
+        $quick = fn (string $text): array => $this->q->waitingListings($store, $text, 1)['ids'];
+        $slash = $this->push('9101', ['product_title' => 'Coil set', 'brand' => 'Acme', 'attributes' => ['Note' => 'prefix abc\\def suffix', 'Size' => "20\tmg"]]);
+        $found = [];
+        foreach (['abc\\def', "20\tmg"] as $t) {
+            $found[] = $quick($t);
+        }
+        $bare = $this->listing($this->alt, 'NOPROFILE7', null);
+        $found[] = $quick('PROFILE7');
+        $amp = $this->push('R&M-9917', ['product_title' => 'Plain pods', 'brand' => 'Acme']);
+        $found[] = $quick('randm');
+        $found[] = $quick('r&m pods');
+        $across = $this->push('27', ['product_title' => 'Electrofag pods', 'brand' => 'Acme']);
+        $found[] = $quick('27electrofag');
+        // every one as the old search found it (all of them at once, so a red run shows each miss)
+        self::assertSame([[$slash], [$slash], [$bare], [$amp], [$amp], [$across]], $found,
+            'escaped JSON values; a part of the option number of a variant with no profile; "&" in an option number; a word from the option number into the title');
+        self::assertSame(1, (int) self::$db->value('SELECT search_on_row FROM listing_profile WHERE listing_id = ?', [$slash]), 'its JSON text is not its values: searched on its row');
     }
 }

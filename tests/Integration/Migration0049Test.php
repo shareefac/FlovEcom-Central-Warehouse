@@ -25,8 +25,8 @@ final class Migration0049Test extends IntegrationTestCase
     private const FILE = '0049_search_index.sql';
     private const COLUMNS = [
         'search_all' => ['varchar(760)', 'YES', null, 'STORED GENERATED'],
-        'search_long' => ['tinyint(1)', 'YES', null, 'STORED GENERATED'],
         'search_names' => ['varchar(760)', 'YES', null, 'STORED GENERATED'],
+        'search_on_row' => ['tinyint(1)', 'YES', null, 'STORED GENERATED'],
     ];
     private ?string $dir = null;
 
@@ -44,7 +44,7 @@ final class Migration0049Test extends IntegrationTestCase
         self::assertMatchesRegularExpression('/^ALTER\s+TABLE\s+listing_profile\b/i', $statements[0]);
         self::assertMatchesRegularExpression('/,\s*ALGORITHM\s*=\s*COPY\s*,\s*LOCK\s*=\s*SHARED\s*$/i', $statements[0]);
         self::assertDoesNotMatchRegularExpression('/\b(INSTANT|INPLACE)\b/i', $statements[0], 'neither word is a promise for this table on this server (Migration0027Test)');
-        self::assertSame(3, preg_match_all('/\bADD\s+COLUMN\s+search_[a-z]+\s+[a-z]+(\(\d+\))?\s+GENERATED\s+ALWAYS\s+AS\b/i', $statements[0]));
+        self::assertSame(3, preg_match_all('/\bADD\s+COLUMN\s+search_[a-z_]+\s+[a-z]+(\(\d+\))?\s+GENERATED\s+ALWAYS\s+AS\b/i', $statements[0]));
         self::assertSame(3, preg_match_all('/\bADD\s+INDEX\b/i', $statements[0]));
 
         /** @var Db $db */
@@ -80,17 +80,18 @@ final class Migration0049Test extends IntegrationTestCase
         }
         ksort($cols);
         self::assertSame(self::COLUMNS, $cols);
-        foreach (['ix_listing_profile_search_names' => 'search_names', 'ix_listing_profile_search_all' => 'search_all', 'ix_listing_profile_search_long' => 'search_long'] as $ix => $col) {
-            self::assertSame([$col], array_map('strval', $db->column("SELECT COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
+        foreach (['ix_listing_profile_search_names' => ['search_names'], 'ix_listing_profile_search_all' => ['listing_id', 'search_all'],
+            'ix_listing_profile_search_on_row' => ['search_on_row']] as $ix => $col) {
+            self::assertSame($col, array_map('strval', $db->column("SELECT COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() "
                 . "AND TABLE_NAME = 'listing_profile' AND INDEX_NAME = ? ORDER BY SEQ_IN_INDEX", [$ix])), $ix);
         }
 
         // The backfill: every profile that was there has its search text, nothing it held changed.
         self::assertSame($before, $db->all('SELECT listing_id, product_title, variant_title, brand, CAST(barcodes AS CHAR) AS b, CAST(attributes AS CHAR) AS a, perma_link, '
             . 'CAST(features AS CHAR) AS f FROM listing_profile ORDER BY listing_id'));
-        $row = static fn (int $id): array => (array) $db->one('SELECT search_names, search_all, search_long FROM listing_profile WHERE listing_id = ?', [$id]);
+        $row = static fn (int $id): array => (array) $db->one('SELECT search_names, search_all, search_on_row FROM listing_profile WHERE listing_id = ?', [$id]);
         self::assertSame(["HayatiProMaxPlus6000PrefilledPodKitHayatiProMaxPlus6000PrefilledPodKit20\u{00A0}mg|StrawberryKiwiHayati", 0],
-            [$row($ids[0])['search_names'], (int) $row($ids[0])['search_long']]);
+            [$row($ids[0])['search_names'], (int) $row($ids[0])['search_on_row']]);
         self::assertSame(['RandMTornado7000RandMTornado7000ColaRandM', ''], [$row($ids[1])['search_names'], $row($ids[3])['search_names']]);
         // the stored text is the text made normal as SearchText makes a word: a phrase of the text, made normal, is in it
         $holds = static fn (int $id, string $col, string $typed): bool => (int) $db->value("SELECT COUNT(*) FROM listing_profile WHERE listing_id = ? AND {$col} LIKE ?",
@@ -124,14 +125,18 @@ final class Migration0049Test extends IntegrationTestCase
 
         // A text longer than the column is cut, and says so (it is searched on its row, docs/decisions.md SI2).
         $db->exec('UPDATE listing_profile SET product_title = ?, variant_title = ? WHERE listing_id = ?', [str_repeat('Long name ', 50), str_repeat('Longer still ', 39), $ids[2]]);
-        self::assertSame([760, 1], [mb_strlen((string) $row($ids[2])['search_names']), (int) $row($ids[2])['search_long']]);
+        self::assertSame([760, 1], [mb_strlen((string) $row($ids[2])['search_names']), (int) $row($ids[2])['search_on_row']]);
+
+        // A JSON value with an escape (a backslash, a quote, a tab: JSON_SEARCH read it decoded) is searched on its row too.
+        $db->exec('UPDATE listing_profile SET attributes = ? WHERE listing_id = ?', [json_encode(['Note' => 'a "quoted" word']), $late]);
+        self::assertSame(1, (int) $row($late)['search_on_row']);
 
         // The reads they are for: one narrow index, never the profiles' rows.
         $plan = $db->one('EXPLAIN SELECT listing_id FROM listing_profile FORCE INDEX (ix_listing_profile_search_names) WHERE search_names LIKE ?', ['%kiwi%']);
         self::assertSame(['ix_listing_profile_search_names', 'index'], [(string) $plan['key'], (string) $plan['type']]);
         self::assertStringContainsString('Using index', (string) $plan['Extra'], 'a covering scan of the index alone');
-        $plan = $db->one('EXPLAIN SELECT listing_id FROM listing_profile WHERE search_long = 1');
-        self::assertStringContainsString('ix_listing_profile_search_long', (string) $plan['possible_keys']);
+        $plan = $db->one('EXPLAIN SELECT listing_id FROM listing_profile WHERE search_on_row = 1');
+        self::assertStringContainsString('ix_listing_profile_search_on_row', (string) $plan['possible_keys']);
         // the barcode index of 0005 came through the copy
         self::assertSame([$ids[0]], array_map('intval', $db->column('SELECT listing_id FROM listing_profile WHERE JSON_OVERLAPS(barcodes, CAST(? AS JSON))', ['["05056168800073"]'])));
     }

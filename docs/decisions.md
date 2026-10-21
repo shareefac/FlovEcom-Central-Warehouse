@@ -11266,15 +11266,18 @@ and none of the keys, which ByProductScreenTest holds); both made normal as `Sea
 A word is asked as its normal form, a merged word also as what was typed between its parts made normal (`storedPatterns()`). Every
 form the forgiving search asks a word in (SX2's three kinds, both spellings of "&", the merged word as typed) is in the normal text
 whenever it is in the text (the mapping goes character by character), so the stored search finds a superset: what SX found and,
-since every word is now compared without spaces and hyphens on the whole text, joined words anywhere ("bluerazz", "promax"). A text
-longer than the column (`search_long = 1`, by its index: none in the test data, a handful at most) is asked as before, on its row.
+since every word is now compared without spaces and hyphens on the whole text, joined words anywhere ("bluerazz", "promax"). A profile
+whose stored text is not the whole truth (`search_on_row = 1`, by its index: longer than the column, or a JSON value with an escape in it,
+which JSON_SEARCH read decoded and the JSON text writes escaped; none in the test data, a handful at most) is asked as before, on its row.
 
 **SI3. The reads.** `searchedIds()` gives every website product a search finds, as ids, by indexes only: the option number as typed
 (`uq_channel_listing_variant`), a code (the barcode index of 0005), a CW number (the item's website products, SX3), every word in the
-stored text (one covering scan of `ix_listing_profile_search_names`, or for the quick match `ix_listing_profile_search_all`), the long
-rows on their rows, and for the quick match the variants whose option number holds a word (the option number lives in
-`channel_listing`; a covering scan of the store's part of `uq_channel_listing_variant`, then each word in the stored text or in the
-option number). Store Products, New Variants, Find and the quick match then read `cl.id IN (…)` of those ids (written into the
+stored text (one covering scan of `ix_listing_profile_search_names`; for the quick match, the store's waiting variants by the covering
+`(channel_id, status)` index, each one's text by a look-up in `ix_listing_profile_search_all (listing_id, search_all)`: its text is
+four times as long, and reading only one store's entries is cheaper than scanning every store's, `runs/searchux_comp_probe.txt`), the long
+rows on their rows, and for the quick match the variants whose option number holds a word or the start of one (the option number lives in
+`channel_listing`; a covering scan of the store's part of `uq_channel_listing_variant`, then each word in the option number joined to
+the stored text, as the old joined text had them, also for a variant with no profile). Store Products, New Variants, Find and the quick match then read `cl.id IN (…)` of those ids (written into the
 statement as integers this code read: a common word finds thousands) with the units from `ix_listing_profile_units` alone, and Find
 its 30 best sellers' rows only. The match-strength lists read their own few thousand rows with the profile anyway, so they ask
 `lp.search_names` on the row (with the long rows' old conditions). The quick match's statements are the same for every search (By
@@ -11293,8 +11296,23 @@ table, and nobody writes a generated column. `Migration0049Test` holds the file 
 statements on the new schema, the normal text, the cut and the covering reads.
 
 **SI6. Left out.** Items (`sku`): their word search reads 15,000 narrow rows (55-120 ms on the test server, SX8), not the wide
-profiles; the same columns there would cost a copy of `sku` (referenced by most tables) for tens of milliseconds, so not now. The one
-place the stored search is narrower than SX's in theory: a typed word that runs from the end of the option number into the product's
-title with no space ("27electrofag") was found by the quick match's old concatenated text and is not now (the option number is not
-in `search_all`); a word of the option number alone, or of the title alone, is.
+profiles; the same columns there would cost a copy of `sku` (referenced by most tables) for tens of milliseconds, so not now.
+
+### The Codex review (on `7307ab1`; `runs/searchix_codex_review.txt`): no HIGH, three MEDIUM and one LOW, fixed test-first
+
+The new test failed first (`runs/searchix_r1_red.log`) and passes now:
+`SearchIndexTest::testCodexR1EscapedJsonValuesProfilelessOptionsAmpersandOptionsAndWordsAcrossTheOptionNumber`.
+- **MEDIUM: a JSON value with an escape was missed.** JSON_SEARCH read the decoded value ("abc\def", a tab); the stored text has the
+  JSON text, which writes them escaped. Such a profile is now flagged too (`search_long` became `search_on_row`: longer than the column,
+  or a backslash in the JSON text of its attributes, barcodes or features) and asked on its row as before.
+- **MEDIUM: a part of the option number of a variant with no profile was missed** (the option branch joined the profile). It is a LEFT
+  JOIN now: the option number alone finds it.
+- **MEDIUM: an option number with "&" was missed for "randm"** (the old text kept "&" and asked both spellings). The option number is
+  made normal like the stored text ("&" as "and").
+- **LOW: a word running from the option number into the title ("27electrofag") was missed.** The option branch now keeps every option
+  number that holds a word or ends with the start of one (a covering scan of the store's option numbers), and asks each word in the
+  option number joined to the stored text, as the old joined text had them. SI6's exception is gone.
+- Also, before this round (measured, `runs/searchux_comp_probe.txt`): the quick match reads only its store's waiting variants' entries
+  (`ix_listing_profile_search_all` is `(listing_id, search_all)`), and New Variants reads a search's ids by the primary key, not the
+  period's index.
 
