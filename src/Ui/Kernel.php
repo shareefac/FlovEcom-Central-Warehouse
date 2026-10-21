@@ -418,6 +418,8 @@ final class Kernel
         $r->add('GET', '/ui/review', 'linking.view', $review->queue(...));
         $r->add('GET', '/ui/review/listing/{id}', 'linking.view', $review->listing(...));
         $r->add('POST', '/ui/review/listing/{id}/decide', Route::DECIDE, $review->decide(...));
+        // The lists' Check & match fold (docs/decisions.md CM1): read only, a fragment for app.js; its answers post to the decide route.
+        $r->add('GET', '/ui/review/listing/{id}/check', Route::DECIDE, $review->check(...));
         $r->add('POST', '/ui/review/decision/{id}/approve', Route::LEAD, $review->approve(...));
         $r->add('POST', '/ui/review/decision/{id}/withdraw', Route::DECIDE, $review->withdraw(...));
         // Store-wise review and bulk action (M46-M53, U106-U112): Store Products for everyone with linking.view; the ticked rows of a

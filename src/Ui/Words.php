@@ -48,7 +48,7 @@ final class Words
         'COUNTS', 'COUNT_GROUP', 'COUNT_SHEET_GROUP', 'COUNT_KIND', 'COUNT_REVIEW', 'COUNT_REVIEW_HELP', 'COUNT_SHOW', 'COUNT_LINE', 'COUNT_CHECK', 'COUNT_BAD',
         'COUNT_NOTICE', 'COUNT_ERROR',
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
-        'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE', 'QUEUE_SHOW', 'ONE_AT_A_TIME',
+        'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE', 'QUEUE_SHOW', 'ONE_AT_A_TIME', 'CHECK',
         'BY_ITEM_BULK', 'BY_ITEM_SKIP',
         'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER', 'ARRIVAL_LEFT',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
@@ -4502,6 +4502,8 @@ final class Words
         'spot_check_other' => 'Not saved: %s is checking this one in a spot check. A decision by anyone else would fail the spot check.',
         'spot_check_other_done' => 'Not saved: %s checked this one in a spot check. A change by anyone else would fail the spot check.',
         'one_at_a_time' => 'Not saved: this website product is decided one at a time, on its own page. The page now shows why. Read it, then answer again.',
+        // An answer from a list's Check & match fold when the row is no longer a clean likely match (docs/decisions.md CM2).
+        'check_changed' => 'Not saved: this match changed since the list showed it, so it is decided on its own page now. Read the page, then answer here.',
         'other' => '%s Nothing was saved.',
         // The page's own checks, before anything is sent
         'choose' => 'Choose an answer first. Nothing was saved.',
@@ -4710,6 +4712,48 @@ final class Words
         'empty_filter' => 'No website product fits your search or filter.',
         'empty_filter_text' => 'Other products of this store are hidden by it.',
         'unlink_note' => 'To undo a match, open the product: a matching lead uses "Change this match" and says why. It is one at a time because it changes a stock link.',
+    ];
+
+    /**
+     * The lists' Check & match fold (docs/decisions.md CM1-CM4; the owner's request of 20 Oct 2026): a website product found by the
+     * check on arrival, checked against its suggested warehouse product and matched from the list. The reasons it is not offered
+     * there are keyed by ReviewController::FOLD_BLOCKS.
+     */
+    public const CHECK = [
+        'fold' => 'Check & match',
+        'fold_named' => 'Check "%s" against its suggestion and match it here',
+        'loading' => 'Loading the details…',
+        'failed' => 'The details could not be shown here, and nothing was saved. Open the product instead.',
+        'open_page' => 'Open the product to check and decide',
+        'what' => 'What',
+        'website' => 'Website product',
+        'warehouse' => 'Warehouse product',
+        'name' => 'Name',
+        'price' => 'Price',
+        'not_stated' => 'not stated',
+        'how_sure' => 'How sure',
+        'here' => 'Why it is here',
+        'watch' => 'Watch out',
+        'clean' => 'Nothing here says they are different. Match them only if they are the same product.',
+        'yes' => 'Yes, match to %s (%s)',
+        'yes_named' => 'Match "%s" to %s',
+        'no' => 'No, wrong product',
+        'no_named' => '"%s" is not %s',
+        'not_here' => 'Decide this one on its own page:',
+        'open' => 'Open to decide',
+        'no_item' => 'No warehouse product is suggested for it.',
+        'not_waiting' => 'It is not waiting for a match.',
+        'held' => 'It is held back for a look one at a time.',
+        'spot' => 'It is in a spot check.',
+        'not_arrival' => 'Only matches found by the check on arrival are matched from the list.',
+        'conflict' => 'The clues disagree. A matching lead decides it.',
+        'not_likely' => 'Its match strength is "%s", not a likely match.',
+        'pending' => 'A decision on it waits for a second OK.',
+        'merged' => 'The suggested warehouse product was joined into another one.',
+        'rejected_before' => 'Someone said before that it is not this warehouse product.',
+        'warning' => 'There is a warning to read.',
+        'barcode' => 'The barcodes are different.',
+        'units' => 'The suggestion says %s.',
     ];
 
     /** A website product's state on Store Products (Queries::STORE_STATES). */

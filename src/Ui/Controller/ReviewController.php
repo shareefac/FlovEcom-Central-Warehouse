@@ -21,6 +21,7 @@ use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\QueueContext;
 use CW\Ui\Queries;
+use CW\Ui\StoreContext;
 use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
@@ -123,7 +124,13 @@ final class ReviewController
                 'proposal_id' => (int) $r['proposal_id'],
                 'manual' => $why,
                 'picked' => $all && $why === null,
+                'fold' => self::foldOffered($why, self::s($r['band']), $r['proposed_sku_id'] !== null, (bool) $r['proposed_new_item'], $me->canDecide() && !$leadOnly),
             ];
+        }
+        // The Check & match fold of a row found by the check on arrival with a Likely suggestion (docs/decisions.md CM1): its address
+        // names the list's way back, its page and the row after it. Whether the row is clean is asked only when it is opened.
+        foreach ($rows as $i => $row) {
+            $rows[$i]['check'] = $row['fold'] ? self::foldUrl($row['listing_id'], $qc->query(), $result['page'], $rows[$i + 1]['listing_id'] ?? null) : null;
         }
         // The action bar is drawn when at least one row of the page can be ticked; a page of rows that all go one at a time has
         // none (its buttons could only answer "tick a row first"), and the notice above the list says why.
@@ -504,8 +511,7 @@ final class ReviewController
             }
         }
 
-        $units = $proposal !== null && $proposal['ai_units_per_item'] !== null ? (int) $proposal['ai_units_per_item']
-            : ($l['sku_id'] !== null ? (int) $l['units_per_item'] : 1);
+        $units = self::unitsOf($proposal, $l);
         $band = $proposal !== null ? (string) $proposal['band'] : null;
         // Preselection (plan §7.1, U8): Key -> confirm the suggested product; New item -> create one, unless its barcode is
         // already on another listing or item (then a person looks first).
@@ -576,7 +582,10 @@ final class ReviewController
         // spot check come first.
         $from = $req->method === 'POST' ? $req->post : $req->query;
         $byProduct = $qc === null && $sample === null && $me->canDecide() && ByProductContext::named($from) ? ByProductContext::from($from, $q->everyStore()) : null;
-        $qq = $qc !== null ? $qc->query() : ($sample !== null ? ['sample' => $sample['id']] : ($byProduct !== null ? $byProduct->query() : []));
+        // Opened from Store Products' Check & match fold (CM3): Back, the picks and the forms lead back to that list.
+        $store = $qc === null && $sample === null && $byProduct === null && StoreContext::named($from) ? StoreContext::from($from, $channels) : null;
+        $qq = $qc !== null ? $qc->query() : ($sample !== null ? ['sample' => $sample['id']] : ($byProduct !== null ? $byProduct->query()
+            : ($store !== null ? array_filter($store->query(), static fn (mixed $v): bool => $v !== null) : [])));
         $pickUrl = static fn (int $sid): string => Html::url('/ui/review/listing/' . $id, $qq + ['pick' => $sid]) . '#decide';
         $usable = static fn (?int $sid): bool => $sid !== null && isset($skus[$sid]) && $skus[$sid]['merged_into_sku_id'] === null;
 
@@ -660,68 +669,13 @@ final class ReviewController
             $spotOpen = $error !== null && !(($values['action'] ?? '') === 'link' && UiRequest::id($values['sku_id'] ?? null) === $proposedId);
         }
 
-        // Why the computer suggests this, in words (F173-F177, F192-F195); the codes go to Technical details.
+        // Why the computer suggests this, in words (F173-F177, F192-F195); the codes go to Technical details. The lists' Check & match
+        // fold draws the same lines from the same function (CM1).
         $why = null;
+        $fields = [];
         if ($proposal !== null) {
-            $outcome = self::s($proposal['ai_outcome']);
-            $fields = [];
-            $fna = $ai['fields_not_agree'] ?? null;
-            foreach (is_array($fna) ? $fna : [] as $k => $v) {
-                if (is_string($k)) {
-                    $fields[] = ['field' => mb_substr($k, 0, 40), 'state' => is_string($v) ? mb_substr($v, 0, 20) : null];
-                } elseif (is_string($v)) {
-                    $fields[] = ['field' => mb_substr($v, 0, 40), 'state' => null];
-                }
-            }
-            usort($fields, static fn (array $a, array $b): int => [$a['state'] !== 'conflict', $a['field']] <=> [$b['state'] !== 'conflict', $b['field']]);
-            $targetVetoes = Html::strings($ev['target_vetoes'] ?? null);
-            $targetSoft = Html::strings($ev['target_soft_flags'] ?? null);
-            $watch = [];
-            foreach ($fields as $f) {
-                $watch[] = sprintf(Words::AI_FIELD_STATE[$f['state'] ?? 'none'] ?? Words::AI_FIELD_STATE['none'], Words::of('AI_FIELD', $f['field']));
-            }
-            foreach ([...$targetSoft, ...Html::strings($ai['soft_flags_on_chosen'] ?? null)] as $flag) {
-                $watch[] = Words::of('FLAG', $flag);
-            }
-            // A suggestion of the check on arrival (U144): no AI looked, so the strength's help says what the clue is; and the
-            // warnings about the clue itself (the barcode is also on an old page, say) are shown with the others.
-            $rulesOnly = in_array(\CW\Matching\ArrivalRules::RULES_ONLY, Html::strings(Html::json($proposal['flags'])), true);
-            foreach ($rulesOnly ? Html::strings($ev['lane_flags'] ?? null) : [] as $flag) {
-                if (Words::has('FLAG', $flag)) {
-                    $watch[] = Words::of('FLAG', $flag);
-                }
-            }
-            $cannot = [];
-            $proposedCode = $proposedId !== null && isset($skus[$proposedId]) ? (string) $skus[$proposedId]['code'] : Words::THING['proposed_item'];
-            foreach ($targetVetoes as $v) {
-                $cannot[] = Words::say('LISTING', 'cannot', $proposedCode, Words::of('VETO', $v));
-            }
-            foreach (Html::strings($ai['vetoes_on_chosen'] ?? null) as $v) {
-                $cannot[] = Words::say('LISTING', 'cannot_ai', Words::of('VETO', $v));
-            }
-            $bc = 'unknown';
-            foreach ($compareRows as $r) {
-                if ($r['field'] === 'barcodes') {
-                    $bc = $r['state'];
-                }
-            }
-            $reason = self::s($ai['reason'] ?? null, 1500);
-            $refs = array_filter(array_map(static fn (array $c): ?string => $c['ref'], $candView));
-            $why = [
-                'band' => Words::of('BAND', $band),
-                'band_help' => $rulesOnly && Words::has('BAND_HELP_RULES', (string) $band) ? Words::of('BAND_HELP_RULES', $band) : Words::of('BAND_HELP', $band),
-                'barcode' => $target === null ? null : ['tone' => $bc === 'same' ? 'done' : ($bc === 'differs' ? 'blocked' : 'off'),
-                    'text' => Words::LISTING['barcode_' . ($bc === 'same' || $bc === 'differs' ? $bc : 'unknown')]],
-                'ai' => $outcome === null ? null : ($proposal['ai_confidence'] !== null && !in_array($outcome, ['cannot_tell', 'multiple_plausible'], true)
-                    ? Words::say('LISTING', 'ai_sure', Words::of('AI', $outcome), (int) $proposal['ai_confidence']) : Words::of('AI', $outcome)),
-                'here' => self::bandReasons(Html::strings($ev['band_reasons'] ?? null)),
-                'watch' => array_values(array_unique($watch)),
-                'cannot' => array_values(array_unique($cannot)),
-                'renamed' => self::renamed(self::s($ev['relabel_pending'] ?? null)),
-                // The AI's reason, with C1, C2 … as links to the rows they name (F225).
-                'reason' => $reason === null ? null : array_map(static fn (string $part): array => ['text' => $part, 'ref' => in_array($part, $refs, true)],
-                    preg_split('/\b(C\d{1,2})\b/', $reason, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) ?: [$reason]),
-            ];
+            ['why' => $why, 'fields' => $fields] = self::whyOf($proposal, $target, $compareRows, $skus, $proposedId,
+                array_values(array_filter(array_map(static fn (array $c): ?string => $c['ref'], $candView))));
         }
 
         // The comparison: rows with something on either side only, values in words (F190, F191, F232).
@@ -783,7 +737,7 @@ final class ReviewController
                 'ai' => [
                     'outcome' => self::s($proposal['ai_outcome']), 'confidence' => $proposal['ai_confidence'],
                     'model' => self::s($proposal['ai_model']), 'warnings' => Html::strings($ai['warnings'] ?? null),
-                    'fields' => array_map(static fn (array $f): string => $f['field'] . ($f['state'] !== null ? ': ' . $f['state'] : ''), $fields ?? []),
+                    'fields' => array_map(static fn (array $f): string => $f['field'] . ($f['state'] !== null ? ': ' . $f['state'] : ''), $fields),
                     'vetoes' => [...Html::strings($ev['target_vetoes'] ?? null), ...Html::strings($ai['vetoes_on_chosen'] ?? null)],
                     'soft' => [...Html::strings($ev['target_soft_flags'] ?? null), ...Html::strings($ai['soft_flags_on_chosen'] ?? null)],
                     'roles' => array_values(array_filter(array_map(static fn (array $c): ?string => self::s($c['role'] ?? null), $candidates))),
@@ -811,7 +765,8 @@ final class ReviewController
             'qq' => $qq,
             'back' => $qc !== null ? [Html::url('/ui/review', $qc->pageQuery()), Words::of('BAND_TITLE', $qc->band)]
                 : ($sample !== null ? [$sample['url'], Words::say('SAMPLE', 'title', $sample['name'])]
-                : ($byProduct !== null ? [$byProduct->pickerUrl(), Words::say('BY_PRODUCT', 'pick_crumb', $byProduct->channelName)] : self::back($req))),
+                : ($byProduct !== null ? [$byProduct->pickerUrl(), Words::say('BY_PRODUCT', 'pick_crumb', $byProduct->channelName)]
+                : ($store !== null ? [$store->listUrl([], $id), Words::MENU['store_products']] : self::back($req)))),
             'sample' => $sample,
             'spot' => $spot,
             'spot_mode' => $spotMode,
@@ -852,6 +807,92 @@ final class ReviewController
             // The intro says what this person can do here: choose, or only look (a matched one, another lead's spot check).
             'intro_page' => $spot !== null && !$spot['mine'] && $me->canDecide() ? 'listing_spot' : ($matched ? 'listing_matched' : 'listing'),
         ], $status, ['title' => $title ?? Words::LISTING['no_title'], 'active' => 'review', 'notice' => $this->notice($ctx, $id)]);
+    }
+
+    /**
+     * "Why the computer suggests this" of a variant's open suggestion, in words (F173-F177, F192-F195): the strength and its help, the
+     * barcode, the AI's answer, the reasons, the "Watch out" lines and the red "cannot be the same" ones. The variant's page and the
+     * lists' Check & match fold (docs/decisions.md CM1) both take them from here, so the two cannot disagree. `fields` is what the AI
+     * said of the fields, for Technical details.
+     *
+     * @param array<string, mixed> $proposal Queries::openProposal()
+     * @param array<string, mixed>|null $target the item the page compares (a sku row)
+     * @param list<array{field: string, label: string, listing: string, item: string, state: string}> $compareRows Compare::rows() of it
+     * @param array<int, array<string, mixed>> $skus the items read for the page (the suggested one names the "cannot" lines)
+     * @param list<string> $refs the candidates the AI's reason may cite (C1 …)
+     * @return array{why: array<string, mixed>, fields: list<array{field: string, state: ?string}>}
+     */
+    private static function whyOf(array $proposal, ?array $target, array $compareRows, array $skus, ?int $proposedId, array $refs): array
+    {
+        $ev = Html::json($proposal['evidence']);
+        $ai = is_array($ev['ai'] ?? null) ? $ev['ai'] : [];
+        $band = (string) $proposal['band'];
+        $outcome = self::s($proposal['ai_outcome']);
+        $fields = [];
+        $fna = $ai['fields_not_agree'] ?? null;
+        foreach (is_array($fna) ? $fna : [] as $k => $v) {
+            if (is_string($k)) {
+                $fields[] = ['field' => mb_substr($k, 0, 40), 'state' => is_string($v) ? mb_substr($v, 0, 20) : null];
+            } elseif (is_string($v)) {
+                $fields[] = ['field' => mb_substr($v, 0, 40), 'state' => null];
+            }
+        }
+        usort($fields, static fn (array $a, array $b): int => [$a['state'] !== 'conflict', $a['field']] <=> [$b['state'] !== 'conflict', $b['field']]);
+        $targetVetoes = Html::strings($ev['target_vetoes'] ?? null);
+        $targetSoft = Html::strings($ev['target_soft_flags'] ?? null);
+        $watch = [];
+        foreach ($fields as $f) {
+            $watch[] = sprintf(Words::AI_FIELD_STATE[$f['state'] ?? 'none'] ?? Words::AI_FIELD_STATE['none'], Words::of('AI_FIELD', $f['field']));
+        }
+        foreach ([...$targetSoft, ...Html::strings($ai['soft_flags_on_chosen'] ?? null)] as $flag) {
+            $watch[] = Words::of('FLAG', $flag);
+        }
+        // A suggestion of the check on arrival (U144): no AI looked, so the strength's help says what the clue is; and the
+        // warnings about the clue itself (the barcode is also on an old page, say) are shown with the others.
+        $rulesOnly = in_array(\CW\Matching\ArrivalRules::RULES_ONLY, Html::strings(Html::json($proposal['flags'])), true);
+        foreach ($rulesOnly ? Html::strings($ev['lane_flags'] ?? null) : [] as $flag) {
+            if (Words::has('FLAG', $flag)) {
+                $watch[] = Words::of('FLAG', $flag);
+            }
+        }
+        $cannot = [];
+        $proposedCode = $proposedId !== null && isset($skus[$proposedId]) ? (string) $skus[$proposedId]['code'] : Words::THING['proposed_item'];
+        foreach ($targetVetoes as $v) {
+            $cannot[] = Words::say('LISTING', 'cannot', $proposedCode, Words::of('VETO', $v));
+        }
+        foreach (Html::strings($ai['vetoes_on_chosen'] ?? null) as $v) {
+            $cannot[] = Words::say('LISTING', 'cannot_ai', Words::of('VETO', $v));
+        }
+        $bc = 'unknown';
+        foreach ($compareRows as $r) {
+            if ($r['field'] === 'barcodes') {
+                $bc = $r['state'];
+            }
+        }
+        $reason = self::s($ai['reason'] ?? null, 1500);
+        return ['fields' => $fields, 'why' => [
+            'band' => Words::of('BAND', $band),
+            'band_help' => $rulesOnly && Words::has('BAND_HELP_RULES', (string) $band) ? Words::of('BAND_HELP_RULES', $band) : Words::of('BAND_HELP', $band),
+            'barcode' => $target === null ? null : ['tone' => $bc === 'same' ? 'done' : ($bc === 'differs' ? 'blocked' : 'off'),
+                'text' => Words::LISTING['barcode_' . ($bc === 'same' || $bc === 'differs' ? $bc : 'unknown')]],
+            'barcode_state' => $bc,
+            'ai' => $outcome === null ? null : ($proposal['ai_confidence'] !== null && !in_array($outcome, ['cannot_tell', 'multiple_plausible'], true)
+                ? Words::say('LISTING', 'ai_sure', Words::of('AI', $outcome), (int) $proposal['ai_confidence']) : Words::of('AI', $outcome)),
+            'here' => self::bandReasons(Html::strings($ev['band_reasons'] ?? null)),
+            'watch' => array_values(array_unique($watch)),
+            'cannot' => array_values(array_unique($cannot)),
+            'renamed' => self::renamed(self::s($ev['relabel_pending'] ?? null)),
+            // The AI's reason, with C1, C2 … as links to the rows they name (F225).
+            'reason' => $reason === null ? null : array_map(static fn (string $part): array => ['text' => $part, 'ref' => in_array($part, $refs, true)],
+                preg_split('/\b(C\d{1,2})\b/', $reason, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) ?: [$reason]),
+        ]];
+    }
+
+    /** How many warehouse products one sale uses, as the variant's page offers it: the suggestion's, else the match's, else 1. @param array<string, mixed>|null $proposal @param array<string, mixed> $l */
+    private static function unitsOf(?array $proposal, array $l): int
+    {
+        return $proposal !== null && $proposal['ai_units_per_item'] !== null ? (int) $proposal['ai_units_per_item']
+            : ($l['sku_id'] !== null ? (int) $l['units_per_item'] : 1);
     }
 
     /**
@@ -952,6 +993,197 @@ final class ReviewController
     }
 
     // ------------------------------------------------------------------------------------------
+    // The lists' Check & match fold (docs/decisions.md CM1-CM4)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * The reasons the Check & match fold gives for a variant it does not let anyone answer from the list, in the order it says them.
+     * A variant may be answered there only when none applies (foldFacts()).
+     */
+    public const FOLD_BLOCKS = ['no_item', 'not_waiting', 'held', 'spot', 'not_arrival', 'conflict', 'not_likely', 'pending', 'merged', 'rejected_before', 'warning',
+        'barcode', 'units'];
+
+    /**
+     * Whether a list row gets the Check & match fold (To review, Store Products): a variant that waits for its match, found by the check
+     * on arrival (OneAtATime's answer for the row, already read for its line), whose open suggestion is a Likely match of an item, for
+     * someone who may decide. Nothing else is read here: whether the row is CLEAN is asked when the fold is opened (check()).
+     *
+     * @param array{code: string}|null $why oneAtATime()'s answer for the row
+     */
+    public static function foldOffered(?array $why, ?string $band, bool $hasItem, bool $newItem, bool $canDecide): bool
+    {
+        return $canDecide && $why !== null && $why['code'] === OneAtATime::ARRIVAL && $band === 'Check' && $hasItem && !$newItem;
+    }
+
+    /**
+     * The fold's address for a row: the variant's check route with the list's own way back (QueueContext or StoreContext), the list's
+     * page (`lp`) and the next row of the page (`nx`, where the list opens after an answer: the answered row may have left it).
+     *
+     * @param array<string, scalar|null> $back the list context's query()
+     */
+    public static function foldUrl(int $listingId, array $back, ?int $page, ?int $next): string
+    {
+        return Html::url('/ui/review/listing/' . $listingId . '/check', $back + ['lp' => $page !== null && $page > 1 ? $page : null, 'nx' => $next]);
+    }
+
+    /**
+     * GET /ui/review/listing/{id}/check (read only, for whoever may decide): the Check & match fold of a list row, as a fragment for
+     * app.js, without the layout. The website variant next to the warehouse item its open suggestion names, field by field, the
+     * suggestion's strength, reasons and any "Watch out" lines: the variant page's own reads and helpers (foldFacts()). A clean likely
+     * match has two plain POST forms of the decide route ("Yes, match to …", "No, wrong product") with what the variant page's forms
+     * carry (the version, the suggestion, `seen`), `from=check` and the way back to the list at this row; anything else says why in
+     * words and leads to the variant's page. An unknown variant is the error page in words (app.js shows its own line for it).
+     */
+    public function check(Context $ctx): HtmlResponse
+    {
+        $id = $ctx->id();
+        $q = $ctx->queries();
+        $facts = $this->foldFacts($ctx, $id);
+        if ($facts === null) {
+            return $ctx->error(404, 'unknown_listing', 'no such listing', ['/ui/review', Words::MENU['review']]);
+        }
+        $src = $ctx->req->query;
+        $qc = QueueContext::from($src, 'fq', $q->channels());
+        $store = $qc === null ? StoreContext::from($src, $q->stores()) : null;
+        $back = $qc !== null ? $qc->query() : ($store !== null ? $store->query() : []);
+        $place = $back + ['lp' => $qc !== null ? self::listPage($src['lp'] ?? null) : null, 'nx' => UiRequest::id(is_string($src['nx'] ?? null) ? $src['nx'] : null)];
+        $l = $facts['l'];
+        return $ctx->fragment('listing_check', $facts + [
+            'open' => Html::url('/ui/review/listing/' . $id, $back),
+            'fields' => array_filter($place + ['from' => 'check'], static fn (mixed $v): bool => $v !== null && $v !== ''),
+            'yes' => $facts['target'] === null ? '' : Words::say('CHECK', 'yes', (string) $facts['target']['code'], Words::saleUses(1)),
+            'yes_named' => $facts['target'] === null ? '' : Words::say('CHECK', 'yes_named', $l['title'] ?? Words::LISTING['no_title'], (string) $facts['target']['code']),
+        ]);
+    }
+
+    /**
+     * What the Check & match fold shows of a variant and whether it may be answered there (docs/decisions.md CM1, CM2): the website
+     * variant against the warehouse item its open suggestion names, with the variant page's own reads and helpers (Queries::listing,
+     * openProposal, skus, barcodesOfMany, brandAliases, pendingOf, rejectedOf; Compare::rows; whyOf(); unitsOf(); OneAtATime::seen;
+     * the sales the page shows), and `blocks`: the reasons it may NOT be answered there (FOLD_BLOCKS), each with its words. It may only
+     * when there are none: a variant waiting for its match, found by the check on arrival (seen() says so: not held back, not a spot
+     * check's match), whose open suggestion is a Likely match of an item; no decision waiting for a second OK; the item not joined into
+     * another one and never said no to for this variant; no "Watch out" and no "cannot be the same" line; the barcode not different
+     * (the same, or not on both) and 1 sale = 1. Asked when the fold opens, and again under the listing's lock when its answer is sent.
+     *
+     * @return array<string, mixed>|null null when there is no such variant
+     */
+    private function foldFacts(Context $ctx, int $id): ?array
+    {
+        $q = $ctx->queries();
+        $l = $q->listing($id);
+        if ($l === null) {
+            return null;
+        }
+        $proposal = $q->openProposal($id);
+        $proposedId = $proposal !== null && $proposal['proposed_sku_id'] !== null ? (int) $proposal['proposed_sku_id'] : null;
+        $skus = $proposedId !== null ? $q->skus([$proposedId]) : [];
+        $target = $proposedId !== null ? ($skus[$proposedId] ?? null) : null;
+        $card = DecisionService::cardFrom(['product_title' => $l['product_title'], 'variant_title' => $l['variant_title'], 'brand' => $l['brand']], Html::json($l['features']));
+        $listingBarcodes = Html::strings(Html::json($l['barcodes']));
+        $targetBarcodes = $target !== null ? ($q->barcodesOfMany([(int) $target['id']])[(int) $target['id']] ?? []) : [];
+        $compareRows = $target !== null ? Compare::rows($card, $target, $listingBarcodes, $targetBarcodes, $q->brandAliases()) : [];
+        $why = $proposal !== null ? self::whyOf($proposal, $target, $compareRows, $skus, $proposedId, [])['why'] : null;
+        $units = self::unitsOf($proposal, $l);
+        $seen = OneAtATime::seen($ctx->db, $id);
+        $kind = $seen === null ? null : explode(':', $seen)[0];
+        $band = $proposal !== null ? (string) $proposal['band'] : null;
+        $blocks = [];
+        if ($target === null) {
+            $blocks['no_item'] = Words::CHECK['no_item'];
+        }
+        if (!in_array($l['status'], KeyEligibility::OPEN_LISTING, true)) {
+            $blocks['not_waiting'] = Words::CHECK['not_waiting'];
+        }
+        if ($kind === OneAtATime::HELD) {
+            $blocks['held'] = Words::CHECK['held'];
+        } elseif ($kind === OneAtATime::SPOT) {
+            $blocks['spot'] = Words::CHECK['spot'];
+        } elseif ($kind !== OneAtATime::ARRIVAL) {
+            $blocks['not_arrival'] = Words::CHECK['not_arrival'];
+        }
+        if ($band === 'Conflict') {
+            $blocks['conflict'] = Words::CHECK['conflict'];
+        } elseif ($band !== null && $band !== 'Check') {
+            $blocks['not_likely'] = Words::say('CHECK', 'not_likely', Words::of('BAND', $band));
+        }
+        if ($q->pendingOf($id) !== null) {
+            $blocks['pending'] = Words::CHECK['pending'];
+        }
+        if ($target !== null && $target['merged_into_sku_id'] !== null) {
+            $blocks['merged'] = Words::CHECK['merged'];
+        }
+        if ($target !== null && in_array((int) $target['id'], $q->rejectedOf($id), true)) {
+            $blocks['rejected_before'] = Words::CHECK['rejected_before'];
+        }
+        // The list row's own "Watch out" words (flagWords(), as the match-strength list shows them; "A detail needs a look" of a match the
+        // check on arrival wrote with a warning among them) and the variant page's lines: none of either.
+        $listWatch = $proposal !== null ? self::flagWords(array_values(array_diff(Html::strings(Html::json($proposal['flags'])), [\CW\Matching\ArrivalRules::RULES_ONLY]))) : [];
+        if ($listWatch !== [] || ($why !== null && ($why['watch'] !== [] || $why['cannot'] !== []))) {
+            $blocks['warning'] = Words::CHECK['warning'];
+        }
+        if ($target !== null && $why !== null && $why['barcode_state'] === 'differs') {
+            $blocks['barcode'] = Words::CHECK['barcode'];
+        }
+        if ($target !== null && $units !== 1) {
+            $blocks['units'] = Words::say('CHECK', 'units', Words::saleUses($units));
+        }
+        $compare = [];
+        foreach ($compareRows as $r) {
+            if ($r['listing'] !== '' || $r['item'] !== '') {
+                $compare[] = ['field' => $r['field'], 'label' => $r['label'], 'listing' => self::fieldValue($r['field'], $r['listing']),
+                    'item' => self::fieldValue($r['field'], $r['item']), 'state' => $r['state']];
+            }
+        }
+        // The sales the variant's page shows: the sales history's when it is loaded for the site, else the website's own (F207).
+        $sold = (new Duplicates($ctx->db))->soldFromHistory([$id => $l])[$id] ?? null;
+        return [
+            'l' => ['id' => (int) $l['id'], 'channel' => (string) $l['channel_code'], 'channel_name' => self::s($l['channel_name']), 'title' => self::s($l['product_title']),
+                'variant_title' => self::s($l['variant_title']), 'variant' => self::s($l['external_variant_id']), 'price' => self::s($l['price']),
+                'units_30d' => (int) ($sold !== null ? $sold['u30'] : $l['units_30d']), 'units_365d' => (int) ($sold !== null ? $sold['u365'] : $l['units_365d']),
+                'map_version' => (int) $l['map_version']],
+            'target' => $target === null ? null : $this->skuView($target),
+            'proposal_id' => $proposal !== null ? (int) $proposal['id'] : null,
+            'compare' => $compare,
+            'why' => $why,
+            'list_watch' => array_values(array_diff($listWatch, $why['watch'] ?? [])),
+            'units' => $units,
+            'seen' => $seen ?? '',
+            'blocks' => array_values($blocks),
+            'block_codes' => array_keys($blocks),
+            'clean' => $blocks === [],
+        ];
+    }
+
+    /**
+     * The fold's question asked again under the listing's lock (DecisionService::decide's recheck, CM2): the variant is still a clean
+     * likely match, and the answer sent is one of the fold's two as it drew them (its item and suggestion, and 1 sale = 1 for a match).
+     * Anything else is refused, 409 check_changed, and nothing is written: the variant's page is drawn with why.
+     *
+     * @param array<string, mixed> $request the decision the fold's form asks for
+     */
+    private function foldRecheck(Context $ctx, int $id, array $request): \Closure
+    {
+        return function () use ($ctx, $id, $request): void {
+            $f = $this->foldFacts($ctx, $id);
+            $asked = in_array($request['action'], ['link', 'reject'], true) && $f !== null && $f['target'] !== null
+                && ($request['sku_id'] ?? null) === $f['target']['id'] && ($request['proposal_id'] ?? null) === $f['proposal_id']
+                && ($request['action'] === 'reject' || ($request['units_per_item'] ?? null) === 1);
+            if ($f === null || !$f['clean'] || !$asked) {
+                throw new CwException('check_changed', 'the list\'s check of this listing no longer holds; decide it on its own page', 409,
+                    ['blocks' => $f['block_codes'] ?? [], 'asked' => $asked]);
+            }
+        };
+    }
+
+    /** The list's page a fold names (`lp`): a number above 1, else none (the first). */
+    private static function listPage(mixed $v): ?int
+    {
+        $n = is_string($v) ? UiRequest::id($v) : null;
+        return $n !== null && $n > 1 ? $n : null;
+    }
+
+    // ------------------------------------------------------------------------------------------
     // Decisions
     // ------------------------------------------------------------------------------------------
 
@@ -1013,16 +1245,33 @@ final class ReviewController
             }
             $request['units_per_item'] = (int) $form['units'];
         }
+        // Sent from a list's Check & match fold (docs/decisions.md CM2): the fold's question (still a clean likely match, and this is one
+        // of its two answers) is asked again under the listing's lock, after the checks every decision gets; and a decision goes back
+        // to the list at that row.
+        $fold = $req->field('from') === 'check';
         try {
             if ($action === 'new_item') {
                 $request['card'] = $this->cardOverrides($ctx, $id, $form);
             }
-            $result = $ctx->decisions()->decide($ctx->caller(), $request);
+            $result = $ctx->decisions()->decide($ctx->caller(), $request, $fold ? $this->foldRecheck($ctx, $id, $request) : null);
         } catch (CwException $e) {
             $field = is_string($e->detail['field'] ?? null) ? $e->detail['field'] : null;
             return $refuse(self::plain($e, 'decide'), $field, $e->httpStatus);
         }
         $notice = $result['state'] === 'pending_second' ? 'pending_second' : 'decided_' . $action;
+        // Opened from Store Products (CM3): back to the list as the person left it, at this row (from the fold: at the row after it,
+        // where the list goes on; the answered row may have left the list's filter). Only a store's code, a state, a sort, a search
+        // and page numbers come from the form; the address is built here (StoreContext), never taken from the request.
+        $next = $fold ? UiRequest::id($req->field('nx')) : null;
+        $store = $qc === null && StoreContext::named($req->post) ? StoreContext::from($req->post, $q->stores()) : null;
+        if ($store !== null) {
+            return HtmlResponse::redirect($store->listUrl(['notice' => $notice, 'prev' => $id], $next ?? $id));
+        }
+        if ($fold && $qc !== null) {
+            // From a match-strength list's fold: the same page of the list, at the row after this one, with the usual notice.
+            return HtmlResponse::redirect(Html::url('/ui/review', $qc->pageQuery() + ['page' => self::listPage($req->field('lp')), 'notice' => $notice, 'prev' => $id])
+                . '#l-' . ($next ?? $id));
+        }
         $to = $qc !== null ? $q->nextInQueue($qc->band, $qc->channelId, $qc->text, $qc->lane, $qc->min, $id, $qc->show) : null;
         if ($qc === null) {
             $sample = UiRequest::id($req->field('sample'));

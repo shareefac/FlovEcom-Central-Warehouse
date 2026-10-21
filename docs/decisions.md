@@ -11050,3 +11050,60 @@ Tests (20 Oct 2026, slot `decideguard2`, on cw-test): the full suite `OK, but so
 Skipped: 81` on `8e044a0` (`runs/decideguard2_full4.log`; the 81 are the HTTP tests of slots `ui` and `api`), and green after the last
 test change. Nothing was run on `cw_staging` or production; the staff Claude guide (`/root/cw_work/STAFF_CLAUDE_MAPPING_GUIDE.md`, 5.1 and
 5.4: "Held back and in a spot check are not server refusals") needs its words changed once this is merged.
+
+## Check & match on the lists: a clean likely match found on arrival is answered from the list (branch `list-quick-match`, 21 Oct 2026; CM1-CM4)
+
+The owner, on Store Products ("Electrofag: website products"), on a row found by the check on arrival with "Likely match – check it"
+and CW-003906 suggested (20 Oct 2026): "why can't we add a match button here so no need to go inside the page. makes it easier to map".
+Production maps with the check on arrival and no AI (M63, M64), so about 3,300 Electrofag and 3,200 Vape Big Likely rows are such rows,
+and each had to be opened on its own page (DG2). The owner chose the scope "Clean Likely only". Numbered CM (Check & match): DG, TF, SL
+and M1-M67 are taken. Code: `src/Ui/Controller/{ReviewController,StoreProductsController}.php`, `src/Ui/StoreContext.php`,
+`src/Ui/views/{check_fold,listing_check,queue,store_products}.php`, `src/Mapping/DecisionService.php` (decide()'s `recheck`), `src/Ui/Words.php`
+(`CHECK`, `MATCH_ERROR['check_changed']`), `public/ui/assets/app.{js,css}`. Tests: `tests/Integration/UiKernel/CheckMatchScreenTest.php`,
+`tests/Unit/{UiUnitTest,UiTemplatesTest,WordsTest}.php`.
+
+**CM1. The fold (amends M63, M64 and DG2).** On To review's Likely list and on Store Products, a row that waits for its match, found by the
+check on arrival (`OneAtATime::of()` says `on_arrival`: not held back, not a spot check's match), whose open suggestion is a Likely match
+(`Check`) of an item, has "Check & match" under its line, for someone who may decide (`ReviewController::foldOffered`). It is a
+`<details>` that opens in place, like By Item's quick match: app.js fetches `GET /ui/review/listing/{id}/check` (read only,
+`mapping.decide`), parses it inert and shows it only when its root carries `data-lc-fragment`; anything else shows `CHECK['failed']`
+beside the variant page's link, which is also all the fold offers without app.js. Nothing is computed for the list's 50 rows: whether a
+row is clean is the fragment's answer, asked when it opens (`foldFacts()`). The fragment shows the website variant against the warehouse
+item side by side (names; Compare::rows' brand, strength, nicotine type, range, kind, flavour, size, puffs, pack units and barcodes, each
+with the variant page's same / different / unknown chip; price; units sold in 30 days and a year, from the sales history as the page
+reads them), the strength with its help, the reasons, and every "Watch out" and red "cannot be the same" line. The page's lines and the
+fold's come from ONE function (`ReviewController::whyOf()`, taken out of `show()` unchanged), so they cannot disagree.
+
+A row is **clean** when none of `FOLD_BLOCKS` applies: it waits for its match; `OneAtATime::seen()` says `on_arrival`; the band is
+`Check` (Conflict says a matching lead decides it); no decision waits for a second OK; the item is not joined into another and nobody
+said "not this product" to it for this variant (a "No" keeps the suggestion open, M8); no "Watch out" line of the variant page
+(`whyOf()`: watch and cannot) and none of the list row's own (`flagWords()` of its flags: "A detail needs a look" of a match the check
+wrote with a warning, which the page has no line for when the item had nothing to compare with); the barcodes are not different (the
+same, or not on both); and 1 sale = 1 (`unitsOf()`, as the page offers). A clean row has two plain POST forms of the decide route:
+"Yes, match to CW-… (1 sale = 1 product)" (`link`, the item, `units_per_item=1`) and "No, wrong product" (`reject`), each with csrf,
+`expected_map_version`, `proposal_id`, `seen` (`OneAtATime::seen`, computed by the fragment), `from=check` and the list's way back
+(CM3). Any other row gets the facts, why in words, and "Open to decide" (the variant's page): no form, and no `seen`. The root, the forms
+and their buttons carry `data-listing-id`, `data-sku-id`, `data-channel` (and `data-answer`, `data-clean`) for a staff member's own Claude.
+Held back and spot-check variants are still decided only on their own page; so is everything not clean.
+
+**CM2. The decide route asks the fold's question again under the lock.** A decision from the fold goes through every check a decision
+gets (DecisionService, under the listing's lock: map_version, the suggestion it names, Conflict for a matching lead only, DG1, DG2's
+`seen`): a variant held back or put in a spot check after the fold was drawn is refused 409 `one_at_a_time`, a replaced suggestion 409
+`proposal_closed`, a Conflict re-band 403 `lead_required` for a Matcher. Then, because `from=check`, `ReviewController::foldRecheck()` runs
+inside the same transaction (`DecisionService::decide(..., $recheck)`, after those checks and before anything is written): `foldFacts()`
+again, and the answer must be one of the fold's two as drawn (its item, its suggestion, `units_per_item = 1` for a match). Anything else
+(a re-band in place for a lead, the barcodes different now, a hand-made `from=check` form with 3 per sale, another item or another
+action) is **409 `check_changed`** (`MATCH_ERROR['check_changed']`), nothing is written, and the variant's page is drawn with the words,
+to answer there. Without `from=check` the decide route is as it was (a form with the page's `seen` is the page's, DG2).
+
+**CM3. The way back.** To review's fold carries the list's QueueContext and its page (`lp`); Store Products' carries a StoreContext
+(`via=store`, a store's code that must name a store, a state and a sort that must be the list's, the search `lq`, the page `lp`: built
+like ByProductContext, never a return address). Both carry the next row of the page (`nx`, a number, an anchor only). After a success
+the person is back on the same page of the list at `#l-<next row>` (the rows are `id="l-<listing id>"`; the decided row may have left
+the list) with the usual notice (a toast, wherever the page is scrolled). A refusal lands on the variant's page with its words; from
+Store Products that page has Back to the list and its own forms lead back there too (decide()'s StoreContext redirect, at the row).
+To review's variant page without `from=check` still goes on to the next one in the list.
+
+**CM4. Left out on purpose.** New Variants draws the same rows with the same line (one_at_a_time.php) but its rows carry no band and
+its way back is another context: no fold there yet. The "may duplicate" box of the variant's page (the barcode on another product) is not
+part of the clean rule (the owner's scope); the fold leads to the page for it. The rule is the owner's: no setting.

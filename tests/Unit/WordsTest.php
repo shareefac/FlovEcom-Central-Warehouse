@@ -379,7 +379,9 @@ final class WordsTest extends TestCase
             'FIELD_STATE' => ['same', 'differs', 'alike', 'unknown'],
             'MATCH_ERROR' => ['map_version_conflict', 'proposal_changed', 'proposal_closed', 'proposal_mismatch', 'lead_required', 'same_person', 'not_pending',
                 'pending_second_exists', 'already_linked', 'no_change', 'name_required', 'bad_card', 'unknown_sku', 'sku_merged', 'reject_current_link',
-                'no_open_proposal', 'bad_units', 'unknown_decision', 'spot_check_other', 'spot_check_other_done', 'one_at_a_time'],
+                'no_open_proposal', 'bad_units', 'unknown_decision', 'spot_check_other', 'spot_check_other_done', 'one_at_a_time', 'check_changed'],
+            // The lists' Check & match fold: every reason it gives for a row it does not let anyone answer there (CM1).
+            'CHECK' => \CW\Ui\Controller\ReviewController::FOLD_BLOCKS,
             'DUP_ERROR' => ['map_version_conflict', 'proposal_changed', 'pending_second_exists', 'rejected_pair', 'protected', 'counted_meanwhile', 'not_merged',
                 'former_merged_elsewhere', 'lead_required', 'idempotency_key_reused', 'split_chain', 'keeper_changed', 'form_incomplete', 'nothing_chosen',
                 'elsewhere', 'confirm_needed', 'spot_check_other'],

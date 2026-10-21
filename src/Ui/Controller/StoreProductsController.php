@@ -10,6 +10,7 @@ use CW\Ui\Context;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
 use CW\Ui\Queries;
+use CW\Ui\StoreContext;
 use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
@@ -82,7 +83,15 @@ final class StoreProductsController
                 'pickable' => $pickable,
                 'picked' => $pickable && $all,
                 'manual' => $why,
+                'fold' => $st === 'suggested' && ReviewController::foldOffered($why, $r['proposal_id'] !== null ? (string) $r['band'] : null, $r['proposed_code'] !== null,
+                    (bool) ($r['proposed_new_item'] ?? false), $me->canDecide()),
             ];
+        }
+        // The Check & match fold (docs/decisions.md CM1) of a row found by the check on arrival with a Likely suggestion: its address
+        // names the list as the person has it (StoreContext), and the row after it. Whether the row is clean is asked when it is opened.
+        $back = new StoreContext((string) $store['code'], $state, $sort === 'sold_30' ? null : $sort, $text, $result['page'] > 1 ? $result['page'] : null);
+        foreach ($rows as $i => $row) {
+            $rows[$i]['check'] = $row['fold'] ? ReviewController::foldUrl($row['listing_id'], $back->query(), null, $rows[$i + 1]['listing_id'] ?? null) : null;
         }
         $states = [['key' => null, 'label' => Words::STORE_STATE['all'], 'count' => array_sum($counts), 'href' => Html::url('/ui/review/store', ['state' => null] + $base),
             'current' => $state === null]];

@@ -101,7 +101,7 @@
   </thead>
   <tbody>
 <?php foreach ($rows as $r): ?>
-    <tr<?php if ($bulk && $r['picked']): ?> class="picked"<?php endif; ?>>
+    <tr id="l-<?= $e($r['listing_id']) ?>"<?php if ($bulk && $r['picked']): ?> class="picked"<?php endif; ?>>
 <?php if ($bulk): ?>
       <td class="c-pick" data-label=""><?php if ($r['manual'] === null): ?><label class="pick"><input type="checkbox" name="pick_<?= $e($r['listing_id']) ?>" value="1" data-bulk-row<?php if ($r['picked']): ?> checked<?php endif; ?>><span class="visually-hidden"><?= $say('BULK', 'pick_row', $r['title'] ?? \CW\Ui\Words::LISTING['no_title']) ?></span></label>
         <input type="hidden" name="ver_<?= $e($r['listing_id']) ?>" value="<?= $e($r['map_version']) ?>"><input type="hidden" name="prop_<?= $e($r['listing_id']) ?>" value="<?= $e($r['proposal_id']) ?>"><?php endif; ?></td>
@@ -116,6 +116,9 @@
 <?php endif; ?>
 <?php if ($r['manual'] !== null): ?>
         <?= $partial('one_at_a_time', ['why' => $r['manual']]) ?>
+<?php endif; ?>
+<?php if ($r['check'] !== null): ?>
+        <?= $partial('check_fold', ['check' => $r['check'], 'listing' => $r['listing_id'], 'title' => $r['title'], 'link' => $r['link']]) ?>
 <?php endif; ?>
       </th>
       <td data-label="<?= $word('QUEUE', 'website') ?>"><?= $e($r['channel']) ?> <span class="muted small"><?= $say('QUEUE', 'option', (string) $r['variant']) ?></span></td>

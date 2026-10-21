@@ -137,13 +137,16 @@ final class DecisionService
      *
      * @param array<string, mixed> $req {action, listing_id, expected_map_version, sku_id?, units_per_item?,
      *        proposal_id?, reason?, card?: array (new_item overrides), merge_from_sku_id?, bulk_batch_id?}
+     * @param (\Closure(): void)|null $recheck asked under the listing's lock, after every check of what the person saw (map_version,
+     *        the suggestion, `seen`) and before anything is written; it refuses by throwing a CwException. The list's Check & match fold
+     *        asks its own question again here (is the row still a clean likely match? docs/decisions.md CM2); null asks nothing more.
      * @return array<string, mixed> {decision_id, action, state, listing_id, map_version, status, sku_id,
      *         units_per_item, needs_second, adopted}
      */
-    public function decide(Caller $caller, array $req): array
+    public function decide(Caller $caller, array $req, ?\Closure $recheck = null): array
     {
         $r = self::request($req);
-        return $this->db->transaction(fn (Db $db): array => $this->run($caller, $r, null));
+        return $this->db->transaction(fn (Db $db): array => $this->run($caller, $r, null, $recheck));
     }
 
     /**
@@ -601,9 +604,10 @@ final class DecisionService
     /**
      * @param array<string, mixed> $r normalised request
      * @param string|null $mint 'vpg_mint': mint an item from $r['card'] and link to it (mintAndLink)
+     * @param (\Closure(): void)|null $recheck decide()'s: asked under the lock after the checks of what the person saw
      * @return array<string, mixed>
      */
-    private function run(Caller $caller, array $r, ?string $mint): array
+    private function run(Caller $caller, array $r, ?string $mint, ?\Closure $recheck = null): array
     {
         $staff = $this->staff($caller);
         $action = $r['action'];
@@ -675,6 +679,10 @@ final class DecisionService
                 throw new CwException('one_at_a_time', "this listing is decided one at a time, on its own page as it is now ({$now}); reload it", 409,
                     ['kind' => explode(':', $now)[0], 'seen' => $r['seen']]);
             }
+        }
+        if ($recheck !== null && $action !== 'suggest') {
+            // The caller's own question about what it showed, asked again under the lock (the list's Check & match fold, CM2).
+            $recheck();
         }
         if ($action === 'merge_skus' && $l['linked'] && $l['sku_id'] === $r['merge_from_sku_id']) {
             $this->lockListingsOf($l['sku_id']);

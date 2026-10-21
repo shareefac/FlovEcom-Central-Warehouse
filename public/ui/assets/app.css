@@ -1807,6 +1807,44 @@ table.by-product details.quick-pick > :last-child:not(summary) { margin-bottom: 
   table.stack.by-product td.c-store:has(> details.quick-pick[open]) { grid-template-columns: minmax(0, 1fr); }
   table.stack.by-product td.c-store:has(> details.quick-pick[open]) > * { grid-column: 1 / -1; }
 }
+/* The lists' Check & match fold (docs/decisions.md CM1): a fold under a row's name (To review, Store Products) that opens in place to the
+   variant checked against its suggestion (listing_check.php): one row per fact in three columns (what, website, warehouse), which still
+   fit a 375 px card, then the strength, any warnings and the two answers, full width on a phone. */
+details.check-fold { border: 0; border-radius: 0; padding: 0; margin: 6px 0 0; background: none; font-size: 14px; font-weight: 400; white-space: normal; }
+details.check-fold > summary { display: inline-flex; min-height: 36px; margin: 0; list-style: none; }
+details.check-fold > summary::-webkit-details-marker { display: none; }
+details.check-fold[open] { min-width: min(30rem, 100%); }
+details.check-fold[open] > summary { margin-bottom: 8px; }
+details.check-fold > :last-child:not(summary) { margin-bottom: 0; }
+.check-fold .lc-page { margin: 6px 0 0; }
+.check-fold .lc-wait { margin: 6px 0; }
+.check-fold .lc-error { margin: 6px 0; color: var(--st-red); font-weight: 600; }
+.lc { padding: 10px 12px; border: 1px solid var(--hairline); border-radius: var(--r-12); background: var(--card); color: var(--ink); line-height: 20px; }
+.lc .lc-rows { display: grid; gap: 0; margin: 0 0 8px; }
+.lc .lc-row { display: grid; grid-template-columns: minmax(5.5rem, 0.8fr) minmax(0, 1fr) minmax(0, 1fr); gap: 2px 10px; padding: 6px 0; border-top: 1px solid var(--divider); }
+.lc .lc-row > * { min-width: 0; overflow-wrap: anywhere; }
+.lc .lc-head { border-top: 0; padding-top: 0; color: var(--ink-muted); font-size: 12px; font-weight: 600; }
+.lc .lc-k { color: var(--ink-2); font-size: 13px; }
+.lc .lc-k .chip { display: inline-flex; margin-top: 2px; }
+.lc .lc-sub { display: block; color: var(--ink-2); }
+.lc .lc-row.differs { background: var(--warn-row); }
+.lc dl.lc-why { grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 0 0 8px; font-size: 13px; }
+.lc dl.lc-why dt { margin-top: 0; }
+.lc .lc-clean { margin: 0 0 8px; color: var(--ink-2); }
+.lc .lc-answers { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+.lc .lc-answers form { margin: 0; }
+.lc .lc-not { margin: 0 0 8px; }
+.lc .lc-not p { margin: 0 0 4px; font-weight: 600; }
+.lc .lc-not ul { margin: 0; }
+.lc .lc-open { margin: 8px 0 0; }
+@media (max-width: 699.98px), (pointer: coarse) {
+  details.check-fold > summary, .lc .btn { min-height: 44px; }
+}
+@container (max-width: 640px) {
+  /* As a card: the fold and its answers take the card's whole width */
+  table.stack details.check-fold[open] { min-width: 0; }
+  .lc .lc-answers form, .lc .lc-answers .btn, .lc .lc-open .btn { width: 100%; }
+}
 /* The preview: one line per variant, what will happen (and why) in its last cell; the one button stays in sight (.actions.sticky) */
 table.by-item-preview td.c-wide { text-align: left; }
 table.by-item-preview td.c-wide .why { display: block; margin-top: 4px; color: var(--ink-2); }

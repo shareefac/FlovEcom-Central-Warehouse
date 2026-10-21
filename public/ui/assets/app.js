@@ -196,6 +196,36 @@
   };
   each(document.querySelectorAll('form[method="post"]'), sendOnce);
 
+  // The one read of the network: a read-only fragment of this site's own matching routes, By Item's quick match (/ui/review/products/…)
+  // and the lists' Check & match fold (/ui/review/listing/…/check), each named by its marker. Fetched with the session's cookie for
+  // this site only, parsed inert by DOMParser (nothing in it runs) and given back only when its root carries the marker of the route it
+  // was asked of; anything else (the sign-in page of a session that ended, an error page, no network, another address) fails, and the
+  // caller shows the page's words for that.
+  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/' };
+  var fragment = function (url, marker) {
+    var path = FRAGMENTS[marker];
+    if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {
+      return Promise.reject(new Error('not a fragment of this site'));
+    }
+    return window.fetch(url, { credentials: 'same-origin', method: 'GET', headers: { Accept: 'text/html' } })
+      .then(function (r) {
+        if (!r.ok || r.redirected) {
+          throw new Error('not the fragment');
+        }
+        return r.text();
+      })
+      .then(function (html) {
+        var doc = new window.DOMParser().parseFromString(html, 'text/html');
+        var part = doc.querySelector(marker);
+        if (!part) {
+          throw new Error('not the fragment');
+        }
+        var node = document.importNode(part, true);
+        each(node.querySelectorAll('form[method="post"]'), sendOnce);
+        return node;
+      });
+  };
+
   // By Item's quick match (the owner's request of 20 Oct 2026: "directly add dropdown with full details"). "Match…" in a cell of a
   // store that has no variant for the item is a <details> with a search box. Without the script its Search opens the picker page (a
   // GET form after the list, which the box and its button name with form=: the list sits inside the bulk form). With it, opening the
@@ -244,24 +274,11 @@
       var mine = ++turn;
       out.setAttribute('aria-busy', 'true');
       show(line(box.getAttribute('data-loading') || '', 'qp-wait muted'));
-      window.fetch(base + key, { credentials: 'same-origin', method: 'GET', headers: { Accept: 'text/html' } })
-        .then(function (r) {
-          if (!r.ok || r.redirected) {
-            throw new Error('not the variants');
-          }
-          return r.text();
-        })
-        .then(function (html) {
+      fragment(base + key, '[data-qp-fragment]')
+        .then(function (node) {
           if (mine !== turn) {
             return;
           }
-          var doc = new window.DOMParser().parseFromString(html, 'text/html');
-          var part = doc.querySelector('[data-qp-fragment]');
-          if (!part) {
-            throw new Error('not the variants');
-          }
-          var node = document.importNode(part, true);
-          each(node.querySelectorAll('form[method="post"]'), sendOnce);
           show(node);
           out.removeAttribute('aria-busy');
         })
@@ -304,6 +321,70 @@
     }
     if (box.open) {
       load(words());
+    }
+  });
+
+  // The lists' Check & match fold (docs/decisions.md CM1; the owner's request of 20 Oct 2026: "add a match button here so no need to go
+  // inside the page"). A row found by the check on arrival with a Likely suggestion has a <details> under its name. Without the script
+  // it opens to the variant's page link. With it, each opening shows the variant checked against its suggestion in place: the fragment
+  // at the address in data-check (a path of this site's check route), which alone decides whether the row may be answered here and then
+  // carries the two answers (plain POST forms of the decide route). Anything else shows the page's words (data-failed) beside the link.
+  each(document.querySelectorAll('details[data-check-fold]'), function (box) {
+    var url = box.getAttribute('data-check') || '';
+    var out = box.querySelector('[data-check-results]');
+    var page = box.querySelector('.lc-page');
+    if (url.indexOf('/ui/review/listing/') !== 0 || url.indexOf('/check?') < 0 || !out || !window.fetch || !window.DOMParser) {
+      return;
+    }
+    var turn = 0;
+    var show = function (node) {
+      while (out.firstChild) {
+        out.removeChild(out.firstChild);
+      }
+      out.appendChild(node);
+    };
+    var line = function (text, cls) {
+      var p = document.createElement('p');
+      p.className = cls;
+      p.textContent = text;
+      return p;
+    };
+    var load = function () {
+      var mine = ++turn;
+      out.setAttribute('aria-busy', 'true');
+      show(line(box.getAttribute('data-loading') || '', 'lc-wait muted'));
+      fragment(url, '[data-lc-fragment]')
+        .then(function (node) {
+          if (mine !== turn) {
+            return;
+          }
+          show(node);
+          if (page) {
+            page.hidden = true; // the fragment leads to the variant's page itself
+          }
+          out.removeAttribute('aria-busy');
+        })
+        .catch(function () {
+          if (mine !== turn) {
+            return;
+          }
+          var p = line(box.getAttribute('data-failed') || '', 'lc-error');
+          p.setAttribute('role', 'alert');
+          show(p);
+          if (page) {
+            page.hidden = false;
+          }
+          out.removeAttribute('aria-busy');
+        });
+    };
+    // Asked again at every opening: the row may have changed since (the fragment is what the decision is checked against).
+    box.addEventListener('toggle', function () {
+      if (box.open) {
+        load();
+      }
+    });
+    if (box.open) {
+      load();
     }
   });
 

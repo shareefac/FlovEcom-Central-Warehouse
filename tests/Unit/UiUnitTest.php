@@ -822,17 +822,25 @@ final class UiUnitTest extends TestCase
         self::assertDoesNotMatchRegularExpression('#(?:@import|url\(\s*["\']?(?:https?:)?//)#i', $css, 'the CSS fetches nothing from elsewhere');
         self::assertDoesNotMatchRegularExpression('/\b(eval|Function)\s*\(|new\s+Function|document\.write|innerHTML|outerHTML|insertAdjacentHTML|setTimeout\s*\(\s*["\']|setInterval\s*\(\s*["\']/', $js, 'nothing the CSP would have to allow, nothing that builds markup from strings');
         self::assertDoesNotMatchRegularExpression('#https?://#', $js, 'no third-party host');
-        // The script enhances forms; the one thing it reads from the network is By Item's quick match (the owner's request of 20 Oct
-        // 2026): the read-only fragment of this site's own route, named by the page (data-options, a path under /ui/review/products/),
-        // sent with the session's cookie only to this site, parsed inert (DOMParser: nothing in it runs) and shown only when its root
-        // says it is that fragment. Nothing else talks to the network, and nothing is sent but the GET.
+        // The script enhances forms; the one thing it reads from the network is a read-only fragment of this site's own matching
+        // routes: By Item's quick match (the owner's request of 20 Oct 2026; data-options, a path under /ui/review/products/) and the
+        // lists' Check & match fold (docs/decisions.md CM1; data-check, a path of /ui/review/listing/…/check). One fetch for both, sent
+        // with the session's cookie only to this site, parsed inert (DOMParser: nothing in it runs) and shown only when its root
+        // carries the marker of the route it was asked of. Nothing else talks to the network, and nothing is sent but the GET.
         self::assertDoesNotMatchRegularExpression('/\b(XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/', $js, 'no other way to the network');
-        self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the quick match\'s fragment');
-        self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'its address is the page\'s');
+        self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the matching fragments\'');
+        self::assertStringContainsString("var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/' };", $js,
+            'each marker with the path of its own route, nothing else');
+        self::assertStringContainsString("if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
+        self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');
         self::assertStringContainsString("base.indexOf('/ui/review/products/') !== 0", $js, 'a path of this site\'s own route, nothing else');
+        self::assertStringContainsString("fragment(base + key, '[data-qp-fragment]')", $js);
+        self::assertMatchesRegularExpression("#var url = box\\.getAttribute\\('data-check'\\) \\|\\| '';#", $js, 'the fold\'s address is the page\'s');
+        self::assertStringContainsString("url.indexOf('/ui/review/listing/') !== 0 || url.indexOf('/check?') < 0", $js);
+        self::assertStringContainsString("fragment(url, '[data-lc-fragment]')", $js);
         self::assertStringContainsString("{ credentials: 'same-origin', method: 'GET'", $js);
         self::assertStringContainsString("new window.DOMParser().parseFromString(html, 'text/html')", $js);
-        self::assertStringContainsString("doc.querySelector('[data-qp-fragment]')", $js, 'shown only when it is the fragment');
+        self::assertStringContainsString("var part = doc.querySelector(marker);", $js, 'shown only when it is the fragment asked for');
         // Codex's review: a box the person emptied is their search (every waiting variant, as the picker's `q=`), not the opening.
         self::assertStringContainsString('return touched ? input.value.trim() : null;', $js);
     }
