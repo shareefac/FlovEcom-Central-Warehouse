@@ -160,4 +160,18 @@ final class SearchTextTest extends TestCase
         self::assertFalse(SearchText::parse('tornado')->merged(0));
         self::assertTrue(SearchText::parse('')->isEmpty());
     }
+
+    /** The stored search text of 0049 (docs/decisions.md SI2): every word as its normal form, a merged word also as typed, made normal. */
+    public function testTheStoredTextIsAskedEachWordsNormalFormAndAMergedWordAsTyped(): void
+    {
+        $s = SearchText::parse("R&M 20\u{00A0}mg kiwi");
+        self::assertSame(['%randm%'], $s->storedPatterns(array_search('randm', $s->words, true)));
+        self::assertSame(['%20mg%', "%20\u{00A0}mg%"], $s->storedPatterns(array_search('20mg', $s->words, true)));
+        [$sql, $params] = $s->allStored('c');
+        self::assertSame('(c LIKE ? AND (c LIKE ? OR c LIKE ?) AND c LIKE ?)', $sql);
+        self::assertSame(['%randm%', '%20mg%', "%20\u{00A0}mg%", '%kiwi%'], $params);
+        self::assertSame(['', []], SearchText::parse('- &')->allStored('c'));
+        // the forms the forgiving search asks are all in the stored text whenever they are in the text: "&" is stored as "and"
+        self::assertSame(SearchText::norm('R & M Tornado'), str_replace([' ', '-', '&'], ['', '', 'and'], mb_strtolower('R & M Tornado')));
+    }
 }

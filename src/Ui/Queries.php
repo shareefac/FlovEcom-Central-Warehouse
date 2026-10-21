@@ -358,13 +358,78 @@ final class Queries
             $or[] = 'cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
             array_push($params, ...$ids);
         }
-        // (a text written as a CW number, "CW-003906", "cw 3906", is that item's: its words are no name)
-        [$words, $wordParams] = $s->explicitCw() ? ['', []] : $s->allWords("CONCAT_WS(' ', lp.product_title, lp.variant_title, lp.brand)", 'lp.brand');
-        if ($words !== '') {
-            $or[] = $words;
-            array_push($params, ...$wordParams);
+        // (a text written as a CW number, "CW-003906", "cw 3906", is that item's: its words are no name). The words in the stored
+        // search text of the row (search_names, 0049: what the forgiving search finds, and more); a row whose text was longer than
+        // the column, as before (search_long: a handful).
+        if (!$s->explicitCw() && $s->words !== []) {
+            [$stored, $storedParams] = $s->allStored('lp.search_names');
+            [$words, $wordParams] = $s->allWords("CONCAT_WS(' ', lp.product_title, lp.variant_title, lp.brand)", 'lp.brand');
+            $or[] = "({$stored} OR (lp.search_long = 1 AND {$words}))";
+            array_push($params, ...$storedParams, ...$wordParams);
         }
         return ['(' . implode(' OR ', $or) . ')', $params];
+    }
+
+    /** The index of the stored names, and of the names with everything else a variant is searched by (0049, docs/decisions.md SI1). */
+    private const SEARCH_NAMES_INDEX = 'ix_listing_profile_search_names';
+    private const SEARCH_ALL_INDEX = 'ix_listing_profile_search_all';
+
+    /**
+     * Every website product a search finds, as ids, read by indexes only (docs/decisions.md SI2-SI4): the option number as typed
+     * (uq_channel_listing_variant), a code (the barcode index of 0005), a CW number (the item's website products), and every word in
+     * the stored search text: ONE pass over the narrow index of search_names (the lists, Store Products, New Variants, Find) or of
+     * search_all (By Item's quick match and picker, $quick: the names, the website's product number, the web address, the barcodes,
+     * the attributes and the features, as the old search asked them), never over the profiles' rows; then the handful whose text
+     * was longer than the column (search_long), asked as before on their rows; and for the quick match the variants whose OPTION
+     * NUMBER holds a word (the option number is in channel_listing, not in the stored text). Of one store, or of every store
+     * ($channelId null); the caller's statement keeps its own conditions. What the forgiving search found is found (SI2).
+     *
+     * @return list<int>
+     */
+    private function searchedIds(SearchText $s, ?int $channelId, bool $quick): array
+    {
+        $ids = array_map('intval', $channelId === null
+            ? $this->db->column('SELECT cl.id FROM channel ch JOIN channel_listing cl ON cl.channel_id = ch.id AND cl.external_variant_id = ?', [$s->text])
+            : $this->db->column('SELECT id FROM channel_listing WHERE channel_id = ? AND external_variant_id = ?', [$channelId, $s->text]));
+        array_push($ids, ...$this->listingsByCode($s, $channelId));
+        if (!$quick) {
+            array_push($ids, ...$this->listingsOfItem($s->cwId(6), $channelId));
+        }
+        if ($s->words === [] || (!$quick && $s->explicitCw())) {
+            return array_values(array_unique($ids));
+        }
+        [$stored, $storedParams] = $s->allStored($quick ? 's.search_all' : 's.search_names');
+        array_push($ids, ...array_map('intval', $this->db->column('SELECT s.listing_id FROM listing_profile s FORCE INDEX (' . ($quick ? self::SEARCH_ALL_INDEX : self::SEARCH_NAMES_INDEX) . ') '
+            . 'WHERE ' . $stored, $storedParams)));
+        // the rows whose text was longer than the column: the forgiving search's own conditions, on their rows (by search_long's index)
+        [$old, $oldParams] = $quick ? $this->waitingWords($s) : $s->allWords("CONCAT_WS(' ', lp.product_title, lp.variant_title, lp.brand)", 'lp.brand');
+        array_push($ids, ...array_map('intval', $this->db->column('SELECT lp.listing_id FROM listing_profile lp JOIN channel_listing cl ON cl.id = lp.listing_id '
+            . 'WHERE lp.search_long = 1' . ($channelId === null ? '' : ' AND cl.channel_id = ?') . ' AND ' . $old, [...($channelId === null ? [] : [$channelId]), ...$oldParams])));
+        if ($quick && $channelId !== null) {
+            // a word in the option number (in channel_listing): its variants, the store's by its unique index, each word in the stored
+            // text or in the option number (written as it is or without its spaces and hyphens)
+            $opt = static fn (string $col): string => "REPLACE(REPLACE({$col}, ' ', ''), '-', '')";
+            $any = [];
+            $anyParams = [];
+            $each = [];
+            $eachParams = [];
+            foreach (array_keys($s->words) as $i) {
+                $any[] = 'cl.external_variant_id LIKE ? OR ' . $opt('cl.external_variant_id') . ' LIKE ?';
+                array_push($anyParams, SearchText::like($s->typed[$i]), SearchText::like($s->words[$i]));
+                $patterns = $s->storedPatterns($i);
+                $each[] = '(' . implode(' OR ', array_fill(0, count($patterns), 'lp.search_all LIKE ?')) . ' OR cl.external_variant_id LIKE ? OR ' . $opt('cl.external_variant_id') . ' LIKE ?)';
+                array_push($eachParams, ...[...$patterns, SearchText::like($s->typed[$i]), SearchText::like($s->words[$i])]);
+            }
+            array_push($ids, ...array_map('intval', $this->db->column('SELECT cl.id FROM channel_listing cl FORCE INDEX (uq_channel_listing_variant) JOIN listing_profile lp ON lp.listing_id = cl.id '
+                . 'WHERE cl.channel_id = ? AND (' . implode(' OR ', $any) . ') AND ' . implode(' AND ', $each), [$channelId, ...$anyParams, ...$eachParams])));
+        }
+        return array_values(array_unique($ids));
+    }
+
+    /** `cl.id IN (…)` of ids this code read (integers, written into the statement: a page of a search may hold thousands), or FALSE. @param list<int> $ids */
+    private static function idsIn(array $ids): string
+    {
+        return $ids === [] ? 'FALSE' : 'cl.id IN (' . implode(',', array_map('intval', $ids)) . ')';
     }
 
     /**
@@ -584,20 +649,19 @@ final class Queries
             $where[] = self::STATE_WHERE[$state];
         }
         $q = trim($q);
-        [$text, $textParams] = $this->listingText($q, $channelId);
-        if ($text !== '') {
-            $where[] = $text;
-            array_push($params, ...$textParams);
+        if ($q !== '') {
+            // what the search finds, by the indexes (searchedIds): the statement reads no profile but its units (SI3)
+            $where[] = self::idsIn($this->searchedIds(SearchText::parse($q), $channelId, false));
         }
         $col = self::STORE_SORTS[$sort] ?? 'units_30d';
         $other = $col === 'units_30d' ? 'units_365d' : 'units_30d';
         $order = " ORDER BY COALESCE(lp.{$col}, 0) DESC, COALESCE(lp.{$other}, 0) DESC, cl.id ASC";
-        $hint = $q === '' ? self::UNITS_HINT : '';
+        $hint = self::UNITS_HINT;
         $from = 'FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ' . implode(' AND ', $where);
         if ($q !== '') {
             // A search reads the profile of every website product of the store: ONE pass gives every id it finds, in the page's
             // order, so the count and the page come from it (two passes before: a COUNT, then the page).
-            $all = array_map('intval', $this->db->column('SELECT cl.id ' . $from . $order, $params));
+            $all = array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . $order, $params));
             $total = count($all);
             $pages = max(1, (int) ceil($total / self::PER_PAGE));
             $page = min(max(1, $page), $pages);
@@ -807,11 +871,8 @@ final class Queries
         }
         $q = trim($q);
         if ($q !== '') {
-            // Store Products' search (listingText: the option number, a code or a CW number by their indexes, every word)
-            [$text, $textParams] = $this->listingText($q, $channelId);
-            $where[] = $text;
-            array_push($params, ...$textParams);
-            $join .= 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id ';
+            // Store Products' search, by the indexes (searchedIds): the statement reads no profile (SI3)
+            $where[] = self::idsIn($this->searchedIds(SearchText::parse($q), $channelId, false));
         }
         $from = 'FROM channel_listing cl ' . $join . 'WHERE ' . implode(' AND ', $where);
         if ($q !== '' && $page !== null) {
@@ -1289,44 +1350,44 @@ final class Queries
         $params = [$channelId];
         $s = SearchText::parse($q);
         $q = $s->text;
-        $words = $s->words;
-        if ($q !== '' && $words === [] && $s->codes === []) {
+        if ($q !== '' && $s->words === [] && $s->codes === []) {
             // A text with no usable word (only white space trim() leaves, punctuation, or not valid UTF-8) finds nothing, as on the list.
             return ['ids' => [], 'more' => false];
         }
         if ($q !== '') {
-            $or = ['cl.external_variant_id = ?'];
-            $orParams = [$q];
-            // the whole text as a barcode, by the index (also with or without its leading zeros; never a JSON parse of every profile)
-            $ids = $this->listingsByCode($s, $channelId);
-            if ($ids !== []) {
-                $or[] = 'cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
-                array_push($orParams, ...$ids);
-            }
-            $and = [];
-            $like = [];
-            foreach ($s->order() as $i) {
-                // the names compared as SearchText does (a plain word as it is, first; the others with the spaces and hyphens left
-                // out); the barcodes, attributes and features with the word as typed (a merged word with its space: "20 mg")
-                $typed = $s->typed[$i];
-                $number = preg_match('/\d/u', $typed) === 1;
-                [$text, $textParams] = $s->wordSql($i, self::WAITING_TEXT, 'lp.brand');
-                $and[] = '(' . $text . ' ' . self::WAITING_JSON . ($number ? ' OR ' . self::WAITING_NUMBER : '') . ')';
-                array_push($like, ...$textParams, ...array_fill(0, self::WAITING_JSON_PARAMS + ($number ? self::WAITING_NUMBER_PARAMS : 0), SearchText::like($typed)));
-            }
-            if ($and !== []) {
-                $or[] = '(' . implode(' AND ', $and) . ')';
-                array_push($orParams, ...$like);
-            }
-            $where[] = '(' . implode(' OR ', $or) . ')';
-            array_push($params, ...$orParams);
+            // what the search finds, by the indexes (searchedIds, the quick match's fields: SI3); the statement reads no profile but its units
+            $where[] = self::idsIn($this->searchedIds($s, $channelId, true));
         }
         $ids = array_map('intval', $this->db->column(
-            'SELECT ' . ($words === [] ? self::UNITS_HINT : '') . 'cl.id FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE '
+            'SELECT ' . self::UNITS_HINT . 'cl.id FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE '
             . implode(' AND ', $where) . ' ORDER BY COALESCE(lp.units_30d, 0) DESC, COALESCE(lp.units_365d, 0) DESC, cl.id ASC LIMIT ? OFFSET ?',
             [...$params, $perPage + 1, (max(1, $page) - 1) * $perPage],
         ));
         return ['ids' => array_slice($ids, 0, $perPage), 'more' => count($ids) > $perPage];
+    }
+
+    /**
+     * The quick match's word search as the forgiving search asks it, on a variant's own rows (`cl`, `lp`): every word in the names, the
+     * option number, the web address and the website's product number (SearchText::wordSql on WAITING_TEXT), or any part of a barcode,
+     * an attribute, a flavour or range word, or (a word with a digit) a number. The rows whose stored text was longer than the column
+     * are still asked this way (searchedIds).
+     *
+     * @return array{0: string, 1: list<string>}
+     */
+    private function waitingWords(SearchText $s): array
+    {
+        $and = [];
+        $like = [];
+        foreach ($s->order() as $i) {
+            // the names compared as SearchText does (a plain word as it is, first; the others with the spaces and hyphens left out);
+            // the barcodes, attributes and features with the word as typed (a merged word with what stood between: "20 mg")
+            $typed = $s->typed[$i];
+            $number = preg_match('/\d/u', $typed) === 1;
+            [$text, $textParams] = $s->wordSql($i, self::WAITING_TEXT, 'lp.brand');
+            $and[] = '(' . $text . ' ' . self::WAITING_JSON . ($number ? ' OR ' . self::WAITING_NUMBER : '') . ')';
+            array_push($like, ...$textParams, ...array_fill(0, self::WAITING_JSON_PARAMS + ($number ? self::WAITING_NUMBER_PARAMS : 0), SearchText::like($typed)));
+        }
+        return ['(' . implode(' AND ', $and) . ')', $like];
     }
 
     /**
@@ -1607,13 +1668,15 @@ final class Queries
         if (mb_strlen(trim($q)) < 2) {
             return [];
         }
-        // the lists' search (listingText): the option number, a code by the barcode index, a CW number's website products, every word
-        [$or, $params] = $this->listingText($q, null);
-        return $this->db->all(
+        // the lists' search of every store, by the indexes (searchedIds); the best sellers among them by the units' index alone, then
+        // only those rows (SI3)
+        $found = $this->searchedIds(SearchText::parse($q), null, false);
+        $page = $found === [] ? [] : array_map('intval', $this->db->column('SELECT ' . self::UNITS_HINT . 'cl.id FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
+            . 'WHERE ' . self::idsIn($found) . ' ORDER BY COALESCE(lp.units_30d, 0) DESC, cl.id LIMIT ?', [$limit]));
+        return $page === [] ? [] : $this->db->all(
             'SELECT cl.id, cl.status, cl.sku_id, cl.external_variant_id, ch.code AS channel_code, lp.product_title, lp.variant_title, lp.units_30d, s.code AS sku_code '
             . 'FROM channel_listing cl JOIN channel ch ON ch.id = cl.channel_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN sku s ON s.id = cl.sku_id '
-            . 'WHERE ' . $or . ' ORDER BY COALESCE(lp.units_30d, 0) DESC, cl.id LIMIT ?',
-            [...$params, $limit],
+            . 'WHERE ' . self::idsIn($page) . ' ORDER BY COALESCE(lp.units_30d, 0) DESC, cl.id',
         );
     }
 

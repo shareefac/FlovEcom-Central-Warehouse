@@ -249,6 +249,45 @@ final class SearchText
         return ['(' . implode(' AND ', $parts) . ')', $params];
     }
 
+    /**
+     * The patterns of word $i in a STORED search text (listing_profile.search_names and search_all, 0049; docs/decisions.md SI2): the
+     * whole text made normal as norm() makes a word (spaces and hyphens left out, "&" as "and"), so a word is its normal form there,
+     * and a merged word is also what was typed between its parts, made normal ("20 (mg" as "20(mg"). Each form the forgiving search
+     * asks a word in (wordSql()) is in the stored text whenever it is in the text, so the stored search finds what it finds.
+     *
+     * @return list<string>
+     */
+    public function storedPatterns(int $i): array
+    {
+        $out = [self::like($this->words[$i])];
+        if ($this->merged($i)) {
+            $out[] = self::like(self::norm($this->typed[$i]));
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * "Every word is in this stored search text" (storedPatterns()), the longest word first: `(col LIKE ? AND (col LIKE ? OR col LIKE ?))`
+     * and its values, or ['', []] when there is no word.
+     *
+     * @return array{0: string, 1: list<string>}
+     */
+    public function allStored(string $col): array
+    {
+        if ($this->words === []) {
+            return ['', []];
+        }
+        $parts = [];
+        $params = [];
+        foreach (array_keys($this->words) as $i) {
+            $patterns = $this->storedPatterns($i);
+            $one = implode(' OR ', array_fill(0, count($patterns), "{$col} LIKE ?"));
+            $parts[] = count($patterns) > 1 ? "({$one})" : $one;
+            array_push($params, ...$patterns);
+        }
+        return ['(' . implode(' AND ', $parts) . ')', $params];
+    }
+
     /** `%word%` with the LIKE wildcards of the word escaped. */
     public static function like(string $word): string
     {

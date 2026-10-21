@@ -11238,3 +11238,63 @@ Each new test failed first (`runs/searchux_r1_red.log`) and passes now.
   counts the quick match's statements for a search by an option number and one by words; with a code looked up for every text of at
   most 64 characters the two send the same statements again (it failed while only a text with a digit was looked up).
 
+## The website products' search by an index (branch `search-index`, on `search-match-ux`, 21 Oct 2026; SI1-SI6)
+
+The owner said yes (21 Oct 2026) to item 1 of the review's NEEDS-OWNER list: make the website-product searches index-fast. Before,
+every word search of website products read and compared the text of every profile it might find (SX8: 250-500 ms on the test server
+for a 29,000-variant store or Find's 38,000), and SX2 had to choose cheaper, less forgiving comparisons to stay there. Code:
+`migrations/0049_search_index.sql`, `src/Ui/Queries.php` (`searchedIds`, `idsIn`, `waitingWords`; `listingText`, `storeProducts`,
+`newVariants`, `searchListings`, `waitingListings`), `src/Ui/SearchText.php` (`storedPatterns`, `allStored`). Tests:
+`tests/Integration/Migration0049Test.php`, `tests/Integration/Mapping/SearchIndexTest.php` (new); `ForgivingSearchTest` and the
+screens' tests unchanged, and green.
+
+**SI1. What was measured, and the choice.** On the slot's test schema filled like production (`tests/perf/index_probe*.php`, not
+committed; `runs/searchux_index_probe*.txt`): (a) stored generated columns of the normal text with B-tree indexes, read by a covering
+scan of the index (5.5 MB for the names, 12 MB for everything the quick match reads, against the profiles' 120 MB): 15-30 ms for the
+scan of 38,000 entries, 40-90 ms with the LIKEs of three words, under load; the ALTER 8-14 s; (b) a FULLTEXT index with the ngram
+parser: 33 ms for a rare word but 220-380 ms for a common one ("20mg": 12,700 of 38,000), stopwords to switch off at creation,
+one-letter words it cannot find, its boolean operators to escape, and changes seen only after commit; (c) a narrow side table written
+by code: the same reads as (a) but kept in step by every writer, and every test's fixture that writes a profile, by hand. (a) is
+chosen: MySQL keeps the columns in step itself, LIKE keeps exactly the forgiving search's meaning, and the index read is cheap
+whatever the word.
+
+**SI2. The stored text, and why a search still finds everything it found.** `search_names` = the product's title, the option's title
+and the brand; `search_all` = those, the website's product number, the web address, the barcodes, the attributes and
+the flavour, range and number features (the attributes' JSON without its keys, `REGEXP_REPLACE`: every name and value JSON_SEARCH read,
+and none of the keys, which ByProductScreenTest holds); both made normal as `SearchText::norm()` makes a word (spaces and hyphens left out, "&" as
+"and"; case and accents by the column's collation, `utf8mb4_0900_ai_ci`), cut at 760 characters (an index entry's 3,072 bytes).
+A word is asked as its normal form, a merged word also as what was typed between its parts made normal (`storedPatterns()`). Every
+form the forgiving search asks a word in (SX2's three kinds, both spellings of "&", the merged word as typed) is in the normal text
+whenever it is in the text (the mapping goes character by character), so the stored search finds a superset: what SX found and,
+since every word is now compared without spaces and hyphens on the whole text, joined words anywhere ("bluerazz", "promax"). A text
+longer than the column (`search_long = 1`, by its index: none in the test data, a handful at most) is asked as before, on its row.
+
+**SI3. The reads.** `searchedIds()` gives every website product a search finds, as ids, by indexes only: the option number as typed
+(`uq_channel_listing_variant`), a code (the barcode index of 0005), a CW number (the item's website products, SX3), every word in the
+stored text (one covering scan of `ix_listing_profile_search_names`, or for the quick match `ix_listing_profile_search_all`), the long
+rows on their rows, and for the quick match the variants whose option number holds a word (the option number lives in
+`channel_listing`; a covering scan of the store's part of `uq_channel_listing_variant`, then each word in the stored text or in the
+option number). Store Products, New Variants, Find and the quick match then read `cl.id IN (…)` of those ids (written into the
+statement as integers this code read: a common word finds thousands) with the units from `ix_listing_profile_units` alone, and Find
+its 30 best sellers' rows only. The match-strength lists read their own few thousand rows with the profile anyway, so they ask
+`lp.search_names` on the row (with the long rows' old conditions). The quick match's statements are the same for every search (By
+Item's statement-count test).
+
+**SI4. In step, and the backfill.** The columns are STORED GENERATED: MySQL computes them with every INSERT and UPDATE of a profile,
+whoever writes it (the listing intake and import, `ListingIngestService`; the tools that write features; a test's fixture), and refuses
+a statement that writes one (3105). The ALTER's copy computes them for every profile that is there: that is the backfill, in the
+migration; no tool. `SearchIndexTest` pins a push that renames a variant (found by the new words at once, no longer by the old) on
+every search.
+
+**SI5. The migration.** One statement, `ALGORITHM = COPY, LOCK = SHARED`, as 0027 and 0028 (this server copies the table for any new
+column of `listing_profile`): 14 s for 38,000 profiles of 120 MB on the test server; reads go on, a push waits. It runs in
+`install_cron.sh --migrate` with the public vhost off (`docs/ops.md`, "The website products' search index"). No grant changes: no new
+table, and nobody writes a generated column. `Migration0049Test` holds the file to this and checks the backfill, the old code's
+statements on the new schema, the normal text, the cut and the covering reads.
+
+**SI6. Left out.** Items (`sku`): their word search reads 15,000 narrow rows (55-120 ms on the test server, SX8), not the wide
+profiles; the same columns there would cost a copy of `sku` (referenced by most tables) for tens of milliseconds, so not now. The one
+place the stored search is narrower than SX's in theory: a typed word that runs from the end of the option number into the product's
+title with no space ("27electrofag") was found by the quick match's old concatenated text and is not now (the option number is not
+in `search_all`); a word of the option number alone, or of the title alone, is.
+
