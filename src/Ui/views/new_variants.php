@@ -29,11 +29,14 @@
 <?php if ($state !== null): ?>
   <input type="hidden" name="state" value="<?= $e($state) ?>">
 <?php endif; ?>
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="nv-q"><?= $word('NEW_VARIANTS', 'search') ?></label><input id="nv-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>" title="<?= $word('NEW_VARIANTS', 'search') ?>"></div>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="nv-q"><?= $word('NEW_VARIANTS', 'search') ?></label><input id="nv-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('FIND', 'variants') ?>" title="<?= $word('NEW_VARIANTS', 'search') ?>" aria-keyshortcuts="/" data-page-search></div>
   <div class="tb-end">
     <a class="btn ghost sm" href="<?= $e($csv_link) ?>" title="<?= $word('NEW_VARIANTS', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a>
   </div>
 </form>
+<?php if ($text !== '' && $total > 0): ?>
+<?= $partial('search_note', ['count' => $total, 'text' => $text, 'clear' => $clear_link]) ?>
+<?php endif; ?>
 
 <nav class="pills period-pills" aria-label="<?= $word('NEW_VARIANTS', 'periods') ?>">
 <?php foreach ($periods as $p): ?>
@@ -48,7 +51,7 @@
 
 <?php if ($rows === []): ?>
 <?php if ($text !== ''): ?>
-<?= $empty(\CW\Ui\Words::NEW_VARIANTS['empty_search'], \CW\Ui\Words::NEW_VARIANTS['empty_search_text'], $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
+<?= $empty(\CW\Ui\Words::NEW_VARIANTS['empty_search'], \CW\Ui\Words::NEW_VARIANTS['empty_search_text'] . ' ' . \CW\Ui\Words::FIND['try'], $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
 <?php else: ?>
 <?= $empty(\CW\Ui\Words::NEW_VARIANTS['empty'], \CW\Ui\Words::NEW_VARIANTS['empty_text']) ?>
 <?php endif; ?>

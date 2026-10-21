@@ -9,7 +9,7 @@
 <?php if ($show !== null): ?>
   <input type="hidden" name="show" value="<?= $e($show) ?>">
 <?php endif; ?>
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('QUEUE', 'text') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($qc->text) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('QUEUE', 'text') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($qc->text) ?>" maxlength="100" placeholder="<?= $word('FIND', 'listings') ?>" aria-keyshortcuts="/" data-page-search></div>
   <details class="tb-pop">
     <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($qc->lane !== null || $qc->min > 0): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
     <div class="pop pop-form">
@@ -28,6 +28,9 @@
     </div>
   </details>
 </form>
+<?php if ($qc->text !== '' && $total > 0): ?>
+<?= $partial('search_note', ['count' => $total, 'text' => $qc->text, 'clear' => $clear_search]) ?>
+<?php endif; ?>
 <?php $bandTotal = array_sum(array_column($bands, 'count')); ?>
 <section class="card strength" aria-label="<?= $word('QUEUE', 'lists') ?>">
   <p class="hint"><?= $word('QUEUE', 'strength') ?></p>
@@ -61,13 +64,13 @@
 <?php endif; ?>
 
 <?php if ($total === 0 && $filtered): ?>
-<?= $empty(\CW\Ui\Words::QUEUE['empty_filter'], \CW\Ui\Words::QUEUE['empty_filter_text'], $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
+<?= $empty(\CW\Ui\Words::QUEUE['empty_filter'], \CW\Ui\Words::QUEUE['empty_filter_text'] . ($qc->text !== '' ? ' ' . \CW\Ui\Words::FIND['try'] : ''), $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
 <?php elseif ($total === 0 && $next_list !== null): ?>
 <?= $empty(\CW\Ui\Words::QUEUE['empty'], \CW\Ui\Words::QUEUE['empty_text'], $next_list['href'], \CW\Ui\Words::say('QUEUE', 'next_list', $next_list['label'], $next_list['count'])) ?>
 <?php elseif ($total === 0): ?>
 <?= $empty(\CW\Ui\Words::QUEUE['empty'], \CW\Ui\Words::QUEUE['all_done'], '/ui/', \CW\Ui\Words::MENU['home']) ?>
 <?php else: ?>
-<div class="board-head"><h2 class="board-title"><?= $word('QUEUE', 'board') ?></h2><p class="board-note"><?php if ($total === 1): ?><?= $word('QUEUE', 'total_one') ?><?php else: ?><?= $say('QUEUE', 'total_many', $total) ?><?php endif; ?></p></div>
+<div class="board-head"><h2 class="board-title"><?= $word('QUEUE', 'board') ?></h2><p class="board-note"><?php if ($total === 1): ?><?= $word('QUEUE', 'total_one') ?><?php else: ?><?= $say('QUEUE', 'total_many', $total) ?><?php endif; ?></p><?php if ($progress !== null): ?><p class="progress-line" data-progress><?= $e($progress) ?></p><?php endif; ?></div>
 <?php endif; ?>
 
 <?php if ($rows !== []): ?>
@@ -138,7 +141,7 @@
       </td>
       <td data-label="<?= $word('QUEUE', 'ai') ?>"><?= $e($r['ai'] ?? '') ?></td>
       <td data-label="<?= $word('QUEUE', 'watch') ?>"><?php foreach ($r['watch'] as $w): ?><span class="tag warn"><?= $e($w) ?></span> <?php endforeach; ?></td>
-      <td class="c-next"><a class="btn<?php if ($button === \CW\Ui\Words::QUEUE['open']): ?> primary<?php else: ?> secondary<?php endif; ?>" href="<?= $e($r['link']) ?>"><?= $e($button) ?></a></td>
+      <td class="c-next"><a class="btn<?php if ($button === \CW\Ui\Words::QUEUE['open'] && $r['check'] === null): ?> primary<?php else: ?> secondary<?php endif; ?>" href="<?= $e($r['link']) ?>"><?= $e($button) ?></a></td>
     </tr>
 <?php endforeach; ?>
   </tbody>

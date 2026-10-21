@@ -501,6 +501,34 @@ final class WordsTest extends TestCase
      * plural, and leads to the ones a bulk action can take with how many there are. The same line is shown on New Variants, so it
      * names no "product". After the last row of a narrowed list the notice does not call the list done.
      */
+    /**
+     * The product search boxes and the progress line (docs/decisions.md SX5, SX6): each box says what can be typed, short enough for
+     * the box, in the words of its page (By Item and New Variants speak of items and variants, never of "products", U122, U137);
+     * what a search found and the way to clear it; what to try when it found nothing; how many a list holds and how many the person
+     * answered today, in the singular and the plural; the line the fold adds after the "Done" notice.
+     */
+    public function testTheSearchBoxesSayWhatToTypeWhatTheyFoundAndWhatIsLeft(): void
+    {
+        foreach (['listings', 'variants', 'items', 'quick'] as $box) {
+            self::assertLessThanOrEqual(40, mb_strlen(Words::FIND[$box]), "{$box}: a placeholder fits its box");
+        }
+        foreach ([Words::FIND['variants'], Words::FIND['items'], Words::FIND['quick'], Words::FIND['try_items'], Words::FIND['try'], Words::FIND['clear'],
+            Words::FIND['found_one'], Words::FIND['found_many'], Words::FIND['any_order']] as $text) {
+            self::assertDoesNotMatchRegularExpression('/\bproducts?\b|website/i', $text, 'the words of By Item and New Variants');
+        }
+        self::assertStringContainsString('CW number', Words::FIND['listings']);
+        self::assertSame(['1 found for "elf bar".', '1,204 found for "elf bar".'], [Words::say('FIND', 'found_one', Words::quoted('elf bar', '')),
+            Words::say('FIND', 'found_many', 1204, Words::quoted('elf bar', ''))]);
+        self::assertSame('Clear the search', Words::FIND['clear']);
+        self::assertSame('The first 20 are shown. Add a word to see fewer.', Words::say('SEARCH', 'capped', 20));
+        self::assertSame(['Nothing left on this list.', '1 left on this list.', '530 left on this list. You answered 23 today.', '2 left on this list. You have answered none today.',
+            '2 left on this list. You answered 1 today.'], [ReviewController::progress(0, null), ReviewController::progress(1, null), ReviewController::progress(530, 23),
+            ReviewController::progress(2, 0), ReviewController::progress(2, 1)]);
+        self::assertSame('The next one is open below.', Words::CHECK['next_open']);
+        // the Likely list's first sentence no longer says the AI found them: most were found by the check on arrival, with no AI
+        self::assertStringStartsWith('The computer found a likely product', Words::PAGE_INTRO['queue_Check'][0]);
+    }
+
     public function testTheListsSayWhichRowsNoBulkActionTakesAndWhatAListShows(): void
     {
         self::assertSame(Queries::SHOWS, array_keys(Words::QUEUE_SHOW), 'a word for each choice, in the filter\'s order');

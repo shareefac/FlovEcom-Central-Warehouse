@@ -9,7 +9,7 @@
 <?php if ($state !== null): ?>
   <input type="hidden" name="state" value="<?= $e($state) ?>">
 <?php endif; ?>
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="sp-q"><?= $word('QUEUE', 'text') ?></label><input id="sp-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="sp-q"><?= $word('QUEUE', 'text') ?></label><input id="sp-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('FIND', 'listings') ?>" aria-keyshortcuts="/" data-page-search></div>
   <details class="tb-pop">
     <summary class="btn ghost sm"><span class="ico ico-sort" aria-hidden="true"></span><span><?= $word('UI', 'sort') ?></span></summary>
     <div class="pop pop-form">
@@ -24,6 +24,9 @@
     </div>
   </details>
 </form>
+<?php if ($text !== '' && $total > 0): ?>
+<?= $partial('search_note', ['count' => $total, 'text' => $text, 'clear' => $clear_search]) ?>
+<?php endif; ?>
 
 <nav class="pills state-pills" aria-label="<?= $word('STORE_PRODUCTS', 'states') ?>">
 <?php foreach ($states as $s): ?>
@@ -33,7 +36,7 @@
 
 <?php if ($rows === []): ?>
 <?php if ($text !== '' || $state !== null): ?>
-<?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty_filter'], \CW\Ui\Words::STORE_PRODUCTS['empty_filter_text'], $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
+<?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty_filter'], \CW\Ui\Words::STORE_PRODUCTS['empty_filter_text'] . ($text !== '' ? ' ' . \CW\Ui\Words::FIND['try'] : ''), $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
 <?php else: ?>
 <?= $empty(\CW\Ui\Words::STORE_PRODUCTS['empty'], \CW\Ui\Words::STORE_PRODUCTS['empty_text']) ?>
 <?php endif; ?>

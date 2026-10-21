@@ -38,7 +38,7 @@ final class StoreProductsController
         if ($store === null) {
             return $ctx->page('store_products', ['store' => null, 'stores' => [], 'rows' => [], 'states' => [], 'state' => null, 'sort' => 'sold_30', 'text' => '',
                 'total' => 0, 'page_no' => 1, 'pages' => 1, 'prev_link' => null, 'next_link' => null, 'bulkActions' => [], 'bulkMax' => 0, 'bulkKeep' => [],
-                'allLink' => '', 'clear_link' => '/ui/review/store', 'lookOnly' => null], 200,
+                'allLink' => '', 'clear_link' => '/ui/review/store', 'clear_search' => '/ui/review/store', 'lookOnly' => null], 200,
                 ['title' => Words::MENU['store_products'], 'active' => 'store_products']);
         }
         $state = in_array($req->param('state'), Queries::STORE_STATES, true) ? (string) $req->param('state') : null;
@@ -119,6 +119,8 @@ final class StoreProductsController
             'bulkKeep' => array_filter($base + ['page' => $result['page'] > 1 ? $result['page'] : null], static fn (mixed $v): bool => $v !== null && $v !== ''),
             'allLink' => Html::url('/ui/review/store', $base + ['page' => $result['page'] > 1 ? $result['page'] : null, 'all' => 1]),
             'clear_link' => Html::url('/ui/review/store', ['channel' => $store['code']]),
+            // the search alone cleared (docs/decisions.md SX5): the state and the sort stay
+            'clear_search' => Html::url('/ui/review/store', array_replace($base, ['q' => null])),
             'lookOnly' => $me->canDecide() ? null : Words::whoCan('mapping.decide'),
         // Back from a decision (the Check & match fold or the variant's page opened from it, docs/decisions.md CM3): what was done.
         ], 200, ['title' => Words::MENU['store_products'], 'active' => 'store_products', 'notice' => (new ReviewController())->notice($ctx, null)]);

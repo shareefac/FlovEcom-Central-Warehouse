@@ -71,7 +71,7 @@ final class ByProductController
         $lookOnly = $me->canDecide() ? null : Words::whoCan('mapping.decide');
         if ($stores === []) {
             return $ctx->page('by_product', ['stores' => [], 'rows' => [], 'pills' => [], 'text' => '', 'coverage' => null, 'total' => 0, 'shown' => 0, 'page_no' => 1, 'pages' => 1,
-                'prev_link' => null, 'next_link' => null, 'clear_link' => ByProductContext::LIST_PATH, 'csv_link' => '', 'filtered' => false, 'lookOnly' => $lookOnly,
+                'prev_link' => null, 'next_link' => null, 'clear_link' => ByProductContext::LIST_PATH, 'clear_search' => ByProductContext::LIST_PATH, 'csv_link' => '', 'filtered' => false, 'lookOnly' => $lookOnly,
                 'per_page' => null, 'sizes' => [], 'manualNote' => false, 'bulkActions' => [], 'bulkKeep' => [], 'bulkWords' => [], 'bulkChoice' => null, 'bulkMax' => 0, 'allLink' => ''],
                 200, $layout);
         }
@@ -192,6 +192,8 @@ final class ByProductController
             'prev_link' => $page > 1 ? Html::url(ByProductContext::LIST_PATH, $base + ['page' => $page - 1]) : null,
             'next_link' => $page < $pages ? Html::url(ByProductContext::LIST_PATH, $base + ['page' => $page + 1]) : null,
             'clear_link' => Html::url(ByProductContext::LIST_PATH, ['n' => $n]),
+            // the search alone cleared (docs/decisions.md SX5): the filter and the number of rows stay
+            'clear_search' => Html::url(ByProductContext::LIST_PATH, ['q' => null] + $base),
             'csv_link' => Html::url(ByProductContext::LIST_PATH . '.csv', ['n' => null] + $base),
             'filtered' => $cov['kind'] !== null || $text !== '',
             'lookOnly' => $lookOnly,

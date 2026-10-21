@@ -2031,3 +2031,22 @@ table.item-cards .c-fill { font: 500 13px/20px var(--font); }
   table.item-cards td.c-status .chip { margin: 0; white-space: normal; text-align: left; }
   table.item-cards td.c-nocard .tag { margin: 0; }
 }
+
+/* ==== search-match-ux (branch search-match-ux, docs/decisions.md SX5-SX7) ==========================================================
+   The product searches of the matching pages: a box wide enough for its placeholder (what to type), the line under it while a search
+   is on ("12 found for "…"" and Clear the search), and the progress line of a match-strength list and of a variant's page opened from
+   one. One block at the end of the file, so the parallel branches rebase around it. */
+.tb-search input[data-page-search] { width: 300px; }
+.tb-search input[data-page-search]:focus-visible, .tb-search input[data-page-search]:not(:placeholder-shown) { width: 340px; }
+.search-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; margin: -4px 0 12px; color: var(--ink-body); font: 400 13px/20px var(--font); }
+.search-note .search-found { color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
+.search-note .search-clear { display: inline-flex; align-items: center; min-height: 32px; font-weight: 500; }
+.progress-line { margin: 0; color: var(--ink-muted); font: 500 13px/20px var(--font); }
+.board-head .progress-line { flex-basis: 100%; }
+.crumbs + .progress-line { margin: -4px 0 8px; }
+.search-capped { margin: 8px 0 0; }
+@media (max-width: 639.98px) {
+  .tb-search input[data-page-search], .tb-search input[data-page-search]:focus-visible, .tb-search input[data-page-search]:not(:placeholder-shown) { width: 100%; }
+  .search-note .search-clear { min-height: 44px; }
+}
+/* ==== end search-match-ux ========================================================================================================= */

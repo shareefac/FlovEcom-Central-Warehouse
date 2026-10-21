@@ -28,6 +28,9 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
   <a class="next-link" href="<?= $e($next_link) ?>"><?= $word('LISTING', 'skip') ?> &rarr;</a>
 <?php endif; ?>
 </p>
+<?php if ($progress !== null): ?>
+<p class="progress-line" data-progress><?= $e($progress) ?></p>
+<?php endif; ?>
 
 <?= $head((string) ($l['title'] ?? \CW\Ui\Words::LISTING['no_title']), intro: $intro_page, look: $lookOnly,
     aside: $l['variant_title'] !== null ? '<p class="title subtitle">' . $e($l['variant_title']) . '</p>' : '',
@@ -198,7 +201,7 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
 <?php endif; ?>
 <?php endforeach; ?>
         <label><?= $word('UI', 'search_placeholder') ?>
-          <input type="search" name="s" value="<?= $e($search_text) ?>" maxlength="100">
+          <input type="search" name="s" value="<?= $e($search_text) ?>" maxlength="100" aria-keyshortcuts="/" data-page-search>
         </label>
         <button type="submit"><?= $word('SEARCH', 'button') ?></button>
       </form>

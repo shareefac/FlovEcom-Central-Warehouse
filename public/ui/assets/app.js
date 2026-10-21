@@ -795,6 +795,61 @@
     window.setTimeout(gone, 8000);
   });
 
+  // ==== search-match-ux (docs/decisions.md SX5, SX7): the page's search from the keyboard, and the next Check & match ==============
+  // "/" puts the cursor in the page's own search box (the one marked data-page-search; a folded one, the variant page's "Pick a
+  // different product", is opened first), unless the person is typing in a field or holds Ctrl, Cmd or Alt. The box says so to a
+  // screen reader (aria-keyshortcuts="/").
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) {
+      return;
+    }
+    var t = ev.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) {
+      return;
+    }
+    var box = document.querySelector('main input[data-page-search]');
+    if (!box) {
+      return;
+    }
+    var fold = box.closest ? box.closest('details') : null;
+    if (fold && !fold.open) {
+      fold.open = true;
+    }
+    ev.preventDefault();
+    box.focus();
+    if (typeof box.select === 'function') {
+      box.select();
+    }
+  });
+
+  // After an answer from a list's Check & match, CW comes back to the list at the next row (#l-<id>, with the "Done" notice: the
+  // address carries notice= and prev=). That row's fold is opened by itself, so the next check is one press away; the toast says so
+  // in the page's words (data-opened: Words::CHECK). Opening it only reads its details (the same GET as a press on it); it answers
+  // nothing.
+  (function () {
+    var params = window.location.search;
+    var id = window.location.hash.slice(1);
+    if (!/^l-[0-9]+$/.test(id) || !/[?&]notice=(decided_link|decided_reject|pending_second)(&|$)/.test(params) || !/[?&]prev=[0-9]+(&|$)/.test(params)) {
+      return;
+    }
+    var row = document.getElementById(id);
+    var fold = row ? row.querySelector('details[data-check-fold]') : null;
+    if (!fold || fold.open) {
+      return;
+    }
+    fold.open = true;
+    var head = fold.querySelector('summary');
+    if (head) {
+      head.focus({ preventScroll: true }); // a keyboard goes on from the row the list came back to (Tab: its answers)
+    }
+    var toast = document.querySelector('p.toast');
+    var said = fold.getAttribute('data-opened') || '';
+    if (toast && said !== '') {
+      toast.textContent = toast.textContent.replace(/\s+$/, '') + ' ' + said;
+    }
+  })();
+  // ==== end search-match-ux ==========================================================================================================
+
   // New delivery: "receive all as ordered" follows the purchase order chosen.
   each(document.querySelectorAll('select[data-ticks]'), function (s) {
     var box = document.getElementById(s.getAttribute('data-ticks'));

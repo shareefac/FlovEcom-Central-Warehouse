@@ -2,7 +2,7 @@
 
 <form class="filters" method="get" action="/ui/search" role="search">
   <label><?= $word('SEARCH', 'label') ?>
-    <input type="search" name="q" value="<?= $e($text) ?>" maxlength="100" autofocus>
+    <input type="search" name="q" value="<?= $e($text) ?>" maxlength="100" autofocus aria-keyshortcuts="/" data-page-search>
   </label>
   <button type="submit" class="primary"><?= $word('SEARCH', 'button') ?></button>
 </form>
@@ -11,6 +11,7 @@
 <p class="muted"><?= $word('SEARCH', 'short') ?></p>
 <?php elseif ($text === ''): ?>
 <p class="muted"><?= $word('SEARCH', 'hint') ?></p>
+<p class="muted small"><?= $word('FIND', 'any_order') ?></p>
 <?php else: ?>
 <section aria-labelledby="items-h">
   <h2 id="items-h"><?= $word('SEARCH', 'items') ?> <span class="hint"><?= $word('SEARCH', 'items_hint') ?></span></h2>
@@ -32,6 +33,9 @@
     </tbody>
   </table>
   </div>
+<?php if (count($skus) >= $items_max): ?>
+  <p class="muted small search-capped"><?= $say('SEARCH', 'capped', count($skus)) ?></p>
+<?php endif; ?>
 <?php endif; ?>
 </section>
 
@@ -60,6 +64,9 @@
     </tbody>
   </table>
   </div>
+<?php if (count($listings) >= $listings_max): ?>
+  <p class="muted small search-capped"><?= $say('SEARCH', 'capped', count($listings)) ?></p>
+<?php endif; ?>
 <?php endif; ?>
 </section>
 <?php endif; ?>

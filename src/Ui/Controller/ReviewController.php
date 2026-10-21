@@ -175,6 +175,10 @@ final class ReviewController
             // A filter that hides what the list still has (F161); an empty list is "empty" even when it was filtered.
             'filtered' => $qc->filtered() && ($counts[$qc->band] ?? 0) > 0,
             'clear_link' => Html::url('/ui/review', ['queue' => $qc->band, 'channel' => $qc->channel]),
+            // the search alone cleared (docs/decisions.md SX5): the store, what the list shows and the other filters stay
+            'clear_search' => Html::url('/ui/review', array_replace($qc->pageQuery(), ['q' => null])),
+            // "530 left on this list. You answered 23 today." (SX6): the list's own count in this store, as the legend shows it
+            'progress' => self::progress($counts[$qc->band] ?? 0, $me->canDecide() ? $q->answeredToday($me->id) : null),
             // What the list shows (U140) travels with the store and the strength, as the address writes it (nothing for every row).
             'stores' => self::storeItems($q->stores(), '/ui/review', ['queue' => $qc->band, 'show' => $show], $qc->channel, $perStore, true),
             'show' => $show,
@@ -763,6 +767,8 @@ final class ReviewController
             'show_search' => $showSearch,
             'qc' => $qc,
             'qq' => $qq,
+            // Opened from a list: how many it still holds and how many this person answered today (docs/decisions.md SX6)
+            'progress' => $qc !== null && $me->canDecide() ? self::progress($q->listLeft($qc->band, $qc->channelId), $q->answeredToday($me->id)) : null,
             'back' => $qc !== null ? [Html::url('/ui/review', $qc->pageQuery()), Words::of('BAND_TITLE', $qc->band)]
                 : ($sample !== null ? [$sample['url'], Words::say('SAMPLE', 'title', $sample['name'])]
                 : ($byProduct !== null ? [$byProduct->pickerUrl(), Words::say('BY_PRODUCT', 'pick_crumb', $byProduct->channelName)]
@@ -1391,6 +1397,27 @@ final class ReviewController
         $label = Words::FIELD[$field] ?? Words::LISTING['new_details'];
         return isset(self::NUMBER_EXAMPLE[$field]) ? Words::say('MATCH_ERROR', 'bad_card_number', $label, self::NUMBER_EXAMPLE[$field])
             : Words::say('MATCH_ERROR', 'bad_card', $label);
+    }
+
+    /**
+     * The progress line of a match-strength list and of a variant's page opened from one (docs/decisions.md SX6): how many the list
+     * still holds, then, for someone who may decide, how many decisions they made today ($today null: not said).
+     */
+    public static function progress(int $left, ?int $today): string
+    {
+        $parts = [match (true) {
+            $left === 0 => Words::QUEUE['left_none'],
+            $left === 1 => Words::QUEUE['left_one'],
+            default => Words::say('QUEUE', 'left_many', $left),
+        }];
+        if ($today !== null) {
+            $parts[] = match (true) {
+                $today === 0 => Words::QUEUE['today_none'],
+                $today === 1 => Words::QUEUE['today_one'],
+                default => Words::say('QUEUE', 'today_many', $today),
+            };
+        }
+        return implode(' ', $parts);
     }
 
     /** The whitelisted notice named in the URL, worded for the website product it is about (F201, F202; By Item shows it too, U119). */

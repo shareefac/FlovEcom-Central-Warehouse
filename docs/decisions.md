@@ -11139,3 +11139,84 @@ different: Strength (mg), Flavour." The fold then has no form and no `seen`, onl
 Tests first (`runs/cleanfix_red1.log`, red on `afb6760`): CheckMatchScreenTest `testARowWithADifferentDetailHasNoAnswerAndSaysWhichDetails`,
 `testDetailsTheSameWrittenDifferentlyOrNotStatedKeepTheAnswers` (green on the base too: it guards the other side of the rule) and
 `testAFoldDrawnBeforeADetailBecameDifferentIsRefusedAndNothingIsSaved`.
+
+## Search and matching for normal staff: one forgiving search, hints, progress (branch `search-match-ux`, 21 Oct 2026; SX1-SX8)
+
+A review as a first-time staff member (`/root/cw_work/SEARCH_MATCH_UX_REVIEW.md`, production looked at read only) found the product
+searches of the matching pages each reading the text their own way: the match-strength lists, Store Products and New Variants
+searched the WHOLE text as one phrase ("hayati strawberry kiwi" found nothing, "tahiti 20mg" nothing, the CW number printed on every
+row nothing), no search forgave "R&M" / "R and M" / "RandM", "Elfbar" / "Elf Bar" or "cw 3906", a barcode was found on a website
+product only as the website stored it, and every box said only "Search". Only SAFE-UI changes were built (words, layout, search
+forgiveness, hints, counters, keyboard): nothing that is saved, no rule of matching, no POST field, data-* attribute or fragment marker
+changed. Code: `src/Ui/SearchText.php` (new), `src/Ui/Queries.php`, `src/Ui/Controller/{Review,StoreProducts,ByProduct,Search}Controller.php`,
+`src/Ui/views/{search_note (new),queue,store_products,new_variants,by_product,search,listing,check_fold}.php`, `src/Ui/Words.php`
+(`FIND`, `QUEUE` `left_*` `today_*`, `CHECK['next_open']`, `SEARCH['capped']`, `PAGE_INTRO['queue_Check']`), `public/ui/assets/app.{js,css}`
+(one commented block each). Tests: `tests/Unit/SearchTextTest.php`, `tests/Integration/Mapping/ForgivingSearchTest.php`,
+`tests/Integration/UiKernel/SearchHintsScreenTest.php` (new); `CheckMatchScreenTest`, `WordsTest`, `UiTemplatesTest`.
+
+**SX1. One reading of a search (`Ui\SearchText`).** Every product search of the matching pages (Find a product, "Pick a different
+product", By Item, its picker and quick match, the match-strength lists, Store Products, New Variants; and through `searchSkus` the item
+searches of the stock, purchasing and supplier pages) reads the text the same way: every word must be found, in any order (at most
+6); case and accents by the columns' collation (`utf8mb4_0900_ai_ci`); slashes, bars, commas and brackets separate words; "20 mg",
+"10 ml", "0.8 ohm", "7000 puffs" are one word, and so are "R and M", "R & M"; a lone "and" / "&" and punctuation are no word (such a
+text finds nothing, as By Item's already did, U116); a CW number however it is written ("CW-003906", "cw 3906", "CW3906", "#3906", or
+a bare number); a code (the whole text with a digit and no space, at most 64 characters) with the barcode forms of a number
+(`Gtin::forms`: with or without its leading zeros).
+
+**SX2. Where it is cheap, the words are forgiving: three kinds, the cheapest asked first.** (1) a short word of letters (at most 4) or a
+number: in the text as it is; (2) a longer word of letters: in the text as it is, or in the brand with its spaces and hyphens left out
+("elfbar" finds the brand "Elf Bar": a joined word is nearly always a brand, and the brand is short); (3) any other word (typed with a
+hyphen or "&", a number and its unit, letters and digits, "R and M"): in the whole text with its spaces and hyphens left out
+(`REPLACE(REPLACE(…, ' ', ''), '-', '')`), two short names joined by "and" / "&" in both spellings. Each kind only adds to what the word
+found before (a word found as it is is found with the spaces and hyphens left out on both sides: the mapping goes character by
+character); the two merges ask for the number and its unit (the two names) together instead of anywhere apart. Measured first with
+every word of kind 3 and three REPLACEs (with "&" → "and"): on the profiles of a 29,000-variant store that cost as much as the old
+JSON parse of every row's barcodes, and twice the old cost on the 15,000 items; the kinds bring it back (SX8).
+
+**SX3. Codes and CW numbers by their indexes, never in a scan.** The lists' search (`Queries::listingText`, shared by the
+match-strength lists, Store Products, New Variants and Find's website products): the option number as typed; a code's barcode forms by
+the multi-valued index of 0005 (`JSON_OVERLAPS`, as `barcodeElsewhere`); a CW number ("CW-…", "cw …", or a bare number of up to 6
+digits) as the website products matched to that item (`ix_channel_listing_sku_channel`) or with an open suggestion of it
+(`ix_match_proposal_open_sku`): looked up BEFORE the statement, at most 500 ids each, and named by id; or every word in the product's
+title, the option's title and the brand. The old `JSON_SEARCH(lp.barcodes, …)` parsed every profile's barcodes in the scan; it is gone
+from the lists and from the quick match's whole-text test (the quick match still looks for any PART of a barcode, per word, as before).
+A text written as a CW number has no word search. Store Products and New Variants read a search's ids in ONE pass (count and page from
+it; two passes before). No schema change.
+
+**SX4. The Likely list's first sentence.** "The AI found a likely product, …" became "The computer found a likely product, …": most of
+these rows were found by the check on arrival and say "no AI has looked at it" (production, Electrofag: all 530).
+
+**SX5. Every box says what to type, what it found, and clears the search alone.** A placeholder (`Words::FIND`, at most 40 characters:
+"Name, barcode, option or CW number"; By Item and New Variants in their own words, item and variant); while a search is on, under the
+toolbar: `12 found for "hayati kiwi".` and **Clear the search** (the store, the state, the sort, the period and the filter stay;
+`search_note.php`); an empty result adds "Check the spelling, or use fewer words. You can also type a barcode, an option number or a CW
+number." to the page's own empty state (whose "Clear filters" is unchanged); Find says that words can be in any order and that "R&M",
+"R and M", "RandM" are the same, and when its 20 / 30 rows are full, "The first 20 are shown. Add a word to see fewer."; "/" puts the
+cursor in the page's search box (`data-page-search`, `aria-keyshortcuts="/"`; not while typing in a field, nor with Ctrl, Cmd or Alt;
+the variant page's folded "Pick a different product" is opened first).
+
+**SX6. The progress line.** A match-strength list says, under its count, "530 left on this list. You answered 23 today." and so does a
+variant's page opened from one (`p.progress-line[data-progress]`): the list's own count in the store (as the strength legend counts it,
+not narrowed by a search; `Queries::listLeft` for the page), and the person's decisions since midnight UK time (`Queries::answeredToday`,
+one range of `ix_match_decision_decided_by (decided_by, created_at)`; every answer, a ticked list's rows and the ones waiting for a second
+OK included). Someone who can only look is told the first sentence only. It counts only the person's own work: a team table or a target
+is the owner's call (not built).
+
+**SX7. Check & match is the one filled button of its row, and the next one opens by itself.** On To review's lists a row with Check &
+match draws its Open as the plain (secondary) button (Store Products' was already); the words, the link and every data-* stay. After an
+answer from the fold CW comes back to the list at the next row (unchanged: `#l-<id>` with `notice` and `prev`); app.js then opens that
+row's fold (the same GET a press does; nothing is answered), moves the focus to its heading, and adds "The next one is open below." to
+the "Done" notice (`data-opened` on the fold, from `Words::CHECK`). A decision is still one press of Yes or No after reading the fold.
+
+**SX8. Measured** (`tests/perf/search_perf.php`, not committed: the slot's test schema filled like production, 15,000 items and 38,000
+website variants of three stores with profiles about as wide as the real ones (120 MB), the old `Queries` of `5e68ee8` and the new one
+run in turn in one process, the median of four warm runs, cw-test MySQL 8.4.8; `runs/searchux_perf_ab3.txt`): see the table in the
+branch's report; Store Products and New Variants got faster (one pass), the lists' and the item searches stayed within a few ms, Find's
+website-product part and the quick match within about a tenth. Still slow, and not for this branch: every search of website products
+by words reads the profile of every variant it may find (Find: all 38,000; Store Products: the store's). A narrow, normalised search
+column or a FULLTEXT index on the names is a schema change (a table copy of `listing_profile`) and the owner's decision.
+
+**Not changed, on purpose.** DecisionService, the decide route and its guards (DG1-DG5), the Check & match clean rule and its recheck
+(CM1-CM5), held back, spot checks and Clues disagree; every POST field; the markers the staff Claude guide reads (`data-check-fold`,
+`data-check`, `data-lc-fragment`, `data-qp-fragment`, `data-qp-q`, `data-answer`, `data-clean`, `p.notice[role="status"]`, the rows'
+`tr#l-<id>`, `.qp-*`, `.lc-*`). The band names (provisional, U70) and the other NEEDS-OWNER items of the review.

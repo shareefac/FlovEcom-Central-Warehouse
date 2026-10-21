@@ -37,7 +37,7 @@ final class Words
         'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
-        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'REORDER', 'WHY',
+        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'REORDER', 'WHY',
         'REORDER_ITEM', 'BRANDS', 'ANOMALIES', 'REORDER_NOTICE', 'SALES', 'SUPPLIERS', 'SUPPLIER', 'SUPPLIER_FIELD', 'SUPPLIER_FORM', 'SUPPLIER_NOTICE', 'SUPPLIER_ITEMS', 'SI_NOTICE',
         'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
         'SELLING', 'SELLING_NOTICE', 'SITE_SYNC', 'SELLING_ERROR', 'MODE_MEANING', 'RECEIPT_STATE', 'BENCH_STATE', 'INCIDENT_WHERE',
@@ -533,7 +533,9 @@ final class Words
             'Tick the ones marked New and press "Create as new items", or open one to decide it by hand.'],
         'bulk_confirm' => ['This changes many website products at once.', 'Check the list below. Nothing is saved until you press the red button.'],
         'bulk_result' => ['What happened to each website product you ticked.', 'Open a skipped one to decide it by hand.'],
-        'queue_Check' => ['The AI found a likely product, but no barcode proves it, or a small detail differs.', 'Compare them before you say yes.'],
+        // (the computer, not "the AI": most of these were found by the check on arrival, by a barcode or a copied web address, and their
+        // rows say no AI has looked at them; review of 21 Oct 2026, docs/decisions.md SX4)
+        'queue_Check' => ['The computer found a likely product, but no barcode proves it, or a small detail differs.', 'Compare them before you say yes.'],
         'queue_New item' => ['Nothing in the warehouse list is this product.', 'Make sure it is not there under another name, then create a new product.'],
         'queue_Can\'t tell' => ['The AI could not choose, for example the name does not say 10mg or 20mg.', 'Pick the product yourself.'],
         'queue_Conflict' => ['The clues point to different products.', 'Only a matching lead decides these.'],
@@ -4183,6 +4185,14 @@ final class Words
         'show' => 'Show',
         'total_one' => '1 to decide, best sellers first.',
         'total_many' => '%s to decide, best sellers first.',
+        // The progress line of a match-strength list and of a variant's page opened from one (docs/decisions.md SX6): the list's
+        // own count in this store, and the person's own answers since midnight (UK time), on every list.
+        'left_none' => 'Nothing left on this list.',
+        'left_one' => '1 left on this list.',
+        'left_many' => '%s left on this list.',
+        'today_none' => 'You have answered none today.',
+        'today_one' => 'You answered 1 today.',
+        'today_many' => 'You answered %s today.',
         // The board (design v4)
         'board' => 'Matches to review',
         'board_note' => 'Grouped by how sure the match is · best sellers first',
@@ -4729,6 +4739,8 @@ final class Words
         'loading' => 'Loading the details…',
         'failed' => 'The details could not be shown here, and nothing was saved. Open the product instead.',
         'open_page' => 'Open the product to check and decide',
+        // After an answer from the fold, the next row's fold opens by itself (app.js): said after the "Done" line (docs/decisions.md SX7).
+        'next_open' => 'The next one is open below.',
         'what' => 'What',
         'website' => 'Website product',
         'warehouse' => 'Warehouse product',
@@ -5419,6 +5431,27 @@ final class Words
         'sold_30' => 'Sold (30 days)',
         'yes_to' => 'Yes, to',
         'not_yet' => 'Not yet',
+        'capped' => 'The first %s are shown. Add a word to see fewer.',
+    ];
+
+    /**
+     * The product search boxes of the matching pages (docs/decisions.md SX1-SX5; CW\Ui\SearchText): what to type (the
+     * placeholders: By Item and New Variants say "item" and "variant", as the owner does there, U122, U137), what a search found and
+     * a way to clear it alone, and what to try when it found nothing. The same words on every page.
+     */
+    public const FIND = [
+        // (short: a placeholder must fit the box; the box's label says it in full)
+        'listings' => 'Name, barcode, option or CW number',
+        'variants' => 'Variant, barcode, option or CW number',
+        'items' => 'Item, barcode or CW number',
+        'quick' => 'Variant words, option or barcode',
+        'found_one' => '1 found for %s.',
+        'found_many' => '%s found for %s.',
+        'found_none' => 'Nothing found for %s.',
+        'clear' => 'Clear the search',
+        'try' => 'Check the spelling, or use fewer words. You can also type a barcode, an option number or a CW number.',
+        'try_items' => 'Check the spelling, or use fewer words. You can also type a barcode or a CW number.',
+        'any_order' => 'Words can be in any order. "R&M", "R and M" and "RandM" are the same, and so are "20mg" and "20 mg".',
     ];
 
     /** The product page's matching and stock parts (/ui/items/{id}, plan §6.18; the product card is IM3's). */

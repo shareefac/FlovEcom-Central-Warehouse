@@ -80,6 +80,31 @@ final class Queries
         return $out;
     }
 
+    /**
+     * How many a match-strength list still holds, with no filter: the open suggestions of this strength (of one store, or of every
+     * store) whose website product waits for a decision with none waiting for a second OK (the list's own conditions, as
+     * bandCounts()). The progress line of a variant's page opened from the list (docs/decisions.md SX6).
+     */
+    public function listLeft(string $band, ?int $channelId): int
+    {
+        return (int) $this->db->value('SELECT COUNT(*) FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id '
+            . "WHERE p.status = 'open' AND p.band = ? AND " . self::OPEN_STATUS . ' AND ' . self::NO_PENDING . ($channelId === null ? '' : ' AND cl.channel_id = ?'),
+            $channelId === null ? [$band] : [$band, $channelId]);
+    }
+
+    /**
+     * How many decisions a person made today, since midnight UK time (every answer of theirs: a match, a new product, an ignore, a
+     * "not this product", each row of a ticked list; also one that waits for a second OK): one range of the index
+     * ix_match_decision_decided_by (decided_by, created_at). The progress line (docs/decisions.md SX6).
+     */
+    public function answeredToday(int $staffId): int
+    {
+        $london = new \DateTimeZone('Europe/London');
+        $midnight = Clock::now()->setTimezone($london)->setTime(0, 0);
+        return (int) $this->db->value('SELECT COUNT(*) FROM match_decision WHERE decided_by = ? AND created_at >= ?',
+            [$staffId, Clock::db($midnight->setTimezone(Clock::utc()))]);
+    }
+
     /** @return array<int, int> channel id => unmapped listings no run has proposed anything for */
     public function unproposed(): array
     {
@@ -299,14 +324,81 @@ final class Queries
             $where[] = 'COALESCE(lp.units_30d, 0) >= ?';
             $params[] = $min30;
         }
-        $q = trim($q);
-        if ($q !== '') {
-            $like = '%' . self::escapeLike($q) . '%';
-            $where[] = '(lp.product_title LIKE ? OR lp.variant_title LIKE ? OR lp.brand LIKE ? OR cl.external_variant_id = ? '
-                . 'OR JSON_SEARCH(lp.barcodes, \'one\', ?) IS NOT NULL)';
-            array_push($params, $like, $like, $like, $q, self::escapeLike($q));
+        [$text, $textParams] = $this->listingText($q);
+        if ($text !== '') {
+            $where[] = $text;
+            array_push($params, ...$textParams);
         }
         return [implode(' AND ', $where), $params];
+    }
+
+    /** How many website products a code or a CW number may name at most in a list's search (an index read each, then by id). */
+    private const SEARCH_IDS = 500;
+
+    /**
+     * The text filter of a list of website products (docs/decisions.md SX1-SX3; alias `cl` the listing, `lp` its profile): the
+     * option number as typed; a code by the barcode index (Gtin::forms of a number: also with or without its leading zeros); a CW
+     * number ("CW-003906", "cw 3906", or a bare number of up to 6 digits) as the website products matched to that item or with an
+     * open suggestion of it (two index reads); or every word, in any order, in the product's title, the option's title and the
+     * brand, compared by SearchText (spaces and hyphens left out, "&" as "and"). The codes and the CW number are looked up BEFORE the
+     * statement, by their indexes, and named by id: the list's scan never parses a profile's barcodes (the old JSON_SEARCH did, for
+     * every row). What the old filter found (the whole text in one of the three, the option number, the barcode as typed) is
+     * still found.
+     *
+     * @return array{0: string, 1: list<mixed>} '' for no text
+     */
+    private function listingText(string $q): array
+    {
+        $s = SearchText::parse($q);
+        if ($s->isEmpty()) {
+            return ['', []];
+        }
+        $or = ['cl.external_variant_id = ?'];
+        $params = [$s->text];
+        $ids = array_values(array_unique([...$this->listingsByCode($s), ...$this->listingsOfItem($s->cwId(6))]));
+        if ($ids !== []) {
+            $or[] = 'cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+            array_push($params, ...$ids);
+        }
+        // (a text written as a CW number, "CW-003906", "cw 3906", is that item's: its words are no name)
+        [$words, $wordParams] = $s->explicitCw() ? ['', []] : $s->allWords("CONCAT_WS(' ', lp.product_title, lp.variant_title, lp.brand)", 'lp.brand');
+        if ($words !== '') {
+            $or[] = $words;
+            array_push($params, ...$wordParams);
+        }
+        return ['(' . implode(' OR ', $or) . ')', $params];
+    }
+
+    /**
+     * The website products whose barcodes hold one of the search's codes, by the multi-valued index of 0005 (as barcodeElsewhere):
+     * at most SEARCH_IDS, of every store (the caller's statement keeps its own store).
+     *
+     * @return list<int>
+     */
+    private function listingsByCode(SearchText $s): array
+    {
+        if ($s->codes === []) {
+            return [];
+        }
+        return array_map('intval', $this->db->column('SELECT listing_id FROM listing_profile WHERE JSON_OVERLAPS(barcodes, CAST(? AS JSON)) LIMIT ' . self::SEARCH_IDS,
+            [json_encode($s->codes, JSON_THROW_ON_ERROR)]));
+    }
+
+    /**
+     * The website products of an item by its CW number: matched to it (`channel_listing (sku_id, channel_id)`, 0024) and with an
+     * open suggestion of it (`match_proposal (status, proposed_sku_id, listing_id, band)`, 0024); at most SEARCH_IDS of each.
+     *
+     * @return list<int>
+     */
+    private function listingsOfItem(?int $skuId): array
+    {
+        if ($skuId === null) {
+            return [];
+        }
+        return array_map('intval', [
+            ...$this->db->column('SELECT id FROM channel_listing WHERE sku_id = ? LIMIT ' . self::SEARCH_IDS, [$skuId]),
+            ...$this->db->column("SELECT listing_id FROM match_proposal WHERE status = 'open' AND proposed_sku_id = ? LIMIT " . self::SEARCH_IDS, [$skuId]),
+        ]);
     }
 
     /**
@@ -488,27 +580,36 @@ final class Queries
             $where[] = self::STATE_WHERE[$state];
         }
         $q = trim($q);
-        if ($q !== '') {
-            $like = '%' . self::escapeLike($q) . '%';
-            $where[] = '(lp.product_title LIKE ? OR lp.variant_title LIKE ? OR lp.brand LIKE ? OR cl.external_variant_id = ? '
-                . 'OR JSON_SEARCH(lp.barcodes, \'one\', ?) IS NOT NULL)';
-            array_push($params, $like, $like, $like, $q, self::escapeLike($q));
+        [$text, $textParams] = $this->listingText($q);
+        if ($text !== '') {
+            $where[] = $text;
+            array_push($params, ...$textParams);
         }
         $col = self::STORE_SORTS[$sort] ?? 'units_30d';
         $other = $col === 'units_30d' ? 'units_365d' : 'units_30d';
         $order = " ORDER BY COALESCE(lp.{$col}, 0) DESC, COALESCE(lp.{$other}, 0) DESC, cl.id ASC";
         $hint = $q === '' ? self::UNITS_HINT : '';
         $from = 'FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ' . implode(' AND ', $where);
-        if ($q === '' && $counts !== null) {
-            $total = $state === null ? array_sum($counts) : ($counts[$state] ?? 0);
+        if ($q !== '') {
+            // A search reads the profile of every website product of the store: ONE pass gives every id it finds, in the page's
+            // order, so the count and the page come from it (two passes before: a COUNT, then the page).
+            $all = array_map('intval', $this->db->column('SELECT cl.id ' . $from . $order, $params));
+            $total = count($all);
+            $pages = max(1, (int) ceil($total / self::PER_PAGE));
+            $page = min(max(1, $page), $pages);
+            $ids = array_slice($all, ($page - 1) * self::PER_PAGE, self::PER_PAGE);
         } else {
-            // Without a text the profile is not read: the store's listings by the (channel_id, status) index.
-            $total = (int) $this->db->value('SELECT COUNT(*) ' . ($q === '' ? 'FROM channel_listing cl WHERE ' . implode(' AND ', $where) : $from), $params);
+            if ($counts !== null) {
+                $total = $state === null ? array_sum($counts) : ($counts[$state] ?? 0);
+            } else {
+                // Without a text the profile is not read: the store's listings by the (channel_id, status) index.
+                $total = (int) $this->db->value('SELECT COUNT(*) FROM channel_listing cl WHERE ' . implode(' AND ', $where), $params);
+            }
+            $pages = max(1, (int) ceil($total / self::PER_PAGE));
+            $page = min(max(1, $page), $pages);
+            $ids = array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . $order . ' LIMIT ? OFFSET ?',
+                [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE]));
         }
-        $pages = max(1, (int) ceil($total / self::PER_PAGE));
-        $page = min(max(1, $page), $pages);
-        $ids = array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . $order . ' LIMIT ? OFFSET ?',
-            [...$params, self::PER_PAGE, ($page - 1) * self::PER_PAGE]));
         $rows = $ids === [] ? [] : $this->db->all(
             'SELECT cl.id AS listing_id, cl.status, cl.sku_id, cl.units_per_item, cl.map_version, cl.external_variant_id, ' . self::STATE_SQL . ' AS state, '
             . 'lp.product_title, lp.variant_title, lp.brand, lp.units_30d, lp.units_365d, s.code AS sku_code, s.name AS sku_name, '
@@ -561,9 +662,6 @@ final class Queries
      * primary key, until one is the store's.
      */
     private const EVER_NEW_HINT = '/*+ JOIN_ORDER(p, cl) INDEX(p ix_match_proposal_open_band) */ ';
-    /** Store Products' search (title, option title, brand, option number, barcode), on `lp` and `cl`. */
-    private const LISTING_TEXT = '(lp.product_title LIKE ? OR lp.variant_title LIKE ? OR lp.brand LIKE ? OR cl.external_variant_id = ? '
-        . 'OR JSON_SEARCH(lp.barcodes, \'one\', ?) IS NOT NULL)';
 
     /**
      * When a store's website products were first seen: the oldest and the newest (the two ends of the index of 0026), null when the
@@ -705,12 +803,22 @@ final class Queries
         }
         $q = trim($q);
         if ($q !== '') {
-            $like = '%' . self::escapeLike($q) . '%';
-            $where[] = self::LISTING_TEXT;
-            array_push($params, $like, $like, $like, $q, self::escapeLike($q));
+            // Store Products' search (listingText: the option number, a code or a CW number by their indexes, every word)
+            [$text, $textParams] = $this->listingText($q);
+            $where[] = $text;
+            array_push($params, ...$textParams);
             $join .= 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id ';
         }
         $from = 'FROM channel_listing cl ' . $join . 'WHERE ' . implode(' AND ', $where);
+        if ($q !== '' && $page !== null) {
+            // A search reads the profile of every variant of the period: ONE pass gives every id it finds, newest first, so the count
+            // and the page come from it (two passes before: a COUNT, then the page).
+            $all = array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . self::NEW_ORDER, $params));
+            $total = count($all);
+            $pages = max(1, (int) ceil($total / self::PER_PAGE));
+            $page = min(max(1, $page), $pages);
+            return ['ids' => array_slice($all, ($page - 1) * self::PER_PAGE, self::PER_PAGE), 'total' => $total, 'page' => $page, 'pages' => $pages];
+        }
         $total = $q === '' ? self::newVariantTotal($counts, $filter) : (int) $this->db->value('SELECT ' . $hint . 'COUNT(*) ' . $from, $params);
         if ($page === null) {
             $ids = $total === 0 ? [] : array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . self::NEW_ORDER . ' LIMIT ?', [...$params, $limit]));
@@ -924,12 +1032,14 @@ final class Queries
      */
     private function productText(string $q): array
     {
-        $q = trim($q);
+        $s = SearchText::parse($q);
+        $q = $s->text;
         if ($q === '') {
             return ['', []];
         }
-        if (preg_match('/^cw-?0*([0-9]{1,10})$/iD', $q, $m) === 1) {
-            return ['s.id = ?', [(int) $m[1]]];
+        if ($s->explicitCw()) {
+            // "CW-003906", "cw 3906", "#3906": that item (SearchText)
+            return ['s.id = ?', [(int) $s->cwId()]];
         }
         if (preg_match('/^[0-9]{6,64}$/D', $q) === 1) {
             // sku_barcode holds the GTIN key (digits, no leading zeros), as a scanner may add them.
@@ -949,13 +1059,11 @@ final class Queries
         // No word at all is possible: trim() leaves white space that is not ASCII (a pasted no-break or full-width space, a form
         // feed), which the split below takes as a separator, and a text that is not valid UTF-8 cannot be split. Such a text finds
         // nothing: it must never leave an empty group in the SQL.
-        $and = [];
-        foreach (array_slice(preg_split('/\s+/u', $q, -1, PREG_SPLIT_NO_EMPTY) ?: [], 0, 6) as $w) {
-            $and[] = "CONCAT_WS(' ', s.name, s.brand, s.line, s.flavour) LIKE ?";
-            $params[] = '%' . self::escapeLike($w) . '%';
-        }
-        if ($and !== []) {
-            $or[] = '(' . implode(' AND ', $and) . ')';
+        // every word, in any order, as SearchText compares them (spaces and hyphens left out, "&" as "and")
+        [$words, $wordParams] = $s->allWords("CONCAT_WS(' ', s.name, s.brand, s.line, s.flavour)", 's.brand');
+        if ($words !== '') {
+            $or[] = $words;
+            array_push($params, ...$wordParams);
         }
         return $or === [] ? ['FALSE', []] : ['(' . implode(' OR ', $or) . ')', $params];
     }
@@ -1146,13 +1254,15 @@ final class Queries
      * Every `?` takes the same `%word%`. (Measured on 10,000 profiles: a word costs about twice the names-only search of before; the
      * JSON values are read only where the names do not have it.)
      */
-    private const WAITING_WORD = "CONCAT_WS(' ', cl.external_variant_id, lp.product_title, lp.variant_title, lp.brand, lp.site_product_id, lp.perma_link) LIKE ? "
-        . "OR JSON_SEARCH(lp.barcodes, 'one', ?) IS NOT NULL "
+    /** What a word of the search is asked of besides the names (wordSql() on WAITING_TEXT): the barcodes, attributes and features. */
+    private const WAITING_JSON = "OR JSON_SEARCH(lp.barcodes, 'one', ?) IS NOT NULL "
         . "OR JSON_SEARCH(lp.attributes, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci) IS NOT NULL "
         . "OR JSON_SEARCH(lp.features, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_ai_ci, NULL, '$.flavour_tokens', '$.line_tokens', '$.line_modifiers') IS NOT NULL";
-    /** How many `?` WAITING_WORD has. */
-    private const WAITING_WORD_PARAMS = 4;
-    /** The numbers a word with a digit is also asked of (see WAITING_WORD): a number holds nothing but digits and its signs. */
+    /** The names, numbers and addresses a word is looked for in (compared as SearchText::wordSql() says). */
+    private const WAITING_TEXT = "CONCAT_WS(' ', cl.external_variant_id, lp.product_title, lp.variant_title, lp.brand, lp.site_product_id, lp.perma_link)";
+    /** How many `?` WAITING_JSON has. */
+    private const WAITING_JSON_PARAMS = 3;
+    /** The numbers a word with a digit is also asked of (see WAITING_JSON): a number holds nothing but digits and its signs. */
     private const WAITING_NUMBER = "CAST(JSON_EXTRACT(lp.attributes, '$**.value') AS CHAR CHARACTER SET utf8mb4) LIKE ? "
         . "OR CAST(JSON_EXTRACT(lp.features, '$.product_id', '$.strength_mg', '$.volume_ml', '$.line_numbers') AS CHAR CHARACTER SET utf8mb4) LIKE ?";
     /** How many `?` WAITING_NUMBER has. */
@@ -1161,7 +1271,7 @@ final class Queries
     /**
      * The picker's search (and its quick match in a cell of By Item): one small page of a store's variants that still wait for a
      * match, best sellers first (30 days, then a year). A text is up to 6 words, and every word must be somewhere in the variant
-     * (WAITING_WORD: its option number, names, brand, web address, the website's number of its product, any part of a barcode, its
+     * (WAITING_TEXT and WAITING_JSON: its option number, names, brand, web address, the website's number of its product, any part of a barcode, its
      * attributes, its features; the owner's "search all attribute", 20 Oct 2026), or the whole text is its option number or one of
      * its barcodes as before. The longest word is asked first: a variant it rules out is not read for the others. Every waiting
      * variant of the store is read once (a LIKE scan of about 10,000 profiles, in one statement); no count: one more row than the
@@ -1173,23 +1283,39 @@ final class Queries
     {
         $where = ['cl.channel_id = ?', self::WAITING_LISTING];
         $params = [$channelId];
-        $q = trim($q);
-        $words = array_slice(preg_split('/\s+/u', $q, -1, PREG_SPLIT_NO_EMPTY) ?: [], 0, 6);
-        if ($q !== '' && $words === []) {
-            // A text with no usable word (only white space trim() leaves, or not valid UTF-8) finds nothing, as on the list.
+        $s = SearchText::parse($q);
+        $q = $s->text;
+        $words = $s->words;
+        if ($q !== '' && $words === [] && $s->codes === []) {
+            // A text with no usable word (only white space trim() leaves, punctuation, or not valid UTF-8) finds nothing, as on the list.
             return ['ids' => [], 'more' => false];
         }
-        if ($words !== []) {
-            usort($words, static fn (string $a, string $b): int => mb_strlen($b) <=> mb_strlen($a));
+        if ($q !== '') {
+            $or = ['cl.external_variant_id = ?'];
+            $orParams = [$q];
+            // the whole text as a barcode, by the index (also with or without its leading zeros; never a JSON parse of every profile)
+            $ids = $this->listingsByCode($s);
+            if ($ids !== []) {
+                $or[] = 'cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+                array_push($orParams, ...$ids);
+            }
             $and = [];
             $like = [];
-            foreach ($words as $w) {
-                $number = preg_match('/\d/u', $w) === 1;
-                $and[] = '(' . self::WAITING_WORD . ($number ? ' OR ' . self::WAITING_NUMBER : '') . ')';
-                array_push($like, ...array_fill(0, self::WAITING_WORD_PARAMS + ($number ? self::WAITING_NUMBER_PARAMS : 0), '%' . self::escapeLike($w) . '%'));
+            foreach ($s->order() as $i) {
+                // the names compared as SearchText does (a plain word as it is, first; the others with the spaces and hyphens left
+                // out); the barcodes, attributes and features with the word as typed (a merged word with its space: "20 mg")
+                $typed = $s->typed[$i];
+                $number = preg_match('/\d/u', $typed) === 1;
+                [$text, $textParams] = $s->wordSql($i, self::WAITING_TEXT, 'lp.brand');
+                $and[] = '(' . $text . ' ' . self::WAITING_JSON . ($number ? ' OR ' . self::WAITING_NUMBER : '') . ')';
+                array_push($like, ...$textParams, ...array_fill(0, self::WAITING_JSON_PARAMS + ($number ? self::WAITING_NUMBER_PARAMS : 0), SearchText::like($typed)));
             }
-            $where[] = '(cl.external_variant_id = ? OR JSON_SEARCH(lp.barcodes, \'one\', ?) IS NOT NULL OR (' . implode(' AND ', $and) . '))';
-            array_push($params, $q, self::escapeLike($q), ...$like);
+            if ($and !== []) {
+                $or[] = '(' . implode(' AND ', $and) . ')';
+                array_push($orParams, ...$like);
+            }
+            $where[] = '(' . implode(' OR ', $or) . ')';
+            array_push($params, ...$orParams);
         }
         $ids = array_map('intval', $this->db->column(
             'SELECT ' . ($words === [] ? self::UNITS_HINT : '') . 'cl.id FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE '
@@ -1432,29 +1558,27 @@ final class Queries
      */
     public function searchSkus(string $q, int $limit = 20): array
     {
-        $q = trim($q);
+        $s = SearchText::parse($q);
+        $q = $s->text;
         if (mb_strlen($q) < 2) {
             return [];
         }
         $ids = [];
-        if (preg_match('/^(?:cw-?)?0*([0-9]{1,10})$/iD', $q, $m) === 1) {
-            $ids = array_merge($ids, $this->db->column('SELECT id FROM sku WHERE id = ?', [(int) $m[1]]));
+        $cw = $s->cwId();
+        if ($cw !== null) {
+            // "CW-003906", "cw 3906", "CW3906", "#3906", "3906" (SearchText)
+            $ids = array_merge($ids, $this->db->column('SELECT id FROM sku WHERE id = ?', [$cw]));
         }
         if (preg_match('/^[0-9]{6,64}$/D', $q) === 1) {
             // sku_barcode holds the GTIN key (Gtin::key: digits, no leading zeros), as a scanner may add them.
             $ids = array_merge($ids, $this->db->column('SELECT sku_id FROM sku_barcode WHERE barcode IN (?, ?)', [$q, Gtin::key($q) ?? $q]));
         }
-        $words = array_slice(preg_split('/\s+/u', $q, -1, PREG_SPLIT_NO_EMPTY) ?: [], 0, 6);
-        $where = [];
-        $params = [];
-        foreach ($words as $w) {
-            $where[] = "CONCAT_WS(' ', name, brand, line, flavour) LIKE ?";
-            $params[] = '%' . self::escapeLike($w) . '%';
-        }
-        if ($where !== []) {
+        // every word, in any order, as SearchText compares them (spaces and hyphens left out); not for a text written as a CW number
+        [$words, $params] = $s->explicitCw() ? ['', []] : $s->allWords("CONCAT_WS(' ', name, brand, line, flavour)", 'brand');
+        if ($words !== '') {
             $params[] = $limit;
             $ids = array_merge($ids, $this->db->column(
-                'SELECT id FROM sku WHERE merged_into_sku_id IS NULL AND ' . implode(' AND ', $where) . ' ORDER BY name LIMIT ?',
+                'SELECT id FROM sku WHERE merged_into_sku_id IS NULL AND ' . $words . ' ORDER BY name LIMIT ?',
                 $params,
             ));
         }
@@ -1476,25 +1600,16 @@ final class Queries
      */
     public function searchListings(string $q, int $limit = 30): array
     {
-        $q = trim($q);
-        if (mb_strlen($q) < 2) {
+        if (mb_strlen(trim($q)) < 2) {
             return [];
         }
-        $words = array_slice(preg_split('/\s+/u', $q, -1, PREG_SPLIT_NO_EMPTY) ?: [], 0, 6);
-        $or = ['cl.external_variant_id = ?', 'JSON_SEARCH(lp.barcodes, \'one\', ?) IS NOT NULL'];
-        $params = [$q, self::escapeLike($q)];
-        $and = [];
-        $andParams = [];
-        foreach ($words as $w) {
-            $and[] = "CONCAT_WS(' ', lp.product_title, lp.variant_title, lp.brand) LIKE ?";
-            $andParams[] = '%' . self::escapeLike($w) . '%';
-        }
-        $or[] = '(' . implode(' AND ', $and) . ')';
+        // the lists' search (listingText): the option number, a code by the barcode index, a CW number's website products, every word
+        [$or, $params] = $this->listingText($q);
         return $this->db->all(
             'SELECT cl.id, cl.status, cl.sku_id, cl.external_variant_id, ch.code AS channel_code, lp.product_title, lp.variant_title, lp.units_30d, s.code AS sku_code '
             . 'FROM channel_listing cl JOIN channel ch ON ch.id = cl.channel_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN sku s ON s.id = cl.sku_id '
-            . 'WHERE ' . implode(' OR ', $or) . ' ORDER BY COALESCE(lp.units_30d, 0) DESC, cl.id LIMIT ?',
-            [...$params, ...$andParams, $limit],
+            . 'WHERE ' . $or . ' ORDER BY COALESCE(lp.units_30d, 0) DESC, cl.id LIMIT ?',
+            [...$params, $limit],
         );
     }
 

@@ -19,11 +19,14 @@
 <?php if ($per_page !== null): ?>
   <input type="hidden" name="n" value="<?= $e($per_page) ?>">
 <?php endif; ?>
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="bp-q"><?= $word('BY_PRODUCT', 'search') ?></label><input id="bp-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>" title="<?= $word('BY_PRODUCT', 'search') ?>"></div>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="bp-q"><?= $word('BY_PRODUCT', 'search') ?></label><input id="bp-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('FIND', 'items') ?>" title="<?= $word('BY_PRODUCT', 'search') ?>" aria-keyshortcuts="/" data-page-search></div>
   <div class="tb-end">
     <a class="btn ghost sm" href="<?= $e($csv_link) ?>" title="<?= $word('BY_PRODUCT', 'download') ?>"><span class="ico ico-export" aria-hidden="true"></span><span><?= $word('UI', 'export') ?></span></a>
   </div>
 </form>
+<?php if ($text !== '' && $total > 0): ?>
+<?= $partial('search_note', ['count' => $total, 'text' => $text, 'clear' => $clear_search]) ?>
+<?php endif; ?>
 
 <nav class="pills state-pills" aria-label="<?= $word('BY_PRODUCT', 'filters') ?>">
 <?php foreach ($pills as $p): ?>
@@ -33,7 +36,7 @@
 
 <?php if ($rows === []): ?>
 <?php if ($filtered): ?>
-<?= $empty(\CW\Ui\Words::BY_PRODUCT['empty_filter'], \CW\Ui\Words::BY_PRODUCT['empty_filter_text'], $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
+<?= $empty(\CW\Ui\Words::BY_PRODUCT['empty_filter'], \CW\Ui\Words::BY_PRODUCT['empty_filter_text'] . ($text !== '' ? ' ' . \CW\Ui\Words::FIND['try_items'] : ''), $clear_link, \CW\Ui\Words::QUEUE['clear']) ?>
 <?php else: ?>
 <?= $empty(\CW\Ui\Words::BY_PRODUCT['empty'], \CW\Ui\Words::BY_PRODUCT['empty_text']) ?>
 <?php endif; ?>
@@ -114,7 +117,7 @@
 <?php if ($c['quick'] !== null): ?>
         <details class="quick-pick" data-quick-pick data-options="<?= $e($c['quick']['options']) ?>" data-sku-id="<?= $e($r['id']) ?>" data-channel="<?= $e($c['channel']) ?>" data-loading="<?= $word('BY_PRODUCT', 'quick_loading') ?>" data-failed="<?= $word('BY_PRODUCT', 'quick_failed') ?>">
           <summary class="btn sm secondary" title="<?= $say('BY_PRODUCT', 'map_named', $c['store'], (string) $r['code']) ?>"><?= $word('BY_PRODUCT', 'map') ?></summary>
-          <span class="qp-search"><input type="search" name="q" form="<?= $e($c['quick']['form']) ?>" value="<?= $e($c['quick']['text']) ?>" maxlength="100" aria-label="<?= $e($c['quick']['label']) ?>" data-qp-q> <button type="submit" class="btn sm" form="<?= $e($c['quick']['form']) ?>"><?= $word('UI', 'search') ?></button></span>
+          <span class="qp-search"><input type="search" name="q" form="<?= $e($c['quick']['form']) ?>" value="<?= $e($c['quick']['text']) ?>" maxlength="100" aria-label="<?= $e($c['quick']['label']) ?>" placeholder="<?= $word('FIND', 'quick') ?>" data-qp-q> <button type="submit" class="btn sm" form="<?= $e($c['quick']['form']) ?>"><?= $word('UI', 'search') ?></button></span>
           <div class="qp-results" data-qp-results aria-live="polite"></div>
           <p class="qp-page"><a href="<?= $e($c['map']) ?>"><?= $word('BY_PRODUCT', 'quick_page') ?></a></p>
         </details>
