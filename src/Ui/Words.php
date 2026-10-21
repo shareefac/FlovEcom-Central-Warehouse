@@ -4715,7 +4715,7 @@ final class Words
     ];
 
     /**
-     * The lists' Check & match fold (docs/decisions.md CM1-CM4; the owner's request of 20 Oct 2026): a website product found by the
+     * The lists' Check & match fold (docs/decisions.md CM1-CM5; the owner's request of 20 Oct 2026): a website product found by the
      * check on arrival, checked against its suggested warehouse product and matched from the list. The reasons it is not offered
      * there are keyed by ReviewController::FOLD_BLOCKS.
      */
@@ -4752,6 +4752,8 @@ final class Words
         'merged' => 'The suggested warehouse product was joined into another one.',
         'rejected_before' => 'Someone said before that it is not this warehouse product.',
         'warning' => 'There is a warning to read.',
+        // %s: the compared details shown as Different, by their names on the fold (Words::FIELD), "Strength (mg), Flavour" (CM5).
+        'differs' => 'Some details are different: %s.',
         'barcode' => 'The barcodes are different.',
         'units' => 'The suggestion says %s.',
     ];

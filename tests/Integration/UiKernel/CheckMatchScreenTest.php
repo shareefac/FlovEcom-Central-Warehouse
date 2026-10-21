@@ -22,7 +22,10 @@ use CW\Ui\Words;
  *    variant page's forms carry (`seen` among them) and the way back to the list at the row;
  *  - its Yes saves the match and goes back to the list at the row after it; its No records "not this product";
  *  - a fold drawn before the variant was held back, its suggestion replaced or re-banded, or its item's barcodes changed is refused
- *    with the variant page's words, and nothing is saved.
+ *    with the variant page's words, and nothing is saved;
+ *  - a detail the fold shows as Different (the strength, the flavour …) is not clean either (CM5, the owner's "clean Likely only"):
+ *    the fold names the details and has no answer, and a fold drawn before a detail became different is refused (409 check_changed);
+ *    details the same, written differently or not stated on one side keep the answers.
  */
 final class CheckMatchScreenTest extends KernelUiTestCase
 {
@@ -149,6 +152,33 @@ final class CheckMatchScreenTest extends KernelUiTestCase
     {
         self::$db->exec("INSERT INTO key_bulk_hold (sample_id, proposal_id, listing_id, kind, released_hold_id, reason, staff_user_id, actor) VALUES (?, ?, ?, 'release', ?, 'fine', ?, 'staff:1')",
             [$hold[1], $this->proposalOf($listing), $listing, $hold[0], $this->staffUser('mapping_lead')->staffUserId]);
+    }
+
+    /**
+     * Gives the variant and its item details to compare (the fixture's have none: only the brand and the barcodes are compared): the
+     * variant's as the check reads them (listing_profile.features), the item's on its card (sku).
+     *
+     * @param array<string, mixed> $website the variant's features
+     * @param array<string, string|int|float|null> $item the item's identity fields
+     */
+    private function details(int $listing, int $sku, array $website, array $item): void
+    {
+        self::$db->exec('UPDATE listing_profile SET features = CAST(? AS JSON) WHERE listing_id = ?', [json_encode($website, JSON_THROW_ON_ERROR), $listing]);
+        foreach ($item as $field => $value) {
+            self::assertArrayHasKey($field, \CW\Ui\Compare::LABELS);
+            self::$db->exec('UPDATE sku SET ' . $field . ' = ? WHERE id = ?', [$value, $sku]);
+        }
+    }
+
+    /** @return array<string, string> the fragment's compared rows as it draws them: field => state */
+    private static function states(UiResponse $frag): array
+    {
+        $out = [];
+        foreach ((new \DOMXPath($frag->dom()))->query('//div[@data-state]') as $d) {
+            /** @var \DOMElement $d */
+            $out[$d->getAttribute('data-field')] = $d->getAttribute('data-state');
+        }
+        return $out;
     }
 
     public function testTheFoldIsOnlyOnFoundOnArrivalLikelyRowsAndTheOtherRowsAndPagesAreAsTheyWere(): void
@@ -504,5 +534,109 @@ final class CheckMatchScreenTest extends KernelUiTestCase
         $odd = $web->get('/ui/review/listing/' . $f['clean'], ['via' => 'store', 'channel' => 'https://example.com']);
         self::assertSame(200, $odd->status);
         self::assertStringNotContainsString('example.com', $odd->body);
+    }
+
+    public function testARowWithADifferentDetailHasNoAnswerAndSaysWhichDetails(): void
+    {
+        // The owner's scope, "clean Likely only" (CM5): a detail the fold shows as Different is not clean, whatever else says so.
+        $f = $this->arrivals();
+        $id = $f['clean'];
+        $sku = $f['item']['sku'];
+        $web = $this->signIn($this->uiUser('mapper'));
+        $check = fn (): UiResponse => $web->get('/ui/review/listing/' . $id . '/check', ['queue' => 'Check', 'channel' => 'alt']);
+        $item = ['strength_mg' => 20, 'flavour' => 'Cool Mint', 'volume_ml' => 10];
+        $this->details($id, $sku, ['strength_mg' => 20, 'flavour_tokens' => ['cool', 'mint'], 'volume_ml' => 10], $item);
+        $frag = $check();
+        self::assertSame(['brand' => 'same', 'strength_mg' => 'same', 'flavour' => 'same', 'volume_ml' => 'same', 'barcodes' => 'same'], self::states($frag));
+        self::assertSame('yes', self::root($frag)->getAttribute('data-clean'), 'the same details: clean');
+
+        // The website says 10 mg, the item 20 mg: Different. No answer here, and the fold says which detail.
+        $this->details($id, $sku, ['strength_mg' => 10, 'flavour_tokens' => ['cool', 'mint'], 'volume_ml' => 10], $item);
+        $frag = $check();
+        self::assertSame(200, $frag->status, $frag->describe());
+        self::assertSame('differs', self::states($frag)['strength_mg']);
+        self::assertSame('no', self::root($frag)->getAttribute('data-clean'), 'a different strength is not clean');
+        self::assertSame([null, null], [self::answer($frag, 'yes'), self::answer($frag, 'no')], 'no Yes, no No');
+        self::assertStringNotContainsString('name="seen"', $frag->body);
+        self::assertStringNotContainsString(Words::CHECK['clean'], $frag->text());
+        self::assertSame([Words::say('CHECK', 'differs', Words::FIELD['strength_mg'])], self::blocks($frag));
+        self::assertSame(Words::CHECK['open'], trim((string) (new \DOMXPath($frag->dom()))->evaluate('string(//p[@class="lc-open"]/a)')));
+
+        // Two details different: both named, in the fold's order, in plain words.
+        $this->details($id, $sku, ['strength_mg' => 10, 'flavour_tokens' => ['blue', 'razz'], 'volume_ml' => 10], $item);
+        $frag = $check();
+        self::assertSame(['strength_mg' => 'differs', 'flavour' => 'differs'], array_intersect_key(self::states($frag), ['strength_mg' => 1, 'flavour' => 1]));
+        self::assertSame(['Some details are different: Strength (mg), Flavour.'], self::blocks($frag));
+        // Store Products' fold is the same fragment.
+        $store = $web->get('/ui/review/listing/' . $id . '/check', ['via' => 'store', 'channel' => 'alt']);
+        self::assertSame([null, ['Some details are different: Strength (mg), Flavour.']], [self::answer($store, 'yes'), self::blocks($store)]);
+
+        // The variant's own page still answers it, one at a time.
+        self::assertTrue($web->get('/ui/review/listing/' . $id, ['queue' => 'Check', 'channel' => 'alt'])->hasForm('/ui/review/listing/' . $id . '/decide'));
+    }
+
+    public function testDetailsTheSameWrittenDifferentlyOrNotStatedKeepTheAnswers(): void
+    {
+        $f = $this->arrivals();
+        $id = $f['clean'];
+        $web = $this->signIn($this->uiUser('mapper'));
+        // The brand written differently ("Bar Juice" / "Bar Juice 5000"), the strength the same, the nicotine type and the size each
+        // stated on one side only.
+        self::$db->exec("UPDATE listing_profile SET brand = 'Bar Juice' WHERE listing_id = ?", [$id]);
+        $this->details($id, $f['item']['sku'], ['strength_mg' => 20, 'nic_type' => 'salt'], ['strength_mg' => 20, 'volume_ml' => 10]);
+        $frag = $web->get('/ui/review/listing/' . $id . '/check', ['queue' => 'Check', 'channel' => 'alt']);
+        self::assertSame(200, $frag->status, $frag->describe());
+        self::assertSame(['brand' => 'alike', 'strength_mg' => 'same', 'nic_type' => 'unknown', 'volume_ml' => 'unknown', 'barcodes' => 'same'], self::states($frag));
+        self::assertSame('yes', self::root($frag)->getAttribute('data-clean'));
+        self::assertSame([], self::blocks($frag));
+        self::assertStringContainsString(Words::CHECK['clean'], $frag->text());
+        $yes = self::answer($frag, 'yes');
+        self::assertNotNull($yes);
+        self::assertNotNull(self::answer($frag, 'no'));
+        // The question asked again under the lock agrees: saved.
+        $r = $web->post('/ui/review/listing/' . $id . '/decide', $yes);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame(['mapped', $f['item']['sku'], 1], [$this->link($id)['status'], $this->link($id)['sku_id'], $this->link($id)['units_per_item']]);
+    }
+
+    public function testAFoldDrawnBeforeADetailBecameDifferentIsRefusedAndNothingIsSaved(): void
+    {
+        $f = $this->arrivals();
+        $id = $f['clean'];
+        $sku = $f['item']['sku'];
+        $web = $this->signIn($this->uiUser('mapper'));
+        $draw = function () use ($web, $id): array {
+            $frag = $web->get('/ui/review/listing/' . $id . '/check', ['queue' => 'Check', 'channel' => 'alt']);
+            self::assertSame('yes', self::root($frag)->getAttribute('data-clean'), $frag->describe());
+            return [(array) self::answer($frag, 'yes'), (array) self::answer($frag, 'no')];
+        };
+        $refused = function (UiResponse $r, string $what) use ($id): void {
+            self::assertSame(409, $r->status, $what . ': ' . $r->describe());
+            self::assertStringContainsString(Words::MATCH_ERROR['check_changed'], $r->text(), $what);
+            self::assertStringContainsString(Words::LISTING['on_website'], $r->text(), $what . ': the variant\'s page');
+            self::assertTrue($r->hasForm('/ui/review/listing/' . $id . '/decide'), $what . ': to answer there');
+            self::assertSame('suggested', $this->link($id)['status'], $what . ': nothing was saved');
+        };
+        $decisions = $this->decisions();
+        $this->details($id, $sku, ['strength_mg' => 20], ['strength_mg' => 20]);
+        [$yes, $no] = $draw();
+        $version = $this->version($id);
+
+        // The website now says 10 mg. Nothing the decide guard pins changed (the version, the suggestion, `seen`): the fold's own
+        // question, asked again under the lock, refuses both answers.
+        $this->details($id, $sku, ['strength_mg' => 10], ['strength_mg' => 20]);
+        self::assertSame($version, $this->version($id));
+        $refused($web->post('/ui/review/listing/' . $id . '/decide', $yes), 'Yes, the website\'s strength changed');
+        $refused($web->post('/ui/review/listing/' . $id . '/decide', $no), 'No, the website\'s strength changed');
+        self::assertSame([Words::say('CHECK', 'differs', Words::FIELD['strength_mg'])], self::blocks($web->get('/ui/review/listing/' . $id . '/check', ['queue' => 'Check', 'channel' => 'alt'])),
+            'the fold drawn now says why');
+
+        // The same when the item's card changes after the fold was drawn.
+        $this->details($id, $sku, ['strength_mg' => 20], ['strength_mg' => 20]);
+        [$yes] = $draw();
+        $this->details($id, $sku, ['strength_mg' => 20], ['strength_mg' => 10]);
+        $refused($web->post('/ui/review/listing/' . $id . '/decide', $yes), 'Yes, the item\'s strength changed');
+        self::assertSame($decisions, $this->decisions());
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM match_reject WHERE listing_id = ?', [$id]));
     }
 }

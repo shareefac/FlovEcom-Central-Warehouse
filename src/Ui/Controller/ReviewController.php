@@ -993,7 +993,7 @@ final class ReviewController
     }
 
     // ------------------------------------------------------------------------------------------
-    // The lists' Check & match fold (docs/decisions.md CM1-CM4)
+    // The lists' Check & match fold (docs/decisions.md CM1-CM5)
     // ------------------------------------------------------------------------------------------
 
     /**
@@ -1001,7 +1001,7 @@ final class ReviewController
      * A variant may be answered there only when none applies (foldFacts()).
      */
     public const FOLD_BLOCKS = ['no_item', 'not_waiting', 'held', 'spot', 'not_arrival', 'conflict', 'not_likely', 'pending', 'merged', 'rejected_before', 'warning',
-        'barcode', 'units'];
+        'differs', 'barcode', 'units'];
 
     /**
      * Whether a list row gets the Check & match fold (To review, Store Products): a variant that waits for its match, found by the check
@@ -1063,8 +1063,10 @@ final class ReviewController
      * the sales the page shows), and `blocks`: the reasons it may NOT be answered there (FOLD_BLOCKS), each with its words. It may only
      * when there are none: a variant waiting for its match, found by the check on arrival (seen() says so: not held back, not a spot
      * check's match), whose open suggestion is a Likely match of an item; no decision waiting for a second OK; the item not joined into
-     * another one and never said no to for this variant; no "Watch out" and no "cannot be the same" line; the barcode not different
-     * (the same, or not on both) and 1 sale = 1. Asked when the fold opens, and again under the listing's lock when its answer is sent.
+     * another one and never said no to for this variant; no "Watch out" and no "cannot be the same" line; no compared detail (brand,
+     * strength, nicotine type, range, kind, flavour, size, puffs, pack size) Different in the rows the fold draws (CM5: the same,
+     * written differently or not stated are fine); the barcode not different (the same, or not on both) and 1 sale = 1. Asked when the
+     * fold opens, and again under the listing's lock when its answer is sent (foldRecheck()), so the two cannot disagree.
      *
      * @return array<string, mixed>|null null when there is no such variant
      */
@@ -1085,6 +1087,14 @@ final class ReviewController
         $compareRows = $target !== null ? Compare::rows($card, $target, $listingBarcodes, $targetBarcodes, $q->brandAliases()) : [];
         $why = $proposal !== null ? self::whyOf($proposal, $target, $compareRows, $skus, $proposedId, [])['why'] : null;
         $units = self::unitsOf($proposal, $l);
+        // The rows the fragment draws, side by side (a field neither side states is left out).
+        $compare = [];
+        foreach ($compareRows as $r) {
+            if ($r['listing'] !== '' || $r['item'] !== '') {
+                $compare[] = ['field' => $r['field'], 'label' => $r['label'], 'listing' => self::fieldValue($r['field'], $r['listing']),
+                    'item' => self::fieldValue($r['field'], $r['item']), 'state' => $r['state']];
+            }
+        }
         $seen = OneAtATime::seen($ctx->db, $id);
         $kind = $seen === null ? null : explode(':', $seen)[0];
         $band = $proposal !== null ? (string) $proposal['band'] : null;
@@ -1122,18 +1132,17 @@ final class ReviewController
         if ($listWatch !== [] || ($why !== null && ($why['watch'] !== [] || $why['cannot'] !== []))) {
             $blocks['warning'] = Words::CHECK['warning'];
         }
+        // A detail those rows show as Different (CM5; the owner's "clean Likely only"): named, in their order. The barcodes have their own.
+        $differs = array_values(array_map(static fn (array $r): string => $r['label'],
+            array_filter($compare, static fn (array $r): bool => $r['field'] !== 'barcodes' && $r['state'] === 'differs')));
+        if ($differs !== []) {
+            $blocks['differs'] = Words::say('CHECK', 'differs', implode(', ', $differs));
+        }
         if ($target !== null && $why !== null && $why['barcode_state'] === 'differs') {
             $blocks['barcode'] = Words::CHECK['barcode'];
         }
         if ($target !== null && $units !== 1) {
             $blocks['units'] = Words::say('CHECK', 'units', Words::saleUses($units));
-        }
-        $compare = [];
-        foreach ($compareRows as $r) {
-            if ($r['listing'] !== '' || $r['item'] !== '') {
-                $compare[] = ['field' => $r['field'], 'label' => $r['label'], 'listing' => self::fieldValue($r['field'], $r['listing']),
-                    'item' => self::fieldValue($r['field'], $r['item']), 'state' => $r['state']];
-            }
         }
         // The sales the variant's page shows: the sales history's when it is loaded for the site, else the website's own (F207).
         $sold = (new Duplicates($ctx->db))->soldFromHistory([$id => $l])[$id] ?? null;
@@ -1157,7 +1166,8 @@ final class ReviewController
 
     /**
      * The fold's question asked again under the listing's lock (DecisionService::decide's recheck, CM2): the variant is still a clean
-     * likely match, and the answer sent is one of the fold's two as it drew them (its item and suggestion, and 1 sale = 1 for a match).
+     * likely match (foldFacts(), the fragment's own rule: no detail Different now either, CM5), and the answer sent is one of the fold's
+     * two as it drew them (its item and suggestion, and 1 sale = 1 for a match).
      * Anything else is refused, 409 check_changed, and nothing is written: the variant's page is drawn with why.
      *
      * @param array<string, mixed> $request the decision the fold's form asks for

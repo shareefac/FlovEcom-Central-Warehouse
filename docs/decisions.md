@@ -11121,3 +11121,21 @@ Conflict for a lead only, map_version and the suggestion are checked as before.
   the applied, the reject and the pending notice after the redirect).
 - **LOW, left open: the fold's same "No" sent twice is 409 `check_changed`**, not DG3's quiet answer: the first "No" is a reject of
   this item, so the second finds the row no longer clean. Nothing is written either way; the variant's page says why.
+
+### A detail that is different is not clean (branch `check-match-differs`, 21 Oct 2026; CM5)
+
+The fold showed the website variant and the warehouse item side by side, each compared detail with its chip, but its clean rule (CM1)
+asked only for the barcodes, the warnings, 1 sale = 1, the band and the row's state. So a row could be clean, with "Yes, match to CW-…",
+while its Strength or Flavour said "Different". The owner's scope is "clean Likely only".
+
+**CM5. A compared detail that is Different makes the row not clean (amends CM1 and CM2).** A row is clean only when none of the details
+the fold draws (Compare::rows' brand, strength, nicotine type, range, kind, flavour, size, puffs and pack size; the barcodes keep their own
+reason) is `differs`. The rule reads the very rows the fragment draws (`foldFacts()`'s `compare`), so the chips and the answer cannot
+disagree. "Written differently" (`alike`, a brand spelt another way) and "Not stated" (`unknown`, one side does not say) stay fine. The
+reason (`FOLD_BLOCKS` `differs`, `CHECK['differs']`) names the details by their names on the fold, in its order: "Some details are
+different: Strength (mg), Flavour." The fold then has no form and no `seen`, only "Open to decide". The recheck under the listing's lock
+(CM2) is `foldFacts()` again, so a fold drawn clean before the website's (or the item's) details changed to Different is refused 409
+`check_changed` for its Yes and its No, and nothing is written. The variant's own page is unchanged: it still decides such a row.
+Tests first (`runs/cleanfix_red1.log`, red on `afb6760`): CheckMatchScreenTest `testARowWithADifferentDetailHasNoAnswerAndSaysWhichDetails`,
+`testDetailsTheSameWrittenDifferentlyOrNotStatedKeepTheAnswers` (green on the base too: it guards the other side of the rule) and
+`testAFoldDrawnBeforeADetailBecameDifferentIsRefusedAndNothingIsSaved`.
