@@ -11107,3 +11107,17 @@ To review's variant page without `from=check` still goes on to the next one in t
 **CM4. Left out on purpose.** New Variants draws the same rows with the same line (one_at_a_time.php) but its rows carry no band and
 its way back is another context: no fold there yet. The "may duplicate" box of the variant's page (the barcode on another product) is not
 part of the clean rule (the owner's scope); the fold leads to the page for it. The rule is the owner's: no setting.
+
+### The Codex review (on `300657f`; `runs/listmatch_codex_review.txt`): no HIGH, one MEDIUM fixed test-first, two LOW
+
+No bypass of the decide guard found: the recheck runs under the listing's lock before any write, and DG1, DG2, the two-person rule,
+Conflict for a lead only, map_version and the suggestion are checked as before.
+- **MEDIUM, fixed: on a phone the open fold stayed in the card's name column** (beside Store Products' status chip), with 110 px chips
+  in its label column. As a card the open fold's name cell now spans the row (the status chip goes under it), each fact's name is on
+  its own line above the two values, and the fold's chips are as narrow as their words (`UiUnitTest::testTheCheckFoldTakesTheWholeCardOnAPhone`,
+  red first: `runs/listmatch_r1_red.log`).
+- **LOW, fixed because CM3 promises it: Store Products drew no notice**, so a row that left the Suggested filter (or a match that waits
+  for a second OK) went without a word. Store Products now shows `ReviewController::notice()` as By Item does (CheckMatchScreenTest:
+  the applied, the reject and the pending notice after the redirect).
+- **LOW, left open: the fold's same "No" sent twice is 409 `check_changed`**, not DG3's quiet answer: the first "No" is a reject of
+  this item, so the second finds the row no longer clean. Nothing is written either way; the variant's page says why.

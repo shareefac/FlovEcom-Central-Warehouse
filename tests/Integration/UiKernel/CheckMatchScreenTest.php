@@ -293,6 +293,8 @@ final class CheckMatchScreenTest extends KernelUiTestCase
         $r = $web->post('/ui/review/listing/' . $other . '/decide', $no);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame('/ui/review/store?channel=alt&sort=sold_365&q=Cherry&notice=decided_reject&prev=' . $other . '#l-' . $other, $r->location());
+        // The list says what was done (Codex's review of 300657f: Store Products drew no notice).
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_reject', Words::quoted('Elf Bar Cherry 10ml Nic Salt 20mg', '')), $web->follow($r)->text());
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM match_reject WHERE listing_id = ? AND sku_id = ?', [$other, $item['sku']]));
         self::assertSame('suggested', $this->link($other)['status'], 'still waiting for its match');
         // Its fold now says why it is not answered there: someone said no to this product.
@@ -490,6 +492,14 @@ final class CheckMatchScreenTest extends KernelUiTestCase
         $r = $web->post('/ui/review/listing/' . $f['warned'] . '/decide', ['action' => 'link', 'units_per_item' => '1'] + $form);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame('/ui/review/store?channel=alt&state=suggested&notice=decided_link&prev=' . $f['warned'] . '#l-' . $f['warned'], $r->location());
+        $code = (string) self::$db->value('SELECT s.code FROM channel_listing cl JOIN sku s ON s.id = cl.sku_id WHERE cl.id = ?', [$f['warned']]);
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'decided_link', Words::quoted('RandM Cool Mint 10ml Nic Salts Eliquid', ''), $code), $web->follow($r)->text(),
+            'the matched row has left the filter: the notice says what was done');
+        // A match that waits for a second OK says so on the list too (2 per sale, from the variant's page opened from the list).
+        $own = $web->get('/ui/review/listing/' . $f['clean'], ['via' => 'store', 'channel' => 'alt']);
+        $r = $web->post('/ui/review/listing/' . $f['clean'] . '/decide', ['action' => 'link', 'units_per_item' => '2'] + $own->form('/ui/review/listing/' . $f['clean'] . '/decide'));
+        self::assertSame('/ui/review/store?channel=alt&notice=pending_second&prev=' . $f['clean'] . '#l-' . $f['clean'], $r->location());
+        self::assertStringContainsString(Words::say('MATCH_NOTICE', 'pending_second', Words::quoted('RandM Cool Mint 10ml Nic Salts Eliquid 20mg', '')), $web->follow($r)->text());
         // A crafted way back leads nowhere but to the list: an unknown store is no context at all.
         $odd = $web->get('/ui/review/listing/' . $f['clean'], ['via' => 'store', 'channel' => 'https://example.com']);
         self::assertSame(200, $odd->status);

@@ -120,7 +120,8 @@ final class StoreProductsController
             'allLink' => Html::url('/ui/review/store', $base + ['page' => $result['page'] > 1 ? $result['page'] : null, 'all' => 1]),
             'clear_link' => Html::url('/ui/review/store', ['channel' => $store['code']]),
             'lookOnly' => $me->canDecide() ? null : Words::whoCan('mapping.decide'),
-        ], 200, ['title' => Words::MENU['store_products'], 'active' => 'store_products', 'notice' => null]);
+        // Back from a decision (the Check & match fold or the variant's page opened from it, docs/decisions.md CM3): what was done.
+        ], 200, ['title' => Words::MENU['store_products'], 'active' => 'store_products', 'notice' => (new ReviewController())->notice($ctx, null)]);
     }
 
     private static function s(mixed $v): ?string

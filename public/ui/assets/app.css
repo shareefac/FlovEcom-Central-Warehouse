@@ -1826,6 +1826,7 @@ details.check-fold > :last-child:not(summary) { margin-bottom: 0; }
 .lc .lc-head { border-top: 0; padding-top: 0; color: var(--ink-muted); font-size: 12px; font-weight: 600; }
 .lc .lc-k { color: var(--ink-2); font-size: 13px; }
 .lc .lc-k .chip { display: inline-flex; margin-top: 2px; }
+.lc .chip { min-width: 0; }
 .lc .lc-sub { display: block; color: var(--ink-2); }
 .lc .lc-row.differs { background: var(--warn-row); }
 .lc dl.lc-why { grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 0 0 8px; font-size: 13px; }
@@ -1841,8 +1842,14 @@ details.check-fold > :last-child:not(summary) { margin-bottom: 0; }
   details.check-fold > summary, .lc .btn { min-height: 44px; }
 }
 @container (max-width: 640px) {
-  /* As a card: the fold and its answers take the card's whole width */
+  /* As a card: the fold and its answers take the card's whole width (the name cell spans the row while the fold is open, its status
+     chip goes under it), and each fact's name is on its own line above the two values */
   table.stack details.check-fold[open] { min-width: 0; }
+  table.stack tr:has(details.check-fold[open]) > .c-head { grid-column: 1 / -1; }
+  table.stack tr:has(details.check-fold[open]) > .c-status { grid-row: auto; }
+  .lc .lc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lc .lc-row > .lc-k { grid-column: 1 / -1; }
+  .lc .lc-head > :first-child { display: none; }
   .lc .lc-answers form, .lc .lc-answers .btn, .lc .lc-open .btn { width: 100%; }
 }
 /* The preview: one line per variant, what will happen (and why) in its last cell; the one button stays in sight (.actions.sticky) */

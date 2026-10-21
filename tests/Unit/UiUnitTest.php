@@ -815,6 +815,23 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('} else if (linkOpener && !d.contains(linkOpener)) {', $js);
     }
 
+    /**
+     * The lists' Check & match fold on a phone (docs/decisions.md CM1; Codex's review of 300657f): as a card, an open fold takes the
+     * card's whole width (its name cell spans the row, the status chip goes under it), the comparison puts each fact's name on its own
+     * line above the two values, and its chips are as narrow as their words, so both products' values keep their room at 320 px.
+     */
+    public function testTheCheckFoldTakesTheWholeCardOnAPhone(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertSame(1, preg_match('/@container \(max-width: 640px\) \{\s*\/\* As a card: the fold.*?\n\}/s', $css, $m), 'the card rules of the fold');
+        $card = $m[0];
+        self::assertStringContainsString('table.stack tr:has(details.check-fold[open]) > .c-head { grid-column: 1 / -1; }', $card);
+        self::assertStringContainsString('table.stack tr:has(details.check-fold[open]) > .c-status { grid-row: auto; }', $card);
+        self::assertStringContainsString('.lc .lc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }', $card);
+        self::assertStringContainsString('.lc .lc-row > .lc-k { grid-column: 1 / -1; }', $card);
+        self::assertStringContainsString('.lc .chip { min-width: 0; }', $css);
+    }
+
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
