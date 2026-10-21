@@ -342,7 +342,8 @@ final class ItemCardScreensTest extends KernelUiTestCase
         $list = $web->get('/ui/items/cards');
         self::assertSame(200, $list->status, $list->describe());
         self::assertSame(['Products', 'All Products'], [self::currentSection($list), self::currentTab($list)]);
-        $codes = static fn (UiResponse $r): array => array_map(static fn (\DOMElement $a): string => trim($a->textContent),
+        // The row's link is the CW number and the name (the first word is the number).
+        $codes = static fn (UiResponse $r): array => array_map(static fn (\DOMElement $a): string => (string) strtok(trim($a->textContent), ' '),
             iterator_to_array((new \DOMXPath($r->dom()))->query('//table[contains(@class, "item-cards")]//th[@scope="row"]/a')));
         self::assertSame([self::cw($high), self::cw($low), self::cw($none)], $codes($list), 'most stock first');
         self::assertStringContainsString(Words::say('CARDS', 'summary_products', 3, 2), $list->text());
@@ -438,12 +439,216 @@ final class ItemCardScreensTest extends KernelUiTestCase
         self::assertGreaterThan(0, $xp->query('//table[contains(@class, "barcodes")]//td[@data-label="Barcode"]')->length);
         self::assertSame(1, $xp->query('//dl[contains(@class, "item-card-fields")]')->length);
         $list = new \DOMXPath($web->get('/ui/items/cards')->dom());
-        self::assertSame(1, $list->query('//div[@class="scroll"]/table[contains(@class, "stack") and contains(@class, "item-cards")]')->length);
+        // A list table: cards on a phone inside a .table-wrap (rule 14), which drops its own box then (no card inside a card).
+        self::assertSame(1, $list->query('//div[@class="table-wrap"]/table[contains(@class, "stack") and contains(@class, "item-cards")]')->length);
         self::assertGreaterThan(0, $list->query('//table[contains(@class, "item-cards")]//td[@data-label="Stock held"]')->length);
         $css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.css');
         self::assertMatchesRegularExpression('/@container \(max-width: 640px\) \{[^}]*dl\.item-card-fields \{ grid-template-columns: minmax\(0, 1fr\); \}/s', $css,
             'one column when the page column is phone width (the page is the container since the design A frame)');
         self::assertStringContainsString('form.add-barcode button, form.confirm-card button, form.barcode-decide button { width: 100%; }', $css);
         self::assertStringContainsString('table.stack td[data-label]::before', $css, 'the shared phone-width table rule');
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // All Products for normal staff (the owner's request of 21 Oct 2026: easier and friendlier, phone first)
+    // ------------------------------------------------------------------------------------------
+
+    /** The texts of the list's column heads, in order. @return list<string> */
+    private static function heads(\DOMXPath $xp): array
+    {
+        return array_map(static fn (\DOMElement $th): string => trim($th->textContent),
+            array_values(iterator_to_array($xp->query('//table[contains(@class, "item-cards")]/thead/tr/th'))));
+    }
+
+    /** The list's row of one product. */
+    private static function rowOf(\DOMXPath $xp, int $sku): \DOMElement
+    {
+        $row = $xp->query('//table[contains(@class, "item-cards")]/tbody/tr[th/a[@href="/ui/items/' . $sku . '"]]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $row, "the row of {$sku}");
+        return $row;
+    }
+
+    /** The classes of the pills and tags in a row's card cell. @return list<string> */
+    private static function stateMarks(\DOMXPath $xp, \DOMElement $row): array
+    {
+        return array_map(static fn (\DOMElement $s): string => $s->getAttribute('class'),
+            array_values(iterator_to_array($xp->query('td[contains(concat(" ", @class, " "), " c-status ")]/span', $row))));
+    }
+
+    /**
+     * A product without a card draws one quiet "No card yet" (a soft tag: the solid navy pill looked like a button and was the loudest
+     * thing on the page) and, for the catalogue team, the link to its card form, instead of six empty cells. While no product on the
+     * page has a card the six card columns are left out, so the name has the room; once one has, the row without a card draws ONE
+     * cell across the card's columns. The CW number and the name are one link (a bigger tap target). Warning and Blocked keep their
+     * strong pills.
+     */
+    public function testAProductWithoutACardIsQuietAndOneTapFromItsForm(): void
+    {
+        $who = $this->uiUser('stock_controller');
+        $a = $this->stocked('Elux Legend Cola 10ml', 3);
+        $b = $this->stocked('Nothing filled in', 0);
+        $web = $this->signIn($who);
+        $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
+        self::assertSame([Words::CARDS['product'], Words::CARDS['held'], Words::CARDS['state']], self::heads($xp), 'no card on the page: no empty card columns');
+        foreach ([$a => 'Elux Legend Cola 10ml', $b => 'Nothing filled in'] as $sku => $name) {
+            $row = self::rowOf($xp, $sku);
+            $link = $xp->query('th[@scope="row"]/a', $row)->item(0);
+            self::assertStringContainsString(self::cw($sku), $link->textContent, 'the number and ...');
+            self::assertStringContainsString($name, $link->textContent, '... the name are one link');
+            self::assertSame(2, $xp->query('td', $row)->length, 'the card cell and the stock held');
+            $none = $xp->query('td[contains(concat(" ", @class, " "), " c-nocard ")]', $row)->item(0);
+            self::assertInstanceOf(\DOMElement::class, $none);
+            self::assertFalse($none->hasAttribute('colspan'), 'no card columns to span');
+            self::assertSame(['tag'], self::stateMarks($xp, $row), 'a quiet tag, no solid pill');
+            self::assertSame(Words::CARD_STATE['none'], trim((string) $xp->evaluate('string(span[@class="tag"])', $none)));
+            $fill = $xp->query('a[@href="/ui/items/' . $sku . '/card"]', $none)->item(0);
+            self::assertInstanceOf(\DOMElement::class, $fill, 'the catalogue team fills it in from the list');
+            self::assertStringStartsWith(Words::CARD['fill_in'], trim($fill->textContent));
+            self::assertStringContainsString(self::cw($sku), $fill->textContent, 'each link names its product for a screen reader');
+        }
+        // Someone who can only look sees the tag, not the link.
+        $buyer = new \DOMXPath($this->signIn($this->uiUser('buyer'))->get('/ui/items/cards')->dom());
+        self::assertSame(2, $buyer->query('//td[contains(concat(" ", @class, " "), " c-nocard ")]/span[@class="tag"]')->length);
+        self::assertSame(0, $buyer->query('//td[contains(concat(" ", @class, " "), " c-nocard ")]//a')->length);
+
+        // A card on the page: the card columns come back, the row without one draws one cell across them.
+        $cards = new ItemCards(self::$db);
+        $cards->save(Caller::staff($who['id']), $a, 0, ['product_type' => 'tank', 'liquid_ml' => '5', 'duty_liable' => 'no', 'flavour' => 'cola']);
+        $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
+        self::assertSame([Words::CARDS['product'], Words::CARDS['held'], Words::CARDS['state'], Words::CARDS['kind'], Words::CARDS['ml'], Words::CARDS['mg'],
+            Words::CARDS['duty'], Words::CARDS['single_use'], Words::CARDS['flavour']], self::heads($xp), 'the stock held beside the name, the card\'s columns together');
+        $rowA = self::rowOf($xp, $a);
+        $rowB = self::rowOf($xp, $b);
+        self::assertSame(8, $xp->query('td', $rowA)->length, 'a card: the stock held, its state, six details');
+        self::assertSame('cola', trim((string) $xp->evaluate('string(td[@data-label="' . Words::CARDS['flavour'] . '"])', $rowA)));
+        self::assertSame(2, $xp->query('td', $rowB)->length);
+        self::assertSame('7', (string) $xp->evaluate('string(td[contains(@class, "c-nocard")]/@colspan)', $rowB), 'the state and the six details');
+        self::assertSame(['', 'c-status c-nocard'], [(string) $xp->evaluate('string(td[1]/@colspan)', $rowB), (string) $xp->evaluate('string(td[2]/@class)', $rowB)], 'after the stock held');
+        // Each state looks like what it means: not confirmed and its warning amber, a block red.
+        self::assertSame(['chip needs', 'chip needs'], self::stateMarks($xp, $rowA), 'Not confirmed, and its warning');
+        $cards->confirm(Caller::staff($who['id']), $a, 1, true);
+        $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
+        self::assertSame(['chip done', 'chip blocked'], self::stateMarks($xp, self::rowOf($xp, $a)), 'Confirmed, and blocked by the rule');
+        self::assertSame('waiting', Words::tone('CARD_STATE', 'none'), 'No card yet is "not started" (grey), never "switched off" (navy)');
+    }
+
+    /**
+     * The search box for someone new: it says what can be typed, Enter sends the toolbar's GET form (it has a submit button, the
+     * form's default) and the phone's key says Search, a search that is on has a one-tap "Clear the search" that keeps the filters,
+     * and a search that finds nothing says what to try.
+     */
+    public function testTheSearchSaysWhatToTypeAndClearsInOneTap(): void
+    {
+        $this->stocked('Elux Legend Cola 10ml', 3);
+        $web = $this->signIn($this->uiUser('buyer'));
+        $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
+        $box = $xp->query('//form[@method="get" and contains(@class, "toolbar")]//input[@type="search" and @name="q"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $box);
+        self::assertSame([Words::CARDS['search_placeholder'], 'search'], [$box->getAttribute('placeholder'), $box->getAttribute('enterkeyhint')]);
+        self::assertGreaterThan(0, $xp->query('//form[@method="get" and contains(@class, "toolbar")]//button[@type="submit"]')->length, 'Enter in the box sends the form');
+        self::assertSame(0, $xp->query('//a[contains(@class, "tb-clear")]')->length, 'no search: nothing to clear');
+
+        $xp = new \DOMXPath($web->get('/ui/items/cards', ['q' => 'elux', 'stock' => '1'])->dom());
+        $clear = $xp->query('//div[contains(@class, "tb-search")]/a[contains(@class, "tb-clear")]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $clear);
+        self::assertSame('/ui/items/cards?stock=1', $clear->getAttribute('href'), 'the search goes, the filter stays');
+        self::assertSame(Words::CARDS['clear_search'], trim($clear->textContent));
+
+        $none = $web->get('/ui/items/cards', ['q' => 'zzz nothing']);
+        self::assertSame(200, $none->status, $none->describe());
+        $xp = new \DOMXPath($none->dom());
+        self::assertSame(Words::say('CARDS', 'none_search', 'zzz nothing'), trim((string) $xp->evaluate('string(//div[@class="empty"]/p[@class="empty-title"])')));
+        self::assertStringContainsString(Words::CARDS['none_search_text'], $none->text(), 'what to try');
+        self::assertSame(['/ui/items/cards', Words::CARDS['clear_search']], [(string) $xp->evaluate('string(//div[@class="empty"]//a/@href)'),
+            trim((string) $xp->evaluate('string(//div[@class="empty"]//a)'))]);
+    }
+
+    /**
+     * The filters for someone new: plain "Only ..." choices and a button that says what it shows; the Filter button counts the filters
+     * that are on, and they show as chips under the toolbar, each removed with one tap (the other filters and the search stay).
+     */
+    public function testTheFiltersThatAreOnShowAsChipsThatRemoveOneEach(): void
+    {
+        $this->stocked('Tank', 3);
+        $web = $this->signIn($this->uiUser('buyer'));
+        $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
+        self::assertSame(0, $xp->query('//*[contains(@class, "filters-on")]')->length, 'no filter: no chips');
+        self::assertSame([Words::CARDS['only_stock'], Words::CARDS['only_warnings'], Words::CARDS['only_blocked'] . ' ' . Words::CARDS['blocked_hint'],
+            Words::CARDS['only_discontinued']], array_map(static fn (\DOMElement $l): string => trim((string) preg_replace('/\s+/', ' ', $l->textContent)),
+            array_values(iterator_to_array($xp->query('//details[contains(@class, "tb-pop")]//label[contains(@class, "choice")]')))));
+        self::assertSame(Words::CARDS['apply'], trim((string) $xp->evaluate('string(//details[contains(@class, "tb-pop")]//button[@type="submit"])')));
+        self::assertSame(0, $xp->query('//details[contains(@class, "tb-pop")]/summary/span[contains(@class, "count")]')->length);
+        self::assertSame(0, (new \DOMXPath($web->get('/ui/items/cards', ['q' => 'tank'])->dom()))->query('//*[contains(@class, "filters-on")]')->length,
+            'a search alone shows in its own box');
+
+        $xp = new \DOMXPath($web->get('/ui/items/cards', ['q' => 'tank', 'state' => 'confirmed', 'type' => 'tank', 'stock' => '1', 'blocked' => '1'])->dom());
+        $chips = array_map(static fn (\DOMElement $a): array => [trim((string) $a->getElementsByTagName('span')->item(0)?->textContent), $a->getAttribute('href')],
+            array_values(iterator_to_array($xp->query('//div[contains(@class, "filters-on")]/ul/li/a'))));
+        self::assertSame([
+            [Words::say('CARDS', 'chip_card', Words::CARD_STATE['confirmed']), '/ui/items/cards?q=tank&stock=1&blocked=1&type=tank'],
+            [Words::say('CARDS', 'chip_kind', ucfirst(\CW\Catalogue\ItemRules::TYPES['tank'])), '/ui/items/cards?q=tank&state=confirmed&stock=1&blocked=1'],
+            [Words::CARDS['stock'], '/ui/items/cards?q=tank&state=confirmed&blocked=1&type=tank'],
+            [Words::CARDS['blocked'], '/ui/items/cards?q=tank&state=confirmed&stock=1&type=tank'],
+        ], $chips, 'each chip takes its own filter off');
+        foreach ($xp->query('//div[contains(@class, "filters-on")]/ul/li/a') as $a) {
+            self::assertStringContainsString(Words::CARDS['remove_filter'], $a->textContent, 'a screen reader hears what the tap does');
+        }
+        self::assertSame(Words::CARDS['showing'], trim((string) $xp->evaluate('string(//div[contains(@class, "filters-on")]/p)')));
+        self::assertSame(['/ui/items/cards', Words::CARDS['clear']], [(string) $xp->evaluate('string(//div[contains(@class, "filters-on")]/a/@href)'),
+            trim((string) $xp->evaluate('string(//div[contains(@class, "filters-on")]/a)'))], 'and one way back to every product');
+        self::assertSame('4', trim((string) $xp->evaluate('string(//details[contains(@class, "tb-pop")]/summary/span[contains(@class, "count")])')),
+            'the Filter button counts the filters that are on');
+        $kind = new \DOMXPath($web->get('/ui/items/cards', ['type' => 'none', 'warnings' => '1', 'discontinued' => '1'])->dom());
+        self::assertSame([Words::say('CARDS', 'chip_kind', Words::CARDS['not_set']), Words::CARDS['warnings'], Words::CARDS['discontinued']],
+            array_map(static fn (\DOMElement $s): string => trim($s->textContent), array_values(iterator_to_array($kind->query('//div[contains(@class, "filters-on")]/ul/li/a/span[1]')))));
+    }
+
+    /**
+     * Less to scroll past on a phone: the rules about warnings and blocks fold into the page's "?" (Words::HELP card_rules) instead of a
+     * paragraph above the list, the numbers on top leave out a line of noughts, and the list's own heading says something the page
+     * heading does not ("Products", "Products found" while a search or a filter is on), with the order of the list.
+     */
+    public function testTheRulesFoldAwayAndTheListHeadingSaysWhatTheListIs(): void
+    {
+        $this->stocked('Folded', 2);
+        $web = $this->signIn($this->uiUser('buyer'));
+        $page = $web->get('/ui/items/cards');
+        $xp = new \DOMXPath($page->dom());
+        $rules = trim(str_replace('**', '', Words::HELP['card_rules']));
+        self::assertSame(0, $xp->query('//p[contains(@class, "hint") and contains(., "' . mb_substr($rules, 0, 30) . '")]')->length, 'no rules paragraph');
+        $help = $xp->query('//header[@class="page-head"]//details[@class="help"]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $help, 'the "?" beside the heading');
+        self::assertSame($rules, trim((string) preg_replace('/\s+/', ' ', (string) $xp->evaluate('string(div[@class="help-body"])', $help))));
+        self::assertSame('What does "' . Words::CARDS['rules_label'] . '" mean?', (string) $xp->evaluate('string(summary/@aria-label)', $help));
+        self::assertStringNotContainsString(Words::say('CARDS', 'summary_states', 0, 0, 0), $page->text(), 'no line of noughts');
+        self::assertStringContainsString(Words::say('CARDS', 'summary_products', 1, 1), $page->text());
+        self::assertSame([Words::MENU['cards'], Words::CARDS['list']], [trim((string) $xp->evaluate('string(//h1)')),
+            trim((string) $xp->evaluate('string(//h2[contains(@class, "board-title")])'))], 'the page and the list say different things');
+        self::assertStringContainsString(Words::CARDS['order'], (string) $xp->evaluate('string(//p[@class="board-note"])'));
+        $found = new \DOMXPath($web->get('/ui/items/cards', ['q' => 'folded'])->dom());
+        self::assertSame(Words::CARDS['list_found'], trim((string) $found->evaluate('string(//h2[contains(@class, "board-title")])')));
+    }
+
+    /**
+     * The section's tabs on a narrow screen (every page with tabs; the strip scrolls inside itself): app.js scrolls the open tab into
+     * sight and marks the side the strip can still scroll to (more-left / more-right), and the stylesheet fades that edge, so By
+     * Item, New Variants and Duplicates no longer hide off the screen without a cue. The tabs' markup is unchanged.
+     */
+    public function testTheTabsShowThereIsMoreAndKeepTheOpenTabInSight(): void
+    {
+        $web = $this->signIn($this->uiUser('buyer'));
+        $xp = new \DOMXPath($web->get('/ui/items/cards')->dom());
+        self::assertSame(1, $xp->query('//nav[@class="tabs"]/a[@class="tab" and @aria-current="page"]')->length);
+        $js = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.js');
+        $css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.css');
+        self::assertStringContainsString("each(document.querySelectorAll('nav.tabs'), function (strip) {", $js);
+        self::assertStringContainsString("strip.classList.toggle('more-left', max > 1 && strip.scrollLeft > 1);", $js);
+        self::assertStringContainsString("strip.classList.toggle('more-right', max > 1 && strip.scrollLeft < max - 1);", $js);
+        self::assertStringContainsString("var open = strip.querySelector('[aria-current]');", $js, 'the open tab ...');
+        self::assertMatchesRegularExpression('/strip\.scrollLeft = Math\.max\(0, open\.offsetLeft - /', $js, '... is scrolled into sight, the page itself never moves');
+        self::assertStringContainsString("strip.addEventListener('scroll', mark, { passive: true });", $js);
+        self::assertMatchesRegularExpression('/\.tabs\.more-right \{[^}]*mask-image: linear-gradient\(to right, var\(--mask\) calc\(100% - 48px\), transparent\)/', $css);
+        self::assertMatchesRegularExpression('/\.tabs\.more-left \{[^}]*mask-image: linear-gradient\(to left, var\(--mask\) calc\(100% - 48px\), transparent\)/', $css);
+        self::assertMatchesRegularExpression('/\.tabs\.more-left\.more-right \{[^}]*mask-image: linear-gradient\(to right, transparent, var\(--mask\) 48px, var\(--mask\) calc\(100% - 48px\), transparent\)/', $css);
     }
 }

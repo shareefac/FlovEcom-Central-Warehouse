@@ -25,6 +25,35 @@
     });
   });
 
+  // A section's tabs scroll sideways inside their strip when they do not fit (a phone, a narrow window). The open tab is scrolled
+  // into sight (the strip only: the page itself never moves), and the strip is marked with the side it can still scroll to
+  // (more-left, more-right), which the stylesheet fades, so the tabs off the screen have a cue. Without the script the strip still
+  // scrolls; it only has no fade.
+  each(document.querySelectorAll('nav.tabs'), function (strip) {
+    var mark = function () {
+      var max = strip.scrollWidth - strip.clientWidth;
+      strip.classList.toggle('more-left', max > 1 && strip.scrollLeft > 1);
+      strip.classList.toggle('more-right', max > 1 && strip.scrollLeft < max - 1);
+    };
+    var reveal = function () {
+      var open = strip.querySelector('[aria-current]');
+      if (!open || strip.scrollWidth <= strip.clientWidth) {
+        return;
+      }
+      // The strip is the tabs' offsetParent (position: relative), so offsetLeft is the tab's place in it.
+      if (open.offsetLeft < strip.scrollLeft || open.offsetLeft + open.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+        strip.scrollLeft = Math.max(0, open.offsetLeft - (strip.clientWidth - open.offsetWidth) / 2);
+      }
+    };
+    reveal();
+    mark();
+    strip.addEventListener('scroll', mark, { passive: true });
+    window.addEventListener('resize', mark);
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () { reveal(); mark(); }); // the tabs' widths change once Poppins has loaded
+    }
+  });
+
   // Bulk action on a list (docs/decisions.md U108): the rows' tick boxes, "Select all on this page" (a link that also works
   // without the script: ?all=1 draws the page ticked), and the action bar, shown only while rows are ticked and kept at the bottom
   // of the screen. Its words come from the page (data-none, data-one, data-many, data-too-many: Words::BULK). Without the script

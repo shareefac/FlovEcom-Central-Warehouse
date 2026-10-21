@@ -2673,6 +2673,10 @@ final class Words
         'selling_mode' => 'What a website shows for a product whose stock rule is still "Website uses its own stock". **In-Stock:** it sells whatever the stock figure says. '
             . '**From-Warehouse:** it sells while there is stock. **Out-Of-Stock:** it does not sell. A website takes the mode from here only once its stock '
             . 'link is on. A delivery booked in sets the mode too, on the websites deliveries reach.',
+        // All Products (/ui/items/cards): the "?" beside its heading (it was a paragraph above the list).
+        'card_rules' => 'A card that breaks a rule is a **warning** until a person confirms its details. After that it **blocks** the product until a '
+            . 'person confirms the card again. A block stops Reorder, the confirming of orders and the booking in of deliveries. It does not stop '
+            . 'website sales: take a blocked product off sale on the website by hand. A website whose stock link is on shows it as Out-Of-Stock by itself.',
     ];
 
     /** Sign-in and the password page (plan F062-F073). */
@@ -6854,30 +6858,47 @@ final class Words
 
     /** The product list (/ui/items/cards). */
     public const CARDS = [
-        'rules' => 'A card that breaks a rule is a warning until a person confirms its details. After that it blocks the product until a person confirms the card again. '
-            . 'A block stops Reorder, the confirming of orders and the booking in of deliveries. It does not stop website sales: take a blocked product '
-            . 'off sale on the website by hand. A website whose stock link is on shows it as Out-Of-Stock by itself.',
+        // The rules about warnings and blocks are the "?" beside the heading (HELP card_rules), named by this.
+        'rules_label' => 'Warning and Blocked',
         'summary_products' => '%s products, %s holding stock',
         'summary_cards' => '%s with a product card, %s confirmed (%s of those holding stock)',
         'summary_states' => '%s with a warning, %s blocked, %s not sold any more',
-        'search' => 'CW number, name, brand or flavour',
+        'search' => 'Find a product by its CW number, name, brand or flavour',
+        'search_placeholder' => 'Name, brand, flavour, CW number',
+        'clear_search' => 'Clear the search',
         'card' => 'Product card',
         'kind' => 'Kind of product',
         'any' => 'Any',
         'not_set' => 'Not set',
         'filter_unconfirmed' => 'Not confirmed (no card, or not confirmed yet)',
+        // The filter's tick boxes say what they keep; the chips of the filters that are on use the short words above them.
+        'only_stock' => 'Only products holding stock',
+        'only_warnings' => 'Only products with a warning or a block',
+        'only_blocked' => 'Only blocked products',
+        'only_discontinued' => 'Only products not sold any more',
+        'apply' => 'Show the products',
         'stock' => 'Holds stock',
         'warnings' => 'Warning or blocked',
         'blocked' => 'Blocked',
         'blocked_hint' => '(take these off sale on the website by hand)',
         'discontinued' => 'Not sold any more',
+        'showing' => 'Showing only:',
+        'chip_card' => 'Product card: %s',
+        'chip_kind' => 'Kind of product: %s',
+        'remove_filter' => 'Remove this filter',
         'filter' => 'Show',
         'download' => 'Download these for Excel (CSV)',
         'import' => 'Change many product cards',
         'none' => 'No product matches these filters.',
-        'none_text' => 'Clear the filters to see every product.',
+        'none_text' => 'Remove a filter above, or show every product.',
+        'none_search' => 'No product matches "%s".',
+        'none_search_text' => 'Check the spelling, or try fewer words. A CW number also works.',
         'none_all' => 'No warehouse products yet.',
         'clear' => 'Show every product',
+        // The list's own heading (the page's is "All Products"), then how many and in what order.
+        'list' => 'Products',
+        'list_found' => 'Products found',
+        'order' => 'Most stock first.',
         'total_one' => '1 product.',
         'total_many' => '%s products.',
         'page' => 'Page %s of %s',
@@ -10542,7 +10563,8 @@ final class Words
         'DOC_STATUS' => ['draft' => 'waiting', 'awaiting_approval' => 'review', 'posted' => 'done', 'reversed' => 'off', 'cancelled' => 'off'],
         'POLICY' => ['legacy' => 'off', 'strict' => 'done', 'backorder' => 'info', 'stopped' => 'blocked'],
         'FIELD_STATE' => ['same' => 'done', 'differs' => 'blocked', 'conflict' => 'blocked', 'alike' => 'info', 'spelt' => 'info', 'unknown' => 'off', 'missing' => 'off'],
-        'CARD_STATE' => ['none' => 'off', 'unconfirmed' => 'needs', 'changed' => 'needs', 'confirmed' => 'done', 'warned' => 'needs', 'blocked' => 'blocked'],
+        // No card yet is "not started" (grey), not "switched off" (navy).
+        'CARD_STATE' => ['none' => 'waiting', 'unconfirmed' => 'needs', 'changed' => 'needs', 'confirmed' => 'done', 'warned' => 'needs', 'blocked' => 'blocked'],
         'RECEIPT_STATE' => ['draft' => 'needs', 'awaiting_approval' => 'review', 'posted' => 'done', 'reversed' => 'off', 'cancelled' => 'off'],
         'BENCH_STATE' => ['todo' => 'needs', 'part' => 'needs', 'done' => 'done', 'refused' => 'blocked'],
         'INCIDENT_STATE' => ['open' => 'needs', 'resolved' => 'done', 'dismissed' => 'off'],

@@ -58,10 +58,31 @@ final class ItemCardsController
                 'level' => $st['level'], 'blocked' => ItemRules::labels($st['blocked']), 'warnings' => ItemRules::labels($st['warnings']),
             ];
         }
+        // The filters that are on, as chips under the toolbar (the owner's request of 21 Oct 2026: normal staff see what hides rows),
+        // each a link to the list without that one filter; the search shows in its own box, with its own "Clear the search".
+        $query = ItemCardList::query($f);
+        $without = static fn (string $key): array => array_diff_key($query, [$key => true]);
+        $chips = [];
+        if ($f['state'] !== 'all') {
+            $chips[] = ['label' => Words::say('CARDS', 'chip_card', Words::of('CARD_STATE', $f['state'])), 'query' => $without('state')];
+        }
+        if ($f['type'] !== '') {
+            $kind = $f['type'] === 'none' ? Words::CARDS['not_set'] : ucfirst(ItemRules::TYPES[$f['type']]);
+            $chips[] = ['label' => Words::say('CARDS', 'chip_kind', $kind), 'query' => $without('type')];
+        }
+        foreach (['stock', 'warnings', 'blocked', 'discontinued'] as $key) {
+            if ($f[$key]) {
+                $chips[] = ['label' => Words::CARDS[$key], 'query' => $without($key)];
+            }
+        }
         return $ctx->page('item_cards', [
             'rows' => $rows,
+            // While no product on this page has a card, the six card columns are left out (every cell would be empty).
+            'details' => array_filter($rows, static fn (array $r): bool => $r['state'] !== 'none') !== [],
+            'chips' => $chips,
+            'searchClear' => $f['q'] === '' ? null : $without('q'),
             'filters' => $f,
-            'query' => ItemCardList::query($f),
+            'query' => $query,
             'states' => array_map(static fn (string $code): string => $code === 'unconfirmed' ? Words::CARDS['filter_unconfirmed'] : Words::of('CARD_STATE', $code),
                 array_combine(array_keys(ItemCardList::STATES), array_keys(ItemCardList::STATES))),
             'types' => array_map('ucfirst', ItemRules::TYPES),

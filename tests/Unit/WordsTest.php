@@ -925,4 +925,28 @@ final class WordsTest extends TestCase
             self::assertStringNotContainsString('20', $text);
         }
     }
+
+    /**
+     * All Products for normal staff (the owner's request of 21 Oct 2026): the rules about warnings and blocks are the page's "?" help
+     * in short sentences, not a paragraph above the list; the filter's choices say "Only ..."; the search box names what the list's
+     * search reads (CW number, name, brand, flavour: CW\Catalogue\ItemCardList) in few enough letters to fit the box; "No card yet" is
+     * "not started" (grey), never "switched off" (navy).
+     */
+    public function testTheProductListSpeaksPlainly(): void
+    {
+        self::assertArrayHasKey('card_rules', Words::HELP);
+        self::assertArrayNotHasKey('rules', Words::CARDS, 'the rules live in the "?" only');
+        foreach (preg_split('/(?<=[.:])\s+/', str_replace('**', '', Words::HELP['card_rules'])) ?: [] as $sentence) {
+            self::assertLessThanOrEqual(16, str_word_count($sentence), "short sentences (rule 1): {$sentence}");
+        }
+        foreach (['only_stock', 'only_warnings', 'only_blocked', 'only_discontinued'] as $k) {
+            self::assertStringStartsWith('Only ', Words::CARDS[$k], $k);
+        }
+        self::assertLessThanOrEqual(36, mb_strlen(Words::CARDS['search_placeholder']), 'it fits in the box');
+        foreach (['CW number', 'name', 'brand', 'flavour'] as $what) {
+            self::assertStringContainsStringIgnoringCase($what, Words::CARDS['search_placeholder']);
+        }
+        self::assertSame('waiting', Words::tone('CARD_STATE', 'none'));
+        self::assertNotSame(Words::MENU['cards'], Words::CARDS['list'], 'the list\'s heading is not the page\'s again');
+    }
 }
