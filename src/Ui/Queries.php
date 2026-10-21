@@ -425,26 +425,31 @@ final class Queries
             // kept when one ends with the start of a word or holds a whole word; then each word in the option number joined to the
             // stored text, made normal the same way ("&" as "and"), by the (listing_id, search_all) index; a variant with no profile
             // by its option number alone.
-            $opt = "REPLACE(REPLACE(REPLACE(cl.external_variant_id, ' ', ''), '-', ''), '&', 'and')";
+            // (the option number made normal once, in a derived table of the store's option numbers, not again for every pattern.
+            // An option number is the website's number of the variant: digits. So a word that runs out of it into the title starts
+            // with digits, and only the starts of its leading digits are asked: "27electrofag" asks "2" and "27" (docs/decisions.md SI6))
             $any = [];
             $anyParams = [];
             $each = [];
             $eachParams = [];
             foreach (array_keys($s->words) as $i) {
                 $w = $s->words[$i];
-                $any[] = "{$opt} LIKE ?";
+                $any[] = 'o.opt LIKE ?';
                 $anyParams[] = SearchText::like($w);
-                for ($k = 1, $n = min(mb_strlen($w) - 1, 24); $k <= $n; $k++) {
-                    $any[] = "{$opt} LIKE ?";
-                    $anyParams[] = '%' . Queries::escapeLike(mb_substr($w, 0, $k));
+                $digits = preg_match('/^[0-9]+/', $w, $lead) === 1 ? $lead[0] : '';
+                for ($k = 1, $n = min(strlen($digits), mb_strlen($w) - 1, 12); $k <= $n; $k++) {
+                    $any[] = 'o.opt LIKE ?';
+                    $anyParams[] = '%' . substr($digits, 0, $k);
                 }
                 $patterns = $s->storedPatterns($i);
-                $each[] = '(' . implode(' OR ', array_fill(0, count($patterns), "CONCAT({$opt}, IFNULL(s.search_all, '')) LIKE ?")) . ')';
+                $each[] = '(' . implode(' OR ', array_fill(0, count($patterns), "CONCAT(o.opt, IFNULL(s.search_all, '')) LIKE ?")) . ')';
                 array_push($eachParams, ...$patterns);
             }
-            array_push($ids, ...array_map('intval', $this->db->column('SELECT /*+ JOIN_ORDER(cl, s) */ cl.id FROM channel_listing cl FORCE INDEX (uq_channel_listing_variant) '
-                . 'LEFT JOIN listing_profile s FORCE INDEX (' . self::SEARCH_ALL_INDEX . ') ON s.listing_id = cl.id '
-                . 'WHERE cl.channel_id = ? AND (' . implode(' OR ', $any) . ') AND ' . implode(' AND ', $each), [(int) $channelId, ...$anyParams, ...$eachParams])));
+            array_push($ids, ...array_map('intval', $this->db->column('SELECT /*+ NO_MERGE(o) JOIN_ORDER(o, s) */ o.id FROM '
+                . "(SELECT cl.id, REPLACE(REPLACE(REPLACE(cl.external_variant_id, ' ', ''), '-', ''), '&', 'and') AS opt FROM channel_listing cl "
+                . 'FORCE INDEX (uq_channel_listing_variant) WHERE cl.channel_id = ?) o '
+                . 'LEFT JOIN listing_profile s FORCE INDEX (' . self::SEARCH_ALL_INDEX . ') ON s.listing_id = o.id '
+                . 'WHERE (' . implode(' OR ', $any) . ') AND ' . implode(' AND ', $each), [(int) $channelId, ...$anyParams, ...$eachParams])));
         }
         return array_values(array_unique($ids));
     }

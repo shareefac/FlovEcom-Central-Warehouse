@@ -11296,7 +11296,10 @@ table, and nobody writes a generated column. `Migration0049Test` holds the file 
 statements on the new schema, the normal text, the cut and the covering reads.
 
 **SI6. Left out.** Items (`sku`): their word search reads 15,000 narrow rows (55-120 ms on the test server, SX8), not the wide
-profiles; the same columns there would cost a copy of `sku` (referenced by most tables) for tens of milliseconds, so not now.
+profiles; the same columns there would cost a copy of `sku` (referenced by most tables) for tens of milliseconds, so not now. And the
+quick match, in theory: a typed word that runs out of an option number that ends in a letter into the product's title, with no space
+between (the old joined text found "a12bmango" for option "A12B" and "Mango"; the option branch asks the starts of a word's leading
+digits only).
 
 ### The Codex review (on `7307ab1`; `runs/searchix_codex_review.txt`): no HIGH, three MEDIUM and one LOW, fixed test-first
 
@@ -11310,8 +11313,10 @@ The new test failed first (`runs/searchix_r1_red.log`) and passes now:
 - **MEDIUM: an option number with "&" was missed for "randm"** (the old text kept "&" and asked both spellings). The option number is
   made normal like the stored text ("&" as "and").
 - **LOW: a word running from the option number into the title ("27electrofag") was missed.** The option branch now keeps every option
-  number that holds a word or ends with the start of one (a covering scan of the store's option numbers), and asks each word in the
-  option number joined to the stored text, as the old joined text had them. SI6's exception is gone.
+  number that holds a word or ends with the start of its leading digits (option numbers are the websites' numbers of their variants:
+  digits; asking every start of every word cost 100-200 ms a search, `runs/searchix_perf2.txt`), and asks each word in the option number
+  joined to the stored text, as the old joined text had them. What is left of SI6's exception: a word that runs out of an option
+  number ENDING IN A LETTER into the title (no store has such option numbers today).
 - Also, before this round (measured, `runs/searchux_comp_probe.txt`): the quick match reads only its store's waiting variants' entries
   (`ix_listing_profile_search_all` is `(listing_id, search_all)`), and New Variants reads a search's ids by the primary key, not the
   period's index.
