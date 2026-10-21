@@ -26,7 +26,7 @@ use CW\Matching\Gtin;
  *    two short names joined by "and" or "&" ("R and M", "R & M" are "randm"). A lone "and" or "&" is no word.
  *  - A CW number however it is written: "CW-003906", "cw 3906", "CW3906", "#3906", or a bare number ("3906"); the callers say
  *    which of them they take (cwId(), explicitCw()).
- *  - A code: the whole text when it has no space, at most 64 characters and a digit (an option number or a barcode as typed);
+ *  - A code: the whole text, when it is at most 64 characters (what a barcode may be: letters, digits, even a space), as typed;
  *    for digits only also every form a barcode may be stored in (Gtin::forms: with and without its leading zeros). The callers
  *    look codes up by their indexes, never in a scan.
  *
@@ -44,6 +44,7 @@ final class SearchText
      * @param list<string> $words every word, normalised (norm()), longest first
      * @param list<string> $typed the same words as typed (lower case; a merged word with its space: "20 mg"), in the same order
      * @param list<string> $codes the whole text as a code, and the barcode forms of a number (empty when it is no code)
+     * @param list<bool> $merged per word: made of two or three typed words (a number and its unit, "R and M")
      */
     private function __construct(
         public readonly string $text,
@@ -52,7 +53,14 @@ final class SearchText
         private readonly ?int $cw,
         private readonly bool $explicit,
         public readonly array $codes,
+        private readonly array $merged = [],
     ) {
+    }
+
+    /** Whether word $i was made of two or three typed words ("20 mg", "R and M"); its `typed` is as typed, with what stood between. */
+    public function merged(int $i): bool
+    {
+        return $this->merged[$i] ?? false;
     }
 
     /** Whether word $i is compared with the text as it is: a word of at most 4 letters, or a number, typed as one word (kind 1). */
@@ -118,8 +126,15 @@ final class SearchText
         }
         $norm = self::sql($expr);
         $patterns = $this->patterns($i);
-        $sql = implode(' OR ', array_fill(0, count($patterns), "{$norm} LIKE ?"));
-        return [count($patterns) > 1 ? "({$sql})" : $sql, $patterns];
+        $parts = array_fill(0, count($patterns), "{$norm} LIKE ?");
+        if ($this->merged($i)) {
+            // a merged word is also asked as it was typed, in the text as it is: what stood between its parts (a no-break space, a
+            // bracket) is not left out by sql(), and the old phrase was found that way (Codex's review of f46d19b)
+            $parts[] = "{$expr} LIKE ?";
+            $patterns[] = self::like($this->typed[$i]);
+        }
+        $sql = implode(' OR ', $parts);
+        return [count($parts) > 1 ? "({$sql})" : $sql, $patterns];
     }
 
     public static function parse(string $q): self
@@ -134,27 +149,33 @@ final class SearchText
                 $cw = null;
             }
         }
+        // (any text a barcode can be: at most 64 characters, the length the intake allows; a barcode may hold letters and even a
+        // space, and the old search found it exactly as stored: Codex's review of f46d19b)
         $codes = [];
-        if ($text !== '' && mb_strlen($text) <= 64 && preg_match('/\s/u', $text) !== 1 && preg_match('/[0-9]/', $text) === 1) {
+        if ($text !== '' && mb_check_encoding($text, 'UTF-8') && mb_strlen($text) <= 64) {
             $codes = preg_match('/^[0-9]+$/D', $text) === 1 ? Gtin::forms([$text]) : [$text];
         }
-        [$words, $typed] = self::words($text);
-        return new self($text, $words, $typed, $cw, $explicit, $codes);
+        [$words, $typed, $merged] = self::words($text);
+        return new self($text, $words, $typed, $cw, $explicit, $codes, $merged);
     }
 
     /**
      * The words of a text: split on white space (any, also a no-break space), commas, semicolons, slashes, bars and brackets; the
      * merges; a lone "and" / "&" and anything with no letter or digit left out; each one normalised, once, the longest first.
      *
-     * @return array{0: list<string>, 1: list<string>}
+     * @return array{0: list<string>, 1: list<string>, 2: list<bool>}
      */
     private static function words(string $text): array
     {
-        $raw = preg_split('/[\s,;\/|()\[\]{}"]+/u', mb_strtolower($text), -1, PREG_SPLIT_NO_EMPTY);
-        if (!is_array($raw)) {
-            return [[], []]; // not valid UTF-8: nothing to look for
+        $lower = mb_strtolower($text);
+        $split = preg_split('/[\s,;\/|()\[\]{}"]+/u', $lower, -1, PREG_SPLIT_NO_EMPTY | PREG_SPLIT_OFFSET_CAPTURE);
+        if (!is_array($split)) {
+            return [[], [], []]; // not valid UTF-8: nothing to look for
         }
-        $tokens = [];
+        $raw = array_map(static fn (array $t): string => (string) $t[0], $split);
+        // what was typed from token $a to token $b, with whatever stood between them (a no-break space, a bracket)
+        $between = static fn (int $a, int $b): string => substr($lower, (int) $split[$a][1], (int) $split[$b][1] + strlen($raw[$b]) - (int) $split[$a][1]);
+        $tokens = []; // [the word, as typed, merged]
         $n = count($raw);
         for ($i = 0; $i < $n; $i++) {
             $t = $raw[$i];
@@ -162,33 +183,33 @@ final class SearchText
             // "R and M", "R & M": two short names joined by "and" are one name
             if ($next !== null && ($next === 'and' || $next === '&') && isset($raw[$i + 2]) && preg_match('/^\pL{1,2}$/uD', $t) === 1
                 && preg_match('/^\pL{1,2}$/uD', $raw[$i + 2]) === 1) {
-                $tokens[] = $t . ' and ' . $raw[$i + 2];
+                $tokens[] = [$t . ' and ' . $raw[$i + 2], $between($i, $i + 2), true];
                 $i += 2;
                 continue;
             }
             // "20 mg", "0.8 ohm", "7000 puffs": a number and its unit are one word
             if ($next !== null && preg_match('/^[0-9]+(?:[.,][0-9]+)?$/D', $t) === 1 && in_array($next, self::UNITS, true)) {
-                $tokens[] = $t . ' ' . $next;
+                $tokens[] = [$t . ' ' . $next, $between($i, $i + 1), true];
                 $i++;
                 continue;
             }
-            $tokens[] = $t;
+            $tokens[] = [$t, $t, false];
         }
         $words = [];
-        foreach ($tokens as $t) {
+        foreach ($tokens as [$t, $typed, $merged]) {
             if ($t === 'and' || $t === '&' || preg_match('/[\pL\pN]/u', $t) !== 1) {
                 continue;
             }
             $w = self::norm($t);
             if ($w !== '' && !isset($words[$w])) {
-                $words[$w] = $t;
+                $words[$w] = [$typed, $merged];
             }
         }
         // the longest first (a statement asks the words in this order, so a variant the first rules out is not read for the others)
         $keys = array_map('strval', array_keys($words));
         usort($keys, static fn (string $a, string $b): int => mb_strlen($b) <=> mb_strlen($a) ?: strcmp($a, $b));
         $keys = array_slice($keys, 0, self::MAX_WORDS);
-        return [$keys, array_map(static fn (string $k): string => $words[$k], $keys)];
+        return [$keys, array_map(static fn (string $k): string => $words[$k][0], $keys), array_map(static fn (string $k): bool => $words[$k][1], $keys)];
     }
 
     /** A word as the comparison sees it: lower case, no spaces or hyphens, "&" as "and" (its other spelling: patterns()). */

@@ -37,7 +37,7 @@ final class SearchTextTest extends TestCase
         self::assertSame(['strawberry', 'kiwi'], SearchText::parse('strawberry and kiwi')->words);
         self::assertSame(['strawberry', 'kiwi'], SearchText::parse('strawberry & kiwi')->words);
         self::assertSame([], SearchText::parse('- & , ( ) |')->words);
-        self::assertFalse(SearchText::parse('- & , ( ) |')->hasSomething());
+        self::assertSame(['- & , ( ) |'], SearchText::parse('- & , ( ) |')->codes, 'no word, but still a code to look up exactly');
         self::assertSame('randmxy', SearchText::norm('R & M-X Y'));
         self::assertSame("REPLACE(REPLACE(lp.brand, ' ', ''), '-', '')", SearchText::sql('lp.brand'));
         // "&" stays in the text the statement compares, so a word of two short names is asked in both spellings
@@ -123,17 +123,18 @@ final class SearchTextTest extends TestCase
         }
     }
 
-    public function testACodeIsTheWholeTextWithADigitAndNoSpaceWithItsBarcodeForms(): void
+    public function testACodeIsTheWholeTextWithItsBarcodeForms(): void
     {
         $codes = SearchText::parse('5012345678900')->codes;
         self::assertContains('5012345678900', $codes);
         self::assertContains('05012345678900', $codes, 'the same barcode with a leading zero');
         self::assertContains('501234567890', SearchText::parse('0501234567890')->codes, 'and without it');
         self::assertSame(['ABC-123'], SearchText::parse('ABC-123')->codes, 'a code with letters is looked up as it is, never by its digits');
-        self::assertSame([], SearchText::parse('elf bar')->codes);
-        self::assertSame([], SearchText::parse('hayati')->codes, 'no digit: no code');
-        self::assertSame([], SearchText::parse('20 mg')->codes, 'a space: no code');
+        // any text a barcode can be (the intake takes at most 64 printable characters): letters only, a space (Codex's review of f46d19b)
+        self::assertSame(['ABCDEF'], SearchText::parse('ABCDEF')->codes);
+        self::assertSame(['elf bar'], SearchText::parse(' elf bar ')->codes);
         self::assertSame([], SearchText::parse(str_repeat('1', 65))->codes, 'longer than a barcode can be');
+        self::assertSame([], SearchText::parse("\xff\xfe")->codes, 'not UTF-8: nothing to look up');
         self::assertTrue(SearchText::parse('5012345678900')->digitsOnly());
         self::assertFalse(SearchText::parse('CW-1')->digitsOnly());
     }
@@ -149,6 +150,14 @@ final class SearchTextTest extends TestCase
         $bad = SearchText::parse("\xff\xfe");
         self::assertSame([], $bad->words);
         self::assertFalse($bad->hasSomething());
+        // a merged word keeps what was typed between its parts, and is also asked so in the text as it is
+        $nb = SearchText::parse("20\u{00A0}mg");
+        self::assertSame(['20mg'], $nb->words);
+        self::assertSame(["20\u{00A0}mg"], $nb->typed);
+        self::assertTrue($nb->merged(0));
+        self::assertSame(["(REPLACE(REPLACE(t, ' ', ''), '-', '') LIKE ? OR t LIKE ?)", ['%20mg%', "%20\u{00A0}mg%"]], $nb->wordSql(0, 't'));
+        self::assertSame(['20 (mg'], SearchText::parse('20 (mg)')->typed);
+        self::assertFalse(SearchText::parse('tornado')->merged(0));
         self::assertTrue(SearchText::parse('')->isEmpty());
     }
 }

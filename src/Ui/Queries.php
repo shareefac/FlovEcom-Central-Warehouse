@@ -324,7 +324,7 @@ final class Queries
             $where[] = 'COALESCE(lp.units_30d, 0) >= ?';
             $params[] = $min30;
         }
-        [$text, $textParams] = $this->listingText($q);
+        [$text, $textParams] = $this->listingText($q, $channelId);
         if ($text !== '') {
             $where[] = $text;
             array_push($params, ...$textParams);
@@ -332,22 +332,20 @@ final class Queries
         return [implode(' AND ', $where), $params];
     }
 
-    /** How many website products a code or a CW number may name at most in a list's search (an index read each, then by id). */
-    private const SEARCH_IDS = 500;
-
     /**
      * The text filter of a list of website products (docs/decisions.md SX1-SX3; alias `cl` the listing, `lp` its profile): the
      * option number as typed; a code by the barcode index (Gtin::forms of a number: also with or without its leading zeros); a CW
      * number ("CW-003906", "cw 3906", or a bare number of up to 6 digits) as the website products matched to that item or with an
      * open suggestion of it (two index reads); or every word, in any order, in the product's title, the option's title and the
      * brand, compared by SearchText (spaces and hyphens left out, "&" as "and"). The codes and the CW number are looked up BEFORE the
-     * statement, by their indexes, and named by id: the list's scan never parses a profile's barcodes (the old JSON_SEARCH did, for
-     * every row). What the old filter found (the whole text in one of the three, the option number, the barcode as typed) is
-     * still found.
+     * statement, by their indexes, of the store the list is of ($channelId; null: every store) and with no cap (Codex's review of
+     * f46d19b: a cap of every store's could leave out this store's), and named by id: the list's scan never parses a profile's
+     * barcodes (the old JSON_SEARCH did, for every row). What the old filter found (the whole text in one of the three, the option
+     * number, the barcode as stored) is still found.
      *
      * @return array{0: string, 1: list<mixed>} '' for no text
      */
-    private function listingText(string $q): array
+    private function listingText(string $q, ?int $channelId): array
     {
         $s = SearchText::parse($q);
         if ($s->isEmpty()) {
@@ -355,7 +353,7 @@ final class Queries
         }
         $or = ['cl.external_variant_id = ?'];
         $params = [$s->text];
-        $ids = array_values(array_unique([...$this->listingsByCode($s), ...$this->listingsOfItem($s->cwId(6))]));
+        $ids = array_values(array_unique([...$this->listingsByCode($s, $channelId), ...$this->listingsOfItem($s->cwId(6), $channelId)]));
         if ($ids !== []) {
             $or[] = 'cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
             array_push($params, ...$ids);
@@ -370,34 +368,40 @@ final class Queries
     }
 
     /**
-     * The website products whose barcodes hold one of the search's codes, by the multi-valued index of 0005 (as barcodeElsewhere):
-     * at most SEARCH_IDS, of every store (the caller's statement keeps its own store).
+     * The website products whose barcodes hold one of the search's codes, by the multi-valued index of 0005 (as barcodeElsewhere),
+     * of one store ($channelId, each by its primary key) or of every store; a barcode is on a handful of them.
      *
      * @return list<int>
      */
-    private function listingsByCode(SearchText $s): array
+    private function listingsByCode(SearchText $s, ?int $channelId): array
     {
         if ($s->codes === []) {
             return [];
         }
-        return array_map('intval', $this->db->column('SELECT listing_id FROM listing_profile WHERE JSON_OVERLAPS(barcodes, CAST(? AS JSON)) LIMIT ' . self::SEARCH_IDS,
-            [json_encode($s->codes, JSON_THROW_ON_ERROR)]));
+        $codes = json_encode($s->codes, JSON_THROW_ON_ERROR);
+        return array_map('intval', $channelId === null
+            ? $this->db->column('SELECT listing_id FROM listing_profile WHERE JSON_OVERLAPS(barcodes, CAST(? AS JSON))', [$codes])
+            : $this->db->column('SELECT lp.listing_id FROM listing_profile lp JOIN channel_listing cl ON cl.id = lp.listing_id '
+                . 'WHERE JSON_OVERLAPS(lp.barcodes, CAST(? AS JSON)) AND cl.channel_id = ?', [$codes, $channelId]));
     }
 
     /**
-     * The website products of an item by its CW number: matched to it (`channel_listing (sku_id, channel_id)`, 0024) and with an
-     * open suggestion of it (`match_proposal (status, proposed_sku_id, listing_id, band)`, 0024); at most SEARCH_IDS of each.
+     * The website products of an item by its CW number, of one store or of every store: matched to it (`channel_listing (sku_id,
+     * channel_id)`, 0024) and with an open suggestion of it (`match_proposal (status, proposed_sku_id, listing_id, band)`, 0024).
      *
      * @return list<int>
      */
-    private function listingsOfItem(?int $skuId): array
+    private function listingsOfItem(?int $skuId, ?int $channelId): array
     {
         if ($skuId === null) {
             return [];
         }
+        $store = $channelId === null ? '' : ' AND cl.channel_id = ?';
+        $values = $channelId === null ? [$skuId] : [$skuId, $channelId];
         return array_map('intval', [
-            ...$this->db->column('SELECT id FROM channel_listing WHERE sku_id = ? LIMIT ' . self::SEARCH_IDS, [$skuId]),
-            ...$this->db->column("SELECT listing_id FROM match_proposal WHERE status = 'open' AND proposed_sku_id = ? LIMIT " . self::SEARCH_IDS, [$skuId]),
+            ...$this->db->column('SELECT cl.id FROM channel_listing cl WHERE cl.sku_id = ?' . $store, $values),
+            ...$this->db->column("SELECT p.listing_id FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id WHERE p.status = 'open' AND p.proposed_sku_id = ?"
+                . $store, $values),
         ]);
     }
 
@@ -580,7 +584,7 @@ final class Queries
             $where[] = self::STATE_WHERE[$state];
         }
         $q = trim($q);
-        [$text, $textParams] = $this->listingText($q);
+        [$text, $textParams] = $this->listingText($q, $channelId);
         if ($text !== '') {
             $where[] = $text;
             array_push($params, ...$textParams);
@@ -804,7 +808,7 @@ final class Queries
         $q = trim($q);
         if ($q !== '') {
             // Store Products' search (listingText: the option number, a code or a CW number by their indexes, every word)
-            [$text, $textParams] = $this->listingText($q);
+            [$text, $textParams] = $this->listingText($q, $channelId);
             $where[] = $text;
             array_push($params, ...$textParams);
             $join .= 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id ';
@@ -1294,7 +1298,7 @@ final class Queries
             $or = ['cl.external_variant_id = ?'];
             $orParams = [$q];
             // the whole text as a barcode, by the index (also with or without its leading zeros; never a JSON parse of every profile)
-            $ids = $this->listingsByCode($s);
+            $ids = $this->listingsByCode($s, $channelId);
             if ($ids !== []) {
                 $or[] = 'cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
                 array_push($orParams, ...$ids);
@@ -1604,7 +1608,7 @@ final class Queries
             return [];
         }
         // the lists' search (listingText): the option number, a code by the barcode index, a CW number's website products, every word
-        [$or, $params] = $this->listingText($q);
+        [$or, $params] = $this->listingText($q, null);
         return $this->db->all(
             'SELECT cl.id, cl.status, cl.sku_id, cl.external_variant_id, ch.code AS channel_code, lp.product_title, lp.variant_title, lp.units_30d, s.code AS sku_code '
             . 'FROM channel_listing cl JOIN channel ch ON ch.id = cl.channel_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id LEFT JOIN sku s ON s.id = cl.sku_id '

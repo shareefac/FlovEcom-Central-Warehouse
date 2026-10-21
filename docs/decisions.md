@@ -11160,8 +11160,8 @@ searches of the stock, purchasing and supplier pages) reads the text the same wa
 6); case and accents by the columns' collation (`utf8mb4_0900_ai_ci`); slashes, bars, commas and brackets separate words; "20 mg",
 "10 ml", "0.8 ohm", "7000 puffs" are one word, and so are "R and M", "R & M"; a lone "and" / "&" and punctuation are no word (such a
 text finds nothing, as By Item's already did, U116); a CW number however it is written ("CW-003906", "cw 3906", "CW3906", "#3906", or
-a bare number); a code (the whole text with a digit and no space, at most 64 characters) with the barcode forms of a number
-(`Gtin::forms`: with or without its leading zeros).
+a bare number); a code (the whole text, at most 64 characters, as a barcode may be: letters, digits, a space) with the barcode
+forms of a number (`Gtin::forms`: with or without its leading zeros).
 
 **SX2. Where it is cheap, the words are forgiving: three kinds, the cheapest asked first.** (1) a short word of letters (at most 4) or a
 number: in the text as it is; (2) a longer word of letters: in the text as it is, or in the brand with its spaces and hyphens left out
@@ -11177,8 +11177,8 @@ JSON parse of every row's barcodes, and twice the old cost on the 15,000 items; 
 match-strength lists, Store Products, New Variants and Find's website products): the option number as typed; a code's barcode forms by
 the multi-valued index of 0005 (`JSON_OVERLAPS`, as `barcodeElsewhere`); a CW number ("CW-…", "cw …", or a bare number of up to 6
 digits) as the website products matched to that item (`ix_channel_listing_sku_channel`) or with an open suggestion of it
-(`ix_match_proposal_open_sku`): looked up BEFORE the statement, at most 500 ids each, and named by id; or every word in the product's
-title, the option's title and the brand. The old `JSON_SEARCH(lp.barcodes, …)` parsed every profile's barcodes in the scan; it is gone
+(`ix_match_proposal_open_sku`): looked up BEFORE the statement, of the store the list is of (every store for Find), with no cap, and
+named by id; or every word in the product's title, the option's title and the brand. The old `JSON_SEARCH(lp.barcodes, …)` parsed every profile's barcodes in the scan; it is gone
 from the lists and from the quick match's whole-text test (the quick match still looks for any PART of a barcode, per word, as before).
 A text written as a CW number has no word search. Store Products and New Variants read a search's ids in ONE pass (count and page from
 it; two passes before). No schema change.
@@ -11220,3 +11220,21 @@ column or a FULLTEXT index on the names is a schema change (a table copy of `lis
 (CM1-CM5), held back, spot checks and Clues disagree; every POST field; the markers the staff Claude guide reads (`data-check-fold`,
 `data-check`, `data-lc-fragment`, `data-qp-fragment`, `data-qp-q`, `data-answer`, `data-clean`, `p.notice[role="status"]`, the rows'
 `tr#l-<id>`, `.qp-*`, `.lc-*`). The band names (provisional, U70) and the other NEEDS-OWNER items of the review.
+
+### The Codex review (on `f46d19b`; `runs/searchux_codex_review.txt`): no HIGH, three MEDIUM and one LOW, fixed test-first
+
+Each new test failed first (`runs/searchux_r1_red.log`) and passes now.
+- **MEDIUM: a barcode with no digit was no longer found.** A code needed a digit and no space; the old exact `JSON_SEARCH` found any
+  barcode as stored, and the intake takes any 64 printable characters. Now the whole text is a code when it is at most 64 characters
+  (and UTF-8). `ForgivingSearchTest::testCodexR1AlphabeticBarcodesManySharersAndMergedWordsWithOtherSeparators`.
+- **MEDIUM: the 500-id caps of the look-ups were of every store.** 501 variants of another store with the same barcode could hide this
+  store's. The look-ups are now of the store the list is of (each by its index, then by primary key), with no cap (the same test).
+- **MEDIUM: a merged word lost an exact phrase.** "20 mg" with a no-break space or a bracket between the number and the unit was asked
+  as "20mg" only, which `sql()` does not make of "20 (mg)". A merged word keeps what was typed between its parts and is also asked so in
+  the text as it is (`SearchText::merged()`, `wordSql()`; the same test and `SearchTextTest`).
+- **LOW: someone who can only look had no progress line on a variant's page.** They now get its first sentence, as on the list
+  (`SearchHintsScreenTest::testTheProgressLineSaysWhatIsLeftAndWhatIAnsweredToday`).
+- Found by the full suite (`runs/searchux_full1_b.log`): `ByProductScreenTest::testTheFragmentReadsTheSpotChecksOfItsRowsInOneGoHoweverManyThereAre`
+  counts the quick match's statements for a search by an option number and one by words; with a code looked up for every text of at
+  most 64 characters the two send the same statements again (it failed while only a text with a digit was looked up).
+

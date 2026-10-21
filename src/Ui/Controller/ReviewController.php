@@ -767,8 +767,9 @@ final class ReviewController
             'show_search' => $showSearch,
             'qc' => $qc,
             'qq' => $qq,
-            // Opened from a list: how many it still holds and how many this person answered today (docs/decisions.md SX6)
-            'progress' => $qc !== null && $me->canDecide() ? self::progress($q->listLeft($qc->band, $qc->channelId), $q->answeredToday($me->id)) : null,
+            // Opened from a list: how many it still holds and, for someone who may decide, how many they answered today (docs/decisions.md
+            // SX6; someone who can only look is told the first: Codex's review of f46d19b)
+            'progress' => $qc !== null ? self::progress($q->listLeft($qc->band, $qc->channelId), $me->canDecide() ? $q->answeredToday($me->id) : null) : null,
             'back' => $qc !== null ? [Html::url('/ui/review', $qc->pageQuery()), Words::of('BAND_TITLE', $qc->band)]
                 : ($sample !== null ? [$sample['url'], Words::say('SAMPLE', 'title', $sample['name'])]
                 : ($byProduct !== null ? [$byProduct->pickerUrl(), Words::say('BY_PRODUCT', 'pick_crumb', $byProduct->channelName)]

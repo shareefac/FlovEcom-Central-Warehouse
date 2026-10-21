@@ -154,9 +154,11 @@ final class SearchHintsScreenTest extends KernelUiTestCase
         // the variant's page opened from somewhere else (no list) has no progress line
         self::assertSame(0, self::xp($web->get('/ui/review/listing/' . $f['h2']))->query('//p[@data-progress]')->length);
 
-        // someone who can only look is told what is left, not what they answered
+        // someone who can only look is told what is left, not what they answered: on the list and on a variant's page opened from it
+        // (Codex's review of f46d19b: the page had no line for them)
         $look = $this->signIn($this->uiUser('viewer'));
         self::assertSame(Words::say('QUEUE', 'left_many', 2), $progress($look->get('/ui/review', ['queue' => 'Check', 'channel' => 'alt'])));
+        self::assertSame(Words::say('QUEUE', 'left_many', 2), $progress($look->get('/ui/review/listing/' . $f['h2'], ['queue' => 'Check', 'channel' => 'alt'])));
         self::assertSame([Words::QUEUE['left_none'], Words::QUEUE['left_one'], Words::say('QUEUE', 'left_many', 1200) . ' ' . Words::say('QUEUE', 'today_many', 23)],
             [ReviewController::progress(0, null), ReviewController::progress(1, null), ReviewController::progress(1200, 23)]);
     }

@@ -199,4 +199,42 @@ final class ForgivingSearchTest extends MappingTestCase
         self::assertSame([2, 1, 1], [$r['total'], $r['page'], $r['pages']]);
         self::assertSame([$this->l['randm'], $this->l['rm']], array_map(static fn (array $row): int => (int) $row['listing_id'], $r['rows']), 'best sellers first');
     }
+
+    /**
+     * Codex's review of f46d19b (runs/searchux_codex_review.txt): a barcode with no digit is found as before (it was found by the old
+     * exact JSON_SEARCH); a barcode or CW number shared by more website products than the old 500-id cap of other stores still finds
+     * this store's (the look-ups are of the store asked for, with no cap); a phrase with a number and its unit written with a no-break
+     * space or a bracket between them is found as it is on the page.
+     */
+    public function testCodexR1AlphabeticBarcodesManySharersAndMergedWordsWithOtherSeparators(): void
+    {
+        $abc = $this->variant('5001', 'Coil pack', 'Coil pack - 0.6', 'Acme', ['ABCDEF'], 3);
+        foreach (['ABCDEF'] as $code) {
+            self::assertSame([$abc], $this->storeFinds($code), "Store Products: {$code}");
+            self::assertSame([$abc], $this->newFinds($code), "New Variants: {$code}");
+            self::assertSame([$abc], $this->findListings($code), "Find: {$code}");
+            self::assertSame([$abc], $this->waiting($code), "quick match: {$code}");
+        }
+        $this->propose($abc, 'Check', $this->sku['elf']);
+        self::assertSame([$abc], $this->listFinds('ABCDEF'), 'the list');
+        // 501 website products of another store hold the same barcode, and one of this store
+        $vpg = (int) self::$db->value("SELECT id FROM channel WHERE code = 'vpg'");
+        $rows = [];
+        for ($i = 0; $i < 501; $i++) {
+            $rows[] = sprintf("(%d, 'm%d', 'unmapped')", $vpg, $i);
+        }
+        self::$db->exec('INSERT INTO channel_listing (channel_id, external_variant_id, status) VALUES ' . implode(',', $rows));
+        self::$db->exec("INSERT INTO listing_profile (listing_id, product_title, barcodes) SELECT id, 'Shared', JSON_ARRAY('5099999999993') FROM channel_listing "
+            . "WHERE channel_id = ? AND external_variant_id LIKE 'm%'", [$vpg]);
+        $mine = $this->variant('5002', 'Mine', 'Mine - 1', 'Acme', ['5099999999993'], 1);
+        self::assertSame([$mine], $this->storeFinds('5099999999993'), 'this store\'s one, whatever the other stores hold');
+        self::assertSame([$mine], $this->waiting('5099999999993'));
+        self::assertCount(30, $this->findListings('5099999999993'), 'Find: every store, its page of 30');
+        // a number and its unit with another separator than a space, typed as it is on the page
+        $nb = $this->variant('5003', 'Elf Bar 600', "Elf Bar 600 - 20\u{00A0}mg | Cola", 'Elf Bar', [], 1);
+        $br = $this->variant('5004', 'Lost Mary BM600', 'Lost Mary BM600 20 (mg) Mango', 'Lost Mary', [], 1);
+        self::assertSame([$nb], $this->storeFinds("Bar 600 - 20\u{00A0}mg"), 'a no-break space between the number and its unit');
+        self::assertSame([$br], $this->storeFinds('BM600 20 (mg)'), 'a bracket between them');
+        self::assertSame([$nb], $this->waiting("20\u{00A0}mg | cola"));
+    }
 }
