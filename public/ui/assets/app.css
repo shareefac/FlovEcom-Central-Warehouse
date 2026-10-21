@@ -1985,10 +1985,15 @@ body:has(.strip.test-system) .signin { min-height: calc(100vh - 28px); }
 /* The filters that are on, under the toolbar: "Showing only:", one chip each (a tap takes it off), and the way back to everything */
 .filters-on { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: -8px 0 20px; }
 .filters-on .pills-label { margin: 0; color: var(--ink-muted); font: 500 13px/20px var(--font); }
-.filters-on .pills { margin: 0; }
-.filters-on .pills a { gap: 6px; padding: 5.5px 10px 5.5px 13.5px; border: 1.5px solid var(--accent); background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
+/* A long chip ("Product card: Changed since it was confirmed") wraps inside the page's width instead of pushing it sideways */
+.filters-on .pills { margin: 0; min-width: 0; }
+.filters-on .pills li { max-width: 100%; }
+.filters-on .pills a {
+  gap: 6px; max-width: 100%; padding: 5.5px 10px 5.5px 13.5px; border: 1.5px solid var(--accent); background: var(--accent-soft);
+  color: var(--accent-hover); font-weight: 600; white-space: normal; text-align: left;
+}
 .filters-on .pills a:hover { background: var(--card); color: var(--accent-hover); }
-.filters-on .pills .ico { width: 14px; height: 14px; }
+.filters-on .pills .ico { flex: none; width: 14px; height: 14px; }
 
 /* The list's toolbar: the search box wide enough for what it says can be typed; it gives way on a narrow screen */
 .cards-tools .tb-search { flex: 1 1 15rem; max-width: 22rem; min-width: 0; }

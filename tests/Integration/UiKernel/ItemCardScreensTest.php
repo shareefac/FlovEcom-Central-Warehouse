@@ -598,6 +598,15 @@ final class ItemCardScreensTest extends KernelUiTestCase
             trim((string) $xp->evaluate('string(//div[contains(@class, "filters-on")]/a)'))], 'and one way back to every product');
         self::assertSame('4', trim((string) $xp->evaluate('string(//details[contains(@class, "tb-pop")]/summary/span[contains(@class, "count")])')),
             'the Filter button counts the filters that are on');
+        // Codex's review: the longest chip ("Product card: Changed since it was confirmed", about 350 px) wraps inside the card's width
+        // on a 320 px phone instead of pushing the page sideways; its close mark keeps its size.
+        $long = new \DOMXPath($web->get('/ui/items/cards', ['state' => 'changed'])->dom());
+        self::assertSame(Words::say('CARDS', 'chip_card', Words::CARD_STATE['changed']), trim((string) $long->evaluate('string(//div[contains(@class, "filters-on")]/ul/li/a/span[1])')));
+        $css = (string) file_get_contents(dirname(__DIR__, 3) . '/public/ui/assets/app.css');
+        self::assertMatchesRegularExpression('/\n\.filters-on \.pills \{[^}]*min-width: 0;[^}]*\}/', $css);
+        self::assertMatchesRegularExpression('/\n\.filters-on \.pills li \{[^}]*max-width: 100%;[^}]*\}/', $css);
+        self::assertMatchesRegularExpression('/\n\.filters-on \.pills a \{[^}]*max-width: 100%;[^}]*white-space: normal;[^}]*\}/', $css);
+        self::assertMatchesRegularExpression('/\n\.filters-on \.pills \.ico \{[^}]*flex: none;[^}]*\}/', $css);
         $kind = new \DOMXPath($web->get('/ui/items/cards', ['type' => 'none', 'warnings' => '1', 'discontinued' => '1'])->dom());
         self::assertSame([Words::say('CARDS', 'chip_kind', Words::CARDS['not_set']), Words::CARDS['warnings'], Words::CARDS['discontinued']],
             array_map(static fn (\DOMElement $s): string => trim($s->textContent), array_values(iterator_to_array($kind->query('//div[contains(@class, "filters-on")]/ul/li/a/span[1]')))));
@@ -647,6 +656,9 @@ final class ItemCardScreensTest extends KernelUiTestCase
         self::assertStringContainsString("var open = strip.querySelector('[aria-current]');", $js, 'the open tab ...');
         self::assertMatchesRegularExpression('/strip\.scrollLeft = Math\.max\(0, open\.offsetLeft - /', $js, '... is scrolled into sight, the page itself never moves');
         self::assertStringContainsString("strip.addEventListener('scroll', mark, { passive: true });", $js);
+        // Codex's review: a narrower window (a phone turned, a window made smaller) brings the open tab back into sight too, but
+        // only when the width changed: a phone's address bar showing or hiding is a resize too, and must not undo the person's scroll.
+        self::assertStringContainsString('if (window.innerWidth !== width) { width = window.innerWidth; reveal(); }', $js);
         self::assertMatchesRegularExpression('/\.tabs\.more-right \{[^}]*mask-image: linear-gradient\(to right, var\(--mask\) calc\(100% - 48px\), transparent\)/', $css);
         self::assertMatchesRegularExpression('/\.tabs\.more-left \{[^}]*mask-image: linear-gradient\(to left, var\(--mask\) calc\(100% - 48px\), transparent\)/', $css);
         self::assertMatchesRegularExpression('/\.tabs\.more-left\.more-right \{[^}]*mask-image: linear-gradient\(to right, transparent, var\(--mask\) 48px, var\(--mask\) calc\(100% - 48px\), transparent\)/', $css);

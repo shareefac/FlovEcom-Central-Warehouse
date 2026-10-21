@@ -48,7 +48,13 @@
     reveal();
     mark();
     strip.addEventListener('scroll', mark, { passive: true });
-    window.addEventListener('resize', mark);
+    // A narrower window keeps the open tab in sight; a phone's address bar showing or hiding (a resize of the height only) leaves
+    // the strip where the person scrolled it.
+    var width = window.innerWidth;
+    window.addEventListener('resize', function () {
+      if (window.innerWidth !== width) { width = window.innerWidth; reveal(); }
+      mark();
+    });
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(function () { reveal(); mark(); }); // the tabs' widths change once Poppins has loaded
     }
