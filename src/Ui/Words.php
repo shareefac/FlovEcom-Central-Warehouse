@@ -49,7 +49,7 @@ final class Words
         'COUNT_NOTICE', 'COUNT_ERROR',
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
         'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE', 'QUEUE_SHOW', 'ONE_AT_A_TIME', 'CHECK',
-        'BY_ITEM_BULK', 'BY_ITEM_SKIP',
+        'BY_ITEM_BULK', 'BY_ITEM_SKIP', 'STORE_NEW',
         'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER', 'ARRIVAL_LEFT',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
@@ -531,6 +531,8 @@ final class Words
         'by_item_preview' => ['Nothing is saved yet: this is what will happen to each variant.',
             'Read the lines, then press the button at the bottom, or go back.'],
         'by_item_result' => ['What happened to each variant of this action.', 'Open a skipped one to decide it by hand.'],
+        'store_new_preview' => ['Nothing is saved yet: this is the new warehouse product each ticked product would get.',
+            'Read the lines, then press the button at the bottom, or go back.'],
         'by_product_map' => ['Which variant of this store is this warehouse item?',
             'Press Choose on it. The next page shows the two side by side, and you say yes there.'],
         'new_variants' => ['The variants one store added lately, newest first, and what each one is.',
@@ -4664,6 +4666,13 @@ final class Words
         'rejected_before' => 'It was marked "not this product" for this warehouse product before: open it and decide.',
         'item_on_store' => '%s already has a website product on %s: open it and decide.',
         'several_suggested' => '%s has more than one suggested website product on %s: open them and decide which is right.',
+        // Store Products' "Create new warehouse products for these" (NF2): what it leaves to a person, each with why.
+        'landing_page' => 'It is a landing page, not a product, so no warehouse product is made for it.',
+        'match_instead' => 'A warehouse product is suggested for it (%s): open it and match it to that one instead.',
+        'barcode_on_item' => 'Its barcode is already on a warehouse product (%s): open it and match it to that one instead.',
+        'barcode_twice' => 'Another row you ticked has the same barcode, so the two may be one product: open each and decide.',
+        'name_waiting' => 'A new product with the same name already waits for a second OK. Open it and decide.',
+        'card_changed' => 'Its details changed after the preview, so nothing was made. Open it and decide.',
         // A bulk "create as new" (M61) takes only what the computer checked and found new, and of that not what is doubtful. The
         // others, each with why (the first three on New Variants only; the rest on every list that offers it):
         'suggested_match' => 'The computer suggests it is %s: open it and decide.',
@@ -4714,6 +4723,40 @@ final class Words
         'reason_hint' => 'A few words, for example "placeholder pages of the bundles".',
         'cancel' => 'No, go back',
         'rows' => 'The %s products',
+    ];
+
+    /**
+     * Store Products' "Create new warehouse products for these" (docs/decisions.md NF1-NF8): the bar's button and its line,
+     * the preview, its button, the refusals and the result page.
+     */
+    public const STORE_NEW = [
+        'button' => 'Create new warehouse products for these',
+        'hint' => 'No warehouse product yet? Tick the whole family, then press "Create new warehouse products for these". You see a preview first.',
+        'title' => 'Preview: create new warehouse products',
+        'summary' => '%s will be created · %s will wait for a second OK · %s will be skipped',
+        'text' => 'Each product below gets its own new warehouse product and is matched to it: 1 sale = 1 product. The details are taken '
+            . 'from the website, as "Create a new product" on its own page takes them. To change a detail, open the product and create it there.',
+        'skips' => 'Skipped, each with why: landing pages; products held back, in a spot check or found on arrival; products with a '
+            . 'suggested warehouse product or a decision waiting; matched or ignored ones; and any whose barcode or name the warehouse already '
+            . 'has, or that another ticked row would make too.',
+        'again' => 'Everything is checked again when you press the button. A product that changed since this preview is skipped, never '
+            . 'changed. The next page says what was done.',
+        'none_to_do' => 'Every product would be skipped, so there is nothing to create. Each line says why: open a product to decide it by hand.',
+        'go' => 'Yes, create these %s new warehouse products',
+        'back' => 'No, go back to Store Products',
+        'lines' => 'The ticked products',
+        'col_product' => 'Website product',
+        'col_outcome' => 'What will happen',
+        'col_new' => 'The new warehouse product',
+        'will_create' => 'Will create',
+        'will_wait' => 'Will wait for a second OK',
+        'will_skip' => 'Will skip',
+        'sale' => 'Per sale',
+        'no_card' => 'No new product: it has no name.',
+        'lead_only' => 'Only a matching lead can create new warehouse products for ticked rows. Nothing was saved.',
+        'result_what' => 'Create new warehouse products',
+        'result_summary' => 'Created %s new warehouse products, %s wait for a second OK, %s skipped.',
+        'made_title' => 'The new warehouse products',
     ];
 
     /** Mapping › To review: the "By store" overview. */
@@ -5034,6 +5077,12 @@ final class Words
         'rejected_before' => 'It was marked not a match for this item before: open it and decide.',
         'item_on_store' => '%s already has a variant on %s: open it and decide.',
         'several_suggested' => '%s has more than one suggested variant on %s: open them and decide which is right.',
+        'landing_page' => 'It is a landing page, not a variant that is sold, so no item is made for it.',
+        'match_instead' => 'An item is suggested for this variant (%s): open it and match it to that one instead.',
+        'barcode_on_item' => 'Its barcode is already on an item (%s): open it and match it to that one instead.',
+        'barcode_twice' => 'Another variant you ticked has the same barcode, so the two may be one item: open each and decide.',
+        'name_waiting' => 'A new item with the same name already waits for a second OK. Open it and decide.',
+        'card_changed' => 'Its details changed after the preview, so nothing was made. Open it and decide.',
         // A bulk "create as new" is not offered on By Item (ITEM_ACTIONS): the reasons it skips for are here so that every reason has its
         // words in both sets (the same sentences; "its store" where the lists' words say "the website").
         'suggested_match' => 'The computer suggests it is %s: open it and decide.',
@@ -8646,6 +8695,7 @@ final class Words
         'location.switch_off' => 'Place switched off',
         'location.switch_on' => 'Place switched on again',
         'mapping.bulk' => 'Bulk action on matches',
+        'mapping.bulk_start' => 'Bulk action started from a form',
         'mapping.arrival_check' => 'The check on arrival ran',
         'listing.website_state' => 'Website state of a store\'s variants loaded',
         'staff.create' => 'Staff member added',

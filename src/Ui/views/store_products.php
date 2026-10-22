@@ -42,6 +42,9 @@
 <?php endif; ?>
 <?php else: ?>
 <?php $bulk = $bulkActions !== []; ?>
+<?php if ($newHint !== null): ?>
+<p class="muted store-new-hint"><?= $e($newHint) ?></p>
+<?php endif; ?>
 <?php if ($bulk): ?>
 <form class="bulk-form" method="post" action="/ui/review/bulk" data-bulk>
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">

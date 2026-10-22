@@ -1861,6 +1861,13 @@ details.check-fold > :last-child:not(summary) { margin-bottom: 0; }
 table.by-item-preview td.c-wide { text-align: left; }
 table.by-item-preview td.c-wide .why { display: block; margin-top: 4px; color: var(--ink-2); }
 form.by-item-apply .preview-facts { margin: 0 0 16px; }
+/* Store Products' "Create new warehouse products for these": the preview (docs/decisions.md NF7) */
+table.store-new-preview td .why { display: block; margin-top: 4px; color: var(--ink-2); }
+table.store-new-preview dl.new-card { grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 0; font-size: 13px; }
+table.store-new-preview dl.new-card dt { margin-top: 0; color: var(--ink-2); }
+table.store-new-preview dl.new-card dd { margin: 0; overflow-wrap: anywhere; }
+table.store-new-preview dl.new-card.muted dd { color: var(--ink-2); }
+table.store-new-preview td.c-wide { text-align: left; }
 
 
 /* Stock > Counts (pack A2a): the sheet's scanned line, a quantity typed and not saved yet, the "open a sheet" box, the line filters. */

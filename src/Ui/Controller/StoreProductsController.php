@@ -21,7 +21,9 @@ use CW\Ui\Words;
  * page. A person who may decide ticks rows to ignore them, take them off the ignored list, or send them back for matching (Bulk
  * Controller, BulkDecisions). Undoing a match stays one at a time on the product's own page, with a note: it changes a stock link.
  * A row no bulk action takes (held back, or a match of a spot check: OneAtATime, M63, U139) has no tick box and says so under
- * its name, as on the match-strength lists.
+ * its name, as on the match-strength lists. A matching lead's bar also has "Create new warehouse products for these" (docs/decisions.md
+ * NF1, NF7): it posts the same ticks to its preview (StoreNewItemsController), and the "Not matched" filter (no warehouse product,
+ * nothing suggested) with the search finds a family for it.
  */
 final class StoreProductsController
 {
@@ -38,7 +40,7 @@ final class StoreProductsController
         if ($store === null) {
             return $ctx->page('store_products', ['store' => null, 'stores' => [], 'rows' => [], 'states' => [], 'state' => null, 'sort' => 'sold_30', 'text' => '',
                 'total' => 0, 'page_no' => 1, 'pages' => 1, 'prev_link' => null, 'next_link' => null, 'bulkActions' => [], 'bulkMax' => 0, 'bulkKeep' => [],
-                'allLink' => '', 'clear_link' => '/ui/review/store', 'clear_search' => '/ui/review/store', 'lookOnly' => null], 200,
+                'allLink' => '', 'clear_link' => '/ui/review/store', 'clear_search' => '/ui/review/store', 'lookOnly' => null, 'newHint' => null], 200,
                 ['title' => Words::MENU['store_products'], 'active' => 'store_products']);
         }
         $state = in_array($req->param('state'), Queries::STORE_STATES, true) ? (string) $req->param('state') : null;
@@ -49,6 +51,10 @@ final class StoreProductsController
         $result = $q->storeProducts($store['id'], $state, $text, $sort, $page, $counts);
         $base = ['channel' => $store['code'], 'state' => $state, 'sort' => $sort === 'sold_30' ? null : $sort, 'q' => $text === '' ? null : $text];
         $bulkActions = ReviewController::bulkActions('store', null, $me->roles, []);
+        $newItems = BulkDecisions::offered('new_item', BulkDecisions::STORE_NEW, null, $me->roles, []);
+        if ($newItems) {
+            $bulkActions[] = ['action' => 'new_item', 'label' => Words::STORE_NEW['button'], 'class' => 'primary', 'formaction' => StoreNewItemsController::PREVIEW];
+        }
         $all = $req->param('all') === '1';
         // The rows of this page no bulk action takes (the one read of it: OneAtATime), of those a store action applies to.
         $never = OneAtATime::of($ctx->db, array_values(array_map(static fn (array $r): int => (int) $r['listing_id'],
@@ -129,6 +135,8 @@ final class StoreProductsController
             // the search alone cleared (docs/decisions.md SX5): the state and the sort stay
             'clear_search' => Html::url('/ui/review/store', array_replace($base, ['q' => null])),
             'lookOnly' => $me->canDecide() ? null : Words::whoCan('mapping.decide'),
+            // the line that says how to make a family's new products, where such rows are listed (NF7)
+            'newHint' => $newItems && $state === 'not_matched' ? Words::STORE_NEW['hint'] : null,
         // Back from a decision (the Check & match fold or the variant's page opened from it, docs/decisions.md CM3): what was done.
         ], 200, ['title' => Words::MENU['store_products'], 'active' => 'store_products', 'notice' => (new ReviewController())->notice($ctx, null)]);
     }

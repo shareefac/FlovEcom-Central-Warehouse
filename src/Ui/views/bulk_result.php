@@ -23,6 +23,15 @@
   <dt><?= $e($words['ticked']) ?></dt><dd><?= $n($asked) ?></dd>
 </dl>
 
+<?php if ($made !== []): ?>
+<h3 class="grp-title t-primary"><?= $word('STORE_NEW', 'made_title') ?><span class="grp-count"><?= $say('BULK', 'count', count($made)) ?></span></h3>
+<ul class="made-items">
+<?php foreach ($made as $r): ?>
+  <li><a href="<?= $u($r['sku_link']) ?>"><?= $e($r['sku_code'] ?? '') ?></a> <?= $e($r['sku_name'] ?? '') ?></li>
+<?php endforeach; ?>
+</ul>
+<?php endif; ?>
+
 <?php if ($skipped !== []): ?>
 <h3 class="grp-title needs"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-skipped"><?= $word('BULK', 'skipped_title') ?></button><span class="grp-count"><?= $say('BULK', 'count', count($skipped)) ?></span></h3>
 <div class="table-wrap" id="g-skipped">
@@ -54,7 +63,7 @@
 <?php if ($r['why'] !== null): ?>
         <?= $e($r['why']) ?>
 <?php else: ?>
-        <?= $word('DECISION_STATE', $r['state_now']) ?><?php if ($r['sku_code'] !== null): ?> · <?= $e($r['sku_code']) ?><?php endif; ?>
+        <?= $word('DECISION_STATE', $r['state_now']) ?><?php if ($r['sku_code'] !== null && $r['sku_link'] !== null): ?> · <a href="<?= $u($r['sku_link']) ?>"><?= $e($r['sku_code']) ?></a><?php endif; ?>
 <?php foreach ($r['needs'] as $need): ?>
         <span class="tag"><?= $e($need) ?></span>
 <?php endforeach; ?>

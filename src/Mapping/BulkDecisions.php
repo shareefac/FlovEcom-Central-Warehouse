@@ -12,6 +12,8 @@ use CW\Clock;
 use CW\CwException;
 use CW\Db;
 use CW\Idempotency;
+use CW\Matching\Gtin;
+use CW\OpResult;
 use CW\Settings;
 use CW\Staff\StaffRoles;
 
@@ -58,6 +60,17 @@ use CW\Staff\StaffRoles;
  * skipped) and the rows the preview skipped (`preview_skipped`: never acted on, recorded as skipped with why). A confirm there
  * leaves to a person, one at a time (M59): a pair marked "not a match" before, an item that already has a variant (or a decision
  * waiting) on that store, and an item with more than one suggested variant on a store.
+ *
+ * Store Products' "Create new warehouse products for these" (the list context `store_new`, docs/decisions.md NF1-NF8; the owner, 22
+ * Oct 2026: "tick a whole family, then create new products for these in one go"): a matching lead ticks website products the
+ * warehouse has no product for (no open suggestion, or one that says "new product"), sees preview() first, and run() makes one item
+ * per row through DecisionService `new_item`, from the row's own details exactly as the single "Create a new product" makes it, with
+ * 1 sale = 1. Unlike the seed above it does not ask for the computer's "new": the person looked at the family. What it skips
+ * instead (newChecks()): what no bulk action takes (held back, a spot check, found on arrival), a landing page, matched, ignored,
+ * waiting for a second OK, a suggestion to match instead, an item made from it before, known not to be sold on the website, no
+ * name, a barcode an item has, a name an item has (the same words in any order), a name a new product waiting for a second OK has,
+ * and two ticked rows that would make one product (the same words, or a barcode). A form key makes one batch however often the
+ * apply is sent (openBatch()).
  */
 final class BulkDecisions
 {
@@ -69,6 +82,12 @@ final class BulkDecisions
     public const ITEM_ACTIONS = ['link', 'reject', 'send_back'];
     /** New Variants (M60): the seed first ("Create as new items"), then the existing confirm and ignore, row by row as everywhere. */
     public const NEW_ACTIONS = ['new_item', 'link', 'ignore'];
+    /**
+     * Store Products' "Create new warehouse products for these" (NF1): its list context, which preview() and run() take. A batch of it is
+     * recorded as one of Store Products (mapping_batch.source `store`, action `new_item`: no other action of that list makes items).
+     */
+    public const STORE_NEW = 'store_new';
+    public const STORE_NEW_ACTIONS = ['new_item'];
     /** The actions that say no (or take products out of the lists): the screens ask a second time, stating the count. */
     public const NEGATIVE = ['reject', 'ignore', 'send_back'];
     /** The lists a bulk action comes from, as mapping_batch.source holds them (0021, 0025, 0026). */
@@ -84,6 +103,8 @@ final class BulkDecisions
         'already_ignored', 'linked', 'not_waiting', 'no_suggestion', 'lead_only', 'not_allowed', 'product_joined', 'no_name', 'refused',
         // By Item's confirm only (M59, confirmScope()):
         'rejected_before', 'item_on_store', 'several_suggested',
+        // Store Products' "Create new warehouse products for these" only (NF2, newChecks()):
+        'landing_page', 'match_instead', 'barcode_on_item', 'barcode_twice', 'name_waiting', 'card_changed',
         // A bulk "create as new" only (M61, seedCheck() and nameChecks(); `suggested_match`, `not_checked`, `not_new` and `match_no_item` on
         // New Variants only):
         // (`state_not_known` since the website state is stored, M66)
@@ -124,6 +145,10 @@ final class BulkDecisions
     private array $siblings = [];
     /** How old a stored website state may be, in days (the setting, read once a request). */
     private ?int $stateMaxDays = null;
+    /** The largest item id when the names of the items were read (newChecks()): one() reads the items made since, by their key. */
+    private int $skuHigh = 0;
+    /** Where the apply of Store Products' new items is sent (the idempotency record names it). */
+    private const STORE_NEW_PATH = '/ui/review/store/new-items/apply';
 
     public function __construct(private readonly Db $db, private readonly DecisionService $ds)
     {
@@ -155,6 +180,7 @@ final class BulkDecisions
             'store' => self::STORE_ACTIONS,
             'item' => self::ITEM_ACTIONS,
             'new' => self::NEW_ACTIONS,
+            self::STORE_NEW => self::STORE_NEW_ACTIONS,
             default => [],
         };
     }
@@ -170,6 +196,11 @@ final class BulkDecisions
      */
     public static function offered(string $action, string $source, ?string $band, array $roles, array $confirmBands): bool
     {
+        if ($source === self::STORE_NEW) {
+            // NF3: a matching lead's (the stricter of "who makes a new product" and "who acts on ticked rows": no computer check vouches
+            // for these rows, as none does for the seed mint of M7).
+            return $action === 'new_item' && Permissions::can($roles, 'mapping.decide') && Permissions::can($roles, 'mapping.approve');
+        }
         if ($source === 'item') {
             // By Item (M55): rows of every strength; each row's own strength and its Conflict rule are checked as it is done.
             return Permissions::can($roles, 'mapping.decide') && in_array($action, self::ITEM_ACTIONS, true);
@@ -214,8 +245,11 @@ final class BulkDecisions
         $band = $context['band'] ?? null;
         $reason = isset($context['reason']) ? trim((string) $context['reason']) : '';
         $reason = $reason === '' ? null : $reason;
-        if (!in_array($source, self::SOURCES, true) || !in_array($action, self::actionsOf($source), true)) {
+        if ((!in_array($source, self::SOURCES, true) && $source !== self::STORE_NEW) || !in_array($action, self::actionsOf($source), true)) {
             throw new CwException('bad_action', 'this list has no such bulk action', 400);
+        }
+        if ($source === self::STORE_NEW && $channelId === null) {
+            throw new CwException('bad_request', 'Store Products names its store', 400);
         }
         if ($source === 'review' && ($band === null || !in_array($band, Proposals::BANDS, true))) {
             throw new CwException('bad_request', 'a match-strength list names its strength', 400);
@@ -230,6 +264,9 @@ final class BulkDecisions
         $roles = StaffRoles::active($this->db, $caller->staffUserId);
         if (!Permissions::can($roles, 'mapping.decide')) {
             throw new CwException('role_not_allowed', 'these roles cannot make mapping decisions', 403);
+        }
+        if ($source === self::STORE_NEW && !Permissions::can($roles, 'mapping.approve')) {
+            throw new CwException('lead_required', 'a matching lead creates new items for ticked rows', 403);
         }
         if ($source === 'review' && $band === 'Conflict' && !Permissions::can($roles, 'mapping.approve')) {
             throw new CwException('lead_required', 'a listing with a Conflict proposal is decided by a mapping_lead', 403);
@@ -287,14 +324,22 @@ final class BulkDecisions
         ['source' => $source, 'channel_id' => $channelId, 'band' => $band, 'reason' => $reason, 'rows' => $byListing, 'confirm_bands' => $confirmBands,
             'roles' => $roles] = $this->checked($caller, $action, $rows, $context);
 
-        $batchId = $this->db->transaction(fn (Db $db): int => $db->insert(
-            'INSERT INTO mapping_batch (action, source, channel_id, band, rows_asked, reason, staff_user_id, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [$action, $source, $channelId, $source === 'review' ? $band : null, count($byListing), $reason, $caller->staffUserId, $caller->actor],
-        ));
+        [$batchId, $fresh] = $this->openBatch($caller, $action, $source, $channelId, $band, $byListing, $reason, isset($context['form_key']) ? (string) $context['form_key'] : null);
         $batch = DecisionService::SCREEN_BATCH_PREFIX . $batchId;
+        if (!$fresh) {
+            // The same form sent again (NF4): its batch, as recorded; nothing is done twice.
+            $n = ['done' => 0, 'pending_second' => 0, 'skipped' => 0];
+            foreach ($this->db->all('SELECT outcome, COUNT(*) AS n FROM mapping_batch_row WHERE batch_id = ? GROUP BY outcome', [$batchId]) as $o) {
+                $n[(string) $o['outcome']] = (int) $o['n'];
+            }
+            return ['batch_id' => $batchId, 'batch' => $batch, 'done' => $n['done'], 'pending' => $n['pending_second'], 'skipped' => $n['skipped'], 'replayed' => true];
+        }
         $skips = $this->prechecks($action, $source, array_values($byListing), $channelId, $confirmBands);
         if ($source === 'item') {
             $skips = $this->itemChecks($action, $rows, $skips, $roles, true);
+        }
+        if ($source === self::STORE_NEW) {
+            $skips = $this->newApplyChecks($action, $rows, $skips, $roles, true);
         }
         $count = ['done' => 0, 'pending_second' => 0, 'skipped' => 0];
         $why = [];
@@ -312,7 +357,49 @@ final class BulkDecisions
                 'channel_id' => $channelId, 'band' => $band, 'asked' => count($byListing), 'done' => $count['done'], 'pending_second' => $count['pending_second'],
                 'skipped' => $count['skipped'], 'skipped_why' => $why === [] ? new \stdClass() : $why]);
         });
-        return ['batch_id' => $batchId, 'batch' => $batch, 'done' => $count['done'], 'pending' => $count['pending_second'], 'skipped' => $count['skipped']];
+        return ['batch_id' => $batchId, 'batch' => $batch, 'done' => $count['done'], 'pending' => $count['pending_second'], 'skipped' => $count['skipped'], 'replayed' => false];
+    }
+
+    /**
+     * The batch's row (mapping_batch), in its own transaction. With a form key (Store Products' new items, NF4: the preview draws one
+     * and its apply sends it) through Idempotency, under the key `bulk:<person>:<form key>`: the same form sent again (a double click,
+     * Back and send) gets the batch it made the first time and runs nothing ([id, false]); the same key with other rows is refused
+     * (422 idempotency_key_reused), and a malformed key too (400 bad_form_key), before anything is written. The rows of a batch are
+     * each their own transaction (M52), so only its first row is inside the idempotent unit: a request that stopped half-way leaves a
+     * batch with fewer rows than ticked, which its page says (M47), and sending it again does not do the rest.
+     *
+     * @param array<int, array{listing_id: int, proposal_id: ?int, map_version: int}> $byListing
+     * @return array{0: int, 1: bool} the batch id, and whether this request made it
+     */
+    private function openBatch(Caller $caller, string $action, string $source, ?int $channelId, ?string $band, array $byListing, ?string $reason, ?string $formKey): array
+    {
+        $insert = fn (Db $db): int => $db->insert(
+            'INSERT INTO mapping_batch (action, source, channel_id, band, rows_asked, reason, staff_user_id, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [$action, $source === self::STORE_NEW ? 'store' : $source, $channelId, $source === 'review' ? $band : null, count($byListing), $reason,
+                $caller->staffUserId, $caller->actor],
+        );
+        if ($formKey === null) {
+            return [$this->db->transaction($insert), true];
+        }
+        if (preg_match('/^[0-9a-f]{32}$/D', $formKey) !== 1) {
+            throw new CwException('bad_form_key', 'the form key is 32 hexadecimal characters', 400);
+        }
+        $fresh = false;
+        $request = ['action' => $action, 'source' => $source, 'channel_id' => $channelId,
+            'rows' => array_values(array_map(static fn (array $r): array => [$r['listing_id'], $r['proposal_id'], $r['map_version']], $byListing))];
+        $r = (new Idempotency($this->db))->run($caller, 'bulk:' . $caller->staffUserId . ':' . $formKey, 'mapping.bulk_start', self::STORE_NEW_PATH, $request,
+            'mapping_batch', null, static function (Db $db) use (&$fresh, $insert): OpResult {
+                $fresh = true;
+                return new OpResult(201, ['batch_id' => $insert($db)]);
+            });
+        if (($r->body['error'] ?? null) === 'idempotency_key_reused') {
+            throw new CwException('idempotency_key_reused', 'this form was already sent with other rows', 422);
+        }
+        $id = (int) ($r->body['batch_id'] ?? 0);
+        if ($id < 1) {
+            throw new \RuntimeException('the stored answer of a bulk form names no batch');
+        }
+        return [$id, $fresh];
     }
 
     /**
@@ -336,10 +423,14 @@ final class BulkDecisions
         if ($source === 'item') {
             $skips = $this->itemChecks($action, $rows, $skips, $roles, false);
         }
+        if ($source === self::STORE_NEW) {
+            $skips = $this->newApplyChecks($action, $rows, $skips, $roles, false);
+        }
         $out = [];
         $count = ['done' => 0, 'pending_second' => 0, 'skipped' => 0];
         foreach ($this->predict($action, array_keys($byListing), $skips, $roles) as $lid => $p) {
-            $out[$lid] = ['outcome' => $p['outcome'], 'code' => $p['code'], 'detail' => $p['detail'], 'needs' => $p['needs']];
+            // (Store Products' new items: the new product's details as they would be made, NF2; null when there is no name)
+            $out[$lid] = ['outcome' => $p['outcome'], 'code' => $p['code'], 'detail' => $p['detail'], 'needs' => $p['needs'], 'card' => $skips[$lid]['card'] ?? null];
             $count[$p['outcome']]++;
         }
         return ['rows' => $out, 'done' => $count['done'], 'pending' => $count['pending_second'], 'skipped' => $count['skipped']];
@@ -375,6 +466,11 @@ final class BulkDecisions
             $name = $action === 'new_item' && is_string($pre['name'] ?? null) ? $pre['name'] : null;
             $d = $this->db->transaction(function (Db $db) use ($caller, $req, $lid, $row, $seq, $batchId, $name): array {
                 $taken = $name === null ? [] : $this->namesTaken([$name]);
+                if ($taken === [] && $name !== null && is_string($pre['words'] ?? null)) {
+                    // Store Products' new items (NF2): an item of the same words made since the names were read.
+                    $since = $this->wordsSince((string) $pre['words']);
+                    $taken = $since === null ? [] : [$since];
+                }
                 if ($taken !== []) {
                     throw new CwException('bulk_skip', 'an item of this name was made meanwhile', 409,
                         ['skip' => 'name_elsewhere', 'detail' => ['sku' => (string) reset($taken), 'name' => $name]]);
@@ -433,6 +529,9 @@ final class BulkDecisions
      */
     private function prechecks(string $action, string $source, array $rows, ?int $channelId, array $confirmBands): array
     {
+        if ($source === self::STORE_NEW) {
+            return $this->newChecks($rows, (int) $channelId);
+        }
         $ids = array_map(static fn (array $r): int => $r['listing_id'], $rows);
         $in = implode(',', array_fill(0, count($ids), '?'));
         $seed = $action === 'new_item';
@@ -1231,10 +1330,379 @@ final class BulkDecisions
                     }
                 }
             }
+            if ($action === 'new_item') {
+                // DecisionService's rules of a new product for a website product that waits for a match (no current item, NF2): 1 sale
+                // is not 1 item while that rule is on, and the owner's bulk switch.
+                if ((int) ($pre['request']['units_per_item'] ?? 1) !== 1 && $multiple) {
+                    $needs[] = 'units_per_item';
+                }
+                if ($bulk) {
+                    $needs[] = 'bulk';
+                }
+            }
             $out[$lid] = ['outcome' => $needs === [] ? 'done' : 'pending_second', 'code' => null, 'detail' => $needs === [] ? [] : ['needs_second' => $needs],
                 'needs' => $needs, 'status' => $status];
         }
         return $out;
+    }
+
+    // ---- Store Products' "Create new warehouse products for these" (docs/decisions.md NF1-NF8) ---------------------------------
+
+    /**
+     * The checks of Store Products' new items (NF2), read for all rows in a few queries, the same for preview() and run(). A row is
+     * skipped for the first of these that applies, in this order:
+     *  - what every bulk action checks: no such variant, another store, held back / in a spot check / found on arrival (OneAtATime),
+     *    changed since the page was drawn, a decision waiting for a second OK, another suggestion than the page showed;
+     *  - a landing page (`landing_page`), matched or on hold (`linked`), ignored or any other state (`not_waiting`);
+     *  - an item already made from it (`made_before`: a new one would be its second item);
+     *  - an open suggestion that names an item (`match_instead`: match it to that one), a match to a main-store variant with no item
+     *    (`match_no_item`), any other suggestion than "new product" (`not_new`). No suggestion, or "new product", is what it takes;
+     *  - known not to be sold: a page heading, not published (SiteState, as the seed reads it; a state the warehouse does not know is
+     *    no reason here: the person looked at the rows);
+     *  - no name for the new item (`no_name`);
+     *  - a barcode that an item has, or that a variant matched to an item carries (`barcode_on_item`, with that item's CW number);
+     *  - a name an item that is not joined into another has: the same name, or the same words in any order, case and accents apart
+     *    (`name_elsewhere`, with its CW number); a name a new product waiting for a second OK has (`name_waiting`);
+     *  - of the rows left, two or more with the same words (`name_twice`) or a barcode in common (`barcode_twice`): every one of them.
+     * A row that would be made carries the request (units 1, the card as the preview shows it), its name and its words (one() reads
+     * both again just before its decision). Every row carries its card (null without a name), for the preview.
+     *
+     * @param list<array{listing_id: int, proposal_id: ?int, map_version: int}> $rows
+     * @return array<int, array{code: string, detail: array<string, mixed>, card: ?array<string, mixed>, request?: array<string, mixed>, name?: string, words?: string}>
+     */
+    private function newChecks(array $rows, int $channelId): array
+    {
+        $ids = array_map(static fn (array $r): int => $r['listing_id'], $rows);
+        $listings = [];
+        foreach (array_chunk($ids, 500) as $chunk) {
+            foreach ($this->db->all(
+                'SELECT cl.id, cl.channel_id, cl.status, cl.map_version, p.id AS proposal_id, p.band, p.proposed_sku_id, p.proposed_new_item, p.evidence, '
+                . 'ps.code AS proposed_code, pd.id AS pending_id, lp.barcodes, lp.product_title, lp.variant_title, lp.brand, lp.features, '
+                . 'lp.site_variant_status, lp.site_product_status, lp.site_product_type, lp.site_product_id, lp.site_is_landing, lp.site_is_default, lp.site_state_at, '
+                . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS features_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder "
+                . 'FROM channel_listing cl LEFT JOIN match_proposal p ON p.open_listing_id = cl.id LEFT JOIN sku ps ON ps.id = p.proposed_sku_id '
+                . 'LEFT JOIN match_decision pd ON pd.pending_listing_id = cl.id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
+                . 'WHERE cl.id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')',
+                $chunk,
+            ) as $l) {
+                $listings[(int) $l['id']] = $l;
+            }
+        }
+        $made = self::madeFrom($this->db, $ids);
+        $never = OneAtATime::of($this->db, $ids);
+        $out = [];
+        $left = [];
+        foreach ($rows as $row) {
+            $lid = $row['listing_id'];
+            $l = $listings[$lid] ?? null;
+            $card = $l === null ? null : self::newCard($l);
+            $skip = self::newRowSkip($row, $l, $channelId, $made[$lid] ?? null, $never[$lid] ?? null, $card);
+            $out[$lid] = ['code' => $skip[0] ?? '', 'detail' => $skip[1] ?? [], 'card' => $card];
+            if ($skip === null && $card !== null && $l !== null) {
+                $left[$lid] = ['name' => (string) $card['name'], 'words' => self::nameWords((string) $card['name']),
+                    'barcodes' => self::strings(json_decode((string) ($l['barcodes'] ?? 'null'), true))];
+            }
+        }
+        // What the warehouse has already: a barcode, a name (exact, or the same words), a name waiting for a second OK.
+        $words = $left === [] ? [] : $this->itemWords();
+        $exact = $left === [] ? [] : $this->namesTaken(array_values(array_unique(array_column($left, 'name'))));
+        $waiting = $left === [] ? [] : $this->waitingNames();
+        $codes = [];
+        foreach ($left as $lid => $x) {
+            $item = $this->barcodeItem($lid, $x['barcodes']);
+            if ($item !== null) {
+                $out[$lid] = ['code' => 'barcode_on_item', 'detail' => ['sku' => $item]] + $out[$lid];
+                unset($left[$lid]);
+                continue;
+            }
+            if (isset($exact[$x['name']])) {
+                $out[$lid] = ['code' => 'name_elsewhere', 'detail' => ['sku' => $exact[$x['name']], 'name' => $x['name']]] + $out[$lid];
+                unset($left[$lid]);
+                continue;
+            }
+            if ($x['words'] !== '' && isset($words[$x['words']])) {
+                $codes[$lid] = $words[$x['words']];
+                continue;
+            }
+            if ($x['words'] !== '' && isset($waiting[$x['words']]) && $waiting[$x['words']] !== $lid) {
+                $out[$lid] = ['code' => 'name_waiting', 'detail' => ['name' => $x['name']]] + $out[$lid];
+                unset($left[$lid]);
+            }
+        }
+        if ($codes !== []) {
+            $code = [];
+            $want = array_values(array_unique($codes));
+            foreach ($this->db->all('SELECT id, code FROM sku WHERE id IN (' . implode(',', array_fill(0, count($want), '?')) . ')', $want) as $s) {
+                $code[(int) $s['id']] = (string) $s['code'];
+            }
+            foreach ($codes as $lid => $skuId) {
+                $out[$lid] = ['code' => 'name_elsewhere', 'detail' => ['sku' => $code[$skuId] ?? '', 'name' => $left[$lid]['name']]] + $out[$lid];
+                unset($left[$lid]);
+            }
+        }
+        // Two ticked rows that would make one product: the same words, or a barcode in common. Every row of such a group is left.
+        $byWords = [];
+        $byCode = [];
+        foreach ($left as $lid => $x) {
+            $byWords[$x['words'] !== '' ? $x['words'] : mb_strtolower($x['name'], 'UTF-8')][] = $lid;
+            foreach (array_unique(array_filter(array_map(static fn (string $b): ?string => Gtin::key($b), $x['barcodes']))) as $k) {
+                $byCode[$k][] = $lid;
+            }
+        }
+        foreach ($byWords as $group) {
+            foreach (count($group) > 1 ? $group : [] as $lid) {
+                $out[$lid] = ['code' => 'name_twice', 'detail' => ['name' => $left[$lid]['name'], 'rows' => count($group)]] + $out[$lid];
+            }
+        }
+        foreach ($byCode as $group) {
+            foreach (count(array_unique($group)) > 1 ? array_unique($group) : [] as $lid) {
+                if ($out[$lid]['code'] === '') {
+                    $out[$lid] = ['code' => 'barcode_twice', 'detail' => ['rows' => count(array_unique($group))]] + $out[$lid];
+                }
+            }
+        }
+        foreach ($left as $lid => $x) {
+            if ($out[$lid]['code'] === '') {
+                $out[$lid] += ['request' => ['units_per_item' => 1, 'card' => $out[$lid]['card']], 'name' => $x['name'], 'words' => $x['words']];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The first check of newChecks() that skips one row, as [code, detail], or null when none does (the warehouse's own barcodes and
+     * names are asked afterwards, for all rows at once).
+     *
+     * @param array{listing_id: int, proposal_id: ?int, map_version: int} $row
+     * @param array<string, mixed>|null $l newChecks()' row of the listing
+     * @param array{code: string, detail: array<string, mixed>}|null $never OneAtATime's answer for it
+     * @param array<string, mixed>|null $card
+     * @return array{0: string, 1: array<string, mixed>}|null
+     */
+    private static function newRowSkip(array $row, ?array $l, int $channelId, ?string $madeCode, ?array $never, ?array $card): ?array
+    {
+        if ($l === null) {
+            return ['unknown_listing', []];
+        }
+        if ((int) $l['channel_id'] !== $channelId) {
+            return ['other_store', []];
+        }
+        if ($never !== null) {
+            return [$never['code'], $never['detail']];
+        }
+        if ((int) $l['map_version'] !== $row['map_version']) {
+            return ['changed', ['status' => (string) $l['status']]];
+        }
+        if ($l['pending_id'] !== null) {
+            return ['pending_second', []];
+        }
+        $open = $l['proposal_id'] === null ? null : (int) $l['proposal_id'];
+        if ($open !== $row['proposal_id']) {
+            return ['suggestion_changed', []];
+        }
+        $status = (string) $l['status'];
+        if ($status === 'landing') {
+            return ['landing_page', []];
+        }
+        if (in_array($status, DecisionService::LINKED, true)) {
+            return ['linked', []];
+        }
+        if (!in_array($status, self::OPEN, true)) {
+            return ['not_waiting', ['status' => $status]];
+        }
+        if ($madeCode !== null) {
+            return ['made_before', ['sku' => $madeCode]];
+        }
+        if ($open !== null) {
+            $band = (string) $l['band'];
+            if ($l['proposed_sku_id'] !== null) {
+                return ['match_instead', ['sku' => (string) $l['proposed_code']]];
+            }
+            if (self::matchNoItem($band, null)) {
+                return ['match_no_item', ['band' => $band]];
+            }
+            if ($band !== 'New item' || (int) $l['proposed_new_item'] !== 1) {
+                return ['not_new', ['band' => $band]];
+            }
+        }
+        $ev = json_decode((string) ($l['evidence'] ?? 'null'), true);
+        $ev = is_array($ev) ? $ev : null;
+        $features = ['variant_status' => $l['features_status'] ?? null, 'is_placeholder' => $l['is_placeholder'] ?? null];
+        $state = SiteState::read($l, $features, $ev);
+        if ($state['heading'] === true) {
+            return ['page_heading', []];
+        }
+        $off = SiteState::notOnSale($state);
+        if ($off !== null) {
+            return ['not_published', ['site_status' => $off] + ($off === $state['variant_status'] ? [] : ['of' => 'product'])];
+        }
+        $against = SiteState::against($state, $features, $ev);
+        if ($against['heading']) {
+            return ['page_heading', []];
+        }
+        if ($against['status'] !== null) {
+            return ['not_published', ['site_status' => $against['status']]];
+        }
+        if ($card === null) {
+            return ['no_name', []];
+        }
+        return null;
+    }
+
+    /**
+     * After newChecks(), what only the apply knows (NF4): a row its preview skipped is never made, whatever it looks like now (it keeps
+     * the reason it has now, or is `changed` when it has none: the person said yes to "these N", and it was not one of them); a row
+     * whose new product's details are not the ones the preview showed (`card_hash`: a matching run rewrote its features since, which
+     * does not move its version) is skipped as `card_changed`. The preview asks none of this.
+     *
+     * @param list<array<string, mixed>> $rows as given to run() / preview()
+     * @param array<int, array<string, mixed>> $skips newChecks()
+     * @param list<string> $roles
+     * @return array<int, array<string, mixed>>
+     */
+    private function newApplyChecks(string $action, array $rows, array $skips, array $roles, bool $applying): array
+    {
+        if (!$applying) {
+            return $skips;
+        }
+        $held = [];
+        foreach ($rows as $r) {
+            $lid = (int) $r['listing_id'];
+            if (($r['preview_skipped'] ?? false) === true) {
+                $held[] = $lid;
+            } elseif (($skips[$lid]['code'] ?? 'unknown_listing') === '' && array_key_exists('card_hash', $r)
+                && $r['card_hash'] !== self::cardHash($skips[$lid]['card'] ?? null)) {
+                $skips[$lid] = ['code' => 'card_changed', 'detail' => [], 'card' => $skips[$lid]['card'] ?? null];
+            }
+        }
+        if ($held !== []) {
+            sort($held);
+            foreach ($this->predict($action, $held, $skips, $roles) as $lid => $p) {
+                $skips[$lid] = ($p['outcome'] === 'skipped' ? ['code' => (string) $p['code'], 'detail' => $p['detail']]
+                    : ['code' => 'changed', 'detail' => $p['status'] === null ? [] : ['status' => $p['status']]]) + ['card' => $skips[$lid]['card'] ?? null];
+            }
+        }
+        return $skips;
+    }
+
+    /**
+     * The new product a listing would get, exactly as the single "Create a new product" makes it with nothing typed over
+     * (DecisionService::cardFrom over its profile and features, M9), or null when it has no name.
+     *
+     * @param array<string, mixed> $l
+     * @return array<string, mixed>|null
+     */
+    private static function newCard(array $l): ?array
+    {
+        try {
+            $features = isset($l['features']) ? json_decode((string) $l['features'], true) : null;
+            return DecisionService::cardFrom(['product_title' => $l['product_title'] ?? null, 'variant_title' => $l['variant_title'] ?? null, 'brand' => $l['brand'] ?? null],
+                is_array($features) ? $features : []);
+        } catch (CwException) {
+            return null;
+        }
+    }
+
+    /** A short fingerprint of a new product's details, which the preview's form carries to its apply (NF4); '-' for none. @param array<string, mixed>|null $card */
+    public static function cardHash(?array $card): string
+    {
+        return $card === null ? '-' : substr(hash('sha256', Idempotency::canonicalJson($card)), 0, 16);
+    }
+
+    /**
+     * The words of a name as a set (NF2): lower case, accents left out, split on anything that is not a letter or a digit, each word
+     * once, in order. "Hayati Pro Max 4000 Apple" and "APPLE - hayati pro max 4000" are one name; "Apple Ice" is another.
+     */
+    public static function nameWords(string $name): string
+    {
+        $s = mb_strtolower($name, 'UTF-8');
+        if (class_exists(\Normalizer::class)) {
+            $d = \Normalizer::normalize($s, \Normalizer::FORM_D);
+            if (is_string($d)) {
+                $s = (string) (preg_replace('/\p{Mn}+/u', '', $d) ?? $s);
+            }
+        }
+        $words = preg_split('/[^\pL\pN]+/u', $s, -1, PREG_SPLIT_NO_EMPTY);
+        if (!is_array($words) || $words === []) {
+            return '';
+        }
+        $words = array_values(array_unique(array_map('strval', $words)));
+        sort($words, SORT_STRING);
+        return implode(' ', $words);
+    }
+
+    /**
+     * Every item that is not joined into another, by the words of its name (nameWords()): words => the lowest item id. One read of
+     * the item table's ids, names and joins (about 15,000 items on staging; a preview of a family is rare), once a request.
+     *
+     * @return array<string, int>
+     */
+    private function itemWords(): array
+    {
+        $out = [];
+        $high = 0;
+        foreach ($this->db->all('SELECT id, name FROM sku WHERE merged_into_sku_id IS NULL') as $s) {
+            $id = (int) $s['id'];
+            $high = max($high, $id);
+            $key = self::nameWords((string) $s['name']);
+            if ($key !== '' && (!isset($out[$key]) || $id < $out[$key])) {
+                $out[$key] = $id;
+            }
+        }
+        $this->skuHigh = max($this->skuHigh, $high, (int) $this->db->value('SELECT COALESCE(MAX(id), 0) FROM sku'));
+        return $out;
+    }
+
+    /** The CW number of an item made since itemWords() read them (by its primary key) whose name has these words, or null. */
+    private function wordsSince(string $words): ?string
+    {
+        foreach ($this->db->all('SELECT id, code, name FROM sku WHERE id > ? AND merged_into_sku_id IS NULL ORDER BY id', [$this->skuHigh]) as $s) {
+            if (self::nameWords((string) $s['name']) === $words) {
+                return (string) $s['code'];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The names of the new products that wait for a second OK (not an item until a second matching lead says yes, so the item table
+     * does not have them): words => the listing it waits on. The waiting decisions by their own unique index, a few rows.
+     *
+     * @return array<string, int>
+     */
+    private function waitingNames(): array
+    {
+        $out = [];
+        foreach ($this->db->all("SELECT /*+ INDEX(d uq_match_decision_pending) */ d.pending_listing_id AS lid, JSON_UNQUOTE(JSON_EXTRACT(d.detail, '$.card.name')) AS name "
+            . "FROM match_decision d WHERE d.pending_listing_id IS NOT NULL AND d.action = 'new_item'") as $d) {
+            $key = is_string($d['name']) ? self::nameWords($d['name']) : '';
+            if ($key !== '') {
+                $out[$key] = (int) $d['lid'];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The CW number of an item that already has one of these barcodes (sku_barcode), or that a variant matched to an item carries (that
+     * item's barcode not copied to it yet: the rule of an item made by hand, PB1), or null. Every form of each barcode (Gtin::forms),
+     * each an exact match on an index. A barcode on a variant nobody matched is no item's.
+     *
+     * @param list<string> $barcodes
+     */
+    private function barcodeItem(int $listingId, array $barcodes): ?string
+    {
+        foreach (array_chunk(Gtin::forms($barcodes), 200) as $codes) {
+            $in = implode(',', array_fill(0, count($codes), '?'));
+            $code = $this->db->value("SELECT s.code FROM sku_barcode b JOIN sku s ON s.id = b.sku_id WHERE b.barcode IN ({$in}) LIMIT 1", $codes)
+                ?? $this->db->value('SELECT s.code FROM listing_profile lp JOIN channel_listing cl ON cl.id = lp.listing_id JOIN sku s ON s.id = cl.sku_id '
+                    . "WHERE JSON_OVERLAPS(lp.barcodes, CAST(? AS JSON)) AND lp.listing_id <> ? AND cl.status IN ('mapped', 'quarantined') LIMIT 1",
+                    [json_encode($codes, JSON_THROW_ON_ERROR), $listingId]);
+            if ($code !== null) {
+                return (string) $code;
+            }
+        }
+        return null;
     }
 
     /** @param array<string, mixed>|null $detail */

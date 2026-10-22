@@ -11433,3 +11433,84 @@ The new tests failed first (`/root/cw_work/landing/landing_codex_red.log`, 10 fa
 - Settled while fixing (the staging rehearsal of the dry run, `landing/staging_plan.out`): the system's mark settles a suggestion of the
   check on arrival (it confirms no match); only a held-back product and a spot check's match wait for a person. Before it, 287 of
   Electrofag's 1,103 landing rows would have waited.
+
+## Create new warehouse products for a ticked family (branch `bulk-new-items`, on `landing-pages`, 22 Oct 2026; NF1-NF8)
+
+The owner (22 Oct 2026): Vape Big's best sellers include whole families that Vape and Go never sold, so no warehouse product exists to
+match them to (measured on production, top 600 Vape Big sellers by 30-day units: Hayati Pro Max 4000 49 rows / 1,977 units, Elux ENE
+Legend 4000 14 / 1,801, Elux FireRose EX4500 3 / 199, Crystal Pro Max 4000 14 / 163: about 32% of its sales). Each one was opened and
+"Create a new product" pressed one by one. The owner chose: "tick a whole family, then create new products for these in one go; better
+for future Vape Big-only products too". Code: `src/Mapping/BulkDecisions.php` (the list context `store_new`), `src/Ui/Controller/
+StoreNewItemsController.php` (new), `src/Ui/Controller/{StoreProducts,Bulk}Controller.php`, `src/Ui/Kernel.php`, views
+`store_new_preview` (new), `store_products`, `bulk_bar`, `bulk_result`, `src/Ui/Words.php` (STORE_NEW; BULK_SKIP and BY_ITEM_SKIP gain
+six reasons; PAGE_INTRO, AUDIT_ACTION), `public/ui/assets/app.css`. No migration: `mapping_batch` already takes source `store` with
+action `new_item`. `DecisionService` is not changed. Tests: `tests/Integration/UiKernel/StoreNewItemsScreenTest.php`,
+`tests/Integration/Mapping/StoreNewItemsTest.php` (new).
+
+**NF1. Where: Store Products, its existing filter and bar.** The filter the brief asked for is there already: "Not matched"
+(`state=not_matched`, `Queries::STATE_WHERE`) lists the rows that are unmatched or suggested with NO open suggestion and no decision
+waiting, so never a landing page, an ignored, matched or on-hold one; with the forgiving search (SI, SX) "hayati pro max 4000" narrows it
+to the family. The action is a new button of the existing bar, "Create new warehouse products for these", for a matching lead only, with
+a line above the list on "Not matched" saying how to use it. The bar hosts it cleanly: the button carries `formaction` (CSP-safe, no
+script; it works without app.js), so the same ticks (`pick_`, `ver_`, `prop_`) go to the preview, and Ignore… / Take off the ignored
+list / Send back for matching… keep the list's own route. `POST /ui/review/bulk` never makes items from Store Products (`store` has no
+`new_item`: 400 `bad_action`), so the preview cannot be skipped.
+
+**NF2. What it takes and what it skips (`BulkDecisions::newChecks()`, one rule for the preview and the apply).** It takes a website
+product of the store with NO open suggestion, or one whose suggestion says "new product" (band `New item` and `proposed_new_item`). It
+does not ask for the computer's "new" as the seed of M61 does: the person looked at the family. It skips, first match recorded:
+`unknown_listing`, `other_store`; `held`, `in_spot_check`, `on_arrival` (OneAtATime, as every bulk action); `changed` (the version the page
+showed), `pending_second`, `suggestion_changed`; `landing_page`; `linked` (matched or on hold); `not_waiting` (ignored); `made_before` (an
+item was made from it before); `match_instead` (its open suggestion names an item: "match it to that one instead"), `match_no_item`,
+`not_new` (any other suggestion); `page_heading`, `not_published` (known not to be sold, SiteState as the seed reads it; a state the
+warehouse does not know is no reason here); `no_name`; `barcode_on_item` (a barcode, in any stored form, that an item has, or that a
+variant MATCHED to an item carries: PB1's rule; a barcode on a variant nobody matched is no item's); `name_elsewhere` (an item not joined
+into another has the same name, or the same set of words in any order, case and accents apart: `nameWords()`, "Hayati Pro Max 4000
+Apple" = "APPLE - hayati pro max 4000", "Apple Ice" is another); `name_waiting` (a new product waiting for a second OK has that name:
+not an item yet, so the item table cannot say it); then among the rows left `name_twice` (two ticked rows with the same words) and
+`barcode_twice` (a barcode in common): every row of such a group, so neither of two that would make one product is made. Each reason has
+words (`Words::BULK_SKIP`, `BY_ITEM_SKIP`). The item names are read once a request (`itemWords()`: the ids, names and joins of the item
+table, about 15,000 rows on staging); just before each row's decision the name is read again, exactly (`namesTaken`, as M61) and as
+words among the items made since (`wordsSince()`, by primary key), so another person's create in between is found too. Not a lock: two
+creates of one name in the same instant can both make an item, as M61 says.
+
+**NF3. Who: a matching lead.** Today a new product one at a time is `mapping.decide` (Matcher, Matching lead), and the screens' bulk
+actions are `mapping.decide` too (M49, also the seed's "Create as new"). The stricter is chosen: M7's rule for a bulk mint that no
+computer check vouches for (`mintAndLink`, the seed) is a matching lead's, and so is this (both routes `Route::LEAD`, i.e.
+`mapping.approve`, and `BulkDecisions::checked()` refuses anyone else, 403 `lead_required`, before anything is read for a row). No new
+permission. A matcher still creates one at a time on the variant's page, unchanged; a viewer is refused (403) everywhere.
+
+**NF4. Preview first, then the apply; one batch however often it is sent.** `POST /ui/review/store/new-items` (`preview()`, writes
+nothing: no batch, no lock, no audit row) shows, for each ticked row, "Will create", "Will wait for a second OK" (with the reasons) or
+"Will skip" (with why), and the new product exactly as the single "Create a new product" makes it with nothing typed over
+(`DecisionService::cardFrom` of its profile and features: name, brand, strength, nicotine type, range, kind, flavour, size, puffs, pack
+size), and 1 sale = 1. At most `mapping.bulk_max_rows` rows (100 by default; 422 whole, as every bulk action). Its form carries each
+row again (`row_<listing>` = suggestion . version . shown-as-done . the fingerprint of its details, `cardHash()`) and a form key
+(`FormOnce::newKey()`). The apply (`POST /ui/review/store/new-items/apply`) checks everything again: a row the preview skipped is never
+made (it keeps the reason it has now, or is `changed`), and one whose details are not the ones shown (`card_changed`: a matching run
+rewrote its features, which does not move its version) neither; each row is ONE `DecisionService::decide` `new_item` with the
+suggestion and version shown, units 1 and the card as shown, under its listing's lock, in its own transaction with its batch row, in
+listing id order, with `bulk_batch_id = screen:<batch>` (M47, M52; the decision and its audit row name the batch); the hold, spot check
+and check on arrival are read again under the lock (M51). The batch row is opened through `Idempotency` under `bulk:<staff>:<form key>`:
+the same form again (double click, Back and send) lands on the same batch page and does nothing; the same key with other rows is refused
+(422), a malformed key 400. Only the batch's own row is in the idempotent unit, so a request that stopped half-way is shown as such
+(M47's "fewer rows than ticked") and is not finished by a re-send.
+
+**NF5. The two-person rule and the single action are DecisionService's, unchanged.** Every rule of a single new product applies to each
+row; while the owner's switch `approvals.mapping_bulk_second_ok` is on each row waits for a second matching lead ("Confirmed from a
+ticked list"), nothing is made until one says yes, and the decider cannot approve their own. `predict()` now says that of a new product
+too (it said it of a confirm only). A row DecisionService refuses is recorded as skipped with its code (M51).
+
+**NF6. The result page.** The batch page (M47): "Created N new warehouse products, K wait for a second OK, M skipped.", a list of the new
+products with links to their pages, the skipped ones each with why and a link, every row with its decision now; the CW number of a
+matched row links to its item on every batch page. "Back to Store Products".
+
+**NF7. Words and look.** `Words::STORE_NEW` (the button, the line above the list, the preview, its button "Yes, create these N new
+warehouse products", the refusals, the result page), `PAGE_INTRO['store_new_preview']`, `AUDIT_ACTION['mapping.bulk_start']` (the
+idempotency record's audit row). The preview is a `table.stack` (one card a row on a phone), the new product's details a small `dl`, the
+button at the bottom of the screen (`actions sticky`).
+
+**NF8. Not done, and open.** No typing over a detail in bulk (open the product and create it there; the preview says so). The name a new
+item gets is the variant's own title (`cardFrom`, M9): on a store that titles its options with the flavour only, the preview shows that
+short name and a person should create those one at a time with a better name. A family whose rows share a barcode with an existing
+item is matched, not created (`barcode_on_item`). Nothing is done across pages ("Select all on this page" as before).

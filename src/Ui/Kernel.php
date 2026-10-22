@@ -54,6 +54,7 @@ use CW\Ui\Controller\SettingsController;
 use CW\Ui\Controller\StaffRequestsController;
 use CW\Ui\Controller\StockController;
 use CW\Ui\Controller\StockOpsController;
+use CW\Ui\Controller\StoreNewItemsController;
 use CW\Ui\Controller\StoreProductsController;
 use CW\Ui\Controller\SupplierItemsController;
 use CW\Ui\Controller\SupplierReturnsController;
@@ -428,6 +429,12 @@ final class Kernel
         $r->add('GET', '/ui/review/store', 'linking.view', (new StoreProductsController())->index(...));
         $r->add('POST', '/ui/review/bulk', Route::DECIDE, $bulk->run(...));
         $r->add('GET', '/ui/review/batches/{id}', 'linking.view', $bulk->show(...));
+        // Store Products' "Create new warehouse products for these" (NF1-NF8), a matching lead's: the preview of the new
+        // product each ticked row would get (a POST because it carries the ticks; it saves nothing), and its apply, row by row through
+        // BulkDecisions and DecisionService `new_item`, ending on the batch page above.
+        $storeNew = new StoreNewItemsController();
+        $r->add('POST', StoreNewItemsController::PREVIEW, Route::LEAD, $storeNew->preview(...));
+        $r->add('POST', StoreNewItemsController::APPLY, Route::LEAD, $storeNew->apply(...));
         // By Item (U113-U122, M54): every warehouse product with its match on each store, and its CSV, for everyone with
         // linking.view; the picker of a website product for one product on one store for whoever may decide. All three only read:
         // "Choose" leads to the website product's page above, whose decide route is the only one that changes a match.

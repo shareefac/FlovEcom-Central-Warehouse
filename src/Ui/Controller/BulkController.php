@@ -122,7 +122,7 @@ final class BulkController
         $why = [];
         foreach ($ctx->db->all(
             'SELECT r.seq, r.listing_id, r.outcome, r.skip_code, r.detail, r.decision_id, d.state AS decision_state, d.action AS decision_action, '
-            . 's.code AS sku_code, ch.name AS channel_name, cl.external_variant_id, lp.product_title, lp.variant_title '
+            . 's.id AS sku_id, s.code AS sku_code, s.name AS sku_name, ch.name AS channel_name, cl.external_variant_id, lp.product_title, lp.variant_title '
             . 'FROM mapping_batch_row r LEFT JOIN match_decision d ON d.id = r.decision_id LEFT JOIN sku s ON s.id = d.sku_id '
             . 'LEFT JOIN channel_listing cl ON cl.id = r.listing_id LEFT JOIN channel ch ON ch.id = cl.channel_id '
             . 'LEFT JOIN listing_profile lp ON lp.listing_id = r.listing_id WHERE r.batch_id = ? ORDER BY r.seq',
@@ -145,6 +145,9 @@ final class BulkController
                 'why' => $code === null ? null : self::why($code, $detail, (string) $b['source'] === 'item' ? 'BY_ITEM_SKIP' : 'BULK_SKIP'),
                 'needs' => array_map(static fn (string $n): string => Words::of('NEEDS_SECOND', $n), Html::strings($detail['needs_second'] ?? null)),
                 'sku_code' => self::s($r['sku_code']),
+                'sku_name' => self::s($r['sku_name']),
+                // the item's page (a new product of Store Products' "Create new warehouse products for these" is linked from here, NF8)
+                'sku_link' => $r['sku_id'] === null ? null : '/ui/items/' . (int) $r['sku_id'],
                 // What the decision is now: it may have been approved or cancelled since (the result is a record, not a promise).
                 'state_now' => $r['decision_state'] === null ? null : (string) $r['decision_state'],
                 'link' => '/ui/review/listing/' . (int) $r['listing_id'],
@@ -162,11 +165,13 @@ final class BulkController
         };
         // The words of the page: a batch of By Item speaks of variants (U122); one of New Variants says its action and its list in the
         // owner's words (items and variants, U137); the lists' batches speak of products, as before.
+        // Store Products' "Create new warehouse products for these" (NF8): its own name and counts, and its new items listed first.
+        $storeNew = $from === 'store' && $action === 'new_item';
         $words = $from === 'item'
             ? ['intro' => 'by_item_result', 'what' => Words::of('BY_ITEM_BULK', $action), 'skipped_text' => Words::BY_ITEM_BULK['result_skipped_text'],
                 'ticked' => Words::BY_ITEM_BULK['result_ticked'], 'all_rows' => Words::BY_ITEM_BULK['result_all_rows'], 'col' => Words::BY_ITEM_BULK['result_col'],
                 'where' => Words::BY_ITEM_BULK['result_where']]
-            : ['intro' => 'bulk_result', 'what' => Words::of($from === 'new' ? 'NEW_VARIANT_ACTION' : 'BULK_ACTION', $action), 'skipped_text' => Words::BULK['skipped_text'], 'ticked' => Words::BULK['ticked'],
+            : ['intro' => 'bulk_result', 'what' => $storeNew ? Words::STORE_NEW['result_what'] : Words::of($from === 'new' ? 'NEW_VARIANT_ACTION' : 'BULK_ACTION', $action), 'skipped_text' => Words::BULK['skipped_text'], 'ticked' => Words::BULK['ticked'],
                 'all_rows' => Words::BULK['all_rows'], 'col' => Words::QUEUE['product'],
                 'where' => match ($from) {
                     'store' => Words::MENU['store_products'],
@@ -177,8 +182,11 @@ final class BulkController
             'batch' => ['id' => $id, 'ref' => $batch, 'action' => $action, 'by' => self::s($b['display_name']), 'at' => (string) $b['created_at'],
                 'store' => self::s($b['channel_name']), 'band' => $b['band'] === null ? null : (string) $b['band'], 'reason' => self::s($b['reason']),
                 'source' => $from],
-            'summary' => Words::say('BULK', 'summary', Words::say($from === 'new' ? 'NEW_VARIANT_DONE' : 'BULK_DONE', $action, $count['done']), $count['pending_second'],
+            'summary' => $storeNew ? Words::say('STORE_NEW', 'result_summary', $count['done'], $count['pending_second'], $count['skipped'])
+                : Words::say('BULK', 'summary', Words::say($from === 'new' ? 'NEW_VARIANT_DONE' : 'BULK_DONE', $action, $count['done']), $count['pending_second'],
                 $count['skipped']),
+            'made' => $storeNew ? array_values(array_filter($rows, static fn (array $r): bool => $r['outcome'] === 'done' && $r['sku_link'] !== null
+                && $r['state_now'] !== 'withdrawn')) : [],
             'count' => $count,
             'missing' => max(0, $asked - count($rows)),
             'asked' => $asked,
@@ -261,7 +269,7 @@ final class BulkController
             'changed', 'not_waiting', 'not_ignored' => sprintf($base, is_string($detail['status'] ?? null) ? Words::of('LISTING_STATUS', $detail['status']) : Words::BULK['state_unknown']),
             'band_not_allowed', 'not_new' => sprintf($base, is_string($detail['band'] ?? null) ? Words::of('BAND', $detail['band']) : Words::BULK['state_unknown']),
             'item_on_store', 'several_suggested' => sprintf($base, (string) ($detail['item'] ?? ''), (string) ($detail['store'] ?? '')),
-            'suggested_match', 'made_before', 'name_elsewhere' => sprintf($base, is_string($detail['sku'] ?? null) && $detail['sku'] !== '' ? $detail['sku'] : Words::BULK['an_item']),
+            'suggested_match', 'made_before', 'name_elsewhere', 'match_instead', 'barcode_on_item' => sprintf($base, is_string($detail['sku'] ?? null) && $detail['sku'] !== '' ? $detail['sku'] : Words::BULK['an_item']),
             'not_published' => sprintf($base, is_string($detail['site_status'] ?? null) && $detail['site_status'] !== '' ? $detail['site_status'] : Words::BULK['state_unknown']),
             'refused' => sprintf($base, match (true) {
                 ($detail['code'] ?? null) === 'bad_units' => Words::say('MATCH_ERROR', 'bad_units', DecisionService::MAX_UNITS),
