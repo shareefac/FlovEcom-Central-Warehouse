@@ -68,6 +68,7 @@ final class HomeCounts
                 'receiving' => $this->receiving(),
                 'stock_ops' => $this->stockOps(),
                 'incidents' => (int) ($this->ctx->badges()['incidents_open'] ?? 0),
+                'website_bugs' => (int) ($this->ctx->badges()['queue_landing'] ?? 0),
                 'integrity' => (new IntegrityRuns($this->ctx->db))->latest(),
                 'staff_requests' => (new RoleRequests($this->ctx->db))->decidableCount($this->ctx->me()->id, $this->ctx->me()->roles),
                 'watch' => $this->watch(),

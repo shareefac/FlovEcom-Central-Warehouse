@@ -35,7 +35,8 @@ use DateTimeImmutable;
  *   expire    held past expires_at -> expired (cron; no idempotency key needed).
  *
  * Line kinds (§2.3): unlinked lines (listing not mapped/quarantined) are recorded with
- * sku NULL and move no bucket; linked lines move buckets whatever the policy; only when the
+ * sku NULL and move no bucket; a line for a LANDING PAGE (status landing, docs/decisions.md LP7) is such a line too, and is also
+ * written to the website-bug list (landing_order, flagLandingLines()) in the same transaction: a website bug, never a stock event; linked lines move buckets whatever the policy; only when the
  * channel is `live` does CW refuse: strict when short, stopped items and quarantined listings
  * always (D31). One reservation_unit row per sold unit snapshots listing, sku, u and warehouse,
  * so every later reversal uses the link as it was at sale time.
@@ -206,6 +207,7 @@ final class Reservations
             }
         }
         $this->stock->flush();
+        $this->flagLandingLines($ch['id'], $orderRef, $resId, $lines, 'reserve');
         foreach ($views as $i => $v) {
             if ($v['kind'] !== 'unlinked') {
                 $l = $snap[$v['variant_id']];
@@ -452,6 +454,7 @@ final class Reservations
 
         // Freeze membership of this payment independently of later unit states, including units sold while unlinked.
         $this->db->exec("UPDATE reservation_unit SET was_paid = 1 WHERE reservation_id = ? AND state = 'allocated'", [$resId]);
+        $this->flagLandingLines($ch['id'], $orderRef, $resId, $lines, $origin === 'opening' ? 'opening' : 'commit');
 
         $kind = match (true) {
             $origin === 'unreserved' => 'outage_order',
@@ -1243,6 +1246,54 @@ final class Reservations
     private static function t0Body(array $t0): array
     {
         return ['at' => Clock::iso($t0['at']), 'last_order_id' => $t0['last_order_id'], 'last_stock_log_id' => $t0['last_stock_log_id']];
+    }
+
+    // ==========================================================================================
+    // a landing page in an order: a website bug (docs/decisions.md LP7)
+    // ==========================================================================================
+
+    /**
+     * The lines of an order that name a LANDING PAGE (channel_listing.status landing: not a product, LP1) go to the website-bug list,
+     * one landing_order row per order and landing page, in the caller's transaction. Nothing else changes: the line is an unlinked
+     * line like any other (no bucket moves, no refusal, the same answer to the site). A later call of the same order adds what it
+     * knows (the reservation, the units, that it was paid). A payment that comes after a person settled the row while the order was
+     * not paid opens it again (`reopened` in the audit row): a paid order is the one that needs fixing.
+     *
+     * @param list<array{variant_id: string, qty: int, unit_ids: list<string>}> $lines
+     */
+    private function flagLandingLines(int $channelId, string $orderRef, ?int $resId, array $lines, string $seenIn): void
+    {
+        $units = [];
+        foreach ($lines as $line) {
+            $k = mb_strtolower((string) $line['variant_id']);
+            $units[$k] = ($units[$k] ?? 0) + count($line['unit_ids']);
+        }
+        if ($units === []) {
+            return;
+        }
+        $variants = array_values(array_unique(array_map(static fn (array $l): string => (string) $l['variant_id'], $lines)));
+        $landing = $this->db->all("SELECT id, external_variant_id FROM channel_listing WHERE channel_id = ? AND status = 'landing' AND external_variant_id IN ("
+            . implode(',', array_fill(0, count($variants), '?')) . ') ORDER BY id', [$channelId, ...$variants]);
+        $paid = $seenIn === 'reserve' ? 0 : 1;
+        foreach ($landing as $l) {
+            $n = max(1, (int) ($units[mb_strtolower((string) $l['external_variant_id'])] ?? 1));
+            $old = $this->db->one('SELECT id, status, paid, units FROM landing_order WHERE channel_id = ? AND order_ref = ? AND listing_id = ? FOR UPDATE',
+                [$channelId, $orderRef, (int) $l['id']]);
+            if ($old === null) {
+                $id = $this->db->insert('INSERT INTO landing_order (channel_id, order_ref, listing_id, reservation_id, seen_in, units, paid) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [$channelId, $orderRef, (int) $l['id'], $resId, $seenIn, $n, $paid]);
+                Audit::write($this->db, Caller::system('reservations'), 'landing_order.flag', 'landing_order', (string) $id, null,
+                    ['order_ref' => $orderRef, 'listing_id' => (int) $l['id'], 'variant_id' => (string) $l['external_variant_id'], 'units' => $n, 'seen_in' => $seenIn]);
+                continue;
+            }
+            $reopen = $paid === 1 && (int) $old['paid'] === 0 && $old['status'] !== 'open';
+            $this->db->exec('UPDATE landing_order SET reservation_id = COALESCE(reservation_id, ?), units = GREATEST(units, ?), paid = GREATEST(paid, ?)'
+                . ($reopen ? ", status = 'open', resolution = NULL, resolved_by = NULL, resolved_at = NULL" : '') . ' WHERE id = ?', [$resId, $n, $paid, (int) $old['id']]);
+            if ($reopen) {
+                Audit::write($this->db, Caller::system('reservations'), 'landing_order.reopened', 'landing_order', (string) $old['id'], null,
+                    ['order_ref' => $orderRef, 'was' => $old['status'], 'why' => 'paid after it was settled']);
+            }
+        }
     }
 
     // ==========================================================================================

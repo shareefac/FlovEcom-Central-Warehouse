@@ -69,7 +69,8 @@ final class SectionsTest extends TestCase
                             ...array_keys(\CW\Ui\Context::STOCK_BADGES), 'invoices_to_match',
                             'arrivals_late', 'invoices_timed_failed', // Pack J (PJ10, PJ14)
                             // Pack F (PF5)
-                            'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'],
+                            'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold',
+                            'queue_landing'], // 0050 (LP8)
                             "{$where}: a count Ui\\Context::badges() computes");
                         self::assertArrayHasKey($page['badge'], Words::BADGE, "{$where}: the words a screen reader hears");
                     }
@@ -86,7 +87,7 @@ final class SectionsTest extends TestCase
         }
         self::assertSame(['linking_pending', 'linking_duplicates', 'barcodes_open', 'stock_in_open', 'stock_out_open', 'transfers_open', 'releases_open',
             'adjustments_open', 'counts_open', 'incidents_open', 'arrivals_late', 'invoices_to_match', 'invoices_timed_failed', 'reviews_open', // Pack J: 2 badges
-            'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'], Sections::badgeNames());
+            'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing'], Sections::badgeNames());
     }
 
     /** Every staff page belongs to one section, tab and page: the current ones stay marked on a detail page (with its back link). */

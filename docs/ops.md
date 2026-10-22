@@ -2611,6 +2611,48 @@ add notes as you go, then mark it handled with how. A second answer to the same 
 **Clean-up.** `/var/log/cw/housekeeping.log`: one line per table, `removed=` and the cut-off. The audit log line always says "kept" (the
 app login cannot delete audit rows; 7 years at the least). A run that did not finish says so and goes on the next night.
 
+## Landing pages (0050; `docs/decisions.md` LP1–LP12)
+
+A landing page is the page of a product where the customer picks an option (10mg or 20mg). The shops keep it as one more option, so the
+connector sends it as a website product; it is not a product. CW marks it "Landing page (not a product)": it leaves every matching list
+and count, shows under Store Products › Landing pages with why, and an order for it is a website bug (no stock moves).
+
+**Deploy WITH `--migrate`** (`install_cron.sh --migrate`; on production the same step of its install), in a quiet minute: 0050 COPIES
+`channel_listing` and `match_decision` once each (a few seconds; reads go on; a push of a NEW variant, an order naming a variant CW does
+not know yet and a matching decision wait for it). The migrator gives `cw_app` select/insert/update on the new `landing_order` (no
+delete). The plain form (code without the schema) fails on every page that reads the new state until `--migrate` has run. Check:
+`php bin/migrate.php --status` lists no PENDING file; `php bin/invariants.php` says ok.
+
+**After the deploy, per store (the owner): a dry run, then apply.**
+
+```
+php bin/landing_pages.php --channel=electrofag --list > /tmp/landing_electrofag.txt   # dry run: nothing written
+php bin/landing_pages.php --channel=electrofag --apply
+```
+
+The last line says what it would mark and why (`website_flag`: the website's own flag in a loaded state; `same_page`: the rule), what
+it leaves and why: `linked` (matched to an item: its orders DO move stock; a person undoes the match on its page, then the next run
+marks it), `said_real` (a matching lead said it is a real product: never marked again by the tool), `one_at_a_time`, `waiting`,
+`ignored` (add `--include-ignored` to move them too), `no_longer` (a landing page the rule no longer finds: left as it is). Then
+Vape and Go and Vape Big the same way. A second run marks nothing twice. New website products are marked on arrival (each push), by
+the website's flag always and by the rule while Settings › Matching products › "Find landing pages by the rule when they arrive" is on.
+
+**A wrong mark.** A matching lead opens the variant (Store Products › Landing pages), "This is a real product", with why: it goes back to
+its list and is never marked by the system again. A product the rule missed: whoever decides it opens it, "Is this a landing page?".
+
+**The alert and the list.** An order for a landing page goes to Approvals › From the stores › Website bugs (a badge and a Home card for
+the people who sort orders out) and `bin/health_alert.php` sends "Website bug: an order on <store> for the landing page <title>
+(option <n>, order <ref>)" to the alert address, once per store, again at most every `alerts.repeat_minutes` while one is open, and
+"Back to normal" when all are handled. Fix the order with the customer by hand, then "Mark handled" with how and a note.
+
+**The explicit flag (connector 0.4.7, NOT built here: the connector lives in the shops' admin trees).** In
+`App_proto/src/central_warehouse/lib/listings.php`, select `pt.prodt_islanding, pt.prodt_isDefault, pt.prodt_status, pt.prodt_prod_id,
+pm.prod_status, pm.prod_type, pm.prod_perma_link` (`:59-63`) and send them per listing as `website` {is_landing, is_default,
+variant_status, product_id, product_status, product_type, product_link} (`:122-133`); update `tests/core_listings_test.php`; then
+`tests/run.php`, `bin/cw_manifest.php --write`, copy to `App/src/central_warehouse/`, rebuild its manifest, restart `App-cw-sync-worker`;
+the same files on the Electrofag and Vape Big boxes. The first push after it re-sends every listing (the connector's own hash changes),
+and CW then marks every landing page by the website's own word.
+
 ## The opening stock from ERPNext (pack I; `docs/decisions.md` PI1–PI16)
 
 CW's opening stock and its opening cost come FROM ERPNext (the owner's decision of 14 Oct 2026). CW never connects to ERPNext and never

@@ -267,8 +267,8 @@ final class HomeTasksTest extends TestCase
     public function testTheDeliveryCards(): void
     {
         self::assertSame(['company', 'receiving'], HomeTasks::needs(['goods_in']));
-        self::assertSame(['company', 'receiving', 'stock_ops', 'incidents'], HomeTasks::needs(['purchasing_desk']));
-        self::assertSame(['barcodes', 'stock_ops', 'incidents'], HomeTasks::needs(['stock_controller']));
+        self::assertSame(['company', 'receiving', 'stock_ops', 'incidents', 'website_bugs'], HomeTasks::needs(['purchasing_desk']), 'they sort orders out (LP8)');
+        self::assertSame(['barcodes', 'stock_ops', 'incidents', 'website_bugs'], HomeTasks::needs(['stock_controller']));
 
         $f = ['receiving' => ['bench' => 2, 'to_post' => 1, 'refused' => 1], 'incidents' => 3, 'company' => ['confirmed' => true, 'missing' => []]];
         $goodsIn = HomeTasks::build(5, ['goods_in'], $f);

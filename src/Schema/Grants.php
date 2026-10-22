@@ -178,6 +178,8 @@ final class Grants
         // Pack F (0036, docs/decisions.md PF5): the rows of the four queues are settled (resolved or dismissed, by whom, when, why), never
         // removed (D17: "rows are never deleted, and state changes go through status columns").
         'goods_in_suspense', 'count_review', 'policy_review', 'oversell_event',
+        // 0050 (docs/decisions.md LP8): an order a website took for a landing page, settled by a person like an oversold order, never removed.
+        'landing_order',
         // ---- Pack E (0034, PE2)
         'role_permission',
         // --- Pack G (0037; docs/decisions.md PG1-PG7): CW's own sales record and its folded days (a day folded again sets its rows to 0 and

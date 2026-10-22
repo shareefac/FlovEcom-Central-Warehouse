@@ -53,6 +53,9 @@ final class StoreProductsController
         // The rows of this page no bulk action takes (the one read of it: OneAtATime), of those a store action applies to.
         $never = OneAtATime::of($ctx->db, array_values(array_map(static fn (array $r): int => (int) $r['listing_id'],
             array_filter($result['rows'], static fn (array $r): bool => in_array((string) $r['state'], self::TICKABLE, true)))));
+        // Why each landing page of the page is one (docs/decisions.md LP6): the reason of its mark, and who and when.
+        $landing = $q->landingWhy(array_values(array_map(static fn (array $r): int => (int) $r['listing_id'],
+            array_filter($result['rows'], static fn (array $r): bool => (string) $r['state'] === 'landing'))));
         $rows = [];
         foreach ($result['rows'] as $r) {
             $st = (string) $r['state'];
@@ -77,6 +80,7 @@ final class StoreProductsController
                 'proposed_name' => self::s($r['proposed_name']),
                 'proposed_new' => (bool) ($r['proposed_new_item'] ?? false),
                 'pending' => $r['pending_action'] === null ? null : Words::of('ACTION', (string) $r['pending_action']),
+                'landing_why' => $st === 'landing' ? self::landingWhy($landing[(int) $r['listing_id']] ?? null) : null,
                 'link' => '/ui/review/listing/' . (int) $r['listing_id'],
                 'map_version' => (int) $r['map_version'],
                 'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'],
@@ -96,6 +100,9 @@ final class StoreProductsController
         $states = [['key' => null, 'label' => Words::STORE_STATE['all'], 'count' => array_sum($counts), 'href' => Html::url('/ui/review/store', ['state' => null] + $base),
             'current' => $state === null]];
         foreach (Queries::STORE_STATES as $s) {
+            if ($s === 'landing' && $counts[$s] === 0 && $state !== $s) {
+                continue; // a store with no landing page marked: its page is as before (LP6)
+            }
             $states[] = ['key' => $s, 'label' => Words::STORE_STATE[$s], 'count' => $counts[$s], 'href' => Html::url('/ui/review/store', ['state' => $s] + $base),
                 'current' => $state === $s, 'tone' => Words::tone('STORE_STATE', $s)];
         }
@@ -124,6 +131,20 @@ final class StoreProductsController
             'lookOnly' => $me->canDecide() ? null : Words::whoCan('mapping.decide'),
         // Back from a decision (the Check & match fold or the variant's page opened from it, docs/decisions.md CM3): what was done.
         ], 200, ['title' => Words::MENU['store_products'], 'active' => 'store_products', 'notice' => (new ReviewController())->notice($ctx, null)]);
+    }
+
+    /**
+     * "Why: the website itself calls it a landing page. Marked on 22 Oct 2026, 10:26 by the warehouse system." (LP6)
+     *
+     * @param array{reason: string, by: ?string, at: string}|null $why Queries::landingWhy()'s
+     */
+    public static function landingWhy(?array $why): string
+    {
+        if ($why === null) {
+            return Words::LANDING['why_unknown'];
+        }
+        return Words::LANDING['why_' . (isset(Words::LANDING['why_' . $why['reason']]) ? $why['reason'] : 'person')] . ' '
+            . ($why['by'] === null ? Words::say('LANDING', 'marked_cw', Html::when($why['at'])) : Words::say('LANDING', 'marked_by', Html::when($why['at']), $why['by']));
     }
 
     private static function s(mixed $v): ?string

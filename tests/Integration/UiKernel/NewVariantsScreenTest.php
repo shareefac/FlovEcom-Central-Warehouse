@@ -477,7 +477,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         // is counted from its own rows: both ways say the same, and each filter's list is as long as its count.
         $q = new Queries(self::$db);
         $whole = $q->newVariantCounts((int) $alt->channelId, null);
-        self::assertSame(['new' => 2, 'suggested' => 2, 'not_checked' => 2, 'linked' => 1, 'quarantined' => 0, 'waiting' => 1, 'ignored' => 1], $whole);
+        self::assertSame(['new' => 2, 'suggested' => 2, 'not_checked' => 2, 'linked' => 1, 'quarantined' => 0, 'waiting' => 1, 'ignored' => 1, 'landing' => 0], $whole);
         self::assertSame($whole, $q->newVariantCounts((int) $alt->channelId, '2020-01-01 00:00:00.000000'));
         $this->variant($alt, '1010', 'Very old one', 500 * 1440);
         $since = \CW\Clock::db(\CW\Clock::now()->modify('-30 days'));

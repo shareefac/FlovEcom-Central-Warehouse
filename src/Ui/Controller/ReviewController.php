@@ -44,6 +44,8 @@ final class ReviewController
         'decided_new_item' => Words::MATCH_NOTICE['decided_new_item'],
         'decided_ignore' => Words::MATCH_NOTICE['decided_ignore'],
         'decided_reject' => Words::MATCH_NOTICE['decided_reject'],
+        'decided_landing' => Words::MATCH_NOTICE['decided_landing'],
+        'decided_not_landing' => Words::MATCH_NOTICE['decided_not_landing'],
         'pending_second' => Words::MATCH_NOTICE['pending_second'],
         'approved' => Words::MATCH_NOTICE['approved'],
         'withdrawn' => Words::MATCH_NOTICE['withdrawn'],
@@ -51,7 +53,7 @@ final class ReviewController
         'shown_done' => Words::MATCH_NOTICE['shown_done'],
         'decided_unlink' => Words::MATCH_NOTICE['decided_unlink'],
     ];
-    public const ACTIONS = ['link', 'new_item', 'ignore', 'reject', 'unlink'];
+    public const ACTIONS = ['link', 'new_item', 'ignore', 'reject', 'unlink', 'landing', 'not_landing'];
     /** The nicotine types the new-product form offers (Matching\Normalizer's values). */
     private const NIC_TYPES = ['salt', 'freebase', 'zero', 'shortfill', 'nic_shot'];
     /** Example numbers for a refused number field of the new-product details. */
@@ -629,7 +631,13 @@ final class ReviewController
         $noForm = null;
         $showSearch = true;
         $changeMatch = false;
-        if (!$me->canDecide()) {
+        // A landing page (docs/decisions.md LP2): not a product, so nothing to match; its own box says why, and a matching lead can say it
+        // is a real product there.
+        $isLanding = (string) $l['status'] === 'landing';
+        if ($isLanding) {
+            $noForm = Words::LANDING['no_form'];
+            $showSearch = false;
+        } elseif (!$me->canDecide()) {
             $noForm = Words::LISTING['look_only'];
             $showSearch = false;
         } elseif ($spot !== null && !$spot['mine']) {
@@ -791,6 +799,11 @@ final class ReviewController
             ], $q->decisionsOf($id)),
             'form' => $values,
             'no_form' => $noForm,
+            // The landing page's box (LP2, LP6): why it is one, and "This is a real product" for a matching lead; on a product still to
+            // match, "Mark as a landing page" for whoever may decide it.
+            'landing' => $isLanding ? ['why' => StoreProductsController::landingWhy($q->landingWhy([$id])[$id] ?? null), 'can_real' => $lead && $pending === null]
+                : null,
+            'mark_landing' => !$isLanding && $noForm === null && !$spotMode && in_array((string) $l['status'], ['unmapped', 'suggested'], true),
             'preselect' => $preselect,
             'quick_link' => !$spotMode && $preselect === 'link' && $noForm === null && $form === null,
             'spot_yes' => $spotYes,
@@ -1251,6 +1264,10 @@ final class ReviewController
         }
         if ($action === 'ignore' && !isset($request['reason'])) {
             return $refuse(Words::MATCH_ERROR['ignore_why'], 'reason');
+        }
+        if ($action === 'not_landing' && !isset($request['reason'])) {
+            // "This is a real product" puts a landing page back in the lists for good (LP3): a matching lead says why.
+            return $refuse(Words::MATCH_ERROR['real_why'], 'reason');
         }
         if ($action === 'unlink' && !isset($request['reason'])) {
             // Undoing a match changes a stock link: one at a time, from this page, with a note (M53).

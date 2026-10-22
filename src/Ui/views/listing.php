@@ -13,7 +13,7 @@ $spotOther = $spot !== null && !$spot['mine'];
 $spotDone = $spot !== null && $spot['done'];
 // The answers come straight after the two product cards for a spot check's match and a strong match's quick yes (plan F203), else
 // after "Why the computer suggests this".
-$showDecide = $no_form === null || (!$spotOther && $pending === null);
+$showDecide = $landing === null && ($no_form === null || (!$spotOther && $pending === null));
 $early = $spot_mode || $quick_link;
 $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'change_spot' => $change_spot, 'change_target' => $change_target,
     'form' => $form, 'qq' => $qq, 'proposal' => $proposal, 'target' => $target, 'can_link' => $can_link, 'protected' => $protected,
@@ -38,6 +38,30 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
 
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?><?php if ($fieldId !== null): ?> <a href="#<?= $e($fieldId) ?>"><?= $word('LISTING', 'go_to_field') ?></a><?php endif; ?></p>
+<?php endif; ?>
+
+<?php if ($landing !== null): ?>
+<section class="card landing-box" id="landing" aria-labelledby="landing-h">
+  <h2 id="landing-h"><?= $word('LISTING_STATUS', 'landing') ?></h2>
+  <p><?= $word('LANDING', 'is_landing') ?></p>
+  <p class="muted"><?= $e($landing['why']) ?></p>
+<?php if ($landing['can_real']): ?>
+  <details class="confirm-step" id="real-product"<?php if ($error_field === 'reason'): ?> open<?php endif; ?>>
+    <summary class="btn secondary"><?= $word('ACTION', 'not_landing') ?></summary>
+    <p><?= $word('LANDING', 'real_text') ?></p>
+    <form method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide">
+      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="action" value="not_landing">
+      <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
+      <label for="f-reason"><?= $word('LANDING', 'real_why') ?></label>
+      <input type="text" id="f-reason" name="reason" maxlength="<?= $e($max_reason) ?>" required value="<?= $e($form['reason'] ?? '') ?>">
+      <p class="actions"><button type="submit" class="primary"><?= $word('LANDING', 'real_button') ?></button></p>
+    </form>
+  </details>
+<?php else: ?>
+  <p class="muted"><?= $word('LANDING', 'lead_only') ?></p>
+<?php endif; ?>
+</section>
 <?php endif; ?>
 
 <?php if ($strip !== null): ?>
@@ -303,6 +327,25 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
 
 <?php if (!$early && $showDecide): ?>
 <?= $partial('listing_decide', $decide) ?>
+<?php endif; ?>
+
+<?php if ($mark_landing): ?>
+<details class="fold mark-landing" id="mark-landing">
+  <summary><?= $word('LANDING', 'mark_legend') ?></summary>
+  <p><?= $word('LANDING', 'mark_text') ?></p>
+  <form method="post" action="/ui/review/listing/<?= $e($l['id']) ?>/decide">
+    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+    <input type="hidden" name="action" value="landing">
+    <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
+<?php if ($proposal !== null): ?>
+    <input type="hidden" name="proposal_id" value="<?= $e($proposal['id']) ?>">
+<?php endif; ?>
+<?php if (($form['seen'] ?? '') !== ''): ?>
+    <input type="hidden" name="seen" value="<?= $e($form['seen']) ?>">
+<?php endif; ?>
+    <p class="actions"><button type="submit" class="secondary"><?= $word('ACTION', 'landing') ?></button></p>
+  </form>
+</details>
 <?php endif; ?>
 
 <?php if ($compare !== []): ?>

@@ -6,6 +6,7 @@ namespace CW\Ui\Controller;
 
 use CW\CwException;
 use CW\Queues\Corrections;
+use CW\Queues\LandingOrders;
 use CW\Queues\ModeChanges;
 use CW\Queues\Oversells;
 use CW\Queues\QueueRules;
@@ -23,6 +24,7 @@ use CW\Ui\Words;
  *   ERPNext corrections count_review (ERPNext's)     confirm the figure (books the difference), or close   queues.corrections
  *   Mode changes        policy_review (ERPNext's)    accept the change, or keep what CW has                queues.modes
  *   Oversold            oversell_event               mark it handled with how and a note; add notes       queues.oversell
+ *   Website bugs        landing_order (0050, LP8)    mark it handled with how and a note                  queues.oversell
  * Everyone who reads records looks (queues.view, the GET routes); each POST needs its action's permission (the route) and is checked
  * again by its service (CW\Queues\*) inside its transaction. Every answer needs a note. A row is settled once: a second answer is
  * refused (409) and says so; a second click of the same booking shows its first answer. Plain words: Words::QUEUES, SUSPENSE,
@@ -47,6 +49,8 @@ final class StoreQueuesController
         $r->add('GET', self::PATH . '/oversold', 'queues.view', $c->oversold(...));
         $r->add('POST', self::PATH . '/oversold/{id}/handle', 'queues.oversell', $c->oversoldHandle(...));
         $r->add('POST', self::PATH . '/oversold/{id}/note', 'queues.oversell', $c->oversoldNote(...));
+        $r->add('GET', self::PATH . '/landing', 'queues.view', $c->landing(...));
+        $r->add('POST', self::PATH . '/landing/{id}/handle', 'queues.oversell', $c->landingHandle(...));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -182,6 +186,28 @@ final class StoreQueuesController
     }
 
     // ------------------------------------------------------------------------------------------
+    // Website bugs (landing_order: an order for a landing page, docs/decisions.md LP8)
+    // ------------------------------------------------------------------------------------------
+
+    public function landing(Context $ctx, int $status = 200, ?CwException $error = null): HtmlResponse
+    {
+        $state = QueueRules::status($ctx->req->param('status'));
+        $rows = (new LandingOrders($ctx->db))->list($state);
+        return $this->page($ctx, 'queue_landing', 'queue_landing', LandingOrders::PERM, $state, $rows, self::landingRow(...), $status, $error,
+            ['resolutions' => LandingOrders::RESOLUTIONS]);
+    }
+
+    public function landingHandle(Context $ctx): HtmlResponse
+    {
+        try {
+            (new LandingOrders($ctx->db))->handle($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('resolution') ?? ''), (string) ($ctx->req->field('note') ?? ''));
+        } catch (CwException $e) {
+            return $this->landing($ctx, $e->httpStatus, $e);
+        }
+        return HtmlResponse::redirect(Html::url(self::PATH . '/landing', ['notice' => 'handled']));
+    }
+
+    // ------------------------------------------------------------------------------------------
     // The rows in words
     // ------------------------------------------------------------------------------------------
 
@@ -273,6 +299,25 @@ final class StoreQueuesController
             'note_lines' => array_map(static fn (array $n): string => Words::say('OVERSOLD', 'note_by', (string) ($n['by_name'] ?? Words::QUEUES['someone']),
                 Html::when($n['created_at']), $n['note']), $r['notes']),
             'closed' => $r['status'] === 'open' ? null : Words::say('OVERSOLD', 'closed', Words::of('OVERSELL_RESOLUTION', (string) $r['resolution']),
+                Html::when((string) $r['resolved_at']), (string) ($r['resolved_by_name'] ?? Words::QUEUES['someone']), (string) ($r['note'] ?? '')),
+        ];
+    }
+
+    /** @param array<string, mixed> $r a LandingOrders::list() row @return array<string, mixed> */
+    public static function landingRow(array $r): array
+    {
+        $title = (string) ($r['product_title'] ?? '') !== '' ? (string) $r['product_title'] : ((string) ($r['variant_title'] ?? '') !== '' ? (string) $r['variant_title']
+            : Words::LISTING['no_title']);
+        return $r + [
+            'title' => Words::say('WEBSITE_BUG', 'title', (string) $r['order_ref'], $title),
+            'from' => Words::say('QUEUES', 'from', $r['store']['name'] ?? Words::QUEUES['store_unknown']),
+            'option' => Words::say('WEBSITE_BUG', 'option', (string) $r['external_variant_id']),
+            'units' => Words::say('WEBSITE_BUG', (int) $r['units'] === 1 ? 'unit' : 'units', (int) $r['units']),
+            'paid_line' => Words::WEBSITE_BUG[(int) $r['paid'] === 1 ? 'paid' : 'not_paid'],
+            'still' => $r['listing_status'] === 'landing' ? null : Words::WEBSITE_BUG['not_landing_now'],
+            'received' => Words::say('QUEUES', 'received', Html::when((string) $r['created_at'])),
+            'link' => '/ui/review/listing/' . (int) $r['listing_id'],
+            'closed' => $r['status'] === 'open' ? null : Words::say('WEBSITE_BUG', 'closed', Words::of('LANDING_RESOLUTION', (string) $r['resolution']),
                 Html::when((string) $r['resolved_at']), (string) ($r['resolved_by_name'] ?? Words::QUEUES['someone']), (string) ($r['note'] ?? '')),
         ];
     }

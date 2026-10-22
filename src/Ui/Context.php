@@ -384,6 +384,8 @@ final class Context
         }
         if ($this->who !== null && $this->who->can('queues.oversell')) {
             $out['queue_oversold'] = (new \CW\Queues\Oversells($this->db))->openCount();
+            // The website bugs (LP8): the same people sort out an order for a landing page with the customer.
+            $out['queue_landing'] = (new \CW\Queues\LandingOrders($this->db))->openCount();
         }
         // ---- end of pack F ----
         $checks = $this->checks();

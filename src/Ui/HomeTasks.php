@@ -30,6 +30,7 @@ final class HomeTasks
         'integrity_stale' => 6,
         'company_confirm' => 10,
         'approvals' => 20,
+        'website_bugs' => 22, // an order for a landing page (docs/decisions.md LP8): a customer waits for the right option
         'staff_requests' => 25,
         'setup_closed' => 27,
         'second_ok' => 30,
@@ -83,6 +84,7 @@ final class HomeTasks
         'receiving' => ['doc.GRN.post'],
         'stock_ops' => ['doc.SIN.post', 'doc.SOUT.post', 'doc.ADJ.post', 'doc.TRF.post', 'doc.REL.post'],
         'incidents' => ['incidents.resolve'],
+        'website_bugs' => ['queues.oversell'],
         'integrity' => ['system.view'],
         'staff_requests' => ['staff.approve'],
         'watch' => ['staff.approve'],
@@ -129,6 +131,7 @@ final class HomeTasks
      *  staff     {test: list<{id, name}>, reviewers: int, clashes: list<{id, name, off: list<string>}>}
      *  receiving {bench: int (deliveries not booked in that wait for the goods-in bench), to_post: int (checked at the bench, not booked in)}
      *  incidents int (open incidents, the badge's count)
+ *  website_bugs int (orders for a landing page not handled yet: the badge's count, LP8)
  *  integrity {ok: bool, problems: int, finished_at: string, hours: int}|null: the latest nightly safety check (null: none ran yet)
  *  staff_requests int (open requests for Admin or Reviewer this reviewer may decide)
  *  watch     list<{at: string, action: string, who: ?string, person: ?string, rule: ?string}>: people added, sign-ins reset and
@@ -264,6 +267,10 @@ final class HomeTasks
         }
         if ($can('incidents.resolve')) {
             $out[] = self::counted('incidents', (int) ($f['incidents'] ?? 0), '/ui/receiving/incidents');
+        }
+        // Website bugs (LP8): orders a store took for a landing page, for the people who sort orders out with the customer.
+        if ($can('queues.oversell')) {
+            $out[] = self::counted('website_bugs', (int) ($f['website_bugs'] ?? 0), '/ui/queues/landing');
         }
 
         // Staff access (the admin): test accounts, too few reviewers, jobs that Admin switches off.

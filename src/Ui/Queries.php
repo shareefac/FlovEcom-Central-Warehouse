@@ -135,7 +135,8 @@ final class Queries
     /**
      * Per site: listings by status and the units of the last 30 / 365 days (listing_profile) on
      * linked (mapped, quarantined), ignored and other listings. Listings without a profile have no
-     * units. Coverage = linked units / all units.
+     * units. Coverage = linked units / all units. A landing page (docs/decisions.md LP6) is not a product: it is in none of these
+     * figures; `landing` says how many a store has.
      *
      * @return array<int, array<string, int>> channel id => figures
      */
@@ -151,9 +152,14 @@ final class Queries
             . "COALESCE(SUM(IF(cl.status = 'ignored', lp.units_30d, 0)), 0) AS i30, "
             . 'COALESCE(SUM(lp.units_365d), 0) AS u365, COALESCE(SUM(IF(' . $linked . ', lp.units_365d, 0)), 0) AS l365, '
             . "COALESCE(SUM(IF(cl.status = 'ignored', lp.units_365d, 0)), 0) AS i365 "
-            . 'FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id GROUP BY cl.channel_id',
+            . "FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE cl.status <> 'landing' GROUP BY cl.channel_id",
         ) as $r) {
-            $out[(int) $r['channel_id']] = array_map('intval', $r);
+            $out[(int) $r['channel_id']] = array_map('intval', $r) + ['landing' => 0];
+        }
+        foreach ($this->db->all("SELECT channel_id, COUNT(*) AS n FROM channel_listing WHERE status = 'landing' GROUP BY channel_id") as $r) {
+            $out[(int) $r['channel_id']] ??= ['channel_id' => (int) $r['channel_id'], 'listings' => 0, 'linked_listings' => 0, 'u30' => 0, 'l30' => 0, 'i30' => 0, 'u365' => 0,
+                'l365' => 0, 'i365' => 0];
+            $out[(int) $r['channel_id']]['landing'] = (int) $r['n'];
         }
         return $out;
     }
@@ -527,7 +533,7 @@ final class Queries
     // ------------------------------------------------------------------------------------------
 
     /** Store Products' state filter (a website product's link state, in this order of precedence). */
-    public const STORE_STATES = ['waiting', 'quarantined', 'ignored', 'linked', 'suggested', 'not_matched'];
+    public const STORE_STATES = ['waiting', 'quarantined', 'ignored', 'landing', 'linked', 'suggested', 'not_matched'];
     /** Store Products' sorts: units in 30 days or in 1 year, best sellers first. */
     public const STORE_SORTS = ['sold_30' => 'units_30d', 'sold_365' => 'units_365d'];
 
@@ -561,7 +567,7 @@ final class Queries
             . 'COALESCE(SUM(lp.units_30d), 0) AS u30, COALESCE(SUM(IF(' . $linked . ', lp.units_30d, 0)), 0) AS l30 '
             . 'FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id LEFT JOIN listing_profile lp ON lp.listing_id = cl.id '
             // A proposal without a lane is no merge suggestion (COALESCE: NOT NULL would drop it).
-            . "WHERE NOT COALESCE({$dup}, FALSE) AND NOT EXISTS (SELECT 1 FROM match_proposal pn WHERE pn.listing_id = p.listing_id AND pn.id > p.id "
+            . "WHERE cl.status <> 'landing' AND NOT COALESCE({$dup}, FALSE) AND NOT EXISTS (SELECT 1 FROM match_proposal pn WHERE pn.listing_id = p.listing_id AND pn.id > p.id "
             . "AND NOT COALESCE({$dup2}, FALSE)) "
             . 'GROUP BY cl.channel_id, p.band',
         ) as $r) {
@@ -612,6 +618,7 @@ final class Queries
 
     /** The SQL of a website product's link state (STORE_STATES; `pd` the pending decision, `p` the open suggestion, joined): the page's rows. */
     private const STATE_SQL = "CASE WHEN pd.id IS NOT NULL THEN 'waiting' WHEN cl.status = 'quarantined' THEN 'quarantined' WHEN cl.status = 'ignored' THEN 'ignored' "
+        . "WHEN cl.status = 'landing' THEN 'landing' "
         . "WHEN cl.status = 'mapped' THEN 'linked' WHEN p.id IS NOT NULL THEN 'suggested' ELSE 'not_matched' END";
     private const STATE_JOINS = 'LEFT JOIN match_decision pd ON pd.pending_listing_id = cl.id LEFT JOIN match_proposal p ON p.open_listing_id = cl.id ';
     private const NOT_WAITING = 'NOT EXISTS (SELECT 1 FROM match_decision pw WHERE pw.pending_listing_id = cl.id)';
@@ -623,6 +630,7 @@ final class Queries
         'waiting' => 'EXISTS (SELECT 1 FROM match_decision pw WHERE pw.pending_listing_id = cl.id)',
         'quarantined' => "cl.status = 'quarantined' AND " . self::NOT_WAITING,
         'ignored' => "cl.status = 'ignored' AND " . self::NOT_WAITING,
+        'landing' => "cl.status = 'landing' AND " . self::NOT_WAITING,
         'linked' => "cl.status = 'mapped' AND " . self::NOT_WAITING,
         'suggested' => "cl.status IN ('unmapped', 'suggested') AND EXISTS (SELECT 1 FROM match_proposal po WHERE po.open_listing_id = cl.id) AND " . self::NOT_WAITING,
         'not_matched' => "cl.status IN ('unmapped', 'suggested') AND NOT EXISTS (SELECT 1 FROM match_proposal po WHERE po.open_listing_id = cl.id) AND "
@@ -638,7 +646,7 @@ final class Queries
      */
     public function storeStateCounts(int $channelId): array
     {
-        $by = array_fill_keys(['unmapped', 'suggested', 'mapped', 'ignored', 'quarantined'], 0);
+        $by = array_fill_keys(['unmapped', 'suggested', 'mapped', 'ignored', 'quarantined', 'landing'], 0);
         foreach ($this->db->all('SELECT status, COUNT(*) AS n FROM channel_listing WHERE channel_id = ? GROUP BY status', [$channelId]) as $r) {
             $by[(string) $r['status']] = (int) $r['n'];
         }
@@ -653,6 +661,7 @@ final class Queries
             'waiting' => array_sum($waiting),
             'quarantined' => $by['quarantined'] - $waiting['quarantined'],
             'ignored' => $by['ignored'] - $waiting['ignored'],
+            'landing' => $by['landing'] - $waiting['landing'],
             'linked' => $by['mapped'] - $waiting['mapped'],
             'suggested' => $suggested,
             'not_matched' => $by['unmapped'] + $by['suggested'] - $waiting['unmapped'] - $waiting['suggested'] - $suggested,
@@ -731,7 +740,7 @@ final class Queries
      * store's list it found nothing like it; the only kind a bulk seed takes, and not every one of them: BulkDecisions::seedCheck)
      * and `suggested` (any other open suggestion: a match to an item, or one the computer could not decide).
      */
-    public const NEW_KINDS = ['new', 'suggested', 'not_checked', 'linked', 'quarantined', 'waiting', 'ignored'];
+    public const NEW_KINDS = ['new', 'suggested', 'not_checked', 'linked', 'quarantined', 'waiting', 'ignored', 'landing'];
     /** New Variants' filter (null = every variant): all still to match, then each kind of them. */
     public const NEW_FILTERS = ['unmatched', 'new', 'suggested', 'not_checked'];
     /** The kinds still to match (the filter `unmatched`): the rows a bulk action can be ticked for, and the ones that say what the website says of them. */
@@ -748,6 +757,7 @@ final class Queries
     /** An open suggestion `p` that says "new product": what BulkDecisions' new-product check asks for, both marks. */
     private const IS_NEW_ITEM = "(p.proposed_new_item = 1 AND p.band = 'New item')";
     private const NEW_KIND_SQL = "CASE WHEN pd.id IS NOT NULL THEN 'waiting' WHEN cl.status = 'quarantined' THEN 'quarantined' WHEN cl.status = 'ignored' THEN 'ignored' "
+        . "WHEN cl.status = 'landing' THEN 'landing' "
         . "WHEN cl.status = 'mapped' THEN 'linked' WHEN p.id IS NULL THEN 'not_checked' WHEN " . self::IS_NEW_ITEM . " THEN 'new' ELSE 'suggested' END";
     /** Still to match: not matched, not ignored, no decision waiting for a second OK. */
     private const NEW_UNMATCHED = "cl.status IN ('unmapped', 'suggested') AND " . self::NOT_WAITING;
@@ -845,7 +855,7 @@ final class Queries
             $new = (int) $this->db->value("SELECT COUNT(*) FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id WHERE p.status = 'open' "
                 . "AND p.band = 'New item' AND p.proposed_new_item = 1 AND cl.channel_id = ? AND " . self::NEW_UNMATCHED, [$channelId]);
             return ['new' => $new, 'suggested' => max(0, $store['suggested'] - $new), 'not_checked' => $store['not_matched'], 'linked' => $store['linked'],
-                'quarantined' => $store['quarantined'], 'waiting' => $store['waiting'], 'ignored' => $store['ignored']];
+                'quarantined' => $store['quarantined'], 'waiting' => $store['waiting'], 'ignored' => $store['ignored'], 'landing' => $store['landing']];
         }
         // The alias is not `state`: GROUP BY would take match_decision's column of that name before it.
         foreach ($this->db->all('SELECT ' . self::SEEN_JOIN_HINT . self::NEW_KIND_SQL . ' AS kind, COUNT(*) AS n FROM channel_listing cl ' . self::STATE_JOINS
@@ -1787,6 +1797,29 @@ final class Queries
     }
 
     /** Escapes LIKE wildcards for a `LIKE ? ` (MySQL's default escape character is the backslash). */
+    /**
+     * Why each of some website products is a landing page (docs/decisions.md LP6): the latest applied `landing` decision of each, its
+     * reason (LandingRule::REASONS, or `person`), who (null: the system) and when.
+     *
+     * @param list<int> $listingIds
+     * @return array<int, array{reason: string, by: ?string, at: string, source: ?string}>
+     */
+    public function landingWhy(array $listingIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $listingIds)));
+        $out = [];
+        foreach (array_chunk($ids, 200) as $chunk) {
+            foreach ($this->db->all("SELECT d.listing_id, d.created_at, u.display_name, JSON_UNQUOTE(JSON_EXTRACT(d.detail, '$.landing.reason')) AS reason, "
+                . "JSON_UNQUOTE(JSON_EXTRACT(d.detail, '$.landing.source')) AS source FROM match_decision d LEFT JOIN staff_user u ON u.id = d.decided_by "
+                . "WHERE d.action = 'landing' AND d.state = 'applied' AND d.listing_id IN (" . implode(',', array_fill(0, count($chunk), '?')) . ') ORDER BY d.listing_id, d.id', $chunk) as $r) {
+                $out[(int) $r['listing_id']] = ['reason' => is_string($r['reason']) && $r['reason'] !== 'null' ? $r['reason'] : 'person',
+                    'by' => $r['display_name'] === null ? null : (string) $r['display_name'], 'at' => (string) $r['created_at'],
+                    'source' => is_string($r['source']) && $r['source'] !== 'null' ? $r['source'] : null];
+            }
+        }
+        return $out;
+    }
+
     public static function escapeLike(string $s): string
     {
         return addcslashes($s, '\\%_');

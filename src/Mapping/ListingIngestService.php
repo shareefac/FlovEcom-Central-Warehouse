@@ -76,8 +76,13 @@ final class ListingIngestService
         if (!$caller->isChannel()) {
             throw new CwException('channel_required', 'listings are pushed by a site', 403);
         }
+        $r = $this->ingest($caller, (int) $caller->channelId, $listings);
+        // Landing pages on arrival (docs/decisions.md LP4): the products whose profile or website state changed, and the other products
+        // of their pages, after the intake's transaction has committed; each mark is a decision of its own, and a failure never costs
+        // the push (LandingPages::onArrival() logs it).
+        (new LandingPages($this->db))->onArrival((int) $caller->channelId, $r['landing_check']);
         // (a site is answered what it always was: the counts of the website state are in the audit row)
-        return array_diff_key($this->ingest($caller, (int) $caller->channelId, $listings), ['website' => true]);
+        return array_diff_key($r, ['website' => true, 'landing_check' => true]);
     }
 
     /**
@@ -85,7 +90,8 @@ final class ListingIngestService
      * website state the listings carry was true (an import: its export's time); not given: now (a push says what is true now).
      * `website` counts the states: written, values ignored for their type, states left because the stored one is newer.
      *
-     * @return array{received: int, created: int, updated: int, unchanged: int, listings: list<array<string, mixed>>, website: array{written: int, ignored: int, older: int}}
+     * @return array{received: int, created: int, updated: int, unchanged: int, listings: list<array<string, mixed>>, website: array{written: int, ignored: int, older: int},
+     *     landing_check: list<int>}
      */
     public function ingest(Caller $caller, int $channelId, mixed $listings, ?\DateTimeImmutable $stateAt = null): array
     {
@@ -133,6 +139,7 @@ final class ListingIngestService
             $out = [];
             $stale = [];
             $queued = 0;
+            $landing = [];
             $site = ['written' => 0, 'ignored' => 0, 'older' => 0];
             $mark = ", arrival_state = 'queued', arrival_seq = arrival_seq + 1, arrival_channel_id = ?";
             foreach ($variants as $v) {
@@ -190,6 +197,10 @@ final class ListingIngestService
                 }
                 $counts[$result]++;
                 $out[] = ['variant_id' => $v, 'listing_id' => $id, 'result' => $result, 'identity_changed' => $identityChanged];
+                // What the landing-page check looks at again (LP4): a new or changed profile, or a website state that says something new.
+                if ($result !== 'unchanged' || ($state !== null && ($before === null || SiteState::changed($before, $state)))) {
+                    $landing[] = $id;
+                }
                 if ($identityChanged && isset($preexisting[$id])) {
                     $stale[] = $id; // a listing people may have looked at or decided on (a row created now: nobody has)
                 }
@@ -200,7 +211,7 @@ final class ListingIngestService
             Audit::write($db, $caller, 'listing.profiles', 'channel', (string) $channelId, null,
                 $counts + ['received' => count($variants), 'new_listings' => $created, 'identity_changed' => $bumped, 'arrival_queued' => $queued,
                     'website' => $site['written'], 'website_ignored' => $site['ignored'], 'website_older' => $site['older']]);
-            return ['received' => count($variants)] + $counts + ['listings' => $out, 'website' => $site];
+            return ['received' => count($variants)] + $counts + ['listings' => $out, 'website' => $site, 'landing_check' => $landing];
         });
     }
 

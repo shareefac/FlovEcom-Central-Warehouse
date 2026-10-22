@@ -11321,3 +11321,87 @@ The new test failed first (`runs/searchix_r1_red.log`) and passes now:
   (`ix_listing_profile_search_all` is `(listing_id, search_all)`), and New Variants reads a search's ids by the primary key, not the
   period's index.
 
+
+## Landing pages are not products (branch `landing-pages`, on `search-index`, 22 Oct 2026; LP1-LP12)
+
+The owner (21-22 Oct 2026): "Landing pages are not real products. Even if you see any sale on it, that only means something is broken
+and somehow customers were able to add the landing pages to cart. So a proper fix is needed about the landing pages in Central
+Warehouse live." A one-off clean-up list was rejected ("won't help in the long run"). The facts, the measure and the open choices:
+`/root/cw_work/LANDING_PAGES_DESIGN.md`. In short: a shop keeps a product's landing page (the page where the customer picks 10mg or
+20mg) as one more option row (`product_types_and_pricing.prodt_islanding = 1`, nearly always also the default row); the connector
+(0.4.6, in the shops' admin trees, not in this repo) pushes every option row, landing rows included, and sends no `website` object;
+the shop's `add_cart()` reads the flag but inserts the row before it throws (`Website/config/modules/cart.php:55-69`), and nothing
+after the cart checks it. Code: `migrations/0050_landing_pages.sql`, `src/Mapping/LandingRule.php`, `src/Mapping/LandingPages.php`,
+`bin/landing_pages.php` (new), `src/Mapping/DecisionService.php`, `src/Mapping/ListingIngestService.php`, `src/Reservations.php`,
+`src/Queues/LandingOrders.php` (new), `src/Queues/QueueRules.php`, `src/Schema/Grants.php`, `src/Ops/Alerts.php`,
+`src/Ops/AlertDispatch.php`, `src/Ui/Queries.php`, the controllers of Store Products, the variant's page and the stores' queues,
+`src/Ui/HomeTasks.php`, `src/Ui/HomeCounts.php`, `src/Ui/Context.php`, `src/Ui/Sections.php`, `src/Ui/Words.php`, the views
+`store_products`, `listing`, `queue_landing` (new). Tests: `tests/Unit/LandingRuleTest.php`, `tests/Integration/Migration0050Test.php`,
+`tests/Integration/Mapping/LandingPagesTest.php`, `tests/Integration/Stock/LandingOrderTest.php`,
+`tests/Integration/UiKernel/LandingPagesScreenTest.php` (new).
+
+**LP1. A kind of its own: `channel_listing.status = 'landing'`** ("Landing page (not a product)"). No item (the CHECK of 0001 holds).
+Not `ignored`: the reports and people tell the two apart. 0050 adds the value, the two decisions, the website-bug table and one
+setting, and classifies no row. Both altered tables are copied once, said out loud: this server refuses the ENUM change of
+`channel_listing` in place (the column is named by a CHECK), and `match_decision`'s replaced CHECK is checked against every row.
+
+**LP2. Two decisions, through DecisionService** (still the only writer of a listing's status), like ignore / unignore (M48).
+`landing`: by the SYSTEM (on arrival, or the classifying tool; `decided_by` NULL, the 0050 CHECK allows a system `suggest` or
+`landing` only) with why in `match_decision.detail.landing` (`reason` website_flag / same_page / person, `rule` lp1, `source`
+arrival / tool, `evidence`), or by a person who may decide (the variant's page: "Is this a landing page?"). Only an unlinked
+product (`unmapped`, `suggested`; `ignored` when asked): a linked one is refused (409 `linked`: unlinking changes a stock link,
+a person does it on its page). The system settles whichever suggestion is open under the lock; a person names it (I7). The system
+leaves a product decided one at a time (OneAtATime: held back, a spot check's match, found on arrival) to a person (409
+`one_at_a_time`). `not_landing` ("This is a real product"): a MATCHING LEAD only (403 `lead_required`), with a note (the page asks
+for it); back to its list (suggested when a suggestion is open, else not matched). Every other decision on a landing page is refused
+(409 `landing_page`): nothing is matched to it, made of it or rejected for it until a lead says it is real.
+
+**LP3. Never back and forth.** The system only ever marks, never unmarks. It never marks again a product a person said is real (an
+applied `not_landing`: 409 `said_real`), whatever the rule or the website's flag says later; a person may. A landing page the rule or
+the flag no longer finds stays one (the tool lists it as `no_longer`). A later rule is a new version (`lp1` is recorded with each
+mark), so its marks can be told from these; it does not undo them.
+
+**LP4. On arrival.** After a listing push (`ListingIngestService::push()`), outside its transaction, the pushed products whose profile
+was created or changed, or whose website state says something new, AND the other products of their pages are classified
+(`LandingPages::onArrival()`): a landing page that arrived before its options is found when they arrive. Each mark is a decision of its
+own; a failure is logged and never costs the push; the answer to the site is unchanged. The website's flag always marks; the rule only
+while `mapping.landing_rule_on_arrival` is on (Settings › Matching products; on; provisional). The import of export files does not
+classify: the tool does.
+
+**LP5. Existing rows: `php bin/landing_pages.php --channel=<code> [--dry-run | --apply] [--include-ignored] [--list]`.** A dry run by
+default (no write, no lock): what it would mark and why, what it leaves and why (linked, said_real, one_at_a_time, waiting,
+ignored, no_longer), why the others are not landing pages. `--apply`: each mark a decision (actor `system:landing_pages`), one
+`landing.run` audit row with the counts. Re-runnable: a second run finds nothing new. The owner runs it per store after the deploy.
+
+**LP6. Out of every matching list, count and progress line.** They read `unmapped` / `suggested` (the match-strength lists and their
+counts, Home's, New Variants' "still to match", the pickers, the bulk lists, the check on arrival); a mark also settles the
+suggestion. Store Products gains the state "Landing pages" (its count, its filter, why each is one and who marked it when); New
+Variants a kind of the same name; coverage (Matching progress, the Dashboard) and the "By store" figures leave landing pages out.
+
+**LP7. An order for a landing page is a website bug, never a stock event.** Its line is an unlinked line as before (no bucket, never
+refused, the same answer to the site), and `Reservations::flagLandingLines()` writes one `landing_order` row per order and landing
+page in the order's own transaction (a hold, a payment, an opening order). A later call adds the reservation, the units and the
+payment; a payment that comes after a person handled the row while it was unpaid opens it again (audit `landing_order.reopened`).
+The R4 adoption is unchanged: if a lead later says the page is a real product and it is matched, its old units are adopted as any
+unlinked units are.
+
+**LP8. Approvals › From the stores › Website bugs** (`/ui/queues/landing`): each order with its store, number, the landing page and its
+option number, the units, paid or not, "No stock moved for it"; marked handled (fixed by hand, refunded, nothing needed) with a note,
+once. Who: `queues.oversell` (the people who sort orders out with the customer; looking: `queues.view`). The badge and a Home card
+("Website bugs: orders for a landing page") count the open ones for them.
+
+**LP9. The alert.** `bin/health_alert.php` (every 2 minutes; Settings › Alerts' web address and e-mail) has the problem
+`landing_order:<store>` while one is open: "Website bug: an order on <store> for the landing page <title> (option <n>, order <ref>)",
+with how many are open. One alert per store, sent again at most once per `alerts.repeat_minutes`, "back to normal" when all are handled.
+
+**LP10.** An unmatched REAL product behaves exactly as before: in its lists, its order lines unlinked, adopted on its link.
+
+**LP11. The rule, measured** (blind, against the shops' own flag; the design file). Page found by the product number: Vape and Go
+4,111 called landing pages, 4,109 right, 2 binned parent rows the shop did not flag, 361 missed (titles edited); Electrofag 1,078 of
+1,103, none wrong. By the web address alone (what a bare push gives): Vape and Go 1,343 of 4,470, 1 wrong (the same binned row);
+Electrofag 874 of 1,103, none wrong. Not one product with a single option was called one (Vape and Go 3,386, Electrofag 205). Rejected:
+"the same product title on the store" as the page (6 real single-option products would have been marked).
+
+**LP12. Open, for the owner** (NEEDS-OWNER in the design file): connector 0.4.7 sending `website` (it is in the shops' trees; deployed
+per box); the shop's own fix; whether landing pages staff ignored are moved (`--include-ignored`); linked landing pages (listed, a
+person unlinks); refusing a landing page at checkout on a Live store (not done: recorded and alerted only); hourly reminders.

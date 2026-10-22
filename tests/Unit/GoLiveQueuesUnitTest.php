@@ -70,7 +70,8 @@ final class GoLiveQueuesUnitTest extends TestCase
         self::assertFalse(Permissions::can(['admin'], 'queues.view'));
         self::assertFalse(Permissions::can(['purchasing_desk'], 'queues.corrections'), 'a correction moves stock without a count: the stock controller\'s');
         $tab = Sections::MAP['approvals']['tabs']['store_queues'];
-        self::assertSame(['queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold'], array_column($tab['pages'], 'key'));
+        self::assertSame(['queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing'], array_column($tab['pages'], 'key'),
+            'and the website bugs (0050, LP8)');
         self::assertSame(['approvals', 'store_queues', 'queue_modes'], array_values(Sections::locate('/ui/queues/modes')));
         self::assertSame('Approvals › From the stores › Oversold', Sections::where('/ui/queues/oversold'));
     }

@@ -90,6 +90,8 @@
       <td class="c-wide" data-label="<?= $word('STORE_PRODUCTS', 'warehouse') ?>">
 <?php if ($r['sku_code'] !== null): ?>
         <?= $e($r['sku_code']) ?> <span class="muted"><?= $e($r['sku_name']) ?></span><span class="o-sub"><?= $e($r['sale_uses']) ?></span>
+<?php elseif ($r['landing_why'] !== null): ?>
+        <span class="o-sub landing-why"><?= $e($r['landing_why']) ?></span>
 <?php elseif ($r['band'] !== null && $r['state'] !== 'ignored'): ?>
         <span class="tag band <?= $e(\CW\Ui\Words::tone('BAND', $r['band'])) ?>"><?= $word('BAND', $r['band']) ?></span>
 <?php if ($r['proposed_new']): ?>

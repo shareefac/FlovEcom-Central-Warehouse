@@ -63,6 +63,8 @@ final class Words
         // Pack F (PF5-PF10)
         'QUEUE_STATE', 'QUEUES', 'RELAY_KIND', 'RELAY_REASON', 'SUSPENSE', 'CORRECTIONS', 'MODES', 'OVERSOLD', 'OVERSELL_KIND', 'OVERSELL_RESOLUTION',
         'QUEUE_NOTICE', 'QUEUE_ERROR', 'ALERT',
+        // 0050: landing pages (docs/decisions.md LP1-LP12)
+        'LANDING', 'WEBSITE_BUG', 'LANDING_RESOLUTION',
         'ROLES_EDIT', 'ROLES_ERROR', 'REPORTS', // Pack E
         // --- Pack G (the reorder engine)
         'REORDER_ENGINE', 'REORDER_ENGINE_ERROR', 'REORDER_ENGINE_NOTICE', 'REORDER_SUPPLIERS', 'REORDER_LOW', 'REORDER_LOW_SKIP',
@@ -320,6 +322,7 @@ final class Words
         'queue_corrections' => 'ERPNext corrections',
         'queue_modes' => 'Mode changes',
         'queue_oversold' => 'Oversold',
+        'queue_landing' => 'Website bugs', // 0050 (LP8)
         // --- Pack G (Purchasing › Reorder) ---
         'reorder_suppliers' => 'Suppliers',
         'low_stock_levels' => 'Low-stock warnings',
@@ -459,6 +462,7 @@ final class Words
         'queue_corrections' => 'ERPNext corrections waiting for your answer',
         'queue_modes' => 'mode changes waiting for your answer',
         'queue_oversold' => 'oversold orders not handled yet',
+        'queue_landing' => 'orders for landing pages not handled yet', // 0050 (LP8)
     ];
 
     /** Permissions::COMING_LATER key => words for Home's "Coming later" line (no phase codes, no dates). */
@@ -700,6 +704,8 @@ final class Words
             'Accept a change, or keep what the warehouse system has, each with a note.'],
         'queue_oversold' => ['Paid orders the warehouse did not have the stock for.',
             'Sort each one out with the customer, add notes as you go, then mark it handled.'],
+        'queue_landing' => ['Orders a website took for a landing page. A landing page is not a product, so each one is a website bug. No stock moved for it.',
+            'Fix each order by hand with the customer, then mark it handled with a note.'],
         // ---- Pack E
         'stock_by_store' => ['What each store can sell now, from the warehouse it sells from.', 'Choose a store. Open a product to see every change to its stock.'],
         'sales_by_store' => ['Orders and units each store sold, day by day.', 'Choose the days. The figures come from the orders the stores send to CW.'],
@@ -902,6 +908,8 @@ final class Words
         'split' => 'Undo the join',
         'unignore' => 'Take off the ignored list',
         'send_back' => 'Send back for matching',
+        'landing' => 'Mark as a landing page (not a product)',
+        'not_landing' => 'This is a real product',
     ];
 
     public const DECISION_STATE = [
@@ -916,6 +924,7 @@ final class Words
         'mapped' => 'Matched',
         'ignored' => 'Ignored',
         'quarantined' => 'On hold (shows as out of stock)',
+        'landing' => 'Landing page (not a product)',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2439,6 +2448,7 @@ final class Words
         'mapping.arrival_max_seconds' => 'Longest one run of the check may take, in seconds',
         'mapping.arrival_queue_alarm' => 'Most waiting variants the timer takes by itself',
         'mapping.arrival_state_max_days' => 'How old the website\'s state may be',
+        'mapping.landing_rule_on_arrival' => 'Find landing pages by the rule when they arrive', // 0050 (LP4)
         // ---- Pack E
         'reports.low_stock_default' => 'Low stock: units left',
         'reports.slow_after_days' => 'Slow stock: days without a sale',
@@ -2974,6 +2984,13 @@ final class Words
                 . 'or set the supplier invoice of.',
             'what' => 'You look at what arrived and where it went, then say OK or Not OK. Not OK takes the delivery back.',
             'button' => 'Check them',
+        ],
+        'website_bugs' => [ // 0050 (LP8)
+            'title' => 'Website bugs: orders for a landing page',
+            'unit' => ['order', 'orders'],
+            'text' => 'A customer ordered a landing page. It is not a product, so the website let through something it should not. No stock moved.',
+            'what' => 'You fix each order by hand with the customer, then mark it handled.',
+            'button' => 'Open the website bugs',
         ],
         'incidents' => [
             'title' => 'Open incidents from deliveries',
@@ -3727,6 +3744,9 @@ final class Words
         'mapping.arrival_state_max_days' => 'In days. The warehouse keeps what each website last said of a variant: whether it is on sale, and '
             . 'whether it is a page heading. "Create as new items" takes a variant only while that is known and not older than this. An older '
             . 'state reads as not known: such a variant is skipped until its store\'s list is loaded again, or a person opens it and decides.',
+        'mapping.landing_rule_on_arrival' => 'On: a new website product is marked as a landing page when the rule is sure: it has no option of its own, '
+            . 'and other options of the same page have one. Off: only when the website itself says it is a landing page. A matching lead can '
+            . 'always put one back as a real product.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
         // How long a person stays signed in (0047, docs/decisions.md SL4): the words never repeat the value (rule 20).
@@ -4103,6 +4123,8 @@ final class Words
         'split' => 'join undone',
         'unignore' => 'taken off the ignored list',
         'send_back' => 'sent back for matching',
+        'landing' => 'marked as a landing page',
+        'not_landing' => 'put back as a real product',
         'seed' => 'made from this website product',
     ];
 
@@ -4477,6 +4499,8 @@ final class Words
         // After the last row of a list that is narrowed (what it shows, found by, units sold, a search): the list itself may hold more.
         'shown_done' => 'That was the last one of what this list is showing.',
         'decided_unlink' => 'Done: the match of %s is undone. It is back in its list.',
+        'decided_landing' => 'Done: %s is marked as a landing page. It is in no matching list now.',
+        'decided_not_landing' => 'Done: %s is a real product again. It is back in its list.',
         'next' => 'Here is the next one.',
         'the_product' => 'the website product',
     ];
@@ -4486,6 +4510,12 @@ final class Words
      * `*_settle`: the same code when approving or cancelling a waiting decision.
      */
     public const MATCH_ERROR = [
+        // landing pages (docs/decisions.md LP2, LP3)
+        'real_why' => 'Write why it is a real product. Nothing was saved.',
+        'landing_page' => 'Not saved: this is a landing page, not a product. A matching lead can say it is a real product first.',
+        'not_landing' => 'Not saved: this website product is not a landing page.',
+        'linked' => 'Not saved: this website product is matched. Undo the match on its page first.',
+        'said_real' => 'Not saved: a matching lead said this is a real product.',
         'map_version_conflict' => 'Not saved: this website product changed while you were looking (renamed on the website, or someone else decided it). '
             . 'The page now shows it as it is. Check it and save again.',
         'map_version_conflict_settle' => 'Not approved: the website product changed since this decision was made. Cancel the decision and decide again.',
@@ -4780,6 +4810,7 @@ final class Words
         'waiting' => 'Waiting for a second OK',
         'quarantined' => 'On hold',
         'ignored' => 'Ignored',
+        'landing' => 'Landing pages',
         'linked' => 'Matched',
         'suggested' => 'Suggested',
         'not_matched' => 'Not matched',
@@ -5111,6 +5142,7 @@ final class Words
         'quarantined' => 'On hold',
         'waiting' => 'Waiting for a second OK',
         'ignored' => 'Ignored',
+        'landing' => 'Landing page (not for sale)',
     ];
 
     /** New Variants' filter (Queries::NEW_FILTERS and `all`). "New" is what "Create as new items" takes. */
@@ -9910,6 +9942,53 @@ final class Words
         'no_action' => 'Nothing needed',
     ];
 
+    // ---- 0050: landing pages (docs/decisions.md LP1-LP12) ------------------------------------------------------------
+
+    /** A landing page: the page where the customer picks an option (Store Products, the variant's page, CW\Mapping\LandingRule::REASONS). */
+    public const LANDING = [
+        'why_website_flag' => 'Why: the website itself calls it a landing page.',
+        'why_same_page' => 'Why: it has no option of its own, and other options of the same page have one.',
+        'why_person' => 'Why: a person marked it.',
+        'why_unknown' => 'Why: not known.',
+        'marked_cw' => 'Marked on %s by the warehouse system.',
+        'marked_by' => 'Marked on %s by %s.',
+        'is_landing' => 'This is a landing page of the website: the page where the customer picks an option. It is not sold itself, so it is in no '
+            . 'matching list. An order for it is a website bug.',
+        'no_form' => 'This is a landing page, not a product. There is nothing to match.',
+        'real_text' => 'Only if customers really buy this option as it is. It goes back to its matching list, and the warehouse system will not '
+            . 'mark it again.',
+        'real_why' => 'Why is it a real product?',
+        'real_button' => 'Yes, it is a real product: put it back in its list',
+        'lead_only' => 'Only a matching lead can put a landing page back as a real product.',
+        'mark_legend' => 'Is this a landing page?',
+        'mark_text' => 'A landing page is the page where the customer picks an option, like 10mg or 20mg. It is not sold itself. Marked, it leaves '
+            . 'every matching list. A matching lead can put it back.',
+    ];
+
+    /** Approvals › From the stores › Website bugs (LandingOrders). */
+    public const WEBSITE_BUG = [
+        'title' => 'Order %s: the landing page "%s"',
+        'option' => 'Option number %s on the website.',
+        'unit' => '%s unit ordered.',
+        'units' => '%s units ordered.',
+        'paid' => 'Paid.',
+        'not_paid' => 'Not paid yet.',
+        'no_stock' => 'No stock moved for it.',
+        'not_landing_now' => 'Since then a matching lead said this is a real product.',
+        'handle_legend' => 'Mark it handled',
+        'how' => 'How it was sorted out',
+        'handle' => 'Mark handled',
+        'closed' => 'Handled on %2$s by %3$s (%1$s): %4$s',
+        'none_open_text' => 'An order arrives here when a customer orders a landing page of a store. That should not happen: tell the website team.',
+    ];
+
+    /** How an order for a landing page was sorted out (LandingOrders::RESOLUTIONS). */
+    public const LANDING_RESOLUTION = [
+        'fixed_by_hand' => 'Fixed by hand: the right option was sent',
+        'refunded' => 'Refunded',
+        'no_action' => 'Nothing needed',
+    ];
+
     /** The notice after an answer on Approvals › From the stores (the item's code where one was picked). */
     public const QUEUE_NOTICE = [
         'booked' => 'Booked on %s. The line is done.',
@@ -9965,6 +10044,10 @@ final class Words
         'invariants_failed' => 'The last nightly safety check found %s problems.',
         'invariants_stale' => 'No nightly safety check has finished for %s hours.',
         'invoice_submit_failed' => '%s timed supplier invoices could not be made final (%s): see Purchasing › Invoices › Timed.', // pack J (PJ11)
+        // 0050 (LP9): the store, the landing page's title, its option number on the website, the order, how many are open
+        'landing_order' => 'Website bug: an order on %s for the landing page %s (option %s, order %s). Fix it by hand: Approvals › From the stores › Website bugs.',
+        'landing_orders' => 'Website bug: an order on %1$s for the landing page %2$s (option %3$s, order %4$s). %5$s such orders are open: '
+            . 'Approvals › From the stores › Website bugs.',
         'cleared' => 'Back to normal: %s',
         'seconds' => '%s seconds',
         'minutes' => '%s minutes',
@@ -10582,7 +10665,7 @@ final class Words
     /** group => code => tone; a code not listed is `info`. */
     public const TONE = [
         'ARRIVAL_STATE' => ['open' => 'waiting', 'received' => 'done', 'cancelled' => 'off'], // pack J
-        'LISTING_STATUS' => ['unmapped' => 'needs', 'suggested' => 'needs', 'mapped' => 'done', 'ignored' => 'off', 'quarantined' => 'blocked'],
+        'LISTING_STATUS' => ['unmapped' => 'needs', 'suggested' => 'needs', 'mapped' => 'done', 'ignored' => 'off', 'quarantined' => 'blocked', 'landing' => 'off'],
         'DECISION_STATE' => ['pending_second' => 'review', 'applied' => 'done', 'withdrawn' => 'off'],
         'SAMPLE_STATE' => ['open' => 'needs', 'confirmed' => 'done', 'needed_second' => 'done', 'waiting_second' => 'review', 'rejected' => 'blocked',
             'superseded' => 'off', 'decided_otherwise' => 'blocked', 'confirmed_by_other' => 'blocked', 'confirmed_not_by_lead' => 'blocked', 'changed_since' => 'blocked'],
@@ -10604,9 +10687,10 @@ final class Words
         'MODE' => ['off' => 'off', 'shadow' => 'waiting', 'live' => 'done'],
         // The lists of matches as v4 colours them: strong green, likely orange, new product blue, not sure purple, clues disagree red.
         'BAND' => ['Key' => 'done', 'Check' => 'needs', 'New item' => 'info', 'Can\'t tell' => 'review', 'Conflict' => 'blocked', 'Manual' => 'off'],
-        'STORE_STATE' => ['waiting' => 'review', 'quarantined' => 'blocked', 'ignored' => 'off', 'linked' => 'done', 'suggested' => 'needs', 'not_matched' => 'waiting'],
+        'STORE_STATE' => ['waiting' => 'review', 'quarantined' => 'blocked', 'ignored' => 'off', 'landing' => 'off', 'linked' => 'done', 'suggested' => 'needs',
+            'not_matched' => 'waiting'],
         'NEW_VARIANT_STATE' => ['new' => 'info', 'suggested' => 'needs', 'not_checked' => 'waiting', 'linked' => 'done', 'quarantined' => 'blocked',
-            'waiting' => 'review', 'ignored' => 'off'],
+            'waiting' => 'review', 'ignored' => 'off', 'landing' => 'off'],
         'BULK_RESULT' => ['done' => 'done', 'pending_second' => 'review', 'skipped' => 'needs'],
         // Stock › Reservations: in a checkout blue, to ship orange, dealt with green, freed and run out grey.
         'RESV_GROUP' => ['held' => 'info', 'to_ship' => 'needs', 'closed' => 'done', 'released' => 'off', 'expired' => 'waiting'],

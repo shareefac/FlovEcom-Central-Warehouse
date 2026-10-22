@@ -187,6 +187,8 @@ final class Sections
                     'badge' => 'queue_corrections'],
                 ['key' => 'queue_modes', 'perm' => 'queues.view', 'path' => '/ui/queues/modes', 'match' => ['/ui/queues/modes*'], 'badge' => 'queue_modes'],
                 ['key' => 'queue_oversold', 'perm' => 'queues.view', 'path' => '/ui/queues/oversold', 'match' => ['/ui/queues/oversold*'], 'badge' => 'queue_oversold'],
+                // Website bugs (0050, docs/decisions.md LP8): orders a store took for a landing page.
+                ['key' => 'queue_landing', 'perm' => 'queues.view', 'path' => '/ui/queues/landing', 'match' => ['/ui/queues/landing*'], 'badge' => 'queue_landing'],
             ]],
             // ---- end of pack F ----
         ]],

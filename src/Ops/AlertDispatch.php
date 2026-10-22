@@ -148,6 +148,9 @@ final class AlertDispatch
             'invariants_failed' => Words::say('ALERT', 'invariants_failed', $n('problems')),
             'invariants_stale' => Words::say('ALERT', 'invariants_stale', $n('hours')),
             'invoice_submit_failed' => Words::say('ALERT', 'invoice_submit_failed', $n('count'), (string) ($d['invoices'] ?? '')), // pack J (PJ11)
+            // a website bug (docs/decisions.md LP9): the store, the landing page as the website names it, its option number, the order
+            'landing_order' => Words::say('ALERT', $n('open') > 1 ? 'landing_orders' : 'landing_order', $store, (string) ($d['title'] ?? $d['option'] ?? ''),
+                (string) ($d['variant'] ?? ''), (string) ($d['order'] ?? ''), $n('open')),
             default => (string) ($p['detail'] ?? $p['kind']),
         };
     }

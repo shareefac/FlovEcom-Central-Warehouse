@@ -20,8 +20,8 @@ use CW\Staff\StaffRoles;
 final class QueueRules
 {
     public const STATUSES = ['open', 'resolved', 'dismissed'];
-    /** The four queue tables (0001; D17). */
-    public const TABLES = ['goods_in_suspense', 'count_review', 'policy_review', 'oversell_event'];
+    /** The four queue tables (0001; D17), and the website bugs (0050, docs/decisions.md LP8). */
+    public const TABLES = ['goods_in_suspense', 'count_review', 'policy_review', 'oversell_event', 'landing_order'];
     public const NOTE_MIN = 3;
     public const NOTE_MAX = 500;
     /** Rows a list page shows (oldest open first). */

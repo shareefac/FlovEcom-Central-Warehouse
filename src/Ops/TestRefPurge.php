@@ -23,7 +23,8 @@ use DateTimeImmutable;
  *     actor system:purge_test_refs, keys purge:release:<ref>:<attempt> / purge:cancel:<ref>:<hash of the ids>,
  *     so a re-run replays them.
  *  2. Delete a reservation and its units only when nothing else refers to them: no stock_ledger row of that
- *     order or of its units (an unlinked unit never has one) and no oversell_event. Otherwise both stay and are
+ *     order or of its units (an unlinked unit never has one), no oversell_event and no website bug (landing_order, 0050: an order
+ *     for a landing page, which a person settles and which is never removed). Otherwise both stay and are
  *     reported (`kept`). One transaction per reservation, locked first (lock order), audited
  *     `reservation.purged`.
  *  3. Delete the idempotency rows of the refs that have no reservation left (deleted by this run or an earlier
@@ -110,6 +111,7 @@ final class TestRefPurge
         $ids = array_map(static fn (array $r): int => (int) $r['id'], $res);
         $units = [];
         $oversell = [];
+        $landing = [];
         foreach (array_chunk($ids, self::CHUNK) as $chunk) {
             $in = implode(',', array_fill(0, count($chunk), '?'));
             foreach ($this->db->all("SELECT reservation_id, unit_id, state, sku_id FROM reservation_unit WHERE reservation_id IN ({$in}) ORDER BY unit_id", $chunk) as $u) {
@@ -117,6 +119,9 @@ final class TestRefPurge
             }
             foreach ($this->db->all("SELECT reservation_id, COUNT(*) n FROM oversell_event WHERE reservation_id IN ({$in}) GROUP BY reservation_id", $chunk) as $o) {
                 $oversell[(int) $o['reservation_id']] = (int) $o['n'];
+            }
+            foreach ($this->db->column("SELECT DISTINCT reservation_id FROM landing_order WHERE reservation_id IN ({$in})", $chunk) as $lo) {
+                $landing[(int) $lo] = true;
             }
         }
         $ledgerByRef = [];
@@ -155,6 +160,9 @@ final class TestRefPurge
             }
             if (($oversell[$id] ?? 0) > 0) {
                 $keep[] = 'oversell_event';
+            }
+            if (isset($landing[$id])) {
+                $keep[] = 'landing_order';
             }
             $out[] = ['order_ref' => (string) $r['order_ref'], 'id' => $id, 'status' => (string) $r['status'], 'attempt' => (int) $r['attempt'],
                 'origin' => (string) $r['origin'], 'tombstone' => (int) $r['is_tombstone'] === 1, 'units' => count($us), 'linked_units' => $linked,
@@ -254,6 +262,9 @@ final class TestRefPurge
                 }
                 if ((int) $db->value('SELECT COUNT(*) FROM oversell_event WHERE reservation_id = ?', [(int) $row['id']]) > 0) {
                     $why['oversell_event'] = true;
+                }
+                if ($db->value('SELECT 1 FROM landing_order WHERE reservation_id = ? LIMIT 1', [(int) $row['id']]) !== null) {
+                    $why['landing_order'] = true;
                 }
                 if ($why !== []) {
                     return ['units' => null, 'why' => array_keys($why)];

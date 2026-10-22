@@ -26,6 +26,10 @@ use CW\Settings;
  *     invariants_failed / invariants_stale
  *                    the newest nightly safety check (integrity_run) found problems, or none finished for
  *                    alerts.invariants_max_age_hours. A system where no check has ever run is quiet (as Home is).
+ *   per store, whatever its mode:
+ *     landing_order  a WEBSITE BUG (docs/decisions.md LP9): an order the store took for a landing page, not a product, still open on
+ *                    Approvals › From the stores › Website bugs. One alert per store (the newest order and how many are open), sent
+ *                    again at most once per alerts.repeat_minutes while one is open, "back to normal" when all are handled.
  *
  * Read only. The probe is injectable (tests).
  */
@@ -70,6 +74,9 @@ final class Alerts
             if ($p !== null) {
                 $out[] = $p + ['channel' => null, 'channel_id' => null, 'name' => null, 'mode' => null];
             }
+        }
+        foreach ($this->landingOrders() as $p) {
+            $out[] = $p;
         }
         return $out;
     }
@@ -130,6 +137,26 @@ final class Alerts
         $refs = implode(', ', array_map(static fn (array $f): string => (string) ($f['external_ref'] ?? ('#' . $f['id'])), array_slice($failed, 0, 5)));
         return ['key' => 'invoice_submit_failed', 'kind' => 'invoice_submit_failed', 'detail' => sprintf('%d timed supplier invoices could not be made final (%s)',
             count($failed), $refs), 'data' => ['count' => count($failed), 'invoices' => $refs]];
+    }
+
+    /**
+     * The website bugs still open, one problem per store (LP9). A schema before 0050 has none.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function landingOrders(): array
+    {
+        if ($this->db->value("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'landing_order'") === null) {
+            return [];
+        }
+        $out = [];
+        foreach ((new \CW\Queues\LandingOrders($this->db))->openByStore() as $r) {
+            $out[] = ['key' => 'landing_order:' . $r['code'], 'kind' => 'landing_order', 'channel' => $r['code'], 'channel_id' => $r['channel_id'], 'name' => $r['name'],
+                'mode' => null, 'detail' => sprintf('%d open order(s) for a landing page; the newest: order %s, option %s (%s)', $r['open'], $r['order_ref'], $r['variant'],
+                    (string) ($r['option'] ?? $r['title'] ?? '')),
+                'data' => ['open' => $r['open'], 'order' => $r['order_ref'], 'variant' => $r['variant'], 'title' => $r['title'], 'option' => $r['option']]];
+        }
+        return $out;
     }
 
     /** An int setting, or $default on a schema without it (or unset). */

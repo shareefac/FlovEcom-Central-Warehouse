@@ -34,7 +34,9 @@ use CW\Stock;
  * and split (the undo of a merge: back to the former item with every listing the merge moved and the
  * stock that came with it, or the listing alone to a new item, M33, M40), unignore (an ignored listing
  * back to its list) and send_back (the open suggestion of an unlinked listing closed: it waits for the
- * next computer check; M48). mintAndLink() is the Vape and Go seed: mint + an applied link.
+ * next computer check; M48), landing (a website product that is a landing page, not a product: the system on arrival or the
+ * classifying tool, with why; or a person) and not_landing (a matching lead's "This is a real product": back to its list, and
+ * never marked by the system again; docs/decisions.md LP2, LP3). mintAndLink() is the Vape and Go seed: mint + an applied link.
  * decideGroup() takes the decisions of one duplicate group (the Duplicates screen) in one transaction.
  *
  * Two-person rule (plan §7.1; M31 for merges): a decision that links/unlinks/ignores a listing on a
@@ -47,7 +49,7 @@ use CW\Stock;
  * uncounted legacy items applies at once (the owner's decision of 6 Oct 2026, M31). Protected items are
  * never merged or split (409). A merge that would contradict a match_reject is refused (409
  * rejected_pair). Proposals in the Conflict band (or a listing whose open proposal is Conflict) may only
- * be decided by a mapping_lead. Roles: mapper and mapping_lead decide; bulk decisions (bulk_batch_id)
+ * be decided by a mapping_lead. A system caller may suggest and mark a landing page (LP2). Roles: mapper and mapping_lead decide; bulk decisions (bulk_batch_id)
  * and splits are mapping_lead only, except the screens' batches (`screen:`, M49), which anyone who may
  * make the decision alone may make, row by row; a confirmed match or a new product of such a batch waits
  * for a second matching lead while approvals.mapping_bulk_second_ok is on (M50). A system caller may only
@@ -76,7 +78,11 @@ use CW\Stock;
  */
 final class DecisionService
 {
-    public const ACTIONS = ['link', 'unlink', 'new_item', 'ignore', 'reject', 'suggest', 'merge_skus', 'split', 'unignore', 'send_back'];
+    public const ACTIONS = ['link', 'unlink', 'new_item', 'ignore', 'reject', 'suggest', 'merge_skus', 'split', 'unignore', 'send_back', 'landing', 'not_landing'];
+    /** The decisions the system makes alone (no person): a suggestion, and a landing page's mark (LP2; the CHECK of 0050). */
+    public const SYSTEM_ACTIONS = ['suggest', 'landing'];
+    /** The statuses a landing page's mark applies to: an unlinked website product (an ignored one when the tool is asked to, LP5). */
+    public const LANDING_FROM = ['unmapped', 'suggested', 'ignored'];
     /**
      * The bulk batches of the screens (Products > Mapping lists, Store Products: CW\Mapping\BulkDecisions, M46-M50): `screen:<batch
      * id>`. A person who may make a decision alone may make it in such a batch, row by row, under every rule of a single decision
@@ -611,7 +617,7 @@ final class DecisionService
     {
         $staff = $this->staff($caller);
         $action = $r['action'];
-        if ($staff === null && $action !== 'suggest') {
+        if ($staff === null && !in_array($action, self::SYSTEM_ACTIONS, true)) {
             throw new CwException('staff_required', 'only a person can make this decision', 403);
         }
         if ($staff !== null && !Permissions::can($staff['roles'], 'mapping.decide')) {
@@ -623,6 +629,9 @@ final class DecisionService
         }
         if ($action === 'split' && ($staff === null || !self::isLead($staff))) {
             throw new CwException('lead_required', 'a merge is undone (split) by a mapping lead', 403);
+        }
+        if ($action === 'not_landing' && ($staff === null || !self::isLead($staff))) {
+            throw new CwException('lead_required', 'a matching lead says a landing page is a real product', 403);
         }
 
         if ($mint !== null || in_array($action, self::LINK_OUTCOMES, true)) {
@@ -648,6 +657,14 @@ final class DecisionService
             throw new CwException('already_linked', 'the listing is already linked', 409);
         }
         $open = $this->openProposal($l['id']);
+        if ($staff === null && $action === 'landing') {
+            // The system's mark (LP2): nobody saw the open suggestion, it settles whichever is open under the lock. A variant decided one
+            // at a time (held back, a spot check's match, found on arrival) is a person's, on its own page (LP3).
+            $r['proposal_id'] = $open['id'] ?? null;
+            if (OneAtATime::seen($this->db, $l['id']) !== null) {
+                throw new CwException('one_at_a_time', 'this listing is decided one at a time, on its own page: a person marks it', 409);
+            }
+        }
         if ($r['proposal_id'] !== null && ($open === null || $open['id'] !== $r['proposal_id'])) {
             $p = $this->db->one('SELECT listing_id, status FROM match_proposal WHERE id = ?', [$r['proposal_id']]);
             if ($p === null || (int) $p['listing_id'] !== $l['id']) {
@@ -719,6 +736,10 @@ final class DecisionService
         };
         $units = in_array($action, self::LINK_OUTCOMES, true) ? $target['units'] : null;
         $detail = $card === null ? null : ['card' => $card] + ($mint !== null ? ['origin' => $mint] : []);
+        if ($action === 'landing') {
+            // Why it is a landing page (LP2): the website's own flag or the rule (and its version), or a person's word.
+            $detail = ['landing' => $r['landing'] ?? ['reason' => 'person']];
+        }
         if ($action === 'split') {
             $detail = ['split_to' => $r['split_to'], 'undoes_decision_id' => $target['merge']['id']] + ($detail ?? []);
         }
@@ -762,6 +783,11 @@ final class DecisionService
     private function validate(array $r, array $l, ?array $open, bool $fresh, bool $lead): array
     {
         $action = $r['action'];
+        if ($l['status'] === 'landing' && !in_array($action, ['landing', 'not_landing'], true)) {
+            // LP2: a landing page is not a product: nothing is matched to it, made of it or rejected for it until a matching lead says
+            // it is a real product (which puts it back in its list).
+            throw new CwException('landing_page', 'the listing is a landing page, not a product: a matching lead says it is a real product first', 409);
+        }
         $ids = [];
         if ($l['linked']) {
             $ids[] = $l['sku_id'];
@@ -857,6 +883,24 @@ final class DecisionService
                 // M48: an ignored website product goes back to its list. It has no link, so nothing needs a second person.
                 if ($l['status'] !== 'ignored') {
                     throw new CwException('not_ignored', "only an ignored listing can be taken off the ignored list (it is {$l['status']})", 409);
+                }
+                break;
+            case 'landing':
+                // LP2: only an unlinked website product is marked (a linked one is unlinked first, on its page: that changes a stock link).
+                if ($fresh && $l['status'] === 'landing') {
+                    throw new CwException('no_change', 'the listing is already a landing page', 409);
+                }
+                if ($l['linked'] || !in_array($l['status'], self::LANDING_FROM, true)) {
+                    throw new CwException('linked', "the listing is {$l['status']}: undo the match on its page first", 409, ['status' => $l['status']]);
+                }
+                if ($fresh && ($r['landing']['reason'] ?? 'person') !== 'person' && self::saidReal($this->db, $l['id'])) {
+                    // LP3: the system never marks again what a person said is a real product, whatever the rule or the website says later.
+                    throw new CwException('said_real', 'a person said this listing is a real product', 409);
+                }
+                break;
+            case 'not_landing':
+                if ($l['status'] !== 'landing') {
+                    throw new CwException('not_landing', "only a landing page can be called a real product (it is {$l['status']})", 409, ['status' => $l['status']]);
                 }
                 break;
             case 'send_back':
@@ -1055,6 +1099,25 @@ final class DecisionService
                 Audit::write($this->db, $caller, 'mapping.' . $action, 'listing', (string) $id, null,
                     $detail + ['to' => $after, 'map_version' => $version] + $correction);
                 $this->stock->listingChanged($id, $l['linked'] ? 'link' : 'status');
+                break;
+            case 'landing':
+                // LP2: not a product. No link to close (validate()); the suggestion it had is settled: it leaves every list.
+                $this->settleProposal($r['proposal_id']);
+                $this->setListing($id, null, 1, 'landing');
+                $after = ['status' => 'landing', 'sku_id' => null, 'units_per_item' => 1];
+                $version++;
+                Audit::write($this->db, $caller, 'mapping.landing', 'listing', (string) $id, null, $detail + ['to' => $after, 'map_version' => $version,
+                    'landing' => $r['landing'] ?? ['reason' => 'person']]);
+                $this->stock->listingChanged($id, 'status');
+                break;
+            case 'not_landing':
+                // LP2: a matching lead says it is a real product: back to its list, as an ignored one taken off its list (M48).
+                $status = $this->openProposal($id) !== null ? 'suggested' : 'unmapped';
+                $this->setListing($id, null, 1, $status);
+                $after = ['status' => $status, 'sku_id' => null, 'units_per_item' => 1];
+                $version++;
+                Audit::write($this->db, $caller, 'mapping.not_landing', 'listing', (string) $id, null, $detail + ['to' => $after, 'map_version' => $version]);
+                $this->stock->listingChanged($id, 'status');
                 break;
             case 'unignore':
             case 'send_back':
@@ -1633,6 +1696,12 @@ final class DecisionService
     }
 
     /** Whether a bulk batch id is one of the screens' batches (SCREEN_BATCH_PREFIX, M49). */
+    /** Whether a person ever said this listing is a real product (an applied not_landing; LP3: the system never marks it again). */
+    public static function saidReal(Db $db, int $listingId): bool
+    {
+        return $db->value("SELECT 1 FROM match_decision WHERE listing_id = ? AND action = 'not_landing' AND state = 'applied' LIMIT 1", [$listingId]) !== null;
+    }
+
     public static function isScreenBatch(?string $batch): bool
     {
         return $batch !== null && str_starts_with($batch, self::SCREEN_BATCH_PREFIX);
@@ -1964,7 +2033,20 @@ final class DecisionService
             'card' => [],
             'bulk_batch_id' => null,
             'split_to' => null,
+            'landing' => null,
         ];
+        // Why a website product is a landing page (LP2): the system names the website's flag or the rule, with its evidence; a person
+        // names nothing (`person`).
+        $landing = $req['landing'] ?? null;
+        if ($landing !== null) {
+            $why = is_array($landing) ? ($landing['reason'] ?? null) : null;
+            if ($action !== 'landing' || !is_string($why) || !in_array($why, [...LandingRule::REASONS, 'person'], true)
+                || !is_array($landing['evidence'] ?? []) || strlen(Idempotency::json($landing)) > 4000) {
+                throw new CwException('bad_request', 'landing is for a landing mark: {reason: ' . implode(', ', [...LandingRule::REASONS, 'person']) . ', evidence?}', 400,
+                    ['field' => 'landing']);
+            }
+            $r['landing'] = ['reason' => $why] + array_intersect_key($landing, array_flip(['rule', 'evidence', 'source']));
+        }
         if ($action === 'split') {
             $to = $req['split_to'] ?? 'former';
             if (!is_string($to) || !in_array($to, self::SPLIT_TO, true)) {
