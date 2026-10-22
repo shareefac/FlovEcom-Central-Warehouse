@@ -11468,7 +11468,8 @@ variant MATCHED to an item carries: PB1's rule; a barcode on a variant nobody ma
 into another has the same name, or the same set of words in any order, case and accents apart: `nameWords()`, "Hayati Pro Max 4000
 Apple" = "APPLE - hayati pro max 4000", "Apple Ice" is another); `name_waiting` (a new product waiting for a second OK has that name:
 not an item yet, so the item table cannot say it); then among the rows left `name_twice` (two ticked rows with the same words) and
-`barcode_twice` (a barcode in common): every row of such a group, so neither of two that would make one product is made. Each reason has
+`barcode_twice` (a barcode in common): every row of such a group, so neither of two that would make one product is made; and
+`barcode_waiting` (a new product waiting for a second OK has the barcode; added by the review below). Each reason has
 words (`Words::BULK_SKIP`, `BY_ITEM_SKIP`). The item names are read once a request (`itemWords()`: the ids, names and joins of the item
 table, about 15,000 rows on staging); just before each row's decision the name is read again, exactly (`namesTaken`, as M61) and as
 words among the items made since (`wordsSince()`, by primary key), so another person's create in between is found too. Not a lock: two
@@ -11514,3 +11515,24 @@ button at the bottom of the screen (`actions sticky`).
 item gets is the variant's own title (`cardFrom`, M9): on a store that titles its options with the flavour only, the preview shows that
 short name and a person should create those one at a time with a better name. A family whose rows share a barcode with an existing
 item is matched, not created (`barcode_on_item`). Nothing is done across pages ("Select all on this page" as before).
+
+### The Codex review (on `dc7e49c`; `runs/bulknew_codex_review.txt`): three HIGH, four MEDIUM, all fixed test-first
+
+The new tests failed first (`runs/bulknew_codex_red.log`) and pass now (`StoreNewItemsTest`, `tests/Unit/NameWordsTest.php`).
+- **HIGH 1: the words of a name were never read again before a row** (the row's transaction did not take them). `one()` now asks
+  `newMeanwhile()` inside each row's transaction, after the exact name: an item made since with the same words (`wordsSince()`).
+- **HIGH 2: a barcode put on an item, or a same-named product sent to Second approval, while the batch ran was not seen.**
+  `newMeanwhile()` reads them again too (`barcode_on_item`, `name_waiting`, `barcode_waiting`). `…WhatChangesWhileTheBatchRunsIsReadAgain…`
+  makes the other person's change with a trigger inside the first row's transaction.
+- **HIGH 3: a new product waiting for a second OK did not keep its barcode.** A new reason `barcode_waiting` ("A new product with the same
+  barcode already waits for a second OK"), in the checks of the request and before each row. Approval itself is unchanged (DecisionService
+  is not touched): the second lead sees each one.
+- **MEDIUM 4: a barcode typed with spaces on a matched variant was missed** (the intake keeps a barcode as sent; `Gtin::forms` finds leading
+  zeros only). `oddBarcodeItems()` reads, once a request, the matched variants' barcodes that hold a sign other than a digit and compares
+  them by their digits.
+- **MEDIUM 5: the mark of `wordsSince()` was read after the names**, so an item made in between was in neither. The mark is read first, and
+  the 50 ids below it are read again (`SKU_OVERLAP`: an id given out before the mark and committed after the names).
+- **MEDIUM 6: accents were folded by intl only**, which the web server's PHP lacks. `foldAccents()` (a fixed table of the Latin letters) runs
+  first in every PHP; intl, where there, folds the rest.
+- **MEDIUM 7: a page heading known from the stored website state only was not skipped.** `newRowSkip()` works it out as the seed does
+  (`SiteState::heading()` with the published variants of its product).

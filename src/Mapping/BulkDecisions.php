@@ -104,7 +104,7 @@ final class BulkDecisions
         // By Item's confirm only (M59, confirmScope()):
         'rejected_before', 'item_on_store', 'several_suggested',
         // Store Products' "Create new warehouse products for these" only (NF2, newChecks()):
-        'landing_page', 'match_instead', 'barcode_on_item', 'barcode_twice', 'name_waiting', 'card_changed',
+        'landing_page', 'match_instead', 'barcode_on_item', 'barcode_twice', 'name_waiting', 'card_changed', 'barcode_waiting',
         // A bulk "create as new" only (M61, seedCheck() and nameChecks(); `suggested_match`, `not_checked`, `not_new` and `match_no_item` on
         // New Variants only):
         // (`state_not_known` since the website state is stored, M66)
@@ -147,6 +147,13 @@ final class BulkDecisions
     private ?int $stateMaxDays = null;
     /** The largest item id when the names of the items were read (newChecks()): one() reads the items made since, by their key. */
     private int $skuHigh = 0;
+    /**
+     * How many item ids below the highest one at the read of the names one() reads again (wordsSince()): an item whose id was given
+     * out before that read but committed after it (ids are given at the insert, not at the commit) is not missed.
+     */
+    private const SKU_OVERLAP = 50;
+    /** The items that carry a barcode typed with spaces or other signs on a matched variant (oddBarcodeItems()), once a request. @var array<string, string>|null */
+    private ?array $oddCodes = null;
     /** Where the apply of Store Products' new items is sent (the idempotency record names it). */
     private const STORE_NEW_PATH = '/ui/review/store/new-items/apply';
 
@@ -464,16 +471,17 @@ final class BulkDecisions
         }
         try {
             $name = $action === 'new_item' && is_string($pre['name'] ?? null) ? $pre['name'] : null;
-            $d = $this->db->transaction(function (Db $db) use ($caller, $req, $lid, $row, $seq, $batchId, $name): array {
+            // Store Products' new items (NF2, NF4): the words of the name and the barcodes, read again just before the decision.
+            $again = $name !== null && is_string($pre['words'] ?? null) ? ['words' => (string) $pre['words'], 'barcodes' => self::strings($pre['barcodes'] ?? null)] : null;
+            $d = $this->db->transaction(function (Db $db) use ($caller, $req, $lid, $row, $seq, $batchId, $name, $again): array {
                 $taken = $name === null ? [] : $this->namesTaken([$name]);
-                if ($taken === [] && $name !== null && is_string($pre['words'] ?? null)) {
-                    // Store Products' new items (NF2): an item of the same words made since the names were read.
-                    $since = $this->wordsSince((string) $pre['words']);
-                    $taken = $since === null ? [] : [$since];
-                }
                 if ($taken !== []) {
                     throw new CwException('bulk_skip', 'an item of this name was made meanwhile', 409,
                         ['skip' => 'name_elsewhere', 'detail' => ['sku' => (string) reset($taken), 'name' => $name]]);
+                }
+                $meanwhile = $again === null ? null : $this->newMeanwhile($lid, (string) $name, $again['words'], $again['barcodes']);
+                if ($meanwhile !== null) {
+                    throw new CwException('bulk_skip', 'another person made or waits to make this product meanwhile', 409, ['skip' => $meanwhile[0], 'detail' => $meanwhile[1]]);
                 }
                 $d = $this->ds->decide($caller, $req);
                 // Under the decision's lock on the listing: a hold (M30) or a spot check written since the checks above stops it
@@ -1377,7 +1385,7 @@ final class BulkDecisions
         foreach (array_chunk($ids, 500) as $chunk) {
             foreach ($this->db->all(
                 'SELECT cl.id, cl.channel_id, cl.status, cl.map_version, p.id AS proposal_id, p.band, p.proposed_sku_id, p.proposed_new_item, p.evidence, '
-                . 'ps.code AS proposed_code, pd.id AS pending_id, lp.barcodes, lp.product_title, lp.variant_title, lp.brand, lp.features, '
+                . 'ps.code AS proposed_code, pd.id AS pending_id, lp.barcodes, lp.product_title, lp.variant_title, lp.brand, lp.features, lp.units_30d, '
                 . 'lp.site_variant_status, lp.site_product_status, lp.site_product_type, lp.site_product_id, lp.site_is_landing, lp.site_is_default, lp.site_state_at, '
                 . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS features_status, JSON_EXTRACT(lp.features, '$.is_placeholder') AS is_placeholder "
                 . 'FROM channel_listing cl LEFT JOIN match_proposal p ON p.open_listing_id = cl.id LEFT JOIN sku ps ON ps.id = p.proposed_sku_id '
@@ -1396,7 +1404,7 @@ final class BulkDecisions
             $lid = $row['listing_id'];
             $l = $listings[$lid] ?? null;
             $card = $l === null ? null : self::newCard($l);
-            $skip = self::newRowSkip($row, $l, $channelId, $made[$lid] ?? null, $never[$lid] ?? null, $card);
+            $skip = $this->newRowSkip($row, $l, $channelId, $made[$lid] ?? null, $never[$lid] ?? null, $card);
             $out[$lid] = ['code' => $skip[0] ?? '', 'detail' => $skip[1] ?? [], 'card' => $card];
             if ($skip === null && $card !== null && $l !== null) {
                 $left[$lid] = ['name' => (string) $card['name'], 'words' => self::nameWords((string) $card['name']),
@@ -1407,11 +1415,17 @@ final class BulkDecisions
         $words = $left === [] ? [] : $this->itemWords();
         $exact = $left === [] ? [] : $this->namesTaken(array_values(array_unique(array_column($left, 'name'))));
         $waiting = $left === [] ? [] : $this->waitingNames();
+        $waitingCodes = $left === [] ? [] : $this->waitingBarcodes();
         $codes = [];
         foreach ($left as $lid => $x) {
             $item = $this->barcodeItem($lid, $x['barcodes']);
             if ($item !== null) {
                 $out[$lid] = ['code' => 'barcode_on_item', 'detail' => ['sku' => $item]] + $out[$lid];
+                unset($left[$lid]);
+                continue;
+            }
+            if (self::barcodeIn($x['barcodes'], $waitingCodes, $lid)) {
+                $out[$lid] = ['code' => 'barcode_waiting', 'detail' => []] + $out[$lid];
                 unset($left[$lid]);
                 continue;
             }
@@ -1463,7 +1477,7 @@ final class BulkDecisions
         }
         foreach ($left as $lid => $x) {
             if ($out[$lid]['code'] === '') {
-                $out[$lid] += ['request' => ['units_per_item' => 1, 'card' => $out[$lid]['card']], 'name' => $x['name'], 'words' => $x['words']];
+                $out[$lid] += ['request' => ['units_per_item' => 1, 'card' => $out[$lid]['card']], 'name' => $x['name'], 'words' => $x['words'], 'barcodes' => $x['barcodes']];
             }
         }
         return $out;
@@ -1479,7 +1493,7 @@ final class BulkDecisions
      * @param array<string, mixed>|null $card
      * @return array{0: string, 1: array<string, mixed>}|null
      */
-    private static function newRowSkip(array $row, ?array $l, int $channelId, ?string $madeCode, ?array $never, ?array $card): ?array
+    private function newRowSkip(array $row, ?array $l, int $channelId, ?string $madeCode, ?array $never, ?array $card): ?array
     {
         if ($l === null) {
             return ['unknown_listing', []];
@@ -1543,8 +1557,48 @@ final class BulkDecisions
         if ($against['status'] !== null) {
             return ['not_published', ['site_status' => $against['status']]];
         }
+        if (SiteState::headingInputs($state)) {
+            // A page heading worked out from the stored state, as the seed works it out (M66; the Codex review on dc7e49c, finding 7).
+            // An answer the Normalizer cannot give is no reason here (the person looked at the rows).
+            $key = (int) $l['channel_id'] . ':' . $state['product_id'];
+            if (!array_key_exists($key, $this->siblings)) {
+                $this->siblings[$key] = SiteState::publishedSiblings($this->db, (int) $l['channel_id'], $state['product_id']);
+            }
+            if (SiteState::heading($state, $l, $this->siblings[$key]) === true) {
+                return ['page_heading', []];
+            }
+        }
         if ($card === null) {
             return ['no_name', []];
+        }
+        return null;
+    }
+
+    /**
+     * Just before one row's decision (one(), inside its transaction): what another person did since the checks of the whole request
+     * (the Codex review on dc7e49c, findings 1 and 2): an item made with the same words in its name (wordsSince(); the exact name is
+     * asked by one() as for every "create as new"), a barcode put on an item, a new product of the same name or barcode now waiting
+     * for a second OK. A read, not a lock (NF2). Null when nothing is in the way.
+     *
+     * @param list<string> $barcodes
+     * @return array{0: string, 1: array<string, mixed>}|null
+     */
+    private function newMeanwhile(int $listingId, string $name, string $words, array $barcodes): ?array
+    {
+        $item = $this->barcodeItem($listingId, $barcodes, false);
+        if ($item !== null) {
+            return ['barcode_on_item', ['sku' => $item]];
+        }
+        $since = $words === '' ? null : $this->wordsSince($words);
+        if ($since !== null) {
+            return ['name_elsewhere', ['sku' => $since, 'name' => $name]];
+        }
+        $waiting = $words === '' ? null : ($this->waitingNames()[$words] ?? null);
+        if ($waiting !== null && $waiting !== $listingId) {
+            return ['name_waiting', ['name' => $name]];
+        }
+        if (self::barcodeIn($barcodes, $this->waitingBarcodes(), $listingId)) {
+            return ['barcode_waiting', []];
         }
         return null;
     }
@@ -1615,8 +1669,9 @@ final class BulkDecisions
      */
     public static function nameWords(string $name): string
     {
-        $s = mb_strtolower($name, 'UTF-8');
+        $s = self::foldAccents(mb_strtolower($name, 'UTF-8'));
         if (class_exists(\Normalizer::class)) {
+            // (what the table above does not know, where PHP has intl: the marks of any other letter)
             $d = \Normalizer::normalize($s, \Normalizer::FORM_D);
             if (is_string($d)) {
                 $s = (string) (preg_replace('/\p{Mn}+/u', '', $d) ?? $s);
@@ -1632,6 +1687,29 @@ final class BulkDecisions
     }
 
     /**
+     * The common accented letters of a lower-case text as plain ones ("crème brûlée" is "creme brulee", "straße" "strasse"), the same in
+     * every PHP: the web server's has no intl (the Codex review on dc7e49c, finding 6). nameWords() asks it first.
+     */
+    public static function foldAccents(string $lower): string
+    {
+        return strtr($lower, self::FOLD);
+    }
+
+    /** foldAccents()' letters (lower case): Latin-1 and Latin Extended-A, as names of vape products have them. */
+    private const FOLD = [
+        'à' => 'a', 'á' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a', 'å' => 'a', 'ā' => 'a', 'ă' => 'a', 'ą' => 'a', 'æ' => 'ae',
+        'ç' => 'c', 'ć' => 'c', 'č' => 'c', 'ĉ' => 'c', 'ċ' => 'c', 'ď' => 'd', 'đ' => 'd', 'ð' => 'd',
+        'è' => 'e', 'é' => 'e', 'ê' => 'e', 'ë' => 'e', 'ē' => 'e', 'ė' => 'e', 'ę' => 'e', 'ě' => 'e', 'ĕ' => 'e',
+        'ğ' => 'g', 'ĝ' => 'g', 'ġ' => 'g', 'ģ' => 'g', 'ĥ' => 'h', 'ħ' => 'h',
+        'ì' => 'i', 'í' => 'i', 'î' => 'i', 'ï' => 'i', 'ī' => 'i', 'į' => 'i', 'ı' => 'i', 'ĩ' => 'i', 'ĭ' => 'i', 'ĵ' => 'j', 'ķ' => 'k',
+        'ĺ' => 'l', 'ļ' => 'l', 'ľ' => 'l', 'ŀ' => 'l', 'ł' => 'l', 'ñ' => 'n', 'ń' => 'n', 'ņ' => 'n', 'ň' => 'n',
+        'ò' => 'o', 'ó' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o', 'ø' => 'o', 'ō' => 'o', 'ő' => 'o', 'ŏ' => 'o', 'œ' => 'oe',
+        'ŕ' => 'r', 'ř' => 'r', 'ŗ' => 'r', 'ś' => 's', 'š' => 's', 'ş' => 's', 'ŝ' => 's', 'ß' => 'ss', 'ţ' => 't', 'ť' => 't', 'ŧ' => 't', 'þ' => 'th',
+        'ù' => 'u', 'ú' => 'u', 'û' => 'u', 'ü' => 'u', 'ū' => 'u', 'ů' => 'u', 'ű' => 'u', 'ų' => 'u', 'ũ' => 'u', 'ŭ' => 'u', 'ŵ' => 'w',
+        'ý' => 'y', 'ÿ' => 'y', 'ŷ' => 'y', 'ź' => 'z', 'ż' => 'z', 'ž' => 'z',
+    ];
+
+    /**
      * Every item that is not joined into another, by the words of its name (nameWords()): words => the lowest item id. One read of
      * the item table's ids, names and joins (about 15,000 items on staging; a preview of a family is rare), once a request.
      *
@@ -1639,17 +1717,17 @@ final class BulkDecisions
      */
     private function itemWords(): array
     {
+        // The mark first, then the names (the Codex review on dc7e49c, finding 5): an item made after the mark is read again by
+        // wordsSince(), and so are the SKU_OVERLAP ids below it (given out before the mark, committed after the names were read).
+        $this->skuHigh = max(0, (int) $this->db->value('SELECT COALESCE(MAX(id), 0) FROM sku') - self::SKU_OVERLAP);
         $out = [];
-        $high = 0;
         foreach ($this->db->all('SELECT id, name FROM sku WHERE merged_into_sku_id IS NULL') as $s) {
             $id = (int) $s['id'];
-            $high = max($high, $id);
             $key = self::nameWords((string) $s['name']);
             if ($key !== '' && (!isset($out[$key]) || $id < $out[$key])) {
                 $out[$key] = $id;
             }
         }
-        $this->skuHigh = max($this->skuHigh, $high, (int) $this->db->value('SELECT COALESCE(MAX(id), 0) FROM sku'));
         return $out;
     }
 
@@ -1684,14 +1762,81 @@ final class BulkDecisions
     }
 
     /**
+     * The barcodes typed with spaces, hyphens or other signs on the variants matched to an item: digits => the item's CW number. One
+     * read of the matched variants' barcodes (the profiles of the linked listings; a few kilobytes of codes, once a request); only
+     * the codes with a sign that is not a digit are kept (the others are found by their forms, on the indexes).
+     *
+     * @return array<string, string>
+     */
+    private function oddBarcodeItems(): array
+    {
+        $out = [];
+        foreach ($this->db->all("SELECT CAST(lp.barcodes AS CHAR) AS barcodes, s.code FROM channel_listing cl JOIN listing_profile lp ON lp.listing_id = cl.id "
+            . "JOIN sku s ON s.id = cl.sku_id WHERE cl.status IN ('mapped', 'quarantined') AND lp.barcodes IS NOT NULL "
+            . "AND REGEXP_LIKE(CAST(lp.barcodes AS CHAR), '\"[^\"]*[^0-9\"][^\"]*\"')") as $r) {
+            foreach (self::strings(json_decode((string) $r['barcodes'], true)) as $b) {
+                $k = preg_match('/[^0-9]/', $b) === 1 ? Gtin::key($b) : null;
+                if ($k !== null) {
+                    $out[$k] ??= (string) $r['code'];
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The barcodes of the variants a new product waits for a second OK on (not an item yet, so no item has them; the Codex review on
+     * dc7e49c, finding 3): digits => the variant. The waiting decisions by their own unique index, then their profiles.
+     *
+     * @return array<string, int>
+     */
+    private function waitingBarcodes(): array
+    {
+        $out = [];
+        foreach ($this->db->all("SELECT /*+ INDEX(d uq_match_decision_pending) */ d.pending_listing_id AS lid, CAST(lp.barcodes AS CHAR) AS barcodes "
+            . "FROM match_decision d JOIN listing_profile lp ON lp.listing_id = d.pending_listing_id WHERE d.pending_listing_id IS NOT NULL AND d.action = 'new_item'") as $r) {
+            foreach (self::strings(json_decode((string) $r['barcodes'], true)) as $b) {
+                $k = Gtin::key($b);
+                if ($k !== null) {
+                    $out[$k] ??= (int) $r['lid'];
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** Whether one of these barcodes (by its digits) is in $keys for another variant than $listingId. @param list<string> $barcodes @param array<string, int> $keys */
+    private static function barcodeIn(array $barcodes, array $keys, int $listingId): bool
+    {
+        foreach ($barcodes as $b) {
+            $k = Gtin::key($b);
+            if ($k !== null && isset($keys[$k]) && $keys[$k] !== $listingId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * The CW number of an item that already has one of these barcodes (sku_barcode), or that a variant matched to an item carries (that
      * item's barcode not copied to it yet: the rule of an item made by hand, PB1), or null. Every form of each barcode (Gtin::forms),
      * each an exact match on an index. A barcode on a variant nobody matched is no item's.
      *
      * @param list<string> $barcodes
      */
-    private function barcodeItem(int $listingId, array $barcodes): ?string
+    private function barcodeItem(int $listingId, array $barcodes, bool $odd = true): ?string
     {
+        if ($odd && $barcodes !== []) {
+            // A matched variant whose barcode was typed with spaces or other signs (the intake keeps a barcode as the website sends
+            // it; Gtin::forms finds leading zeros only): compared by its digits (the Codex review on dc7e49c, finding 4).
+            $this->oddCodes ??= $this->oddBarcodeItems();
+            foreach ($barcodes as $b) {
+                $k = Gtin::key($b);
+                if ($k !== null && isset($this->oddCodes[$k])) {
+                    return $this->oddCodes[$k];
+                }
+            }
+        }
         foreach (array_chunk(Gtin::forms($barcodes), 200) as $codes) {
             $in = implode(',', array_fill(0, count($codes), '?'));
             $code = $this->db->value("SELECT s.code FROM sku_barcode b JOIN sku s ON s.id = b.sku_id WHERE b.barcode IN ({$in}) LIMIT 1", $codes)

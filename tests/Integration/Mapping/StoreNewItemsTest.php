@@ -54,11 +54,12 @@ final class StoreNewItemsTest extends MappingTestCase
         return ['listing_id' => $listingId, 'proposal_id' => $p === null ? null : (int) $p, 'map_version' => $this->version($listingId)];
     }
 
-    private function fresh(string $variant, string $name): int
+    /** @param list<string> $barcodes */
+    private function fresh(string $variant, string $name, array $barcodes = []): int
     {
         $id = $this->listing($this->altSite, $variant, null);
-        self::$db->exec("INSERT INTO listing_profile (listing_id, product_title, variant_title, brand, barcodes, features) VALUES (?, 'Family', ?, 'Hayati', JSON_ARRAY(), JSON_OBJECT())",
-            [$id, $name]);
+        self::$db->exec("INSERT INTO listing_profile (listing_id, product_title, variant_title, brand, barcodes, features) VALUES (?, 'Family', ?, 'Hayati', CAST(? AS JSON), JSON_OBJECT())",
+            [$id, $name, json_encode($barcodes, JSON_THROW_ON_ERROR)]);
         return $id;
     }
 
@@ -157,6 +158,68 @@ final class StoreNewItemsTest extends MappingTestCase
         self::assertSame($skus, (int) self::$db->value('SELECT COUNT(*) FROM sku'));
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM mapping_batch'));
         self::refused(400, 'bad_form_key', fn () => $this->bulk()->run($lead, 'new_item', $shown, $context + ['form_key' => 'not-a-key']));
+    }
+
+    /**
+     * Codex review (on dc7e49c), findings 1, 2 and 5: what another person does while a batch runs is found just before each row's
+     * decision. A trigger stands in for that person: as the first row is recorded (inside its decision's transaction), an item named
+     * with the second row's words in another order is made, and the third row's barcode is put on an item. Both rows are skipped.
+     */
+    public function testWhatChangesWhileTheBatchRunsIsReadAgainJustBeforeEachRow(): void
+    {
+        $this->keySetup();
+        $lead = $this->staffUser('mapping_lead');
+        $other = $this->item('legacy', 0, 'An older item');
+        $r1 = $this->fresh('A1', 'Hayati Pro Max 4000 Kiwi');
+        $r2 = $this->fresh('A2', 'Hayati Pro Max 4000 Apple');
+        $r3 = $this->fresh('A3', 'Hayati Pro Max 4000 Mango', ['5060000000093']);
+        self::$db->exec('DROP TRIGGER IF EXISTS t_store_new_meanwhile');
+        self::$db->pdo()->exec("CREATE TRIGGER t_store_new_meanwhile AFTER INSERT ON mapping_batch_row FOR EACH ROW BEGIN IF NEW.seq = 1 THEN "
+            . "INSERT INTO sku (name, code) VALUES ('Apple - Hayati Pro Max 4000', 'CW-990001'); "
+            . "INSERT INTO sku_barcode (barcode, sku_id) VALUES ('5060000000093', {$other}); END IF; END");
+        try {
+            $context = ['source' => BulkDecisions::STORE_NEW, 'channel_id' => (int) $this->altSite->channelId];
+            $r = $this->bulk()->run($lead, 'new_item', array_map(fn (int $id): array => $this->seen($id), [$r1, $r2, $r3]), $context);
+        } finally {
+            self::$db->exec('DROP TRIGGER IF EXISTS t_store_new_meanwhile');
+        }
+        $codes = [];
+        foreach (self::$db->all('SELECT listing_id, outcome, skip_code, CAST(detail AS CHAR) AS detail FROM mapping_batch_row WHERE batch_id = ? ORDER BY seq', [$r['batch_id']]) as $row) {
+            $codes[(int) $row['listing_id']] = [$row['skip_code'] ?? $row['outcome'], json_decode((string) $row['detail'], true)['sku'] ?? null];
+        }
+        $otherCode = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$other]);
+        self::assertSame([$r1 => ['done', null], $r2 => ['name_elsewhere', 'CW-990001'], $r3 => ['barcode_on_item', $otherCode]], $codes);
+        self::assertSame(['mapped', 'unmapped', 'unmapped'], [$this->link($r1)['status'], $this->link($r2)['status'], $this->link($r3)['status']]);
+    }
+
+    /**
+     * Codex review, findings 3, 4 and 7: a new product waiting for a second OK keeps its barcode (a second one with that barcode is
+     * not made, whatever its name); a barcode typed with spaces on a matched variant is still that item's; a page heading worked out
+     * from the stored website state is skipped as the seed skips it.
+     */
+    public function testAWaitingBarcodeASpacedBarcodeAndAStoredHeadingAreSkipped(): void
+    {
+        $this->keySetup();
+        $this->setting('approvals.mapping_bulk_second_ok', 'true');
+        $lead = $this->staffUser('mapping_lead');
+        $context = ['source' => BulkDecisions::STORE_NEW, 'channel_id' => (int) $this->altSite->channelId];
+        $first = $this->fresh('A1', 'Hayati Pro Max 4000 Apple', ['5060000000109']);
+        self::assertSame(1, $this->bulk()->run($lead, 'new_item', [$this->seen($first)], $context)['pending']);
+        $sameCode = $this->fresh('B1', 'Hayati Pro Max 4000 Banana', ['05060000000109']);
+        // A matched variant whose barcode was typed with spaces (its item's barcode not copied to it yet).
+        $item = $this->item('legacy', 0, 'Elux Legend Grape');
+        $matched = $this->fresh('M1', 'Elux Legend Grape', ['506 000 000 0116']);
+        $this->decide($lead, 'link', $matched, ['sku_id' => $item, 'units_per_item' => 1]);
+        $spaced = $this->fresh('C1', 'Hayati Pro Max 4000 Grape', ['5060000000116']);
+        // The website's own landing row, known from the stored state only.
+        $heading = $this->fresh('D1', 'Hayati Pro Max 4000 Range');
+        self::siteState($heading, ['site_is_landing' => 1, 'site_product_type' => 'variable']);
+        $plain = $this->fresh('E1', 'Hayati Pro Max 4000 Lime');
+        self::siteState($plain);
+        $p = $this->bulk()->preview($lead, 'new_item', array_map(fn (int $id): array => $this->seen($id), [$sameCode, $spaced, $heading, $plain]), $context);
+        self::assertSame([$sameCode => 'barcode_waiting', $spaced => 'barcode_on_item', $heading => 'page_heading', $plain => null],
+            array_map(static fn (array $r): ?string => $r['code'], $p['rows']));
+        self::assertSame((string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$item]), $p['rows'][$spaced]['detail']['sku']);
     }
 
     public function testANewProductOfTheSameNameWaitingForASecondOkIsNoSecondOneAndThePreviewSaysWhatRunDoes(): void

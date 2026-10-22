@@ -4673,6 +4673,7 @@ final class Words
         'barcode_twice' => 'Another row you ticked has the same barcode, so the two may be one product: open each and decide.',
         'name_waiting' => 'A new product with the same name already waits for a second OK. Open it and decide.',
         'card_changed' => 'Its details changed after the preview, so nothing was made. Open it and decide.',
+        'barcode_waiting' => 'A new product with the same barcode already waits for a second OK. Open it and decide.',
         // A bulk "create as new" (M61) takes only what the computer checked and found new, and of that not what is doubtful. The
         // others, each with why (the first three on New Variants only; the rest on every list that offers it):
         'suggested_match' => 'The computer suggests it is %s: open it and decide.',
@@ -5083,6 +5084,7 @@ final class Words
         'barcode_twice' => 'Another variant you ticked has the same barcode, so the two may be one item: open each and decide.',
         'name_waiting' => 'A new item with the same name already waits for a second OK. Open it and decide.',
         'card_changed' => 'Its details changed after the preview, so nothing was made. Open it and decide.',
+        'barcode_waiting' => 'A new item with the same barcode already waits for a second OK. Open it and decide.',
         // A bulk "create as new" is not offered on By Item (ITEM_ACTIONS): the reasons it skips for are here so that every reason has its
         // words in both sets (the same sentences; "its store" where the lists' words say "the website").
         'suggested_match' => 'The computer suggests it is %s: open it and decide.',
