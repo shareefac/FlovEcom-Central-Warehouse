@@ -706,6 +706,11 @@ final class Movements
                 [$line['erp_item_code']],
             );
             if ($r !== null) {
+                // A line that names a store's LANDING PAGE is a person's to place, whatever item ERPNext names (LP7; Codex review R2).
+                if (isset($line['variant_id']) && $caller->isChannel() && $this->db->value("SELECT 1 FROM channel_listing WHERE channel_id = ? AND external_variant_id = ? "
+                    . "AND status = 'landing'", [$caller->channelId, $line['variant_id']]) !== null) {
+                    return ['reason' => 'landing_page'];
+                }
                 return ['sku_id' => (int) $r['sku_id'], 'code' => (string) $r['code'], 'u' => (int) $r['units_per_item']];
             }
             if (!isset($line['variant_id'])) {

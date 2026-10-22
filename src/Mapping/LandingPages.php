@@ -27,8 +27,9 @@ use CW\Settings;
  *
  * NEVER BACK AND FORTH (LP3). The system only ever marks; it never unmarks. It never marks a product a person said is a real
  * product (DecisionService::saidReal()), whatever the rule or the website says later (`said_real`); a landing page the rule or the
- * website's word no longer finds stays one (`no_longer`); a linked one (`linked`), one decided one at a time (`one_at_a_time`) and
- * one waiting for a second OK (`waiting`) are left for a person; an ignored one is marked only when asked (`ignored`).
+ * website's word no longer finds stays one (`no_longer`); a linked one (`linked`), one held back or in a spot check (`one_at_a_time`)
+ * and one waiting for a second OK (`waiting`) are left for a person; an ignored one is marked only when asked (`ignored`). A
+ * suggestion of the check on arrival is settled by the mark (it confirms no match).
  */
 final class LandingPages
 {
@@ -38,7 +39,7 @@ final class LandingPages
     public const OUTCOMES = ['mark', 'already', 'no_longer', 'linked', 'said_real', 'one_at_a_time', 'waiting', 'ignored', 'not_landing'];
     /** The statuses the rule looks at as candidates (the rest is only reported). */
     private const OPEN = ['unmapped', 'suggested'];
-    private const COLUMNS = 'cl.id AS listing_id, cl.external_variant_id, cl.status, cl.map_version, lp.product_title, lp.variant_title, lp.attributes, lp.barcodes, '
+    private const COLUMNS = 'cl.id AS listing_id, cl.channel_id, cl.external_variant_id, cl.status, cl.map_version, lp.product_title, lp.variant_title, lp.attributes, lp.barcodes, '
         . 'lp.perma_link, lp.perma_key, lp.site_variant_status, lp.site_product_status, lp.site_product_type, lp.site_product_id, lp.site_is_landing, lp.site_is_default, '
         . 'lp.site_product_link, lp.site_state_at';
 
@@ -84,8 +85,11 @@ final class LandingPages
             $fresh = $state['source'] === SiteState::STORED && !SiteState::tooOld($state['as_of'], $maxDays, $now);
             // The other products of its page: the same product number, and the options whose address hangs under its own (both: a
             // store's state may be loaded for some of its products only). The rule still asks each for the same title and an option.
-            $pid = $r['site_product_id'];
-            $sibIds = array_unique([...($pid !== null && $pid !== '' ? ($byProduct[(string) $pid] ?? []) : []), ...($byParent[LandingRule::address($r['perma_link']) ?? "\0"] ?? [])]);
+            // An option found by the address whose OWN product number is known and another one is of another page (Codex review R3).
+            $pid = $r['site_product_id'] !== null && $r['site_product_id'] !== '' ? (string) $r['site_product_id'] : null;
+            $byAddress = array_filter($byParent[LandingRule::address($r['perma_link']) ?? "\0"] ?? [], static fn (int $s): bool => $pid === null
+                || $rows[$s]['site_product_id'] === null || $rows[$s]['site_product_id'] === '' || (string) $rows[$s]['site_product_id'] === $pid);
+            $sibIds = array_unique([...($pid !== null ? ($byProduct[$pid] ?? []) : []), ...$byAddress]);
             $sibs = [];
             foreach ($sibIds as $s) {
                 if ($s !== $id) {
@@ -123,10 +127,11 @@ final class LandingPages
             $out[] = $this->row($r, $outcome, $d);
             $counts[$outcome]++;
         }
-        // A product decided one at a time is a person's (the same reads as the lists: OneAtATime).
+        // A product a person set aside (held back) or a spot check's match is that person's (the same reads as the lists: OneAtATime).
+        // A suggestion of the check on arrival is not: the mark settles it and confirms no match.
         $one = OneAtATime::of($this->db, $candidates);
         foreach ($out as $i => $row) {
-            if ($row['outcome'] === 'mark' && isset($one[$row['listing_id']])) {
+            if ($row['outcome'] === 'mark' && isset($one[$row['listing_id']]) && $one[$row['listing_id']]['code'] !== OneAtATime::ARRIVAL) {
                 $out[$i]['outcome'] = 'one_at_a_time';
                 $counts['mark']--;
                 $counts['one_at_a_time']++;
@@ -137,7 +142,19 @@ final class LandingPages
                 $reasons[$row['reason']] = ($reasons[$row['reason']] ?? 0) + 1;
             }
         }
-        return ['rows' => $out, 'counts' => $counts, 'reasons' => $reasons, 'not' => $not];
+        return ['rows' => $out, 'counts' => $counts, 'reasons' => $reasons, 'not' => $not, 'options' => ['include_ignored' => $includeIgnored, 'rule' => $rule]];
+    }
+
+    /**
+     * The website products of a store first seen in the last $hours hours (channel_listing.created_at, the index of 0026): what the
+     * hourly run looks at again (LP4; Codex review R5: a mark a push could not make is made there).
+     *
+     * @return list<int>
+     */
+    public function recentIds(int $channelId, int $hours): array
+    {
+        return array_map('intval', $this->db->column('SELECT /*+ INDEX(cl ix_channel_listing_seen) */ cl.id FROM channel_listing cl WHERE cl.channel_id = ? '
+            . 'AND cl.created_at >= UTC_TIMESTAMP(6) - INTERVAL ? HOUR ORDER BY cl.id', [$channelId, $hours]));
     }
 
     /**
@@ -156,9 +173,25 @@ final class LandingPages
             if ($row['outcome'] !== 'mark') {
                 continue;
             }
+            // Asked again under the listing's lock (Codex review R4): a website state, a sibling or an address that changed since the plan
+            // was read moves no map_version, so the plan's answer for this product is worked out again and must be the same.
+            $channelId = (int) $row['channel_id'];
+            $options = $plan['options'] ?? ['include_ignored' => false, 'rule' => true];
+            $recheck = function () use ($row, $channelId, $options): void {
+                $now = null;
+                foreach ($this->plan($channelId, [$row['listing_id']], $options['include_ignored'], $options['rule'])['rows'] as $r) {
+                    if ($r['listing_id'] === $row['listing_id']) {
+                        $now = $r;
+                    }
+                }
+                if ($now === null || $now['outcome'] !== 'mark' || $now['reason'] !== $row['reason']) {
+                    throw new CwException('landing_changed', 'the website product changed since the plan was read: it is not marked', 409);
+                }
+            };
             try {
                 $ds->decide($caller, ['action' => 'landing', 'listing_id' => $row['listing_id'], 'expected_map_version' => $row['map_version'],
-                    'landing' => ['reason' => $row['reason'], 'source' => $source] + ($row['rule'] !== null ? ['rule' => $row['rule']] : []) + ['evidence' => $row['evidence']]]);
+                    'landing' => ['reason' => $row['reason'], 'source' => $source] + ($row['rule'] !== null ? ['rule' => $row['rule']] : []) + ['evidence' => $row['evidence']]],
+                    $recheck);
                 $marked++;
                 $ids[] = $row['listing_id'];
             } catch (CwException $e) {
@@ -199,7 +232,7 @@ final class LandingPages
     /** @param array<string, mixed> $r @param array<string, mixed> $d @return array<string, mixed> */
     private function row(array $r, string $outcome, array $d): array
     {
-        return ['listing_id' => (int) $r['listing_id'], 'variant' => (string) $r['external_variant_id'], 'status' => (string) $r['status'],
+        return ['listing_id' => (int) $r['listing_id'], 'channel_id' => (int) $r['channel_id'], 'variant' => (string) $r['external_variant_id'], 'status' => (string) $r['status'],
             'map_version' => (int) $r['map_version'], 'product_title' => $r['product_title'], 'variant_title' => $r['variant_title'], 'outcome' => $outcome,
             'reason' => $d['reason'], 'rule' => $d['reason'] === LandingRule::SAME_PAGE ? LandingRule::VERSION : null, 'evidence' => $d['evidence'],
             'not' => $d['not']];

@@ -53,6 +53,7 @@ $decide = ['l' => $l, 'no_form' => $no_form, 'change_match' => $change_match, 'c
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <input type="hidden" name="action" value="not_landing">
       <input type="hidden" name="expected_map_version" value="<?= $e($l['map_version']) ?>">
+      <input type="hidden" name="seen" value="<?= $e($form['seen'] ?? '') ?>">
       <label for="f-reason"><?= $word('LANDING', 'real_why') ?></label>
       <input type="text" id="f-reason" name="reason" maxlength="<?= $e($max_reason) ?>" required value="<?= $e($form['reason'] ?? '') ?>">
       <p class="actions"><button type="submit" class="primary"><?= $word('LANDING', 'real_button') ?></button></p>

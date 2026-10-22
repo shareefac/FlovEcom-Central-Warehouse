@@ -79,15 +79,22 @@ final class LandingOrders
         return $out;
     }
 
-    public function handle(Caller $caller, int $id, string $resolution, string $note): void
+    /**
+     * @param int|null $seenPaid whether the order was paid when the person looked (the form's `paid`): an answer given before a payment
+     *        came is refused (409 queue_changed; Codex review R6), so a paid order is never closed by a look at it unpaid
+     */
+    public function handle(Caller $caller, int $id, string $resolution, string $note, ?int $seenPaid = null): void
     {
         if (!in_array($resolution, self::RESOLUTIONS, true)) {
             throw new CwException('bad_field', 'say how it was sorted out: ' . implode(', ', self::RESOLUTIONS), 400, ['field' => 'resolution']);
         }
         $note = QueueRules::note($note);
-        $this->db->transaction(function (Db $db) use ($caller, $id, $resolution, $note): void {
+        $this->db->transaction(function (Db $db) use ($caller, $id, $resolution, $note, $seenPaid): void {
             QueueRules::authorise($db, $caller, self::PERM);
             $row = QueueRules::lockOpen($db, self::TABLE, $id);
+            if ($seenPaid !== null && $seenPaid !== (int) $row['paid']) {
+                throw new CwException('queue_changed', 'the order was paid since it was shown: look at it again', 409);
+            }
             QueueRules::settle($db, $caller, self::TABLE, $id, 'resolved', $resolution, $note);
             Audit::write($db, $caller, 'landing_order.handle', self::TABLE, (string) $id, null, ['resolution' => $resolution, 'note' => $note,
                 'order_ref' => $row['order_ref'], 'listing_id' => (int) $row['listing_id'], 'units' => (int) $row['units']]);

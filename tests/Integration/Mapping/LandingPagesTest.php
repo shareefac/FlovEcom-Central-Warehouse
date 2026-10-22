@@ -187,6 +187,18 @@ final class LandingPagesTest extends MappingTestCase
         self::refused(409, 'linked', fn () => $this->decide($lead, 'landing', $linked));
     }
 
+    public function testASuggestionOfTheCheckOnArrivalIsSettledByTheMarkItConfirmsNoMatch(): void
+    {
+        [, , $landing] = $this->page();
+        $proposal = $this->propose($landing, 'Check', $this->item('legacy'), [], true, 'arrival-test');
+        self::$db->exec('UPDATE match_run SET source = ? WHERE id = (SELECT match_run_id FROM match_proposal WHERE id = ?)', [\CW\Mapping\ArrivalCheck::SOURCE_WARNED, $proposal]);
+        self::assertStringStartsWith(\CW\Mapping\OneAtATime::ARRIVAL . ':', (string) \CW\Mapping\OneAtATime::seen(self::$db, $landing), 'decided one at a time by a person');
+        $plan = $this->svc()->plan((int) $this->shop->channelId);
+        self::assertSame('mark', array_column($plan['rows'], 'outcome', 'listing_id')[$landing]);
+        self::assertSame(1, $this->svc()->apply(Caller::system('landing_pages'), $plan, 'tool')['marked']);
+        self::assertSame(['landing', 'decided'], [$this->listingStatus($landing), (string) self::$db->value('SELECT status FROM match_proposal WHERE id = ?', [$proposal])]);
+    }
+
     public function testOnArrivalAPushMarksTheLandingPageWhenItsOptionsArrive(): void
     {
         $push = static fn (string $v, ?string $opt, array $extra = []): array => $extra + ['variant_id' => $v, 'product_title' => 'Elux Legend Cola Nic Salt 10ml',
@@ -237,6 +249,50 @@ final class LandingPagesTest extends MappingTestCase
         self::assertSame(1, $q->newVariantCounts($ch, null)['landing']);
         self::assertSame(['same_page'], array_column($q->landingWhy([$landing]), 'reason'));
         self::assertNotContains($landing, $q->waitingListings($ch, '', 1)['ids'], 'the pickers');
+    }
+
+    public function testAProductNumberIsNotOverriddenByTheAddressOfAnotherProductCodexR3(): void
+    {
+        // A real product with one option (the website's product 100) whose address another product (200) of the same title hangs
+        // an option under: the address finds no option of ITS page.
+        $single = $this->product('100', null, ['perma_link' => 'blue-razz']);
+        $other = $this->product('201', '10mg', ['perma_link' => 'blue-razz/10mg']);
+        self::$db->exec('UPDATE listing_profile SET site_product_id = ? WHERE listing_id = ?', ['100', $single]);
+        self::$db->exec('UPDATE listing_profile SET site_product_id = ? WHERE listing_id = ?', ['200', $other]);
+        $plan = $this->svc()->plan((int) $this->shop->channelId);
+        self::assertSame([], $plan['rows']);
+        // an option of the same product number, or one whose number is not known, still counts
+        self::$db->exec('UPDATE listing_profile SET site_product_id = NULL WHERE listing_id = ?', [$other]);
+        self::assertSame([$single], array_column($this->svc()->plan((int) $this->shop->channelId)['rows'], 'listing_id'));
+    }
+
+    public function testAPlanThatIsNoLongerTrueUnderTheLockMarksNothingCodexR4(): void
+    {
+        $flagged = $this->product('A1', null, ['product_title' => 'Lost Mary BM600', 'perma_link' => 'lost-mary-bm600']);
+        self::siteState($flagged, ['site_is_landing' => 1, 'site_product_type' => 'variable', 'site_product_id' => '77']);
+        $plan = $this->svc()->plan((int) $this->shop->channelId);
+        self::assertSame('mark', $plan['rows'][0]['outcome']);
+        self::siteState($flagged, ['site_is_landing' => 0, 'site_product_type' => 'variable', 'site_product_id' => '77']); // the website says no since
+        $r = $this->svc()->apply(Caller::system('landing_pages'), $plan, 'tool');
+        self::assertSame(['marked' => 0, 'refused' => ['landing_changed' => 1], 'ids' => []], $r);
+        self::assertSame('unmapped', $this->listingStatus($flagged));
+    }
+
+    public function testTheHourlyRunMarksWhatArrivedLatelyAndLeavesTheRestCodexR5(): void
+    {
+        [, , $landing] = $this->page();
+        $old = $this->product('O1', null, ['product_title' => 'Old Page', 'perma_link' => 'old-page']);
+        $this->product('O2', '10mg', ['product_title' => 'Old Page', 'perma_link' => 'old-page/10mg']);
+        self::$db->exec('UPDATE channel_listing SET created_at = UTC_TIMESTAMP(6) - INTERVAL 5 DAY WHERE external_variant_id IN (?, ?)', ['O1', 'O2']);
+        $r = self::tool('--recent-hours=48', '--apply');
+        self::assertSame(0, $r['code'], $r['err'] . $r['out']);
+        self::assertSame(['landing', 'unmapped'], [$this->listingStatus($landing), $this->listingStatus($old)], 'older products are the owner\'s dry run and --apply');
+        self::assertSame('recent', json_decode((string) self::$db->value("SELECT CAST(detail AS CHAR) FROM match_decision WHERE listing_id = ? AND action = 'landing'", [$landing]), true)['landing']['source']);
+        self::assertSame(2, self::tool('--recent-hours=48', '--channel=electrofag')['code'], 'every store: no --channel with it');
+        foreach (['staging/cw-staging.cron' => 'cw_staging', 'production/cw-prod.cron' => 'cw_prod'] as $file => $db) {
+            self::assertMatchesRegularExpression('#^23 \* \* \* \*  root  cd /opt/cw-[a-z]+ && php bin/landing_pages\.php --db=' . $db . ' --recent-hours=48 --apply >> /var/log/cw/landing_pages\.log 2>&1$#m',
+                (string) file_get_contents(dirname(__DIR__, 3) . '/deploy/' . $file));
+        }
     }
 
     public function testUnmatchedRealProductsAreAsBefore(): void

@@ -18,11 +18,11 @@
   <li>
   <article class="incident card <?= $e(\CW\Ui\Words::tone('QUEUE_STATE', $r['status'])) ?>" id="landing-<?= $e($r['id']) ?>">
     <div class="task-head">
-      <h2><a href="<?= $u($r['link']) ?>"><?= $e($r['title']) ?></a></h2>
+      <h2><?php if ($canOpen): ?><a href="<?= $u($r['link']) ?>"><?= $e($r['title']) ?></a><?php else: ?><?= $e($r['title']) ?><?php endif; ?></h2>
       <?= $stateChip('QUEUE_STATE', $r['status']) ?>
     </div>
     <p><?= $e($r['from']) ?> · <?= $e($r['option']) ?></p>
-    <p><?= $e($r['units']) ?> <?= $e($r['paid_line']) ?> <?= $word('WEBSITE_BUG', 'no_stock') ?></p>
+    <p><?= $e($r['units_line']) ?> <?= $e($r['paid_line']) ?> <?= $word('WEBSITE_BUG', 'no_stock') ?></p>
 <?php if ($r['still'] !== null): ?>
     <p class="hint"><?= $e($r['still']) ?></p>
 <?php endif; ?>
@@ -33,6 +33,7 @@
 <?php if ($canAct && $r['closed'] === null): ?>
     <form class="record queue-answer" method="post" action="<?= $u($action . '/' . $r['id'] . '/handle') ?>">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+      <input type="hidden" name="paid" value="<?= $e((int) $r['paid']) ?>">
       <fieldset>
         <legend><?= $word('WEBSITE_BUG', 'handle_legend') ?></legend>
         <label><?= $word('WEBSITE_BUG', 'how') ?>

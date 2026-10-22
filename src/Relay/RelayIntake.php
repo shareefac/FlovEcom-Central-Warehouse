@@ -346,6 +346,10 @@ final class RelayIntake
     {
         if (isset($line['erp_item_code'])) {
             $r = $db->one('SELECT e.sku_id, e.units_per_item, s.code FROM sku_erp_item e JOIN sku s ON s.id = e.sku_id WHERE e.item_code = ?', [$line['erp_item_code']]);
+            if ($r !== null && isset($line['variant_id']) && $db->value("SELECT 1 FROM channel_listing WHERE channel_id = ? AND external_variant_id = ? AND status = 'landing'",
+                [$caller->channelId, $line['variant_id']]) !== null) {
+                return ['reason' => 'landing_page']; // a store's landing page: a person's to place (LP7; Codex review R2)
+            }
             if ($r !== null) {
                 return ['sku_id' => (int) $r['sku_id'], 'code' => (string) $r['code'], 'u' => (int) $r['units_per_item']];
             }

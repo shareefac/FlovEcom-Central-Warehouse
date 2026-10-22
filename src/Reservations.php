@@ -1296,6 +1296,33 @@ final class Reservations
         }
     }
 
+    /**
+     * The OPEN orders of a website product that has just been marked a landing page (DecisionService `landing`, LP7; Codex review R1):
+     * every reservation with a unit of it still held or allocated goes to the website-bug list, one row per order (the units it holds,
+     * paid when committed), unless the order is there already. Nothing else changes: a unit sold while the product was linked keeps
+     * the item it was sold under (I14) and a person sorts the order out from the list. In the caller's transaction.
+     *
+     * @return int the orders added to the list
+     */
+    public function flagOpenOrdersOf(int $listingId): int
+    {
+        $n = 0;
+        foreach ($this->db->all("SELECT r.id, r.channel_id, r.order_ref, CAST(r.status AS CHAR) AS status, COUNT(*) AS units FROM reservation_unit u "
+            . "JOIN reservation r ON r.id = u.reservation_id WHERE u.listing_id = ? AND u.state IN ('held', 'allocated') GROUP BY r.id, r.channel_id, r.order_ref, r.status "
+            . 'ORDER BY r.id', [$listingId]) as $r) {
+            if ($this->db->value('SELECT id FROM landing_order WHERE channel_id = ? AND order_ref = ? AND listing_id = ?', [(int) $r['channel_id'], (string) $r['order_ref'], $listingId]) !== null) {
+                continue;
+            }
+            $paid = $r['status'] === 'committed';
+            $id = $this->db->insert('INSERT INTO landing_order (channel_id, order_ref, listing_id, reservation_id, seen_in, units, paid) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [(int) $r['channel_id'], (string) $r['order_ref'], $listingId, (int) $r['id'], $paid ? 'commit' : 'reserve', max(1, (int) $r['units']), $paid ? 1 : 0]);
+            Audit::write($this->db, Caller::system('reservations'), 'landing_order.flag', 'landing_order', (string) $id, null,
+                ['order_ref' => (string) $r['order_ref'], 'listing_id' => $listingId, 'units' => (int) $r['units'], 'seen_in' => 'mark']);
+            $n++;
+        }
+        return $n;
+    }
+
     // ==========================================================================================
     // adopting units sold while their listing was unlinked (R4)
     // ==========================================================================================

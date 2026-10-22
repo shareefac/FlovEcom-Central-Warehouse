@@ -9838,6 +9838,7 @@ final class Words
     public const RELAY_REASON = [
         'unknown_listing' => 'the store\'s variant is not known here yet',
         'unlinked_listing' => 'the store\'s variant is not matched to an item',
+        'landing_page' => 'the store\'s variant is a landing page, not a product: book it on the item the customer got',
         'unknown_erp_item' => 'the ERPNext item is not known here',
         'unknown_sku' => 'the item is not known here',
     ];
@@ -10009,6 +10010,7 @@ final class Words
     public const QUEUE_ERROR = [
         'note_required' => 'Write a note of 3 to 500 characters: what you did, or why. Nothing was saved.',
         'queue_settled' => 'Someone already answered this one. Nothing more was saved.',
+        'queue_changed' => 'This order changed while you were looking (it was paid). Look at it again. Nothing was saved.',
         'unknown_queue_row' => 'This row is not in the list any more. Nothing was saved.',
         'unknown_item' => 'There is no item with that code. Check it under Products. Nothing was booked.',
         'merged_item' => 'That item was joined into another one. Use the other item\'s code. Nothing was booked.',

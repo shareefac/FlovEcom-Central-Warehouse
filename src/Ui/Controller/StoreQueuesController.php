@@ -194,13 +194,15 @@ final class StoreQueuesController
         $state = QueueRules::status($ctx->req->param('status'));
         $rows = (new LandingOrders($ctx->db))->list($state);
         return $this->page($ctx, 'queue_landing', 'queue_landing', LandingOrders::PERM, $state, $rows, self::landingRow(...), $status, $error,
-            ['resolutions' => LandingOrders::RESOLUTIONS]);
+            ['resolutions' => LandingOrders::RESOLUTIONS, 'canOpen' => $ctx->me()->can('linking.view')]);
     }
 
     public function landingHandle(Context $ctx): HtmlResponse
     {
         try {
-            (new LandingOrders($ctx->db))->handle($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('resolution') ?? ''), (string) ($ctx->req->field('note') ?? ''));
+            $paid = $ctx->req->field('paid');
+            (new LandingOrders($ctx->db))->handle($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('resolution') ?? ''), (string) ($ctx->req->field('note') ?? ''),
+                $paid === '0' || $paid === '1' ? (int) $paid : null);
         } catch (CwException $e) {
             return $this->landing($ctx, $e->httpStatus, $e);
         }
@@ -312,7 +314,7 @@ final class StoreQueuesController
             'title' => Words::say('WEBSITE_BUG', 'title', (string) $r['order_ref'], $title),
             'from' => Words::say('QUEUES', 'from', $r['store']['name'] ?? Words::QUEUES['store_unknown']),
             'option' => Words::say('WEBSITE_BUG', 'option', (string) $r['external_variant_id']),
-            'units' => Words::say('WEBSITE_BUG', (int) $r['units'] === 1 ? 'unit' : 'units', (int) $r['units']),
+            'units_line' => Words::say('WEBSITE_BUG', (int) $r['units'] === 1 ? 'unit' : 'units', (int) $r['units']),
             'paid_line' => Words::WEBSITE_BUG[(int) $r['paid'] === 1 ? 'paid' : 'not_paid'],
             'still' => $r['listing_status'] === 'landing' ? null : Words::WEBSITE_BUG['not_landing_now'],
             'received' => Words::say('QUEUES', 'received', Html::when((string) $r['created_at'])),

@@ -63,6 +63,7 @@ final class LandingPagesScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::ACTION['not_landing'], $page->text());
         $form = $page->form('/ui/review/listing/' . $landing . '/decide');
         self::assertSame('not_landing', $form['action'] ?? null);
+        self::assertArrayHasKey('seen', $form, 'what the page showed goes with it, as on every decision form (Codex R7: a held-back one)');
         $bare = $lead->post('/ui/review/listing/' . $landing . '/decide', ['reason' => ''] + $form);
         self::assertSame(422, $bare->status, $bare->describe());
         self::assertStringContainsString(Words::MATCH_ERROR['real_why'], $bare->text());
@@ -87,6 +88,14 @@ final class LandingPagesScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::LANDING['why_person'], $web->get('/ui/review/store', ['channel' => 'electrofag', 'state' => 'landing'])->text());
     }
 
+    public function testFindShowsALandingPageAsOneCodexR10(): void
+    {
+        $this->store();
+        $r = $this->signIn($this->uiUser('mapper'))->get('/ui/search', ['q' => 'Blue Razz Cherry']);
+        self::assertSame(200, $r->status, $r->describe());
+        self::assertStringContainsString(Words::LISTING_STATUS['landing'], $r->text());
+    }
+
     public function testWebsiteBugsListsTheOrderAndMarksItHandledAndHomeSaysSo(): void
     {
         [$site] = $this->store();
@@ -106,8 +115,12 @@ final class LandingPagesScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('WEBSITE_BUG', 'title', '5001', self::TITLE), $page->text());
         self::assertStringContainsString(Words::say('WEBSITE_BUG', 'option', '960'), $page->text());
         self::assertStringContainsString(Words::WEBSITE_BUG['no_stock'], $page->text());
+        self::assertStringContainsString(Words::say('WEBSITE_BUG', 'units', 2), $page->text(), 'Codex R9');
+        self::assertNotContains('/ui/review/listing/' . (int) self::$db->value("SELECT id FROM channel_listing WHERE external_variant_id = '960'"), $page->hrefs(),
+            'a stock controller may not open the matching page: no link to it (Codex R8)');
         self::assertSame(1, array_column(self::segments($page), 'count', 'label')['Website bugs']);
         $form = $page->form('/ui/queues/landing/' . $id . '/handle');
+        self::assertSame('1', $form['paid'] ?? null, 'the answer says what the person saw (Codex R6)');
         $r = $web->post('/ui/queues/landing/' . $id . '/handle', ['resolution' => 'fixed_by_hand', 'note' => 'sent the 20mg'] + $form);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
         self::assertStringContainsString(Words::QUEUE_NOTICE['handled'], $web->follow($r)->text());

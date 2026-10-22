@@ -147,6 +147,56 @@ final class LandingOrderTest extends MappingTestCase
         self::assertNull($this->reservation($site, 'tst-10'));
     }
 
+    public function testMarkingAPageListsItsOpenOrdersAsWebsiteBugsCodexR1(): void
+    {
+        // A landing page linked by mistake took an order (its units hold the item they were sold under, I14), and an unmatched one
+        // was paid for: once a person undoes the match and the page is marked, both orders are on the website-bug list.
+        $site = $this->site('electrofag');
+        $item = $this->item('legacy', 10);
+        $wrong = $this->listing($site, '960', $item);
+        $this->ok($this->reserve($site, 'R1', [self::line('960', 'r1')]));
+        $paid = $this->listing($site, '961', null);
+        $this->ok($this->commit($site, 'C1', [self::line('961', 'c1', 'c2')], 'unreserved'));
+        $lead = $this->staffUser('mapping_lead');
+        $this->decide($lead, 'unlink', $wrong, ['reason' => 'a landing page, not the 10mg']);
+        self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM landing_order'));
+        $this->decide($lead, 'landing', $wrong);
+        $this->decide($lead, 'landing', $paid);
+        $rows = self::$db->all('SELECT order_ref, listing_id, seen_in, units, paid FROM landing_order ORDER BY order_ref');
+        self::assertSame([['C1', $paid, 'commit', 2, 1], ['R1', $wrong, 'reserve', 1, 0]], array_map(static fn (array $r): array => [$r['order_ref'], (int) $r['listing_id'],
+            $r['seen_in'], (int) $r['units'], (int) $r['paid']], $rows));
+        $this->assertBal(10, 0, 1, $item);
+        self::assertSame(1, (int) self::$db->value("SELECT JSON_EXTRACT(detail, '$.website_bugs') FROM audit_log WHERE action = 'mapping.landing' AND entity_id = ?",
+            [(string) $wrong]), 'the mark says how many open orders it listed');
+    }
+
+    public function testAnErpLineNamingALandingPageWaitsForAPersonCodexR2(): void
+    {
+        [$site] = $this->shop();
+        $this->grant($site, 'goods_in', 'erp_sale');
+        $other = $this->item('strict', 4);
+        self::$db->exec("INSERT INTO sku_erp_item (item_code, sku_id, units_per_item) VALUES ('ERP-960', ?, 1)", [$other]);
+        $this->moves->record($site, ['type' => 'erp_sale', 'doc_ref' => 'ACC-SINV-1', 'lines' => [['erp_item_code' => 'ERP-960', 'variant_id' => '960', 'qty' => 1,
+            'line_index' => 0]]], 'relay-sinv-1');
+        $this->assertBal(4, 0, 0, $other);
+        self::assertSame(['landing_page', '960'], array_values(array_map('strval', (array) self::$db->one('SELECT reason, external_variant_id FROM goods_in_suspense'))),
+            'a person places it: Lines to place');
+        self::assertArrayHasKey('landing_page', Words::RELAY_REASON);
+    }
+
+    public function testAnAnswerFromBeforeThePaymentIsRefusedCodexR6(): void
+    {
+        [$site] = $this->shop();
+        $this->ok($this->reserve($site, '9001', [self::line('960', 'p1')]));
+        $id = (int) self::$db->value('SELECT id FROM landing_order');
+        $this->ok($this->commit($site, '9001', [self::line('960', 'p1')]));
+        $orders = new LandingOrders(self::$db);
+        self::refused(409, 'queue_changed', fn () => $orders->handle($this->staffUser('stock_controller'), $id, 'no_action', 'never paid', 0));
+        self::assertSame(1, $orders->openCount());
+        $orders->handle($this->staffUser('stock_controller'), $id, 'fixed_by_hand', 'sent the 10mg', 1);
+        self::assertSame(0, $orders->openCount());
+    }
+
     public function testAnUnmatchedRealProductsLineIsExactlyAsBefore(): void
     {
         [$site, , , $real] = $this->shop();

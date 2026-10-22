@@ -11350,9 +11350,10 @@ setting, and classifies no row. Both altered tables are copied once, said out lo
 `landing` only) with why in `match_decision.detail.landing` (`reason` website_flag / same_page / person, `rule` lp1, `source`
 arrival / tool, `evidence`), or by a person who may decide (the variant's page: "Is this a landing page?"). Only an unlinked
 product (`unmapped`, `suggested`; `ignored` when asked): a linked one is refused (409 `linked`: unlinking changes a stock link,
-a person does it on its page). The system settles whichever suggestion is open under the lock; a person names it (I7). The system
-leaves a product decided one at a time (OneAtATime: held back, a spot check's match, found on arrival) to a person (409
-`one_at_a_time`). `not_landing` ("This is a real product"): a MATCHING LEAD only (403 `lead_required`), with a note (the page asks
+a person does it on its page). The system settles whichever suggestion is open under the lock (a suggestion of the check on arrival too: a mark confirms no
+match); a person names it (I7). The system leaves a product a person held back, and a spot check's match, to a person (409
+`one_at_a_time`; measured on staging: 287 of Electrofag's 1,103 landing rows carry such an arrival suggestion, and would otherwise
+all have waited for a person). `not_landing` ("This is a real product"): a MATCHING LEAD only (403 `lead_required`), with a note (the page asks
 for it); back to its list (suggested when a suggestion is open, else not matched). Every other decision on a landing page is refused
 (409 `landing_page`): nothing is matched to it, made of it or rejected for it until a lead says it is real.
 
@@ -11366,7 +11367,9 @@ was created or changed, or whose website state says something new, AND the other
 (`LandingPages::onArrival()`): a landing page that arrived before its options is found when they arrive. Each mark is a decision of its
 own; a failure is logged and never costs the push; the answer to the site is unchanged. The website's flag always marks; the rule only
 while `mapping.landing_rule_on_arrival` is on (Settings › Matching products; on; provisional). The import of export files does not
-classify: the tool does.
+classify: the tool does. A mark a push could not make (a failure is only logged) is made by the hourly cron line
+`bin/landing_pages.php --recent-hours=48 --apply`: every store's website products first seen in the last two days and the other products
+of their pages, as on arrival; older products are the owner's dry run and `--apply` (Codex review R5).
 
 **LP5. Existing rows: `php bin/landing_pages.php --channel=<code> [--dry-run | --apply] [--include-ignored] [--list]`.** A dry run by
 default (no write, no lock): what it would mark and why, what it leaves and why (linked, said_real, one_at_a_time, waiting,
@@ -11384,6 +11387,10 @@ page in the order's own transaction (a hold, a payment, an opening order). A lat
 payment; a payment that comes after a person handled the row while it was unpaid opens it again (audit `landing_order.reopened`).
 The R4 adoption is unchanged: if a lead later says the page is a real product and it is matched, its old units are adopted as any
 unlinked units are.
+
+When a product is MARKED, its orders still open (units held or allocated) go to the list too (Codex review R1): a unit sold while the
+product was linked by mistake keeps the item it was sold under (I14) and a person sorts that order out. An ERPNext line (the relay) that
+names a store's landing page waits in Lines to place (`landing_page`) even when ERPNext's item code names an item (Codex review R2).
 
 **LP8. Approvals › From the stores › Website bugs** (`/ui/queues/landing`): each order with its store, number, the landing page and its
 option number, the units, paid or not, "No stock moved for it"; marked handled (fixed by hand, refunded, nothing needed) with a note,
@@ -11405,3 +11412,24 @@ Electrofag 874 of 1,103, none wrong. Not one product with a single option was ca
 **LP12. Open, for the owner** (NEEDS-OWNER in the design file): connector 0.4.7 sending `website` (it is in the shops' trees; deployed
 per box); the shop's own fix; whether landing pages staff ignored are moved (`--include-ignored`); linked landing pages (listed, a
 person unlinks); refusing a landing page at checkout on a Live store (not done: recorded and alerted only); hourly reminders.
+
+### The Codex review (on `560b0ef`; `runs/landing_codex_review.txt`): three HIGH, four MEDIUM, three LOW, all fixed test-first
+
+The new tests failed first (`/root/cw_work/landing/landing_codex_red.log`, 10 failures) and pass now.
+- **HIGH R1: a mark left the page's open orders off the list** (a landing page linked by mistake took an order; units keep their sale-time
+  item). Now `Reservations::flagOpenOrdersOf()` lists every open order of the product when it is marked (`LandingOrderTest` …CodexR1).
+- **HIGH R2: an ERPNext item code booked a line that names a landing page.** The relay's and the movements' resolve now park such a line
+  in Lines to place, reason `landing_page` (…CodexR2). The "ERP item code wins" rule stands for every other line.
+- **HIGH R3: an address could pull in an option of ANOTHER product number** (a real single-option product marked). An option found by the
+  address counts only when its own product number is not known or is the same (`LandingPagesTest` …CodexR3).
+- **MEDIUM R4: a plan read before a change could still mark** (a website state does not move a map_version). `apply()` asks the plan's
+  question again under the listing's lock (DecisionService's `$recheck`); a different answer is refused `landing_changed` (…CodexR4).
+- **MEDIUM R5: a failed classification on arrival was never tried again.** The hourly `--recent-hours=48` run (LP4; …CodexR5).
+- **MEDIUM R6: an answer given while the order was unpaid could close it once paid.** The form carries what the person saw (`paid`);
+  a different one is refused `queue_changed` (…CodexR6).
+- **MEDIUM R7: "This is a real product" carried no `seen`**, so a held-back landing page could not be put back. It does now.
+- **LOW R8-R10:** the Website bugs title links to the variant's page only for people who may open it; the units line keeps its words;
+  Find shows a landing page's chip.
+- Settled while fixing (the staging rehearsal of the dry run, `landing/staging_plan.out`): the system's mark settles a suggestion of the
+  check on arrival (it confirms no match); only a held-back product and a spot check's match wait for a person. Before it, 287 of
+  Electrofag's 1,103 landing rows would have waited.

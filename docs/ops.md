@@ -2632,10 +2632,12 @@ php bin/landing_pages.php --channel=electrofag --apply
 
 The last line says what it would mark and why (`website_flag`: the website's own flag in a loaded state; `same_page`: the rule), what
 it leaves and why: `linked` (matched to an item: its orders DO move stock; a person undoes the match on its page, then the next run
-marks it), `said_real` (a matching lead said it is a real product: never marked again by the tool), `one_at_a_time`, `waiting`,
+marks it), `said_real` (a matching lead said it is a real product: never marked again by the tool), `one_at_a_time` (held back, or a spot check's match), `waiting`,
 `ignored` (add `--include-ignored` to move them too), `no_longer` (a landing page the rule no longer finds: left as it is). Then
 Vape and Go and Vape Big the same way. A second run marks nothing twice. New website products are marked on arrival (each push), by
 the website's flag always and by the rule while Settings › Matching products › "Find landing pages by the rule when they arrive" is on.
+The cron runs `php bin/landing_pages.php --recent-hours=48 --apply` every hour (log `/var/log/cw/landing_pages.log`): what arrived in
+the last two days, every store, as on arrival; it never touches older products. `install_cron.sh` installs it with the others.
 
 **A wrong mark.** A matching lead opens the variant (Store Products › Landing pages), "This is a real product", with why: it goes back to
 its list and is never marked by the system again. A product the rule missed: whoever decides it opens it, "Is this a landing page?".

@@ -27,6 +27,11 @@ MAILTO=""
 # setting mapping.arrival_stores; it takes only the variants the listing intake marked, never the ones that were there before.
 */10 * * * *  root  cd /opt/cw-staging && php bin/check_arrivals.php --db=cw_staging --apply >> /var/log/cw/check_arrivals.log 2>&1
 
+# Landing pages (docs/decisions.md LP4): the website products that arrived in the last two days, marked as on arrival (the website's
+# own flag; the rule while mapping.landing_rule_on_arrival is on): a mark a listing push could not make is made here. Older products
+# are the owner's dry run and --apply, store by store (docs/ops.md "Landing pages").
+23 * * * *  root  cd /opt/cw-staging && php bin/landing_pages.php --db=cw_staging --recent-hours=48 --apply >> /var/log/cw/landing_pages.log 2>&1
+
 # ---- Pack F (docs/decisions.md PF10-PF12) ----
 # The alerts to a person: every store's heartbeat, outbox, failed messages and feed lag, CW's own answer time and the nightly check,
 # each limit a setting (alerts.*). It sends to alerts.webhook_url / alerts.email_to once per alerts.repeat_minutes while a problem

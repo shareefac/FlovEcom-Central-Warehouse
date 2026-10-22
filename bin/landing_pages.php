@@ -9,7 +9,11 @@ declare(strict_types=1);
  * marks nothing twice.
  *
  *   php bin/landing_pages.php --channel=<code> [--dry-run | --apply] [--include-ignored] [--list] [--db=<schema>] [--admin]
+ *   php bin/landing_pages.php --recent-hours=<1-720> [--dry-run | --apply] [--list]       (every store: the hourly cron line)
  *
+ *  - --recent-hours: the website products of EVERY store first seen in the last hours, and the other products of their pages, as on
+ *    arrival (the website's flag; the rule while mapping.landing_rule_on_arrival is on; ignored ones never): a mark a push could not
+ *    make is made here (LP4; Codex review R5). Older products are the owner's dry run and --apply, store by store. No --channel.
  *  - Dry run unless --apply (--dry-run says so out loud): what it would mark and why (the website's own flag, or the rule and its
  *    version), and what it leaves and why (linked to an item, a person said real, decided one at a time, waiting for a second OK,
  *    ignored, a landing page no longer found). Nothing is written, nothing is locked.
@@ -30,17 +34,40 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 
 ini_set('memory_limit', '1G');
 
-exit(Cli::main('landing_pages', ['channel:', 'dry-run', 'apply', 'include-ignored', 'list'],
-    'usage: php bin/landing_pages.php --channel=<code> [--dry-run | --apply] [--include-ignored] [--list]',
+exit(Cli::main('landing_pages', ['channel:', 'dry-run', 'apply', 'include-ignored', 'list', 'recent-hours:'],
+    'usage: php bin/landing_pages.php --channel=<code> [--dry-run | --apply] [--include-ignored] [--list]' . "\n"
+    . '       php bin/landing_pages.php --recent-hours=<1-720> [--dry-run | --apply] [--list]',
     static function (Cli $cli, array $opts): int {
-        $code = $opts['channel'] ?? null;
-        if (!is_string($code) || $code === '') {
-            throw new InvalidArgumentException('--channel=<code> is required');
-        }
         if (array_key_exists('apply', $opts) && array_key_exists('dry-run', $opts)) {
             throw new InvalidArgumentException('--dry-run and --apply: choose one');
         }
         $apply = array_key_exists('apply', $opts);
+        if (array_key_exists('recent-hours', $opts)) {
+            if (array_key_exists('channel', $opts) || array_key_exists('include-ignored', $opts)) {
+                throw new InvalidArgumentException('--recent-hours looks at every store as on arrival: no --channel, no --include-ignored');
+            }
+            $hours = Cli::intOpt($opts, 'recent-hours', 48, 1, 720);
+            $svc = new LandingPages($cli->db);
+            $rule = \CW\Settings::flag($cli->db, LandingPages::SETTING, true);
+            $refused = [];
+            foreach ($cli->db->all('SELECT id, code FROM channel ORDER BY id') as $ch) {
+                $ids = $svc->recentIds((int) $ch['id'], $hours);
+                $plan = $svc->plan((int) $ch['id'], $ids, false, $rule);
+                $r = $apply && $plan['counts']['mark'] > 0 ? $svc->apply(\CW\Caller::system('landing_pages'), $plan, 'recent') : null;
+                foreach ($r['refused'] ?? [] as $why => $n) {
+                    $refused[$why] = ($refused[$why] ?? 0) + $n;
+                }
+                if ($ids !== [] || array_key_exists('list', $opts)) {
+                    $cli->log(sprintf('%schannel=%s recent_hours=%d new=%d would_mark=%d%s', $apply ? '' : 'DRY RUN (nothing written) ', (string) $ch['code'], $hours, count($ids),
+                        $plan['counts']['mark'], $r === null ? '' : sprintf(' marked=%d refused=%d', $r['marked'], array_sum($r['refused']))));
+                }
+            }
+            return $refused === [] ? Cli::OK : Cli::PROBLEM;
+        }
+        $code = $opts['channel'] ?? null;
+        if (!is_string($code) || $code === '') {
+            throw new InvalidArgumentException('--channel=<code> is required');
+        }
         $channelId = $cli->db->value('SELECT id FROM channel WHERE code = ?', [$code]);
         if ($channelId === null) {
             throw new InvalidArgumentException("no channel {$code}");

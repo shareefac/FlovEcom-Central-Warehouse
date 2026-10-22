@@ -57,7 +57,7 @@
 <?php endif; ?>
         </th>
         <td data-label="<?= $word('SEARCH', 'website') ?>"><?= $e($r['channel']) ?> <span class="muted small"><?= $say('QUEUE', 'option', (string) $r['variant']) ?></span></td>
-        <td data-label="<?= $word('SEARCH', 'matched') ?>"><?php if ($r['status'] === 'mapped' && $r['sku_id'] !== null): ?><?= $word('SEARCH', 'yes_to') ?> <a href="/ui/items/<?= $e($r['sku_id']) ?>"><?= $e($r['sku_code']) ?></a><?php elseif ($r['status'] === 'ignored' || $r['status'] === 'quarantined'): ?><?= $stateChip('LISTING_STATUS', $r['status']) ?><?php if ($r['sku_id'] !== null): ?> <a href="/ui/items/<?= $e($r['sku_id']) ?>"><?= $e($r['sku_code']) ?></a><?php endif; ?><?php else: ?><span class="muted"><?= $word('SEARCH', 'not_yet') ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('SEARCH', 'matched') ?>"><?php if ($r['status'] === 'mapped' && $r['sku_id'] !== null): ?><?= $word('SEARCH', 'yes_to') ?> <a href="/ui/items/<?= $e($r['sku_id']) ?>"><?= $e($r['sku_code']) ?></a><?php elseif ($r['status'] === 'ignored' || $r['status'] === 'quarantined' || $r['status'] === 'landing'): ?><?= $stateChip('LISTING_STATUS', $r['status']) ?><?php if ($r['sku_id'] !== null): ?> <a href="/ui/items/<?= $e($r['sku_id']) ?>"><?= $e($r['sku_code']) ?></a><?php endif; ?><?php else: ?><span class="muted"><?= $word('SEARCH', 'not_yet') ?></span><?php endif; ?></td>
         <td class="num" data-label="<?= $word('SEARCH', 'sold_30') ?>"><?= $n($r['units_30d'] ?? 0) ?></td>
       </tr>
 <?php endforeach; ?>

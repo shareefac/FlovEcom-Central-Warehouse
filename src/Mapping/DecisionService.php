@@ -658,11 +658,13 @@ final class DecisionService
         }
         $open = $this->openProposal($l['id']);
         if ($staff === null && $action === 'landing') {
-            // The system's mark (LP2): nobody saw the open suggestion, it settles whichever is open under the lock. A variant decided one
-            // at a time (held back, a spot check's match, found on arrival) is a person's, on its own page (LP3).
+            // The system's mark (LP2): nobody saw the open suggestion, it settles whichever is open under the lock (a suggestion of the
+            // check on arrival too: a mark confirms no match). A variant a person set aside (held back) or a spot check's match is that
+            // person's, on its own page (LP3).
             $r['proposal_id'] = $open['id'] ?? null;
-            if (OneAtATime::seen($this->db, $l['id']) !== null) {
-                throw new CwException('one_at_a_time', 'this listing is decided one at a time, on its own page: a person marks it', 409);
+            $seen = OneAtATime::seen($this->db, $l['id']);
+            if ($seen !== null && !str_starts_with($seen, OneAtATime::ARRIVAL . ':')) {
+                throw new CwException('one_at_a_time', 'this listing is held back or in a spot check: a person marks it on its own page', 409);
             }
         }
         if ($r['proposal_id'] !== null && ($open === null || $open['id'] !== $r['proposal_id'])) {
@@ -1106,8 +1108,10 @@ final class DecisionService
                 $this->setListing($id, null, 1, 'landing');
                 $after = ['status' => 'landing', 'sku_id' => null, 'units_per_item' => 1];
                 $version++;
+                // Its orders still open are website bugs too (LP7): a person sorts them out from the list.
+                $bugs = $this->res->flagOpenOrdersOf($id);
                 Audit::write($this->db, $caller, 'mapping.landing', 'listing', (string) $id, null, $detail + ['to' => $after, 'map_version' => $version,
-                    'landing' => $r['landing'] ?? ['reason' => 'person']]);
+                    'landing' => $r['landing'] ?? ['reason' => 'person'], 'website_bugs' => $bugs]);
                 $this->stock->listingChanged($id, 'status');
                 break;
             case 'not_landing':
