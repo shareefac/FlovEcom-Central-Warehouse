@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Ui\Controller;
 
 use CW\CwException;
+use CW\Db;
 use CW\Mapping\DecisionService;
 use CW\Mapping\OneAtATime;
 use CW\Ui\ByProductContext;
@@ -31,10 +32,12 @@ use CW\Ui\Words;
  *
  *   GET  /ui/match            the list (linking.view): `q` the search, `page`; back from Apply: `notice` + `prev` (the matching pages'
  *                             notice), or `said` (a refusal, SAID) + `prev` (the website product) + `ch` (the store) + `t` (what was
- *                             typed); `at` the warehouse product of the row it came back to
+ *                             typed), or `confirm` (the website product a typed ID names, to confirm) + `ch`; `at` the warehouse product
+ *                             of the row it came back to
  *   GET  /ui/match/options    one cell's choices (mapping.decide), a fragment for app.js: `sku`, `channel`, `q`
- *   POST /ui/match/apply      one match (mapping.decide): `sku_id`, `channel`, `listing_id` (else `pick`, the store's ID typed without
- *                             the script), `expected_map_version`, `proposal_id`, and the list's `q` and `page` for the way back
+ *   POST /ui/match/apply      one match (mapping.decide): `sku_id`, `channel`, `listing_id`, `expected_map_version`, `proposal_id`
+ *                             (else `pick`, the store's ID typed without the script: shown to be confirmed), and the list's `q` and
+ *                             `page` for the way back
  */
 final class SimpleMatchController
 {
@@ -75,8 +78,19 @@ final class SimpleMatchController
         $ids = $all === null ? $q->productIds(null, null, [], '', $per, $offset) : array_slice($all, $offset, $per);
         $at = UiRequest::id($req->param('at'));
         $said = self::said($ctx, $stores, $at);
+        // A typed ID to confirm (`confirm`, from Apply without the script): the product as this page shows it now, in its cell's box,
+        // or, when it no longer waits for a match, "Choose one from the list".
+        $chosen = null;
+        $confirm = $decide && $at !== null && $said === null ? UiRequest::id($req->param('confirm')) : null;
+        $store = $confirm === null ? null : ReviewController::store($stores, $req->param('ch'));
+        if ($confirm !== null && $store !== null) {
+            $chosen = self::choices($ctx, [$confirm], (int) $store['id'])[0] ?? null;
+            $chosen = $chosen === null ? null : $chosen + ['sku' => $at, 'channel' => (string) $store['code']];
+            $said = $chosen !== null ? null : ['code' => 'choose', 'text' => Words::SIMPLE_MATCH['said_choose'], 'link' => null, 'sku' => $at,
+                'channel' => (string) $store['code'], 'typed' => ''];
+        }
         $keep = array_filter(['q' => $text === '' ? null : $text, 'page' => $page > 1 ? $page : null], static fn (mixed $v): bool => $v !== null);
-        $rows = self::rows($q->productRows($ids), $stores, $q->productCells($ids), $decide, $at, $said);
+        $rows = self::rows($q->productRows($ids), $stores, $q->productCells($ids), $decide, $at, $said, $chosen);
         $base = ['q' => $text === '' ? null : $text];
         return $ctx->page('simple_match', [
             'stores' => $stores,
@@ -122,22 +136,15 @@ final class SimpleMatchController
             return $ctx->error(404, 'item_joined', 'the item was merged into another one', $back);
         }
         $text = ByProductContext::text($ctx->req->param('q') ?? '');
-        $ids = $text === '' ? $q->suggestedFor($id, (int) $store['id'], self::OPTIONS_MAX) : $q->waitingListings((int) $store['id'], $text, 1, self::OPTIONS_MAX)['ids'];
-        $data = $q->pickerRows($ids);
-        // The products no list answers (held back, a spot check's match, found on arrival): one read for the fragment (OneAtATime).
-        $once = OneAtATime::ofWaiting($ctx->db, $ids);
-        $lead = $ctx->me()->isLead();
-        $choices = [];
-        foreach ($ids as $lid) {
-            $r = $data[$lid] ?? null;
-            if ($r === null || (int) $r['channel_id'] !== (int) $store['id'] || !in_array((string) $r['state'], self::WAITING, true)) {
-                continue;
-            }
-            $option = (string) $r['external_variant_id'];
-            $word = isset($once[$lid]) ? 'option_own_page' : ($r['band'] === 'Conflict' && !$lead ? 'option_lead' : 'option');
-            $choices[] = ['label' => Words::say('SIMPLE_MATCH', $word, self::name($r), $option), 'listing_id' => $lid, 'map_version' => (int) $r['map_version'],
-                'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'], 'option' => $option];
+        if ($text === '') {
+            $ids = $q->suggestedFor($id, (int) $store['id'], self::OPTIONS_MAX);
+        } else {
+            // The product whose ID is exactly what was typed first (a short ID is part of many others, which may sell more), then the
+            // search (Codex's review of the branch, LOW 4).
+            $exact = $q->listingByOption((int) $store['id'], $text);
+            $ids = array_values(array_unique([...($exact === null ? [] : [$exact]), ...$q->waitingListings((int) $store['id'], $text, 1, self::OPTIONS_MAX)['ids']]));
         }
+        $choices = array_slice(self::choices($ctx, $ids, (int) $store['id']), 0, self::OPTIONS_MAX);
         $says = $choices !== [] ? '' : ($text === '' ? Words::SIMPLE_MATCH['type_more'] : Words::say('SIMPLE_MATCH', 'found_none', (string) $store['name']));
         return $ctx->fragment('simple_match_options', ['sku' => $id, 'store' => (string) $store['code'], 'choices' => $choices, 'says' => $says]);
     }
@@ -177,23 +184,35 @@ final class SimpleMatchController
             return $refuse('gone');
         }
         $listingId = UiRequest::id($req->field('listing_id'));
-        $chosen = $listingId !== null;
-        if (!$chosen) {
-            $listingId = $typed === '' ? null : $q->listingByOption((int) $store['id'], $typed);
+        if ($listingId === null) {
+            // Without the script the box holds the store's ID. The one product of that store with exactly that ID that still waits for a
+            // match is shown in its cell to be confirmed: one more Apply, sent from the page that shows it, with that page's version and
+            // suggestion (I7: never the product as it is when the request arrives; Codex's review of the branch, HIGH 1). Else "Choose
+            // one from the list", with what was typed kept.
+            $found = $typed === '' ? null : $q->listingByOption((int) $store['id'], $typed);
+            $row = $found === null ? null : ($q->pickerRows([$found])[$found] ?? null);
+            if ($found === null || $row === null || !in_array((string) $row['state'], self::WAITING, true)) {
+                return $refuse('choose');
+            }
+            return HtmlResponse::redirect(Html::url(self::PATH, $back + ['confirm' => $found, 'at' => $skuId, 'ch' => (string) $store['code']]) . '#m-' . $skuId);
         }
-        $row = $listingId === null ? null : ($q->pickerRows([$listingId])[$listingId] ?? null);
-        if ($listingId === null || $row === null) {
+        $row = $q->pickerRows([$listingId])[$listingId] ?? null;
+        if ($row === null) {
             return $refuse('choose');
         }
         if ((int) $row['channel_id'] !== (int) $store['id']) {
-            return $refuse($chosen ? 'other_store' : 'choose', $chosen ? $listingId : null);
+            return $refuse('other_store', $listingId);
         }
         if (!in_array((string) $row['state'], self::WAITING, true)) {
-            return $refuse($chosen ? 'not_waiting' : 'choose', $chosen ? $listingId : null);
+            return $refuse('not_waiting', $listingId);
         }
-        // What the person saw: the list's version and suggestion; for an ID typed without the script, the product as it is now.
-        $version = $chosen ? $req->field('expected_map_version') : (string) $row['map_version'];
-        $proposal = $chosen ? trim($req->field('proposal_id') ?? '') : ($row['proposal_id'] === null ? '' : (string) $row['proposal_id']);
+        // What the person saw: the version and the suggestion the list gave. The version must be the one the waiting state above was read
+        // with: a form naming another one is refused here (Codex's review, MEDIUM 2), and DecisionService compares it under the lock.
+        $version = trim($req->field('expected_map_version') ?? '');
+        $proposal = trim($req->field('proposal_id') ?? '');
+        if ($version !== (string) $row['map_version']) {
+            return $refuse('changed', $listingId);
+        }
         $own = $row['proposal_id'] !== null && (string) $row['proposal_id'] === $proposal && $row['proposed_sku_id'] !== null
             && (int) $row['proposed_sku_id'] === $skuId && $row['ai_units_per_item'] !== null;
         $units = $own ? max(1, min(DecisionService::MAX_UNITS, (int) $row['ai_units_per_item'])) : 1;
@@ -203,7 +222,8 @@ final class SimpleMatchController
             return $refuse('changed', $listingId); // no version the list could have given: choose it again
         }
         try {
-            $result = $ctx->decisions()->decide($ctx->caller(), $request);
+            // Under the product's lock, after every check of what the person saw: still that store's, still waiting (addOnly).
+            $result = $ctx->decisions()->decide($ctx->caller(), $request, self::addOnly($ctx->db, $listingId, (int) $store['id']));
         } catch (CwException $e) {
             return $refuse(self::saidOf($e), $listingId);
         }
@@ -224,6 +244,52 @@ final class SimpleMatchController
         return $stores;
     }
 
+    /**
+     * What Apply asks again under the website product's lock (DecisionService::decide's recheck, after every check of what the person
+     * saw and before anything is written): the product is still that store's and still waits for a match (not matched or on hold, not
+     * ignored, not a landing page; a decision waiting for a second OK is the service's own refusal). So this page only ever adds a
+     * match: one made by someone else between this page's check and the lock is never changed (Codex's review of the branch, MEDIUM 2).
+     * A locking read: the latest row, which the decision holds already.
+     */
+    public static function addOnly(Db $db, int $listingId, int $storeId): \Closure
+    {
+        return static function () use ($db, $listingId, $storeId): void {
+            $l = $db->one('SELECT channel_id, status FROM channel_listing WHERE id = ? FOR UPDATE', [$listingId]);
+            if ($l === null || (int) $l['channel_id'] !== $storeId || !in_array((string) $l['status'], ['unmapped', 'suggested'], true)) {
+                throw new CwException('not_waiting', 'the listing no longer waits for a match; this page only adds a match', 409,
+                    ['status' => $l['status'] ?? null]);
+            }
+        };
+    }
+
+    /**
+     * The choices of a cell's dropdown, in the order given: the website products of the store that still wait for a match, each as the
+     * box shows it ("<name> · ID <option>", and "decided on its own page" for one OneAtATime names, "a matching lead decides it" for a
+     * Conflict when the person is a Matcher) with what Apply sends for it (its version and its open suggestion of any product).
+     *
+     * @param list<int> $ids website products
+     * @return list<array{label: string, listing_id: int, map_version: int, proposal_id: ?int, option: string}>
+     */
+    private static function choices(Context $ctx, array $ids, int $storeId): array
+    {
+        $data = $ctx->queries()->pickerRows($ids);
+        // The products no list answers (held back, a spot check's match, found on arrival): one read for them all (OneAtATime).
+        $once = OneAtATime::ofWaiting($ctx->db, $ids);
+        $lead = $ctx->me()->isLead();
+        $out = [];
+        foreach ($ids as $lid) {
+            $r = $data[$lid] ?? null;
+            if ($r === null || (int) $r['channel_id'] !== $storeId || !in_array((string) $r['state'], self::WAITING, true)) {
+                continue;
+            }
+            $option = (string) $r['external_variant_id'];
+            $word = isset($once[$lid]) ? 'option_own_page' : ($r['band'] === 'Conflict' && !$lead ? 'option_lead' : 'option');
+            $out[] = ['label' => Words::say('SIMPLE_MATCH', $word, self::name($r), $option), 'listing_id' => $lid, 'map_version' => (int) $r['map_version'],
+                'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'], 'option' => $option];
+        }
+        return $out;
+    }
+
     /** A DecisionService refusal as the code of its short line (SAID). */
     public static function saidOf(CwException $e): string
     {
@@ -231,7 +297,7 @@ final class SimpleMatchController
             'map_version_conflict', 'proposal_changed', 'proposal_closed', 'proposal_mismatch' => 'changed',
             'one_at_a_time' => 'own_page',
             'lead_required', 'spot_check_other', 'role_not_allowed', 'staff_required' => 'not_allowed',
-            'pending_second_exists', 'landing_page', 'no_change', 'already_linked' => 'not_waiting',
+            'pending_second_exists', 'landing_page', 'no_change', 'already_linked', 'not_waiting' => 'not_waiting',
             'sku_merged', 'unknown_sku' => 'gone',
             default => 'other',
         };
@@ -262,15 +328,17 @@ final class SimpleMatchController
      * The page's rows: each warehouse product with one cell per store, in the stores' order. A cell lists the website products matched
      * to it on that store (the best seller first) and then the matches of it that wait for a second OK, each with its name on the store,
      * its ID, "1 sale = N" when N is not 1 and "On hold"; and, for someone who may decide, the add control: shown at once in an empty
-     * cell, behind "+" in one that has a product (open again with the typed text after "Choose one from the list").
+     * cell, behind "+" in one that has a product (open again with the typed text after "Choose one from the list", and with the product
+     * a typed ID names, chosen, to confirm).
      *
      * @param list<array<string, mixed>> $products Queries::productRows
      * @param list<array{id: int, code: string, name: string}> $stores
      * @param array{matched: list<array<string, mixed>>, suggested: list<array<string, mixed>>, waiting: list<array<string, mixed>>} $cells Queries::productCells
      * @param array{code: string, text: string, link: ?string, sku: int, channel: ?string, typed: string}|null $said
+     * @param array{label: string, listing_id: int, map_version: int, proposal_id: ?int, option: string, sku: int, channel: string}|null $chosen
      * @return list<array<string, mixed>>
      */
-    private static function rows(array $products, array $stores, array $cells, bool $decide, ?int $at, ?array $said): array
+    private static function rows(array $products, array $stores, array $cells, bool $decide, ?int $at, ?array $said, ?array $chosen = null): array
     {
         $by = [];
         foreach (['matched', 'waiting'] as $state) {
@@ -296,6 +364,7 @@ final class SimpleMatchController
             foreach ($stores as $si => $s) {
                 $items = $by[$id][(int) $s['id']] ?? [];
                 $here = $said !== null && $said['sku'] === $id && $said['channel'] === (string) $s['code'] ? $said : null;
+                $pick = $chosen !== null && $chosen['sku'] === $id && $chosen['channel'] === (string) $s['code'] ? $chosen : null;
                 $out[] = [
                     'store' => (string) $s['name'],
                     'channel' => (string) $s['code'],
@@ -303,8 +372,9 @@ final class SimpleMatchController
                     'said' => $here === null ? null : ['text' => $here['text'], 'link' => $here['link']],
                     'add' => !$decide ? null : [
                         'plus' => $items !== [],
-                        'open' => $here !== null,
-                        'typed' => $here['typed'] ?? '',
+                        'open' => $here !== null || $pick !== null,
+                        'typed' => $pick['label'] ?? ($here['typed'] ?? ''),
+                        'chosen' => $pick,
                         'id' => 'sm-' . $id . '-' . $si,
                         'options' => Html::url(self::OPTIONS, ['sku' => $id, 'channel' => (string) $s['code']]),
                         'label' => Words::say('SIMPLE_MATCH', 'pick', (string) $s['name']),

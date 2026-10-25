@@ -832,6 +832,28 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('.lc .chip { min-width: 0; }', $css);
     }
 
+    /**
+     * Simple matching's box (docs/decisions.md SM4; Codex's review, MEDIUM 3 and LOW 4): one letter waits for the next, but one digit is
+     * an ID and is asked at once; the line under the box wraps on a phone (only a matched product's short ID and notes keep to one line).
+     */
+    public function testSimpleMatchingsBoxAsksAOneDigitIdAndItsLineWraps(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $view = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/simple_match.php');
+        self::assertStringContainsString("if (v.length === 1 && !/^[0-9]$/.test(v)) {", $js);
+        self::assertStringContainsString('<p class="sm-msg muted" data-sm-note', $view, 'the line app.js writes is its own class');
+        self::assertSame(1, preg_match('/^\.sm-add \.sm-msg \{[^}]*white-space: normal/m', $css));
+        self::assertSame(1, preg_match('/\/\* ==== simple-matching .*?\/\* ==== end simple-matching/s', $css, $block));
+        preg_match_all('/^([^{}\n]+)\{[^}]*white-space: nowrap/m', $block[0], $m);
+        self::assertNotSame([], $m[1]);
+        foreach ($m[1] as $selector) {
+            foreach (explode(',', $selector) as $one) {
+                self::assertMatchesRegularExpression('/span\.(sm-id|sm-note|sm-wait)\s*$/', trim($one), 'one line only for a short span');
+            }
+        }
+    }
+
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');

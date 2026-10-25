@@ -427,7 +427,8 @@
   // Simple matching (docs/decisions.md SM4; the owner's request of 25 Oct 2026: "one dropdown is enough ... a normal basic dropdown").
   // A cell's box is a plain dropdown: an <input list> whose own <datalist> is filled from the read-only fragment at the form's
   // data-options (a path of this site's options route): the item's own suggestions for that store while the box is empty, else (2
-  // letters or more, 300 ms after the last key) that store's products still waiting for a match. A choice from the list fills the
+  // letters or more, or one digit: an ID; 300 ms after the last key) that store's products still waiting for a match, the one whose ID
+  // it is first. A choice from the list (also the one the page drew chosen, to confirm a typed ID) fills the
   // form's hidden fields (the website product, its version, its open suggestion); a typed ID that is exactly one choice's ID is that
   // choice. Apply with nothing chosen says the page's words (data-choose) and sends nothing, unless the list could not be loaded: then
   // the typed ID goes to the server, as without the script (the server takes it only when exactly one waiting product of the store has
@@ -512,8 +513,8 @@
         return;
       }
       var v = input.value.trim();
-      if (v.length === 1) {
-        return; // one letter finds too much: wait for the next
+      if (v.length === 1 && !/^[0-9]$/.test(v)) {
+        return; // one letter finds too much: wait for the next (one digit is an ID: asked at once)
       }
       timer = window.setTimeout(function () { load(v); }, 300);
     });

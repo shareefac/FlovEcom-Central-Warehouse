@@ -4996,6 +4996,7 @@ final class Words
         'found_none' => 'No %s product waiting for a match has these words or this ID.',
         'type_more' => 'Type 2 letters or more of its name, or its ID.',
         'choose' => 'Choose one from the list first.',
+        'confirm' => 'Is this the one? Press Apply to match it.',
         'said_choose' => 'Nothing was saved. Choose one from the list, or type its exact ID.',
         'said_other_store' => 'Nothing was saved: that product is not on %s. Choose one from the list.',
         'said_not_waiting' => 'Nothing was saved: that %s product is already matched, waiting or set aside. Choose another one.',

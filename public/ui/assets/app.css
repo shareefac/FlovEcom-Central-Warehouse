@@ -2068,8 +2068,8 @@ table.simple-match .sm-name { font-weight: 600; overflow-wrap: anywhere; }
 table.simple-match td.c-store { text-align: left; vertical-align: top; min-width: 14rem; max-width: 24rem; padding: 8px; }
 table.simple-match .sm-matched { display: grid; gap: 4px; margin: 0 0 6px; padding: 0; list-style: none; }
 table.simple-match .sm-match { overflow-wrap: anywhere; }
-table.simple-match .sm-id, table.simple-match .sm-note { color: var(--ink-muted); font-size: 13px; white-space: nowrap; }
-table.simple-match .sm-wait { margin-left: 2px; white-space: nowrap; }
+table.simple-match span.sm-id, table.simple-match span.sm-note { color: var(--ink-muted); font-size: 13px; white-space: nowrap; }
+table.simple-match span.sm-wait { margin-left: 2px; white-space: nowrap; }
 table.simple-match tr[id] { scroll-margin-top: 96px; }
 table.simple-match tbody tr.here > * { background: var(--row-selected); }
 table.simple-match .sm-said { margin: 6px 0; padding: 8px 12px; font-size: 13px; }
@@ -2077,7 +2077,9 @@ table.simple-match .sm-said { margin: 6px 0; padding: 8px 12px; font-size: 13px;
 .sm-add .sm-box { display: flex; align-items: center; gap: 6px; }
 .sm-add input[data-sm-pick] { flex: 1 1 10rem; min-width: 0; min-height: 44px; font-size: 16px; }
 .sm-add .btn { flex: none; min-height: 44px; }
-.sm-add .sm-note { margin: 4px 0 0; font-size: 13px; }
+/* The line under the box (what app.js says: looking, nothing found, choose first) wraps like any sentence */
+.sm-add .sm-msg { margin: 4px 0 0; font-size: 13px; white-space: normal; overflow-wrap: anywhere; }
+.sm-add .sm-confirm { margin: 0 0 6px; padding: 8px 12px; font-size: 13px; }
 table.simple-match details.sm-more { margin: 2px 0 0; padding: 0; border: 0; border-radius: 0; background: none; }
 table.simple-match details.sm-more > summary {
   display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin: 0; list-style: none; font-size: 20px;

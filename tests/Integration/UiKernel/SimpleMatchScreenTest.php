@@ -583,9 +583,164 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         }
         self::assertSame(0, $this->made());
 
-        $to = self::went($web->post(self::PATH . '/apply', ['pick' => ' 5001 '] + (self::addForm($page, $alpha, 'vapebig')['fields'] ?? [])));
+        // The one waiting product with that ID is shown in its cell to be confirmed (Codex's review, HIGH 1): nothing is saved until the
+        // person presses Apply on the page that shows it, whose version and suggestion that page carries (I7).
+        $r = $web->post(self::PATH . '/apply', ['pick' => ' 5001 '] + (self::addForm($page, $alpha, 'vapebig')['fields'] ?? []));
+        $to = self::went($r);
+        self::assertSame([(string) $big, (string) $alpha, 'vapebig', null, null, 'm-' . $alpha], [$to['query']['confirm'] ?? null, $to['query']['at'] ?? null,
+            $to['query']['ch'] ?? null, $to['query']['notice'] ?? null, $to['query']['said'] ?? null, $to['fragment']]);
+        self::assertSame([null, 0], [$this->link($big)['sku_id'], $this->made()], 'nothing is saved yet');
+        $check = self::open($web, (string) $r->location());
+        $form = self::addForm($check, $alpha, 'vapebig');
+        self::assertSame(['listing_id' => (string) $big, 'expected_map_version' => (string) $this->version($big), 'proposal_id' => '',
+            'pick' => Words::say('SIMPLE_MATCH', 'option', 'Elux Legend Blue Razz', '5001')],
+            array_intersect_key($form['fields'] ?? [], array_flip(['listing_id', 'expected_map_version', 'proposal_id', 'pick'])), 'the product, as this page shows it');
+        $cell = '//tr[@id="m-' . $alpha . '"]/td[@data-channel="vapebig"]';
+        self::assertSame(Words::SIMPLE_MATCH['confirm'], self::squash(self::xp($check)->evaluate('string(' . $cell . '//p[contains(@class, "sm-confirm")])')));
+        self::assertSame(1, self::xp($check)->query($cell . '//datalist/option[@data-listing-id="' . $big . '"]')->length, 'its list holds it: app.js keeps the choice');
+        $to = self::went($web->post(self::PATH . '/apply', $form['fields'] ?? []));
         self::assertSame(['decided_link', (string) $big], [$to['query']['notice'] ?? null, $to['query']['prev'] ?? null]);
         self::assertSame($alpha, $this->link($big)['sku_id']);
+        // A product no longer waiting by the time the confirmation is drawn: the cell says to choose again, and offers nothing.
+        $again = self::open($web, (string) $r->location());
+        self::assertSame(Words::SIMPLE_MATCH['said_choose'], self::said($again, $alpha, 'vapebig')[0]);
+        self::assertSame(0, self::xp($again)->query($cell . '//datalist/option')->length);
+    }
+
+    /**
+     * Codex's review, HIGH 1: a typed ID is decided against the page that showed the product, never against the product as it is when
+     * the second Apply arrives. A product renamed on its website (its version moves) or given a new suggestion after the confirmation was
+     * drawn is refused, and nothing is saved.
+     */
+    public function testATypedIdIsDecidedAgainstThePageThatShowedIt(): void
+    {
+        $s = $this->stores();
+        $alpha = $this->item('legacy', 0, 'Alpha kit');
+        $other = $this->item('legacy', 0, 'Other kit');
+        $big = $this->profiled($s['vapebig'], '5001', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz']);
+        $suggested = $this->queued($s['vapebig'], '5003', 'Check', $other, ['product_title' => 'Elux Legend', 'variant_title' => 'Cherry']);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $confirm = function (string $id) use ($web, $alpha): array {
+            $r = $web->post(self::PATH . '/apply', ['pick' => $id] + (self::addForm($web->get(self::PATH), $alpha, 'vapebig')['fields'] ?? []));
+            return self::addForm(self::open($web, (string) $r->location()), $alpha, 'vapebig')['fields'] ?? [];
+        };
+
+        $fields = $confirm('5001');
+        self::$db->exec('UPDATE channel_listing SET map_version = map_version + 1 WHERE id = ?', [$big]); // the website renamed it meanwhile
+        self::assertSame('changed', self::went($web->post(self::PATH . '/apply', $fields))['query']['said'] ?? null);
+
+        $fields = $confirm('5003');
+        $first = (int) self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$suggested]);
+        self::assertSame((string) $first, $fields['proposal_id'] ?? null, 'the suggestion the page showed');
+        $this->propose($suggested, 'Check', $alpha, [], false, 'test-run-2'); // a newer suggestion (another run) replaces it meanwhile
+        self::assertNotSame($first, (int) self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$suggested]));
+        self::assertSame('changed', self::went($web->post(self::PATH . '/apply', $fields))['query']['said'] ?? null);
+
+        self::assertSame(0, $this->made(), 'nothing was decided');
+        self::assertSame([null, null], [$this->link($big)['sku_id'], $this->link($suggested)['sku_id']]);
+    }
+
+    /**
+     * Codex's review, MEDIUM 2: this page only adds a match. A product matched by someone else while Apply waits for it is refused,
+     * whatever version a hand-made form names: another session holds the product with its match written and commits a second later,
+     * while Apply (naming the version that match leaves behind) is under way.
+     */
+    public function testAProductMatchedWhileApplyWaitsForItIsNotChanged(): void
+    {
+        if (!extension_loaded('mysqli')) {
+            self::markTestSkipped('mysqli needed for the second session');
+        }
+        $s = $this->stores();
+        $alpha = $this->item('legacy', 0, 'Alpha kit');
+        $other = $this->item('legacy', 0, 'Other kit');
+        $big = $this->profiled($s['vapebig'], '5001', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz']);
+        $version = $this->version($big);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $form = self::addForm($web->get(self::PATH), $alpha, 'vapebig')['fields'] ?? [];
+        self::$db->exec('DROP PROCEDURE IF EXISTS p_sm_commit_later');
+        self::$db->pdo()->exec('CREATE PROCEDURE p_sm_commit_later() BEGIN DO SLEEP(1); COMMIT; END');
+        $b = self::mysqliSession();
+        try {
+            $b->begin_transaction();
+            $b->query("UPDATE channel_listing SET sku_id = {$other}, status = 'mapped', map_version = map_version + 1 WHERE id = {$big}");
+            $b->query('CALL p_sm_commit_later()', MYSQLI_ASYNC);
+            $r = $web->post(self::PATH . '/apply', ['listing_id' => (string) $big, 'expected_map_version' => (string) ($version + 1), 'proposal_id' => ''] + $form);
+            self::reap($b);
+        } finally {
+            $b->close();
+            self::$db->exec('DROP PROCEDURE IF EXISTS p_sm_commit_later');
+        }
+        self::assertSame('changed', self::went($r)['query']['said'] ?? null);
+        self::assertSame(['sku_id' => $other, 'status' => 'mapped'], array_intersect_key($this->link($big), ['sku_id' => 1, 'status' => 1]), 'the other match stays');
+        self::assertSame(0, $this->made());
+    }
+
+    /**
+     * Codex's review, MEDIUM 2: what Apply asks again under the product's lock (SimpleMatchController::addOnly, DecisionService's
+     * recheck): still that store's and still waiting for a match. A matched product or another store's is refused, nothing written.
+     */
+    public function testUnderTheLockApplyOnlyAddsAMatchToAWaitingProductOfThatStore(): void
+    {
+        $s = $this->stores();
+        $alpha = $this->item('legacy', 0, 'Alpha kit');
+        $other = $this->item('legacy', 0, 'Other kit');
+        $mapper = $this->staffUser('mapper');
+        $store = (int) $s['vapebig']->channelId;
+        $decide = fn (int $listing): array => $this->ds->decide($mapper, ['action' => 'link', 'listing_id' => $listing, 'expected_map_version' => $this->version($listing),
+            'sku_id' => $alpha, 'units_per_item' => 1, 'seen' => ''], SimpleMatchController::addOnly(self::$db, $listing, $store));
+        $matched = $this->profiled($s['vapebig'], '5002', ['product_title' => 'Matched already'], $other);
+        $elsewhere = $this->profiled($s['electrofag'], '6001', ['product_title' => 'On Electrofag']);
+        self::refused(409, 'not_waiting', fn (): array => $decide($matched));
+        self::refused(409, 'not_waiting', fn (): array => $decide($elsewhere));
+        self::assertSame(0, $this->made());
+        self::assertSame([$other, null], [$this->link($matched)['sku_id'], $this->link($elsewhere)['sku_id']]);
+        $waiting = $this->profiled($s['vapebig'], '5001', ['product_title' => 'Elux Legend']);
+        self::assertSame('applied', $decide($waiting)['state']);
+        self::assertSame('not_waiting', SimpleMatchController::saidOf(new \CW\CwException('not_waiting', 'x', 409)));
+    }
+
+    /** Codex's review, LOW 4: the product whose ID was typed comes first, however many products whose numbers hold it sell more. */
+    public function testTheProductWhoseIdWasTypedIsOfferedFirst(): void
+    {
+        $s = $this->stores();
+        $alpha = $this->item('legacy', 0, 'Alpha kit');
+        $exact = $this->profiled($s['vapebig'], '12', ['product_title' => 'The one']);
+        for ($i = 0; $i < 25; $i++) {
+            $this->profiled($s['vapebig'], '12' . $i . '9', ['product_title' => 'Busy seller ' . $i, 'units_30d' => 50]);
+        }
+        $web = $this->signIn($this->uiUser('mapper'));
+        $c = self::choices(self::options($web, $alpha, 'vapebig', '12'));
+        self::assertSame($exact, array_key_first($c), 'the product whose ID it is, first');
+        self::assertCount(SimpleMatchController::OPTIONS_MAX, $c);
+        $one = $this->profiled($s['vapebig'], '7', ['product_title' => 'A one-digit ID']);
+        self::assertSame($one, array_key_first(self::choices(self::options($web, $alpha, 'vapebig', '7'))), 'one digit is an ID too');
+    }
+
+    private static function mysqliSession(): \mysqli
+    {
+        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+        $s = \CW\Tests\Support\TestDb::config()->dbAdmin();
+        $m = mysqli_init();
+        $m->options(MYSQLI_OPT_CONNECT_TIMEOUT, 5);
+        $m->ssl_set(null, null, $s->sslCa ?? \CW\Db::SYSTEM_CA_BUNDLE, null, null);
+        $m->real_connect($s->host, $s->user, $s->password(), \CW\Tests\Support\TestDb::name(), $s->port, null, MYSQLI_CLIENT_SSL | MYSQLI_CLIENT_SSL_DONT_VERIFY_SERVER_CERT);
+        $m->query("SET SESSION time_zone = '+00:00', SESSION transaction_isolation = 'READ-COMMITTED'");
+        return $m;
+    }
+
+    private static function reap(\mysqli $m): void
+    {
+        $links = $errors = $rejects = [$m];
+        if (\mysqli::poll($links, $errors, $rejects, 10) < 1) {
+            self::fail('async query did not complete');
+        }
+        $r = $m->reap_async_query();
+        if ($r instanceof \mysqli_result) {
+            $r->free();
+        }
+        while ($m->more_results()) {
+            $m->next_result();
+        }
     }
 
     public function testAStoreThatSellsWarehouseStockSendsTheMatchForASecondOk(): void

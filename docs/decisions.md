@@ -11581,11 +11581,13 @@ the same store (a duplicate). The box is an `<input list>` with its own `<datali
 ?sku=&channel=&q=` (`Route::DECIDE`, read only): a fragment marked `data-sm-fragment` (`FRAGMENTS`, the one fetch of app.js, parsed
 inert), whose choices are that store's products still waiting for a match (unmatched or suggested, no decision waiting for a second
 OK, never ignored, a landing page or another store's: `Queries::waitingListings`, the quick match's search by every word of the names
-and what else it reads, or the exact option number; best sellers first), at most `OPTIONS_MAX` = 20; for an empty box (on focus) the
+and what else it reads, or the exact option number; the product whose option number is exactly the text first (`listingByOption()`), then
+best sellers first), at most `OPTIONS_MAX` = 20; for an empty box (on focus) the
 computer's suggestions of this product on that store (`suggestedFor`). Each choice reads "<name> · ID <option>" and carries what Apply
 sends (`data-listing-id`, `data-map-version`, `data-proposal-id`: the listing's open suggestion of ANY product, which the decision must
 name, I7), and says "decided on its own page" (OneAtATime: held back, a spot check's match, found on arrival) or, for a Matcher, "a
-matching lead decides it" (Conflict). Typing waits for 2 letters and 300 ms. A choice fills the form's hidden fields; a typed ID that is
+matching lead decides it" (Conflict). Typing waits for 2 letters (one digit is an ID: asked at once) and 300 ms. A choice fills the form's
+hidden fields; a typed ID that is
 exactly one choice's ID is that choice; Apply with nothing chosen says "Choose one from the list first." and sends nothing (checked in the
 capture phase, before the "send once" of every form), except when the list could not be loaded: then the typed text goes to the server
 as without the script. Without app.js the box is the store's ID (SM5).
@@ -11593,13 +11595,17 @@ as without the script. Without app.js the box is the store's ID (SM5).
 **SM5. Apply: one more match, through the decide route's request and DecisionService.** `POST /ui/match/apply` (`Route::DECIDE`, CSRF):
 `sku_id`, `channel`, `listing_id`, `expected_map_version`, `proposal_id`, `pick` (the box), and the list's `q` and `page`. An unknown store
 or product is the 404 page; a product joined into another one meanwhile is `gone`. The website product is the one chosen; with no
-`listing_id` (no script) it is the store's product whose option number is exactly what was typed (`listingByOption()`, the unique
-(channel_id, external_variant_id) index), taken only when it still waits for a match, else "Choose one from the list"; such a product is
-decided against its version and open suggestion as they are now (the person saw none: they named the product by its ID). A chosen product
-must be the store's (`other_store`) and still wait for a match (`not_waiting`): this page never changes or moves a match. The units are
+`listing_id` (no script) nothing is decided: the store's product whose option number is exactly what was typed (`listingByOption()`, the
+unique (channel_id, external_variant_id) index), when it still waits for a match, comes back chosen in the cell's box (`confirm`, with its
+version and suggestion as that page shows them, and in the box's list so app.js keeps the choice) under "Is this the one? Press Apply to
+match it.", and only that second Apply decides, against what that page showed (I7); else "Choose one from the list", with what was typed
+kept. A chosen product must be the store's (`other_store`) and still wait for a match (`not_waiting`), and the version the form names
+must be the one that waiting state was read with (`changed`): this page never changes or moves a match. The units are
 what this product's own open suggestion gives (`ai_units_per_item`, as By Item's quick match), else 1. Then the request is the decide
 route's `link`, built by ONE method, `ReviewController::decisionRequest()` (the checks `decide()` made, moved out unchanged and used by
-both), with `seen` empty: `DecisionService::decide` checks everything again under the listing's lock (the person on the decision and its
+both), with `seen` empty and `SimpleMatchController::addOnly()` as the decision's recheck (under the lock, after every other check and
+before anything is written: still that store's and still `unmapped` or `suggested`, else 409 `not_waiting`): `DecisionService::decide`
+checks everything again under the listing's lock (the person on the decision and its
 audit row, map_version, the suggestion, Conflict for a matching lead, a spot check's owner (DG1), a product decided one at a time from its
 own page (DG2: 409 `one_at_a_time`), the second OK of a store that already sells warehouse stock, a multiple, a pair marked not a match
 before). Back to `/ui/match` with the search and the page, at `#m-<sku>`, with the matching pages' notice (`notice=decided_link` "Done:
@@ -11614,7 +11620,7 @@ a text), with the row (`at`), the store (`ch`), the website product (`prev`) and
 box). `saidOf()` turns DecisionService's code into one: map_version_conflict, proposal_changed, proposal_closed → `changed` ("someone
 changed this product just now. Choose it again, then press Apply."); one_at_a_time → `own_page` ("this product is decided on its own
 page" with "Open its page"); lead_required, spot_check_other, role_not_allowed → `not_allowed` ("you may not match this one. Its page says
-who decides it." with the link); pending_second_exists, landing_page, no_change → `not_waiting`; sku_merged → `gone`; anything else
+who decides it." with the link); pending_second_exists, landing_page, no_change, not_waiting (addOnly) → `not_waiting`; sku_merged → `gone`; anything else
 `other` with the link. Each starts with "Nothing was saved" (rule 7) and is drawn as a red line in the cell it was about (never the green
 "done" toast), or above the list when that row is not on the page.
 
@@ -11632,3 +11638,26 @@ at a time is refused here with the way to its page: on production that is every 
 product's own page answers; the dropdown says "decided on its own page" before Apply. A browser filters a `<datalist>` by the typed text
 as one piece, so of the server's choices it may show only those whose name holds the words in the order typed (an ID or a run of the
 name always works). The store order is a constant (SM2).
+
+### The Codex review (on `8171a46`; `runs/simple_codex_review.txt`): one HIGH, two MEDIUM, one LOW, all fixed test-first
+
+The new tests failed first (`runs/simple_codex_red1.log`) and pass now (`SimpleMatchScreenTest`, `UiUnitTest`).
+- **HIGH 1: an ID typed without the script was decided against the product as it was when the request arrived** (its version and open
+  suggestion read by Apply), so a product renamed on its website, or given a new suggestion, after the person typed its ID was matched
+  and that suggestion settled unseen (I7). Now a typed ID is never decided at once: the product comes back chosen in the cell's box with
+  "Is this the one? Press Apply to match it." and the version and suggestion that page shows; only that second Apply decides (SM5).
+  `testATypedIdWithoutTheScriptWorksOnlyForOneWaitingProductOfThatStore` (the confirmation), `testATypedIdIsDecidedAgainstThePageThatShowedIt`
+  (renamed, then a newer suggestion, after the confirmation: refused, nothing saved).
+- **MEDIUM 2: "only adds a match" held only before the lock.** A hand-made form naming the version another person's match would leave
+  behind, sent while that match was being written, passed the waiting check (the old version) and then relinked the product under the
+  lock (red: the relink was applied). Now the form's version must be the one the waiting state was read with, and `addOnly()` asks
+  again under the lock (DecisionService's recheck). `testAProductMatchedWhileApplyWaitsForItIsNotChanged` (a second session writes the
+  match and commits a second later, a stored procedure, while Apply runs), `testUnderTheLockApplyOnlyAddsAMatchToAWaitingProductOfThatStore`.
+- **MEDIUM 3: the line under the box could not wrap on a phone** (it shared `.sm-note`, one line, with a matched product's notes). It is
+  `.sm-msg` now and wraps; only a matched product's short spans keep to one line (`UiUnitTest::testSimpleMatchingsBoxAsksAOneDigitIdAndItsLineWraps`).
+- **LOW 4: a one-digit ID was never asked with the script**, and a short ID could be missing from the 20 choices behind products whose
+  numbers hold it and sell more. One digit is asked at once, and the product whose ID is exactly the text comes first
+  (`testTheProductWhoseIdWasTypedIsOfferedFirst`).
+
+The review found the `decide()` refactor identical to the base (every validation combination it tried), the pager fix right and no other
+pager with the bug, and no permission, CSRF, escaping, CSP or units issue.

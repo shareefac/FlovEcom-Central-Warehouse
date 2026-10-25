@@ -4,7 +4,8 @@
 // A store's cell lists the website products matched to the row there, each with its name on the store and its ID, and a match that
 // waits for a second OK says so. For someone who may decide it has ONE box that is a plain dropdown (an <input list> with its own
 // <datalist>, which app.js fills from the options fragment) and Apply: at once in an empty cell, behind "+" (a <details>: no script) in
-// a cell that has a product. Without app.js the box takes the store's ID. On a phone each row is a card, each cell named by its store.
+// a cell that has a product. Without app.js the box takes the store's ID, and the product it names comes back chosen in the box, with
+// a line asking to confirm it (one more Apply). On a phone each row is a card, each cell named by its store.
 ?>
 <?= $head(\CW\Ui\Words::MENU['simple_match'], intro: 'simple_match', look: $lookOnly) ?>
 <?php if ($stores === []): ?>
@@ -62,13 +63,16 @@
 <?php foreach ($keep as $key => $value): ?>
           <input type="hidden" name="<?= $e($key) ?>" value="<?= $e($value) ?>">
 <?php endforeach; ?>
-          <input type="hidden" name="listing_id" value="">
-          <input type="hidden" name="expected_map_version" value="">
-          <input type="hidden" name="proposal_id" value="">
+<?php if ($c['add']['chosen'] !== null): ?>
+          <p class="note sm-confirm" role="status"><?= $word('SIMPLE_MATCH', 'confirm') ?></p>
+<?php endif; ?>
+          <input type="hidden" name="listing_id" value="<?= $e($c['add']['chosen']['listing_id'] ?? '') ?>">
+          <input type="hidden" name="expected_map_version" value="<?= $e($c['add']['chosen']['map_version'] ?? '') ?>">
+          <input type="hidden" name="proposal_id" value="<?= $e($c['add']['chosen']['proposal_id'] ?? '') ?>">
           <label class="visually-hidden" for="<?= $e($c['add']['id']) ?>"><?= $e($c['add']['label']) ?></label>
           <span class="sm-box"><input id="<?= $e($c['add']['id']) ?>" type="text" name="pick" value="<?= $e($c['add']['typed']) ?>" list="<?= $e($c['add']['id']) ?>-list" maxlength="400" autocomplete="off" placeholder="<?= $word('SIMPLE_MATCH', 'pick_hint') ?>" data-sm-pick> <button type="submit" class="btn sm primary" title="<?= $e($c['add']['title']) ?>"><?= $word('SIMPLE_MATCH', 'apply') ?></button></span>
-          <datalist id="<?= $e($c['add']['id']) ?>-list"></datalist>
-          <p class="sm-note muted" data-sm-note aria-live="polite" hidden></p>
+          <datalist id="<?= $e($c['add']['id']) ?>-list"><?php if ($c['add']['chosen'] !== null): ?><option value="<?= $e($c['add']['chosen']['label']) ?>" data-listing-id="<?= $e($c['add']['chosen']['listing_id']) ?>" data-map-version="<?= $e($c['add']['chosen']['map_version']) ?>" data-proposal-id="<?= $e($c['add']['chosen']['proposal_id'] ?? '') ?>" data-option="<?= $e($c['add']['chosen']['option']) ?>"></option><?php endif; ?></datalist>
+          <p class="sm-msg muted" data-sm-note aria-live="polite" hidden></p>
         </form>
 <?php if ($c['add']['plus']): ?>
         </details>
