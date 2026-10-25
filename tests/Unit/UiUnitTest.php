@@ -842,6 +842,8 @@ final class UiUnitTest extends TestCase
         $js = (string) file_get_contents(Assets::dir() . '/app.js');
         $view = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/simple_match.php');
         self::assertStringContainsString("if (v.length === 1 && !/^[0-9]$/.test(v)) {", $js);
+        // Codex's second review, MEDIUM: a choice made while a search is on its way stays (that search's answer is not drawn).
+        self::assertStringContainsString("turn++; // a search still on its way is not drawn: the choice stays", $js);
         self::assertStringContainsString('<p class="sm-msg muted" data-sm-note', $view, 'the line app.js writes is its own class');
         self::assertSame(1, preg_match('/^\.sm-add \.sm-msg \{[^}]*white-space: normal/m', $css));
         self::assertSame(1, preg_match('/\/\* ==== simple-matching .*?\/\* ==== end simple-matching/s', $css, $block));

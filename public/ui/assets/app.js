@@ -509,7 +509,10 @@
       window.clearTimeout(timer);
       var chosen = pick();
       if (chosen && chosen.value === input.value) {
-        say(''); // picked from the list: nothing more to look for
+        // Picked from the list: nothing more to look for.
+        turn++; // a search still on its way is not drawn: the choice stays
+        asked = null;
+        say('');
         return;
       }
       var v = input.value.trim();

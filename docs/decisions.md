@@ -11588,7 +11588,8 @@ sends (`data-listing-id`, `data-map-version`, `data-proposal-id`: the listing's 
 name, I7), and says "decided on its own page" (OneAtATime: held back, a spot check's match, found on arrival) or, for a Matcher, "a
 matching lead decides it" (Conflict). Typing waits for 2 letters (one digit is an ID: asked at once) and 300 ms. A choice fills the form's
 hidden fields; a typed ID that is
-exactly one choice's ID is that choice; Apply with nothing chosen says "Choose one from the list first." and sends nothing (checked in the
+exactly one choice's ID is that choice; a search still on its way when a choice is made is not drawn (the choice stays); Apply with
+nothing chosen says "Choose one from the list first." and sends nothing (checked in the
 capture phase, before the "send once" of every form), except when the list could not be loaded: then the typed text goes to the server
 as without the script. Without app.js the box is the store's ID (SM5).
 
@@ -11600,7 +11601,9 @@ unique (channel_id, external_variant_id) index), when it still waits for a match
 version and suggestion as that page shows them, and in the box's list so app.js keeps the choice) under "Is this the one? Press Apply to
 match it.", and only that second Apply decides, against what that page showed (I7); else "Choose one from the list", with what was typed
 kept. A chosen product must be the store's (`other_store`) and still wait for a match (`not_waiting`), and the version the form names
-must be the one that waiting state was read with (`changed`): this page never changes or moves a match. The units are
+must be the one that waiting state was read with (`changed`): this page never changes or moves a match. The box must still name that
+product (its words as its list shows them, or its ID): a box whose text was changed after the choice is taken as typed (a unique waiting
+ID comes back to be confirmed; anything else is "Choose one from the list"), never as the product the hidden fields carry. The units are
 what this product's own open suggestion gives (`ai_units_per_item`, as By Item's quick match), else 1. Then the request is the decide
 route's `link`, built by ONE method, `ReviewController::decisionRequest()` (the checks `decide()` made, moved out unchanged and used by
 both), with `seen` empty and `SimpleMatchController::addOnly()` as the decision's recheck (under the lock, after every other check and
@@ -11661,3 +11664,17 @@ The new tests failed first (`runs/simple_codex_red1.log`) and pass now (`SimpleM
 
 The review found the `decide()` refactor identical to the base (every validation combination it tried), the pager fix right and no other
 pager with the bug, and no permission, CSRF, escaping, CSP or units issue.
+
+### The second Codex review (on `466f506`; `runs/simple_codex_review2.txt`): one HIGH, one MEDIUM, both fixed test-first
+
+The first round's fixes were checked again. Red first (`runs/simple_codex_red2.log`), green after.
+- **HIGH: a confirmation edited without the script still matched the product it showed.** The hidden fields kept the confirmed product
+  while the person typed another ID over it (or emptied the box), and Apply matched the first one. Now the box must name the product the
+  hidden fields carry (its words as its list shows them, or its ID); otherwise what it holds is taken as typed: another unique waiting ID
+  comes back to be confirmed, anything else is "Choose one from the list". `testAChoiceWhoseTextWasChangedIsNotApplied`; the refusal tests
+  send the product's ID in the box, as app.js does.
+- **MEDIUM: a search on its way could erase a choice just made** (app.js): the late answer replaced the list and cleared the hidden fields,
+  so Apply refused a choice the box still showed. A choice now makes any search on its way not drawn (`turn++`). Pinned by a string
+  in `UiUnitTest::testSimpleMatchingsBoxAsksAOneDigitIdAndItsLineWraps`, and checked in headless Chrome against the rendered page with
+  the fetch of "50" held until after the choice: red on `466f506` ("CHOICE LOST": the hidden fields empty, Apply refused), green after
+  ("CHOICE KEPT"). The repo has no browser tests; the harness stayed outside it.

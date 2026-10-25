@@ -177,24 +177,29 @@ final class SimpleMatchController
         $text = ByProductContext::text($req->field('q') ?? '');
         $page = UiRequest::id($req->field('page'));
         $back = ['q' => $text === '' ? null : $text, 'page' => $page !== null && $page > 1 ? $page : null];
-        $typed = ByProductContext::text($req->field('pick') ?? '');
+        // The box: what it holds (compared whole with the chosen product's words), and as typed (cut to a search's length: an ID, kept).
+        $box = trim($req->field('pick') ?? '');
+        $typed = ByProductContext::text($box);
         $refuse = static fn (string $said, ?int $listing = null): HtmlResponse => HtmlResponse::redirect(Html::url(self::PATH, $back
             + ['said' => $said, 'prev' => $listing, 'at' => $skuId, 'ch' => (string) $store['code'], 't' => $said === 'choose' && $typed !== '' ? $typed : null]) . '#m-' . $skuId);
-        if ($sku['merged_into_sku_id'] !== null) {
-            return $refuse('gone');
-        }
-        $listingId = UiRequest::id($req->field('listing_id'));
-        if ($listingId === null) {
-            // Without the script the box holds the store's ID. The one product of that store with exactly that ID that still waits for a
-            // match is shown in its cell to be confirmed: one more Apply, sent from the page that shows it, with that page's version and
-            // suggestion (I7: never the product as it is when the request arrives; Codex's review of the branch, HIGH 1). Else "Choose
-            // one from the list", with what was typed kept.
+        // Without the script the box holds the store's ID. The one product of that store with exactly that ID that still waits for a match
+        // is shown in its cell to be confirmed: one more Apply, sent from the page that shows it, with that page's version and suggestion
+        // (I7: never the product as it is when the request arrives; Codex's review of the branch, HIGH 1). Else "Choose one from the
+        // list", with what was typed kept.
+        $asTyped = static function () use ($q, $store, $typed, $back, $skuId, $refuse): HtmlResponse {
             $found = $typed === '' ? null : $q->listingByOption((int) $store['id'], $typed);
             $row = $found === null ? null : ($q->pickerRows([$found])[$found] ?? null);
             if ($found === null || $row === null || !in_array((string) $row['state'], self::WAITING, true)) {
                 return $refuse('choose');
             }
             return HtmlResponse::redirect(Html::url(self::PATH, $back + ['confirm' => $found, 'at' => $skuId, 'ch' => (string) $store['code']]) . '#m-' . $skuId);
+        };
+        if ($sku['merged_into_sku_id'] !== null) {
+            return $refuse('gone');
+        }
+        $listingId = UiRequest::id($req->field('listing_id'));
+        if ($listingId === null) {
+            return $asTyped();
         }
         $row = $q->pickerRows([$listingId])[$listingId] ?? null;
         if ($row === null) {
@@ -212,6 +217,12 @@ final class SimpleMatchController
         $proposal = trim($req->field('proposal_id') ?? '');
         if ($version !== (string) $row['map_version']) {
             return $refuse('changed', $listingId);
+        }
+        // The box must name the product the hidden fields carry: its words as its list shows them, or its ID. A box whose text was changed
+        // after the choice (without the script nothing clears the hidden fields) is not that product: what it holds now is taken as
+        // typed (Codex's second review, HIGH).
+        if ($box !== (string) $row['external_variant_id'] && $box !== trim(self::choices($ctx, [$listingId], (int) $store['id'])[0]['label'] ?? '')) {
+            return $asTyped();
         }
         $own = $row['proposal_id'] !== null && (string) $row['proposal_id'] === $proposal && $row['proposed_sku_id'] !== null
             && (int) $row['proposed_sku_id'] === $skuId && $row['ai_units_per_item'] !== null;

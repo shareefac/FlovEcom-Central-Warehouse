@@ -507,9 +507,10 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('mapper'));
         $page = $web->get(self::PATH);
         $form = self::addForm($page, $alpha, 'vapebig')['fields'] ?? [];
+        // (the box holds the product's ID, as app.js sends an ID it found in the list)
         $send = static fn (int $listing, array $over = []): UiResponse => $web->post(self::PATH . '/apply',
             $over + ['listing_id' => (string) $listing, 'expected_map_version' => (string) self::$db->value('SELECT map_version FROM channel_listing WHERE id = ?', [$listing]),
-                'proposal_id' => ''] + $form);
+                'proposal_id' => '', 'pick' => (string) self::$db->value('SELECT external_variant_id FROM channel_listing WHERE id = ?', [$listing])] + $form);
         $refused = function (UiResponse $r, string $said, string $words, bool $link = false, ?int $listing = null) use ($web, $alpha): void {
             $to = self::went($r);
             self::assertSame([self::PATH, $said, (string) $alpha, 'm-' . $alpha], [$to['path'], $to['query']['said'] ?? null, $to['query']['at'] ?? null, $to['fragment']], $said);
@@ -697,6 +698,38 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $waiting = $this->profiled($s['vapebig'], '5001', ['product_title' => 'Elux Legend']);
         self::assertSame('applied', $decide($waiting)['state']);
         self::assertSame('not_waiting', SimpleMatchController::saidOf(new \CW\CwException('not_waiting', 'x', 409)));
+    }
+
+    /**
+     * Codex's second review, HIGH: the box says which product Apply is for. A confirmation whose text was changed (without the script
+     * nothing clears the hidden fields) is not applied to the product it showed: the new text is taken as typed (a unique waiting ID comes
+     * back to be confirmed), an emptied box or words that are no ID are "Choose one from the list". Nothing is saved until the box names
+     * the product the hidden fields carry (its words as the list shows them, or its ID).
+     */
+    public function testAChoiceWhoseTextWasChangedIsNotApplied(): void
+    {
+        $s = $this->stores();
+        $alpha = $this->item('legacy', 0, 'Alpha kit');
+        $big = $this->profiled($s['vapebig'], '5001', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz']);
+        $cherry = $this->profiled($s['vapebig'], '5003', ['product_title' => 'Elux Legend', 'variant_title' => 'Cherry']);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $r = $web->post(self::PATH . '/apply', ['pick' => '5001'] + (self::addForm($web->get(self::PATH), $alpha, 'vapebig')['fields'] ?? []));
+        $fields = self::addForm(self::open($web, (string) $r->location()), $alpha, 'vapebig')['fields'] ?? [];
+        self::assertSame((string) $big, $fields['listing_id'] ?? null);
+
+        $to = self::went($web->post(self::PATH . '/apply', ['pick' => '5003'] + $fields));
+        self::assertSame([(string) $cherry, null, null], [$to['query']['confirm'] ?? null, $to['query']['notice'] ?? null, $to['query']['said'] ?? null],
+            'another ID typed over the confirmation: that product, to confirm');
+        foreach (['', '   ', 'Elux Legend Cherry', 'Elux Legend Blue Razz'] as $typed) {
+            $to = self::went($web->post(self::PATH . '/apply', ['pick' => $typed] + $fields));
+            self::assertSame('choose', $to['query']['said'] ?? null, "typed \"{$typed}\" over the confirmation");
+        }
+        self::assertSame(0, $this->made(), 'nothing was decided');
+        self::assertSame([null, null], [$this->link($big)['sku_id'], $this->link($cherry)['sku_id']]);
+
+        $to = self::went($web->post(self::PATH . '/apply', ['pick' => ' 5001 '] + $fields));
+        self::assertSame(['decided_link', (string) $big], [$to['query']['notice'] ?? null, $to['query']['prev'] ?? null], 'its own ID is that product');
+        self::assertSame([$alpha, null], [$this->link($big)['sku_id'], $this->link($cherry)['sku_id']]);
     }
 
     /** Codex's review, LOW 4: the product whose ID was typed comes first, however many products whose numbers hold it sell more. */
