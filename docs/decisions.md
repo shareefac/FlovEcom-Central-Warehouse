@@ -11622,8 +11622,9 @@ whitelisted) and the row marked.
 route (a viewer gets 403 on both). A Conflict is a matching lead's and a spot check's match its owner's, as everywhere (DecisionService).
 
 **SM7. A refusal in words, in its cell.** The address names a refusal by its code only (`said`, one of `SimpleMatchController::SAID`; never
-a text), with the row (`at`), the store (`ch`), the website product (`prev`) and what the box held (`t`, up to 300 characters, put back in the
-open box after any refusal, with no choice behind it: rule 7; a choice's words kept so are found again by the ID in them, `idOf()`). `saidOf()` turns DecisionService's code into one: map_version_conflict, proposal_changed, proposal_closed → `changed` ("someone
+a text), with the row (`at`), the store (`ch`), the website product (`prev`) and what the box held (`t`, up to 300 characters, put back
+in the open box after any refusal, with no choice behind it: rule 7; a choice's words kept so are found again by the ID in them,
+`idOf()`). `saidOf()` turns DecisionService's code into one: map_version_conflict, proposal_changed, proposal_closed → `changed` ("someone
 changed this product just now. Choose it again, then press Apply."); one_at_a_time → `own_page` ("this product is decided on its own
 page" with "Open its page"); lead_required, spot_check_other, role_not_allowed → `not_allowed` ("you may not match this one. Its page says
 who decides it." with the link); pending_second_exists, landing_page, no_change, not_waiting (addOnly) → `not_waiting`; sku_merged → `gone`; anything else
@@ -11715,3 +11716,12 @@ around the ID taken from `Words::SIMPLE_MATCH['option']`), and focusing a box wi
 the suggestions, as before). Red first on `c2edb27` in a throw-away worktree (`runs/simple_codex_red6.log`: the kept box, the product
 found by its ID inside a choice's words, the focus rule), green after; in headless Chrome the kept words are looked for on focus and chosen
 again, and a box the page drew with a choice is not searched over.
+
+### The sixth Codex review (on `af42e14`; `runs/simple_codex_review6.txt`): no HIGH or MEDIUM, one LOW, fixed test-first
+
+The fifth round's fix held (the kept words, `idOf()`, the focus search), with every interleaving of input, focus, the timer and the answers
+it tried. **LOW: a name with a line break made its choice unusable** (the intake keeps one; a box drops it, so the box's words were not
+the choice's, and both app.js and the confirmation refused it). A product's name on its store is one line now (any run of white space is
+a space) in the cells, the list and the confirmation alike. `testANameWithALineBreakIsOneLineInTheBox` (red first:
+`runs/simple_codex_red7.log`). Codex was not run again: this round had nothing above LOW. Its remark that the repo's app.js tests are
+strings in the source (no DOM or timer test) stands: the browser checks above stayed outside the repo.

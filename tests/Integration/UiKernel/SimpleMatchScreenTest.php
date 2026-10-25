@@ -738,6 +738,26 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         self::assertSame([$alpha, null], [$this->link($big)['sku_id'], $this->link($cherry)['sku_id']]);
     }
 
+    /**
+     * Codex's sixth review, LOW: a name with a line break or a tab (the intake keeps them) is one line in the box and its list, so its
+     * choice is the box's words: chosen from the list, and confirmed without the script.
+     */
+    public function testANameWithALineBreakIsOneLineInTheBox(): void
+    {
+        $s = $this->stores();
+        $alpha = $this->item('legacy', 0, 'Alpha kit');
+        $l = $this->profiled($s['vapebig'], '5001', ['product_title' => "Elux\nLegend", 'variant_title' => "Blue\t Razz"]);
+        $label = Words::say('SIMPLE_MATCH', 'option', 'Elux Legend Blue Razz', '5001');
+        $web = $this->signIn($this->uiUser('mapper'));
+        self::assertSame($label, self::choices(self::options($web, $alpha, 'vapebig', '5001'))[$l]['label'] ?? null);
+        $r = $web->post(self::PATH . '/apply', ['pick' => '5001'] + (self::addForm($web->get(self::PATH), $alpha, 'vapebig')['fields'] ?? []));
+        $fields = self::addForm(self::open($web, (string) $r->location()), $alpha, 'vapebig')['fields'] ?? [];
+        self::assertSame([(string) $l, $label], [$fields['listing_id'] ?? null, $fields['pick'] ?? null]);
+        self::assertSame('decided_link', self::went($web->post(self::PATH . '/apply', $fields))['query']['notice'] ?? null);
+        self::assertSame($alpha, $this->link($l)['sku_id']);
+        self::assertSame(['Elux Legend Blue Razz ' . Words::say('SIMPLE_MATCH', 'id', '5001')], self::matched($web->get(self::PATH), $alpha, 'vapebig'));
+    }
+
     /** Codex's review, LOW 4: the product whose ID was typed comes first, however many products whose numbers hold it sell more. */
     public function testTheProductWhoseIdWasTypedIsOfferedFirst(): void
     {

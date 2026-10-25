@@ -422,10 +422,15 @@ final class SimpleMatchController
         return $rows;
     }
 
-    /** A website product's name on its store: its product's name and its own option name, else "(no name)". @param array<string, mixed> $r */
+    /**
+     * A website product's name on its store: its product's name and its own option name on one line (a line break or a tab the intake
+     * kept is a space: a box holds one line, and a choice is the box's words; Codex's sixth review), else "(no name)".
+     *
+     * @param array<string, mixed> $r
+     */
     private static function name(array $r): string
     {
-        $name = trim((string) ($r['product_title'] ?? '') . ' ' . (string) ($r['variant_title'] ?? ''));
+        $name = trim((string) preg_replace('/\s+/u', ' ', (string) ($r['product_title'] ?? '') . ' ' . (string) ($r['variant_title'] ?? '')));
         return $name === '' ? Words::LISTING['no_title'] : mb_substr($name, 0, 200);
     }
 
