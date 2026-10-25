@@ -11589,7 +11589,8 @@ name, I7), and says "decided on its own page" (OneAtATime: held back, a spot che
 matching lead decides it" (Conflict). Typing waits for 2 letters (one digit is an ID: asked at once) and 300 ms. A choice fills the form's
 hidden fields; a typed ID that is
 exactly one choice's ID is that choice; a choice stays as its list showed it (no search is started while the box names it, and one
-still on its way is not drawn, so no newer version or suggestion takes its place); Apply with
+still on its way is not drawn, so no newer version or suggestion takes its place; when the words change, no answer asked for before them
+is drawn); Apply with
 nothing chosen says "Choose one from the list first." and sends nothing (checked in the
 capture phase, before the "send once" of every form), except when the list could not be loaded: then the typed text goes to the server
 as without the script. Without app.js the box is the store's ID (SM5).
@@ -11689,3 +11690,17 @@ suggestion, and Apply would have matched it against what the person never saw (I
 while the box names it, and a search on its way is not drawn. Red first (`UiUnitTest::testSimpleMatchingsBoxAsksAOneDigitIdAndItsLineWraps`,
 `runs/simple_codex_red3.log`; the same harness in headless Chrome with the answer to "5001" carrying version 3 and a suggestion: "CHOICE
 SUBSTITUTED" on `e10d86b`, "CHOICE KEPT AS SHOWN" after; the second round's race "CHOICE LOST" on `466f506`, kept since).
+
+### The fourth Codex review (on `3dc44c2`; `runs/simple_codex_review4.txt`): one HIGH, fixed test-first
+
+The third round's fix was found right, and the server side (the confirmation, the add-only check under the lock) correct. **HIGH
+(app.js): an answer asked for before the words changed could still choose.** Focus an empty box (its suggestions are asked for), type
+"5001" before they arrive: the suggestions chose the product with the version they gave, and the search for "5001", already waiting its
+300 ms, then chose it again with a newer version and suggestion. Now every change of the words makes the answers asked for before them not
+drawn, and a choice made from an answer stops the search waiting to start. Red first (`UiUnitTest`, `runs/simple_codex_red4.log`; headless
+Chrome with the suggestions held until "5001" was typed: the hidden fields held "0/" then "3/77", CHOICE SUBSTITUTED on `3dc44c2`; one
+choice after), and the three earlier browser cases still pass.
+
+The browser checks (not in the repo; `runs/simple_js_harness/`): the page as the kernel renders it, served with app.js and a stub of the
+choices route, driven by a script in headless Chrome: the box, the list, the choice, Apply refused with nothing chosen and its button not
+left disabled, an ID typed whole, and the three races of the reviews above.

@@ -849,6 +849,15 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("var chosen = pick();
       if (chosen) {", $js);
         self::assertStringNotContainsString('if (chosen && chosen.value === input.value) {', $js);
+        // Codex's fourth review, HIGH: when the words change, no answer asked for before them is drawn; and a choice made from an answer
+        // stops the search waiting to start, so nothing can choose over it.
+        self::assertStringContainsString("input.addEventListener('input', function () {
+      window.clearTimeout(timer);
+      // The words changed: no answer "
+            . "asked for before them is drawn (it is about other words, and could choose over this one).
+      turn++;", $js);
+        self::assertStringContainsString("if (pick()) {
+            window.clearTimeout(timer);", $js);
         self::assertStringContainsString('<p class="sm-msg muted" data-sm-note', $view, 'the line app.js writes is its own class');
         self::assertSame(1, preg_match('/^\.sm-add \.sm-msg \{[^}]*white-space: normal/m', $css));
         self::assertSame(1, preg_match('/\/\* ==== simple-matching .*?\/\* ==== end simple-matching/s', $css, $block));

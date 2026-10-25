@@ -490,7 +490,9 @@
           each(node.querySelectorAll('datalist > option[data-listing-id]'), function (o) { list.appendChild(o.cloneNode(false)); });
           var says = node.querySelector('[data-sm-says]');
           say(says ? says.textContent.trim() : '');
-          pick();
+          if (pick()) {
+            window.clearTimeout(timer); // a choice made from this answer: no search waiting to start may choose over it
+          }
         })
         .catch(function () {
           if (mine !== turn) {
@@ -508,17 +510,19 @@
     });
     input.addEventListener('input', function () {
       window.clearTimeout(timer);
+      // The words changed: no answer asked for before them is drawn (it is about other words, and could choose over this one).
+      turn++; // a search still on its way is not drawn: the choice stays
+      asked = null;
       var chosen = pick();
       if (chosen) {
         // Picked from the list, or an ID typed whole that is one of its products: that choice, as the list showed it. Nothing more is
         // looked for while the box names it (docs/decisions.md SM4).
-        turn++; // a search still on its way is not drawn: the choice stays
-        asked = null;
         say('');
         return;
       }
       var v = input.value.trim();
       if (v.length === 1 && !/^[0-9]$/.test(v)) {
+        say('');
         return; // one letter finds too much: wait for the next (one digit is an ID: asked at once)
       }
       timer = window.setTimeout(function () { load(v); }, 300);
