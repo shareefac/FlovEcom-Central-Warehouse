@@ -156,13 +156,15 @@ final class SimpleMatchController
 
     /**
      * Apply (POST, for whoever may decide): one more match of a warehouse product on one store. The website product is the one chosen
-     * from the list (`listing_id` with the version and the suggestion the list gave), else, without the script, the store's product
-     * whose ID was typed (`pick`): taken only when that store has a product with exactly that ID that still waits for a match, with its
-     * version and its suggestion as they are now. It must be that store's and still wait for a match: this page never changes a match.
-     * The decision is the decide route's `link` (ReviewController::decisionRequest, then DecisionService::decide, which checks every
-     * rule again under the product's lock), with the units this warehouse product's own open suggestion gives (as the quick match), else
-     * 1. Then back to the list as it was, at the row (#m-<number>): the matching pages' notice (matched, or saved for a second OK), or a
-     * refusal said in the cell (SAID), with nothing saved.
+     * from the list (`listing_id` with the version and the suggestion the list gave, and the box still naming it: its words or its ID).
+     * Without a choice (no script, or the box's text changed) the box is taken as typed: the one product of that store whose ID it is
+     * exactly and that still waits for a match comes back chosen in the box, to be confirmed with a second Apply (`confirm`); nothing is
+     * decided from a typed ID alone. The product must be that store's and still wait for a match, at the version the form names: this
+     * page never changes a match. The decision is the decide route's `link` (ReviewController::decisionRequest, then
+     * DecisionService::decide, which checks every rule again under the product's lock, with addOnly() as its recheck), with the units
+     * this warehouse product's own open suggestion gives (as the quick match), else 1. Then back to the list as it was, at the row
+     * (#m-<number>): the matching pages' notice (matched, or saved for a second OK), or a refusal said in the cell (SAID), with nothing
+     * saved and what the box held put back in it.
      */
     public function apply(Context $ctx): HtmlResponse
     {
