@@ -844,6 +844,11 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("if (v.length === 1 && !/^[0-9]$/.test(v)) {", $js);
         // Codex's second review, MEDIUM: a choice made while a search is on its way stays (that search's answer is not drawn).
         self::assertStringContainsString("turn++; // a search still on its way is not drawn: the choice stays", $js);
+        // Codex's third review, HIGH: so does an ID typed whole that is one of the list's products: no search is started for it, and none
+        // on its way can put a newer version or suggestion in its place (the choice is as the list showed it).
+        self::assertStringContainsString("var chosen = pick();
+      if (chosen) {", $js);
+        self::assertStringNotContainsString('if (chosen && chosen.value === input.value) {', $js);
         self::assertStringContainsString('<p class="sm-msg muted" data-sm-note', $view, 'the line app.js writes is its own class');
         self::assertSame(1, preg_match('/^\.sm-add \.sm-msg \{[^}]*white-space: normal/m', $css));
         self::assertSame(1, preg_match('/\/\* ==== simple-matching .*?\/\* ==== end simple-matching/s', $css, $block));

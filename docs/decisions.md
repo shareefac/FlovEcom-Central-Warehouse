@@ -11588,7 +11588,8 @@ sends (`data-listing-id`, `data-map-version`, `data-proposal-id`: the listing's 
 name, I7), and says "decided on its own page" (OneAtATime: held back, a spot check's match, found on arrival) or, for a Matcher, "a
 matching lead decides it" (Conflict). Typing waits for 2 letters (one digit is an ID: asked at once) and 300 ms. A choice fills the form's
 hidden fields; a typed ID that is
-exactly one choice's ID is that choice; a search still on its way when a choice is made is not drawn (the choice stays); Apply with
+exactly one choice's ID is that choice; a choice stays as its list showed it (no search is started while the box names it, and one
+still on its way is not drawn, so no newer version or suggestion takes its place); Apply with
 nothing chosen says "Choose one from the list first." and sends nothing (checked in the
 capture phase, before the "send once" of every form), except when the list could not be loaded: then the typed text goes to the server
 as without the script. Without app.js the box is the store's ID (SM5).
@@ -11678,3 +11679,13 @@ The first round's fixes were checked again. Red first (`runs/simple_codex_red2.l
   in `UiUnitTest::testSimpleMatchingsBoxAsksAOneDigitIdAndItsLineWraps`, and checked in headless Chrome against the rendered page with
   the fetch of "50" held until after the choice: red on `466f506` ("CHOICE LOST": the hidden fields empty, Apply refused), green after
   ("CHOICE KEPT"). The repo has no browser tests; the harness stayed outside it.
+
+### The third Codex review (on `e10d86b`; `runs/simple_codex_review3.txt`): one HIGH, fixed test-first
+
+The second round's fixes were found right. **HIGH (app.js): an ID typed whole that is one of the list's products could take a newer
+version or suggestion.** Typing "5001" chose that product as the list showed it, but the box's text was not the choice's words, so a
+search for "5001" was still started; its answer, drawn after the product changed, chose the product again with its new version and
+suggestion, and Apply would have matched it against what the person never saw (I7). Now any choice, an ID too, stops the searching
+while the box names it, and a search on its way is not drawn. Red first (`UiUnitTest::testSimpleMatchingsBoxAsksAOneDigitIdAndItsLineWraps`,
+`runs/simple_codex_red3.log`; the same harness in headless Chrome with the answer to "5001" carrying version 3 and a suggestion: "CHOICE
+SUBSTITUTED" on `e10d86b`, "CHOICE KEPT AS SHOWN" after; the second round's race "CHOICE LOST" on `466f506`, kept since).

@@ -430,9 +430,10 @@
   // letters or more, or one digit: an ID; 300 ms after the last key) that store's products still waiting for a match, the one whose ID
   // it is first. A choice from the list (also the one the page drew chosen, to confirm a typed ID) fills the
   // form's hidden fields (the website product, its version, its open suggestion); a typed ID that is exactly one choice's ID is that
-  // choice. Apply with nothing chosen says the page's words (data-choose) and sends nothing, unless the list could not be loaded: then
-  // the typed ID goes to the server, as without the script (the server takes it only when exactly one waiting product of the store has
-  // it). Every word comes from the page (data-loading, data-failed, data-choose, the fragment's line).
+  // choice, kept as the list showed it (no search is drawn over it while the box names it). Apply with nothing chosen says the page's
+  // words (data-choose) and sends nothing, unless the list could not be loaded: then the typed ID goes to the server, as without the
+  // script (the one waiting product of the store with that ID comes back chosen, to confirm with a second Apply). Every word comes from
+  // the page (data-loading, data-failed, data-choose, the fragment's line).
   var smForms = [];
   each(document.querySelectorAll('form[data-sm-add]'), function (form) {
     var base = form.getAttribute('data-options') || '';
@@ -508,8 +509,9 @@
     input.addEventListener('input', function () {
       window.clearTimeout(timer);
       var chosen = pick();
-      if (chosen && chosen.value === input.value) {
-        // Picked from the list: nothing more to look for.
+      if (chosen) {
+        // Picked from the list, or an ID typed whole that is one of its products: that choice, as the list showed it. Nothing more is
+        // looked for while the box names it (docs/decisions.md SM4).
         turn++; // a search still on its way is not drawn: the choice stays
         asked = null;
         say('');
