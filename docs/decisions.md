@@ -11627,9 +11627,9 @@ in the open box after any refusal, with no choice behind it: rule 7; a choice's 
 `idOf()`). `saidOf()` turns DecisionService's code into one: map_version_conflict, proposal_changed, proposal_closed → `changed` ("someone
 changed this product just now. Choose it again, then press Apply."); one_at_a_time → `own_page` ("this product is decided on its own
 page" with "Open its page"); lead_required, spot_check_other, role_not_allowed → `not_allowed` ("you may not match this one. Its page says
-who decides it." with the link); pending_second_exists, landing_page, no_change, not_waiting (addOnly) → `not_waiting`; sku_merged → `gone`; anything else
-`other` with the link. Each starts with "Nothing was saved" (rule 7) and is drawn as a red line in the cell it was about (never the green
-"done" toast), or above the list when that row is not on the page.
+who decides it." with the link); pending_second_exists, landing_page, no_change, not_waiting (addOnly) → `not_waiting`; sku_merged →
+`gone`; anything else `other` with the link. Each starts with "Nothing was saved" (rule 7) and is drawn as a red line in the cell it was
+about (never the green "done" toast), or above the list when that row is not on the page.
 
 **SM8. Store Products' Previous and Next lost the page number (the owner hit it).** `$pageQuery = $base + ['page' => null]`, then
 `$pageQuery + ['page' => N]`: PHP's `+` keeps the left side's key, so every link was the first page (Next on page 1 and on page 2 both
@@ -11661,7 +11661,8 @@ The new tests failed first (`runs/simple_codex_red1.log`) and pass now (`SimpleM
   again under the lock (DecisionService's recheck). `testAProductMatchedWhileApplyWaitsForItIsNotChanged` (a second session writes the
   match and commits a second later, a stored procedure, while Apply runs), `testUnderTheLockApplyOnlyAddsAMatchToAWaitingProductOfThatStore`.
 - **MEDIUM 3: the line under the box could not wrap on a phone** (it shared `.sm-note`, one line, with a matched product's notes). It is
-  `.sm-msg` now and wraps; only a matched product's short spans keep to one line (`UiUnitTest::testSimpleMatchingsBoxAsksAOneDigitIdAndItsLineWraps`).
+  `.sm-msg` now and wraps; only a matched product's short spans keep to one line
+  (`UiUnitTest::testSimpleMatchingsBoxAsksAOneDigitIdAndItsLineWraps`).
 - **LOW 4: a one-digit ID was never asked with the script**, and a short ID could be missing from the 20 choices behind products whose
   numbers hold it and sell more. One digit is asked at once, and the product whose ID is exactly the text comes first
   (`testTheProductWhoseIdWasTypedIsOfferedFirst`).
