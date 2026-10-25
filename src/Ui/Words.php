@@ -49,7 +49,7 @@ final class Words
         'COUNT_NOTICE', 'COUNT_ERROR',
         'WATCH', 'STOCK_VIEW', 'TILE', 'BULK', 'BULK_ACTION', 'BULK_DONE', 'BULK_SKIP', 'BULK_ERROR', 'BULK_CONFIRM', 'BULK_RESULT', 'BY_STORE',
         'STORE_PRODUCTS', 'STORE_STATE', 'BY_PRODUCT', 'PRODUCT_STORE', 'QUEUE_SHOW', 'ONE_AT_A_TIME', 'CHECK',
-        'BY_ITEM_BULK', 'BY_ITEM_SKIP', 'STORE_NEW',
+        'BY_ITEM_BULK', 'BY_ITEM_SKIP', 'STORE_NEW', 'SIMPLE_MATCH',
         'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER', 'ARRIVAL_LEFT',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
@@ -205,6 +205,7 @@ final class Words
         'home' => 'Dashboard',
         // Products
         'cards' => 'All Products',
+        'simple_match' => 'Simple matching',
         'mapping' => 'Mapping',
         'review' => 'Mapping',
         'store_products' => 'Store Products',
@@ -381,6 +382,7 @@ final class Words
     public const MENU_HELP = [
         'home' => 'What is waiting for you today.',
         'cards' => 'Every product with its legal details and barcodes.',
+        'simple_match' => 'The easy way to match: find a warehouse product, then choose its product on each website.',
         'mapping' => 'Match each website product to its warehouse product, the spot checks and the second approvals.',
         'store_products' => 'Every product of one store, and whether it is matched, suggested, not matched or ignored.',
         'by_product' => 'Every warehouse item, and the variant it is matched to on each store.',
@@ -528,6 +530,7 @@ final class Words
         'store_products' => ['Every website product of one store, and its match.', 'Choose a store. Tick products to ignore them or send them back; open one to change it.'],
         'by_product' => ['Every warehouse item and the variant it is matched to on each store.',
             'Where a store is missing, press "Match…" and choose its variant. To answer many suggestions at once, tick the items and use the bar.'],
+        'simple_match' => ['Find a warehouse product, choose its product on each website, then press Apply.', ''],
         'by_item_preview' => ['Nothing is saved yet: this is what will happen to each variant.',
             'Read the lines, then press the button at the bottom, or go back.'],
         'by_item_result' => ['What happened to each variant of this action.', 'Open a skipped one to decide it by hand.'],
@@ -4968,6 +4971,46 @@ final class Words
      * result page's words for a batch started here. The owner's words (U122): items and variants. %s of `on_store`, `nothing_here_*`
      * and `too_many` is a store's name or "all stores", read from the channel table.
      */
+    /**
+     * Products › Simple matching (docs/decisions.md SM1-SM9; the owner's request of 25 Oct 2026: "easy and simple: click Apply and it
+     * matches"): the table's head, a cell's lines, the one box of a cell (a plain dropdown), the line under it, and the refusals of
+     * Apply (`said_*`), each said in the cell it was about. A match made is said by the matching pages' own notice (MATCH_NOTICE).
+     */
+    public const SIMPLE_MATCH = [
+        'search' => 'Search the warehouse products',
+        'search_hint' => 'CW number, name or barcode',
+        'item' => 'Warehouse product',
+        'id' => 'ID %s',
+        'option' => '%s · ID %s',
+        'option_own_page' => '%s · ID %s · decided on its own page',
+        'option_lead' => '%s · ID %s · a matching lead decides it',
+        'waiting' => 'Waiting for a second OK',
+        'pick' => 'Its name or ID on %s',
+        'apply' => 'Apply',
+        'apply_named' => 'Match the chosen %s product to %s',
+        'add_more' => '+',
+        'add_more_named' => 'Add one more %s product to %s',
+        'loading' => 'Looking…',
+        'failed' => 'The list did not load. Type the ID and press Apply.',
+        'found_none' => 'No %s product waiting for a match has these words or this ID.',
+        'type_more' => 'Type 2 letters or more of its name, or its ID.',
+        'choose' => 'Choose one from the list first.',
+        'said_choose' => 'Nothing was saved. Choose one from the list, or type its exact ID.',
+        'said_other_store' => 'Nothing was saved: that product is not on %s. Choose one from the list.',
+        'said_not_waiting' => 'Nothing was saved: that %s product is already matched, waiting or set aside. Choose another one.',
+        'said_changed' => 'Nothing was saved: someone changed this product just now. Choose it again, then press Apply.',
+        'said_own_page' => 'Nothing was saved: this product is decided on its own page.',
+        'said_not_allowed' => 'Nothing was saved: you may not match this one. Its page says who decides it.',
+        'said_gone' => 'Nothing was saved: this warehouse product was joined into another one. Search for that one.',
+        'said_other' => 'Nothing was saved. Its page says why.',
+        'open_page' => 'Open its page',
+        'empty' => 'There are no warehouse products yet.',
+        'empty_text' => 'They are made when a store\'s list is loaded, or when a product is created as new.',
+        'empty_search' => 'No warehouse product has these words, this CW number or this barcode.',
+        'clear' => 'Show every warehouse product',
+        'no_stores' => 'No store is set up in this system yet.',
+    ];
+
     public const BY_ITEM_BULK = [
         // The bar (U124)
         'bar' => 'Ticked items',

@@ -846,7 +846,8 @@ final class UiUnitTest extends TestCase
         // carries the marker of the route it was asked of. Nothing else talks to the network, and nothing is sent but the GET.
         self::assertDoesNotMatchRegularExpression('/\b(XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/', $js, 'no other way to the network');
         self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the matching fragments\'');
-        self::assertStringContainsString("var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/' };", $js,
+        self::assertStringContainsString("var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', "
+            . "'[data-sm-fragment]': '/ui/match/options?' };", $js,
             'each marker with the path of its own route, nothing else');
         self::assertStringContainsString("if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
         self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');

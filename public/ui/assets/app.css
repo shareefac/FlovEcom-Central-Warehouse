@@ -2057,3 +2057,38 @@ table.item-cards .c-fill { font: 500 13px/20px var(--font); }
   .search-note .search-clear { min-height: 44px; }
 }
 /* ==== end search-match-ux ========================================================================================================= */
+
+/* ==== simple-matching (branch simple-matching, docs/decisions.md SM1-SM9) =========================================================
+   Products › Simple matching: a plain table (the warehouse product, then one column per store); a store's cell is the products matched
+   there (name and ID, a small label for one waiting for a second OK) and one box with Apply (a plain dropdown: the box and its own
+   list), or "+" for one more. 44 px to tap, 16 px in the box (no zoom on a phone). One block at the end of the file. */
+table.simple-match th.c-head { min-width: 12rem; text-align: left; vertical-align: top; }
+table.simple-match .sm-code { display: block; color: var(--ink-muted); font: 500 12px/18px var(--font); }
+table.simple-match .sm-name { font-weight: 600; overflow-wrap: anywhere; }
+table.simple-match td.c-store { text-align: left; vertical-align: top; min-width: 14rem; max-width: 24rem; padding: 8px; }
+table.simple-match .sm-matched { display: grid; gap: 4px; margin: 0 0 6px; padding: 0; list-style: none; }
+table.simple-match .sm-match { overflow-wrap: anywhere; }
+table.simple-match .sm-id, table.simple-match .sm-note { color: var(--ink-muted); font-size: 13px; white-space: nowrap; }
+table.simple-match .sm-wait { margin-left: 2px; white-space: nowrap; }
+table.simple-match tr[id] { scroll-margin-top: 96px; }
+table.simple-match tbody tr.here > * { background: var(--row-selected); }
+table.simple-match .sm-said { margin: 6px 0; padding: 8px 12px; font-size: 13px; }
+.sm-add { margin: 0; }
+.sm-add .sm-box { display: flex; align-items: center; gap: 6px; }
+.sm-add input[data-sm-pick] { flex: 1 1 10rem; min-width: 0; min-height: 44px; font-size: 16px; }
+.sm-add .btn { flex: none; min-height: 44px; }
+.sm-add .sm-note { margin: 4px 0 0; font-size: 13px; }
+table.simple-match details.sm-more { margin: 2px 0 0; padding: 0; border: 0; border-radius: 0; background: none; }
+table.simple-match details.sm-more > summary {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin: 0; list-style: none; font-size: 20px;
+}
+table.simple-match details.sm-more > summary::-webkit-details-marker { display: none; }
+table.simple-match details.sm-more[open] > summary { margin-bottom: 6px; }
+@container (max-width: 640px) {
+  /* As a card: the product across the card, each store's name above what it has (the box needs the card's width) */
+  table.stack.simple-match th.c-head { grid-column: 1 / -1; }
+  table.stack.simple-match td.c-store { grid-template-columns: minmax(0, 1fr); gap: 4px; max-width: none; padding: 8px 0; border-top: 1px solid var(--divider); }
+  table.stack.simple-match td.c-store > * { grid-column: 1; }
+  table.stack.simple-match tr.here { background: var(--row-selected); border: 1.5px solid var(--accent); }
+}
+/* ==== end simple-matching ========================================================================================================= */

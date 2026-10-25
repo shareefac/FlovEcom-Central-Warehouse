@@ -230,8 +230,8 @@ final class SectionsTest extends TestCase
         // Pack B: Families and Multipacks for everyone who sees products; Add Item for the catalogue team.
         self::assertSame(['All Products', 'Families', 'Multipacks'], $tabs(['buyer'], 'products'), 'no matching and no barcodes to decide for a buyer');
         self::assertSame(['All Products', 'Barcodes', 'Add Item', 'Families', 'Multipacks'], $tabs(['stock_controller'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'], $tabs(['mapper'], 'products'));
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Barcodes', 'Add Item', 'Families', 'Multipacks'],
+        self::assertSame(['All Products', 'Simple matching', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'], $tabs(['mapper'], 'products'));
+        self::assertSame(['All Products', 'Simple matching', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Barcodes', 'Add Item', 'Families', 'Multipacks'],
             $tabs(['mapping_lead'], 'products'));
         self::assertSame(['Overview', 'Movements', 'Reservations', 'Sales'], $tabs(['viewer'], 'stock'), 'everyone who sees a product\'s stock; Sales (pack D, PD2)');
         // ---- Pack D (docs/decisions.md PD2): Sales is for the people who look at sales, not the matching jobs and not admin ----
@@ -267,7 +267,7 @@ final class SectionsTest extends TestCase
         self::assertSame('Products', $f['pagebar']['label']);
         self::assertSame(Words::SECTION_DESC['products'], $f['pagebar']['desc']);
         self::assertFalse($f['pagebar']['flow']);
-        self::assertSame([['All Products', false, 0], ['Mapping', true, 3], ['Store Products', false, 0], ['By Item', false, 0], ['New Variants', false, 0],
+        self::assertSame([['All Products', false, 0], ['Simple matching', false, 0], ['Mapping', true, 3], ['Store Products', false, 0], ['By Item', false, 0], ['New Variants', false, 0],
             ['Duplicates', false, 2], ['Barcodes', false, 0], ['Add Item', false, 0], ['Families', false, 0], ['Multipacks', false, 0]],
             array_map(static fn (array $t): array => [$t['label'], $t['current'], $t['count']], $f['pagebar']['tabs']));
         self::assertSame([['To review', false, 0, '/ui/review'], ['Spot check', false, 0, '/ui/review/samples'], ['Second approval', true, 3, '/ui/review']],

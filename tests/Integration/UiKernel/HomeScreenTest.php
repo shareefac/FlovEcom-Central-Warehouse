@@ -261,7 +261,7 @@ final class HomeScreenTest extends KernelUiTestCase
         foreach ($cards as $c) {
             self::assertSame(200, self::open($web, (string) $c['href'])->status, "{$c['key']}: {$c['href']}");
         }
-        self::assertSame(['/ui/items/cards', '/ui/review', '/ui/review/store', '/ui/review/products', '/ui/review/new-variants', '/ui/review/duplicates',
+        self::assertSame(['/ui/items/cards', '/ui/match', '/ui/review', '/ui/review/store', '/ui/review/products', '/ui/review/new-variants', '/ui/review/duplicates',
             '/ui/items/families', '/ui/items/packs', '/ui/stock', '/ui/stock/movements', '/ui/stock/reservations', '/ui/system/audit',
             '/ui/reference/company', '/ui/reference/warehouses', '/ui/system/sites', '/ui/people', '/ui/reference/approvals', '/ui/reference/reasons',
             '/ui/reference/settings'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),

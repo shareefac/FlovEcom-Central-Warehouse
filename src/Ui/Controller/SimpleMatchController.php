@@ -1,0 +1,332 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Ui\Controller;
+
+use CW\CwException;
+use CW\Mapping\DecisionService;
+use CW\Mapping\OneAtATime;
+use CW\Ui\ByProductContext;
+use CW\Ui\Context;
+use CW\Ui\Html;
+use CW\Ui\HtmlResponse;
+use CW\Ui\Queries;
+use CW\Ui\UiRequest;
+use CW\Ui\Words;
+
+/**
+ * Products › Simple matching (docs/decisions.md SM1-SM9; the owner's request of 25 Oct 2026: "Create a simple page with a table with 4
+ * columns: one for CW, one for Vape and Go, one for Vape Big and one for Electrofag ... If nothing is matched there is a blank simple
+ * dropdown so I can search with just what it is called on that store, or the ID it has ... click Apply and it matches, with a plus
+ * button so if there is a duplicate I can match that too. One dropdown is enough.").
+ *
+ * A new clean page that reuses the matching code: By Item's list of warehouse products and its search (Queries::productIds /
+ * productRows / productCells), the quick match's search of a store's products still waiting for a match (Queries::waitingListings,
+ * suggestedFor, pickerRows), and the decide route's request (ReviewController::decisionRequest) sent to DecisionService, the only code
+ * that changes a match. It only ADDS a match: a match is changed or undone on the website product's own page, as before. Every rule
+ * of a match stays DecisionService's (the person's name on the decision and its audit row, a version that moved, the suggestion it
+ * must name, a Conflict for a matching lead, a spot check's owner, a product decided one at a time on its own page, a second OK);
+ * this page says the outcome in a short line.
+ *
+ *   GET  /ui/match            the list (linking.view): `q` the search, `page`; back from Apply: `notice` + `prev` (the matching pages'
+ *                             notice), or `said` (a refusal, SAID) + `prev` (the website product) + `ch` (the store) + `t` (what was
+ *                             typed); `at` the warehouse product of the row it came back to
+ *   GET  /ui/match/options    one cell's choices (mapping.decide), a fragment for app.js: `sku`, `channel`, `q`
+ *   POST /ui/match/apply      one match (mapping.decide): `sku_id`, `channel`, `listing_id` (else `pick`, the store's ID typed without
+ *                             the script), `expected_map_version`, `proposal_id`, and the list's `q` and `page` for the way back
+ */
+final class SimpleMatchController
+{
+    public const PATH = '/ui/match';
+    public const OPTIONS = '/ui/match/options';
+    public const APPLY = '/ui/match/apply';
+    /**
+     * The store columns, by store code, in the owner's order (25 Oct 2026); a store the channel table holds besides these is a column
+     * after them, by name (Queries::everyStore's order). A store that is not set up is no column.
+     */
+    public const STORE_ORDER = ['vapeandgo', 'vapebig', 'electrofag'];
+    /** The most choices one dropdown lists (a page of Queries::waitingListings; the suggestions too). */
+    public const OPTIONS_MAX = 20;
+    /** The refusals Apply says, by their code in the address (`said`): only these are read back, never a text. */
+    public const SAID = ['choose', 'other_store', 'not_waiting', 'changed', 'own_page', 'not_allowed', 'gone', 'other'];
+    /** The refusals that lead to the website product's own page, where its decision is made or its reason shown. */
+    private const SAID_LINK = ['own_page', 'not_allowed', 'other'];
+    /** A website product that still waits for a match (Queries::STATE_SQL): no match, no decision waiting, not ignored, no landing page. */
+    private const WAITING = ['suggested', 'not_matched'];
+
+    public function index(Context $ctx): HtmlResponse
+    {
+        $req = $ctx->req;
+        $q = $ctx->queries();
+        $decide = $ctx->me()->canDecide();
+        $stores = self::stores($q->everyStore());
+        $text = ByProductContext::text($req->param('q') ?? '');
+        $layout = ['title' => Words::MENU['simple_match'], 'active' => 'simple_match', 'notice' => (new ReviewController())->notice($ctx, null)];
+        $lookOnly = $decide ? null : Words::whoCan('mapping.decide');
+        // By Item's list as it opens (the warehouse products not joined into another one, by CW number) and its search: a search's ids
+        // in one pass (which also counts them), else the count of the products and only this page of them.
+        $per = Queries::PER_PAGE;
+        $all = $text === '' ? null : $q->productIds(null, null, [], $text);
+        $total = $all === null ? $q->productTotal() : count($all);
+        $pages = max(1, (int) ceil($total / $per));
+        $page = min(max(1, UiRequest::id($req->param('page')) ?? 1), $pages);
+        $offset = ($page - 1) * $per;
+        $ids = $all === null ? $q->productIds(null, null, [], '', $per, $offset) : array_slice($all, $offset, $per);
+        $at = UiRequest::id($req->param('at'));
+        $said = self::said($ctx, $stores, $at);
+        $keep = array_filter(['q' => $text === '' ? null : $text, 'page' => $page > 1 ? $page : null], static fn (mixed $v): bool => $v !== null);
+        $rows = self::rows($q->productRows($ids), $stores, $q->productCells($ids), $decide, $at, $said);
+        $base = ['q' => $text === '' ? null : $text];
+        return $ctx->page('simple_match', [
+            'stores' => $stores,
+            'rows' => $rows,
+            'text' => $text,
+            'path' => self::PATH,
+            'apply' => self::APPLY,
+            'keep' => $keep,
+            'lookOnly' => $lookOnly,
+            // a refusal about a row this page does not show (it was joined into another product meanwhile): said above the list
+            'saidTop' => $said !== null && !in_array($said['sku'], $ids, true) ? $said : null,
+            'page_no' => $page,
+            'pages' => $pages,
+            'prev_link' => $page > 1 ? Html::url(self::PATH, $base + ['page' => $page > 2 ? $page - 1 : null]) : null,
+            'next_link' => $page < $pages ? Html::url(self::PATH, $base + ['page' => $page + 1]) : null,
+        ], 200, $layout);
+    }
+
+    /**
+     * One cell's choices (GET …/options, read only, for whoever may decide): the products of ONE store that still wait for a match,
+     * for ONE warehouse product, as a fragment app.js copies into the cell's dropdown. An empty box (no `q`, or spaces): the
+     * computer's suggestions of this product on that store; a text: that store's waiting products with every word in their names (and
+     * what else the quick match reads) or whose ID it is, best sellers first. At most OPTIONS_MAX. Each choice carries what Apply sends
+     * for it (the website product, its version, its open suggestion of any product: the decision must name it, I7) and says when it
+     * is decided one at a time on its own page, or (for a Matcher) by a matching lead. An error is a page in words, which app.js does
+     * not show (it shows its own line).
+     */
+    public function options(Context $ctx): HtmlResponse
+    {
+        $q = $ctx->queries();
+        $stores = self::stores($q->everyStore());
+        $back = [self::PATH, Words::MENU['simple_match']];
+        $store = ReviewController::store($stores, $ctx->req->param('channel'));
+        if ($store === null) {
+            return $ctx->error(404, 'unknown_store', 'no such store', $back);
+        }
+        $id = UiRequest::id($ctx->req->param('sku'));
+        $sku = $id === null ? null : ($q->skus([$id])[$id] ?? null);
+        if ($id === null || $sku === null) {
+            return $ctx->error(404, 'unknown_item', 'no such item', $back);
+        }
+        if ($sku['merged_into_sku_id'] !== null) {
+            return $ctx->error(404, 'item_joined', 'the item was merged into another one', $back);
+        }
+        $text = ByProductContext::text($ctx->req->param('q') ?? '');
+        $ids = $text === '' ? $q->suggestedFor($id, (int) $store['id'], self::OPTIONS_MAX) : $q->waitingListings((int) $store['id'], $text, 1, self::OPTIONS_MAX)['ids'];
+        $data = $q->pickerRows($ids);
+        // The products no list answers (held back, a spot check's match, found on arrival): one read for the fragment (OneAtATime).
+        $once = OneAtATime::ofWaiting($ctx->db, $ids);
+        $lead = $ctx->me()->isLead();
+        $choices = [];
+        foreach ($ids as $lid) {
+            $r = $data[$lid] ?? null;
+            if ($r === null || (int) $r['channel_id'] !== (int) $store['id'] || !in_array((string) $r['state'], self::WAITING, true)) {
+                continue;
+            }
+            $option = (string) $r['external_variant_id'];
+            $word = isset($once[$lid]) ? 'option_own_page' : ($r['band'] === 'Conflict' && !$lead ? 'option_lead' : 'option');
+            $choices[] = ['label' => Words::say('SIMPLE_MATCH', $word, self::name($r), $option), 'listing_id' => $lid, 'map_version' => (int) $r['map_version'],
+                'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'], 'option' => $option];
+        }
+        $says = $choices !== [] ? '' : ($text === '' ? Words::SIMPLE_MATCH['type_more'] : Words::say('SIMPLE_MATCH', 'found_none', (string) $store['name']));
+        return $ctx->fragment('simple_match_options', ['sku' => $id, 'store' => (string) $store['code'], 'choices' => $choices, 'says' => $says]);
+    }
+
+    /**
+     * Apply (POST, for whoever may decide): one more match of a warehouse product on one store. The website product is the one chosen
+     * from the list (`listing_id` with the version and the suggestion the list gave), else, without the script, the store's product
+     * whose ID was typed (`pick`): taken only when that store has a product with exactly that ID that still waits for a match, with its
+     * version and its suggestion as they are now. It must be that store's and still wait for a match: this page never changes a match.
+     * The decision is the decide route's `link` (ReviewController::decisionRequest, then DecisionService::decide, which checks every
+     * rule again under the product's lock), with the units this warehouse product's own open suggestion gives (as the quick match), else
+     * 1. Then back to the list as it was, at the row (#m-<number>): the matching pages' notice (matched, or saved for a second OK), or a
+     * refusal said in the cell (SAID), with nothing saved.
+     */
+    public function apply(Context $ctx): HtmlResponse
+    {
+        $req = $ctx->req;
+        $q = $ctx->queries();
+        $stores = self::stores($q->everyStore());
+        $list = [self::PATH, Words::MENU['simple_match']];
+        $store = ReviewController::store($stores, $req->field('channel'));
+        if ($store === null) {
+            return $ctx->error(404, 'unknown_store', 'no such store', $list);
+        }
+        $skuId = UiRequest::id($req->field('sku_id'));
+        $sku = $skuId === null ? null : ($q->skus([$skuId])[$skuId] ?? null);
+        if ($skuId === null || $sku === null) {
+            return $ctx->error(404, 'unknown_item', 'no such item', $list);
+        }
+        $text = ByProductContext::text($req->field('q') ?? '');
+        $page = UiRequest::id($req->field('page'));
+        $back = ['q' => $text === '' ? null : $text, 'page' => $page !== null && $page > 1 ? $page : null];
+        $typed = ByProductContext::text($req->field('pick') ?? '');
+        $refuse = static fn (string $said, ?int $listing = null): HtmlResponse => HtmlResponse::redirect(Html::url(self::PATH, $back
+            + ['said' => $said, 'prev' => $listing, 'at' => $skuId, 'ch' => (string) $store['code'], 't' => $said === 'choose' && $typed !== '' ? $typed : null]) . '#m-' . $skuId);
+        if ($sku['merged_into_sku_id'] !== null) {
+            return $refuse('gone');
+        }
+        $listingId = UiRequest::id($req->field('listing_id'));
+        $chosen = $listingId !== null;
+        if (!$chosen) {
+            $listingId = $typed === '' ? null : $q->listingByOption((int) $store['id'], $typed);
+        }
+        $row = $listingId === null ? null : ($q->pickerRows([$listingId])[$listingId] ?? null);
+        if ($listingId === null || $row === null) {
+            return $refuse('choose');
+        }
+        if ((int) $row['channel_id'] !== (int) $store['id']) {
+            return $refuse($chosen ? 'other_store' : 'choose', $chosen ? $listingId : null);
+        }
+        if (!in_array((string) $row['state'], self::WAITING, true)) {
+            return $refuse($chosen ? 'not_waiting' : 'choose', $chosen ? $listingId : null);
+        }
+        // What the person saw: the list's version and suggestion; for an ID typed without the script, the product as it is now.
+        $version = $chosen ? $req->field('expected_map_version') : (string) $row['map_version'];
+        $proposal = $chosen ? trim($req->field('proposal_id') ?? '') : ($row['proposal_id'] === null ? '' : (string) $row['proposal_id']);
+        $own = $row['proposal_id'] !== null && (string) $row['proposal_id'] === $proposal && $row['proposed_sku_id'] !== null
+            && (int) $row['proposed_sku_id'] === $skuId && $row['ai_units_per_item'] !== null;
+        $units = $own ? max(1, min(DecisionService::MAX_UNITS, (int) $row['ai_units_per_item'])) : 1;
+        [$request] = ReviewController::decisionRequest($listingId, ['action' => 'link', 'expected_map_version' => $version, 'seen' => '',
+            'proposal_id' => $proposal, 'reason' => '', 'sku_id' => (string) $skuId, 'units' => (string) $units]);
+        if ($request === null) {
+            return $refuse('changed', $listingId); // no version the list could have given: choose it again
+        }
+        try {
+            $result = $ctx->decisions()->decide($ctx->caller(), $request);
+        } catch (CwException $e) {
+            return $refuse(self::saidOf($e), $listingId);
+        }
+        $notice = $result['state'] === 'pending_second' ? 'pending_second' : 'decided_link';
+        return HtmlResponse::redirect(Html::url(self::PATH, $back + ['notice' => $notice, 'prev' => $listingId, 'at' => $skuId]) . '#m-' . $skuId);
+    }
+
+    /**
+     * The stores in the owner's order (STORE_ORDER), any other after them as Queries::everyStore() gives them (by name).
+     *
+     * @param list<array{id: int, code: string, name: string}> $stores
+     * @return list<array{id: int, code: string, name: string}>
+     */
+    public static function stores(array $stores): array
+    {
+        $rank = array_flip(self::STORE_ORDER);
+        usort($stores, static fn (array $a, array $b): int => ($rank[$a['code']] ?? count($rank)) <=> ($rank[$b['code']] ?? count($rank)));
+        return $stores;
+    }
+
+    /** A DecisionService refusal as the code of its short line (SAID). */
+    public static function saidOf(CwException $e): string
+    {
+        return match ($e->errorCode) {
+            'map_version_conflict', 'proposal_changed', 'proposal_closed', 'proposal_mismatch' => 'changed',
+            'one_at_a_time' => 'own_page',
+            'lead_required', 'spot_check_other', 'role_not_allowed', 'staff_required' => 'not_allowed',
+            'pending_second_exists', 'landing_page', 'no_change', 'already_linked' => 'not_waiting',
+            'sku_merged', 'unknown_sku' => 'gone',
+            default => 'other',
+        };
+    }
+
+    /**
+     * The refusal the address names (`said`, one of SAID, about the row `at`), in words: the store's name where a line names it
+     * (`ch`), the way to the website product's page (`prev`) where SAID_LINK says, and what was typed (`t`) to put back in the box.
+     *
+     * @param list<array{id: int, code: string, name: string}> $stores
+     * @return array{code: string, text: string, link: ?string, sku: int, channel: ?string, typed: string}|null
+     */
+    private static function said(Context $ctx, array $stores, ?int $at): ?array
+    {
+        $code = $ctx->req->param('said');
+        if ($at === null || !is_string($code) || !in_array($code, self::SAID, true)) {
+            return null;
+        }
+        $store = ReviewController::store($stores, $ctx->req->param('ch'));
+        $prev = UiRequest::id($ctx->req->param('prev'));
+        $text = in_array($code, ['other_store', 'not_waiting'], true) ? Words::say('SIMPLE_MATCH', 'said_' . $code, (string) ($store['name'] ?? ''))
+            : Words::SIMPLE_MATCH['said_' . $code];
+        return ['code' => $code, 'text' => $text, 'link' => $prev !== null && in_array($code, self::SAID_LINK, true) ? '/ui/review/listing/' . $prev : null,
+            'sku' => $at, 'channel' => $store['code'] ?? null, 'typed' => $code === 'choose' ? ByProductContext::text($ctx->req->param('t') ?? '') : ''];
+    }
+
+    /**
+     * The page's rows: each warehouse product with one cell per store, in the stores' order. A cell lists the website products matched
+     * to it on that store (the best seller first) and then the matches of it that wait for a second OK, each with its name on the store,
+     * its ID, "1 sale = N" when N is not 1 and "On hold"; and, for someone who may decide, the add control: shown at once in an empty
+     * cell, behind "+" in one that has a product (open again with the typed text after "Choose one from the list").
+     *
+     * @param list<array<string, mixed>> $products Queries::productRows
+     * @param list<array{id: int, code: string, name: string}> $stores
+     * @param array{matched: list<array<string, mixed>>, suggested: list<array<string, mixed>>, waiting: list<array<string, mixed>>} $cells Queries::productCells
+     * @param array{code: string, text: string, link: ?string, sku: int, channel: ?string, typed: string}|null $said
+     * @return list<array<string, mixed>>
+     */
+    private static function rows(array $products, array $stores, array $cells, bool $decide, ?int $at, ?array $said): array
+    {
+        $by = [];
+        foreach (['matched', 'waiting'] as $state) {
+            foreach ($cells[$state] as $r) {
+                $units = (int) ($r['units_per_item'] ?? 1);
+                $notes = [];
+                if ($units !== 1) {
+                    $notes[] = Words::saleUses($units);
+                }
+                if ($state === 'matched' && ($r['status'] ?? null) === 'quarantined') {
+                    $notes[] = Words::BY_PRODUCT['on_hold'];
+                }
+                $option = (string) ($r['external_variant_id'] ?? '');
+                $by[(int) $r['sku_id']][(int) $r['channel_id']][] = ['listing_id' => (int) $r['listing_id'], 'name' => self::name($r),
+                    'id' => $option === '' ? null : Words::say('SIMPLE_MATCH', 'id', $option), 'link' => '/ui/review/listing/' . (int) $r['listing_id'],
+                    'waiting' => $state === 'waiting', 'notes' => $notes];
+            }
+        }
+        $rows = [];
+        foreach ($products as $p) {
+            $id = (int) $p['id'];
+            $out = [];
+            foreach ($stores as $si => $s) {
+                $items = $by[$id][(int) $s['id']] ?? [];
+                $here = $said !== null && $said['sku'] === $id && $said['channel'] === (string) $s['code'] ? $said : null;
+                $out[] = [
+                    'store' => (string) $s['name'],
+                    'channel' => (string) $s['code'],
+                    'items' => $items,
+                    'said' => $here === null ? null : ['text' => $here['text'], 'link' => $here['link']],
+                    'add' => !$decide ? null : [
+                        'plus' => $items !== [],
+                        'open' => $here !== null,
+                        'typed' => $here['typed'] ?? '',
+                        'id' => 'sm-' . $id . '-' . $si,
+                        'options' => Html::url(self::OPTIONS, ['sku' => $id, 'channel' => (string) $s['code']]),
+                        'label' => Words::say('SIMPLE_MATCH', 'pick', (string) $s['name']),
+                        'title' => Words::say('SIMPLE_MATCH', 'apply_named', (string) $s['name'], (string) $p['code']),
+                        'more' => Words::say('SIMPLE_MATCH', 'add_more_named', (string) $s['name'], (string) $p['code']),
+                    ],
+                ];
+            }
+            $rows[] = ['id' => $id, 'code' => (string) $p['code'], 'name' => self::text($p['name'] ?? null), 'cells' => $out, 'here' => $at === $id];
+        }
+        return $rows;
+    }
+
+    /** A website product's name on its store: its product's name and its own option name, else "(no name)". @param array<string, mixed> $r */
+    private static function name(array $r): string
+    {
+        $name = trim((string) ($r['product_title'] ?? '') . ' ' . (string) ($r['variant_title'] ?? ''));
+        return $name === '' ? Words::LISTING['no_title'] : mb_substr($name, 0, 200);
+    }
+
+    private static function text(mixed $v): ?string
+    {
+        return $v === null || $v === '' || !is_scalar($v) ? null : mb_substr((string) $v, 0, 500);
+    }
+}

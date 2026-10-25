@@ -112,7 +112,8 @@ final class StoreProductsController
             $states[] = ['key' => $s, 'label' => Words::STORE_STATE[$s], 'count' => $counts[$s], 'href' => Html::url('/ui/review/store', ['state' => $s] + $base),
                 'current' => $state === $s, 'tone' => Words::tone('STORE_STATE', $s)];
         }
-        $pageQuery = $base + ['page' => null];
+        // Previous and Next: $base holds no page number, so the one added here is the one the link carries (`+` keeps the left side's
+        // key: a base that already held 'page' => null lost every page number, docs/decisions.md SM8).
         return $ctx->page('store_products', [
             'store' => $store,
             'stores' => ReviewController::storeItems($stores, '/ui/review/store', [], $store['code'], $q->productsByStore(), false),
@@ -125,8 +126,8 @@ final class StoreProductsController
             'total' => $result['total'],
             'page_no' => $result['page'],
             'pages' => $result['pages'],
-            'prev_link' => $result['page'] > 1 ? Html::url('/ui/review/store', $pageQuery + ['page' => $result['page'] - 1]) : null,
-            'next_link' => $result['page'] < $result['pages'] ? Html::url('/ui/review/store', $pageQuery + ['page' => $result['page'] + 1]) : null,
+            'prev_link' => $result['page'] > 1 ? Html::url('/ui/review/store', $base + ['page' => $result['page'] - 1]) : null,
+            'next_link' => $result['page'] < $result['pages'] ? Html::url('/ui/review/store', $base + ['page' => $result['page'] + 1]) : null,
             'bulkActions' => $bulkActions,
             'bulkMax' => BulkDecisions::maxRows($ctx->db),
             'bulkKeep' => array_filter($base + ['page' => $result['page'] > 1 ? $result['page'] : null], static fn (mixed $v): bool => $v !== null && $v !== ''),

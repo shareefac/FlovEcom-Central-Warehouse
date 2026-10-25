@@ -1091,7 +1091,7 @@ final class Queries
      */
     public function productCoverage(array $storeIds): array
     {
-        $total = (int) $this->db->value('SELECT COUNT(*) FROM sku WHERE merged_into_sku_id IS NULL');
+        $total = $this->productTotal();
         $matched = array_fill_keys($storeIds, 0);
         $every = 0;
         $bits = count($storeIds) <= self::STORE_BITS;
@@ -1125,6 +1125,12 @@ final class Queries
             . "JOIN sku s ON s.id = p.proposed_sku_id WHERE p.status = 'open' AND p.proposed_sku_id IS NOT NULL AND s.merged_into_sku_id IS NULL AND " . self::WAITING_LISTING,
         );
         return ['total' => $total, 'every' => $every, 'matched' => $matched, 'suggested' => $suggested];
+    }
+
+    /** How many warehouse products By Item and Simple matching list without a filter: the ones not joined into another (ix_sku_merged_into). */
+    public function productTotal(): int
+    {
+        return (int) $this->db->value('SELECT COUNT(*) FROM sku WHERE merged_into_sku_id IS NULL');
     }
 
     /**
@@ -1333,6 +1339,16 @@ final class Queries
             }
         }
         return $out;
+    }
+
+    /**
+     * The website product of one store with exactly this ID (its option number: the unique (channel_id, external_variant_id) index), or
+     * null: Simple matching's Apply without the script, where the box holds the store's ID (docs/decisions.md SM5).
+     */
+    public function listingByOption(int $channelId, string $option): ?int
+    {
+        $id = $this->db->value('SELECT id FROM channel_listing WHERE channel_id = ? AND external_variant_id = ?', [$channelId, $option]);
+        return $id === null ? null : (int) $id;
     }
 
     /**

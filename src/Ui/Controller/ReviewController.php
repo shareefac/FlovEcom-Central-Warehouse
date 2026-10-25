@@ -1217,6 +1217,67 @@ final class ReviewController
     // Decisions
     // ------------------------------------------------------------------------------------------
 
+    /**
+     * The request a decide form makes of DecisionService, checked as the decide route checks every form before the service is asked,
+     * in the route's order: the answer, the version the page was drawn with, what the page showed of a variant decided one at a time
+     * (`seen`, always sent: docs/decisions.md DG2), the suggestion it names, the note, the item, the notes some answers need, the units.
+     * Simple matching's Apply makes its match through here too (docs/decisions.md SM5), so the two routes send one kind of request.
+     * Returns [the request, null], or [null, the refusal: its words, the field it is about, the HTTP status].
+     *
+     * @param array{action: string, expected_map_version: ?string, seen: ?string, proposal_id: ?string, reason: string, sku_id: string, units: string} $form
+     * @return array{0: ?array<string, mixed>, 1: ?array{0: string, 1: ?string, 2: int}}
+     */
+    public static function decisionRequest(int $id, array $form): array
+    {
+        $no = static fn (string $message, ?string $field = null, int $status = 422): array => [null, [$message, $field, $status]];
+        $action = $form['action'];
+        if (!in_array($action, self::ACTIONS, true)) {
+            return $no(Words::MATCH_ERROR['choose'], 'action');
+        }
+        $version = UiRequest::id($form['expected_map_version']) ?? (($form['expected_map_version'] ?? '') === '0' ? 0 : null);
+        if ($version === null) {
+            return $no(Words::ERROR['bad_form'], null, 400);
+        }
+        // What the page showed of a variant decided one at a time (OneAtATime::seen): always sent from here, so the service checks it
+        // under the listing's lock (docs/decisions.md DG2). A form without it showed none.
+        $request = ['action' => $action, 'listing_id' => $id, 'expected_map_version' => $version, 'seen' => trim($form['seen'] ?? '')];
+        $proposalId = UiRequest::id($form['proposal_id']);
+        if ($proposalId !== null) {
+            $request['proposal_id'] = $proposalId;
+        }
+        if ($form['reason'] !== '') {
+            if (mb_strlen($form['reason']) > DecisionService::MAX_REASON) {
+                return $no(Words::say('MATCH_ERROR', 'reason_long', DecisionService::MAX_REASON), 'reason');
+            }
+            $request['reason'] = $form['reason'];
+        }
+        if (in_array($action, ['link', 'reject'], true)) {
+            $sku = UiRequest::id($form['sku_id']);
+            if ($sku === null) {
+                return $no($action === 'link' ? Words::MATCH_ERROR['pick_first'] : Words::MATCH_ERROR['nothing_to_reject'], 'sku_id');
+            }
+            $request['sku_id'] = $sku;
+        }
+        if ($action === 'ignore' && !isset($request['reason'])) {
+            return $no(Words::MATCH_ERROR['ignore_why'], 'reason');
+        }
+        if ($action === 'not_landing' && !isset($request['reason'])) {
+            // "This is a real product" puts a landing page back in the lists for good (LP3): a matching lead says why.
+            return $no(Words::MATCH_ERROR['real_why'], 'reason');
+        }
+        if ($action === 'unlink' && !isset($request['reason'])) {
+            // Undoing a match changes a stock link: one at a time, from this page, with a note (M53).
+            return $no(Words::MATCH_ERROR['unlink_why'], 'reason');
+        }
+        if (in_array($action, ['link', 'new_item'], true)) {
+            if (preg_match('/^[0-9]{1,5}$/D', $form['units']) !== 1 || (int) $form['units'] < 1 || (int) $form['units'] > DecisionService::MAX_UNITS) {
+                return $no(Words::say('MATCH_ERROR', 'units', DecisionService::MAX_UNITS), 'units_per_item');
+            }
+            $request['units_per_item'] = (int) $form['units'];
+        }
+        return [$request, null];
+    }
+
     public function decide(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
@@ -1234,51 +1295,12 @@ final class ReviewController
         }
         $refuse = fn (string $message, ?string $field = null, int $status = 422): HtmlResponse => $this->show($ctx, $id, $qc, $form, $message, $status, $field);
 
-        $action = $form['action'];
-        if (!in_array($action, self::ACTIONS, true)) {
-            return $refuse(Words::MATCH_ERROR['choose'], 'action');
+        [$request, $refusal] = self::decisionRequest($id, ['action' => $form['action'], 'expected_map_version' => $req->field('expected_map_version'),
+            'seen' => $req->field('seen'), 'proposal_id' => $req->field('proposal_id'), 'reason' => $form['reason'], 'sku_id' => $form['sku_id'], 'units' => $form['units']]);
+        if ($request === null) {
+            return $refuse(...($refusal ?? [Words::ERROR['bad_form'], null, 400]));
         }
-        $version = UiRequest::id($req->field('expected_map_version')) ?? (($req->field('expected_map_version') ?? '') === '0' ? 0 : null);
-        if ($version === null) {
-            return $refuse(Words::ERROR['bad_form'], null, 400);
-        }
-        // What the page showed of a variant decided one at a time (OneAtATime::seen): always sent from here, so the service checks it
-        // under the listing's lock (docs/decisions.md DG2). A form without it showed none.
-        $request = ['action' => $action, 'listing_id' => $id, 'expected_map_version' => $version, 'seen' => trim($req->field('seen') ?? '')];
-        $proposalId = UiRequest::id($req->field('proposal_id'));
-        if ($proposalId !== null) {
-            $request['proposal_id'] = $proposalId;
-        }
-        if ($form['reason'] !== '') {
-            if (mb_strlen($form['reason']) > DecisionService::MAX_REASON) {
-                return $refuse(Words::say('MATCH_ERROR', 'reason_long', DecisionService::MAX_REASON), 'reason');
-            }
-            $request['reason'] = $form['reason'];
-        }
-        if (in_array($action, ['link', 'reject'], true)) {
-            $sku = UiRequest::id($form['sku_id']);
-            if ($sku === null) {
-                return $refuse($action === 'link' ? Words::MATCH_ERROR['pick_first'] : Words::MATCH_ERROR['nothing_to_reject'], 'sku_id');
-            }
-            $request['sku_id'] = $sku;
-        }
-        if ($action === 'ignore' && !isset($request['reason'])) {
-            return $refuse(Words::MATCH_ERROR['ignore_why'], 'reason');
-        }
-        if ($action === 'not_landing' && !isset($request['reason'])) {
-            // "This is a real product" puts a landing page back in the lists for good (LP3): a matching lead says why.
-            return $refuse(Words::MATCH_ERROR['real_why'], 'reason');
-        }
-        if ($action === 'unlink' && !isset($request['reason'])) {
-            // Undoing a match changes a stock link: one at a time, from this page, with a note (M53).
-            return $refuse(Words::MATCH_ERROR['unlink_why'], 'reason');
-        }
-        if (in_array($action, ['link', 'new_item'], true)) {
-            if (preg_match('/^[0-9]{1,5}$/D', $form['units']) !== 1 || (int) $form['units'] < 1 || (int) $form['units'] > DecisionService::MAX_UNITS) {
-                return $refuse(Words::say('MATCH_ERROR', 'units', DecisionService::MAX_UNITS), 'units_per_item');
-            }
-            $request['units_per_item'] = (int) $form['units'];
-        }
+        $action = $request['action'];
         // Sent from a list's Check & match fold (docs/decisions.md CM2): the fold's question (still a clean likely match, and this is one
         // of its two answers) is asked again under the listing's lock, after the checks every decision gets; and a decision goes back
         // to the list at that row.

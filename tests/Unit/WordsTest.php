@@ -22,6 +22,7 @@ use CW\Ui\Compare;
 use CW\Ui\Controller\ReorderController;
 use CW\Ui\Controller\ReviewController;
 use CW\Ui\Controller\SamplesController;
+use CW\Ui\Controller\SimpleMatchController;
 use CW\Ui\Duplicates;
 use CW\Ui\Html;
 use CW\Ui\Queries;
@@ -976,5 +977,28 @@ final class WordsTest extends TestCase
         }
         self::assertSame('waiting', Words::tone('CARD_STATE', 'none'));
         self::assertNotSame(Words::MENU['cards'], Words::CARDS['list'], 'the list\'s heading is not the page\'s again');
+    }
+
+    /**
+     * Simple matching (docs/decisions.md SM1-SM9): the tab has the name the owner approved, every refusal of Apply has its line and says
+     * that nothing was saved (rule 7), and each refusal of DecisionService a match can meet is one of them.
+     */
+    public function testSimpleMatchingSaysEveryRefusalInWords(): void
+    {
+        self::assertSame('Simple matching', Words::MENU['simple_match']);
+        self::assertSame('Warehouse product', Words::SIMPLE_MATCH['item']);
+        self::assertSame('Apply', Words::SIMPLE_MATCH['apply'], 'the owner\'s word for the button');
+        foreach (SimpleMatchController::SAID as $code) {
+            self::assertArrayHasKey('said_' . $code, Words::SIMPLE_MATCH, $code);
+            self::assertStringStartsWith('Nothing was saved', Words::SIMPLE_MATCH['said_' . $code], $code);
+        }
+        foreach (['map_version_conflict' => 'changed', 'proposal_changed' => 'changed', 'proposal_closed' => 'changed', 'one_at_a_time' => 'own_page',
+            'lead_required' => 'not_allowed', 'spot_check_other' => 'not_allowed', 'pending_second_exists' => 'not_waiting', 'landing_page' => 'not_waiting',
+            'sku_merged' => 'gone', 'anything_else' => 'other'] as $error => $said) {
+            self::assertSame($said, SimpleMatchController::saidOf(new CwException($error, 'x', 409)), $error);
+        }
+        self::assertSame(['vapeandgo', 'vapebig', 'electrofag', 'another'], array_column(SimpleMatchController::stores([['id' => 4, 'code' => 'another', 'name' => 'Another'],
+            ['id' => 1, 'code' => 'electrofag', 'name' => 'Electrofag'], ['id' => 3, 'code' => 'vapebig', 'name' => 'Vape Big'],
+            ['id' => 2, 'code' => 'vapeandgo', 'name' => 'Vape and Go']]), 'code'), 'the owner\'s order, any other store after them');
     }
 }

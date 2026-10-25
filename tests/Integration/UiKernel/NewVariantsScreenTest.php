@@ -232,7 +232,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
 
         $page = $web->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'], self::tabLabels($page),
+        self::assertSame(['All Products', 'Simple matching', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'], self::tabLabels($page),
             'the tab after By Item');
         self::assertSame(['New Variants', 'Products'], [self::currentTab($page), self::currentSection($page)]);
         self::assertSame([], self::segments($page), 'no segments');

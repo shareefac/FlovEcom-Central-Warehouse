@@ -176,7 +176,7 @@ final class MenusTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::HOME['look_match'], $dash->text(), 'a matcher decides');
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Settings'], array_keys(self::nav($dash)));
         $queue = $mapper->get('/ui/review', ['queue' => 'Key']);
-        self::assertSame([['All Products', '/ui/items/cards'], ['Mapping', '/ui/review'], ['Store Products', '/ui/review/store'], ['By Item', '/ui/review/products'],
+        self::assertSame([['All Products', '/ui/items/cards'], ['Simple matching', '/ui/match'], ['Mapping', '/ui/review'], ['Store Products', '/ui/review/store'], ['By Item', '/ui/review/products'],
             ['New Variants', '/ui/review/new-variants'], ['Duplicates', '/ui/review/duplicates'], ['Families', '/ui/items/families'], ['Multipacks', '/ui/items/packs']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($queue)));
         self::assertSame([['To review', '/ui/review', true], ['Spot check', '/ui/review/samples', false], ['Second approval', '/ui/review?queue=pending', false]],
@@ -241,7 +241,7 @@ final class MenusTest extends KernelUiTestCase
         $auditor = $this->signIn($this->uiUser('auditor'));
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($auditor->get('/ui/'))),
             'the auditor reads everything');
-        self::assertSame(['All Products', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'],
+        self::assertSame(['All Products', 'Simple matching', 'Mapping', 'Store Products', 'By Item', 'New Variants', 'Duplicates', 'Families', 'Multipacks'],
             self::tabLabels($auditor->get('/ui/review/duplicates')));
     }
 

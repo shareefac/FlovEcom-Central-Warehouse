@@ -231,12 +231,13 @@
   };
   each(document.querySelectorAll('form[method="post"]'), sendOnce);
 
-  // The one read of the network: a read-only fragment of this site's own matching routes, By Item's quick match (/ui/review/products/…)
-  // and the lists' Check & match fold (/ui/review/listing/…/check), each named by its marker. Fetched with the session's cookie for
+  // The one read of the network: a read-only fragment of this site's own matching routes, By Item's quick match (/ui/review/products/…),
+  // the lists' Check & match fold (/ui/review/listing/…/check) and Simple matching's choices of a cell (/ui/match/options?…), each named
+  // by its marker. Fetched with the session's cookie for
   // this site only, parsed inert by DOMParser (nothing in it runs) and given back only when its root carries the marker of the route it
   // was asked of; anything else (the sign-in page of a session that ended, an error page, no network, another address) fails, and the
   // caller shows the page's words for that.
-  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/' };
+  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?' };
   var fragment = function (url, marker) {
     var path = FRAGMENTS[marker];
     if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {
@@ -422,6 +423,119 @@
       load();
     }
   });
+
+  // Simple matching (docs/decisions.md SM4; the owner's request of 25 Oct 2026: "one dropdown is enough ... a normal basic dropdown").
+  // A cell's box is a plain dropdown: an <input list> whose own <datalist> is filled from the read-only fragment at the form's
+  // data-options (a path of this site's options route): the item's own suggestions for that store while the box is empty, else (2
+  // letters or more, 300 ms after the last key) that store's products still waiting for a match. A choice from the list fills the
+  // form's hidden fields (the website product, its version, its open suggestion); a typed ID that is exactly one choice's ID is that
+  // choice. Apply with nothing chosen says the page's words (data-choose) and sends nothing, unless the list could not be loaded: then
+  // the typed ID goes to the server, as without the script (the server takes it only when exactly one waiting product of the store has
+  // it). Every word comes from the page (data-loading, data-failed, data-choose, the fragment's line).
+  var smForms = [];
+  each(document.querySelectorAll('form[data-sm-add]'), function (form) {
+    var base = form.getAttribute('data-options') || '';
+    var input = form.querySelector('input[data-sm-pick]');
+    var list = input ? document.getElementById(input.getAttribute('list') || '') : null;
+    var note = form.querySelector('[data-sm-note]');
+    var field = function (name) { return form.querySelector('input[type="hidden"][name="' + name + '"]'); };
+    var lid = field('listing_id');
+    var ver = field('expected_map_version');
+    var prop = field('proposal_id');
+    if (base.indexOf('/ui/match/options?') !== 0 || !input || !list || !note || !lid || !ver || !prop || !window.fetch || !window.DOMParser) {
+      return;
+    }
+    var timer = 0;
+    var asked = null;
+    var turn = 0;
+    var failed = false;
+    var say = function (text) {
+      note.textContent = text;
+      note.hidden = text === '';
+    };
+    // The choice the box names now: its words exactly (picked from the list), else the one choice whose ID is what was typed.
+    var pick = function () {
+      var typed = input.value.trim();
+      var found = null;
+      var byId = [];
+      each(list.querySelectorAll('option[data-listing-id]'), function (o) {
+        if (o.value === input.value) { found = o; }
+        if (typed !== '' && o.getAttribute('data-option') === typed) { byId.push(o); }
+      });
+      if (!found && byId.length === 1) { found = byId[0]; }
+      lid.value = found ? found.getAttribute('data-listing-id') || '' : '';
+      ver.value = found ? found.getAttribute('data-map-version') || '' : '';
+      prop.value = found ? found.getAttribute('data-proposal-id') || '' : '';
+      return found;
+    };
+    var load = function (q) {
+      var key = '&q=' + encodeURIComponent(q);
+      if (key === asked) {
+        return;
+      }
+      asked = key;
+      var mine = ++turn;
+      say(form.getAttribute('data-loading') || '');
+      fragment(base + key, '[data-sm-fragment]')
+        .then(function (node) {
+          if (mine !== turn) {
+            return;
+          }
+          failed = false;
+          while (list.firstChild) {
+            list.removeChild(list.firstChild);
+          }
+          each(node.querySelectorAll('datalist > option[data-listing-id]'), function (o) { list.appendChild(o.cloneNode(false)); });
+          var says = node.querySelector('[data-sm-says]');
+          say(says ? says.textContent.trim() : '');
+          pick();
+        })
+        .catch(function () {
+          if (mine !== turn) {
+            return;
+          }
+          asked = null; // the next key asks again
+          failed = true;
+          say(form.getAttribute('data-failed') || '');
+        });
+    };
+    input.addEventListener('focus', function () {
+      if (input.value.trim() === '') {
+        load('');
+      }
+    });
+    input.addEventListener('input', function () {
+      window.clearTimeout(timer);
+      var chosen = pick();
+      if (chosen && chosen.value === input.value) {
+        say(''); // picked from the list: nothing more to look for
+        return;
+      }
+      var v = input.value.trim();
+      if (v.length === 1) {
+        return; // one letter finds too much: wait for the next
+      }
+      timer = window.setTimeout(function () { load(v); }, 300);
+    });
+    smForms.push({ form: form, pick: pick, say: say, input: input, failed: function () { return failed; } });
+  });
+  if (smForms.length > 0) {
+    // Asked before the "send once" of every form (the capture phase): a submit stopped here never leaves its button disabled.
+    document.addEventListener('submit', function (ev) {
+      for (var i = 0; i < smForms.length; i++) {
+        var f = smForms[i];
+        if (f.form !== ev.target) {
+          continue;
+        }
+        if (!f.pick() && !(f.failed() && f.input.value.trim() !== '')) {
+          ev.preventDefault();
+          f.say(f.form.getAttribute('data-choose') || '');
+          f.input.focus();
+        }
+        return;
+      }
+    }, true);
+  }
 
   // Coming back with the back button must not leave a disabled button behind.
   window.addEventListener('pageshow', function (ev) {

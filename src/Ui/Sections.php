@@ -33,6 +33,9 @@ final class Sections
         ]],
         'products' => ['tabs' => [
             'cards' => ['pages' => [['perm' => 'catalogue.view', 'path' => '/ui/items/cards', 'match' => ['/ui/items/cards*', '/ui/items/{id}*', '/ui/search']]]],
+            // Simple matching (docs/decisions.md SM6; the owner's request of 25 Oct 2026): the first of the matching tabs, for everyone with
+            // linking.view; its choices and its Apply are routes of the people who may decide (Ui\Kernel).
+            'simple_match' => ['pages' => [['perm' => 'linking.view', 'path' => '/ui/match', 'match' => ['/ui/match*']]]],
             // To review opens the "By store" overview (U107); the store chosen there travels through the segments (`keep`, U106).
             'mapping' => ['segments' => true, 'keep' => ['channel'], 'pages' => [
                 ['key' => 'review', 'perm' => 'linking.view', 'path' => '/ui/review',

@@ -51,6 +51,7 @@ use CW\Ui\Controller\SamplesController;
 use CW\Ui\Controller\SearchController;
 use CW\Ui\Controller\SellingModeController;
 use CW\Ui\Controller\SettingsController;
+use CW\Ui\Controller\SimpleMatchController;
 use CW\Ui\Controller\StaffRequestsController;
 use CW\Ui\Controller\StockController;
 use CW\Ui\Controller\StockOpsController;
@@ -450,6 +451,13 @@ final class Kernel
         $byItemBulk = new ByItemBulkController();
         $r->add('POST', '/ui/review/products/bulk', Route::DECIDE, $byItemBulk->preview(...));
         $r->add('POST', '/ui/review/products/bulk/apply', Route::DECIDE, $byItemBulk->apply(...));
+        // Simple matching (docs/decisions.md SM1-SM9; the owner's request of 25 Oct 2026): every warehouse product with its match on each
+        // store, for everyone with linking.view; a cell's choices (read only, a fragment for app.js) and its Apply for whoever may decide.
+        // Apply sends the decide route's request (ReviewController::decisionRequest) to DecisionService, the only code that changes a match.
+        $simple = new SimpleMatchController();
+        $r->add('GET', SimpleMatchController::PATH, 'linking.view', $simple->index(...));
+        $r->add('GET', SimpleMatchController::OPTIONS, Route::DECIDE, $simple->options(...));
+        $r->add('POST', SimpleMatchController::APPLY, Route::DECIDE, $simple->apply(...));
         // New Variants (M60-M62, U131-U138): one store's variants first seen in a period, and its CSV, for everyone with linking.view.
         // Both only read: the seed ("Create as new items") is the bulk route above (source `new`), each row checked again by
         // BulkDecisions and DecisionService; "Open" is the website product's page above.

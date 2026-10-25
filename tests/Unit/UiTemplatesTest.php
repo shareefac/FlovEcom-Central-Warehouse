@@ -46,6 +46,7 @@ final class UiTemplatesTest extends TestCase
             'stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box', 'stock_reservations', 'stock_reservation', 'by_product', 'by_product_map',
             'by_product_options', // By Item's quick match: the fragment app.js draws into a cell (the owner's request of 20 Oct 2026)
             'by_item_preview', 'new_variants', 'one_at_a_time',
+            'simple_match', 'simple_match_options', // Products › Simple matching and its cell's choices (docs/decisions.md SM1-SM9)
             'store_new_preview', // Store Products' "Create new warehouse products for these" (docs/decisions.md NF7)
             'listing_check', 'check_fold', // the lists' Check & match fold and its fragment (docs/decisions.md CM1)
             'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before',
@@ -198,7 +199,8 @@ final class UiTemplatesTest extends TestCase
         $templates = self::templates();
         foreach (['queue', 'listing', 'listing_form', 'listing_decide', 'pending', 'pending_actions', 'pending_decision', 'samples', 'sample', 'duplicates', 'duplicate_group',
             'search', 'item', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result', 'by_product', 'by_product_map',
-            'by_product_options', 'by_item_preview', 'new_variants', 'one_at_a_time', 'listing_check', 'check_fold', 'search_note', 'store_new_preview'] as $name) {
+            'by_product_options', 'by_item_preview', 'new_variants', 'one_at_a_time', 'listing_check', 'check_fold', 'search_note', 'store_new_preview',
+            'simple_match', 'simple_match_options'] as $name) {
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {
