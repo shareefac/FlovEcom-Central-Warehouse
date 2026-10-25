@@ -11726,3 +11726,20 @@ the choice's, and both app.js and the confirmation refused it). A product's name
 a space) in the cells, the list and the confirmation alike. `testANameWithALineBreakIsOneLineInTheBox` (red first:
 `runs/simple_codex_red7.log`). Codex was not run again: this round had nothing above LOW. Its remark that the repo's app.js tests are
 strings in the source (no DOM or timer test) stands: the browser checks above stayed outside the repo.
+
+### SM10. A choice starts with what tells it apart (branch `simple-match-labels`, 26 Oct 2026)
+
+The owner, on production the day Simple matching went live: two choices of a Hayati Pro Max nic salt looked the same in the dropdown
+("Hayati Pro Max Blueberry Cherry Cranberry Nic Salt 10ml Blueberry C…" twice). A browser cuts a long choice at its end, and the end was
+what told them apart (10mg or 20mg, and the ID). A choice now reads **"ID <option> · <strength> · <its own name> · <the product's name>"**
+(`SimpleMatchController::choiceName()`, `Words::SIMPLE_MATCH['option']` with positional placeholders):
+
+- the store's ID first, then a held-back / spot-check / lead's mark when there is one ("ID 5001 · decided on its own page · …");
+- the strength the matching reads (`DecisionService::cardFrom`), else the last "<n>mg" the store's option name (then its product name)
+  says, left out when the name already starts with it ("10mg | Black Mamba");
+- the option's own name without the product's name when it repeats it ("Red Edition · IVG 2400 4 in 1 …", not "IVG 2400 4 in 1 … IVG
+  2400 4 in 1 … - Red Edition"), then the product's name once.
+
+`idOf()` reads the ID from the start of a choice's words (a name with "ID" in it cannot hide it). The matched cells are unchanged (their
+lines wrap). `testAChoiceStartsWithItsIdAndStrengthAndNamesTheProductOnce` (red first: `runs/smlabel_sm.log`); the tests that name a
+choice's words follow the new order.

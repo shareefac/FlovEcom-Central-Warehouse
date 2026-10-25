@@ -284,7 +284,7 @@ final class SimpleMatchController
 
     /**
      * The choices of a cell's dropdown, in the order given: the website products of the store that still wait for a match, each as the
-     * box shows it ("<name> · ID <option>", and "decided on its own page" for one OneAtATime names, "a matching lead decides it" for a
+     * box shows it ("ID <option> · <name>", choiceName(), and "decided on its own page" for one OneAtATime names, "a matching lead decides it" for a
      * Conflict when the person is a Matcher) with what Apply sends for it (its version and its open suggestion of any product).
      *
      * @param list<int> $ids website products
@@ -304,22 +304,21 @@ final class SimpleMatchController
             }
             $option = (string) $r['external_variant_id'];
             $word = isset($once[$lid]) ? 'option_own_page' : ($r['band'] === 'Conflict' && !$lead ? 'option_lead' : 'option');
-            $out[] = ['label' => Words::say('SIMPLE_MATCH', $word, self::name($r), $option), 'listing_id' => $lid, 'map_version' => (int) $r['map_version'],
+            $out[] = ['label' => Words::say('SIMPLE_MATCH', $word, self::choiceName($r), $option), 'listing_id' => $lid, 'map_version' => (int) $r['map_version'],
                 'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'], 'option' => $option];
         }
         return $out;
     }
 
     /**
-     * The ID inside a choice's words ("<name> · ID <option>", and any mark after it: Words::SIMPLE_MATCH['option']), or null: what the box
+     * The ID at the start of a choice's words ("ID <option> · <name>", any mark after the ID: Words::SIMPLE_MATCH['option']), or null: what the box
      * holds when a refusal kept a choice's words in it. The words around the ID are the option word's own, never typed here.
      */
     public static function idOf(string $text): ?string
     {
-        $parts = explode('%s', Words::SIMPLE_MATCH['option']);
-        $sep = $parts[1] ?? '';
-        $at = $sep === '' ? false : mb_strrpos($text, $sep);
-        if ($at === false || preg_match('/^(\S+)/u', mb_substr($text, $at + mb_strlen($sep)), $m) !== 1) {
+        // The words before the ID ("ID "): a choice starts with them, so a name with "ID" in it never hides the choice's own ID (SM10).
+        $before = explode('%2$s', Words::SIMPLE_MATCH['option'])[0];
+        if ($before === '' || !str_starts_with($text, $before) || preg_match('/^(\S+)/u', mb_substr($text, mb_strlen($before)), $m) !== 1) {
             return null;
         }
         return $m[1];
@@ -434,6 +433,53 @@ final class SimpleMatchController
     {
         $name = trim((string) preg_replace('/\s+/u', ' ', (string) ($r['product_title'] ?? '') . ' ' . (string) ($r['variant_title'] ?? '')));
         return $name === '' ? Words::LISTING['no_title'] : mb_substr($name, 0, 200);
+    }
+
+    /**
+     * A choice's name in the dropdown (the owner, 26 Oct 2026: two choices looked the same, their ends cut off): what tells it apart
+     * first, as a browser cuts a long choice at its end (SM10). The strength the matching reads from it ("20mg") when known; then its
+     * own option name without the product's name when that repeats it ("Red Edition · IVG 2400 ...", not "IVG 2400 ... IVG 2400 ... - Red
+     * Edition"); then the product's name. One line, at most 200 characters.
+     *
+     * @param array<string, mixed> $r a Queries::pickerRows row
+     */
+    private static function choiceName(array $r): string
+    {
+        $flat = static fn (mixed $v): string => trim((string) preg_replace('/\s+/u', ' ', (string) ($v ?? '')));
+        $product = $flat($r['product_title'] ?? null);
+        $variant = $flat($r['variant_title'] ?? null);
+        if ($variant === '' || $product === '') {
+            $name = $variant !== '' ? $variant : $product;
+        } elseif (mb_stripos($variant, $product) !== false) {
+            $rest = $flat(trim(str_ireplace($product, ' ', $variant), " \t-|·,:"));
+            $rest = trim($rest, " -|·,:");
+            $name = $rest === '' ? $variant : $rest . ' · ' . $product;
+        } elseif (mb_stripos($product, $variant) !== false) {
+            $name = $product;
+        } else {
+            $name = $variant . ' · ' . $product;
+        }
+        if ($name === '') {
+            return Words::LISTING['no_title'];
+        }
+        $mg = null;
+        try {
+            $card = DecisionService::cardFrom(['product_title' => $r['product_title'] ?? null, 'variant_title' => $r['variant_title'] ?? null,
+                'brand' => $r['brand'] ?? null], Html::json($r['features'] ?? null));
+            $v = $card['strength_mg'] ?? null;
+            $mg = is_int($v) || is_float($v) ? Html::dec($v) . 'mg' : null;
+        } catch (CwException) {
+            $mg = null; // nothing the matching read: the name alone
+        }
+        // Not read by the matching: the last strength the store's own words name ("... - 20mg"), its option name first.
+        foreach ([$variant, $product] as $words) {
+            if ($mg === null && preg_match_all('/(\d+(?:\.\d+)?)\s?mg\b/iu', $words, $m) > 0) {
+                $mg = end($m[1]) . 'mg';
+            }
+        }
+        // A name that starts with its strength already ("10mg | Black Mamba") does not say it twice.
+        $first = $mg !== null && preg_match('/^' . preg_quote(substr($mg, 0, -2), '/') . '\s?mg\b/iu', $name) !== 1;
+        return mb_substr(($first ? $mg . ' · ' : '') . $name, 0, 200);
     }
 
     private static function text(mixed $v): ?string

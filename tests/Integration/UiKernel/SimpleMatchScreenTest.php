@@ -405,7 +405,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         self::assertSame(0, $xp->query('//nav[@aria-label="Main"]')->length, 'a fragment, not a page');
         $c = self::choices($r);
         self::assertSame([$waiting, $suggested], array_keys($c), 'only this store\'s products still waiting for a match, best sellers first');
-        self::assertSame(['label' => Words::say('SIMPLE_MATCH', 'option', 'Elux Legend Blue Razz', '5001'), 'version' => (string) $this->version($waiting), 'proposal' => '',
+        self::assertSame(['label' => Words::say('SIMPLE_MATCH', 'option', 'Blue Razz · Elux Legend', '5001'), 'version' => (string) $this->version($waiting), 'proposal' => '',
             'option' => '5001'], $c[$waiting]);
         self::assertSame((string) self::$db->value('SELECT id FROM match_proposal WHERE open_listing_id = ?', [$suggested]), $c[$suggested]['proposal'],
             'an open suggestion of another item is named: the decision must name what is open');
@@ -527,7 +527,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $refused($send($landing), 'not_waiting', Words::say('SIMPLE_MATCH', 'said_not_waiting', 'Vape Big'));
         $refused($send($big, ['expected_map_version' => (string) ($this->version($big) + 1)]), 'changed', Words::SIMPLE_MATCH['said_changed']);
         // Codex's fifth review, LOW: what the box held comes back in it after any refusal (rule 7), with no choice behind it.
-        $label = Words::say('SIMPLE_MATCH', 'option', 'Elux Legend Blue Razz', '5001');
+        $label = Words::say('SIMPLE_MATCH', 'option', 'Blue Razz · Elux Legend', '5001');
         $back = self::open($web, (string) $send($big, ['expected_map_version' => (string) ($this->version($big) + 1), 'pick' => $label])->location());
         self::assertSame([$label, '', '', ''], [self::addForm($back, $alpha, 'vapebig')['fields']['pick'] ?? null, self::addForm($back, $alpha, 'vapebig')['fields']['listing_id'] ?? null,
             self::addForm($back, $alpha, 'vapebig')['fields']['expected_map_version'] ?? null, self::addForm($back, $alpha, 'vapebig')['fields']['proposal_id'] ?? null]);
@@ -600,7 +600,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $check = self::open($web, (string) $r->location());
         $form = self::addForm($check, $alpha, 'vapebig');
         self::assertSame(['listing_id' => (string) $big, 'expected_map_version' => (string) $this->version($big), 'proposal_id' => '',
-            'pick' => Words::say('SIMPLE_MATCH', 'option', 'Elux Legend Blue Razz', '5001')],
+            'pick' => Words::say('SIMPLE_MATCH', 'option', 'Blue Razz · Elux Legend', '5001')],
             array_intersect_key($form['fields'] ?? [], array_flip(['listing_id', 'expected_map_version', 'proposal_id', 'pick'])), 'the product, as this page shows it');
         $cell = '//tr[@id="m-' . $alpha . '"]/td[@data-channel="vapebig"]';
         self::assertSame(Words::SIMPLE_MATCH['confirm'], self::squash(self::xp($check)->evaluate('string(' . $cell . '//p[contains(@class, "sm-confirm")])')));
@@ -747,7 +747,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $s = $this->stores();
         $alpha = $this->item('legacy', 0, 'Alpha kit');
         $l = $this->profiled($s['vapebig'], '5001', ['product_title' => "Elux\nLegend", 'variant_title' => "Blue\t Razz"]);
-        $label = Words::say('SIMPLE_MATCH', 'option', 'Elux Legend Blue Razz', '5001');
+        $label = Words::say('SIMPLE_MATCH', 'option', 'Blue Razz · Elux Legend', '5001');
         $web = $this->signIn($this->uiUser('mapper'));
         self::assertSame($label, self::choices(self::options($web, $alpha, 'vapebig', '5001'))[$l]['label'] ?? null);
         $r = $web->post(self::PATH . '/apply', ['pick' => '5001'] + (self::addForm($web->get(self::PATH), $alpha, 'vapebig')['fields'] ?? []));
@@ -759,6 +759,31 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
     }
 
     /** Codex's review, LOW 4: the product whose ID was typed comes first, however many products whose numbers hold it sell more. */
+    /**
+     * The owner (26 Oct 2026): two choices looked the same, their ends cut off. A choice starts with what tells it apart: its ID, the
+     * strength the matching reads, its own option name without the product's name repeated, then the product's name once (SM10).
+     */
+    public function testAChoiceStartsWithItsIdAndStrengthAndNamesTheProductOnce(): void
+    {
+        $s = $this->stores();
+        $alpha = $this->item('legacy', 0, 'Alpha kit');
+        $ivg = $this->profiled($s['electrofag'], '4312', ['product_title' => 'IVG 2400 4 in 1 Rechargeable Prefilled Pod Kit',
+            'variant_title' => 'IVG 2400 4 in 1 Rechargeable Prefilled Pod Kit - Red Edition']);
+        $salt = $this->profiled($s['electrofag'], '3234', ['product_title' => 'Hayati Pro Max Blueberry Cherry Cranberry Nic Salt 10ml',
+            'variant_title' => 'Hayati Pro Max Blueberry Cherry Cranberry 10ml Nic Salt E Liquid - 20mg']);
+        $web = $this->signIn($this->uiUser('mapper'));
+        self::assertSame('ID 4312 · Red Edition · IVG 2400 4 in 1 Rechargeable Prefilled Pod Kit',
+            self::choices(self::options($web, $alpha, 'electrofag', '4312'))[$ivg]['label'] ?? null, 'the product\'s name once, its edition first');
+        $label = self::choices(self::options($web, $alpha, 'electrofag', '3234'))[$salt]['label'] ?? '';
+        self::assertStringStartsWith('ID 3234 · 20mg · ', $label, 'the ID and the strength first');
+        self::assertSame('3234', SimpleMatchController::idOf($label));
+        self::assertNull(SimpleMatchController::idOf('Blue Razz · ID 12'), 'a choice starts with its ID');
+        $ten = $this->profiled($s['electrofag'], '3699', ['product_title' => 'Hayati Pro Max Plus 6000 Prefilled Pod Kit',
+            'variant_title' => 'Hayati Pro Max Plus 6000 Prefilled Pod Kit - 10mg | Black Mamba']);
+        self::assertSame('ID 3699 · 10mg | Black Mamba · Hayati Pro Max Plus 6000 Prefilled Pod Kit',
+            self::choices(self::options($web, $alpha, 'electrofag', '3699'))[$ten]['label'] ?? null, 'a strength the name starts with, once');
+    }
+
     public function testTheProductWhoseIdWasTypedIsOfferedFirst(): void
     {
         $s = $this->stores();
@@ -835,7 +860,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $proposal = $this->proposals->add(Caller::system('test'), $l, $run, ['band' => 'Check', 'proposed_sku_id' => $alpha], true)['proposal_id'];
         $web = $this->signIn($this->uiUser('mapper'));
         $c = self::choices(self::options($web, $alpha, 'vapebig', '5001'));
-        self::assertSame(Words::say('SIMPLE_MATCH', 'option_own_page', 'Elux Legend Blue Razz', '5001'), $c[$l]['label'] ?? null, 'the list says so before Apply');
+        self::assertSame(Words::say('SIMPLE_MATCH', 'option_own_page', 'Blue Razz · Elux Legend', '5001'), $c[$l]['label'] ?? null, 'the list says so before Apply');
         self::assertSame((string) $proposal, $c[$l]['proposal']);
 
         $r = $this->apply($web, $web->get(self::PATH), $alpha, 'vapebig', $l);
