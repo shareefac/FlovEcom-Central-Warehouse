@@ -66,7 +66,7 @@
           <input type="hidden" name="expected_map_version" value="">
           <input type="hidden" name="proposal_id" value="">
           <label class="visually-hidden" for="<?= $e($c['add']['id']) ?>"><?= $e($c['add']['label']) ?></label>
-          <span class="sm-box"><input id="<?= $e($c['add']['id']) ?>" type="text" name="pick" value="<?= $e($c['add']['typed']) ?>" list="<?= $e($c['add']['id']) ?>-list" maxlength="400" autocomplete="off" placeholder="<?= $e($c['add']['label']) ?>" data-sm-pick> <button type="submit" class="btn sm primary" title="<?= $e($c['add']['title']) ?>"><?= $word('SIMPLE_MATCH', 'apply') ?></button></span>
+          <span class="sm-box"><input id="<?= $e($c['add']['id']) ?>" type="text" name="pick" value="<?= $e($c['add']['typed']) ?>" list="<?= $e($c['add']['id']) ?>-list" maxlength="400" autocomplete="off" placeholder="<?= $word('SIMPLE_MATCH', 'pick_hint') ?>" data-sm-pick> <button type="submit" class="btn sm primary" title="<?= $e($c['add']['title']) ?>"><?= $word('SIMPLE_MATCH', 'apply') ?></button></span>
           <datalist id="<?= $e($c['add']['id']) ?>-list"></datalist>
           <p class="sm-note muted" data-sm-note aria-live="polite" hidden></p>
         </form>

@@ -4986,6 +4986,7 @@ final class Words
         'option_lead' => '%s · ID %s · a matching lead decides it',
         'waiting' => 'Waiting for a second OK',
         'pick' => 'Its name or ID on %s',
+        'pick_hint' => 'Name or ID',
         'apply' => 'Apply',
         'apply_named' => 'Match the chosen %s product to %s',
         'add_more' => '+',

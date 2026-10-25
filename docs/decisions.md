@@ -11536,3 +11536,99 @@ The new tests failed first (`runs/bulknew_codex_red.log`) and pass now (`StoreNe
   first in every PHP; intl, where there, folds the rest.
 - **MEDIUM 7: a page heading known from the stored website state only was not skipped.** `newRowSkip()` works it out as the seed does
   (`SiteState::heading()` with the published variants of its product).
+
+## Simple matching: one table, one dropdown a cell, Apply (branch `simple-matching`, 25 Oct 2026; SM1-SM9)
+
+The owner (25 Oct 2026, his words lightly cleaned): "Create a simple page with a table with 4 columns: one for CW, one for Vape and Go,
+one for Vape Big and one for Electrofag. The Central Warehouse column has its products, the other three have the matched product. If
+nothing is matched there is a blank simple dropdown so I can search with just what it is called on that store, or the ID it has. Easy and
+simple: click Apply and it matches, with a plus button so if there is a duplicate I can match that too. One dropdown is enough ... All the
+pages you created are too complicated; it is so hard for a normal user to map a product." Proposed to him and approved: a NEW clean page
+that reuses the matching code; the old pages stay for leads; the new page first in the matching tabs; removing or changing a match stays
+on the product's own page (leads); every match keeps the existing safety, and staff see a short message. Code:
+`src/Ui/Controller/SimpleMatchController.php` (new), views `simple_match` and `simple_match_options` (new),
+`src/Ui/Controller/ReviewController.php` (`decisionRequest()` taken out of `decide()`), `src/Ui/Queries.php` (`productTotal()`,
+`listingByOption()`), `src/Ui/{Kernel,Sections,Words}.php`, `src/Ui/Controller/StoreProductsController.php` (SM8),
+`public/ui/assets/app.{js,css}` (a `simple-matching` block each). No migration, no new permission, `DecisionService` not changed.
+Tests: `tests/Integration/UiKernel/SimpleMatchScreenTest.php` and `StoreProductsPagerTest.php` (new), `WordsTest`, and the tab lists of
+`SectionsTest`, `MenusTest`, `HomeScreenTest`, `ByProductScreenTest`, `NewVariantsScreenTest`, `UiTemplatesTest`, `UiUnitTest`.
+
+**SM1. Where: Products › Simple matching, `/ui/match`, the first matching tab.** A tab of its own in Products, after All Products
+(the catalogue) and before Mapping, Store Products, By Item, New Variants and Duplicates, which stay as they are. "Products" in the
+sidebar still opens All Products. Everyone with `linking.view` opens it (the people who see the matching pages); a person who only looks
+sees the products and their matches, no box, and the page's line says who matches (`UI['look_only']`). The intro is one short sentence
+(`PAGE_INTRO['simple_match']`, no second line). No tick boxes, no bulk bar, no filter chips, no "?" help, no extra column.
+
+**SM2. The table: the warehouse product, then the stores in the owner's order.** One row per warehouse product as By Item's list opens
+(the products not joined into another one, by CW number: `Queries::productIds` with no filter), its search the same (`q`: a CW number
+however written, a barcode, every word of the name, brand, range or flavour: `productText`), 50 rows a page (`Queries::PER_PAGE`; a
+search's ids in one pass, else `productTotal()` and the page), Previous and Next with the page and the search. The first column is the
+CW number and the name; then one column per store by its code in the order the owner named, `SimpleMatchController::STORE_ORDER` =
+vapeandgo, vapebig, electrofag, each headed with the store's name from the channel table; any other store the table holds is a column
+after them (by name), so a fourth store needs no code change. A constant, not a setting: the owner gave this order himself, and a setting
+needs a migration (rule 20 allows it to become one if he wants to change it). Each row is `id="m-<sku id>"` (the way back from Apply);
+on a phone each row is a card (`table.stack`) and each cell is named by its store.
+
+**SM3. A store's cell: what is matched there.** Every website product matched to the row's product on that store (`productCells`'
+`matched`, the best seller first), then every match of it that waits for a second OK (`waiting`), each with its name on the store
+(product title and option title), "ID <the store's option number>" and, where it applies, "Waiting for a second OK", "1 sale = N
+products" and "On hold". The name opens the website product's own page, where a match is changed or undone (U69: a matching lead's);
+this page has no change and no unmatch.
+
+**SM4. The one box: a plain dropdown.** For someone who may decide (`mapping.decide`: Matcher, Matching lead) a cell has ONE box and
+Apply: shown at once in an empty cell, behind "+" (a `<details>`, no script) in a cell that already has a product, for a second page of
+the same store (a duplicate). The box is an `<input list>` with its own `<datalist>`. app.js fills the list from `GET /ui/match/options
+?sku=&channel=&q=` (`Route::DECIDE`, read only): a fragment marked `data-sm-fragment` (`FRAGMENTS`, the one fetch of app.js, parsed
+inert), whose choices are that store's products still waiting for a match (unmatched or suggested, no decision waiting for a second
+OK, never ignored, a landing page or another store's: `Queries::waitingListings`, the quick match's search by every word of the names
+and what else it reads, or the exact option number; best sellers first), at most `OPTIONS_MAX` = 20; for an empty box (on focus) the
+computer's suggestions of this product on that store (`suggestedFor`). Each choice reads "<name> · ID <option>" and carries what Apply
+sends (`data-listing-id`, `data-map-version`, `data-proposal-id`: the listing's open suggestion of ANY product, which the decision must
+name, I7), and says "decided on its own page" (OneAtATime: held back, a spot check's match, found on arrival) or, for a Matcher, "a
+matching lead decides it" (Conflict). Typing waits for 2 letters and 300 ms. A choice fills the form's hidden fields; a typed ID that is
+exactly one choice's ID is that choice; Apply with nothing chosen says "Choose one from the list first." and sends nothing (checked in the
+capture phase, before the "send once" of every form), except when the list could not be loaded: then the typed text goes to the server
+as without the script. Without app.js the box is the store's ID (SM5).
+
+**SM5. Apply: one more match, through the decide route's request and DecisionService.** `POST /ui/match/apply` (`Route::DECIDE`, CSRF):
+`sku_id`, `channel`, `listing_id`, `expected_map_version`, `proposal_id`, `pick` (the box), and the list's `q` and `page`. An unknown store
+or product is the 404 page; a product joined into another one meanwhile is `gone`. The website product is the one chosen; with no
+`listing_id` (no script) it is the store's product whose option number is exactly what was typed (`listingByOption()`, the unique
+(channel_id, external_variant_id) index), taken only when it still waits for a match, else "Choose one from the list"; such a product is
+decided against its version and open suggestion as they are now (the person saw none: they named the product by its ID). A chosen product
+must be the store's (`other_store`) and still wait for a match (`not_waiting`): this page never changes or moves a match. The units are
+what this product's own open suggestion gives (`ai_units_per_item`, as By Item's quick match), else 1. Then the request is the decide
+route's `link`, built by ONE method, `ReviewController::decisionRequest()` (the checks `decide()` made, moved out unchanged and used by
+both), with `seen` empty: `DecisionService::decide` checks everything again under the listing's lock (the person on the decision and its
+audit row, map_version, the suggestion, Conflict for a matching lead, a spot check's owner (DG1), a product decided one at a time from its
+own page (DG2: 409 `one_at_a_time`), the second OK of a store that already sells warehouse stock, a multiple, a pair marked not a match
+before). Back to `/ui/match` with the search and the page, at `#m-<sku>`, with the matching pages' notice (`notice=decided_link` "Done:
+"…" is matched to CW-…", or `pending_second` "Saved, not live yet: … needs a matching lead's second OK"; `ReviewController::notice()`,
+whitelisted) and the row marked.
+
+**SM6. Who.** No new permission: the page is `linking.view`, the choices and Apply `mapping.decide`, as By Item's picker and the decide
+route (a viewer gets 403 on both). A Conflict is a matching lead's and a spot check's match its owner's, as everywhere (DecisionService).
+
+**SM7. A refusal in words, in its cell.** The address names a refusal by its code only (`said`, one of `SimpleMatchController::SAID`; never
+a text), with the row (`at`), the store (`ch`), the website product (`prev`) and, after "choose", what was typed (`t`, put back in the open
+box). `saidOf()` turns DecisionService's code into one: map_version_conflict, proposal_changed, proposal_closed → `changed` ("someone
+changed this product just now. Choose it again, then press Apply."); one_at_a_time → `own_page` ("this product is decided on its own
+page" with "Open its page"); lead_required, spot_check_other, role_not_allowed → `not_allowed` ("you may not match this one. Its page says
+who decides it." with the link); pending_second_exists, landing_page, no_change → `not_waiting`; sku_merged → `gone`; anything else
+`other` with the link. Each starts with "Nothing was saved" (rule 7) and is drawn as a red line in the cell it was about (never the green
+"done" toast), or above the list when that row is not on the page.
+
+**SM8. Store Products' Previous and Next lost the page number (the owner hit it).** `$pageQuery = $base + ['page' => null]`, then
+`$pageQuery + ['page' => N]`: PHP's `+` keeps the left side's key, so every link was the first page (Next on page 1 and on page 2 both
+opened page 1). The links are now `$base + ['page' => N]` (`$base` holds no page). Every controller and view that adds `['page' => …]`
+with `+` was read (Stock, the four reports, Mapping's lists, Packs, Families, Counts, New Variants, By Item, Duty, Hand-made, Documents,
+Reorder, Low stock levels, All Products, the contexts): none other had a base that already held `page`, so only Store Products changed.
+`StoreProductsPagerTest` (red on main): page 1's Next is page 2, page 2's Next page 3 and its Previous page 1, page 3's Previous page 2,
+and the state, sort and search travel with the page.
+
+**SM9. Left out, and open.** No change or unmatch of a match here (the product's page, leads). No CSV, no filters. A product decided one
+at a time is refused here with the way to its page: on production that is every product the check on arrival found while
+`mapping.arrival_bulk_confirm` is off (CM: about 3,300 Electrofag and 3,200 Vape Big rows), which Store Products' Check & match or the
+product's own page answers; the dropdown says "decided on its own page" before Apply. A browser filters a `<datalist>` by the typed text
+as one piece, so of the server's choices it may show only those whose name holds the words in the order typed (an ID or a run of the
+name always works). The store order is a constant (SM2).
