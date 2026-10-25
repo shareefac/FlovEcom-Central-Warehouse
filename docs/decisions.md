@@ -11590,7 +11590,8 @@ matching lead decides it" (Conflict). Typing waits for 2 letters (one digit is a
 hidden fields; a typed ID that is
 exactly one choice's ID is that choice; a choice stays as its list showed it (no search is started while the box names it, and one
 still on its way is not drawn, so no newer version or suggestion takes its place; when the words change, no answer asked for before them
-is drawn); Apply with
+is drawn; focusing a box with no choice behind it looks for its words: the suggestions for an empty box, the words a refusal kept);
+Apply with
 nothing chosen says "Choose one from the list first." and sends nothing (checked in the
 capture phase, before the "send once" of every form), except when the list could not be loaded: then the typed text goes to the server
 as without the script. Without app.js the box is the store's ID (SM5).
@@ -11621,8 +11622,8 @@ whitelisted) and the row marked.
 route (a viewer gets 403 on both). A Conflict is a matching lead's and a spot check's match its owner's, as everywhere (DecisionService).
 
 **SM7. A refusal in words, in its cell.** The address names a refusal by its code only (`said`, one of `SimpleMatchController::SAID`; never
-a text), with the row (`at`), the store (`ch`), the website product (`prev`) and, after "choose", what was typed (`t`, put back in the open
-box). `saidOf()` turns DecisionService's code into one: map_version_conflict, proposal_changed, proposal_closed → `changed` ("someone
+a text), with the row (`at`), the store (`ch`), the website product (`prev`) and what the box held (`t`, up to 300 characters, put back in the
+open box after any refusal, with no choice behind it: rule 7; a choice's words kept so are found again by the ID in them, `idOf()`). `saidOf()` turns DecisionService's code into one: map_version_conflict, proposal_changed, proposal_closed → `changed` ("someone
 changed this product just now. Choose it again, then press Apply."); one_at_a_time → `own_page` ("this product is decided on its own
 page" with "Open its page"); lead_required, spot_check_other, role_not_allowed → `not_allowed` ("you may not match this one. Its page says
 who decides it." with the link); pending_second_exists, landing_page, no_change, not_waiting (addOnly) → `not_waiting`; sku_merged → `gone`; anything else
@@ -11704,3 +11705,13 @@ choice after), and the three earlier browser cases still pass.
 The browser checks (not in the repo; `runs/simple_js_harness/`): the page as the kernel renders it, served with app.js and a stub of the
 choices route, driven by a script in headless Chrome: the box, the list, the choice, Apply refused with nothing chosen and its button not
 left disabled, an ID typed whole, and the three races of the reviews above.
+
+### The fifth Codex review (on `c2edb27`; `runs/simple_codex_review5.txt`): no HIGH or MEDIUM, one LOW, fixed test-first
+
+The four earlier rounds' fixes held, the box's input, timer and answer races included. **LOW: a refusal emptied the box** (only "Choose one
+from the list" kept what was typed), against rule 7. Now every refusal puts back what the box held (`t`, up to 300 characters), with no
+choice behind it; such words, a choice's ("<name> · ID 5001"), are found again by the ID in them (`SimpleMatchController::idOf()`, the words
+around the ID taken from `Words::SIMPLE_MATCH['option']`), and focusing a box with no choice behind it looks for its words (an empty box:
+the suggestions, as before). Red first on `c2edb27` in a throw-away worktree (`runs/simple_codex_red6.log`: the kept box, the product
+found by its ID inside a choice's words, the focus rule), green after; in headless Chrome the kept words are looked for on focus and chosen
+again, and a box the page drew with a choice is not searched over.

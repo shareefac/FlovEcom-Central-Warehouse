@@ -846,18 +846,15 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("turn++; // a search still on its way is not drawn: the choice stays", $js);
         // Codex's third review, HIGH: so does an ID typed whole that is one of the list's products: no search is started for it, and none
         // on its way can put a newer version or suggestion in its place (the choice is as the list showed it).
-        self::assertStringContainsString("var chosen = pick();
-      if (chosen) {", $js);
+        self::assertStringContainsString("var chosen = pick();\n      if (chosen) {", $js);
         self::assertStringNotContainsString('if (chosen && chosen.value === input.value) {', $js);
         // Codex's fourth review, HIGH: when the words change, no answer asked for before them is drawn; and a choice made from an answer
         // stops the search waiting to start, so nothing can choose over it.
-        self::assertStringContainsString("input.addEventListener('input', function () {
-      window.clearTimeout(timer);
-      // The words changed: no answer "
-            . "asked for before them is drawn (it is about other words, and could choose over this one).
-      turn++;", $js);
-        self::assertStringContainsString("if (pick()) {
-            window.clearTimeout(timer);", $js);
+        self::assertStringContainsString("input.addEventListener('input', function () {\n      window.clearTimeout(timer);\n      // The words changed: no answer "
+            . "asked for before them is drawn (it is about other words, and could choose over this one).\n      turn++;", $js);
+        self::assertStringContainsString("if (pick()) {\n            window.clearTimeout(timer);", $js);
+        // Codex's fifth review: the words a refusal kept in the box are looked for when the box is used again (no choice behind them).
+        self::assertStringContainsString("input.addEventListener('focus', function () {\n      if (lid.value === '') {\n        load(input.value.trim());", $js);
         self::assertStringContainsString('<p class="sm-msg muted" data-sm-note', $view, 'the line app.js writes is its own class');
         self::assertSame(1, preg_match('/^\.sm-add \.sm-msg \{[^}]*white-space: normal/m', $css));
         self::assertSame(1, preg_match('/\/\* ==== simple-matching .*?\/\* ==== end simple-matching/s', $css, $block));

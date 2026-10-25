@@ -57,6 +57,8 @@ final class SimpleMatchController
     private const SAID_LINK = ['own_page', 'not_allowed', 'other'];
     /** A website product that still waits for a match (Queries::STATE_SQL): no match, no decision waiting, not ignored, no landing page. */
     private const WAITING = ['suggested', 'not_matched'];
+    /** What the box held, put back in it after a refusal (`t`): a choice's words are longer than a search's. */
+    private const KEPT_MAX = 300;
 
     public function index(Context $ctx): HtmlResponse
     {
@@ -135,13 +137,16 @@ final class SimpleMatchController
         if ($sku['merged_into_sku_id'] !== null) {
             return $ctx->error(404, 'item_joined', 'the item was merged into another one', $back);
         }
-        $text = ByProductContext::text($ctx->req->param('q') ?? '');
+        $raw = mb_substr(trim($ctx->req->param('q') ?? ''), 0, self::KEPT_MAX);
+        $text = ByProductContext::text($raw);
         if ($text === '') {
             $ids = $q->suggestedFor($id, (int) $store['id'], self::OPTIONS_MAX);
         } else {
             // The product whose ID is exactly what was typed first (a short ID is part of many others, which may sell more), then the
-            // search (Codex's review of the branch, LOW 4).
-            $exact = $q->listingByOption((int) $store['id'], $text);
+            // search (Codex's review of the branch, LOW 4); for a choice's words kept in the box after a refusal, the product its ID
+            // names, so it can be chosen anew as it is now (Codex's fifth review).
+            $named = self::idOf($raw);
+            $exact = $q->listingByOption((int) $store['id'], $text) ?? ($named === null ? null : $q->listingByOption((int) $store['id'], $named));
             $ids = array_values(array_unique([...($exact === null ? [] : [$exact]), ...$q->waitingListings((int) $store['id'], $text, 1, self::OPTIONS_MAX)['ids']]));
         }
         $choices = array_slice(self::choices($ctx, $ids, (int) $store['id']), 0, self::OPTIONS_MAX);
@@ -177,11 +182,13 @@ final class SimpleMatchController
         $text = ByProductContext::text($req->field('q') ?? '');
         $page = UiRequest::id($req->field('page'));
         $back = ['q' => $text === '' ? null : $text, 'page' => $page !== null && $page > 1 ? $page : null];
-        // The box: what it holds (compared whole with the chosen product's words), and as typed (cut to a search's length: an ID, kept).
+        // The box: what it holds (compared whole with the chosen product's words; put back in it after a refusal, rule 7), and as typed
+        // (cut to a search's length: an ID).
         $box = trim($req->field('pick') ?? '');
         $typed = ByProductContext::text($box);
+        $kept = mb_substr($box, 0, self::KEPT_MAX);
         $refuse = static fn (string $said, ?int $listing = null): HtmlResponse => HtmlResponse::redirect(Html::url(self::PATH, $back
-            + ['said' => $said, 'prev' => $listing, 'at' => $skuId, 'ch' => (string) $store['code'], 't' => $said === 'choose' && $typed !== '' ? $typed : null]) . '#m-' . $skuId);
+            + ['said' => $said, 'prev' => $listing, 'at' => $skuId, 'ch' => (string) $store['code'], 't' => $kept !== '' ? $kept : null]) . '#m-' . $skuId);
         // Without the script the box holds the store's ID. The one product of that store with exactly that ID that still waits for a match
         // is shown in its cell to be confirmed: one more Apply, sent from the page that shows it, with that page's version and suggestion
         // (I7: never the product as it is when the request arrives; Codex's review of the branch, HIGH 1). Else "Choose one from the
@@ -301,6 +308,21 @@ final class SimpleMatchController
         return $out;
     }
 
+    /**
+     * The ID inside a choice's words ("<name> · ID <option>", and any mark after it: Words::SIMPLE_MATCH['option']), or null: what the box
+     * holds when a refusal kept a choice's words in it. The words around the ID are the option word's own, never typed here.
+     */
+    public static function idOf(string $text): ?string
+    {
+        $parts = explode('%s', Words::SIMPLE_MATCH['option']);
+        $sep = $parts[1] ?? '';
+        $at = $sep === '' ? false : mb_strrpos($text, $sep);
+        if ($at === false || preg_match('/^(\S+)/u', mb_substr($text, $at + mb_strlen($sep)), $m) !== 1) {
+            return null;
+        }
+        return $m[1];
+    }
+
     /** A DecisionService refusal as the code of its short line (SAID). */
     public static function saidOf(CwException $e): string
     {
@@ -316,7 +338,8 @@ final class SimpleMatchController
 
     /**
      * The refusal the address names (`said`, one of SAID, about the row `at`), in words: the store's name where a line names it
-     * (`ch`), the way to the website product's page (`prev`) where SAID_LINK says, and what was typed (`t`) to put back in the box.
+     * (`ch`), the way to the website product's page (`prev`) where SAID_LINK says, and what the box held (`t`) to put back in it after
+     * any refusal, with no choice behind it (rule 7; Codex's fifth review).
      *
      * @param list<array{id: int, code: string, name: string}> $stores
      * @return array{code: string, text: string, link: ?string, sku: int, channel: ?string, typed: string}|null
@@ -332,14 +355,14 @@ final class SimpleMatchController
         $text = in_array($code, ['other_store', 'not_waiting'], true) ? Words::say('SIMPLE_MATCH', 'said_' . $code, (string) ($store['name'] ?? ''))
             : Words::SIMPLE_MATCH['said_' . $code];
         return ['code' => $code, 'text' => $text, 'link' => $prev !== null && in_array($code, self::SAID_LINK, true) ? '/ui/review/listing/' . $prev : null,
-            'sku' => $at, 'channel' => $store['code'] ?? null, 'typed' => $code === 'choose' ? ByProductContext::text($ctx->req->param('t') ?? '') : ''];
+            'sku' => $at, 'channel' => $store['code'] ?? null, 'typed' => mb_substr(trim($ctx->req->param('t') ?? ''), 0, self::KEPT_MAX)];
     }
 
     /**
      * The page's rows: each warehouse product with one cell per store, in the stores' order. A cell lists the website products matched
      * to it on that store (the best seller first) and then the matches of it that wait for a second OK, each with its name on the store,
      * its ID, "1 sale = N" when N is not 1 and "On hold"; and, for someone who may decide, the add control: shown at once in an empty
-     * cell, behind "+" in one that has a product (open again with the typed text after "Choose one from the list", and with the product
+     * cell, behind "+" in one that has a product (open again with what the box held after a refusal, and with the product
      * a typed ID names, chosen, to confirm).
      *
      * @param list<array<string, mixed>> $products Queries::productRows

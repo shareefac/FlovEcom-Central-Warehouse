@@ -504,8 +504,8 @@
         });
     };
     input.addEventListener('focus', function () {
-      if (input.value.trim() === '') {
-        load('');
+      if (lid.value === '') {
+        load(input.value.trim()); // an empty box: the suggestions; words a refusal kept (no choice behind them): looked for again
       }
     });
     input.addEventListener('input', function () {

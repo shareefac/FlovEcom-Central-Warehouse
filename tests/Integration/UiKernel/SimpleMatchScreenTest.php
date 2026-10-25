@@ -526,6 +526,12 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $refused($send($mapped), 'not_waiting', Words::say('SIMPLE_MATCH', 'said_not_waiting', 'Vape Big'));
         $refused($send($landing), 'not_waiting', Words::say('SIMPLE_MATCH', 'said_not_waiting', 'Vape Big'));
         $refused($send($big, ['expected_map_version' => (string) ($this->version($big) + 1)]), 'changed', Words::SIMPLE_MATCH['said_changed']);
+        // Codex's fifth review, LOW: what the box held comes back in it after any refusal (rule 7), with no choice behind it.
+        $label = Words::say('SIMPLE_MATCH', 'option', 'Elux Legend Blue Razz', '5001');
+        $back = self::open($web, (string) $send($big, ['expected_map_version' => (string) ($this->version($big) + 1), 'pick' => $label])->location());
+        self::assertSame([$label, '', '', ''], [self::addForm($back, $alpha, 'vapebig')['fields']['pick'] ?? null, self::addForm($back, $alpha, 'vapebig')['fields']['listing_id'] ?? null,
+            self::addForm($back, $alpha, 'vapebig')['fields']['expected_map_version'] ?? null, self::addForm($back, $alpha, 'vapebig')['fields']['proposal_id'] ?? null]);
+        self::assertTrue(self::addForm($back, $alpha, 'vapebig')['open'] || !self::addForm($back, $alpha, 'vapebig')['plus'], 'the box is in sight');
         $refused($send($big, ['listing_id' => '999999']), 'choose', Words::SIMPLE_MATCH['said_choose']);
         // A suggestion that arrived after the list was read (a proposal does not move map_version): the decision must name it (I7).
         $this->propose($big, 'Check', $other);
@@ -747,6 +753,11 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         self::assertCount(SimpleMatchController::OPTIONS_MAX, $c);
         $one = $this->profiled($s['vapebig'], '7', ['product_title' => 'A one-digit ID']);
         self::assertSame($one, array_key_first(self::choices(self::options($web, $alpha, 'vapebig', '7'))), 'one digit is an ID too');
+        // A box that still holds a choice's words (kept after a refusal): the product its ID names comes first again, so it can be chosen
+        // anew as it is now (Codex's fifth review).
+        foreach (['option', 'option_own_page', 'option_lead'] as $word) {
+            self::assertSame($exact, array_key_first(self::choices(self::options($web, $alpha, 'vapebig', Words::say('SIMPLE_MATCH', $word, 'The one', '12')))), $word);
+        }
     }
 
     private static function mysqliSession(): \mysqli
