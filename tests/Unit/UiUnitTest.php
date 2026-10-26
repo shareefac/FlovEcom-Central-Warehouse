@@ -998,6 +998,9 @@ final class UiUnitTest extends TestCase
         self::assertSame(1, preg_match('/^html\.js form\.po-editor details\.po-add:not\(\[open\]\) \{[^}]*display: none/m', $css), 'with the script: no empty card');
         self::assertSame(0, preg_match('/^form\.po-editor details\.po-add:not\(\[open\]\) \{[^}]*display: none/m', $css), 'without it the header still shows');
         self::assertSame(1, preg_match('/^form\.po-editor fieldset\.po-header \{[^}]*align-items: flex-start/m', $css), 'the header\'s fields at the top');
+        // "Cancel draft" is a small button, not a card: the page's generic <details> border and padding are taken off it (seen in a
+        // real Chrome on staging, 26 Oct 2026: a wide empty outline around the button).
+        self::assertSame(1, preg_match('/^section\.po-summary details\.po-cancel \{[^}]*border: 0;[^}]*padding: 0;[^}]*background: none/m', $css), 'no outline around Cancel draft');
     }
 
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void
