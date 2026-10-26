@@ -11865,8 +11865,7 @@ is a row of the board with its price and remove), the line's VAT, note, stock, a
 every help line (scan hint, limit notes, confirm notes, the buttons' second lines, the over-limit note), the company-details note (on the
 confirmed order's page, where the PDF is sent), the draft PDF and the lines file (Excel) except for an order too long for the page (then the
 import is shown: it is the only way to change it), and "Cancel the draft". The routes behind them are unchanged (`/lines/import`, `/cancel`,
-`/pdf`). **Open for the owner:** a draft can no longer be cancelled from its page by its buyer; say if Cancel draft should come back (one small
-button with its reason list).
+`/pdf`). ~~Open for the owner: a draft can no longer be cancelled from its page by its buyer.~~ Answered: "yes add cancel draft button" (PX11).
 
 Tests (red first: `runs/poone_red.log`, 17 failures and 4 errors on `2f8873a`): `tests/Integration/UiKernel/PoOnePageScreensTest.php` (new, 8
 tests: the page opens with no draft and the old routes are gone; one draft per double submit and none after a refusal; "+ Add new supplier"
@@ -11938,4 +11937,15 @@ Red on the code before (253a97d): `runs/poone_codex3_red.log`; green after: `run
   forms as typed (`UNSAVED`); what that Add saved with the table (the delivery charge, the rows) is not typed again, so it is never added twice.
   (A charge saved this way gives the draft a line, so its supplier is fixed from then on, as with any line.)
   `testAnAddThatFindsNothingOrSeveralKeepsTheAddNewFormsAsTyped`.
+
+### PX11. "Cancel draft" (the owner, 26 Oct 2026: "yes add cancel draft button")
+
+A saved draft's page has ONE small plain button, "Cancel draft", under Save and Confirm in the summary card (never the primary one; never on
+`/ui/purchasing/orders/new`, which has nothing to cancel). It opens one short step on the same page (a `<details>`: no script needed): the
+reason (the draft-cancel reasons of the Reasons page, none chosen for the person: behaviour item 6), an optional note (needed for "Other") and
+"Cancel the draft". It is the existing route `POST /ui/purchasing/orders/{id}/cancel` (`doc.PO.post`, CSRF, the draft's version,
+`PurchaseOrders::cancel`, audit `document.cancel`), as its own form: the step's controls name the form `po-cancel`, drawn after the order's
+form (forms do not nest), so nothing of the order's form is sent with it. No reason: refused (400), the step open again; an old version: 409.
+No help text. `testADraftIsCancelledFromItsPage` (red first: `runs/poone_cancel_red.log`); `BehaviourItemsTest` and `PurchaseOrderScreensTest`
+use the step again.
 

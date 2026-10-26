@@ -295,8 +295,7 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         self::assertSame(303, $buyer->get("/ui/purchasing/orders/" . (int) self::$db->value('SELECT id FROM document WHERE reverses_id = ?', [$id]))->status,
             'a cancellation document opens its order');
         // Cancel the new draft.
-        self::assertFalse($nd->hasForm("/ui/purchasing/orders/{$newId}/cancel"), 'no cancel fold on the one page (PX10)');
-        $cf = ['reason_code' => 'not_needed', 'csrf' => $nd->form('/lines')['csrf'], 'version' => $nd->form('/lines')['version']];
+        $cf = ['reason_code' => 'not_needed'] + $nd->form("/ui/purchasing/orders/{$newId}/cancel"); // "Cancel draft" on the page (PX11)
         $r = $buyer->post("/ui/purchasing/orders/{$newId}/cancel", $cf);
         self::assertSame("/ui/purchasing/orders/{$newId}?notice=cancelled", $r->location(), $r->describe());
     }

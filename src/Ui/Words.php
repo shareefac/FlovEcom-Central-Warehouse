@@ -6164,6 +6164,9 @@ final class Words
         'delivery_line' => 'Delivery',
         'save' => 'Save',
         'confirm' => 'Confirm order',
+        // "Cancel draft" (the owner, 26 Oct 2026, PX11): a saved draft's small plain button and its one step
+        'cancel' => 'Cancel draft',
+        'cancel_note' => 'Note',
     ];
 
     /** What to buy (/ui/purchasing/reorder, plan §6.22). REORDER['demand'] is correction e. */

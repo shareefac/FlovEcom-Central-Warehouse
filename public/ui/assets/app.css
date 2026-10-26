@@ -2133,4 +2133,10 @@ form.po-editor details.po-add input.short { max-width: 10rem; }
 form.po-editor details.po-add .same-items li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 0; }
 form.po-editor .po-ask, form.po-editor .po-fixed { flex: 1 1 100%; margin: 0; }
 section.po-summary dl input { max-width: 8rem; min-height: 40px; }
+/* "Cancel draft" (PX11): a small plain button under Save and Confirm; its one step (a reason, a note, the button) opens below it */
+section.po-summary details.po-cancel { margin: 4px 0 0; }
+section.po-summary details.po-cancel > summary { display: inline-flex; list-style: none; cursor: pointer; }
+section.po-summary details.po-cancel > summary::-webkit-details-marker { display: none; }
+section.po-summary details.po-cancel label { display: block; max-width: 20rem; margin: 8px 0; }
+section.po-summary details.po-cancel select, section.po-summary details.po-cancel input { width: 100%; min-height: 44px; font-size: 16px; }
 /* ==== end po-one-page ============================================================================================================== */

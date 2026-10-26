@@ -6,7 +6,8 @@
 // Enter is Add (the form's first button). The supplier is a plain select that app.js makes a box with the site's one dropdown (SM11),
 // ending with "+ Add new supplier"; the scan box gets the same dropdown, ending with "+ Add new item". Both small forms are fields of this
 // form, each with its own button: a fold without the script, opened by the dropdown's last line with it. A person who may not add one
-// sees the line naming whom to ask instead.
+// sees the line naming whom to ask instead. A saved draft has "Cancel draft" beside Save and Confirm (PX11): one small step of its own form
+// (its controls name the form po-cancel, drawn after this one, as forms do not nest), the existing cancel route.
 ?>
 <p class="crumbs"><a href="/ui/purchasing/orders"><?= $word('MENU', 'orders') ?></a></p>
 <?= $head((string) $title, intro: $isNew ? 'order_new' : 'order_draft', meta: $isNew ? '' : $stateChip('PO_STATE', 'draft')) ?>
@@ -206,8 +207,27 @@
       <button type="submit" name="action" value="save" class="btn secondary"><?= $word('PO_ONE', 'save') ?></button>
       <button type="submit" name="action" value="approve" class="btn primary"><?php if ($overLimit): ?><?= $word('PO', 'confirm_over_limit') ?><?php else: ?><?= $word('PO_ONE', 'confirm') ?><?php endif; ?></button>
     </div>
+<?php if (!$isNew): ?>
+    <details class="po-cancel"<?php if ($reasonError === 'cancel'): ?> open<?php endif; ?>>
+      <summary class="btn secondary sm"><?= $word('PO_ONE', 'cancel') ?></summary>
+      <label><?= $word('ORDER', 'cancel_why') ?> <select name="reason_code" form="po-cancel" required<?php if ($reasonError === 'cancel'): ?> aria-invalid="true"<?php endif; ?>>
+        <option value=""><?= $word('ORDER', 'choose_reason') ?></option>
+<?php foreach ($cancelReasons as $r): ?>
+        <option value="<?= $e($r['code']) ?>"><?= $e($r['label']) ?></option>
+<?php endforeach; ?>
+      </select></label>
+      <label><?= $word('PO_ONE', 'cancel_note') ?> <input type="text" name="note" form="po-cancel" maxlength="400"></label>
+      <button type="submit" form="po-cancel" class="btn danger-outline sm"><?= $word('ORDER', 'cancel_draft_button') ?></button>
+    </details>
+<?php endif; ?>
   </section>
 </form>
+<?php if (!$isNew): ?>
+<form id="po-cancel" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/cancel') ?>">
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
+</form>
+<?php endif; ?>
 <?php if (!$isNew && !$editable): ?>
 
 <form class="upload" method="post" enctype="multipart/form-data" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines/import') ?>">

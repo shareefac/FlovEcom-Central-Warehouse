@@ -676,8 +676,9 @@ Document and file tests notes:
   without the script, the choices fragment), `PoSelectOrAddTest` (the services), `UiSecurityTest::testThePurchaseOrdersOnePageOverHttp` (slot ui),
   `UiUnitTest::testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct` (the JS and CSS pins), `WordsTest::testThePurchaseOrderPageSaysAddNewAndWhoToAsk`.
   The new page's form is `$r->form('/ui/purchasing/orders')` (`csrf`, `form_key` first); a draft's is still `$r->form('/lines')` (`csrf`, `version`,
-  `line_count`, `lines_editable` first). The page draws no lines-file or cancel form while the order fits it: a test posts those routes with the
-  page's `csrf` and `version`. The dropdowns' behaviour (a choice kept as itself, nothing marked after new words, the choice kept after a
+  `line_count`, `lines_editable` first). The page draws no lines-file form while the order fits it: a test posts that route with the page's
+  `csrf` and `version`. A draft's "Cancel draft" (PX11) is `$r->form('/cancel')`: its reason and note sit in the summary card with
+  `form="po-cancel"`, its token and version in the form `po-cancel` after the order's form. The dropdowns' behaviour (a choice kept as itself, nothing marked after new words, the choice kept after a
   refusal) is pinned by strings in `UiUnitTest`; the repo has no JS runner, and the node harness of the Codex review (a minimal DOM, app.js's
   own code) lives outside it (`/root/cw_work/runs/poone_js_harness/`, run on the test machine).
 
