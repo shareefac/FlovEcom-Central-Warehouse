@@ -2121,7 +2121,10 @@ table.po-lines .po-add-row > td { padding: 8px; }
 table.po-lines .po-add-line { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
 table.po-lines .po-add-line .po-packs { flex: 0 0 auto; }
 table.po-lines .po-x { min-width: 44px; min-height: 44px; padding: 0 10px; font-size: 20px; line-height: 1; }
+form.po-editor fieldset.po-header { align-items: flex-start; } /* an open "+ Add new supplier" never pushes the other fields down (Chrome check of 0917562) */
 form.po-editor details.po-add { flex: 1 1 100%; margin: 8px 0 0; }
+/* With the script a closed "+ Add new" form takes no room (its header is hidden: the dropdown's last line opens it); without it, its header shows */
+html.js form.po-editor details.po-add:not([open]) { display: none; }
 form.po-editor details.po-add > summary { display: flex; align-items: center; min-height: 44px; color: var(--accent-hover); font-weight: 600; cursor: pointer; }
 form.po-editor details.po-add label { display: block; max-width: 28rem; margin: 8px 0; }
 form.po-editor details.po-add input:not([type="checkbox"]) { width: 100%; min-height: 44px; font-size: 16px; }

@@ -987,6 +987,19 @@ final class UiUnitTest extends TestCase
             'finding 5');
     }
 
+    /**
+     * The order page in a real Chrome (the coordinator, on 0917562): a closed "+ Add new" form drew an empty card (its header hidden by the
+     * script, its card border and padding kept), and an open one pushed the header's other fields to the bottom of their row. With the script a
+     * closed form takes no room at all (without it, its header shows and opens it); the header's fields keep to the top of their row.
+     */
+    public function testAClosedAddNewFormTakesNoRoomAndTheHeaderKeepsToTheTop(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertSame(1, preg_match('/^html\.js form\.po-editor details\.po-add:not\(\[open\]\) \{[^}]*display: none/m', $css), 'with the script: no empty card');
+        self::assertSame(0, preg_match('/^form\.po-editor details\.po-add:not\(\[open\]\) \{[^}]*display: none/m', $css), 'without it the header still shows');
+        self::assertSame(1, preg_match('/^form\.po-editor fieldset\.po-header \{[^}]*align-items: flex-start/m', $css), 'the header\'s fields at the top');
+    }
+
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');

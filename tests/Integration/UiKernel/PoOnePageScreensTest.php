@@ -527,6 +527,83 @@ final class PoOnePageScreensTest extends KernelUiTestCase
      * The Codex review of a90d22d, finding 2: packs that are not a whole number from 1 (2.5, 0, words) are refused in words for "+ Add new
      * item" and for Add, and nothing is made (an empty packs box is one pack, as before).
      */
+    /**
+     * The Codex review of 0917562, finding 1: the product chosen in the box goes through "+ Add new supplier" as its item (the box's words
+     * become the item's own: a supply of another supplier is not the new one's), on the new page and on a draft, and Add then adds it.
+     */
+    public function testTheProductChosenGoesThroughANewSupplier(): void
+    {
+        $buyerUser = $this->uiUser('buyer');
+        $old = $this->supplier($buyerUser['id'], 'Old Pick Supplies');
+        $pod = self::makeSku('Blue Pick Pod');
+        $siOld = (new SupplierItems(self::$db))->create(Caller::staff($buyerUser['id']), (int) $old['id'], $pod, ['units_per_pack' => '10', 'supplier_code' => 'BP-10']);
+        $web = $this->signIn($buyerUser);
+        $plain = PurchaseOrdersControllerAlias::productChoice(['sku_id' => $pod, 'sku_code' => sprintf('CW-%06d', $pod), 'name' => 'Blue Pick Pod', 'brand' => null,
+            'supplier_item_id' => null, 'units_per_pack' => 1, 'supplier_code' => null, 'purchase_unit' => 'each'])['label'];
+        // New page, no supplier yet: the item chosen (no supply shown), then a new supplier.
+        $r = $web->post('/ui/purchasing/orders', ['q' => $plain, 'pick_sku' => (string) $pod, 'new_supplier_name' => 'New Pick Ltd', 'action' => 'new_supplier']
+            + self::newForm($web->get('/ui/purchasing/orders/new')));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertStringContainsString('pick_sku=' . $pod, (string) $r->location());
+        $back = $web->follow($r);
+        $f = self::newForm($back);
+        self::assertSame([$plain, (string) $pod, ''], [$f['q'], $f['pick_sku'], $f['pick_si']]);
+        $add = $web->post('/ui/purchasing/orders', ['action' => 'add'] + $f);
+        self::assertSame(303, $add->status, $add->describe());
+        self::assertSame([[$pod, null]], array_map(static fn (array $l): array => [(int) $l['sku_id'], $l['supplier_item_id'] === null ? null : (int) $l['supplier_item_id']],
+            self::$db->all('SELECT dl.sku_id, pl.supplier_item_id FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id AND dl.line_no = pl.line_no '
+            . 'WHERE pl.document_id = ?', [self::orderId($add->location())])), 'the item, with no supply of the new supplier yet');
+        // A draft without products: a supply of its supplier chosen, then a new supplier: the item goes through, in its own words.
+        $d = $this->pos()->createDraft(Caller::staff($buyerUser['id']), (int) $old['id'], []);
+        $withPack = PurchaseOrdersControllerAlias::productChoice(['sku_id' => $pod, 'sku_code' => sprintf('CW-%06d', $pod), 'name' => 'Blue Pick Pod', 'brand' => null,
+            'supplier_item_id' => (int) $siOld['id'], 'units_per_pack' => 10, 'supplier_code' => 'BP-10', 'purchase_unit' => 'each'])['label'];
+        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['q' => $withPack, 'pick_si' => (string) $siOld['id'], 'new_supplier_name' => 'Draft Pick Ltd',
+            'action' => 'new_supplier'] + $web->get("/ui/purchasing/orders/{$d->id}")->form('/lines'));
+        self::assertSame(303, $r->status, $r->describe());
+        $f = $web->follow($r)->form('/lines');
+        self::assertSame([$plain, (string) $pod, ''], [$f['q'], $f['pick_sku'], $f['pick_si']], 'the item in its own words, not the old supplier\'s supply');
+        $add = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['action' => 'add'] + $f);
+        self::assertSame("/ui/purchasing/orders/{$d->id}?notice=added#scan", $add->location(), $add->describe());
+        self::assertSame([$pod], array_map('intval', self::$db->column('SELECT dl.sku_id FROM document_line dl WHERE dl.document_id = ?', [$d->id])));
+    }
+
+    /**
+     * The Codex review of 0917562, finding 2: on a draft, an Add that finds nothing or several products keeps the "+ Add new" forms as typed
+     * (nothing of them was saved), and not what was saved with the table (the delivery charge is on the order now: typed again it would be
+     * added twice).
+     */
+    public function testAnAddThatFindsNothingOrSeveralKeepsTheAddNewFormsAsTyped(): void
+    {
+        $pmUser = $this->uiUser('purchasing_manager');
+        $s = $this->supplier($pmUser['id'], 'Kept Forms Supplies');
+        self::makeSku('Kept forms liquid cherry');
+        self::makeSku('Kept forms liquid mango');
+        $d = $this->pos()->createDraft(Caller::staff($pmUser['id']), (int) $s['id'], []);
+        $web = $this->signIn($pmUser);
+        $item = ['item_name' => 'Kept new pod', 'item_barcode' => '5060000000054', 'item_code' => 'KN-1', 'item_price' => '3.00'];
+        $supplier = ['new_supplier_name' => 'Kept Fresh Ltd', 'new_supplier_phone' => '0161 222 2222'];
+        // Nothing found: both forms come back as typed (the draft has no products, so its supplier can still change).
+        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", $item + $supplier + ['q' => 'zzzz no such', 'action' => 'add'] + $web->get("/ui/purchasing/orders/{$d->id}")->form('/lines'));
+        self::assertSame(422, $r->status, $r->describe());
+        $f = $r->form('/lines');
+        foreach ($item + $supplier as $k => $v) {
+            self::assertSame($v, $f[$k] ?? null, "nothing found: {$k} kept");
+        }
+        self::assertSame(1, self::nodes($r, '//details[@id="po-add-item"][@open]'), 'the new item\'s form open');
+        // Several found, with a delivery charge typed: the charge is saved (and is on the order now, so not typed again), the new item kept.
+        foreach (['kept forms liquid' => 200, 'zzzz none again' => 422] as $q => $status) {
+            $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", $item + ['q' => $q, 'charge_amount' => '5.00', 'action' => 'add']
+                + $web->get("/ui/purchasing/orders/{$d->id}")->form('/lines'));
+            self::assertSame($status, $r->status, "{$q}: " . $r->describe());
+            $f = $r->form('/lines');
+            foreach ($item as $k => $v) {
+                self::assertSame($v, $f[$k] ?? null, "{$q}: {$k} kept");
+            }
+            self::assertSame('', $f['charge_amount'] ?? null, "{$q}: the charge saved is not typed again");
+        }
+        self::assertSame(2, (int) self::$db->value("SELECT COUNT(*) FROM po_line WHERE document_id = ? AND kind = 'charge'", [$d->id]), 'one charge a send, never one more');
+    }
+
     public function testPacksThatAreNotAWholeNumberAreRefusedAndNothingIsMade(): void
     {
         $pmUser = $this->uiUser('purchasing_manager');

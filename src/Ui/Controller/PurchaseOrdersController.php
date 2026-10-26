@@ -207,6 +207,7 @@ final class PurchaseOrdersController
             }
         }
         $typed['supplier_id'] = (string) (UiRequest::id($ctx->req->param('supplier')) ?? '');
+        $typed['pick_sku'] = (string) (UiRequest::id($ctx->req->param('pick_sku')) ?? ''); // the product chosen before a new supplier (checked by picked())
         $notice = self::noticeKey($ctx);
         return $this->newOrderPage($ctx, 200, null, $notice === null ? null : Words::PO_NOTICE[$notice], ['typed' => $typed, 'q' => $typed['q'] ?? '',
             'packs' => $typed['packs'] ?? '1']);
@@ -235,7 +236,8 @@ final class PurchaseOrdersController
                 $r = FormOnce::run($ctx, 'ui.po.new_supplier', self::request($req), function (Db $db) use ($ctx, $req, $fields): OpResult {
                     $s = $this->service($ctx)->newSupplier($ctx->caller(), new Suppliers($db, $ctx->settings()), $fields);
                     return OpResult::of(303, ['result' => 'supplier_added', 'supplier_id' => (int) $s['id'],
-                        'redirect' => Html::url('/ui/purchasing/orders/new', ['supplier' => (int) $s['id']] + self::carried($req) + ['notice' => 'supplier_added'])]);
+                        'redirect' => Html::url('/ui/purchasing/orders/new', ['supplier' => (int) $s['id']] + array_merge(self::carried($req), $this->carriedPick($ctx, $req))
+                            + ['notice' => 'supplier_added'])]);
                 });
                 return FormOnce::redirect($r);
             }
@@ -334,6 +336,40 @@ final class PurchaseOrdersController
      * not save with it (the details and the charge it does): the scan box and a new item not made yet.
      */
     public const DRAFT_CARRIED = ['q', 'packs', 'item_name', 'item_brand', 'item_barcode', 'item_code', 'item_upp', 'item_price'];
+
+    /** The fields of the two "+ Add new" forms: never saved by Add or Save, so kept as typed when the page comes back. */
+    public const UNSAVED = ['new_supplier_name', 'new_supplier_email', 'new_supplier_phone', 'item_name', 'item_brand', 'item_barcode', 'item_code', 'item_upp',
+        'item_price', 'item_anyway'];
+
+    /**
+     * The product chosen in the box, carried through "+ Add new supplier" (the Codex review of 0917562, finding 1): as its item (`pick_sku`)
+     * with the item's own words in the box, since a supply of the supplier before is not the new one's; Add then finds the item's supply
+     * with the new supplier (none yet for a new one: a line without a supplier item). Nothing when the box no longer names its choice.
+     *
+     * @return array{q?: string, pick_sku?: string}
+     */
+    private function carriedPick(Context $ctx, UiRequest $req): array
+    {
+        $q = trim($req->field('q') ?? '');
+        $si = UiRequest::id($req->field('pick_si'));
+        $typed = $si !== null ? ['pick_si' => (string) $si] : ['pick_sku' => (string) ($req->field('pick_sku') ?? '')];
+        $owner = $si === null ? null : (int) ($ctx->db->value('SELECT supplier_id FROM supplier_item WHERE id = ?', [$si]) ?? 0);
+        $kept = $this->picked($ctx, $owner, $typed, $q);
+        if ($kept['choice'] === null) {
+            return [];
+        }
+        $sku = $si === null ? (int) $kept['sku'] : (int) $ctx->db->value('SELECT sku_id FROM supplier_item WHERE id = ?', [$si]);
+        $own = $this->picked($ctx, null, ['pick_sku' => (string) $sku], self::productChoice(self::itemChoiceRow($ctx, $sku))['label']);
+        return $own['choice'] === null ? [] : ['q' => $own['choice']['label'], 'pick_sku' => (string) $sku];
+    }
+
+    /** An item as a choice row without a supply (productChoice()'s input). @return array<string, mixed> */
+    private static function itemChoiceRow(Context $ctx, int $sku): array
+    {
+        $r = $ctx->db->one('SELECT id, code, name, brand FROM sku WHERE id = ?', [$sku]) ?? ['id' => $sku, 'code' => '', 'name' => '', 'brand' => null];
+        return ['sku_id' => (int) $r['id'], 'sku_code' => (string) $r['code'], 'name' => (string) $r['name'], 'brand' => $r['brand'], 'supplier_item_id' => null,
+            'units_per_pack' => 1, 'supplier_code' => null, 'purchase_unit' => 'each'];
+    }
 
     /**
      * @param list<string> $fields
@@ -654,7 +690,7 @@ final class PurchaseOrdersController
         }
         // What "+ Add new supplier" carried back on a draft (the scan box and a new item not made yet: the Codex review of a90d22d, finding 1).
         $typed = [];
-        foreach (self::DRAFT_CARRIED as $k) {
+        foreach ([...self::DRAFT_CARRIED, 'pick_sku'] as $k) {
             $v = $ctx->req->param($k);
             if ($v !== null) {
                 $typed[$k] = mb_substr($v, 0, 255);
@@ -767,7 +803,8 @@ final class PurchaseOrdersController
                 $r = FormOnce::run($ctx, 'ui.po.' . $ask['action'], ['id' => $id] + self::request($req), function (Db $db) use ($ctx, $req, $svc, $id, $version, $header, $edited, $ask): OpResult {
                     $res = $this->apply($ctx, $svc, $id, $version, $header, $edited(), $ask);
                     return OpResult::of(303, ['result' => $res['status'], 'document_id' => $id, 'redirect' => $res['status'] === 'supplier_added'
-                        ? Html::url('/ui/purchasing/orders/' . $id, ['notice' => 'supplier_added'] + self::carried($req, self::DRAFT_CARRIED)) : self::after($id, $res['status'])]);
+                        ? Html::url('/ui/purchasing/orders/' . $id, ['notice' => 'supplier_added'] + array_merge(self::carried($req, self::DRAFT_CARRIED), $this->carriedPick($ctx, $req)))
+                        : self::after($id, $res['status'])]);
                 });
                 return FormOnce::redirect($r);
             }
@@ -782,12 +819,15 @@ final class PurchaseOrdersController
             $panel = self::panelError($ask['action'], $e);
             return $this->page($ctx, $id, $e->httpStatus, $panel === [] ? $e : null, null, $kept + $panel + ['formKey' => PoAddNew::keyAgain($ctx, $e)]);
         }
+        // The table and the charge were saved with an Add that found several products or none; the "+ Add new" forms were not: they come back
+        // as typed, and nothing that was saved is typed again (the charge would be added twice: the Codex review of 0917562, finding 2).
+        $unsaved = ['typed' => array_intersect_key($typed, array_flip(self::UNSAVED))];
         if ($result['status'] === 'choices') {
-            return $this->page($ctx, $id, 200, null, null, ['choices' => $result['choices'], 'q' => $q, 'packs' => max(1, $ask['packs'])]);
+            return $this->page($ctx, $id, 200, null, null, ['choices' => $result['choices'], 'q' => $q, 'packs' => max(1, $ask['packs'])] + $unsaved);
         }
         if ($result['status'] === 'not_found') {
             return $this->page($ctx, $id, 422, new CwException('not_found', Words::say('BUY_ERROR', 'not_found', $q), 422), null, ['q' => $q,
-                'packs' => $req->field('packs') ?? '1']);
+                'packs' => $req->field('packs') ?? '1'] + $unsaved);
         }
         return HtmlResponse::redirect(self::after($id, $result['status'] === 'saved' && $remove !== null ? 'removed' : $result['status']));
     }

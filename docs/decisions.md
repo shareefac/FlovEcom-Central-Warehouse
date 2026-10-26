@@ -11917,3 +11917,25 @@ Red on a90d22d: `runs/poone_codex2_red.log` (3 failures); green after: `runs/poo
 - **LOW: × on a row whose packs box was emptied was refused** (422: the row was read before its remove was seen). The row removed is no longer
   read. In `testASupplierAndAProductMakeOneDraftAndARefusalMakesNone`.
 
+### The check in a real Chrome (the coordinator, on 0917562, staging): the flow works; two things on the screen fixed
+
+The supplier's dropdown with "+ Add new supplier" last and its form taking the typed name, the product list (two lines, "+ Add new item" last),
+Add, the rows edited in place, ×, the summary, Save and Confirm, and Simple matching all worked. Fixed (pinned by
+`UiUnitTest::testAClosedAddNewFormTakesNoRoomAndTheHeaderKeepsToTheTop`, red first: `runs/poone_visual_red.log`):
+- a closed "+ Add new" form drew an empty card (the script hides its header, the card kept its border and padding): with the script a closed
+  form now takes no room (`html.js … details.po-add:not([open])`), and the dropdown's last line opens it; without the script its header shows;
+- an open "+ Add new supplier" pushed Expected delivery, the quote reference and the note to the bottom of the header's row: the header's
+  fields keep to the top of their row (`fieldset.po-header`, `align-items: flex-start`).
+
+### The third Codex review (on 0917562; `runs/poone_codex_review3.txt`): no HIGH, earlier fixes confirmed; two MEDIUM, fixed test-first
+
+Red on the code before (253a97d): `runs/poone_codex3_red.log`; green after: `runs/poone_codex3_green.log`.
+- **MEDIUM: "+ Add new supplier" lost the product chosen in the box** (its words came back, its item did not, so Add searched the words and found
+  nothing). The product chosen now goes through as its item (`pick_sku`, `carriedPick()`), with the item's own words in the box: a supply of the
+  supplier before is not the new one's, and Add finds the item's supply with the new supplier (none yet for a new one: a line without a supplier
+  item). On the new page and on a draft. `testTheProductChosenGoesThroughANewSupplier`.
+- **MEDIUM: on a draft, an Add that found nothing or several products dropped the "+ Add new" forms typed with it.** Both answers now keep those
+  forms as typed (`UNSAVED`); what that Add saved with the table (the delivery charge, the rows) is not typed again, so it is never added twice.
+  (A charge saved this way gives the draft a line, so its supplier is fixed from then on, as with any line.)
+  `testAnAddThatFindsNothingOrSeveralKeepsTheAddNewFormsAsTyped`.
+
