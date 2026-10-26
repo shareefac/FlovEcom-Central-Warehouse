@@ -68,6 +68,13 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
             $price === null ? null : ['pack_price' => $price]);
     }
 
+    /** The lines file import's fields, from the draft's page (its token and version; PX10: the page draws no import form while the order fits). @return array<string, string> */
+    private static function importFields(\CW\Tests\Support\KernelBrowser $web, int $id): array
+    {
+        $f = $web->get("/ui/purchasing/orders/{$id}")->form('/lines');
+        return ['csrf' => $f['csrf'], 'version' => $f['version']];
+    }
+
     private static function orderId(?string $location): int
     {
         self::assertSame(1, preg_match('#^/ui/purchasing/orders/(\d+)#', (string) $location, $m), (string) $location);
@@ -87,16 +94,15 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         $siCherry = $this->supplierItem($bid, (int) $s['id'], $cherry, 6, '9.0000', 'CH-6');
         $buyer = $this->signIn($buyerUser);
 
-        // The list and the new-order form; the same form twice: one draft.
+        // The list, and the order's one page (PO on one page, PX1): Save with the supplier chosen starts the draft; the same form twice: one draft.
         $list = $buyer->get('/ui/purchasing/orders');
         self::assertSame(200, $list->status, $list->describe());
         self::assertSame(['label' => 'Purchase Orders', 'href' => '/ui/purchasing/orders', 'count' => 0, 'current' => true], self::sectionTabs($list)[1]);
-        self::assertSame(['/ui/purchasing/orders#new', '/ui/purchasing/suppliers/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
-            iterator_to_array((new \DOMXPath($list->dom()))->query('//form[@class="toolbar"]//div[@class="split"]//a'))), 'the toolbar\'s "New purchase order" leads to the form');
-        self::assertSame(1, (new \DOMXPath($list->dom()))->query('//*[@id="new"]//form[@action="/ui/purchasing/orders"]')->length);
+        self::assertSame(['/ui/purchasing/orders/new', '/ui/purchasing/suppliers/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+            iterator_to_array((new \DOMXPath($list->dom()))->query('//form[@class="toolbar"]//div[@class="split"]//a'))), 'the toolbar\'s "New purchase order" opens the order\'s page');
         self::assertStringContainsString(Words::ORDERS['none'], $list->text());
         self::assertStringContainsString(Words::ORDERS['none_buyer'], $list->text(), 'an empty list says what to do (F304)');
-        $form = ['supplier_id' => (string) $s['id']] + $list->form('/ui/purchasing/orders');
+        $form = ['supplier_id' => (string) $s['id'], 'action' => 'save'] + $buyer->get('/ui/purchasing/orders/new')->form('/ui/purchasing/orders');
         $r = $buyer->post('/ui/purchasing/orders', $form);
         self::assertSame(303, $r->status, $r->describe());
         $id = self::orderId($r->location());
@@ -165,15 +171,16 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         // The lines file: CSV append (packs add up on the same supplier item), XLSX replace, an all-or-nothing refusal.
         $csv = "{$this->dir}/lines.csv";
         file_put_contents($csv, "cw_code,supplier_code,packs,units,pack_price,note\r\n" . sprintf('CW-%06d', $pod) . ",,2,20,,\r\n,CH-6,1,,8.75,promo\r\n");
-        $imp = $buyer->get("/ui/purchasing/orders/{$id}")->form('/lines/import');
-        self::assertSame(['csrf', 'version', 'mode'], array_keys($imp));
+        // PO on one page (PX10): the lines file is not on the page while the order fits it; its route is unchanged.
+        self::assertFalse($buyer->get("/ui/purchasing/orders/{$id}")->hasForm('/lines/import'));
+        $imp = self::importFields($buyer, $id);
         $r = $buyer->postMultipart("/ui/purchasing/orders/{$id}/lines/import", ['mode' => 'append'] + $imp, ['file' => ['path' => $csv, 'name' => 'lines.csv']]);
         self::assertSame("/ui/purchasing/orders/{$id}?notice=imported", $r->location(), $r->describe());
         self::assertSame([[1, 7], [2, 3], [3, 1]], array_map(static fn (array $l): array => [(int) $l['line_no'], (int) $l['packs']],
             self::$db->all('SELECT line_no, packs FROM po_line WHERE document_id = ? ORDER BY line_no', [$id])), 'merged into the existing lines');
         $badCsv = "{$this->dir}/bad.csv";
         file_put_contents($badCsv, "cw_code,packs,units\r\n" . sprintf('CW-%06d', $pod) . ",2,2\r\nCW-999999,1,\r\n");
-        $imp = $buyer->get("/ui/purchasing/orders/{$id}")->form('/lines/import');
+        $imp = self::importFields($buyer, $id);
         $r = $buyer->postMultipart("/ui/purchasing/orders/{$id}/lines/import", ['mode' => 'replace'] + $imp, ['file' => ['path' => $badCsv, 'name' => 'bad.csv']]);
         self::assertSame(422, $r->status);
         self::assertStringContainsString(Words::say('BUY_ERROR', 'import_refused', 2), $r->text());
@@ -185,7 +192,7 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         $x->add(['POD-10', 3, '11.5'])->add(['CH-6', 24.0, null]);
         $xlsx = "{$this->dir}/lines.xlsx";
         file_put_contents($xlsx, $x->output());
-        $imp = $buyer->get("/ui/purchasing/orders/{$id}")->form('/lines/import');
+        $imp = self::importFields($buyer, $id);
         $r = $buyer->postMultipart("/ui/purchasing/orders/{$id}/lines/import", ['mode' => 'replace'] + $imp, ['file' => ['path' => $xlsx, 'name' => 'lines.xlsx']]);
         self::assertSame("/ui/purchasing/orders/{$id}?notice=imported", $r->location(), $r->describe());
         self::assertSame([[1, 3, '11.5000'], [2, 24, '9.0000']], array_map(static fn (array $l): array => [(int) $l['line_no'], (int) $l['packs'], $l['pack_price']],
@@ -206,15 +213,12 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         // Approve: numbered, then the PDF and send.
         $ed = $buyer->get("/ui/purchasing/orders/{$id}");
         self::assertStringContainsString('£250.50', $ed->text(), 'net 3 x 11.50 + 24 x 9.00');
-        // The company details are not confirmed (TestDb::clean leaves no version): the draft says why its PDF says "do not send" and links
-        // to the Company details screen (I96); a buyer may look, not change them.
-        $note = (new \DOMXPath($ed->dom()))->query('//main//p[contains(@class, "company-note")]/a');
-        self::assertSame(1, $note->length);
-        self::assertSame(['/ui/reference/company', Words::ORDER['company_see']], [$note->item(0)?->getAttribute('href'), trim((string) $note->item(0)?->textContent)]);
-        self::assertStringContainsString(Words::ORDER['company_not_confirmed'], $ed->text());
-        // Correction f: under the approval limit the editor's main button confirms the order (it gets a PO number).
-        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('//form[contains(@action, "/lines")]//button[@value="approve"]//span[@class="btn-title" and normalize-space(.)="'
-            . Words::ORDER['confirm_draft'] . '"]')->length);
+        // PO on one page (PX10): the company note is not on the page that makes the order; the confirmed order's page says it (below).
+        self::assertSame(0, (new \DOMXPath($ed->dom()))->query('//main//p[contains(@class, "company-note")]')->length);
+        // Correction f: under the approval limit the editor's main button confirms the order (it gets a PO number); the page's one primary button.
+        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('//form[contains(@action, "/lines")]//button[@value="approve"][normalize-space(.)="'
+            . Words::PO_ONE['confirm'] . '"]')->length);
+        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('//form[contains(@action, "/lines")]//button[contains(concat(" ", @class, " "), " primary ")]')->length);
         self::assertFalse($ed->hasForm("/ui/purchasing/orders/{$id}/approve"), 'the editor approves through its own form (review finding)');
         // Review finding: packs typed and not saved are what is approved (Approve is a button of the editor form).
         $f = $ed->form('/lines');
@@ -228,6 +232,11 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
             self::$db->value('SELECT status FROM document WHERE id = ?', [$id]), self::$db->value('SELECT number FROM document WHERE id = ?', [$id])],
             'the typed 4 packs were saved and approved');
         $view = $buyer->follow($ap);
+        // The company details are not confirmed (TestDb::clean leaves no version): the order says why its PDF says "do not send" and links
+        // to the Company details screen (I96); a buyer may look, not change them.
+        $note = (new \DOMXPath($view->dom()))->query('//main//p[contains(@class, "company-note")]/a');
+        self::assertSame(1, $note->length);
+        self::assertSame(['/ui/reference/company', Words::ORDER['company_see']], [$note->item(0)?->getAttribute('href'), trim((string) $note->item(0)?->textContent)]);
         self::assertStringContainsString('PO-000001', $view->text());
         self::assertStringContainsString(Words::say('PO_NOTICE', 'approved', 'PO-000001'), $view->text());
         self::assertSame('PO-000001 – Screen Supplies', trim((string) (new \DOMXPath($view->dom()))->evaluate('string(//main//h1)')), 'the order by number and supplier (F359-like)');
@@ -286,7 +295,8 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         self::assertSame(303, $buyer->get("/ui/purchasing/orders/" . (int) self::$db->value('SELECT id FROM document WHERE reverses_id = ?', [$id]))->status,
             'a cancellation document opens its order');
         // Cancel the new draft.
-        $cf = ['reason_code' => 'not_needed'] + $nd->form("/ui/purchasing/orders/{$newId}/cancel");
+        self::assertFalse($nd->hasForm("/ui/purchasing/orders/{$newId}/cancel"), 'no cancel fold on the one page (PX10)');
+        $cf = ['reason_code' => 'not_needed', 'csrf' => $nd->form('/lines')['csrf'], 'version' => $nd->form('/lines')['version']];
         $r = $buyer->post("/ui/purchasing/orders/{$newId}/cancel", $cf);
         self::assertSame("/ui/purchasing/orders/{$newId}?notice=cancelled", $r->location(), $r->describe());
     }
@@ -299,16 +309,15 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         $sku = self::makeSku('Review item');
         $si = $this->supplierItem($bid, (int) $s['id'], $sku, 1, '10000.5000', 'BIG-1');
         $buyer = $this->signIn($buyerUser);
-        $r = $buyer->post('/ui/purchasing/orders', ['supplier_id' => (string) $s['id']] + $buyer->get('/ui/purchasing/orders')->form('/ui/purchasing/orders'));
+        $r = $buyer->post('/ui/purchasing/orders', ['supplier_id' => (string) $s['id'], 'action' => 'save'] + $buyer->get('/ui/purchasing/orders/new')->form('/ui/purchasing/orders'));
         $id = self::orderId($r->location());
         $f = $buyer->get("/ui/purchasing/orders/{$id}")->form('/lines');
         $buyer->post("/ui/purchasing/orders/{$id}/lines", ['q' => 'BIG-1', 'action' => 'add'] + $f);
         $ed = $buyer->get("/ui/purchasing/orders/{$id}");
         // Correction f (7 Oct): over the approval limit the button does not say "Confirm order": the order goes to a reviewer first.
         $button = static fn (\CW\Tests\Support\UiResponse $p): string => trim((string) (new \DOMXPath($p->dom()))->evaluate(
-            'string(//form[contains(@action, "/lines")]//button[@value="approve"]//span[@class="btn-title"])'));
-        self::assertSame(Words::PO['confirm_over_limit'], $button($ed));
-        self::assertStringContainsString(Words::PO['confirm_over_limit_note'], $ed->text());
+            'string(//form[contains(@action, "/lines")]//button[@value="approve"])'));
+        self::assertSame(Words::PO['confirm_over_limit'], $button($ed), 'the button says it, no note under it (PX10)');
         $ap = $buyer->post("/ui/purchasing/orders/{$id}/lines", ['action' => 'approve'] + $ed->form('/lines'));
         self::assertSame("/ui/purchasing/orders/{$id}?notice=submitted", $ap->location(), $ap->describe());
         $view = $buyer->follow($ap);
@@ -348,7 +357,7 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
 
         // A second order, below the limit: the weekly review, rejected -> recorded; then the buyer cancels it.
         $si2 = $this->supplierItem($bid, (int) $s['id'], self::makeSku('Small item'), 1, '5.0000', 'SM-1');
-        $r = $buyer->post('/ui/purchasing/orders', ['supplier_id' => (string) $s['id']] + $buyer->get('/ui/purchasing/orders')->form('/ui/purchasing/orders'));
+        $r = $buyer->post('/ui/purchasing/orders', ['supplier_id' => (string) $s['id'], 'action' => 'save'] + $buyer->get('/ui/purchasing/orders/new')->form('/ui/purchasing/orders'));
         $id2 = self::orderId($r->location());
         $buyer->post("/ui/purchasing/orders/{$id2}/lines", ['q' => 'SM-1', 'action' => 'add', 'packs' => '30'] + $buyer->get("/ui/purchasing/orders/{$id2}")->form('/lines'));
         $buyer->post("/ui/purchasing/orders/{$id2}/lines", ['action' => 'approve'] + $buyer->get("/ui/purchasing/orders/{$id2}")->form('/lines'));
@@ -397,7 +406,7 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         $bid = $buyerUser['id'];
         $s = $this->supplier($bid, 'Wide Supplies');
         $buyer = $this->signIn($buyerUser);
-        $r = $buyer->post('/ui/purchasing/orders', ['supplier_id' => (string) $s['id']] + $buyer->get('/ui/purchasing/orders')->form('/ui/purchasing/orders'));
+        $r = $buyer->post('/ui/purchasing/orders', ['supplier_id' => (string) $s['id'], 'action' => 'save'] + $buyer->get('/ui/purchasing/orders/new')->form('/ui/purchasing/orders'));
         $id = self::orderId($r->location());
         $pos = new PurchaseOrders(self::$db, new Documents(self::$db, DocumentHandlers::all(self::$db)));
         $lines = [];
@@ -407,7 +416,7 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         $version = (int) self::$db->value('SELECT version FROM document WHERE id = ?', [$id]);
         $pos->saveDraft(Caller::staff($bid), $id, $version, [], $lines);
         $rows = self::$db->all('SELECT kind, supplier_item_id FROM po_line WHERE document_id = ? ORDER BY line_no', [$id]);
-        self::assertSame(24 + 163 * 6, PurchaseOrdersController::editorFields($rows));
+        self::assertSame(PurchaseOrdersController::EDITOR_FIXED_FIELDS + 163 * 6, PurchaseOrdersController::editorFields($rows));
         self::assertFalse(PurchaseOrdersController::editorFits($rows), '163 lines without a supplier item send up to 1,002 fields');
         $ed = $buyer->get("/ui/purchasing/orders/{$id}");
         self::assertStringContainsString(Words::say('ORDER', 'too_many', PurchaseOrdersController::editorMaxLines()), $ed->text());
@@ -431,7 +440,7 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
                 $names[$el->getAttribute('name')] = true;
             }
         }
-        self::assertGreaterThan(150 * 6, count($names));
+        self::assertGreaterThan(150 * 3, count($names), 'packs, price and items per pack a row (PO on one page, PX10: the board shows no more)');
         self::assertLessThanOrEqual(PurchaseOrdersController::editorFields($rows), count($names), 'editorFields counts every named field of the form');
         $f = $ed->form('/lines');
         self::assertSame(['150', '1'], [$f['line_count'], $f['lines_editable']]);

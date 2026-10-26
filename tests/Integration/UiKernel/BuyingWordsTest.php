@@ -83,6 +83,7 @@ final class BuyingWordsTest extends KernelUiTestCase
             [$buyer, '/ui/purchasing/reorder/anomalies', Words::PAGE_TITLE['reorder_anomalies'], 'reorder_anomalies'],
             [$buyer, '/ui/purchasing/sales-history', Words::MENU['sales_history'], 'sales_history'],
             [$buyer, '/ui/purchasing/orders', Words::MENU['orders'], 'orders'],
+            [$buyer, '/ui/purchasing/orders/new', Words::PO_ONE['title'], 'order_new'], // PO on one page (PX1)
             [$buyer, '/ui/purchasing/orders/' . $draft->id, Words::say('ORDER', 'title_draft', 'Plain Supplies'), 'order_draft'],
             [$buyer, '/ui/purchasing/orders/' . $confirmed->id, (string) $confirmed->number . ' – Plain Supplies', 'order'],
             [$buyer, '/ui/purchasing/suppliers', Words::MENU['suppliers'], 'suppliers'],

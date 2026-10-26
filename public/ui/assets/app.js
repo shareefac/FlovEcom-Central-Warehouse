@@ -193,30 +193,6 @@
     });
   });
 
-  // Pack PO (docs/decisions.md PO2): a search box over a long list of choices (the suppliers of an order). Without the script it stays
-  // hidden and the list works as it is (a select is searched by typing its first letters). Typing shows only the choices whose words
-  // hold what was typed; the placeholder choice and the one chosen always stay.
-  each(document.querySelectorAll('input[data-filter-select]'), function (input) {
-    var select = document.getElementById(input.getAttribute('data-filter-select'));
-    if (!select) {
-      return;
-    }
-    input.hidden = false;
-    input.addEventListener('input', function () {
-      var q = input.value.trim().toLowerCase();
-      each(select.options, function (o) {
-        o.hidden = q !== '' && o.value !== '' && !o.selected && o.text.toLowerCase().indexOf(q) === -1;
-      });
-    });
-    input.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Enter') {
-        ev.preventDefault(); // Enter in the search box chooses nothing and sends nothing
-        var first = Array.prototype.filter.call(select.options, function (o) { return !o.hidden && o.value !== ''; })[0];
-        if (first) { select.value = first.value; select.focus(); }
-      }
-    });
-  });
-
   // A form that changes something is sent once: the button is disabled on the first submit.
   var sendOnce = function (form) {
     form.addEventListener('submit', function (ev) {
@@ -237,7 +213,7 @@
   // this site only, parsed inert by DOMParser (nothing in it runs) and given back only when its root carries the marker of the route it
   // was asked of; anything else (the sign-in page of a session that ended, an error page, no network, another address) fails, and the
   // caller shows the page's words for that.
-  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?' };
+  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?' };
   var fragment = function (url, marker) {
     var path = FRAGMENTS[marker];
     if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {
@@ -424,98 +400,24 @@
     }
   });
 
-  // Simple matching (docs/decisions.md SM4, SM11; the owner's requests of 25 and 26 Oct 2026: "one dropdown is enough ... a normal basic
-  // dropdown", then "I want to still see the full name ... I need also the status of the variant shown there from each shop"). A cell's
-  // box is a plain text box with a list of its own that this script draws under it (a browser's <datalist> popup is one line as wide as
-  // the box, and cut long names). The list is filled from the read-only fragment at the form's data-options (a path of this site's
-  // options route): the item's own suggestions for that store while the box is empty (asked when it gets the focus), else (2 letters or
-  // more, or one digit: an ID; 300 ms after the last key) that store's products still waiting for a match, the one whose ID it is first.
-  // Each choice is two lines, built here as text: its full name on the store, then its ID, its status on the store, its strength and its
-  // mark. The list opens when an answer comes, under the box (above it when there is more room there), wider than the box where the
-  // screen allows and to the left near its right edge; Down and Up move in it, Enter chooses (and sends nothing while it is open),
-  // Escape, a press elsewhere or leaving the box shut it; a click or a tap chooses. A choice (also the one the page drew chosen, to
-  // confirm a typed ID) puts its words in the box, as a datalist's choice did, and fills the form's hidden fields (the website product,
-  // its version, its open suggestion); a typed ID that is exactly one choice's ID is that choice, kept as the list showed it (no search
-  // is drawn over it while the box names it). Apply with nothing chosen says the page's words (data-choose) and sends nothing, unless the
-  // list could not be loaded: then the typed ID goes to the server, as without the script (the one waiting product of the store with
-  // that ID comes back chosen, to confirm with a second Apply). Every word comes from the page (data-loading, data-failed, data-choose,
-  // the list's aria-label, the fragment's lines).
-  var smForms = [];
-  var smOpen = null; // the one list open now (its form's entry in smForms), or null
-  each(document.querySelectorAll('form[data-sm-add]'), function (form) {
-    var base = form.getAttribute('data-options') || '';
-    var input = form.querySelector('input[data-sm-pick]');
-    var list = form.querySelector('ul[data-sm-list]');
-    var note = form.querySelector('[data-sm-note]');
-    var field = function (name) { return form.querySelector('input[type="hidden"][name="' + name + '"]'); };
-    var lid = field('listing_id');
-    var ver = field('expected_map_version');
-    var prop = field('proposal_id');
-    if (base.indexOf('/ui/match/options?') !== 0 || !input || !list || !list.id || !note || !lid || !ver || !prop || !window.fetch || !window.DOMParser) {
-      return;
-    }
-    var timer = 0;
-    var asked = null;
-    var turn = 0;
-    var failed = false;
+  // The site's one dropdown (docs/decisions.md SM11, PX6): a text box with a list of its own that this script draws (a browser's <datalist>
+  // popup is one line as wide as the box, and cut long names), at the page's top level: no table, card or scrolling box cuts it. The list
+  // opens under the box (above it when there is more room there), wider than the box where the screen allows and to the left near its
+  // right edge, as tall as the room it has, with its own scroll; Down and Up move in it, Enter chooses (and sends nothing while it is
+  // open), Escape, a press elsewhere or leaving the box shut it; a click or a tap chooses. One list is open at a time, and it follows its
+  // box when the page scrolls. What the list holds and what a choice does are the caller's (cfg): Simple matching's cells, the order's
+  // supplier box and its product box.
+  //   cfg.options()   the choices the keys and taps go to, in order (a line that is not a choice is left out of it);
+  //   cfg.current()   where the choice in force is among them (-1: none), the one the keys start from;
+  //   cfg.choose(li)  what a choice does (the list is shut first);
+  //   cfg.enter(ev, open)  what Enter does when no choice is marked (none: as a box of a form, it sends it while the list is shut).
+  var comboOpen = null; // the one list open now, or null
+  var combo = function (input, list, cfg) {
     var active = -1; // the choice the keys are on, or -1
     var shut = false; // Escape shut the list: an answer does not open it again until the words change
     var me = null;
-    var say = function (text) {
-      note.textContent = text;
-      note.hidden = text === '';
-    };
-    var options = function () { return list.querySelectorAll('li[data-listing-id]'); };
-    // The list's choices, built from the fragment's (or the page's) <li>: the box's words for it and what Apply sends for it, copied
-    // attribute by attribute, and its two lines as text (nothing of the fragment's markup is kept).
-    var draw = function (from) {
-      var items = Array.prototype.slice.call(from);
-      while (list.firstChild) {
-        list.removeChild(list.firstChild);
-      }
-      each(items, function (o, i) {
-        var li = document.createElement('li');
-        li.id = list.id + '-' + i;
-        li.setAttribute('role', 'option');
-        li.setAttribute('aria-selected', 'false');
-        each(['data-label', 'data-listing-id', 'data-map-version', 'data-proposal-id', 'data-option'], function (name) {
-          li.setAttribute(name, o.getAttribute(name) || '');
-        });
-        each(['sm-opt-name', 'sm-opt-meta'], function (cls) {
-          var part = o.querySelector('.' + cls);
-          var span = document.createElement('span');
-          span.className = cls;
-          span.textContent = part ? part.textContent.trim() : '';
-          li.appendChild(span);
-        });
-        list.appendChild(li);
-      });
-      active = -1;
-    };
-    // The choice the box names now: its words exactly (picked from the list), else the one choice whose ID is what was typed.
-    var pick = function () {
-      var typed = input.value.trim();
-      var found = null;
-      var byId = [];
-      each(options(), function (o) {
-        if (o.getAttribute('data-label') === input.value) { found = o; }
-        if (typed !== '' && o.getAttribute('data-option') === typed) { byId.push(o); }
-      });
-      if (!found && byId.length === 1) { found = byId[0]; }
-      lid.value = found ? found.getAttribute('data-listing-id') || '' : '';
-      ver.value = found ? found.getAttribute('data-map-version') || '' : '';
-      prop.value = found ? found.getAttribute('data-proposal-id') || '' : '';
-      return found;
-    };
+    var options = function () { return cfg.options(); };
     var isOpen = function () { return !list.hidden; };
-    // Where the choice the hidden fields hold is in the list (-1: none).
-    var current = function () {
-      var at = -1;
-      each(options(), function (o, i) {
-        if (lid.value !== '' && o.getAttribute('data-listing-id') === lid.value) { at = i; }
-      });
-      return at;
-    };
     // The choice the keys are on (Down, Up): marked for the eye, named to a screen reader, scrolled into the list's sight.
     var mark = function (i) {
       var all = options();
@@ -580,103 +482,39 @@
       list.style.top = (up ? Math.max(4, r.top - 4 - list.offsetHeight) : r.bottom + 4) + 'px';
     };
     // Shown only while the box has the focus and the list has choices (and Escape did not shut it since the words last changed); one
-    // list open at a time; the choice the hidden fields hold is the one the keys start from.
+    // list open at a time; the choice in force is the one the keys start from.
     var open = function () {
       if (shut || options().length === 0 || document.activeElement !== input) {
         close();
         return;
       }
-      if (smOpen && smOpen !== me) {
-        smOpen.close();
+      if (comboOpen && comboOpen !== me) {
+        comboOpen.close();
       }
-      smOpen = me;
+      comboOpen = me;
       list.hidden = false;
       input.setAttribute('aria-expanded', 'true');
       place();
-      mark(active >= 0 ? active : current());
+      mark(active >= 0 ? active : (cfg.current ? cfg.current() : -1));
     };
     var close = function () {
       list.hidden = true;
       input.setAttribute('aria-expanded', 'false');
       mark(-1);
-      if (smOpen === me) {
-        smOpen = null;
+      if (comboOpen === me) {
+        comboOpen = null;
       }
     };
-    // A choice (a click, a tap, Enter): the box takes its words and the list shuts; then an input event, as a datalist's choice fired,
-    // so everything typing does follows (the hidden fields filled, no answer asked for before drawn over it, no search started).
     var choose = function (li) {
-      input.value = li.getAttribute('data-label') || '';
       close();
-      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+      cfg.choose(li);
     };
-    // The box says it has a list, and the list is the page's own, at its top level: no table, card or scrolling box around the cell
-    // cuts it. The choice the page drew (a typed ID to confirm) is drawn as every other.
+    // The box says it has a list, and the list is the page's own, at its top level.
     input.setAttribute('role', 'combobox');
     input.setAttribute('aria-autocomplete', 'list');
     input.setAttribute('aria-controls', list.id);
     input.setAttribute('aria-expanded', 'false');
     document.body.appendChild(list);
-    draw(options());
-    var load = function (q) {
-      var key = '&q=' + encodeURIComponent(q);
-      if (key === asked) {
-        return;
-      }
-      asked = key;
-      var mine = ++turn;
-      say(form.getAttribute('data-loading') || '');
-      fragment(base + key, '[data-sm-fragment]')
-        .then(function (node) {
-          if (mine !== turn) {
-            return;
-          }
-          failed = false;
-          draw(node.querySelectorAll('ul[data-sm-choices] > li[data-listing-id]'));
-          var says = node.querySelector('[data-sm-says]');
-          say(says ? says.textContent.trim() : '');
-          if (pick()) {
-            window.clearTimeout(timer); // a choice made from this answer: no search waiting to start may choose over it
-          }
-          open(); // (only while the box has the focus)
-        })
-        .catch(function () {
-          if (mine !== turn) {
-            return;
-          }
-          asked = null; // the next key asks again
-          failed = true;
-          say(form.getAttribute('data-failed') || '');
-        });
-    };
-    input.addEventListener('focus', function () {
-      if (lid.value === '') {
-        load(input.value.trim()); // an empty box: the suggestions; words a refusal kept (no choice behind them): looked for again
-        open(); // what is drawn for these words already (none yet: the answer opens it)
-      }
-    });
-    input.addEventListener('input', function () {
-      window.clearTimeout(timer);
-      // The words changed: no answer asked for before them is drawn (it is about other words, and could choose over this one).
-      turn++; // a search still on its way is not drawn: the choice stays
-      asked = null;
-      shut = false;
-      var chosen = pick();
-      if (chosen) {
-        // Picked from the list, or an ID typed whole that is one of its products: that choice, as the list showed it. Nothing more is
-        // looked for while the box names it (docs/decisions.md SM4).
-        say('');
-        mark(current());
-        return;
-      }
-      mark(-1);
-      var v = input.value.trim();
-      if (v.length === 1 && !/^[0-9]$/.test(v)) {
-        say('');
-        return; // one letter finds too much: wait for the next (one digit is an ID: asked at once)
-      }
-      timer = window.setTimeout(function () { load(v); }, 300);
-    });
     input.addEventListener('keydown', function (ev) {
       if (ev.isComposing) {
         return;
@@ -697,6 +535,10 @@
         }
         mark(ev.key === 'ArrowDown' ? Math.min(active + 1, all.length - 1) : Math.max(active - 1, 0));
       } else if (ev.key === 'Enter') {
+        if (cfg.enter && (!isOpen() || active < 0)) {
+          cfg.enter(ev, isOpen()); // no choice marked: the box says what Enter does (the product box: Add; the supplier box: never send)
+          return;
+        }
         if (!isOpen()) {
           return; // the list is shut: Enter sends the form (Apply), as before
         }
@@ -712,15 +554,19 @@
         close();
       }
     });
-    // A press on the list keeps the focus in the box (its blur would shut the list under the press); a click or a tap chooses.
+    // A press on the list keeps the focus in the box (its blur would shut the list under the press); a click or a tap chooses (a line
+    // that is not a choice, such as the one naming whom to ask, does nothing).
     list.addEventListener('mousedown', function (ev) {
       ev.preventDefault();
     });
     list.addEventListener('click', function (ev) {
-      var li = ev.target && ev.target.closest ? ev.target.closest('li[data-listing-id]') : null;
-      if (li && list.contains(li)) {
+      var li = ev.target && ev.target.closest ? ev.target.closest('li[role="option"]') : null;
+      if (li && list.contains(li) && li.getAttribute('aria-disabled') !== 'true') {
         choose(li);
       }
+    });
+    input.addEventListener('input', function () {
+      mark(-1); // the words changed: no choice stays marked, so Enter cannot bring an old one back (the box marks its own choice again)
     });
     input.addEventListener('click', function () {
       shut = false;
@@ -734,8 +580,187 @@
         }
       }, 150);
     });
-    me = { form: form, pick: pick, say: say, input: input, list: list, place: place, close: close, failed: function () { return failed; } };
-    smForms.push(me);
+    me = { input: input, list: list, open: open, close: close, place: place, mark: mark, isOpen: isOpen, choose: choose,
+      unshut: function () { shut = false; } };
+    return me;
+  };
+  // The open list follows its box when the page, or a box around it, scrolls, and when the window changes size (once a frame); a press
+  // anywhere but on the box or its list shuts it.
+  var comboFrame = 0;
+  var comboFollow = function (ev) {
+    if (!comboOpen || comboFrame || (ev && ev.target === comboOpen.list)) {
+      return;
+    }
+    comboFrame = window.requestAnimationFrame(function () {
+      comboFrame = 0;
+      if (comboOpen) {
+        comboOpen.place();
+      }
+    });
+  };
+  window.addEventListener('scroll', comboFollow, true);
+  window.addEventListener('resize', comboFollow);
+  document.addEventListener('mousedown', function (ev) {
+    if (comboOpen && ev.target !== comboOpen.input && !comboOpen.list.contains(ev.target)) {
+      comboOpen.close();
+    }
+  }, true);
+
+  // Simple matching (docs/decisions.md SM4, SM11; the owner's requests of 25 and 26 Oct 2026: "one dropdown is enough ... a normal basic
+  // dropdown", then "I want to still see the full name ... I need also the status of the variant shown there from each shop"). A cell's
+  // box is a plain text box with the site's one dropdown (combo). The list is filled from the read-only fragment at the form's data-options
+  // (a path of this site's options route): the item's own suggestions for that store while the box is empty (asked when it gets the focus),
+  // else (2 letters or more, or one digit: an ID; 300 ms after the last key) that store's products still waiting for a match, the one whose
+  // ID it is first. Each choice is two lines, built here as text: its full name on the store, then its ID, its status on the store, its
+  // strength and its mark. A choice (also the one the page drew chosen, to confirm a typed ID) puts its words in the box, as a datalist's
+  // choice did, and fills the form's hidden fields (the website product, its version, its open suggestion); a typed ID that is exactly one
+  // choice's ID is that choice, kept as the list showed it (no search is drawn over it while the box names it). Apply with nothing chosen
+  // says the page's words (data-choose) and sends nothing, unless the list could not be loaded: then the typed ID goes to the server, as
+  // without the script (the one waiting product of the store with that ID comes back chosen, to confirm with a second Apply). Every word
+  // comes from the page (data-loading, data-failed, data-choose, the list's aria-label, the fragment's lines).
+  var smForms = [];
+  each(document.querySelectorAll('form[data-sm-add]'), function (form) {
+    var base = form.getAttribute('data-options') || '';
+    var input = form.querySelector('input[data-sm-pick]');
+    var list = form.querySelector('ul[data-sm-list]');
+    var note = form.querySelector('[data-sm-note]');
+    var field = function (name) { return form.querySelector('input[type="hidden"][name="' + name + '"]'); };
+    var lid = field('listing_id');
+    var ver = field('expected_map_version');
+    var prop = field('proposal_id');
+    if (base.indexOf('/ui/match/options?') !== 0 || !input || !list || !list.id || !note || !lid || !ver || !prop || !window.fetch || !window.DOMParser) {
+      return;
+    }
+    var timer = 0;
+    var asked = null;
+    var turn = 0;
+    var failed = false;
+    var say = function (text) {
+      note.textContent = text;
+      note.hidden = text === '';
+    };
+    var options = function () { return list.querySelectorAll('li[data-listing-id]'); };
+    // The list's choices, built from the fragment's (or the page's) <li>: the box's words for it and what Apply sends for it, copied
+    // attribute by attribute, and its two lines as text (nothing of the fragment's markup is kept).
+    var draw = function (from) {
+      var items = Array.prototype.slice.call(from);
+      while (list.firstChild) {
+        list.removeChild(list.firstChild);
+      }
+      each(items, function (o, i) {
+        var li = document.createElement('li');
+        li.id = list.id + '-' + i;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
+        each(['data-label', 'data-listing-id', 'data-map-version', 'data-proposal-id', 'data-option'], function (name) {
+          li.setAttribute(name, o.getAttribute(name) || '');
+        });
+        each(['sm-opt-name', 'sm-opt-meta'], function (cls) {
+          var part = o.querySelector('.' + cls);
+          var span = document.createElement('span');
+          span.className = cls;
+          span.textContent = part ? part.textContent.trim() : '';
+          li.appendChild(span);
+        });
+        list.appendChild(li);
+      });
+      c.mark(-1);
+    };
+    // The choice the box names now: its words exactly (picked from the list), else the one choice whose ID is what was typed.
+    var pick = function () {
+      var typed = input.value.trim();
+      var byLabel = [];
+      var byId = [];
+      each(options(), function (o) {
+        if (o.getAttribute('data-label') === input.value) { byLabel.push(o); }
+        if (typed !== '' && o.getAttribute('data-option') === typed) { byId.push(o); }
+      });
+      var found = byLabel.length === 1 ? byLabel[0] : null; // the words name one choice only (they start with the store's ID: they do)
+      if (!found && byId.length === 1) { found = byId[0]; }
+      lid.value = found ? found.getAttribute('data-listing-id') || '' : '';
+      ver.value = found ? found.getAttribute('data-map-version') || '' : '';
+      prop.value = found ? found.getAttribute('data-proposal-id') || '' : '';
+      return found;
+    };
+    // Where the choice the hidden fields hold is in the list (-1: none).
+    var current = function () {
+      var at = -1;
+      each(options(), function (o, i) {
+        if (lid.value !== '' && o.getAttribute('data-listing-id') === lid.value) { at = i; }
+      });
+      return at;
+    };
+    // A choice (a click, a tap, Enter): the box takes its words (the list is shut); then an input event, as a datalist's choice fired, so
+    // everything typing does follows (the hidden fields filled, no answer asked for before drawn over it, no search started).
+    var c = combo(input, list, {
+      options: options,
+      current: current,
+      choose: function (li) {
+        input.value = li.getAttribute('data-label') || '';
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+      },
+    });
+    draw(options()); // the choice the page drew (a typed ID to confirm) is drawn as every other
+    var load = function (q) {
+      var key = '&q=' + encodeURIComponent(q);
+      if (key === asked) {
+        return;
+      }
+      asked = key;
+      var mine = ++turn;
+      say(form.getAttribute('data-loading') || '');
+      fragment(base + key, '[data-sm-fragment]')
+        .then(function (node) {
+          if (mine !== turn) {
+            return;
+          }
+          failed = false;
+          draw(node.querySelectorAll('ul[data-sm-choices] > li[data-listing-id]'));
+          var says = node.querySelector('[data-sm-says]');
+          say(says ? says.textContent.trim() : '');
+          if (pick()) {
+            window.clearTimeout(timer); // a choice made from this answer: no search waiting to start may choose over it
+          }
+          c.open(); // (only while the box has the focus)
+        })
+        .catch(function () {
+          if (mine !== turn) {
+            return;
+          }
+          asked = null; // the next key asks again
+          failed = true;
+          say(form.getAttribute('data-failed') || '');
+        });
+    };
+    input.addEventListener('focus', function () {
+      if (lid.value === '') {
+        load(input.value.trim()); // an empty box: the suggestions; words a refusal kept (no choice behind them): looked for again
+        c.open(); // what is drawn for these words already (none yet: the answer opens it)
+      }
+    });
+    input.addEventListener('input', function () {
+      window.clearTimeout(timer);
+      // The words changed: no answer asked for before them is drawn (it is about other words, and could choose over this one).
+      turn++; // a search still on its way is not drawn: the choice stays
+      asked = null;
+      c.unshut();
+      var chosen = pick();
+      if (chosen) {
+        // Picked from the list, or an ID typed whole that is one of its products: that choice, as the list showed it. Nothing more is
+        // looked for while the box names it (docs/decisions.md SM4).
+        say('');
+        c.mark(current());
+        return;
+      }
+      c.mark(-1);
+      var v = input.value.trim();
+      if (v.length === 1 && !/^[0-9]$/.test(v)) {
+        say('');
+        return; // one letter finds too much: wait for the next (one digit is an ID: asked at once)
+      }
+      timer = window.setTimeout(function () { load(v); }, 300);
+    });
+    smForms.push({ form: form, pick: pick, say: say, input: input, close: c.close, failed: function () { return failed; } });
   });
   if (smForms.length > 0) {
     // Asked before the "send once" of every form (the capture phase): a submit stopped here never leaves its button disabled.
@@ -754,28 +779,346 @@
         return;
       }
     }, true);
-    // The open list follows its box when the page, or a box around the cell, scrolls, and when the window changes size (once a
-    // frame); a press anywhere but on the box or its list shuts it.
-    var smFrame = 0;
-    var smFollow = function (ev) {
-      if (!smOpen || smFrame || (ev && ev.target === smOpen.list)) {
+  }
+
+  // The order's two "+ Add new …" forms (PO on one page, docs/decisions.md PX5): each is a fold of the order's one form; without the script
+  // its own header opens it. Here the header is hidden and the dropdown's last line opens it (openPanel), the first field focused, filled
+  // with what the box held when it is empty; Enter in it presses its own button (never Add, the form's first button).
+  var openPanel = function (panel, fill) {
+    if (!panel) {
+      return;
+    }
+    panel.open = true;
+    if (fill) {
+      fill(panel);
+    }
+    var first = panel.querySelector('input:not([type="hidden"]):not([type="checkbox"])');
+    if (first) {
+      first.focus();
+    }
+  };
+  each(document.querySelectorAll('details[data-po-panel]'), function (panel) {
+    var summary = panel.querySelector('summary');
+    var button = panel.querySelector('button[name="action"]');
+    if (summary) {
+      summary.hidden = true;
+    }
+    panel.addEventListener('keydown', function (ev) {
+      var t = ev.target;
+      if (ev.key === 'Enter' && !ev.isComposing && button && t && t.tagName === 'INPUT' && t.type !== 'checkbox') {
+        ev.preventDefault();
+        button.click();
+      }
+    });
+  });
+  // A dropdown's last line (docs/decisions.md PX5): "+ Add new …" for a person who may add one (a choice: it opens that form), else the
+  // line naming whom to ask (not a choice). The words come from the page (data-add, data-ask).
+  var lastLine = function (box, list, n) {
+    var add = box.getAttribute('data-add');
+    var ask = box.getAttribute('data-ask');
+    if (!add && !ask) {
+      return;
+    }
+    var li = document.createElement('li');
+    li.id = list.id + '-' + n;
+    li.setAttribute('role', 'option');
+    li.setAttribute('aria-selected', 'false');
+    li.textContent = add || ask;
+    if (add) {
+      li.setAttribute('data-add', '1');
+      li.className = 'sm-add';
+    } else {
+      li.setAttribute('aria-disabled', 'true');
+      li.className = 'sm-ask';
+    }
+    list.appendChild(li);
+  };
+  var twoLines = function (li, name, meta) {
+    each([['sm-opt-name', name], ['sm-opt-meta', meta]], function (p) {
+      if (p[1] === '') {
         return;
       }
-      smFrame = window.requestAnimationFrame(function () {
-        smFrame = 0;
-        if (smOpen) {
-          smOpen.place();
-        }
-      });
+      var span = document.createElement('span');
+      span.className = p[0];
+      span.textContent = p[1];
+      li.appendChild(span);
+    });
+  };
+
+  // The order's supplier (PO on one page, docs/decisions.md PX6; the owner, 26 Oct 2026: "supplier choose option add new button in this
+  // dropdown"): a plain select, which works so without the script. Here it becomes a box with the site's one dropdown: its options are the
+  // list (the name, and on a second line a supplier not usable yet says so), the ones holding every word typed, then the last line. A
+  // choice sets the select, which the form sends; leaving the box without one puts back the name of the supplier chosen. Enter in this box
+  // never sends the order: it chooses the first supplier of the list, or opens it.
+  each(document.querySelectorAll('select[data-po-supplier]'), function (select) {
+    var panel = document.getElementById(select.getAttribute('data-panel') || '');
+    var label = document.querySelector('label[for="' + select.id + '"]');
+    var ask = select.parentNode.querySelector('.po-ask');
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.id = select.id + '-box';
+    input.className = 'po-box';
+    input.setAttribute('autocomplete', 'off');
+    input.placeholder = select.getAttribute('data-placeholder') || '';
+    var list = document.createElement('ul');
+    list.id = select.id + '-list';
+    list.className = 'sm-list';
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', select.getAttribute('data-label') || '');
+    list.hidden = true;
+    var nameOf = function (o) { return o.getAttribute('data-name') || o.text; };
+    var shown = function () {
+      var o = select.options[select.selectedIndex];
+      return o && o.value !== '' ? nameOf(o) : '';
     };
-    window.addEventListener('scroll', smFollow, true);
-    window.addEventListener('resize', smFollow);
-    document.addEventListener('mousedown', function (ev) {
-      if (smOpen && ev.target !== smOpen.input && !smOpen.list.contains(ev.target)) {
-        smOpen.close();
+    input.value = shown();
+    select.hidden = true;
+    select.parentNode.insertBefore(input, select);
+    select.parentNode.insertBefore(list, select);
+    if (label) {
+      label.htmlFor = input.id;
+    }
+    if (ask) {
+      ask.hidden = true; // said as the list's last line
+    }
+    var options = function () { return list.querySelectorAll('li[role="option"]:not([aria-disabled="true"])'); };
+    var draw = function () {
+      var words = input.value === shown() ? [] : input.value.trim().toLowerCase().split(/\s+/);
+      while (list.firstChild) {
+        list.removeChild(list.firstChild);
       }
-    }, true);
-  }
+      var n = 0;
+      each(select.options, function (o) {
+        var name = nameOf(o);
+        if (o.value === '' || words.some(function (w) { return w !== '' && name.toLowerCase().indexOf(w) < 0; })) {
+          return;
+        }
+        var li = document.createElement('li');
+        li.id = list.id + '-' + n++;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
+        li.setAttribute('data-value', o.value);
+        twoLines(li, name, o.getAttribute('data-meta') || '');
+        list.appendChild(li);
+      });
+      lastLine(select, list, n);
+      c.mark(-1);
+    };
+    var cfg = {
+      options: options,
+      current: function () {
+        var at = -1;
+        each(options(), function (o, i) {
+          if (o.getAttribute('data-value') === select.value) { at = i; }
+        });
+        return at;
+      },
+      choose: function (li) {
+        if (li.getAttribute('data-add') === '1') {
+          var typed = input.value === shown() ? '' : input.value.trim();
+          input.value = shown();
+          openPanel(panel, function (p) {
+            var name = p.querySelector('input[name="new_supplier_name"]');
+            if (name && name.value === '' && typed !== '') { name.value = typed; }
+          });
+          return;
+        }
+        select.value = li.getAttribute('data-value') || '';
+        input.value = shown();
+        if (panel) {
+          panel.open = false;
+        }
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+      },
+      enter: function (ev, open) {
+        ev.preventDefault(); // Enter in the supplier's box never sends the order
+        if (!open) {
+          draw();
+          c.unshut();
+          c.open();
+          return;
+        }
+        var first = options()[0];
+        if (first) {
+          c.choose(first);
+        }
+      },
+    };
+    var c = combo(input, list, cfg);
+    draw();
+    input.addEventListener('focus', function () {
+      draw();
+      c.open();
+    });
+    input.addEventListener('input', function () {
+      draw();
+      c.unshut();
+      c.open();
+    });
+    input.addEventListener('blur', function () {
+      window.setTimeout(function () {
+        if (document.activeElement !== input) {
+          input.value = shown(); // no choice made: the box names the supplier chosen
+        }
+      }, 200);
+    });
+  });
+
+  // The order's product box (PO on one page, docs/decisions.md PX6): the scan box with the site's one dropdown. A scan, or a CW number,
+  // their code or words of the name with Enter, adds as without the script (Add, the form's first button: Enter with nothing marked in the
+  // list shuts it and sends). Typing (2 letters or more, 300 ms after the last key) asks the products route (the read-only fragment at
+  // data-options, for the supplier chosen on the page) for this supplier's products first; a choice puts its words in the box and its
+  // product in the form's hidden fields, which Add sends; changing the words drops it, and an answer asked for before them is never drawn.
+  // The list ends with "+ Add new item", which opens that form with what the box held (digits: the barcode, else the name), or with the
+  // line naming whom to ask. Every word comes from the page (data-loading, data-failed, data-add, data-ask, the fragment's lines).
+  each(document.querySelectorAll('input[data-po-pick]'), function (input) {
+    var form = input.form;
+    var base = input.getAttribute('data-options') || '';
+    var list = form ? form.querySelector('ul[data-po-list]') : null;
+    var note = form ? form.querySelector('[data-po-note]') : null;
+    var si = form ? form.querySelector('input[type="hidden"][name="pick_si"]') : null;
+    var sku = form ? form.querySelector('input[type="hidden"][name="pick_sku"]') : null;
+    var panel = document.getElementById(input.getAttribute('data-panel') || '');
+    var supplier = document.getElementById('po-supplier');
+    if (base.indexOf('/ui/purchasing/orders/products?') !== 0 || !list || !list.id || !note || !si || !sku || !window.fetch || !window.DOMParser) {
+      return;
+    }
+    var ask = (input.closest('section') || form).querySelector('.po-ask');
+    if (ask) {
+      ask.hidden = true; // said as the list's last line
+    }
+    var timer = 0;
+    var asked = null;
+    var turn = 0;
+    var say = function (text) {
+      note.textContent = text;
+      note.hidden = text === '';
+    };
+    var options = function () { return list.querySelectorAll('li[role="option"]:not([aria-disabled="true"])'); };
+    // The choices, built from the fragment's <li>: the box's words for it and what Add sends, copied attribute by attribute, and its two
+    // lines as text (nothing of the fragment's markup is kept); then the last line.
+    var draw = function (from) {
+      while (list.firstChild) {
+        list.removeChild(list.firstChild);
+      }
+      var n = 0;
+      each(from, function (o) {
+        var li = document.createElement('li');
+        li.id = list.id + '-' + n++;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
+        each(['data-label', 'data-si', 'data-sku'], function (name) {
+          li.setAttribute(name, o.getAttribute(name) || '');
+        });
+        var part = function (cls) { var p = o.querySelector('.' + cls); return p ? p.textContent.trim() : ''; };
+        twoLines(li, part('sm-opt-name'), part('sm-opt-meta'));
+        list.appendChild(li);
+      });
+      lastLine(input, list, n);
+      c.mark(-1);
+    };
+    // The product the box names now, put in the hidden fields (none: they are emptied): the choice made, kept as itself while the box holds
+    // its words (two packs of one product may have had the same words: the Codex review of bd26fc3, finding 1), else the one choice whose
+    // words the box holds exactly (words that name several name none).
+    var chosen = null;
+    var pick = function () {
+      var found = null;
+      if (chosen && list.contains(chosen) && chosen.getAttribute('data-label') === input.value) {
+        found = chosen;
+      } else {
+        var same = [];
+        each(list.querySelectorAll('li[data-label]'), function (o) {
+          if (o.getAttribute('data-label') === input.value) { same.push(o); }
+        });
+        found = same.length === 1 ? same[0] : null; // the words name one choice only
+      }
+      chosen = found;
+      si.value = found ? found.getAttribute('data-si') || '' : '';
+      sku.value = found ? found.getAttribute('data-sku') || '' : '';
+      return found;
+    };
+    var c = combo(input, list, {
+      options: options,
+      choose: function (li) {
+        if (li.getAttribute('data-add') === '1') {
+          openPanel(panel, function (p) {
+            var typed = input.value.trim();
+            var digits = /^[0-9 ]{6,64}$/.test(typed);
+            var target = p.querySelector('input[name="' + (digits ? 'item_barcode' : 'item_name') + '"]');
+            if (target && target.value === '' && typed !== '' && !pick()) { target.value = digits ? typed.replace(/ /g, '') : typed; }
+          });
+          return;
+        }
+        chosen = li;
+        input.value = li.getAttribute('data-label') || '';
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+      },
+      enter: function (ev, open) {
+        if (open) {
+          c.close(); // nothing marked in the open list: Enter adds what the box says, as without the script
+        }
+      },
+    });
+    draw(list.querySelectorAll('li[data-label]')); // the choice the page drew (kept after a refusal) is drawn as any other
+    pick();
+    var load = function (q) {
+      var key = (supplier ? '&supplier=' + encodeURIComponent(supplier.value) : '') + '&q=' + encodeURIComponent(q);
+      if (key === asked) {
+        return;
+      }
+      asked = key;
+      var mine = ++turn;
+      say(input.getAttribute('data-loading') || '');
+      fragment(base + key, '[data-po-fragment]')
+        .then(function (node) {
+          if (mine !== turn) {
+            return;
+          }
+          draw(node.querySelectorAll('ul[data-po-choices] > li[data-label]'));
+          var says = node.querySelector('[data-po-says]');
+          say(says ? says.textContent.trim() : '');
+          c.open(); // (only while the box has the focus)
+        })
+        .catch(function () {
+          if (mine !== turn) {
+            return;
+          }
+          asked = null; // the next key asks again
+          draw([]);
+          say(input.getAttribute('data-failed') || '');
+        });
+    };
+    input.addEventListener('input', function () {
+      window.clearTimeout(timer);
+      turn++; // the words changed: no answer asked for before them is drawn
+      asked = null;
+      c.unshut();
+      if (pick()) {
+        say('');
+        return; // a choice: nothing more is looked for while the box names it
+      }
+      draw([]); // the words changed: the choices on show were for other words
+      var v = input.value.trim();
+      if (v.length < 2) {
+        say('');
+        return; // one letter finds too much: wait for the next
+      }
+      timer = window.setTimeout(function () { load(v); }, 300);
+    });
+    if (supplier) {
+      supplier.addEventListener('change', function () {
+        // Another supplier: a choice of the last one's products goes (their supply is that supplier's), and its own are asked for anew.
+        window.clearTimeout(timer);
+        turn++;
+        asked = null;
+        if (si.value !== '' || sku.value !== '') {
+          input.value = '';
+        }
+        draw([]);
+        pick();
+      });
+    }
+  });
 
   // Coming back with the back button must not leave a disabled button behind.
   window.addEventListener('pageshow', function (ev) {

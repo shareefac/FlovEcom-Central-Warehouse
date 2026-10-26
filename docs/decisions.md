@@ -11777,3 +11777,143 @@ Tests: `testEachChoiceHasTheFullNameThenItsIdAndItsStatusOnTheStore`, `testAMatc
 `UiUnitTest::testSimpleMatchingsListIsThePagesOwnOnTwoLinesAndOpensToTheLeft` (red first: `runs/smlabel_sm11_red.log`, 16 failures);
 the browser checks (two lines, the full name, the list to the left near the right edge, a phone, the keys, a tap) in a real Chrome on
 staging, screenshots in `runs/smlabel_shots/`.
+
+## PO on one page (branch `po-one-page`, 26 Oct 2026; PX1-PX10)
+
+The owner, 26 Oct 2026: "this purchase order all this related all operation i need single view like in purchase order module have supplier
+choose option add new button in this dropdown. dont need multiple step". The plan he approved: "New purchase order" opens ONE page at once;
+the supplier is one dropdown you can type in whose last line is "+ Add new supplier" (a small form there: name, e-mail, phone); the product is
+one search/scan box whose last line is "+ Add new item"; the lines, the delivery charge, the totals, Save or Confirm on the same page; sending
+the PDF, goods in and invoices stay as they are. Later the same day (relayed by the build's coordinator): "ui follow monday.com design and user
+experience, dont make over complicated" (PX10). Built from main `2f8873a` (SM11 merged) in `/root/cw-poone`. No migration, no new permission,
+no service rule changed. Code: `src/Ui/Controller/PurchaseOrdersController.php` (newPage, create, products, lines, apply, oneData),
+`src/Ui/Controller/PoAddNew.php` (was `PoSelectOrAddController`, now without routes), `src/PurchaseOrders/PurchaseOrders.php` (`newSupplier`,
+`setNewSupplier`'s header and lines), views `purchase_order_edit` (the one page), `po_products` (new), `po_supplier_needs`, `purchase_orders`,
+`supplier`; `src/Ui/{Kernel,Sections,Words}.php`, `public/ui/assets/app.{js,css}`. Removed: the view `purchase_order_new_item`, the routes
+`POST /ui/purchasing/orders/new-supplier`, `POST /ui/purchasing/orders/{id}/new-supplier`, `GET|POST /ui/purchasing/orders/{id}/new-item`, the
+list's side panel ("Start a new order", "Supplier not in the list?"), the supplier list's search box (`data-filter-select`).
+
+**PX1. One page at once.** `GET /ui/purchasing/orders/new` (`doc.PO.post`) is the page: the list's "New purchase order" button (`Sections`),
+its "+ New purchase order" row and the supplier card's link (`?supplier=`) lead to it; the list keeps its table. A draft opens as the same page
+(`purchase_order_edit`, `PurchaseOrdersController::oneData()` for both), with its products; others still get the read-only view (drafts belong
+to their creator, unchanged).
+
+**PX2. When the draft is made (the decision the brief asked for).** Opening the page writes nothing. The page's one form posts to
+`POST /ui/purchasing/orders`; with a supplier chosen and something to keep (Add with a product, "+ Add new item", Save, Confirm) the draft is
+made AND the form applied to it in ONE transaction (`createDraft`, then `apply()`: `saveDraft` with the details and the charge, then the
+action), under FormOnce (the page's `form_key`): the same form sent twice makes one draft. Anything that leaves nothing to keep rolls the whole
+transaction back, so no draft is left: no supplier ("Choose the supplier first.", 422), Add with nothing to add (422), not found, a search with
+several products (the choices are shown on the same page; their buttons post again), a refused item, a refused Confirm (an empty order: 422
+`no_lines`). Save with only a supplier makes an empty draft: the person asked for it. Why this one: the simplest safe design: no "page draft"
+state, no clean-up job, no draft made by a click on a supplier; an empty page left alone leaves nothing behind.
+
+**PX3. "+ Add new supplier".** Before the order exists it makes the supplier alone (`PurchaseOrders::newSupplier`: `doc.PO.post`, then
+`Suppliers::create` as the supplier screens make one: a DRAFT supplier, `suppliers.manage`, its checks and `supplier.create`; FormOnce) and the
+page comes back with it chosen (`/new?supplier=ID`, `notice=supplier_added`, what was typed carried: `CARRIED`); no order is made by it. On a
+draft without products it is `setNewSupplier` (the draft locked first, then the supplier; now also with the details and the delivery charge
+typed with it; an item line is refused, `supplier_has_lines`), under FormOnce and the draft's version. With products the supplier is fixed (no
+box). Confirm stays refused in plain words while the supplier is not approved (`PurchaseOrderHandler::validate`, 422 `supplier_not_active`);
+the page says it in one line with a link to the supplier (`supplierNeeds()`, `PO_ONE not_approved / waiting`; the steps of PO3 are gone).
+
+**PX4. The products: a board, its last row the scan box; "+ Add new item".** The lines are a board (`table.stack.list.board`): packs, the price
+(and items per pack for a product not set up with the supplier) edited in place; each row has a remove (×, `remove_line`: a Save without that
+row, notice `removed`); the last row is "+ Add product": the scan box, its packs and Add. Enter anywhere is Add (a first, visually hidden
+button), so a scan with Enter adds as before. "+ Add new item" is the item_* fields of the same form (`action=new_item`): `apply()` saves the
+table and then `addNewItem` (Pack B's `HandMade::create`: a barcode on another item 409, the same name 409 with the items there and the "it is a
+different item" box; the supplier item when a code, a pack or a price is given; the line), under FormOnce and the version. A refusal is said in
+that form, open, with what was typed (the table's edits too: nothing was saved), the item that has the barcode or the items of the same name
+each with a button that adds it (`add_sku`, a button of the same form). A draft's "+ Add new supplier" / "+ Add new item" carry the page's
+`form_key` (FormOnce) besides the version; Add, Save and Confirm carry the version only, as before.
+
+**PX5. Who sees "+ Add new".** `suppliers.manage` for the supplier, `items.create` for the item, from the permission map in force. The others
+see one short line instead, as the dropdown's last line (not a choice) and without the script under the box: `Words::askToAdd()`, "Ask a buyer to
+add it." (the first job that holds it, in the code's order: "Ask a matching lead to add it." for an item). The action sent anyway is refused
+403 before anything is read (`denied()`, `Kernel::refusal`), and the services check again. PO5's open item stands: a Buyer has no
+`items.create`, so a Buyer is told to ask; give Buyers items.create on the Roles and permissions page if they should add items.
+
+**PX6. One dropdown for the site.** SM11's list is now one engine in app.js, `combo(input, list, cfg)`: the list at the page's top level, its
+placement, Down/Up/Enter/Escape, a tap, one list open at a time, following its box. Simple matching's cells, the order's supplier box and its
+product box all use it (no second dropdown). The supplier: the plain select becomes a box whose list is its options (the name; a supplier not
+usable yet says so on the second line), the ones holding every typed word, then the last line; a choice sets the select; Enter there never
+sends the order. The product: typing (2 letters, 300 ms) asks `GET /ui/purchasing/orders/products` (PX8; one more marker in `FRAGMENTS`, the one
+fetch); a choice puts its words in the box and its supplier item or item in `pick_si` / `pick_sku`, which only Add sends; changing the words,
+or the supplier, drops it; an answer asked for before newer words is never drawn; Enter with nothing marked in the list is Add. The last line
+"+ Add new …" opens that small form in the page (its fold's header hidden by the script), filled with what the box held (digits: the barcode,
+else the name); Enter in it presses its own button.
+
+**PX7. Without the script.** A plain supplier select; the scan box with Add (an ambiguous search shows the choices with their buttons, as
+before); the two "+ Add new" forms are folds of the one form with their own buttons (Enter is Add: a "+ Add new" form is sent by its own button
+only, the Codex review below, finding 4). Every form comes back to the same page.
+
+**PX8. The product box's choices.** `GET /ui/purchasing/orders/products?supplier=&q=` (`doc.PO.post`, read only): a fragment (`po_products`,
+`data-po-fragment`) of what the scan box would find (`PurchaseOrders::resolve`: a barcode, their code, a CW number, else words of the name, this
+supplier's items first, at most `PurchaseOrders::SEARCH_LIMIT`); fewer than 2 characters: nothing; nothing found: said. Each choice: the box's
+words (name · CW number, and its pack when it is set up with this supplier), two lines (the name; the CW number, the brand, how this supplier sells it), its supplier item or item. Known limit: a
+case barcode chosen from the list adds the item by its main supply; scanned with Enter it takes the case, as before.
+
+**PX9. Kept, and moved.** Every server rule is unchanged: the creator's drafts, FormOnce keys, version checks, `suppliers.manage` /
+`items.create` / `doc.PO.post`, the draft supplier and its approval switch, Confirm refused while the supplier is not approved, Pack B's item
+rules. Words: `Words::PO_ONE` (new), `PO_ADD` rewritten (the dropdowns' last lines, the small forms, the refusals), intros `order_new`,
+`order_draft` (correction f kept, one line), `ORDERS none_buyer`, `PO_NOTICE supplier_added / removed`. The `PoSelectOrAddController` became
+`PoAddNew` (reads the small forms, says their refusals; no routes).
+
+**PX10. "Follow monday.com, don't make it over complicated" (the owner, relayed by the coordinator).** The v4 look already here, no new colours
+or type: the board, `.card`, `.btn`; one primary button (Confirm order; over the approval limit it says "Ask a reviewer to OK this order") and
+one plain one (Save) in one small summary card with the totals and the delivery charge. Left out of the page (if unsure, left out): the order
+date (today, as before), the charge's words and VAT (one "Delivery £" field: its line is "Delivery" at the supplier's VAT; a charge on the order
+is a row of the board with its price and remove), the line's VAT, note, stock, already ordered and last price columns and "Remember this pack",
+every help line (scan hint, limit notes, confirm notes, the buttons' second lines, the over-limit note), the company-details note (on the
+confirmed order's page, where the PDF is sent), the draft PDF and the lines file (Excel) except for an order too long for the page (then the
+import is shown: it is the only way to change it), and "Cancel the draft". The routes behind them are unchanged (`/lines/import`, `/cancel`,
+`/pdf`). **Open for the owner:** a draft can no longer be cancelled from its page by its buyer; say if Cancel draft should come back (one small
+button with its reason list).
+
+Tests (red first: `runs/poone_red.log`, 17 failures and 4 errors on `2f8873a`): `tests/Integration/UiKernel/PoOnePageScreensTest.php` (new, 8
+tests: the page opens with no draft and the old routes are gone; one draft per double submit and none after a refusal; "+ Add new supplier"
+alone and on a draft; "+ Add new item" with Pack B's rules; who sees what and the 403s; CSRF on every POST of the page; the page without the
+script and the board; the product box's choices), `PoSelectOrAddTest::testANewSupplierAloneAndOnADraftWithWhatWasTyped`,
+`UiSecurityTest::testThePurchaseOrdersOnePageOverHttp` (slot ui), `UiUnitTest::testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct` and
+the route levels, `WordsTest::testThePurchaseOrderPageSaysAddNewAndWhoToAsk`; changed for the new page: `PurchaseOrderScreensTest`,
+`PurchaseOrderFixesScreensTest`, `BehaviourItemsTest` (a draft's cancel is the route only), `BuyingWordsTest` (the new page), `SupplierScreensTest`,
+`SectionsTest`, `UiTemplatesTest`, `tests/perf/profile_pages.php`; `PoSelectOrAddScreensTest` removed (its cases are in the new test). The JS was
+parsed (esprima), checked for undeclared names and, after the Codex review below, driven in node on a minimal DOM (`runs/poone_js_harness/`);
+not in a real browser.
+
+### The Codex review of bd26fc3 (`runs/poone_codex_review.txt`): one HIGH, five MEDIUM, all real, each shown failing first
+
+Red on bd26fc3: `runs/poone_codex_red.log` (PHPUnit: the five server findings and the JS pins) and `runs/poone_js_red.log` (the JS in node, 4
+checks failing); green after: `runs/poone_codex_green.log`, `runs/poone_js_green.log`. The JS checks are a harness outside the repo
+(`runs/poone_js_harness/`: a minimal DOM, app.js's own code from the engine to the product box, the routes stubbed, run in node on cw-test, never
+on the web server); in the repo they are pinned by `UiUnitTest::testTheBoxesKeepTheChoiceMadeAndNeverAStaleOne`.
+- **HIGH 1: choosing one pack could send another.** Two supplies of one product (packs of 6 and 24, none preferred) had the same words in the
+  product box ("name · CW number") and `pick()` took the last one with those words: choosing the 6 sent the 24. Now the box keeps the choice it
+  made as itself (`chosen`), words that name several choices name none, and the server gives each supply its own words (the pack after the CW
+  number: one supply a pack, `uq_supplier_item_pack`). Simple matching's choices could not suffer it (their words start with the store's ID,
+  unique in the store); its lookup is made unambiguous all the same. `testTwoPacksOfOneProductAreTwoChoicesTheBoxTellsApart`, the harness.
+- **MEDIUM 2: new words left the old choice marked**, so Enter before the new answer brought the old product back (and its ID). The engine now
+  unmarks on every change of the words (all three boxes) and the product box hides the choices shown for other words. Simple matching was not
+  affected (its own input handler unmarked, and its Apply refuses without a choice): the harness checks it on both trees.
+- **MEDIUM 3: a draft's "+ Add new" sent twice was refused** (409: the draft's lines, read before FormOnce, no longer matched the form) instead
+  of answered by its first answer. The lines are now read and checked inside the FormOnce effect. `testAnAddNewOnADraftSentTwiceIsDoneOnce`.
+- **MEDIUM 4: a name left in "+ Add new supplier" turned a plain Add into a new supplier** (the no-script Enter rule of PX7). Removed: a "+ Add
+  new" form is sent by its own button only; what is left in it never makes anything (Add saves the draft, or on the new page says there is
+  nothing to add). The test of finding 4 is in `testANewSupplierFromTheDropdownIsADraftSupplierPutOnTheOrder`.
+- **MEDIUM 5: a refusal lost the product chosen** (its words kept, its hidden IDs empty, so the corrected form searched the words and found
+  nothing). The page now draws the choice again (its words, its hidden fields and the choice in the box's list) while the box holds its words
+  exactly and it is this supplier's (`picked()`); new words or another supplier drop it. `testARefusalKeepsTheProductChosenInTheBox`, the
+  harness.
+- **MEDIUM 6: "+ Add new supplier" dropped a new item typed before it.** The new item's fields go with it (`CARRIED`) and its form opens again
+  with them (as after any refusal). `testANewSupplierKeepsTheNewItemTypedBeforeIt`.
+
+### The second Codex review (on a90d22d; `runs/poone_codex_review2.txt`): findings 1-5 confirmed fixed; one MEDIUM of finding 6, one MEDIUM, one LOW, all fixed test-first
+
+Red on a90d22d: `runs/poone_codex2_red.log` (3 failures); green after: `runs/poone_codex2_green.log`.
+- **MEDIUM (finding 6 on a draft): a draft's "+ Add new supplier" dropped a new item typed before it** (its answer carried only the notice). It
+  now carries what `setNewSupplier` does not save (the scan box's words and packs, the new item's fields: `DRAFT_CARRIED`), and the draft's page
+  draws them again, the new item's form open. In `testANewSupplierKeepsTheNewItemTypedBeforeIt`.
+- **MEDIUM: packs that are not a whole number became one pack** ("+ Add new item" with 2.5 or 0 made the item and ordered 1 pack, through
+  `max(1, …)`; Add did the same). Packs must be a whole number from 1 to `PoMath::MAX_PACKS` (an empty box is 1, as before); anything else is
+  refused in words before anything is made (`apply()`, `bad_number`), what was typed kept. `testPacksThatAreNotAWholeNumberAreRefusedAndNothingIsMade`.
+- **LOW: × on a row whose packs box was emptied was refused** (422: the row was read before its remove was seen). The row removed is no longer
+  read. In `testASupplierAndAProductMakeOneDraftAndARefusalMakesNone`.
+

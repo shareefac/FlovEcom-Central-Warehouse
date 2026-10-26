@@ -61,7 +61,7 @@ final class SupplierScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::SUPPLIERS['none'], $list->text());
         self::assertContains('/ui/purchasing/suppliers/new', $list->hrefs());
         self::assertSame(['Purchasing', 'Suppliers'], [self::currentSection($list), self::currentTab($list)]);
-        self::assertSame(['/ui/purchasing/suppliers/new', '/ui/purchasing/orders#new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
+        self::assertSame(['/ui/purchasing/suppliers/new', '/ui/purchasing/orders/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array((new \DOMXPath($list->dom()))->query('//form[@class="toolbar"]//div[@class="split"]//a'))), 'the toolbar\'s "New supplier", then the other create actions');
 
         // Create by form; the same form sent twice makes one supplier.

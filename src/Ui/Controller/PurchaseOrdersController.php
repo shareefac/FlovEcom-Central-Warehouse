@@ -10,25 +10,30 @@ use CW\CwException;
 use CW\Db;
 use CW\Documents\Document;
 use CW\Documents\Documents;
+use CW\Items\HandMade;
 use CW\OpResult;
 use CW\Output\CsvWriter;
 use CW\PurchaseOrders\PoLinesFile;
 use CW\PurchaseOrders\PoMath;
 use CW\PurchaseOrders\PurchaseOrderPdf;
 use CW\PurchaseOrders\PurchaseOrders;
+use CW\Suppliers\Suppliers;
 use CW\Ui\Context;
 use CW\Ui\FormOnce;
 use CW\Ui\Html;
 use CW\Ui\HtmlResponse;
+use CW\Ui\Kernel;
 use CW\Ui\PoWarnings;
 use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
 /**
- * The purchase order screens (IM5, Phase I-2; docs/decisions.md I48-I59, spec §8.1, §8.3): the list (filters, CSV, the
- * "new order" form), the ONE-FORM editor of a draft (header, a scan / search box whose Enter adds a line and saves every
- * edit made in the table, the lines, a charge), the posted order's page (its state, review and history, the decide box,
- * send / cancel / amend / copy / close), the lines file (CSV, XLSX: export and an all-or-nothing import) and the PDF.
+ * The purchase order screens (IM5, Phase I-2; docs/decisions.md I48-I59, spec §8.1, §8.3): the list (filters, CSV), the order on ONE
+ * page (PO on one page, PX1-PX10: "New purchase order" opens it with no draft; the draft is made by its first POST with something to
+ * keep and is the same page after: the supplier with "+ Add new supplier", the board of products whose last row is the scan box with
+ * "+ Add new item", the delivery charge, the totals, Save and Confirm, all one form whose Enter adds a line and saves every edit), the
+ * posted order's page (its state, review and history, the decide box, send / cancel / amend / copy / close), the lines file (CSV, XLSX:
+ * export and an all-or-nothing import) and the PDF.
  *
  * Everyone with purchasing.view looks; buyers (doc.PO.post, checked again by CW\PurchaseOrders\PurchaseOrders) act; the
  * creator alone edits a draft (others see it read-only); reviewers decide on the order's page (the forms post to
@@ -52,10 +57,11 @@ final class PurchaseOrdersController
     public const LIST_LIMIT = 500;
     public const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     /**
-     * The editor's fields outside its line rows, with room to spare: csrf, version, line_count, lines_editable, supplier_id,
-     * 4 header fields, q, packs, the pressed button, a choice button, 3 charge fields (15-17 in fact).
+     * The editor's fields outside its line rows, with room to spare: csrf, version, line_count, lines_editable, form_key, the pressed button,
+     * the supplier and the three of "+ Add new supplier", 3 order details, q and the choice's two hidden fields, packs, the 7 of "+ Add new
+     * item", the delivery charge (25 in fact since PO on one page, PX4).
      */
-    public const EDITOR_FIXED_FIELDS = 24;
+    public const EDITOR_FIXED_FIELDS = 28;
 
     /**
      * The most fields the editor form of these lines sends: an item line with a supplier item 4 (packs, price, VAT, note),
@@ -88,18 +94,8 @@ final class PurchaseOrdersController
     // The list
     // ------------------------------------------------------------------------------------------
 
+    /** The list (its "New purchase order" button opens the order's one page: PO on one page, docs/decisions.md PX1). */
     public function index(Context $ctx): HtmlResponse
-    {
-        return $this->listPage($ctx, 200, null, null);
-    }
-
-    /**
-     * The list, also after a refused "Start a new order" ($error shown, $formKey kept) or a refused "Add a new supplier" ($extra:
-     * newSupplier (what was typed), newSupplierError, supplierKey: pack PO, PO2).
-     *
-     * @param array<string, mixed> $extra
-     */
-    public function listPage(Context $ctx, int $status, ?string $error, ?string $formKey, array $extra = []): HtmlResponse
     {
         $me = $ctx->me();
         $draftsOff = self::draftsOffByDefault($me->roles);
@@ -115,23 +111,13 @@ final class PurchaseOrdersController
             'draftsHidden' => !$f['drafts'] && $f['state'] === null,
             'states' => self::STATE_FILTERS,
             'suppliers' => $ctx->db->all("SELECT id, code, name, status FROM supplier ORDER BY name, id"),
-            'newSuppliers' => $canPost ? $ctx->db->all("SELECT id, code, name, status FROM supplier WHERE status <> 'inactive' ORDER BY name, id") : [],
-            'formKey' => $canPost ? ($formKey ?? FormOnce::newKey()) : null,
             'canPost' => $canPost,
             'lookOnly' => $canPost ? null : Words::whoCan('doc.PO.post'),
             'limit' => self::LIST_LIMIT,
             // null while the owner has the OK first of orders switched off (Approval rules page, 0019, Y10).
             'approvalLimit' => $ctx->documents()->typeInfo('PO')['approval_rule'] === 'none' ? null
                 : Html::money((int) $ctx->documents()->typeInfo('PO')['approval_limit_units']),
-            'error' => $error,
-            // --- Pack PO (PO2): "Add a new supplier" next to the supplier list of "Start a new order" (its own form and form key).
-            'canAddSupplier' => $canPost && $me->can('suppliers.manage'),
-            'askSupplier' => Words::say('PO_ADD', 'ask_supplier', Words::whoCan('suppliers.manage')),
-            'supplierKey' => $canPost && $me->can('suppliers.manage') ? (string) ($extra['supplierKey'] ?? FormOnce::newKey()) : null,
-            'newSupplier' => ($extra['newSupplier'] ?? []) + ['name' => '', 'email' => '', 'phone' => ''],
-            'newSupplierError' => $extra['newSupplierError'] ?? null,
-            // --- end of pack PO
-        ], $status, ['title' => Words::MENU['orders'], 'active' => 'orders']);
+        ], 200, ['title' => Words::MENU['orders'], 'active' => 'orders']);
     }
 
     /**
@@ -202,23 +188,455 @@ final class PurchaseOrdersController
         return FilesController::download($csv->output(), 'text/csv; charset=utf-8', 'orders.csv');
     }
 
-    /** POST /ui/purchasing/orders: a new draft for a supplier (FormOnce: one draft however often the form is sent). */
+    // ------------------------------------------------------------------------------------------
+    // The order on one page (the owner, 26 Oct 2026; docs/decisions.md PX1-PX9)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * GET /ui/purchasing/orders/new: the order's one page at once, with no draft (PX1, PX2): nothing is written by opening it, so a page left
+     * empty leaves nothing behind. The address may name the supplier (the supplier's card, "+ Add new supplier" coming back) and carry what
+     * was typed before a new supplier was added (carried()).
+     */
+    public function newPage(Context $ctx): HtmlResponse
+    {
+        $typed = [];
+        foreach (self::CARRIED as $k) {
+            $v = $ctx->req->param($k);
+            if ($v !== null) {
+                $typed[$k] = mb_substr($v, 0, $k === 'note' ? 1000 : 255);
+            }
+        }
+        $typed['supplier_id'] = (string) (UiRequest::id($ctx->req->param('supplier')) ?? '');
+        $notice = self::noticeKey($ctx);
+        return $this->newOrderPage($ctx, 200, null, $notice === null ? null : Words::PO_NOTICE[$notice], ['typed' => $typed, 'q' => $typed['q'] ?? '',
+            'packs' => $typed['packs'] ?? '1']);
+    }
+
+    /**
+     * POST /ui/purchasing/orders: the one page's form before the order exists (PX2). Everything runs through FormOnce, so the same form sent
+     * twice does one thing:
+     *  - "+ Add new supplier": the supplier alone (PurchaseOrders::newSupplier), then the page again with it chosen and what was typed;
+     *  - else, with a supplier chosen and something to keep (a product added, "+ Add new item", Save, Confirm): the draft is made and the form
+     *    applied to it in ONE transaction (apply()); a refusal, a search with several products or none, rolls it all back: no draft.
+     * Without a supplier, or Add with nothing to add, nothing is written (the page says so, with what was typed).
+     */
     public function create(Context $ctx): HtmlResponse
     {
-        $sid = UiRequest::id($ctx->req->field('supplier_id'));
+        $req = $ctx->req;
+        $ask = self::asked($req);
+        $denied = self::denied($ctx, $ask['action']);
+        if ($denied !== null) {
+            return $denied;
+        }
+        $sid = UiRequest::id($req->field('supplier_id'));
         try {
-            if ($sid === null) {
-                throw new CwException('choose_supplier', 'choose the supplier', 400, ['field' => 'supplier_id']);
+            if ($ask['action'] === 'new_supplier') {
+                $fields = PoAddNew::supplierFields(PoAddNew::supplierTyped($req));
+                $r = FormOnce::run($ctx, 'ui.po.new_supplier', self::request($req), function (Db $db) use ($ctx, $req, $fields): OpResult {
+                    $s = $this->service($ctx)->newSupplier($ctx->caller(), new Suppliers($db, $ctx->settings()), $fields);
+                    return OpResult::of(303, ['result' => 'supplier_added', 'supplier_id' => (int) $s['id'],
+                        'redirect' => Html::url('/ui/purchasing/orders/new', ['supplier' => (int) $s['id']] + self::carried($req) + ['notice' => 'supplier_added'])]);
+                });
+                return FormOnce::redirect($r);
             }
-            $r = FormOnce::run($ctx, 'ui.po.create', ['supplier_id' => $sid], function (Db $db) use ($ctx, $sid): OpResult {
-                $d = $this->service($ctx)->createDraft($ctx->caller(), $sid, []);
-                return OpResult::of(303, ['result' => 'created', 'document_id' => $d->id,
-                    'redirect' => Html::url('/ui/purchasing/orders/' . $d->id, ['notice' => 'created'])]);
+            if ($sid === null) {
+                throw new CwException('need_supplier', Words::PO_ONE['need_supplier'], 422, ['field' => 'supplier_id']);
+            }
+            if ($ask['action'] === 'approve' && $ask['q'] !== '') {
+                throw new CwException('scan_pending', Words::say('BUY_ERROR', 'scan_pending', $ask['q']), 422);
+            }
+            if ($ask['action'] === 'add' && $ask['si'] === null && $ask['sku'] === null && $ask['q'] === '') {
+                throw new CwException('need_product', Words::PO_ONE['need_product'], 422, ['field' => 'q']);
+            }
+            $header = self::header($req, false);
+            $lines = self::withCharge($req, []);
+            $r = FormOnce::run($ctx, 'ui.po.create', self::request($req), function (Db $db) use ($ctx, $sid, $header, $lines, $ask): OpResult {
+                $svc = $this->service($ctx);
+                $d = $svc->createDraft($ctx->caller(), $sid, []);
+                $res = $this->apply($ctx, $svc, $d->id, $d->version, $header, $lines, $ask);
+                if ($res['status'] === 'choices' || $res['status'] === 'not_found') {
+                    // Nothing to keep yet: the draft goes with the rest of the transaction, and the page shows the choices or says so.
+                    throw new CwException('one_page_' . $res['status'], '', $res['status'] === 'choices' ? 200 : 422, ['choices' => $res['choices'] ?? []]);
+                }
+                $status = $res['status'] === 'saved' ? 'created' : $res['status'];
+                return OpResult::of(303, ['result' => $status, 'document_id' => $d->id, 'redirect' => self::after($d->id, $status)]);
             });
         } catch (CwException $e) {
-            return $this->listPage($ctx, $e->httpStatus, self::plain($e), $ctx->req->field(FormOnce::FIELD));
+            $extra = ['typed' => $req->post, 'q' => $ask['q'], 'packs' => $req->field('packs') ?? '1', 'formKey' => PoAddNew::keyAgain($ctx, $e)];
+            return match (true) {
+                $e->errorCode === 'one_page_choices' => $this->newOrderPage($ctx, 200, null, null, ['choices' => $e->detail['choices'] ?? []] + $extra),
+                $e->errorCode === 'one_page_not_found' => $this->newOrderPage($ctx, 422, new CwException('not_found', Words::say('BUY_ERROR', 'not_found', $ask['q']), 422), null,
+                    $extra),
+                default => $this->newOrderPage($ctx, $e->httpStatus, $ask['action'] === 'new_supplier' || $ask['action'] === 'new_item' ? null : $e, null,
+                    $extra + self::panelError($ask['action'], $e)),
+            };
         }
         return FormOnce::redirect($r);
+    }
+
+    /**
+     * GET /ui/purchasing/orders/products?supplier=&q=: the choices of the order's product box (PX8), a fragment app.js draws in the box's
+     * list; read only. What the scan box would find (PurchaseOrders::resolve: a barcode, their code, a CW number, else words of the name, this
+     * supplier's items first, at most PurchaseOrders::SEARCH_LIMIT), each with the box's words for it and what Add sends for it (its supplier
+     * item, else the item). Fewer than 2 characters: nothing yet.
+     */
+    public function products(Context $ctx): HtmlResponse
+    {
+        $q = mb_substr(trim($ctx->req->param('q') ?? ''), 0, 100);
+        $sid = UiRequest::id($ctx->req->param('supplier')) ?? 0;
+        $choices = [];
+        if (mb_strlen($q) >= 2) {
+            $r = $this->service($ctx)->resolve($sid, $q);
+            $rows = $r['status'] === 'choices' ? $r['choices'] : ($r['status'] === 'found' ? [$this->foundChoice($ctx, $r)] : []);
+            $choices = array_map(self::productChoice(...), $rows);
+        }
+        return $ctx->fragment('po_products', ['choices' => $choices, 'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('PO_ONE', 'none', $q) : '']);
+    }
+
+    /** A resolve() `found` as a choice row. @param array<string, mixed> $r @return array<string, mixed> */
+    private function foundChoice(Context $ctx, array $r): array
+    {
+        $s = $ctx->db->one('SELECT code, name, brand FROM sku WHERE id = ?', [(int) $r['sku_id']]) ?? [];
+        $si = $r['supplier_item'] ?? null;
+        return ['sku_id' => (int) $r['sku_id'], 'sku_code' => (string) ($s['code'] ?? ''), 'name' => (string) ($s['name'] ?? ''), 'brand' => $s['brand'] ?? null,
+            'supplier_item_id' => $si === null ? null : (int) $si['id'], 'units_per_pack' => (int) $r['units_per_pack'], 'supplier_code' => $si['supplier_code'] ?? null,
+            'purchase_unit' => (string) $r['purchase_unit']];
+    }
+
+    /**
+     * One choice of the product box: the box's words for it (its name, its CW number, its pack when it is set up: what app.js compares), its
+     * two lines (the name;
+     * the CW number, the brand and how this supplier sells it) and what Add sends (its supplier item, else the item).
+     *
+     * @param array<string, mixed> $c a resolve() choice
+     * @return array{label: string, name: string, meta: string, si: string, sku: string}
+     */
+    public static function productChoice(array $c): array
+    {
+        $name = trim((string) preg_replace('/\s+/u', ' ', (string) $c['name']));
+        $si = $c['supplier_item_id'] ?? null;
+        $supply = $si === null ? Words::PO_ONE['not_set_up']
+            : Words::say('PO_ONE', 'set_up', (string) ($c['supplier_code'] ?? Words::ORDER['choice_no_code']), self::pack((string) $c['purchase_unit'], (int) $c['units_per_pack']));
+        // The box's words: the name and the CW number, and for one of this supplier's supplies its pack, so that two packs of one product
+        // never share their words (the Codex review of bd26fc3, finding 1; one supply a pack: uq_supplier_item_pack).
+        $label = $name . ' · ' . $c['sku_code'] . ($si === null ? '' : ' · ' . self::pack((string) $c['purchase_unit'], (int) $c['units_per_pack']));
+        return ['label' => $label, 'name' => $name,
+            'meta' => implode(' · ', array_filter([(string) $c['sku_code'], (string) ($c['brand'] ?? ''), $supply], static fn (string $v): bool => $v !== '')),
+            'si' => $si === null ? '' : (string) $si, 'sku' => $si === null ? (string) $c['sku_id'] : ''];
+    }
+
+    /** The fields "+ Add new supplier" carries back to the new page (what was typed before it), besides the supplier itself. */
+    public const CARRIED = ['doc_date', 'expected_date', 'external_ref', 'note', 'q', 'packs', 'charge_description', 'charge_amount', 'charge_vat',
+        'item_name', 'item_brand', 'item_barcode', 'item_code', 'item_upp', 'item_price']; // the new item typed before it too (Codex review of bd26fc3, finding 6)
+
+    /**
+     * What a draft's "+ Add new supplier" carries back to the draft's page (the Codex review of a90d22d, finding 1): what setNewSupplier does
+     * not save with it (the details and the charge it does): the scan box and a new item not made yet.
+     */
+    public const DRAFT_CARRIED = ['q', 'packs', 'item_name', 'item_brand', 'item_barcode', 'item_code', 'item_upp', 'item_price'];
+
+    /**
+     * @param list<string> $fields
+     * @return array<string, string> those fields the form sent (empty ones left out, and a packs box holding 1)
+     */
+    private static function carried(UiRequest $req, array $fields = self::CARRIED): array
+    {
+        $out = [];
+        foreach ($fields as $k) {
+            $v = trim($req->field($k) ?? '');
+            if ($v !== '' && !(in_array($k, ['packs', 'item_upp'], true) && $v === '1')) { // (1 is what those boxes hold anyway)
+                $out[$k] = mb_substr($v, 0, $k === 'note' ? 1000 : 255);
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * What the one form asks (PX2): the action (add, save, approve, new_supplier, new_item; a row's remove is a Save without that row), what
+     * Add adds (a choice button's add_si / add_sku, else the product box's choice pick_si / pick_sku, else the scan text), the packs. Enter is
+     * Add (the form's first button). A "+ Add new" form is sent by its own button only: what is left in it never makes anything on Add (the
+     * Codex review of bd26fc3, finding 4; with the script, Enter in that form presses its button).
+     *
+     * @return array{action: string, q: string, packs: int, si: ?int, sku: ?int}
+     */
+    private static function asked(UiRequest $req): array
+    {
+        $action = $req->field('action') ?? 'add';
+        $action = in_array($action, ['add', 'save', 'approve', 'new_supplier', 'new_item'], true) ? $action : 'add';
+        $q = trim($req->field('q') ?? '');
+        $si = UiRequest::id($req->field('add_si'));
+        $sku = UiRequest::id($req->field('add_sku'));
+        if (UiRequest::id($req->field('remove_line')) !== null) {
+            return ['action' => 'save', 'q' => $q, 'packs' => self::packs($req), 'si' => null, 'sku' => null]; // a row's remove (PX4)
+        }
+        if ($si !== null || $sku !== null) {
+            $action = 'add'; // a choice's own button
+        } elseif ($action === 'add') {
+            $si = UiRequest::id($req->field('pick_si'));
+            $sku = $si === null ? UiRequest::id($req->field('pick_sku')) : null;
+        }
+        return ['action' => $action, 'q' => $q, 'packs' => self::packs($req), 'si' => $si, 'sku' => $sku];
+    }
+
+    /** The scan box's packs: an empty box is 1; anything but a whole number is 0 (refused by apply() when there is something to add). */
+    private static function packs(UiRequest $req): int
+    {
+        $typed = trim($req->field('packs') ?? '');
+        return $typed === '' ? 1 : (PoLinesFile::wholeNumber($typed) ?? 0);
+    }
+
+    /** A "+ Add new" action of a person who may not take it: the route's refusal (403) before anything is read or written. */
+    private static function denied(Context $ctx, string $action): ?HtmlResponse
+    {
+        $perm = match ($action) {
+            'new_supplier' => 'suppliers.manage',
+            'new_item' => 'items.create',
+            default => null,
+        };
+        if ($perm === null || $ctx->me()->can($perm)) {
+            return null;
+        }
+        return $ctx->error(403, 'role_not_allowed', Kernel::refusal($perm, $ctx->me(), 'POST'));
+    }
+
+    /** @return array<string, mixed> what the form sent, for FormOnce's hash (without the token and the key) */
+    private static function request(UiRequest $req): array
+    {
+        return array_diff_key($req->post, ['csrf' => 1, FormOnce::FIELD => 1]);
+    }
+
+    /** @return array<string, string> the order's details as the form sent them ($withSupplier: the supplier too, a draft's box) */
+    private static function header(UiRequest $req, bool $withSupplier): array
+    {
+        $header = [];
+        foreach (['expected_date', 'external_ref', 'note', 'doc_date'] + ($withSupplier ? [4 => 'supplier_id'] : []) as $k) {
+            $v = $req->field($k);
+            if ($v !== null && ($k !== 'supplier_id' || $v !== '')) {
+                $header[$k] = $v;
+            }
+        }
+        return $header;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $lines
+     * @return list<array<string, mixed>> the lines with the delivery charge typed in the summary, when one is (its words: "Delivery")
+     */
+    private static function withCharge(UiRequest $req, array $lines): array
+    {
+        $charge = trim($req->field('charge_amount') ?? '');
+        if ($charge !== '') {
+            $what = trim($req->field('charge_description') ?? '');
+            $lines[] = ['kind' => 'charge', 'description' => $what === '' ? Words::PO_ONE['delivery_line'] : $what, 'pack_price' => $charge,
+                'vat_code' => ($req->field('charge_vat') ?? '') === '' ? null : $req->field('charge_vat')];
+        }
+        return $lines;
+    }
+
+    /**
+     * The one form applied to a draft, inside the caller's transaction (PX2): "+ Add new supplier" puts the new supplier on it with the
+     * details typed (PurchaseOrders::setNewSupplier); everything else saves the table and the details (saveDraft), then Confirm approves,
+     * "+ Add new item" makes the item and its line (addNewItem), Add adds the choice or what was scanned (addSupplierItem, addLine). The
+     * statuses are the notices' (Add's `choices` and `not_found` are not: the caller shows them).
+     *
+     * @param array<string, mixed> $header
+     * @param list<array<string, mixed>> $lines
+     * @param array{action: string, q: string, packs: int, si: ?int, sku: ?int} $ask
+     * @return array{status: string, document: Document, choices?: list<array<string, mixed>>}
+     */
+    private function apply(Context $ctx, PurchaseOrders $svc, int $id, int $version, array $header, array $lines, array $ask): array
+    {
+        $adding = $ask['action'] === 'new_item' || ($ask['action'] === 'add' && ($ask['si'] !== null || $ask['sku'] !== null || $ask['q'] !== ''));
+        if ($adding && ($ask['packs'] < 1 || $ask['packs'] > PoMath::MAX_PACKS)) {
+            // Before anything is made (the Codex review of a90d22d, finding 2): 2.5 or 0 packs is refused, never turned into 1.
+            throw new CwException('bad_number', Words::say('PO_ADD', 'bad_number', Words::PO_ADD['item_packs']), 422, ['field' => 'packs']);
+        }
+        $caller = $ctx->caller();
+        if ($ask['action'] === 'new_supplier') {
+            $r = $svc->setNewSupplier($caller, new Suppliers($ctx->db, $ctx->settings()), $id, $version, PoAddNew::supplierFields(PoAddNew::supplierTyped($ctx->req)),
+                array_diff_key($header, ['supplier_id' => 1]), $lines);
+            return ['status' => 'supplier_added', 'document' => $r['document']];
+        }
+        $doc = $svc->saveDraft($caller, $id, $version, $header, $lines);
+        switch ($ask['action']) {
+            case 'approve':
+                // Confirm sits in the one form, so what is approved is what the buyer sees, typed edits included; a refused approval saves nothing.
+                $d = $svc->approve($caller, $id, $doc->version);
+                return ['status' => $d->status === 'awaiting_approval' ? 'submitted' : 'approved', 'document' => $d];
+            case 'new_item':
+                [$item, $supply] = PoAddNew::itemInput(PoAddNew::itemTyped($ctx->req));
+                $r = $svc->addNewItem($caller, $id, $doc->version, new HandMade($ctx->db, $ctx->decisions()), $item, $supply, $ask['packs']);
+                return ['status' => 'item_added', 'document' => $r['document']];
+            case 'add':
+                if ($ask['si'] !== null) {
+                    return $svc->addSupplierItem($caller, $id, $doc->version, $ask['si'], $ask['packs']);
+                }
+                if ($ask['sku'] !== null || $ask['q'] !== '') {
+                    $code = $ask['sku'] !== null ? (string) ($ctx->db->value('SELECT code FROM sku WHERE id = ?', [$ask['sku']]) ?? '') : $ask['q'];
+                    return $svc->addLine($caller, $id, $doc->version, $code, $ask['packs']);
+                }
+                return ['status' => 'saved', 'document' => $doc]; // Enter with nothing to add saves the table, as before
+            default:
+                return ['status' => 'saved', 'document' => $doc];
+        }
+    }
+
+    /** Where a done form leads: the draft's page with its notice (at the scan box, after anything but a confirmation or a new supplier). */
+    private static function after(int $id, string $status): string
+    {
+        return Html::url('/ui/purchasing/orders/' . $id, ['notice' => $status]) . (in_array($status, ['approved', 'submitted', 'supplier_added'], true) ? '' : '#scan');
+    }
+
+    /**
+     * A refusal of a "+ Add new" form, said in that form and with it open (the item's: the items that are there for the same name, the item
+     * that has the barcode); none for the other actions.
+     *
+     * @return array<string, mixed>
+     */
+    private static function panelError(string $action, CwException $e): array
+    {
+        if ($action === 'new_supplier') {
+            return ['supplierError' => PoAddNew::plainSupplier($e)];
+        }
+        if ($action !== 'new_item') {
+            return [];
+        }
+        $same = $e->errorCode === 'same_item_exists' && is_array($e->detail['items'] ?? null) ? $e->detail['items'] : null;
+        return ['itemError' => $same === null ? PoAddNew::plainItem($e) : null, 'itemSame' => $same,
+            'itemOther' => $e->errorCode === 'barcode_on_other_item' && isset($e->detail['sku_id']) ? (int) $e->detail['sku_id'] : null];
+    }
+
+    /**
+     * The one page with no draft yet (PX1): the editor's template with nothing saved, the supplier chosen in the form (or by the address).
+     *
+     * @param array<string, mixed> $extra typed, q, packs, choices, formKey, supplierError, itemError, itemSame, itemOther
+     */
+    private function newOrderPage(Context $ctx, int $status, ?CwException $error, ?string $notice, array $extra): HtmlResponse
+    {
+        $db = $ctx->db;
+        $typed = $extra['typed'] ?? [];
+        $sid = UiRequest::id(is_string($typed['supplier_id'] ?? null) ? $typed['supplier_id'] : null);
+        $supplier = $sid === null ? [] : ($db->one('SELECT * FROM supplier WHERE id = ?', [$sid]) ?? []);
+        $type = $ctx->documents()->typeInfo('PO');
+        $zero = PoMath::money(0);
+        $data = [
+            'doc' => null,
+            'title' => Words::PO_ONE['title'],
+            'lines' => [],
+            'units' => 0,
+            'totals' => ['net' => $zero, 'vat' => $zero, 'gross' => $zero, 'by_code' => []],
+            'vatLabels' => [],
+            'warnings' => [],
+            'supplierNeeds' => $supplier === [] ? null : self::supplierNeeds($supplier, (string) $supplier['name']),
+            'limit' => $type['approval_rule'] !== 'none' ? Html::money((int) $type['approval_limit_units']) : null,
+            'overLimit' => false,
+            'error' => $error === null ? null : self::plain($error),
+            'importErrors' => [],
+            'editable' => true,
+            'maxLines' => self::editorMaxLines(),
+            'vatCodes' => $db->all('SELECT code, label FROM vat_code WHERE is_active = 1 ORDER BY sort_order, code'),
+            'info' => ['doc_date' => (string) ($typed['doc_date'] ?? (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d')),
+                'expected_date' => (string) ($typed['expected_date'] ?? ''), 'external_ref' => (string) ($typed['external_ref'] ?? ''), 'note' => (string) ($typed['note'] ?? '')],
+        ] + $this->oneData($ctx, null, $sid, 0, $extra);
+        return $ctx->page('purchase_order_edit', $data, $status, ['title' => Words::PO_ONE['title'], 'active' => 'orders', 'notice' => $notice]);
+    }
+
+    /**
+     * What the one page draws besides the order's own data (PX1-PX8): the form's address and key, the supplier's box (or the supplier fixed
+     * by the products), the two "+ Add new" forms (who may, what was typed, open after a refusal, the items offered instead), the product box.
+     *
+     * @param array<string, mixed> $extra typed, q, packs, choices, formKey, supplierError, itemError, itemSame, itemOther
+     * @return array<string, mixed>
+     */
+    private function oneData(Context $ctx, ?Document $doc, ?int $supplierId, int $lineCount, array $extra): array
+    {
+        $me = $ctx->me();
+        $typed = $extra['typed'] ?? [];
+        $text = static fn (string $k, string $default = ''): string => is_string($typed[$k] ?? null) ? trim((string) $typed[$k]) : $default;
+        $fixed = $lineCount > 0;
+        $same = is_array($extra['itemSame'] ?? null) ? array_map(static fn (array $s): array => ['id' => (int) $s['id'], 'code' => (string) $s['code'], 'name' => (string) $s['name']],
+            $extra['itemSame']) : null;
+        $other = isset($extra['itemOther']) ? $ctx->db->one('SELECT id, code, name FROM sku WHERE id = ?', [(int) $extra['itemOther']]) : null;
+        $itemError = $extra['itemError'] ?? null;
+        $supplierError = $extra['supplierError'] ?? null;
+        // A new item typed and not made yet (a refusal of another action, "+ Add new supplier" coming back): its form opens again with it.
+        $itemTyped = array_filter(['item_name', 'item_brand', 'item_barcode', 'item_code', 'item_price'], static fn (string $k): bool => $text($k) !== '');
+        $pick = $this->picked($ctx, $supplierId, $typed, (string) ($extra['q'] ?? ''));
+        return [
+            'isNew' => $doc === null,
+            'formAction' => $doc === null ? '/ui/purchasing/orders' : '/ui/purchasing/orders/' . $doc->id . '/lines',
+            'formKey' => (string) ($extra['formKey'] ?? FormOnce::newKey()),
+            'supplierFixed' => $fixed,
+            'supplierId' => $supplierId,
+            'supplierChoices' => $fixed ? [] : self::supplierChoices($ctx->db),
+            'canAddSupplier' => !$fixed && $me->can('suppliers.manage'),
+            'askSupplier' => Words::askToAdd('suppliers.manage'),
+            'supplierError' => $supplierError,
+            'newSupplier' => ['name' => $text('new_supplier_name'), 'email' => $text('new_supplier_email'), 'phone' => $text('new_supplier_phone')],
+            'canAddItem' => $me->can('items.create'),
+            'askItem' => Words::askToAdd('items.create'),
+            'itemOpen' => $itemError !== null || $same !== null || $other !== null || $itemTyped !== [],
+            'itemError' => $itemError,
+            'itemSame' => $same,
+            'itemOther' => $other === null ? null : ['id' => (int) $other['id'], 'label' => $other['code'] . ' ' . $other['name']],
+            'item' => ['name' => $text('item_name'), 'brand' => $text('item_brand'), 'barcode' => $text('item_barcode'), 'code' => $text('item_code'),
+                'upp' => $text('item_upp', '1'), 'price' => $text('item_price'), 'anyway' => $text('item_anyway') === '1'],
+            'productsUrl' => '/ui/purchasing/orders/products?' . ($fixed ? 'supplier=' . (int) $supplierId : ''),
+            'pick' => $pick,
+            'typed' => $typed,
+            'choices' => $extra['choices'] ?? null,
+            'q' => (string) ($extra['q'] ?? ''),
+            'packs' => (string) ($extra['packs'] ?? '1'),
+        ];
+    }
+
+    /**
+     * The product box's choice kept after a refusal (the Codex review of bd26fc3, finding 5): the supplier item (or item) the form sent, when
+     * the box still holds its words exactly and it is this supplier's (active, its item not joined into another); else none, and the box's
+     * words are searched as typed. Drawn in the box's list and its hidden fields, so the corrected form adds that product.
+     *
+     * @param array<string, mixed> $typed the form as sent
+     * @return array{si: string, sku: string, choice: ?array{label: string, name: string, meta: string, si: string, sku: string}}
+     */
+    private function picked(Context $ctx, ?int $supplierId, array $typed, string $q): array
+    {
+        $none = ['si' => '', 'sku' => '', 'choice' => null];
+        $si = UiRequest::id(is_string($typed['pick_si'] ?? null) ? $typed['pick_si'] : null);
+        $sku = $si === null ? UiRequest::id(is_string($typed['pick_sku'] ?? null) ? $typed['pick_sku'] : null) : null;
+        if ($q === '' || ($si === null && $sku === null)) {
+            return $none;
+        }
+        $row = $si !== null
+            ? $ctx->db->one('SELECT s.id AS sku_id, s.code, s.name, s.brand, si.id AS si_id, si.units_per_pack, si.supplier_code, si.purchase_unit FROM supplier_item si '
+                . 'JOIN sku s ON s.id = si.sku_id WHERE si.id = ? AND si.supplier_id = ? AND si.is_active = 1 AND s.merged_into_sku_id IS NULL', [$si, (int) $supplierId])
+            : $ctx->db->one('SELECT id AS sku_id, code, name, brand, NULL AS si_id, NULL AS units_per_pack, NULL AS supplier_code, NULL AS purchase_unit FROM sku '
+                . 'WHERE id = ? AND merged_into_sku_id IS NULL', [$sku]);
+        if ($row === null) {
+            return $none;
+        }
+        $choice = self::productChoice(['sku_id' => (int) $row['sku_id'], 'sku_code' => (string) $row['code'], 'name' => (string) $row['name'], 'brand' => $row['brand'],
+            'supplier_item_id' => $row['si_id'] === null ? null : (int) $row['si_id'], 'units_per_pack' => (int) ($row['units_per_pack'] ?? 1),
+            'supplier_code' => $row['supplier_code'], 'purchase_unit' => (string) ($row['purchase_unit'] ?? 'each')]);
+        return $choice['label'] === $q ? ['si' => $choice['si'], 'sku' => $choice['sku'], 'choice' => $choice] : $none;
+    }
+
+    /**
+     * The suppliers an order may be for (not stopped), as the supplier's box offers them: the name, and for one not usable yet its state
+     * ("Elux (not approved yet)" in the plain select; the script's list shows the state on the choice's second line).
+     *
+     * @return list<array{id: int, name: string, label: string, meta: string}>
+     */
+    public static function supplierChoices(Db $db): array
+    {
+        return array_map(static function (array $s): array {
+            $state = match ((string) $s['status']) {
+                'draft' => Words::ORDERS['not_approved'],
+                'pending_approval' => Words::ORDERS['waiting_ok'],
+                default => '',
+            };
+            return ['id' => (int) $s['id'], 'name' => (string) $s['name'], 'label' => $state === '' ? (string) $s['name'] : Words::say('PO_ONE', 'supplier_option', (string) $s['name'], $state),
+                'meta' => $state === '' ? '' : mb_strtoupper(mb_substr($state, 0, 1)) . mb_substr($state, 1)];
+        }, $db->all("SELECT id, name, status FROM supplier WHERE status <> 'inactive' ORDER BY name, id"));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -234,7 +652,16 @@ final class PurchaseOrdersController
         if ($doc->reversesId !== null) {
             return HtmlResponse::redirect(Html::url('/ui/purchasing/orders/' . $doc->reversesId, ['notice' => self::noticeKey($ctx)]));
         }
-        return $this->page($ctx, $doc->id, 200, null, $this->notice($ctx, $doc));
+        // What "+ Add new supplier" carried back on a draft (the scan box and a new item not made yet: the Codex review of a90d22d, finding 1).
+        $typed = [];
+        foreach (self::DRAFT_CARRIED as $k) {
+            $v = $ctx->req->param($k);
+            if ($v !== null) {
+                $typed[$k] = mb_substr($v, 0, 255);
+            }
+        }
+        return $this->page($ctx, $doc->id, 200, null, $this->notice($ctx, $doc), $typed === [] ? [] : ['typed' => $typed, 'q' => $typed['q'] ?? '',
+            'packs' => $typed['packs'] ?? '1']);
     }
 
     /** The notice named in the URL, with the number it names (F275, F279, F283). */
@@ -265,7 +692,7 @@ final class PurchaseOrdersController
         $code = $e->errorCode;
         return match (true) {
             // The page's own refusals are made in words already.
-            in_array($code, ['scan_pending', 'not_found', 'import_refused', 'no_file', 'upload_failed'], true) => $e->getMessage(),
+            in_array($code, ['scan_pending', 'not_found', 'import_refused', 'no_file', 'upload_failed', 'bad_number'], true) => $e->getMessage(),
             // The upload limit is this page's own refusal; any other too_large is the spreadsheet reader's (a sheet too big inside).
             $code === 'too_large' && $e->getMessage() === Words::say('BUY_ERROR', 'too_large', intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576)) => $e->getMessage(),
             $code === 'too_large' => Words::BUY_ERROR['too_large_inside'],
@@ -292,7 +719,11 @@ final class PurchaseOrdersController
         return preg_match('/[.!?]$/u', $s) === 1 ? $s : $s . '.';
     }
 
-    /** The editor's one form (spec §8.3): saves every edit, then adds what was scanned / searched / chosen. */
+    /**
+     * The draft's one form (spec §8.3; PO on one page, PX2): saves every edit, then does what was asked (apply()): Add (what was scanned,
+     * searched or chosen), Save, Confirm, "+ Add new supplier", "+ Add new item". The two "+ Add new" actions create something, so they run
+     * through FormOnce as well as the draft's version (sent twice: done once); the others carry the version only, as before.
+     */
     public function lines(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
@@ -311,75 +742,54 @@ final class PurchaseOrdersController
         if ($editable && ($count > PurchaseOrders::MAX_EDITOR_LINES || count($rows) < $count)) {
             return $ctx->error(400, 'form_truncated', Words::say('ORDER', 'too_many', self::editorMaxLines()));
         }
+        $ask = self::asked($req);
+        $denied = self::denied($ctx, $ask['action']);
+        if ($denied !== null) {
+            return $denied;
+        }
         $svc = $this->service($ctx);
         $typed = $req->post;
-        $choices = null;
-        $q = trim($req->field('q') ?? '');
-        try {
+        $q = $ask['q'];
+        $kept = ['typed' => $typed, 'q' => $q, 'packs' => $req->field('packs') ?? '1'];
+        $remove = UiRequest::id($req->field('remove_line'));
+        // The draft's lines as the form edited them, read and checked when the work is done: for a "+ Add new" inside FormOnce, so the same
+        // form sent again is answered by its first answer, never refused by the line it added (the Codex review of bd26fc3, finding 3).
+        $edited = function () use ($svc, $id, $req, $editable, $count, $remove): array {
             $current = $svc->lines($id);
-            $lines = $editable ? self::editedLines($req, $current, $count) : $current;
-            $charge = trim($req->field('charge_amount') ?? '');
-            if ($charge !== '') {
-                $lines[] = ['kind' => 'charge', 'description' => $req->field('charge_description'), 'pack_price' => $charge,
-                    'vat_code' => ($req->field('charge_vat') ?? '') === '' ? null : $req->field('charge_vat')];
+            return self::withCharge($req, $editable ? self::editedLines($req, $current, $count, $remove) : $current);
+        };
+        try {
+            $header = self::header($req, true);
+            if ($ask['action'] === 'approve' && $q !== '') {
+                return $this->page($ctx, $id, 422, new CwException('scan_pending', Words::say('BUY_ERROR', 'scan_pending', $q), 422), null, $kept);
             }
-            $header = [];
-            foreach (['expected_date', 'external_ref', 'note', 'doc_date', 'supplier_id'] as $k) {
-                $v = $req->field($k);
-                if ($v !== null && ($k !== 'supplier_id' || $v !== '')) {
-                    $header[$k] = $v;
-                }
+            if ($ask['action'] === 'new_supplier' || $ask['action'] === 'new_item') {
+                $r = FormOnce::run($ctx, 'ui.po.' . $ask['action'], ['id' => $id] + self::request($req), function (Db $db) use ($ctx, $req, $svc, $id, $version, $header, $edited, $ask): OpResult {
+                    $res = $this->apply($ctx, $svc, $id, $version, $header, $edited(), $ask);
+                    return OpResult::of(303, ['result' => $res['status'], 'document_id' => $id, 'redirect' => $res['status'] === 'supplier_added'
+                        ? Html::url('/ui/purchasing/orders/' . $id, ['notice' => 'supplier_added'] + self::carried($req, self::DRAFT_CARRIED)) : self::after($id, $res['status'])]);
+                });
+                return FormOnce::redirect($r);
             }
-            $packs = PoLinesFile::wholeNumber($req->field('packs') ?? '1') ?? 0;
-            $addSku = UiRequest::id($req->field('add_sku'));
-            $addSi = UiRequest::id($req->field('add_si'));
-            $approving = $req->field('action') === 'approve' && $addSku === null && $addSi === null;
-            if ($approving && $q !== '') {
-                return $this->page($ctx, $id, 422, new CwException('scan_pending', Words::say('BUY_ERROR', 'scan_pending', $q), 422), null,
-                    ['typed' => $typed, 'q' => $q, 'packs' => $req->field('packs') ?? '1']);
-            }
-            $adding = $addSku !== null || $addSi !== null || ($req->field('action') === 'add' && $q !== '');
-            // Pack PO (PO4): "Add a new item" saves the table, then opens the step with what is in the scan box.
-            $newItem = $req->field('action') === 'new_item' && !$adding;
-            $result = $ctx->db->transaction(function () use ($ctx, $svc, $id, $version, $header, $lines, $adding, $approving, $addSku, $addSi, $q, $packs): array {
-                $doc = $svc->saveDraft($ctx->caller(), $id, $version, $header, $lines);
-                if ($approving) {
-                    // Review finding: "Approve" sits in the editor form, so what is approved is what the buyer sees, typed
-                    // edits included; save and approval are one transaction (a refused approval saves nothing, and the
-                    // page comes back with what was typed).
-                    $d = $svc->approve($ctx->caller(), $id, $doc->version);
-                    return ['status' => $d->status === 'awaiting_approval' ? 'submitted' : 'approved', 'document' => $d];
-                }
-                if (!$adding) {
-                    return ['status' => 'saved', 'document' => $doc];
-                }
-                if ($addSi !== null) {
-                    return $svc->addSupplierItem($ctx->caller(), $id, $doc->version, $addSi, max(1, $packs));
-                }
-                $code = $addSku !== null ? (string) ($ctx->db->value('SELECT code FROM sku WHERE id = ?', [$addSku]) ?? '') : $q;
-                return $svc->addLine($ctx->caller(), $id, $doc->version, $code, max(1, $packs));
-            });
+            $lines = $edited();
+            $result = $ctx->db->transaction(fn (): array => $this->apply($ctx, $svc, $id, $version, $header, $lines, $ask));
         } catch (CwException $e) {
             if ($e->errorCode === 'version_conflict') {
                 return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::BUY_ERROR['version_conflict'], 409));
             }
-            // Review finding 5 (pack PO, PO7): nothing was saved, so what was still to add comes back too: the scan text, its packs and
-            // the charge (the form's charge fields are drawn from `typed`), as well as the table's edits.
-            return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typed' => $typed, 'q' => $q, 'packs' => $req->field('packs') ?? '1']);
+            // Review finding 5 (pack PO, PO7): nothing was saved, so what was still to add comes back too: the scan text, its packs, the
+            // charge and a "+ Add new" form (said in that form), as well as the table's edits.
+            $panel = self::panelError($ask['action'], $e);
+            return $this->page($ctx, $id, $e->httpStatus, $panel === [] ? $e : null, null, $kept + $panel + ['formKey' => PoAddNew::keyAgain($ctx, $e)]);
         }
         if ($result['status'] === 'choices') {
-            $choices = $result['choices'];
-            return $this->page($ctx, $id, 200, null, null, ['choices' => $choices, 'q' => $q, 'packs' => max(1, $packs)]);
-        }
-        if ($newItem && $result['status'] === 'saved') {
-            return HtmlResponse::redirect(Html::url('/ui/purchasing/orders/' . $id . '/new-item', ['q' => $q === '' ? null : $q, 'packs' => (string) max(1, $packs)]));
+            return $this->page($ctx, $id, 200, null, null, ['choices' => $result['choices'], 'q' => $q, 'packs' => max(1, $ask['packs'])]);
         }
         if ($result['status'] === 'not_found') {
             return $this->page($ctx, $id, 422, new CwException('not_found', Words::say('BUY_ERROR', 'not_found', $q), 422), null, ['q' => $q,
                 'packs' => $req->field('packs') ?? '1']);
         }
-        return HtmlResponse::redirect(Html::url('/ui/purchasing/orders/' . $id, ['notice' => $result['status']])
-            . (in_array($result['status'], ['approved', 'submitted'], true) ? '' : '#scan'));
+        return HtmlResponse::redirect(self::after($id, $result['status'] === 'saved' && $remove !== null ? 'removed' : $result['status']));
     }
 
     /** The lines file import (multipart `file`, `mode` append | replace, `version`): all or nothing. */
@@ -523,9 +933,10 @@ final class PurchaseOrdersController
     // ------------------------------------------------------------------------------------------
 
     /**
-     * The order's page: the editor for its creator while it is a draft, else the read-only view with the actions the
+     * The order's page: the one page (the editor) for its creator while it is a draft, else the read-only view with the actions the
      * person may use; also after a refused form (the error shown, answered under its status). $extra: typed (the posted
-     * values to show again), choices + q + packs (an ambiguous search), importErrors.
+     * values to show again), choices + q + packs (an ambiguous search), importErrors, and oneData()'s (a "+ Add new" form's refusal,
+     * the form key to draw again).
      *
      * @param array<string, mixed> $extra
      */
@@ -605,8 +1016,7 @@ final class PurchaseOrdersController
             'state' => $state,
             'warnings' => in_array($doc->status, ['draft', 'awaiting_approval'], true)
                 ? self::withoutSupplierWarning(PoWarnings::plain($svc->warnings($doc->id), $supplierName, $products), $supplier, $supplierName) : [],
-            'supplierNeeds' => $doc->status === 'draft'
-                ? self::supplierNeeds($supplier, $supplierName, !\CW\Admin\ApprovalRules::on($db, 'approvals.supplier_activation')) : null, // pack PO (PO3)
+            'supplierNeeds' => $doc->status === 'draft' ? self::supplierNeeds($supplier, $supplierName) : null, // pack PO (PO3); one line since PX9
             'companyNote' => self::companyNote($ctx, $po),
             'limit' => $okFirst ? Html::money($limit) : null,
             'overLimit' => $okFirst && $netE2 > 0 && PoMath::approvalUnits($netE2) > $limit,
@@ -619,61 +1029,39 @@ final class PurchaseOrdersController
         ];
         $layout = ['title' => $data['title'], 'active' => 'orders', 'notice' => $notice];
         if ($editor) {
-            $count = count($lines);
+            // PO on one page (PX1-PX9): the draft is the same page as a new order, now with its products.
             $data += [
                 'editable' => self::editorFits($lines),
                 'maxLines' => self::editorMaxLines(),
-                'typed' => $extra['typed'] ?? [],
-                'choices' => $extra['choices'] ?? null,
-                'q' => $extra['q'] ?? '',
-                'packs' => (string) ($extra['packs'] ?? '1'),
                 'vatCodes' => $db->all('SELECT code, label FROM vat_code WHERE is_active = 1 ORDER BY sort_order, code'),
-                'suppliers' => $count === 0 ? $db->all("SELECT id, code, name, status FROM supplier WHERE status <> 'inactive' ORDER BY name, id") : [],
-                'today' => (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d'),
+                'info' => ['doc_date' => (string) ($extra['typed']['doc_date'] ?? $doc->docDate), 'expected_date' => (string) ($extra['typed']['expected_date'] ?? ($po['expected_date'] ?? '')),
+                    'external_ref' => (string) ($extra['typed']['external_ref'] ?? $doc->externalRef), 'note' => (string) ($extra['typed']['note'] ?? $doc->note)],
                 'fileColumns' => array_values(array_diff(PoLinesFile::COLUMNS, ['line', 'item_name'])),
                 'maxMb' => intdiv(PoLinesFile::MAX_BYTES, 1_048_576),
                 'maxRows' => PoLinesFile::MAX_ROWS,
                 'cancelReasons' => self::reasonChoices($db, 'draft_cancel'),
-                // --- Pack PO (PO2-PO5): select or add new.
-                'canAddSupplier' => $count === 0 && $me->can('suppliers.manage'),
-                'askSupplier' => $count === 0 ? Words::say('PO_ADD', 'ask_supplier', Words::whoCan('suppliers.manage')) : null,
-                'newSupplier' => ($extra['newSupplier'] ?? []) + ['name' => '', 'email' => '', 'phone' => ''],
-                'newSupplierError' => $extra['newSupplierError'] ?? null,
-                'canAddItem' => $me->can('items.create'),
-                'askItem' => Words::say('PO_ADD', 'ask_item', Words::whoCan('items.create')),
-                // --- end of pack PO
-            ];
+            ] + $this->oneData($ctx, $doc, UiRequest::id(is_string($extra['typed']['supplier_id'] ?? null) ? $extra['typed']['supplier_id'] : null) ?? (int) ($po['supplier_id'] ?? 0),
+                count($lines), $extra);
             return $ctx->page('purchase_order_edit', $data, $status, $layout);
         }
         return $ctx->page('purchase_order', $data + $this->viewData($ctx, $doc, $po, $canPost, $supplierName), $status, $layout);
     }
 
     /**
-     * Pack PO (PO3): what a supplier that is not approved yet still needs before an order to it can be confirmed, in steps, with the
-     * link to its page; null when it is active (or stopped: the warnings say that). The approval rule itself is the existing one
-     * (PurchaseOrderHandler::validate): this only says it plainly.
+     * Pack PO (PO3), one line since PO on one page (PX9): a supplier not approved yet is said once, with the link to its page: the order is
+     * saved, not confirmed (the rule itself is PurchaseOrderHandler::validate's, unchanged); null when it is active (or stopped: the warnings
+     * say that).
      *
      * @param array<string, mixed> $supplier the supplier row
-     * @param bool $alone the second person for a supplier is switched off (approvals.supplier_activation): its buyer makes it usable
-     * @return array{title: string, lead: string, steps: list<string>, link: string}|null
+     * @return array{text: string, link: string}|null
      */
-    public static function supplierNeeds(array $supplier, string $name, bool $alone = false): ?array
+    public static function supplierNeeds(array $supplier, string $name): ?array
     {
         $status = (string) ($supplier['status'] ?? '');
         if (!in_array($status, ['draft', 'pending_approval'], true)) {
             return null;
         }
-        $link = '/ui/purchasing/suppliers/' . (int) ($supplier['id'] ?? 0);
-        if ($status === 'pending_approval') {
-            return ['title' => Words::PO_ADD['needs_title'], 'lead' => Words::say('PO_ADD', 'needs_pending', $name), 'steps' => [], 'link' => $link];
-        }
-        $missing = \CW\Suppliers\Suppliers::missing($supplier);
-        return ['title' => Words::PO_ADD[$alone ? 'needs_title_alone' : 'needs_title'], 'lead' => Words::say('PO_ADD', 'needs_new', $name),
-            'steps' => array_values(array_filter([
-                $missing === [] ? null : Words::say('PO_ADD', 'needs_fill', SuppliersController::fields($missing)),
-                Words::PO_ADD[$alone ? 'needs_activate' : 'needs_ask'],
-                Words::PO_ADD[$alone ? 'needs_then' : 'needs_reviewer'],
-            ])), 'link' => $link];
+        return ['text' => Words::say('PO_ONE', $status === 'draft' ? 'not_approved' : 'waiting', $name), 'link' => '/ui/purchasing/suppliers/' . (int) ($supplier['id'] ?? 0)];
     }
 
     /**
@@ -927,12 +1315,13 @@ final class PurchaseOrdersController
 
     /**
      * The editor's lines with the table's edits applied (rows 1..$count): packs (0 removes the line), pack price, VAT code,
-     * note; for a line without a supplier item also units per pack and "save as supplier item"; a charge's "remove" box.
+     * note; for a line without a supplier item also units per pack and "save as supplier item"; a charge's "remove" box; $remove: the row
+     * whose remove was pressed (PO on one page, PX4). A field the page does not draw keeps the line's value.
      *
      * @param list<array<string, mixed>> $current
      * @return list<array<string, mixed>>
      */
-    private static function editedLines(UiRequest $req, array $current, int $count): array
+    private static function editedLines(UiRequest $req, array $current, int $count, ?int $remove = null): array
     {
         if ($count !== count($current)) {
             throw new CwException('version_conflict', 'the lines changed since this page was drawn', 409);
@@ -940,6 +1329,9 @@ final class PurchaseOrdersController
         $out = [];
         foreach ($current as $i => $l) {
             $n = $i + 1;
+            if ($n === $remove) {
+                continue; // the row's remove (PO on one page, PX4): not read (the Codex review of a90d22d, finding 3)
+            }
             $packs = trim($req->field("line_{$n}_packs") ?? '');
             $p = PoLinesFile::wholeNumber($packs);
             if ($p === null) {

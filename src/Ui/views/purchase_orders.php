@@ -35,9 +35,6 @@
 <?php endif; ?>
 </form>
 
-<?php if ($error !== null): ?>
-<p class="error" role="alert"><?= $e($error) ?></p>
-<?php endif; ?>
 <details class="fold how">
   <summary><?= $word('ORDERS', 'how') ?></summary>
   <ol>
@@ -53,49 +50,6 @@
   <p><?= $word('ORDERS', 'how_fix') ?></p>
 </details>
 
-<?php if ($formKey !== null): ?>
-<details class="fold new-order drawer" id="new"<?php if ($error !== null || $rows === []): ?> open<?php endif; ?>>
-  <summary><?= $word('ORDERS', 'new') ?></summary>
-<?php if ($newSuppliers === []): ?>
-  <?= $empty(\CW\Ui\Words::ORDERS['no_supplier'], \CW\Ui\Words::ORDERS['no_supplier_text'], '/ui/purchasing/suppliers/new', \CW\Ui\Words::ORDERS['add_supplier']) ?>
-<?php else: ?>
-  <p class="hint"><?= $word('ORDERS', 'new_text') ?></p>
-  <form class="inline" method="post" action="/ui/purchasing/orders">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
-    <input type="search" class="select-filter" data-filter-select="new-order-supplier" hidden maxlength="60" placeholder="<?= $word('PO_ADD', 'filter') ?>" aria-label="<?= $word('PO_ADD', 'filter') ?>">
-    <label><?= $word('ORDERS', 'supplier') ?>
-      <select name="supplier_id" id="new-order-supplier" required>
-        <option value=""><?= $word('ORDERS', 'choose_supplier') ?></option>
-<?php foreach ($newSuppliers as $s): ?>
-        <option value="<?= $e($s['id']) ?>"<?php if ($filters['supplier'] === (int) $s['id']): ?> selected<?php endif; ?>><?php if ($s['status'] === 'active'): ?><?= $e($s['name']) ?><?php else: ?><?= $say('ORDERS', 'not_ready', (string) $s['name'], $s['status'] === 'draft' ? \CW\Ui\Words::ORDERS['not_approved'] : \CW\Ui\Words::ORDERS['waiting_ok']) ?><?php endif; ?></option>
-<?php endforeach; ?>
-      </select>
-    </label>
-    <button type="submit" class="primary"><?= $word('ORDERS', 'new') ?></button>
-  </form>
-<?php endif; ?>
-<?php if ($canAddSupplier): ?>
-  <details class="fold add-new" id="new-supplier"<?php if ($newSupplierError !== null || $newSuppliers === []): ?> open<?php endif; ?>>
-    <summary><?= $word('PO_ADD', 'new_supplier') ?></summary>
-    <p class="hint"><?= $word('PO_ADD', 'new_supplier_text') ?></p>
-<?php if ($newSupplierError !== null): ?>
-    <p class="error" role="alert"><?= $e($newSupplierError) ?></p>
-<?php endif; ?>
-    <form class="record" method="post" action="/ui/purchasing/orders/new-supplier">
-      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-      <input type="hidden" name="form_key" value="<?= $e($supplierKey) ?>">
-      <label><?= $word('PO_ADD', 'new_supplier_name') ?> <input type="text" name="new_supplier_name" maxlength="128" required value="<?= $e($newSupplier['name']) ?>"></label>
-      <label><?= $word('PO_ADD', 'new_supplier_email') ?> <input type="email" name="new_supplier_email" maxlength="191" value="<?= $e($newSupplier['email']) ?>"></label>
-      <label><?= $word('PO_ADD', 'new_supplier_phone') ?> <input type="tel" name="new_supplier_phone" maxlength="32" value="<?= $e($newSupplier['phone']) ?>"></label>
-      <p class="actions"><button type="submit" class="primary"><?= $word('PO_ADD', 'new_supplier_start') ?></button></p>
-    </form>
-  </details>
-<?php elseif ($canPost): ?>
-  <p class="hint"><?= $e($askSupplier) ?></p>
-<?php endif; ?>
-</details>
-<?php endif; ?>
 <?php if ($draftsHidden): ?>
 <p class="note drafts-hidden"><?= $word('ORDERS', 'drafts_hidden') ?> <a href="<?= $u('/ui/purchasing/orders', ['supplier' => $filters['supplier'], 'q' => $filters['q'] === '' ? null : $filters['q'], 'rejected' => $filters['rejected'] ? '1' : null, 'show' => $filters['all'] ? 'all' : null, 'drafts' => '1']) ?>"><?= $word('ORDERS', 'drafts_show') ?></a></p>
 <?php endif; ?>
@@ -145,8 +99,8 @@ $order = array_values(array_filter(['draft', 'awaiting_approval', 'approved', 's
         <td class="c-wide" data-label="<?= $word('ORDERS', 'col_next') ?>"><?= $e($r['next']) ?></td>
       </tr>
 <?php endforeach; ?>
-<?php if ($g === 'draft' && $formKey !== null): ?>
-      <tr class="grp-add"><td colspan="8" data-label=""><a class="add-item" href="#new"><?= $word('ORDERS', 'add_row') ?></a></td></tr>
+<?php if ($g === 'draft' && $canPost): ?>
+      <tr class="grp-add"><td colspan="8" data-label=""><a class="add-item" href="/ui/purchasing/orders/new"><?= $word('ORDERS', 'add_row') ?></a></td></tr>
 <?php endif; ?>
 <?php if ($g !== 'cancellation'): ?>
       <tr class="grp-foot">

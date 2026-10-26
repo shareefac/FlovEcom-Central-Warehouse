@@ -47,6 +47,7 @@ final class UiTemplatesTest extends TestCase
             'by_product_options', // By Item's quick match: the fragment app.js draws into a cell (the owner's request of 20 Oct 2026)
             'by_item_preview', 'new_variants', 'one_at_a_time',
             'simple_match', 'simple_match_options', // Products › Simple matching and its cell's choices (docs/decisions.md SM1-SM9)
+            'po_products', // the purchase order's product box: its choices (docs/decisions.md PX8)
             'store_new_preview', // Store Products' "Create new warehouse products for these" (docs/decisions.md NF7)
             'listing_check', 'check_fold', // the lists' Check & match fold and its fragment (docs/decisions.md CM1)
             'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before',
@@ -231,7 +232,7 @@ final class UiTemplatesTest extends TestCase
             'suppliers', 'supplier', 'supplier_form', 'supplier_items', 'supplier_item', 'supplier_item_form', 'item_cards', 'item_card_form', 'item_cards_import',
             'barcode_reviews', 'stock', 'stock_movements', 'stock_reservations', 'stock_reservation',
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D (docs/decisions.md PD13)
-            'purchase_order_new_item', 'po_supplier_needs'] as $name) { // the last two: pack PO (PO3, PO4)
+            'po_supplier_needs', 'po_products'] as $name) { // pack PO (PO3); PO on one page (PX8): the product box's choices
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {
@@ -461,7 +462,7 @@ final class UiTemplatesTest extends TestCase
                 'query' => [], 'current' => false], ['n' => 2, 'key' => 'orders', 'label' => 'Purchase Order', 'text' => '', 'href' => null, 'query' => [], 'current' => false]],
             'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
         self::assertStringContainsString('<div class="ph-actions"><div class="split">', $html, 'the page\'s create button: on the right of its statement');
-        self::assertStringContainsString('<a class="btn primary sm split-main" href="/ui/purchasing/orders#new"><span class="ico ico-plus" aria-hidden="true"></span><span>New purchase order</span></a>', $html);
+        self::assertStringContainsString('<a class="btn primary sm split-main" href="/ui/purchasing/orders/new"><span class="ico ico-plus" aria-hidden="true"></span><span>New purchase order</span></a>', $html);
         self::assertStringContainsString('<li><a class="menu-item" href="/ui/purchasing/suppliers/new">New supplier</a></li>', $html, 'the split button\'s menu: the section\'s other create actions');
         $f = Sections::frame(['goods_in'], [], '/ui/receiving');
         $one = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],

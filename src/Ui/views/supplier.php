@@ -277,7 +277,7 @@
   </div>
 <?php endif; ?>
   <p class="actions"><a href="<?= $u('/ui/purchasing/orders', ['supplier' => $s['id']]) ?>"><?= $word('SUPPLIER', 'all_orders') ?></a><?php if ($canOrder): ?>
-    <a href="<?= $u('/ui/purchasing/orders', ['supplier' => $s['id']]) ?>#new"><?= $word('SUPPLIER', 'new_order') ?></a><?php endif; ?></p>
+    <a href="<?= $u('/ui/purchasing/orders/new', ['supplier' => $s['id']]) ?>"><?= $word('SUPPLIER', 'new_order') ?></a><?php endif; ?></p>
 </section>
 <?php endif; ?>
 

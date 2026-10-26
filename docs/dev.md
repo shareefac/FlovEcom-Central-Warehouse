@@ -648,7 +648,7 @@ Document and file tests notes:
 | Path | What |
 |---|---|
 | `migrations/0042_po_select_or_add.sql` | `purchase_order.terms_snapshot` (the terms as approved), `goods_receipt.invoice_part` and the UNIQUE key (supplier, invoice key, part) of a live invoice number |
-| `src/Ui/Controller/PoSelectOrAddController.php`, views `purchase_order_new_item`, `po_supplier_needs` | "Add a new supplier" (the list, a draft without products) and the step "Add a new item" (`/ui/purchasing/orders/{id}/new-item`); what a supplier not usable yet still needs |
+| `src/Ui/Controller/PoAddNew.php` (was `PoSelectOrAddController`), view `po_supplier_needs` | "+ Add new supplier" / "+ Add new item" on the order's one page since PX (the step page and its routes are gone); a supplier not usable yet, in one line |
 | `src/PurchaseOrders/PurchaseOrders.php` | + `createWithNewSupplier`, `setNewSupplier`, `addNewItem` (one transaction each), `reopen`; `reverseReceipt` on a closed order; `pdfData` prints the terms as approved |
 | `src/PurchaseOrders/PoLinesFile.php` | `PRECEDENCE`: a row's most precise identifier names its line, the others are resolved within it |
 | `src/Reorder/DraftPos.php`, `ReorderController` | a pick carries the supplier item and pack the list showed; a changed one is skipped (`why` changed, `?changed=` on the redirect) |
@@ -656,9 +656,30 @@ Document and file tests notes:
 
 - Tests: `tests/Integration/PurchaseOrders/{PoSelectOrAddTest,PurchaseOrderReviewFixesTest}.php`, `tests/Integration/Receiving/
   ClosedOrderAndSplitInvoiceTest.php`, `tests/Integration/Reorder/ReorderDraftAsShownTest.php`, `tests/Integration/UiKernel/
-  {PoSelectOrAddScreensTest,PurchaseOrderFixesScreensTest}.php` (every new POST: its CSRF token and its route's permission), `Migration0042Test`.
-  A screen test that changes the PO rule (`document_type`, a seed table) puts its row back in tearDown. The search box over the supplier list
-  is `input[data-filter-select]` (hidden; `app.js` shows it): `UiResponse::form()` skips it (it has no name).
+  PurchaseOrderFixesScreensTest.php` (every new POST: its CSRF token and its route's permission), `Migration0042Test`.
+  A screen test that changes the PO rule (`document_type`, a seed table) puts its row back in tearDown. (`PoSelectOrAddScreensTest` and the
+  supplier list's search box went with PO on one page, below.)
+
+
+### PO on one page: the order's single view (`docs/decisions.md` PX1-PX10)
+
+| Path | What |
+|---|---|
+| `src/Ui/Controller/PurchaseOrdersController.php` | `newPage` (`GET /ui/purchasing/orders/new`, no draft), `create` (`POST /ui/purchasing/orders`: FormOnce; the draft and the form applied in one transaction, rolled back when nothing is kept), `lines` (a draft's one form; `new_supplier` / `new_item` also FormOnce), `apply`, `asked`, `oneData`, `products` (`GET /ui/purchasing/orders/products`, the product box's choices) |
+| `src/Ui/Controller/PoAddNew.php` | the "+ Add new" small forms' fields (`new_supplier_*`, `item_*`) and their refusals in words |
+| `src/PurchaseOrders/PurchaseOrders.php` | `newSupplier` (the supplier alone, before the order exists), `setNewSupplier` (+ the details and the charge typed with it) |
+| views `purchase_order_edit` (the one page: the board of products, "+ Add product" as its last row, the summary card), `po_products` (fragment) | |
+| `public/ui/assets/app.js` | `combo(input, list, cfg)`: SM11's dropdown as one engine for Simple matching's cells, the supplier box and the product box; the "+ Add new" last line, `openPanel`, the folds `details[data-po-panel]` |
+| `src/Ui/Words.php` | `PO_ONE`, `PO_ADD`, `askToAdd()` |
+
+- Tests: `tests/Integration/UiKernel/PoOnePageScreensTest.php` (the page, the draft rule, both "+ Add new", who sees what, CSRF on every POST,
+  without the script, the choices fragment), `PoSelectOrAddTest` (the services), `UiSecurityTest::testThePurchaseOrdersOnePageOverHttp` (slot ui),
+  `UiUnitTest::testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct` (the JS and CSS pins), `WordsTest::testThePurchaseOrderPageSaysAddNewAndWhoToAsk`.
+  The new page's form is `$r->form('/ui/purchasing/orders')` (`csrf`, `form_key` first); a draft's is still `$r->form('/lines')` (`csrf`, `version`,
+  `line_count`, `lines_editable` first). The page draws no lines-file or cancel form while the order fits it: a test posts those routes with the
+  page's `csrf` and `version`. The dropdowns' behaviour (a choice kept as itself, nothing marked after new words, the choice kept after a
+  refusal) is pinned by strings in `UiUnitTest`; the repo has no JS runner, and the node harness of the Codex review (a minimal DOM, app.js's
+  own code) lives outside it (`/root/cw_work/runs/poone_js_harness/`, run on the test machine).
 
 
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")

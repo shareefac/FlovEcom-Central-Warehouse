@@ -1882,10 +1882,6 @@ p.seg-links { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center
 p.seg-links a, p.seg-links strong { display: inline-flex; align-items: center; min-height: 44px; }
 form.count-answer { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-end; }
 
-/* Pack PO (docs/decisions.md PO2-PO4): select or add new on the order screens. */
-input.select-filter { display: block; max-width: 24rem; margin: 0 0 6px; }
-.supplier-needs ol { margin: 4px 0 8px 1.4em; padding: 0; }
-.po-editor .add-new { margin-top: 8px; }
 
 /* ---------- 23. Sign-in: two halves (stacked on a phone). Left, the brand panel: deep plum with two soft glows, faint large brand shapes,
    a dot grid, the logo on a white tile, an eyebrow, the headline statement, one line, four short bars in the brand's tints and
@@ -2109,3 +2105,29 @@ table.simple-match details.sm-more[open] > summary { margin-bottom: 6px; }
   table.stack.simple-match tr.here { background: var(--row-selected); border: 1.5px solid var(--accent); }
 }
 /* ==== end simple-matching ========================================================================================================= */
+/* ==== po-one-page (branch po-one-page, docs/decisions.md PX1-PX10) ==============================================================
+   The purchase order on one page, in the board look already here (v4: .board, .grp-add, .card, .btn): the supplier's box and the product
+   box with the site's one dropdown (.sm-list, SM11), whose last line is "+ Add new …" (an action, in the accent colour) or the line naming
+   whom to ask (not a choice); the board of products with a remove on each row and "+ Add product" (the scan box) as its last row; the two
+   small "+ Add new" forms; one summary card. The form's first button (Add: what Enter presses) is in the form but not on the screen.
+   Layout only: no new colours or type. 44 px to tap, 16 px in a box. */
+form.po-editor > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+form.po-editor .po-box-field { display: grid; gap: 4px; flex: 1 1 18rem; min-width: 0; }
+form.po-editor .po-box-field select, form.po-editor .po-box-field input[type="search"], form.po-editor input.po-box { width: 100%; min-height: 44px; font-size: 16px; }
+.sm-list > li.sm-add { color: var(--accent-hover); font-weight: 600; }
+.sm-list > li.sm-ask { color: var(--ink-muted); cursor: default; }
+.sm-list > li.sm-ask:hover { background: none; }
+table.po-lines .po-add-row > td { padding: 8px; }
+table.po-lines .po-add-line { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
+table.po-lines .po-add-line .po-packs { flex: 0 0 auto; }
+table.po-lines .po-x { min-width: 44px; min-height: 44px; padding: 0 10px; font-size: 20px; line-height: 1; }
+form.po-editor details.po-add { flex: 1 1 100%; margin: 8px 0 0; }
+form.po-editor details.po-add > summary { display: flex; align-items: center; min-height: 44px; color: var(--accent-hover); font-weight: 600; cursor: pointer; }
+form.po-editor details.po-add label { display: block; max-width: 28rem; margin: 8px 0; }
+form.po-editor details.po-add input:not([type="checkbox"]) { width: 100%; min-height: 44px; font-size: 16px; }
+form.po-editor details.po-add label.choice { display: flex; gap: 8px; align-items: center; }
+form.po-editor details.po-add input.short { max-width: 10rem; }
+form.po-editor details.po-add .same-items li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 0; }
+form.po-editor .po-ask, form.po-editor .po-fixed { flex: 1 1 100%; margin: 0; }
+section.po-summary dl input { max-width: 8rem; min-height: 40px; }
+/* ==== end po-one-page ============================================================================================================== */

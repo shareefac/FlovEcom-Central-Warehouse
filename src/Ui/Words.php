@@ -37,7 +37,7 @@ final class Words
         'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
-        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'REORDER', 'WHY',
+        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'REORDER', 'WHY',
         'REORDER_ITEM', 'BRANDS', 'ANOMALIES', 'REORDER_NOTICE', 'SALES', 'SUPPLIERS', 'SUPPLIER', 'SUPPLIER_FIELD', 'SUPPLIER_FORM', 'SUPPLIER_NOTICE', 'SUPPLIER_ITEMS', 'SI_NOTICE',
         'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
         'SELLING', 'SELLING_NOTICE', 'SITE_SYNC', 'SELLING_ERROR', 'MODE_MEANING', 'RECEIPT_STATE', 'BENCH_STATE', 'INCIDENT_WHERE',
@@ -580,10 +580,10 @@ final class Words
         // --- end of Pack G
         'sales_history' => ['Daily website sales that Reorder uses. ' . self::ASK . ' loads them from the websites.',
             'If a website product is not matched to a warehouse product, its sales are not used: the list below shows the biggest ones.'],
-        'orders' => ['Every order to a supplier.', 'Start a new one below, or open one to see where it is.'],
-        'order_draft' => ['A new order, not confirmed yet.', 'Add products by scanning or searching, check packs and prices, then confirm it. An order over the approval limit goes to a reviewer first.'],
+        'orders' => ['Every order to a supplier.', 'Press "New purchase order" to start one, or open one to see where it is.'],
+        'order_new' => ['A new order to a supplier.', ''], // PO on one page (docs/decisions.md PX1)
+        'order_draft' => ['A new order, not confirmed yet.', 'Over the approval limit, a reviewer OKs it first.'], // correction f
         // Pack PO (PO4): the step "Add a new item" of the order editor.
-        'order_new_item' => ['Make a new item and put it on this order in one step.', 'Fill in what you know: only the name is needed. You come back to the order afterwards.'],
         'order' => ['One order: what was ordered, where it is now, and what to do next.', ''],
         'suppliers' => ['The companies we buy from.', 'A new supplier needs a reviewer\'s OK before you can order from it.'],
         'supplier_form' => ['A supplier\'s details.', 'Fill them in, save them as a draft, then ask a reviewer to approve the supplier.'],
@@ -5700,7 +5700,7 @@ final class Words
         'filter' => 'Show',
         'download' => 'Download for Excel (CSV)',
         'none' => 'No purchase orders yet.',
-        'none_buyer' => 'Choose a supplier above and press "Start a new order".',
+        'none_buyer' => 'Press "New purchase order" to start one.',
         'none_text' => 'When a buyer starts one, it shows here.',
         'none_filter' => 'No order matches these filters.',
         'none_filter_text' => 'Clear the filters to see every order.',
@@ -5983,8 +5983,9 @@ final class Words
         'withdrawn' => 'Request cancelled: the order is a draft again.',
         'reopened' => 'Reopened: the rest of the order is expected again.', // pack PO (PO8)
         // Pack PO (PO1-PO6): select or add new.
-        'supplier_added' => 'New supplier added and put on this order. You can add products now. The order can be confirmed once the supplier is approved: see the note below.',
+        'supplier_added' => 'New supplier added. Add the products now; the order can be confirmed once the supplier is approved.',
         'item_added' => 'The new item was made and added to the order.',
+        'removed' => 'Removed from the order.', // PO on one page (PX4): a row's remove
         'approved_review' => 'Saved: you said OK.',
         'approved_posted' => 'Done: the order has its PO number now, in the buyer\'s name.',
         'rejected_recorded' => 'Saved: you said not OK. The buyer will cancel or correct the order.',
@@ -6107,52 +6108,62 @@ final class Words
      * chooses a supplier or a product, choose one that is there or add a new one without leaving the order.
      */
     public const PO_ADD = [
-        // The supplier: choose one, or add a new one
-        'filter' => 'Type to narrow the list',
-        'new_supplier' => 'Supplier not in the list? Add a new supplier',
-        'new_supplier_text' => 'Type its name. It is added as a new supplier and put on this order at once. Its other details are filled in on its own page later.',
-        'new_supplier_name' => 'Supplier name (required)',
-        'new_supplier_email' => 'E-mail (optional)',
-        'new_supplier_phone' => 'Phone (optional)',
-        'new_supplier_start' => 'Add the supplier and start the order',
-        'new_supplier_set' => 'Add the supplier and put it on this order',
-        'ask_supplier' => 'Supplier not in the list? %s can add a new one: ask them.',
-        // What a supplier that is not approved yet still needs before the order can be confirmed
-        'needs_title' => 'Supplier waiting for approval',
-        'needs_new' => '%s is a new supplier. You can save this order now. Before it can be confirmed:',
-        'needs_fill' => 'Fill in its details: %s.',
-        'needs_ask' => 'Ask for its approval on its page.',
-        'needs_reviewer' => 'A reviewer approves it. Then confirm this order.',
-        'needs_pending' => '%s is waiting for a reviewer\'s approval. You can save this order now, and confirm it once the supplier is approved.',
-        'needs_link' => 'Open the supplier',
-        // The same while the second person for a supplier is switched off on the Approval Rules page (its buyer makes it usable).
-        'needs_title_alone' => 'Supplier not usable yet',
-        'needs_activate' => 'Make it usable on its page: no second person is needed (that is switched off on the Approval Rules page).',
-        'needs_then' => 'Then confirm this order.',
-        // The product of a line: scan or search, or add a new one
-        'new_item' => 'Add a new item',
-        'new_item_does' => 'For a product the system does not have yet. Your changes in the table are saved first.',
-        'ask_item' => 'Product not found? %s can add a new item: ask them.',
-        // The step page "Add a new item"
-        'item_title' => 'Add a new item to the order for %s',
-        'item_name' => 'Item name (required)',
+        // PO on one page (docs/decisions.md PX5): the last line of the supplier's dropdown, and its small form (pack PO, PO1-PO2)
+        'new_supplier' => '+ Add new supplier',
+        'supplier_name' => 'Supplier name',
+        'supplier_email' => 'E-mail',
+        'supplier_phone' => 'Phone',
+        'supplier_button' => 'Add supplier',
+        // The last line of the product's dropdown, and its small form (pack PO, PO4)
+        'new_item' => '+ Add new item',
+        'item_name' => 'Item name',
         'item_brand' => 'Brand',
-        'item_barcode' => 'Barcode on the item',
-        'item_supply' => 'How this supplier sells it',
-        'item_supply_text' => 'Give their product code, the pack or the price: it is then set up with this supplier for next time.',
+        'item_barcode' => 'Barcode',
         'item_code' => 'Their product code',
         'item_upp' => 'Items in one pack',
         'item_price' => '£ per pack, before VAT',
-        'item_packs' => 'Packs to order',
-        'item_button' => 'Make the item and add it to the order',
-        'item_back' => 'Back to the order',
+        'item_packs' => 'Packs',
+        'item_button' => 'Add item',
+        // The one line a person who may not add one sees instead (Words::askToAdd: the first job that may)
+        'ask' => 'Ask %s to add it.',
+        // A new item refused by Pack B's rules: the item that is there is offered
         'same_title' => 'An item with this name is in the system already',
-        'same_text' => 'Add the one that is there, or tick the box below if yours is a different item.',
-        'same_use' => 'Add this one to the order',
+        'same_text' => 'Add the one that is there, or tick the box if yours is a different item.',
+        'same_use' => 'Add this one',
         'same_anyway' => 'It is a different item: make a new one',
         'barcode_other' => 'This barcode belongs to %s.',
-        'barcode_use' => 'Add that item to the order instead',
+        'barcode_use' => 'Add that item instead',
         'bad_number' => 'Not saved: "%s" must be a whole number of at least 1. Nothing was saved.',
+        'needs_link' => 'Open the supplier',
+    ];
+
+    /** The purchase order on one page (/ui/purchasing/orders/new and a draft's page; docs/decisions.md PX1-PX9). */
+    public const PO_ONE = [
+        'title' => 'New purchase order',
+        'supplier_hint' => 'Type the supplier',
+        'supplier_option' => '%s (%s)',
+        'suppliers' => 'Suppliers',
+        'product_box' => 'Scan or search a product',
+        'products' => 'Products',
+        'loading' => 'Looking…',
+        'failed' => 'The list could not be loaded. Type the product, then press Add.',
+        'none' => 'Nothing found for "%s".',
+        'set_up' => 'their code %s, %s',
+        'not_set_up' => 'not set up with this supplier yet',
+        'need_supplier' => 'Choose the supplier first. Nothing was saved.',
+        'need_product' => 'Scan or choose a product first. Nothing was saved.',
+        'not_approved' => '%s is not approved yet: you can save this order, not confirm it.',
+        'waiting' => '%s waits for a reviewer\'s OK: you can save this order, not confirm it.',
+        // The board of products (monday.com's board: rows edited in place, a remove on each, "+ Add product" as its last row)
+        'add_product' => '+ Add product',
+        'remove_col' => 'Remove',
+        'remove' => 'Remove line %s',
+        // The summary
+        'summary' => 'Order total',
+        'delivery' => 'Delivery £',
+        'delivery_line' => 'Delivery',
+        'save' => 'Save',
+        'confirm' => 'Confirm order',
     ];
 
     /** What to buy (/ui/purchasing/reorder, plan §6.22). REORDER['demand'] is correction e. */
@@ -10925,6 +10936,20 @@ final class Words
             return 'everyone with a job';
         }
         return self::andList(array_map(static fn (string $r): string => self::of('ROLE_PLURAL', $r), $holders));
+    }
+
+    /**
+     * "Ask a buyer to add it.": the one line a person sees instead of a dropdown's "+ Add new …" when they may not add one (PO on one page,
+     * docs/decisions.md PX5): the first job that holds $perm in the map in force (the code's order first), else Words::ASK.
+     */
+    public static function askToAdd(string $perm): string
+    {
+        $holders = Permissions::inCodeOrder($perm, Permissions::holders($perm));
+        if ($holders === []) {
+            return self::say('PO_ADD', 'ask', self::ASK);
+        }
+        $job = mb_strtolower(self::of('ROLE', $holders[0]));
+        return self::say('PO_ADD', 'ask', (preg_match('/^[aeiou]/', $job) === 1 ? 'an ' : 'a ') . $job);
     }
 
     /**

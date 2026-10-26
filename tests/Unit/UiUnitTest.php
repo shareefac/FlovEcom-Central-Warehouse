@@ -382,6 +382,17 @@ final class UiUnitTest extends TestCase
         self::assertSame('linking.view', $byPath['GET /ui/review/new-variants.csv']);
         self::assertSame(Route::DECIDE, $byPath['POST /ui/review/bulk']);
         self::assertSame([], array_values(array_filter(array_keys($byPath), static fn (string $k): bool => str_starts_with($k, 'POST /ui/review/new-variants'))));
+        // PO on one page (docs/decisions.md PX1-PX9): the page and its product box's choices are a buyer's (doc.PO.post), as is its one form
+        // (the list's address for a new order, the draft's /lines after); "+ Add new" is an action of that form, so the side panel's and
+        // the step's routes are gone.
+        self::assertSame('doc.PO.post', $byPath['GET /ui/purchasing/orders/new']);
+        self::assertSame('doc.PO.post', $byPath['GET /ui/purchasing/orders/products']);
+        self::assertSame('doc.PO.post', $byPath['POST /ui/purchasing/orders']);
+        self::assertSame('doc.PO.post', $byPath['POST /ui/purchasing/orders/{id}/lines']);
+        foreach (['POST /ui/purchasing/orders/new-supplier', 'POST /ui/purchasing/orders/{id}/new-supplier', 'GET /ui/purchasing/orders/{id}/new-item',
+            'POST /ui/purchasing/orders/{id}/new-item'] as $gone) {
+            self::assertArrayNotHasKey($gone, $byPath, $gone);
+        }
         $people = 0;
         foreach ($byPath as $key => $access) {
             self::assertTrue(in_array($access, [Route::PUBLIC, Route::ANY], true) || isset(Permissions::MAP[$access]), "{$key}: {$access}");
@@ -922,6 +933,60 @@ final class UiUnitTest extends TestCase
         self::assertSame(0, preg_match('/^\.sm-list[^{]*\{[^}]*(nowrap|text-overflow|ellipsis)/m', $css), 'a long name is never cut');
     }
 
+    /**
+     * PO on one page (docs/decisions.md PX6, PX7; the brief: reuse SM11's dropdown, never a second, different one): SM11's list is one
+     * engine, combo(), that Simple matching's cells, the order's supplier box and its product box all go through: the list at the page's
+     * top level, placed and moved the same way, the same keys and taps, one list open at a time. The supplier's select becomes a box whose
+     * list is its options; the product's box asks the products route (the one fetch); each list ends with "+ Add new …", which opens that
+     * form in the page (Enter in it sends that form), or with the line naming who to ask, which is not a choice.
+     */
+    public function testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct(): void
+    {
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertSame(1, preg_match_all('/var combo = function \(input, list, cfg\) \{/', $js), 'one engine');
+        self::assertSame(3, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier and the product');
+        foreach (['document.body.appendChild(list);', "input.setAttribute('role', 'combobox');", "input.setAttribute('aria-activedescendant', li.id);",
+            'var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);', "list.addEventListener('mousedown', function (ev) {"] as $once) {
+            self::assertSame(1, substr_count($js, $once), "in the engine only: {$once}");
+        }
+        // The supplier: the select becomes a box, its options the list, "+ Add new supplier" (or the line naming who to ask) last.
+        self::assertStringContainsString("each(document.querySelectorAll('select[data-po-supplier]'), function (select) {", $js);
+        self::assertStringContainsString('select.hidden = true;', $js);
+        // The product: the products route's fragment (the one fetch), a choice's hidden fields, "+ Add new item" last.
+        self::assertStringContainsString("base.indexOf('/ui/purchasing/orders/products?') !== 0", $js);
+        self::assertStringContainsString("fragment(base + key, '[data-po-fragment]')", $js);
+        // The last line: "+ Add new …" opens its form in the page (the fold's own header hidden); Enter in that form sends it, not Add.
+        self::assertStringContainsString("li.setAttribute('data-add', '1');", $js);
+        self::assertStringContainsString('panel.open = true;', $js);
+        self::assertStringContainsString("each(document.querySelectorAll('details[data-po-panel]'), function (panel) {", $js);
+        self::assertStringContainsString("li.setAttribute('aria-disabled', 'true');", $js, 'the line naming who to ask is not a choice');
+        // The search box over the old supplier list is gone with it.
+        self::assertStringNotContainsString('data-filter-select', $js);
+        self::assertSame(1, preg_match('/^\.sm-list > li\.sm-add \{/m', $css));
+        self::assertSame(1, preg_match('/^\.sm-list > li\.sm-ask \{[^}]*cursor: default/m', $css));
+    }
+
+    /**
+     * The Codex review of bd26fc3 (findings 1, 2, 5; the browser checks: runs/poone_js_harness/): the product box keeps the choice it made
+     * itself (two packs of one product used to share their words, and the last one won), and words that name several choices name none,
+     * in Simple matching's cells too; new words leave no choice marked (Enter brought the old one back) and hide the choices shown for other
+     * words; the choice the page drew after a refusal is the box's own again.
+     */
+    public function testTheBoxesKeepTheChoiceMadeAndNeverAStaleOne(): void
+    {
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        self::assertStringContainsString("if (chosen && list.contains(chosen) && chosen.getAttribute('data-label') === input.value) {", $js, 'finding 1: the choice itself');
+        self::assertStringContainsString('found = same.length === 1 ? same[0] : null; // the words name one choice only', $js, 'finding 1: the product box');
+        self::assertStringContainsString('var found = byLabel.length === 1 ? byLabel[0] : null; // the words name one choice only', $js, 'finding 1: Simple matching');
+        self::assertStringNotContainsString("if (o.getAttribute('data-label') === input.value) { found = o; }", $js, 'no last-one-wins');
+        self::assertStringContainsString("input.addEventListener('input', function () {\n      mark(-1); // the words changed: no choice stays marked, so Enter cannot bring an old one back", $js,
+            'finding 2: in the engine, for every box');
+        self::assertStringContainsString('draw([]); // the words changed: the choices on show were for other words', $js, 'finding 2: the product box');
+        self::assertStringContainsString("draw(list.querySelectorAll('li[data-label]')); // the choice the page drew (kept after a refusal) is drawn as any other", $js,
+            'finding 5');
+    }
+
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
@@ -937,7 +1002,7 @@ final class UiUnitTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/\b(XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/', $js, 'no other way to the network');
         self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the matching fragments\'');
         self::assertStringContainsString("var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', "
-            . "'[data-sm-fragment]': '/ui/match/options?' };", $js,
+            . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?' };", $js,
             'each marker with the path of its own route, nothing else');
         self::assertStringContainsString("if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
         self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');

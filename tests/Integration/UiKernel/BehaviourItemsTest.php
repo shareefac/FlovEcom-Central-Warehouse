@@ -205,12 +205,10 @@ final class BehaviourItemsTest extends KernelUiTestCase
         self::assertSame(303, $ok->status, $ok->describe());
         self::assertSame('po_amended', self::$db->value('SELECT reason_code FROM document WHERE reverses_id = ?', [$confirmed]));
 
-        // The draft editor's cancel list starts the same way.
+        // A draft's cancel (PO on one page, PX10: no longer a fold of the page that makes the order): no reason chosen, nothing cancelled.
         $ed = $buyer->get('/ui/purchasing/orders/' . $draft);
-        self::assertSame('', $ed->form('/ui/purchasing/orders/' . $draft . '/cancel')['reason_code']);
-        self::assertSame(Words::ORDER['choose_reason'], trim((string) (new \DOMXPath($ed->dom()))->evaluate(
-            'string(//form[contains(@action, "/cancel")]//select[@name="reason_code"]/option[1])')));
-        $r = $buyer->post('/ui/purchasing/orders/' . $draft . '/cancel', $ed->form('/ui/purchasing/orders/' . $draft . '/cancel'));
+        self::assertFalse($ed->hasForm('/ui/purchasing/orders/' . $draft . '/cancel'));
+        $r = $buyer->post('/ui/purchasing/orders/' . $draft . '/cancel', ['csrf' => $ed->form('/lines')['csrf'], 'version' => $ed->form('/lines')['version'], 'reason_code' => '']);
         self::assertSame(400, $r->status, $r->describe());
         self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$draft]));
     }

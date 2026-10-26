@@ -30,6 +30,7 @@ final class UiSecurityTest extends UiTestCase
         // --- Pack G
         '/ui/purchasing/reorder/suppliers', '/ui/purchasing/reorder/low-stock',
         // --- end of Pack G
+        '/ui/purchasing/orders/new', '/ui/purchasing/orders/products?q=pod', // PO on one page (docs/decisions.md PX1, PX8)
         ];
     private const POSTS = ['/ui/logout', '/ui/password', '/ui/review/listing/1/decide', '/ui/review/decision/1/approve', '/ui/review/decision/1/withdraw', '/ui/review/bulk',
         '/ui/reference/company', '/ui/reference/company/confirm', '/ui/reference/company/reviews/1/approve', '/ui/reference/company/reviews/1/reject',
@@ -48,6 +49,7 @@ final class UiSecurityTest extends UiTestCase
         // --- Pack G
         '/ui/purchasing/reorder/suppliers', '/ui/purchasing/reorder/low-stock', '/ui/purchasing/reorder/refresh',
         // --- end of Pack G
+        '/ui/purchasing/orders', '/ui/purchasing/orders/1/lines', // PO on one page (docs/decisions.md PX2)
         ];
 
     public function testEveryScreenNeedsASignIn(): void
@@ -330,6 +332,43 @@ final class UiSecurityTest extends UiTestCase
         $ok = $web->post($path, $form, ['Origin' => 'http://cw-ui.staging.invalid', 'Sec-Fetch-Site' => 'same-origin']);
         self::assertSame(303, $ok->status, $ok->describe());
         self::assertSame($base + 1, $this->decisions());
+    }
+
+    /**
+     * PO on one page over Apache + php-fpm (docs/decisions.md PX1-PX4, PX8): the page and the product box's choices carry the hard headers;
+     * its one form is refused without the session's token or from another site, and nothing is made; sent right, twice, it makes one draft.
+     */
+    public function testThePurchaseOrdersOnePageOverHttp(): void
+    {
+        $buyerUser = $this->uiUser('buyer');
+        $sup = new \CW\Suppliers\Suppliers(self::$db);
+        $buyer = \CW\Caller::staff($buyerUser['id']);
+        $s = $sup->create($buyer, ['name' => 'Http Supplies', 'address_line1' => '2 Mill Lane', 'postcode' => 'M1 1AA', 'email' => 'sales@http.example',
+            'payment_terms' => '30 days', 'dd_checked_on' => gmdate('Y-m-d', time() - 7 * 86400), 'dd_checked_by' => (string) $buyerUser['id'],
+            'dd_next_review_on' => gmdate('Y-m-d', time() + 365 * 86400)]);
+        $sku = (int) self::$db->insert("INSERT INTO sku (name) VALUES ('Http pod 2ml')");
+        self::$db->exec('UPDATE sku SET code = ? WHERE id = ?', [sprintf('CW-%06d', $sku), $sku]);
+        $web = $this->signIn($buyerUser);
+        $page = $web->get('/ui/purchasing/orders/new');
+        self::assertSame(200, $page->status, $page->describe());
+        self::assertHardened($page, 'the new order\'s page');
+        $choices = $web->get('/ui/purchasing/orders/products', ['supplier' => (string) $s['id'], 'q' => 'Http pod']);
+        self::assertSame(200, $choices->status, $choices->describe());
+        self::assertHardened($choices, 'the product box\'s choices');
+        self::assertStringContainsString('data-po-fragment', $choices->body);
+        $form = ['supplier_id' => (string) $s['id'], 'q' => sprintf('CW-%06d', $sku), 'action' => 'add'] + $page->form('/ui/purchasing/orders');
+        $orders = static fn (): int => (int) self::$db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'PO'");
+        foreach (['no token' => array_diff_key($form, ['csrf' => 1]), 'made-up token' => ['csrf' => 'x'] + $form] as $what => $fields) {
+            $r = $web->post('/ui/purchasing/orders', $fields);
+            self::assertSame([403, 'csrf'], [$r->status, $r->errorCode()], $what);
+        }
+        $r = $web->post('/ui/purchasing/orders', $form, ['Origin' => 'http://evil.example']);
+        self::assertSame([403, 'csrf'], [$r->status, $r->errorCode()], 'from another site');
+        self::assertSame(0, $orders());
+        $r = $web->post('/ui/purchasing/orders', $form);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame($r->header('location'), $web->post('/ui/purchasing/orders', $form)->header('location'), 'sent twice: one draft');
+        self::assertSame(1, $orders());
     }
 
     public function testEveryAnswerCarriesTheHardHeaders(): void

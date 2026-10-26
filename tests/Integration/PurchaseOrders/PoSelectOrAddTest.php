@@ -65,6 +65,32 @@ final class PoSelectOrAddTest extends PurchaseOrderTestCase
         self::assertSame($before, (int) self::$db->value('SELECT COUNT(*) FROM supplier'));
     }
 
+    /**
+     * PO on one page (docs/decisions.md PX3): "+ Add new supplier" before the order exists makes the supplier alone (a draft supplier, its
+     * rules unchanged), for a person who writes orders; and on a draft without products it keeps the order's details and charge typed
+     * with it (one transaction: the draft locked first, then the supplier).
+     */
+    public function testANewSupplierAloneAndOnADraftWithWhatWasTyped(): void
+    {
+        $buyer = $this->staffUser('buyer');
+        $s = $this->pos->newSupplier($buyer, $this->sup, ['name' => 'Alone Vapes Ltd', 'phone' => '0161 111 1111']);
+        self::assertSame(['draft', 'Alone Vapes Ltd', '0161 111 1111'], [$s['status'], $s['name'], $s['phone']]);
+        self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'PO'"), 'no order with it');
+        self::refused(403, 'role_not_allowed', fn () => $this->pos->newSupplier($this->staffUser('purchasing_desk'), $this->sup, ['name' => 'Desk Ltd']));
+        self::refused(422, 'bad_field', fn () => $this->pos->newSupplier($buyer, $this->sup, ['name' => ' ']));
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM supplier'));
+
+        $old = $this->activeSupplier($buyer, ['name' => 'Before Ltd']);
+        $d = $this->pos->createDraft($buyer, (int) $old['id'], []);
+        $expected = gmdate('Y-m-d', time() + 9 * 86400);
+        $r = $this->pos->setNewSupplier($buyer, $this->sup, $d->id, $d->version, ['name' => 'With Details Ltd'], ['expected_date' => $expected, 'external_ref' => 'Q-42'],
+            [['kind' => 'charge', 'description' => 'Delivery', 'pack_price' => '6.00']]);
+        self::assertSame([(int) $r['supplier']['id'], $expected], [(int) $this->poRow($d->id)['supplier_id'], (string) $this->poRow($d->id)['expected_date']]);
+        self::assertSame('Q-42', $this->docs->get($d->id)->externalRef);
+        self::assertSame([['charge', '6.0000']], array_map(static fn (array $l): array => [$l['kind'], $l['pack_price']],
+            self::$db->all('SELECT kind, pack_price FROM po_line WHERE document_id = ?', [$d->id])));
+    }
+
     public function testANewItemIsMadeWithItsSupplierItemAndLineInOneGo(): void
     {
         $pm = $this->staffUser('purchasing_manager');

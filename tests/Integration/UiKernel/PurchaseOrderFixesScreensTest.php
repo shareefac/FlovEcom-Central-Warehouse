@@ -99,7 +99,9 @@ final class PurchaseOrderFixesScreensTest extends KernelUiTestCase
         $ed = $web->get("/ui/purchasing/orders/{$d->id}");
         self::assertSame(200, $ed->status, $ed->describe());
         self::assertTrue($ed->hasForm('/lines'), 'the editor');
-        self::assertStringContainsString(Words::ORDER['limit_note_off'], $ed->text());
+        // PO on one page (PX9): no limit note on the page any more; the Confirm button says what it does.
+        self::assertSame(1, (new \DOMXPath($ed->dom()))->query('//form[contains(@action, "/lines")]//button[@value="approve"][normalize-space(.)="'
+            . Words::PO_ONE['confirm'] . '"]')->length);
         self::assertStringNotContainsString('Over  (before VAT)', $ed->text());
     }
 
@@ -199,12 +201,12 @@ final class PurchaseOrderFixesScreensTest extends KernelUiTestCase
         $pos->saveDraft(Caller::staff($buyer['id']), $d->id, $d->version, [], [['supplier_item_id' => (int) $si['id'], 'packs' => 2]]);
         $web = $this->signIn($buyer);
         $f = $web->get("/ui/purchasing/orders/{$d->id}")->form('/lines');
-        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['charge_description' => 'Delivery', 'charge_amount' => '7.50', 'charge_vat' => 'S', 'action' => 'approve'] + $f);
+        // PO on one page (PX10): the delivery charge is one field of the summary ("Delivery £").
+        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['charge_amount' => '7.50', 'action' => 'approve'] + $f);
         self::assertSame(422, $r->status, $r->describe());
         self::assertStringContainsString(Words::BUY_ERROR['supplier_not_active'], $r->text());
         $again = $r->form('/lines');
-        self::assertSame(['Delivery', '7.50', 'S'], [$again['charge_description'] ?? null, $again['charge_amount'] ?? null, $again['charge_vat'] ?? null],
-            'the charge typed is still there: confirming again does not drop it');
+        self::assertSame('7.50', $again['charge_amount'] ?? null, 'the charge typed is still there: confirming again does not drop it');
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM po_line WHERE document_id = ? AND kind = 'charge'", [$d->id]), 'nothing saved');
         // A line refused with a scan and packs typed: they come back too.
         $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['line_1_price' => 'lots', 'q' => 'WP-1', 'packs' => '3', 'action' => 'add'] + $f);
@@ -263,11 +265,12 @@ final class PurchaseOrderFixesScreensTest extends KernelUiTestCase
         $web = $this->signIn($buyer);
         $ed = $web->get("/ui/purchasing/orders/{$d->id}");
         $xp = new \DOMXPath($ed->dom());
-        self::assertSame(1, $xp->query('//form[contains(@action, "/lines")]//input[@type="checkbox"][@name="line_2_remove"]')->length, 'the charge has a remove box');
-        self::assertStringContainsString(Words::ORDER['charge_remove'], $ed->text());
+        // PO on one page (PX4): every row of the board has its remove (x), the charge's too.
+        self::assertSame(1, $xp->query('//form[contains(@action, "/lines")]//button[@name="remove_line"][@value="2"][@aria-label="' . Words::say('PO_ONE', 'remove', 2) . '"]')->length,
+            'the charge has its remove');
         $f = $ed->form('/lines');
-        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['line_2_remove' => '1', 'action' => 'save'] + $f);
-        self::assertSame("/ui/purchasing/orders/{$d->id}?notice=saved#scan", $r->location(), $r->describe());
+        $r = $web->post("/ui/purchasing/orders/{$d->id}/lines", ['remove_line' => '2'] + $f);
+        self::assertSame("/ui/purchasing/orders/{$d->id}?notice=removed#scan", $r->location(), $r->describe());
         self::assertSame(['item'], array_map('strval', self::$db->column('SELECT kind FROM po_line WHERE document_id = ? ORDER BY line_no', [$d->id])), 'the charge is gone');
     }
 }

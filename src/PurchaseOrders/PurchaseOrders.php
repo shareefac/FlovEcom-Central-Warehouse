@@ -311,23 +311,44 @@ final class PurchaseOrders
     }
 
     /**
-     * "Add a new supplier" on a draft that has no lines yet (its supplier can change only then): the supplier is made as the supplier
-     * screens make one (a DRAFT supplier) and put on this draft at once, in ONE transaction. Creator only, at $version (the draft's row
-     * is locked first, then the supplier is written: the order of saveDraft). 409 supplier_has_lines.
+     * "+ Add new supplier" on the order's page before the order exists (PO on one page, docs/decisions.md PX3): the supplier alone, made as
+     * the supplier screens make one (Suppliers::create: a DRAFT supplier, suppliers.manage, its own checks and audit), for a person who
+     * writes purchase orders (doc.PO.post). No order is started: the page comes back with the supplier chosen, and the order is made by its
+     * first product or Save.
      *
      * @param array<string, mixed> $fields Suppliers::FIELDS (name required)
+     * @return array<string, mixed> the supplier row
+     */
+    public function newSupplier(Caller $caller, Suppliers $suppliers, array $fields): array
+    {
+        return $this->db->transaction(function () use ($caller, $suppliers, $fields): array {
+            $this->poster($caller);
+            return $suppliers->create($caller, $fields);
+        });
+    }
+
+    /**
+     * "Add a new supplier" on a draft that has no lines yet (its supplier can change only then): the supplier is made as the supplier
+     * screens make one (a DRAFT supplier) and put on this draft at once, in ONE transaction. Creator only, at $version (the draft's row
+     * is locked first, then the supplier is written: the order of saveDraft). 409 supplier_has_lines. The draft is saved with $header and
+     * $lines as typed on the page with it (PO on one page, PX3: its details and a charge; never an item line, which would fix the supplier).
+     *
+     * @param array<string, mixed> $fields Suppliers::FIELDS (name required)
+     * @param array<string, mixed> $header saveDraft's header (its supplier_id is the new supplier's)
+     * @param list<array<string, mixed>> $lines saveDraft's lines
      * @return array{supplier: array<string, mixed>, document: Document}
      */
-    public function setNewSupplier(Caller $caller, Suppliers $suppliers, int $id, int $version, array $fields): array
+    public function setNewSupplier(Caller $caller, Suppliers $suppliers, int $id, int $version, array $fields, array $header = [], array $lines = []): array
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $suppliers, $id, $version, $fields): array {
+        return $this->db->transaction(function (Db $db) use ($caller, $suppliers, $id, $version, $fields, $header, $lines): array {
             $me = $this->poster($caller);
             $this->lockDraft($id, $version, $me);
-            if ((int) $db->value('SELECT COUNT(*) FROM document_line WHERE document_id = ?', [$id]) > 0) {
+            $items = array_filter($lines, static fn (array $l): bool => ($l['kind'] ?? 'item') !== 'charge');
+            if ($items !== [] || (int) $db->value('SELECT COUNT(*) FROM document_line WHERE document_id = ?', [$id]) > 0) {
                 throw new CwException('supplier_has_lines', 'the supplier of a draft changes only while it has no lines: remove them first, or start a new order', 409);
             }
             $s = $suppliers->create($caller, $fields);
-            return ['supplier' => $s, 'document' => $this->saveDraft($caller, $id, $version, ['supplier_id' => (int) $s['id']], [])];
+            return ['supplier' => $s, 'document' => $this->saveDraft($caller, $id, $version, ['supplier_id' => (int) $s['id']] + $header, $lines)];
         });
     }
 

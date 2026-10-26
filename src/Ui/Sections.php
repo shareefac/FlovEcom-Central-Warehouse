@@ -134,7 +134,7 @@ final class Sections
                 // --- end of Pack G
             ]],
             'orders' => ['pages' => [['perm' => 'purchasing.view', 'path' => '/ui/purchasing/orders', 'match' => ['/ui/purchasing/orders*'],
-                'new' => ['perm' => 'doc.PO.post', 'href' => '/ui/purchasing/orders#new', 'label' => 'orders']]]],
+                'new' => ['perm' => 'doc.PO.post', 'href' => '/ui/purchasing/orders/new', 'label' => 'orders']]]],
             'goods_in' => ['segments' => true, 'pages' => [
                 ['key' => 'receiving', 'perm' => 'receiving.view', 'path' => '/ui/receiving', 'match' => ['/ui/receiving', '/ui/receiving/*'],
                     'new' => ['perm' => 'doc.GRN.post', 'href' => '/ui/receiving#new', 'label' => 'receiving']],

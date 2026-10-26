@@ -488,6 +488,7 @@ $pages = [
     ['New supplier form', '/ui/purchasing/suppliers/new', []],
     ['Supplier: first', ['/ui/purchasing/suppliers', [], '#^/ui/purchasing/suppliers/\d+$#'], []],
     ['Purchase orders', '/ui/purchasing/orders', []],
+    ['Purchase order: new (the one page)', '/ui/purchasing/orders/new', []],
     ['Purchase orders CSV (download)', '/ui/purchasing/orders.csv', []],
     ['Purchase order: first', ['/ui/purchasing/orders', [], '#^/ui/purchasing/orders/\d+$#'], []],
     ['What to buy (reorder list)', '/ui/purchasing/reorder', []],
@@ -794,9 +795,9 @@ if ($doActions && isset($browsers['buyer'], $browsers['owner'], $browsers['goods
     };
     if ($want('PO: start')) {
         action('PO: start a new draft', 'buyer', $b, $app, $repeat, static function (PerfBrowser $b) use ($supplierId): ?array {
-            $list = $b->send('GET', '/ui/purchasing/orders');
-            $f = PerfBrowser::forms($list['res']->body, '/ui/purchasing/orders')[0] ?? null;
-            return $f === null ? null : ['/ui/purchasing/orders', ['supplier_id' => (string) $supplierId] + $f];
+            $page = $b->send('GET', '/ui/purchasing/orders/new'); // PO on one page (docs/decisions.md PX1): Save with the supplier starts the draft
+            $f = PerfBrowser::forms($page['res']->body, '/ui/purchasing/orders')[0] ?? null;
+            return $f === null ? null : ['/ui/purchasing/orders', ['supplier_id' => (string) $supplierId, 'action' => 'save'] + $f];
         }, false);
     }
     if ($want('PO: add')) {

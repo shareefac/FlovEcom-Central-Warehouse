@@ -983,6 +983,25 @@ final class WordsTest extends TestCase
      * Simple matching (docs/decisions.md SM1-SM9): the tab has the name the owner approved, every refusal of Apply has its line and says
      * that nothing was saved (rule 7), and each refusal of DecisionService a match can meet is one of them.
      */
+    /**
+     * PO on one page (docs/decisions.md PX5): each dropdown ends with "+ Add new …" for who may add one, else with one short line naming
+     * whom to ask, from the permission map in force (the first job that holds it, as the code orders them); the page has the name of the
+     * button that opens it.
+     */
+    public function testThePurchaseOrderPageSaysAddNewAndWhoToAsk(): void
+    {
+        Permissions::useStored(null);
+        self::assertSame('+ Add new supplier', Words::PO_ADD['new_supplier']);
+        self::assertSame('+ Add new item', Words::PO_ADD['new_item']);
+        self::assertSame('Ask a buyer to add it.', Words::askToAdd('suppliers.manage'));
+        self::assertSame('Ask a matching lead to add it.', Words::askToAdd('items.create'));
+        self::assertSame('Ask an admin to add it.', Words::askToAdd('staff.manage'));
+        self::assertSame(Words::NEW['orders'], Words::PO_ONE['title'], 'one name for one thing: the button and the page');
+        foreach (['need_supplier', 'need_product'] as $k) {
+            self::assertStringEndsWith('Nothing was saved.', Words::PO_ONE[$k], $k);
+        }
+    }
+
     public function testSimpleMatchingSaysEveryRefusalInWords(): void
     {
         self::assertSame('Simple matching', Words::MENU['simple_match']);

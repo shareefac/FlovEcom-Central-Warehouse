@@ -33,7 +33,6 @@ use CW\Ui\Controller\ItemController;
 use CW\Ui\Controller\NewVariantsController;
 use CW\Ui\Controller\OtherAccountsController;
 use CW\Ui\Controller\PeopleController;
-use CW\Ui\Controller\PoSelectOrAddController;
 use CW\Ui\Controller\PurchaseOrdersController;
 use CW\Ui\Controller\ReasonsController;
 use CW\Ui\Controller\ReceivingController;
@@ -601,14 +600,13 @@ final class Kernel
         // (and the creator-only rule of drafts); reviewers decide on the order's page through /ui/documents/reviews/{id}/*.
         $r->add('GET', '/ui/purchasing/orders', 'purchasing.view', $orders->index(...));
         $r->add('GET', '/ui/purchasing/orders.csv', 'purchasing.view', $orders->csv(...));
+        // PO on one page (docs/decisions.md PX1-PX9): "New purchase order" is the page itself (no draft until its first real action); its one
+        // form posts here (FormOnce) and, once the draft exists, to /{id}/lines; "+ Add new supplier" / "+ Add new item" are actions of that
+        // form (suppliers.manage / items.create checked for the action and again by the services); the product box's choices are a
+        // read-only fragment.
+        $r->add('GET', '/ui/purchasing/orders/new', 'doc.PO.post', $orders->newPage(...));
+        $r->add('GET', '/ui/purchasing/orders/products', 'doc.PO.post', $orders->products(...));
         $r->add('POST', '/ui/purchasing/orders', 'doc.PO.post', $orders->create(...));
-        // --- Pack PO (docs/decisions.md PO1-PO6): select or add new. The services check doc.PO.post as well.
-        $poAdd = new PoSelectOrAddController();
-        $r->add('POST', '/ui/purchasing/orders/new-supplier', 'suppliers.manage', $poAdd->newSupplier(...));
-        $r->add('POST', '/ui/purchasing/orders/{id}/new-supplier', 'suppliers.manage', $poAdd->newSupplierOnDraft(...));
-        $r->add('GET', '/ui/purchasing/orders/{id}/new-item', 'items.create', $poAdd->newItemForm(...));
-        $r->add('POST', '/ui/purchasing/orders/{id}/new-item', 'items.create', $poAdd->newItem(...));
-        // --- end of pack PO
         $r->add('GET', '/ui/purchasing/orders/{id}', 'purchasing.view', $orders->show(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/lines', 'doc.PO.post', $orders->lines(...));
         $r->add('POST', '/ui/purchasing/orders/{id}/lines/import', 'doc.PO.post', $orders->import(...));
