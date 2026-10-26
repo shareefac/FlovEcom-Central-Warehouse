@@ -899,6 +899,10 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);', $js);
         self::assertStringContainsString('left = r.right - width; // near the right edge of the screen: it opens to the left', $js);
         self::assertStringContainsString('left = Math.max(edge, Math.min(left, vw - edge - width));', $js);
+        // A box out of sight shuts its list: scrolled away up, down or sideways, or clipped by a scrolling box around it (the table's
+        // own sideways scroll: the Codex review of 6af3c87, LOW).
+        self::assertStringContainsString('r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw || clipped(r)', $js);
+        self::assertStringContainsString("/(auto|scroll|hidden|clip)/.test(st.overflowX + ' ' + st.overflowY)", $js);
         // The keys, and the one tap.
         foreach (["ev.key === 'ArrowDown'", "ev.key === 'ArrowUp'", "ev.key === 'Escape'"] as $key) {
             self::assertStringContainsString($key, $js);

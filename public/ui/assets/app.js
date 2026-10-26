@@ -539,13 +539,26 @@
     // Where the list goes (fixed, at the page's top level): under the box, above it when there is more room there; from the box's left
     // edge, 36rem wide where the screen allows (never narrower than the box); near the right edge of the screen it opens to the left
     // (its right edge on the box's); on a phone it spans the screen but for the page's gutter; never past the screen; as tall as the
-    // room it has, with its own scroll. A box out of sight (scrolled away, its fold shut) shuts its list.
+    // room it has, with its own scroll. A box out of sight (scrolled away up, down or sideways, clipped by a scrolling box around it
+    // such as the table's own sideways scroll, its fold shut) shuts its list.
+    var clipped = function (r) {
+      for (var el = input.parentElement; el && el !== document.body; el = el.parentElement) {
+        var st = window.getComputedStyle(el);
+        if (/(auto|scroll|hidden|clip)/.test(st.overflowX + ' ' + st.overflowY)) {
+          var c = el.getBoundingClientRect();
+          if (r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
     var place = function () {
       var r = input.getBoundingClientRect();
       var root = document.documentElement;
       var vw = root.clientWidth || window.innerWidth;
       var vh = window.innerHeight;
-      if ((r.width === 0 && r.height === 0) || r.bottom < 0 || r.top > vh) {
+      if ((r.width === 0 && r.height === 0) || r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw || clipped(r)) {
         close();
         return;
       }
