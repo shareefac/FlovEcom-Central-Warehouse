@@ -11743,3 +11743,37 @@ what told them apart (10mg or 20mg, and the ID). A choice now reads **"ID <optio
 `idOf()` reads the ID from the start of a choice's words (a name with "ID" in it cannot hide it). The matched cells are unchanged (their
 lines wrap). `testAChoiceStartsWithItsIdAndStrengthAndNamesTheProductOnce` (red first: `runs/smlabel_sm.log`); the tests that name a
 choice's words follow the new order.
+
+The Codex review of c330f42 (two LOW, fixed test-first; the old code gave "Café Salt - Blue" and a broken "�5 Edition"): the product's
+name is taken out of the option's name whatever its case, accents included ("CAFÉ SALT" in "Café Salt - Blue" gives "Blue · CAFÉ
+SALT"; `str_ireplace()` missed it although `mb_stripos()` found it), and what stands between the two is trimmed by whole characters
+(a byte mask with "·" in it cut the first byte of a "£": "Brand Kit - £5 Edition" now gives "£5 Edition · Brand Kit"). Both in
+`testAChoiceStartsWithItsIdAndStrengthAndNamesTheProductOnce`.
+
+### SM11. The full name on two lines, and each product's status on its store (branch `simple-match-labels`, 26 Oct 2026)
+
+The owner, on the live page the day after SM10: "I want to still see the full name ... maybe take the dropdown a little to the left,
+or use two lines ... and I need also the status of the variant shown there from each shop, the same way you show the ID". A browser's
+`<datalist>` popup is one line as wide as the box and cannot be styled, so it cut long names whatever their order.
+
+- **The box's own list.** A cell's box is a plain text box with a list `app.js` draws itself, at the page's top level (no table, card
+  or scrolling box cuts it): under the box (above it when there is more room there), 36rem wide where the screen allows and never
+  narrower than the box, opening to the LEFT near the screen's right edge, the full width but the gutter on a phone, as tall as the
+  room it has with its own scroll. Down and Up move in it, Enter chooses and sends nothing while it is open, Escape, a press elsewhere
+  or leaving the box shut it, a click or a tap chooses. A choice still puts SM10's words in the box (what Apply compares, `idOf()`)
+  and fills the same hidden fields; a stale answer is still never drawn over a newer one. Without the script the box is a plain text
+  box and a typed ID is confirmed by the server, as before (SM4).
+- **Two lines per choice:** its FULL name on the store (never cut; the same words as a matched cell), then "ID <option> · <its status
+  on the store> · <strength>" and the held-back / spot-check / lead's mark when there is one. Built as text from the fragment's
+  `data-label` and its two lines (`.sm-opt-name`, `.sm-opt-meta`) as text: nothing of the fragment's markup is kept.
+- **The status** is the website state CW stores (`SiteState::read`, M66): the stored state, else what a matching run recorded
+  (`features.variant_status`), else what the computer's check recorded in the open suggestion; in the store's own word (Published, Bin,
+  Draft…); "<status> · product <status>" when the product itself is not published; `Words::SIMPLE_MATCH['status_unknown']` ("status
+  not known") when nothing is known or the stored state is older than `mapping.arrival_state_max_days`. The matched cells say it too,
+  after the ID ("ID 5001 · Published"). `Queries::SITE_STATUS_COLUMNS` is the one place the columns are read, by primary key with the
+  rows the page reads anyway (no extra statement).
+
+Tests: `testEachChoiceHasTheFullNameThenItsIdAndItsStatusOnTheStore`, `testAMatchedCellSaysEachProductsStatusOnItsStoreAfterItsId`,
+`UiUnitTest::testSimpleMatchingsListIsThePagesOwnOnTwoLinesAndOpensToTheLeft` (red first: `runs/smlabel_sm11_red.log`, 16 failures);
+the browser checks (two lines, the full name, the list to the left near the right edge, a phone, the keys, a tap) in a real Chrome on
+staging, screenshots in `runs/smlabel_shots/`.

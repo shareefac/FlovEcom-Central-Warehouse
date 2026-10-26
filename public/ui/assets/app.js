@@ -424,44 +424,81 @@
     }
   });
 
-  // Simple matching (docs/decisions.md SM4; the owner's request of 25 Oct 2026: "one dropdown is enough ... a normal basic dropdown").
-  // A cell's box is a plain dropdown: an <input list> whose own <datalist> is filled from the read-only fragment at the form's
-  // data-options (a path of this site's options route): the item's own suggestions for that store while the box is empty, else (2
-  // letters or more, or one digit: an ID; 300 ms after the last key) that store's products still waiting for a match, the one whose ID
-  // it is first. A choice from the list (also the one the page drew chosen, to confirm a typed ID) fills the
-  // form's hidden fields (the website product, its version, its open suggestion); a typed ID that is exactly one choice's ID is that
-  // choice, kept as the list showed it (no search is drawn over it while the box names it). Apply with nothing chosen says the page's
-  // words (data-choose) and sends nothing, unless the list could not be loaded: then the typed ID goes to the server, as without the
-  // script (the one waiting product of the store with that ID comes back chosen, to confirm with a second Apply). Every word comes from
-  // the page (data-loading, data-failed, data-choose, the fragment's line).
+  // Simple matching (docs/decisions.md SM4, SM11; the owner's requests of 25 and 26 Oct 2026: "one dropdown is enough ... a normal basic
+  // dropdown", then "I want to still see the full name ... I need also the status of the variant shown there from each shop"). A cell's
+  // box is a plain text box with a list of its own that this script draws under it (a browser's <datalist> popup is one line as wide as
+  // the box, and cut long names). The list is filled from the read-only fragment at the form's data-options (a path of this site's
+  // options route): the item's own suggestions for that store while the box is empty (asked when it gets the focus), else (2 letters or
+  // more, or one digit: an ID; 300 ms after the last key) that store's products still waiting for a match, the one whose ID it is first.
+  // Each choice is two lines, built here as text: its full name on the store, then its ID, its status on the store, its strength and its
+  // mark. The list opens when an answer comes, under the box (above it when there is more room there), wider than the box where the
+  // screen allows and to the left near its right edge; Down and Up move in it, Enter chooses (and sends nothing while it is open),
+  // Escape, a press elsewhere or leaving the box shut it; a click or a tap chooses. A choice (also the one the page drew chosen, to
+  // confirm a typed ID) puts its words in the box, as a datalist's choice did, and fills the form's hidden fields (the website product,
+  // its version, its open suggestion); a typed ID that is exactly one choice's ID is that choice, kept as the list showed it (no search
+  // is drawn over it while the box names it). Apply with nothing chosen says the page's words (data-choose) and sends nothing, unless the
+  // list could not be loaded: then the typed ID goes to the server, as without the script (the one waiting product of the store with
+  // that ID comes back chosen, to confirm with a second Apply). Every word comes from the page (data-loading, data-failed, data-choose,
+  // the list's aria-label, the fragment's lines).
   var smForms = [];
+  var smOpen = null; // the one list open now (its form's entry in smForms), or null
   each(document.querySelectorAll('form[data-sm-add]'), function (form) {
     var base = form.getAttribute('data-options') || '';
     var input = form.querySelector('input[data-sm-pick]');
-    var list = input ? document.getElementById(input.getAttribute('list') || '') : null;
+    var list = form.querySelector('ul[data-sm-list]');
     var note = form.querySelector('[data-sm-note]');
     var field = function (name) { return form.querySelector('input[type="hidden"][name="' + name + '"]'); };
     var lid = field('listing_id');
     var ver = field('expected_map_version');
     var prop = field('proposal_id');
-    if (base.indexOf('/ui/match/options?') !== 0 || !input || !list || !note || !lid || !ver || !prop || !window.fetch || !window.DOMParser) {
+    if (base.indexOf('/ui/match/options?') !== 0 || !input || !list || !list.id || !note || !lid || !ver || !prop || !window.fetch || !window.DOMParser) {
       return;
     }
     var timer = 0;
     var asked = null;
     var turn = 0;
     var failed = false;
+    var active = -1; // the choice the keys are on, or -1
+    var shut = false; // Escape shut the list: an answer does not open it again until the words change
+    var me = null;
     var say = function (text) {
       note.textContent = text;
       note.hidden = text === '';
+    };
+    var options = function () { return list.querySelectorAll('li[data-listing-id]'); };
+    // The list's choices, built from the fragment's (or the page's) <li>: the box's words for it and what Apply sends for it, copied
+    // attribute by attribute, and its two lines as text (nothing of the fragment's markup is kept).
+    var draw = function (from) {
+      var items = Array.prototype.slice.call(from);
+      while (list.firstChild) {
+        list.removeChild(list.firstChild);
+      }
+      each(items, function (o, i) {
+        var li = document.createElement('li');
+        li.id = list.id + '-' + i;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
+        each(['data-label', 'data-listing-id', 'data-map-version', 'data-proposal-id', 'data-option'], function (name) {
+          li.setAttribute(name, o.getAttribute(name) || '');
+        });
+        each(['sm-opt-name', 'sm-opt-meta'], function (cls) {
+          var part = o.querySelector('.' + cls);
+          var span = document.createElement('span');
+          span.className = cls;
+          span.textContent = part ? part.textContent.trim() : '';
+          li.appendChild(span);
+        });
+        list.appendChild(li);
+      });
+      active = -1;
     };
     // The choice the box names now: its words exactly (picked from the list), else the one choice whose ID is what was typed.
     var pick = function () {
       var typed = input.value.trim();
       var found = null;
       var byId = [];
-      each(list.querySelectorAll('option[data-listing-id]'), function (o) {
-        if (o.value === input.value) { found = o; }
+      each(options(), function (o) {
+        if (o.getAttribute('data-label') === input.value) { found = o; }
         if (typed !== '' && o.getAttribute('data-option') === typed) { byId.push(o); }
       });
       if (!found && byId.length === 1) { found = byId[0]; }
@@ -470,6 +507,104 @@
       prop.value = found ? found.getAttribute('data-proposal-id') || '' : '';
       return found;
     };
+    var isOpen = function () { return !list.hidden; };
+    // Where the choice the hidden fields hold is in the list (-1: none).
+    var current = function () {
+      var at = -1;
+      each(options(), function (o, i) {
+        if (lid.value !== '' && o.getAttribute('data-listing-id') === lid.value) { at = i; }
+      });
+      return at;
+    };
+    // The choice the keys are on (Down, Up): marked for the eye, named to a screen reader, scrolled into the list's sight.
+    var mark = function (i) {
+      var all = options();
+      active = i >= 0 && i < all.length ? i : -1;
+      each(all, function (o, j) {
+        o.setAttribute('aria-selected', j === active ? 'true' : 'false');
+        o.classList.toggle('is-active', j === active);
+      });
+      if (active < 0 || !isOpen()) {
+        input.removeAttribute('aria-activedescendant');
+        return;
+      }
+      var li = all[active];
+      input.setAttribute('aria-activedescendant', li.id);
+      if (li.offsetTop < list.scrollTop) {
+        list.scrollTop = li.offsetTop;
+      } else if (li.offsetTop + li.offsetHeight > list.scrollTop + list.clientHeight) {
+        list.scrollTop = li.offsetTop + li.offsetHeight - list.clientHeight;
+      }
+    };
+    // Where the list goes (fixed, at the page's top level): under the box, above it when there is more room there; from the box's left
+    // edge, 36rem wide where the screen allows (never narrower than the box); near the right edge of the screen it opens to the left
+    // (its right edge on the box's); on a phone it spans the screen but for the page's gutter; never past the screen; as tall as the
+    // room it has, with its own scroll. A box out of sight (scrolled away, its fold shut) shuts its list.
+    var place = function () {
+      var r = input.getBoundingClientRect();
+      var root = document.documentElement;
+      var vw = root.clientWidth || window.innerWidth;
+      var vh = window.innerHeight;
+      if ((r.width === 0 && r.height === 0) || r.bottom < 0 || r.top > vh) {
+        close();
+        return;
+      }
+      var css = window.getComputedStyle(root);
+      var rem = parseFloat(css.fontSize) || 16;
+      var edge = Math.min(16, parseFloat(css.getPropertyValue('--gutter')) || 16);
+      var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);
+      var left = r.left;
+      if (left + width > vw - edge) {
+        left = r.right - width; // near the right edge of the screen: it opens to the left
+      }
+      left = Math.max(edge, Math.min(left, vw - edge - width));
+      var below = vh - r.bottom - 8;
+      var above = r.top - 8;
+      var up = below < 200 && above > below;
+      list.style.left = left + 'px';
+      list.style.width = width + 'px';
+      list.style.maxHeight = Math.max(96, Math.min(24 * rem, up ? above : below)) + 'px';
+      list.style.top = (up ? Math.max(4, r.top - 4 - list.offsetHeight) : r.bottom + 4) + 'px';
+    };
+    // Shown only while the box has the focus and the list has choices (and Escape did not shut it since the words last changed); one
+    // list open at a time; the choice the hidden fields hold is the one the keys start from.
+    var open = function () {
+      if (shut || options().length === 0 || document.activeElement !== input) {
+        close();
+        return;
+      }
+      if (smOpen && smOpen !== me) {
+        smOpen.close();
+      }
+      smOpen = me;
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      place();
+      mark(active >= 0 ? active : current());
+    };
+    var close = function () {
+      list.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      mark(-1);
+      if (smOpen === me) {
+        smOpen = null;
+      }
+    };
+    // A choice (a click, a tap, Enter): the box takes its words and the list shuts; then an input event, as a datalist's choice fired,
+    // so everything typing does follows (the hidden fields filled, no answer asked for before drawn over it, no search started).
+    var choose = function (li) {
+      input.value = li.getAttribute('data-label') || '';
+      close();
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    };
+    // The box says it has a list, and the list is the page's own, at its top level: no table, card or scrolling box around the cell
+    // cuts it. The choice the page drew (a typed ID to confirm) is drawn as every other.
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-controls', list.id);
+    input.setAttribute('aria-expanded', 'false');
+    document.body.appendChild(list);
+    draw(options());
     var load = function (q) {
       var key = '&q=' + encodeURIComponent(q);
       if (key === asked) {
@@ -484,15 +619,13 @@
             return;
           }
           failed = false;
-          while (list.firstChild) {
-            list.removeChild(list.firstChild);
-          }
-          each(node.querySelectorAll('datalist > option[data-listing-id]'), function (o) { list.appendChild(o.cloneNode(false)); });
+          draw(node.querySelectorAll('ul[data-sm-choices] > li[data-listing-id]'));
           var says = node.querySelector('[data-sm-says]');
           say(says ? says.textContent.trim() : '');
           if (pick()) {
             window.clearTimeout(timer); // a choice made from this answer: no search waiting to start may choose over it
           }
+          open(); // (only while the box has the focus)
         })
         .catch(function () {
           if (mine !== turn) {
@@ -506,6 +639,7 @@
     input.addEventListener('focus', function () {
       if (lid.value === '') {
         load(input.value.trim()); // an empty box: the suggestions; words a refusal kept (no choice behind them): looked for again
+        open(); // what is drawn for these words already (none yet: the answer opens it)
       }
     });
     input.addEventListener('input', function () {
@@ -513,13 +647,16 @@
       // The words changed: no answer asked for before them is drawn (it is about other words, and could choose over this one).
       turn++; // a search still on its way is not drawn: the choice stays
       asked = null;
+      shut = false;
       var chosen = pick();
       if (chosen) {
         // Picked from the list, or an ID typed whole that is one of its products: that choice, as the list showed it. Nothing more is
         // looked for while the box names it (docs/decisions.md SM4).
         say('');
+        mark(current());
         return;
       }
+      mark(-1);
       var v = input.value.trim();
       if (v.length === 1 && !/^[0-9]$/.test(v)) {
         say('');
@@ -527,7 +664,65 @@
       }
       timer = window.setTimeout(function () { load(v); }, 300);
     });
-    smForms.push({ form: form, pick: pick, say: say, input: input, failed: function () { return failed; } });
+    input.addEventListener('keydown', function (ev) {
+      if (ev.isComposing) {
+        return;
+      }
+      var all = options();
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+        if (all.length === 0) {
+          return;
+        }
+        ev.preventDefault();
+        if (!isOpen()) {
+          shut = false;
+          open();
+          if (active < 0) {
+            mark(ev.key === 'ArrowDown' ? 0 : all.length - 1);
+          }
+          return;
+        }
+        mark(ev.key === 'ArrowDown' ? Math.min(active + 1, all.length - 1) : Math.max(active - 1, 0));
+      } else if (ev.key === 'Enter') {
+        if (!isOpen()) {
+          return; // the list is shut: Enter sends the form (Apply), as before
+        }
+        ev.preventDefault(); // the list is open: Enter chooses, and sends nothing
+        if (active >= 0) {
+          choose(all[active]);
+        } else {
+          close();
+        }
+      } else if (ev.key === 'Escape' && isOpen()) {
+        ev.preventDefault();
+        shut = true;
+        close();
+      }
+    });
+    // A press on the list keeps the focus in the box (its blur would shut the list under the press); a click or a tap chooses.
+    list.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+    });
+    list.addEventListener('click', function (ev) {
+      var li = ev.target && ev.target.closest ? ev.target.closest('li[data-listing-id]') : null;
+      if (li && list.contains(li)) {
+        choose(li);
+      }
+    });
+    input.addEventListener('click', function () {
+      shut = false;
+      open();
+    });
+    input.addEventListener('blur', function () {
+      // Leaving the box (Tab, a press elsewhere) shuts its list, a moment later: a tap that moved the focus still lands on its choice.
+      window.setTimeout(function () {
+        if (document.activeElement !== input) {
+          close();
+        }
+      }, 150);
+    });
+    me = { form: form, pick: pick, say: say, input: input, list: list, place: place, close: close, failed: function () { return failed; } };
+    smForms.push(me);
   });
   if (smForms.length > 0) {
     // Asked before the "send once" of every form (the capture phase): a submit stopped here never leaves its button disabled.
@@ -537,12 +732,34 @@
         if (f.form !== ev.target) {
           continue;
         }
+        f.close();
         if (!f.pick() && !(f.failed() && f.input.value.trim() !== '')) {
           ev.preventDefault();
           f.say(f.form.getAttribute('data-choose') || '');
           f.input.focus();
         }
         return;
+      }
+    }, true);
+    // The open list follows its box when the page, or a box around the cell, scrolls, and when the window changes size (once a
+    // frame); a press anywhere but on the box or its list shuts it.
+    var smFrame = 0;
+    var smFollow = function (ev) {
+      if (!smOpen || smFrame || (ev && ev.target === smOpen.list)) {
+        return;
+      }
+      smFrame = window.requestAnimationFrame(function () {
+        smFrame = 0;
+        if (smOpen) {
+          smOpen.place();
+        }
+      });
+    };
+    window.addEventListener('scroll', smFollow, true);
+    window.addEventListener('resize', smFollow);
+    document.addEventListener('mousedown', function (ev) {
+      if (smOpen && ev.target !== smOpen.input && !smOpen.list.contains(ev.target)) {
+        smOpen.close();
       }
     }, true);
   }

@@ -23,7 +23,9 @@ use CW\Ui\Words;
  * ignored, waiting or other store's one; the item's own suggestions for an empty box), and Apply: through DecisionService as the
  * decide route's link (audit under the person, the way back to the row with the notice), a second product of the same store, the
  * refusals in words (another store's, not waiting, changed, a lead's, one decided on its own page, no token), the typed ID without the
- * script, the second OK of a store that sells warehouse stock, and the units of the item's own suggestion.
+ * script, the second OK of a store that sells warehouse stock, and the units of the item's own suggestion. SM11 (26 Oct 2026): the box's
+ * list is the page's own (no native <datalist>), each choice on two lines (the full name, then its ID, its status on the store, its
+ * strength and its mark), and a matched cell says each product's status on its store after its ID.
  */
 final class SimpleMatchScreenTest extends KernelUiTestCase
 {
@@ -77,7 +79,13 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
             iterator_to_array(self::xp($r)->query('//table[contains(@class, "simple-match")]/tbody/tr')));
     }
 
-    /** The matched products a cell lists, each as its text ("Name ID 4711 …"). @return list<string> */
+    /** What a matched product says after its name (SM11): "ID 4711 · <its status on the store>", "status not known" by default. */
+    private static function idLine(string $option, ?string $status = null): string
+    {
+        return Words::say('SIMPLE_MATCH', 'id', $option) . ' · ' . ($status ?? Words::SIMPLE_MATCH['status_unknown']);
+    }
+
+    /** The matched products a cell lists, each as its text ("Name ID 4711 · Published …"). @return list<string> */
     private static function matched(UiResponse $r, int $sku, string $code): array
     {
         return array_map(static fn (\DOMNode $li): string => self::squash($li->textContent),
@@ -98,7 +106,8 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
 
     /**
      * The add control of a cell: the fields its form sends as drawn, whether it sits behind the "+", its options address, the
-     * datalist its box names, and the button's words; null when the cell has none.
+     * box's own list (SM11: a hidden `ul` app.js draws under the box, the box's id + "-list"; never a native <datalist>), and the
+     * button's words; null when the cell has none.
      *
      * @return array{fields: array<string, string>, plus: bool, action: string, options: string, list: bool, button: string, open: bool}|null
      */
@@ -115,11 +124,12 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
             $fields[$in->getAttribute('name')] = $in->getAttribute('value');
         }
         $box = $xp->query('.//input[@data-sm-pick]', $form)->item(0);
-        $listId = $box instanceof \DOMElement ? $box->getAttribute('list') : '';
+        $boxId = $box instanceof \DOMElement ? $box->getAttribute('id') : '';
         $details = $xp->query('ancestor::details[contains(@class, "sm-more")]', $form)->item(0);
         return ['fields' => $fields, 'plus' => $details instanceof \DOMElement, 'open' => $details instanceof \DOMElement && $details->hasAttribute('open'),
             'action' => $form->getAttribute('action'), 'options' => $form->getAttribute('data-options'),
-            'list' => $listId !== '' && $xp->query('.//datalist[@id="' . $listId . '"]', $form)->length === 1,
+            'list' => $boxId !== '' && !$box->hasAttribute('list') && $xp->query('.//datalist', $form)->length === 0
+                && $xp->query('.//ul[@id="' . $boxId . '-list"][@data-sm-list][@role="listbox"][@hidden]', $form)->length === 1,
             'button' => self::squash($xp->evaluate('string(.//button[@type="submit"])', $form))];
     }
 
@@ -130,17 +140,35 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
     }
 
     /**
-     * The fragment's choices, in order: listing id => its label (the option's value), map_version, open suggestion and ID.
+     * The fragment's choices, in order: listing id => its label (the box's words when it is chosen: `data-label`), map_version, open
+     * suggestion and ID.
      *
      * @return array<int, array{label: string, version: string, proposal: string, option: string}>
      */
     private static function choices(UiResponse $r): array
     {
         $out = [];
-        foreach (self::xp($r)->query('//*[@data-sm-fragment]//datalist/option[@data-listing-id]') as $o) {
+        foreach (self::xp($r)->query('//*[@data-sm-fragment]//ul[@data-sm-choices]/li[@data-listing-id]') as $o) {
             /** @var \DOMElement $o */
-            $out[(int) $o->getAttribute('data-listing-id')] = ['label' => $o->getAttribute('value'), 'version' => $o->getAttribute('data-map-version'),
+            $out[(int) $o->getAttribute('data-listing-id')] = ['label' => $o->getAttribute('data-label'), 'version' => $o->getAttribute('data-map-version'),
                 'proposal' => $o->getAttribute('data-proposal-id'), 'option' => $o->getAttribute('data-option')];
+        }
+        return $out;
+    }
+
+    /**
+     * The two lines of each of the fragment's choices (SM11): listing id => [the name on the store, the line under it].
+     *
+     * @return array<int, array{0: string, 1: string}>
+     */
+    private static function lines(UiResponse $r): array
+    {
+        $xp = self::xp($r);
+        $out = [];
+        foreach ($xp->query('//*[@data-sm-fragment]//ul[@data-sm-choices]/li[@data-listing-id]') as $o) {
+            /** @var \DOMElement $o */
+            $out[(int) $o->getAttribute('data-listing-id')] = [self::squash($xp->evaluate('string(./span[contains(@class, "sm-opt-name")])', $o)),
+                self::squash($xp->evaluate('string(./span[contains(@class, "sm-opt-meta")])', $o))];
         }
         return $out;
     }
@@ -257,7 +285,8 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
 
         $page = $this->signIn($this->uiUser('mapper'))->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
-        $id = static fn (string $o): string => Words::say('SIMPLE_MATCH', 'id', $o);
+        // (no state of these is known: each says so after its ID, SM11)
+        $id = static fn (string $o): string => self::idLine($o);
         self::assertSame(['Hayati Pro Max 4000 Blue Razz ' . $id('4711'), 'Hayati Pro Max 4000 Blue Razz copy ' . $id('4712')], self::matched($page, $alpha, 'vapebig'),
             'each matched product with its name on the store and its ID, the best seller first');
         self::assertSame(['Hayati ten pack ' . $id('88') . ' ' . Words::saleUses(10)], self::matched($page, $alpha, 'vapeandgo'));
@@ -338,7 +367,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         self::assertSame(200, $page->status, $page->describe());
         self::assertNull(self::addForm($page, $alpha, 'vapebig'));
         self::assertFalse($page->hasForm(self::PATH . '/apply'));
-        self::assertSame(0, self::xp($page)->query('//main//datalist | //main//details[contains(@class, "sm-more")]')->length);
+        self::assertSame(0, self::xp($page)->query('//main//datalist | //main//*[@data-sm-list] | //main//details[contains(@class, "sm-more")]')->length);
         self::assertStringContainsString(sprintf(Words::UI['look_only'], Words::whoCan('mapping.decide')), $page->text(), 'the page says who matches');
 
         self::assertSame(403, self::options($viewer, $alpha, 'vapebig', 'elux')->status);
@@ -470,7 +499,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         $back = self::open($web, (string) $r->location());
         self::assertSame(200, $back->status, $back->describe());
         self::assertSame(Words::say('MATCH_NOTICE', 'decided_link', '"Elux Legend Blue Razz"', self::cw($alpha)), self::toast($back));
-        self::assertSame(['Elux Legend Blue Razz ' . Words::say('SIMPLE_MATCH', 'id', '5001')], self::matched($back, $alpha, 'vapebig'));
+        self::assertSame(['Elux Legend Blue Razz ' . self::idLine('5001')], self::matched($back, $alpha, 'vapebig'));
         self::assertStringContainsString('here', (string) self::xp($back)->evaluate('string(//tr[@id="m-' . $alpha . '"]/@class)'), 'the row it came back to is marked');
 
         // The page number comes back too.
@@ -604,14 +633,18 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
             array_intersect_key($form['fields'] ?? [], array_flip(['listing_id', 'expected_map_version', 'proposal_id', 'pick'])), 'the product, as this page shows it');
         $cell = '//tr[@id="m-' . $alpha . '"]/td[@data-channel="vapebig"]';
         self::assertSame(Words::SIMPLE_MATCH['confirm'], self::squash(self::xp($check)->evaluate('string(' . $cell . '//p[contains(@class, "sm-confirm")])')));
-        self::assertSame(1, self::xp($check)->query($cell . '//datalist/option[@data-listing-id="' . $big . '"]')->length, 'its list holds it: app.js keeps the choice');
+        self::assertSame(1, self::xp($check)->query($cell . '//ul[@data-sm-list]/li[@data-listing-id="' . $big . '"][@data-label="' . ($form['fields']['pick'] ?? '') . '"]')->length,
+            'its list holds it: app.js keeps the choice');
+        self::assertSame(['Elux Legend Blue Razz', self::idLine('5001')], [
+            self::squash(self::xp($check)->evaluate('string(' . $cell . '//ul[@data-sm-list]/li/span[contains(@class, "sm-opt-name")])')),
+            self::squash(self::xp($check)->evaluate('string(' . $cell . '//ul[@data-sm-list]/li/span[contains(@class, "sm-opt-meta")])'))], 'on its two lines (SM11)');
         $to = self::went($web->post(self::PATH . '/apply', $form['fields'] ?? []));
         self::assertSame(['decided_link', (string) $big], [$to['query']['notice'] ?? null, $to['query']['prev'] ?? null]);
         self::assertSame($alpha, $this->link($big)['sku_id']);
         // A product no longer waiting by the time the confirmation is drawn: the cell says to choose again, and offers nothing.
         $again = self::open($web, (string) $r->location());
         self::assertSame(Words::SIMPLE_MATCH['said_choose'], self::said($again, $alpha, 'vapebig')[0]);
-        self::assertSame(0, self::xp($again)->query($cell . '//datalist/option')->length);
+        self::assertSame(0, self::xp($again)->query($cell . '//ul[@data-sm-list]/li | ' . $cell . '//datalist')->length);
     }
 
     /**
@@ -755,7 +788,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         self::assertSame([(string) $l, $label], [$fields['listing_id'] ?? null, $fields['pick'] ?? null]);
         self::assertSame('decided_link', self::went($web->post(self::PATH . '/apply', $fields))['query']['notice'] ?? null);
         self::assertSame($alpha, $this->link($l)['sku_id']);
-        self::assertSame(['Elux Legend Blue Razz ' . Words::say('SIMPLE_MATCH', 'id', '5001')], self::matched($web->get(self::PATH), $alpha, 'vapebig'));
+        self::assertSame(['Elux Legend Blue Razz ' . self::idLine('5001')], self::matched($web->get(self::PATH), $alpha, 'vapebig'));
     }
 
     /** Codex's review, LOW 4: the product whose ID was typed comes first, however many products whose numbers hold it sell more. */
@@ -782,6 +815,118 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
             'variant_title' => 'Hayati Pro Max Plus 6000 Prefilled Pod Kit - 10mg | Black Mamba']);
         self::assertSame('ID 3699 · 10mg | Black Mamba · Hayati Pro Max Plus 6000 Prefilled Pod Kit',
             self::choices(self::options($web, $alpha, 'electrofag', '3699'))[$ten]['label'] ?? null, 'a strength the name starts with, once');
+        // The Codex review of c330f42 (two LOW): the product's name is taken out of the option's name whatever its case, accents
+        // included ("CAFÉ" is "Café"), and what stands between them is trimmed by whole characters (a "£" after it stays whole).
+        $cafe = $this->profiled($s['electrofag'], '3701', ['product_title' => 'CAFÉ SALT', 'variant_title' => 'Café Salt - Blue']);
+        self::assertSame('ID 3701 · Blue · CAFÉ SALT', self::choices(self::options($web, $alpha, 'electrofag', '3701'))[$cafe]['label'] ?? null, 'any case');
+        $kit = $this->profiled($s['electrofag'], '3702', ['product_title' => 'Brand Kit', 'variant_title' => 'Brand Kit - £5 Edition']);
+        self::assertSame('ID 3702 · £5 Edition · Brand Kit', self::choices(self::options($web, $alpha, 'electrofag', '3702'))[$kit]['label'] ?? null, 'whole characters');
+        $dot = $this->profiled($s['electrofag'], '3703', ['product_title' => 'Brand Kit', 'variant_title' => 'Brand Kit · Blue ·']);
+        self::assertSame('ID 3703 · Blue · Brand Kit', self::choices(self::options($web, $alpha, 'electrofag', '3703'))[$dot]['label'] ?? null, 'a middle dot around it');
+    }
+
+    /**
+     * The owner (26 Oct 2026, on the live page): "I want to still see the full name ... I need also the status of the variant shown
+     * there from each shop, the same way you show the ID" (SM11). Each choice of the box's own list has two lines: the product's FULL
+     * name on the store (the matched cells' name, never cut), then "ID <option> · <its status on the store> · <strength>", and the
+     * mark when there is one. The status is the website state CW stores (SiteState::read: the stored state, else what a matching run
+     * recorded, else the open suggestion's record), in the store's own word; the product's status too when the product is not
+     * published; "status not known" when nothing is known or the stored state is older than the setting. The box's words (what Apply
+     * compares) stay SM10's and carry no status, and each choice carries what Apply sends, as before.
+     */
+    public function testEachChoiceHasTheFullNameThenItsIdAndItsStatusOnTheStore(): void
+    {
+        $s = $this->stores();
+        $alpha = $this->item('legacy', 0, 'Alpha kit');
+        $other = $this->item('legacy', 0, 'Other kit');
+        $product = 'Hayati Pro Max Blueberry Cherry Cranberry Nic Salt 10ml';
+        $twenty = $this->profiled($s['electrofag'], '3234', ['product_title' => $product, 'variant_title' => 'Hayati Pro Max Blueberry Cherry Cranberry 10ml Nic Salt E Liquid - 20mg']);
+        $ten = $this->profiled($s['electrofag'], '3233', ['product_title' => $product, 'variant_title' => 'Hayati Pro Max Blueberry Cherry Cranberry 10ml Nic Salt E Liquid - 10mg']);
+        self::siteState($twenty);
+        self::siteState($ten, ['site_variant_status' => 'Bin']);
+        $web = $this->signIn($this->uiUser('mapper'));
+        $r = self::options($web, $alpha, 'electrofag', 'hayati');
+        self::assertSame(200, $r->status, $r->describe() . implode("\n", self::$log));
+        self::assertSame(0, self::xp($r)->query('//datalist | //option')->length, 'no native popup: the page draws its own list');
+        $lines = self::lines($r);
+        self::assertSame([$product . ' Hayati Pro Max Blueberry Cherry Cranberry 10ml Nic Salt E Liquid - 20mg', Words::say('SIMPLE_MATCH', 'id', '3234') . ' · Published · 20mg'], $lines[$twenty] ?? null,
+            'the full name, then the ID, the status on the store and the strength');
+        self::assertSame([$product . ' Hayati Pro Max Blueberry Cherry Cranberry 10ml Nic Salt E Liquid - 10mg', Words::say('SIMPLE_MATCH', 'id', '3233') . ' · Bin · 10mg'], $lines[$ten] ?? null,
+            'the store\'s own word');
+        $c = self::choices($r);
+        self::assertSame(['version' => (string) $this->version($twenty), 'proposal' => '', 'option' => '3234'], array_diff_key($c[$twenty] ?? [], ['label' => 1]),
+            'what Apply sends, as before');
+        self::assertStringStartsWith('ID 3234 · 20mg · ', $c[$twenty]['label'] ?? '', 'the box\'s words are SM10\'s ...');
+        self::assertStringNotContainsString('Published', $c[$twenty]['label'] ?? '', '... with no status: a state loaded meanwhile never makes a choice unusable');
+
+        $pub = $this->profiled($s['vapebig'], '5001', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz']);
+        self::siteState($pub, ['site_product_status' => 'Draft']);
+        $none = $this->profiled($s['vapebig'], '5002', ['product_title' => 'Elux Legend', 'variant_title' => 'Cherry']);
+        $old = $this->profiled($s['vapebig'], '5003', ['product_title' => 'Elux Legend', 'variant_title' => 'Mango']);
+        self::siteState($old, ['site_state_at' => \CW\Clock::db(\CW\Clock::now()->modify('-60 days'))]);
+        $run = $this->profiled($s['vapebig'], '5004', ['product_title' => 'Elux Legend', 'variant_title' => 'Grape', 'features' => ['variant_status' => 'Draft']]);
+        $checked = $this->queued($s['vapebig'], '5005', 'Check', $other, ['product_title' => 'Elux Legend', 'variant_title' => 'Lime'], ['evidence' => ['variant_status' => 'Bin']]);
+        $half = $this->profiled($s['vapebig'], '5006', ['product_title' => 'Elux Legend', 'variant_title' => 'Kiwi']);
+        self::siteState($half, ['site_variant_status' => null, 'site_product_status' => 'Bin']);
+        $elux = self::lines(self::options($web, $alpha, 'vapebig', 'elux legend'));
+        self::assertSame(['Elux Legend Blue Razz', 'ID 5001 · Published · product Draft'], $elux[$pub] ?? null, 'a published option of a product that is not');
+        self::assertSame(Words::say('SIMPLE_MATCH', 'id', '5001') . ' · ' . Words::say('SIMPLE_MATCH', 'status_product', 'Published', 'Draft'), $elux[$pub][1] ?? null);
+        self::assertSame(self::idLine('5002'), $elux[$none][1] ?? null, 'nothing known: said so');
+        self::assertSame(self::idLine('5003'), $elux[$old][1] ?? null, 'a stored state older than the setting is not known');
+        self::assertSame(self::idLine('5004', 'Draft'), $elux[$run][1] ?? null, 'no stored state: what a matching run recorded');
+        self::assertSame(self::idLine('5005', 'Bin'), $elux[$checked][1] ?? null, 'else what the computer\'s check recorded');
+        self::assertSame(self::idLine('5006', Words::say('SIMPLE_MATCH', 'status_product', Words::SIMPLE_MATCH['status_unknown'], 'Bin')), $elux[$half][1] ?? null,
+            'the product\'s status beside an option\'s that is not known');
+
+        // The marks of SM4 end the line: one decided on its own page, and (for a Matcher) one a matching lead decides.
+        $arrival = $this->profiled($s['vapeandgo'], '7001', ['product_title' => 'Lost Mary', 'variant_title' => 'Grape']);
+        self::siteState($arrival);
+        $this->proposals->add(Caller::system('test'), $arrival, $this->proposals->run('arrival-t1', ArrivalCheck::SOURCE), ['band' => 'Check', 'proposed_sku_id' => $alpha], true);
+        $conflict = $this->queued($s['vapeandgo'], '7002', 'Conflict', $other, ['product_title' => 'Lost Mary', 'variant_title' => 'Mint']);
+        $mary = self::lines(self::options($web, $alpha, 'vapeandgo', 'lost mary'));
+        self::assertSame(self::idLine('7001', 'Published') . ' · ' . Words::SIMPLE_MATCH['own_page'], $mary[$arrival][1] ?? null);
+        self::assertSame(self::idLine('7002') . ' · ' . Words::SIMPLE_MATCH['lead_decides'], $mary[$conflict][1] ?? null);
+        self::assertSame(['decided on its own page', 'a matching lead decides it'], [Words::SIMPLE_MATCH['own_page'], Words::SIMPLE_MATCH['lead_decides']]);
+
+        // A long name is never cut (the box's words may be: they are one line of at most 200 characters).
+        $long = $this->profiled($s['vapeandgo'], '7003', ['product_title' => str_repeat('Very long product name ', 6) . 'end', 'variant_title' => str_repeat('very long option name ', 6) . 'last']);
+        $name = str_repeat('Very long product name ', 6) . 'end ' . str_repeat('very long option name ', 6) . 'last';
+        self::assertGreaterThan(200, mb_strlen($name));
+        self::assertSame($name, self::lines(self::options($web, $alpha, 'vapeandgo', '7003'))[$long][0] ?? null, 'never cut');
+    }
+
+    /**
+     * SM11: a matched cell says each product's status on its store after its ID, the same way ("ID 5001 · Published"), from the same
+     * reads as the cell's names; a match waiting for a second OK too.
+     */
+    public function testAMatchedCellSaysEachProductsStatusOnItsStoreAfterItsId(): void
+    {
+        $s = $this->stores();
+        $lead = $this->staffUser('mapping_lead');
+        $alpha = $this->item('legacy', 0, 'Alpha kit');
+        $counted = $this->item('strict', 0, 'Counted kit');
+        $pub = $this->profiled($s['vapebig'], '5001', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz', 'units_30d' => 9], $alpha);
+        $bin = $this->profiled($s['vapebig'], '5002', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz old page', 'units_30d' => 5], $alpha);
+        $draft = $this->profiled($s['vapebig'], '5003', ['product_title' => 'Elux Legend', 'variant_title' => 'Blue Razz copy', 'units_30d' => 1], $alpha);
+        $old = $this->profiled($s['vapeandgo'], '88', ['product_title' => 'Alpha on Vape and Go'], $alpha);
+        self::siteState($pub);
+        self::siteState($bin, ['site_variant_status' => 'Bin']);
+        self::siteState($draft, ['site_product_status' => 'Draft']);
+        self::siteState($old, ['site_state_at' => \CW\Clock::db(\CW\Clock::now()->modify('-60 days'))]);
+        $w = $this->profiled($s['electrofag'], 'E-1', ['product_title' => 'Counted on Electrofag', 'features' => ['variant_status' => 'Published']]);
+        self::assertSame('pending_second', $this->decide($lead, 'link', $w, ['sku_id' => $counted])['state']);
+
+        $page = $this->signIn($this->uiUser('mapper'))->get(self::PATH);
+        self::assertSame(200, $page->status, $page->describe() . implode("\n", self::$log));
+        self::assertSame(['Elux Legend Blue Razz ' . self::idLine('5001', 'Published'), 'Elux Legend Blue Razz old page ' . self::idLine('5002', 'Bin'),
+            'Elux Legend Blue Razz copy ' . self::idLine('5003', Words::say('SIMPLE_MATCH', 'status_product', 'Published', 'Draft'))],
+            self::matched($page, $alpha, 'vapebig'), 'each with its status after its ID');
+        self::assertSame(['Alpha on Vape and Go ' . self::idLine('88')], self::matched($page, $alpha, 'vapeandgo'), 'too old: not known');
+        self::assertSame(['Counted on Electrofag ' . self::idLine('E-1', 'Published') . ' ' . Words::SIMPLE_MATCH['waiting']], self::matched($page, $counted, 'electrofag'),
+            'a match waiting for a second OK too');
+        $li = '//tr[@id="m-' . $alpha . '"]/td[@data-channel="vapebig"]//li[1]';
+        self::assertSame([Words::say('SIMPLE_MATCH', 'id', '5001'), '· Published'], [self::squash(self::xp($page)->evaluate('string(' . $li . '/span[contains(@class, "sm-id")])')),
+            self::squash(self::xp($page)->evaluate('string(' . $li . '/span[contains(@class, "sm-site")])'))], 'the ID, then its status in a span of its own');
     }
 
     public function testTheProductWhoseIdWasTypedIsOfferedFirst(): void
@@ -847,7 +992,7 @@ final class SimpleMatchScreenTest extends KernelUiTestCase
         self::assertSame(['sku_id' => null, 'status' => 'unmapped'], array_intersect_key($this->link($l), ['sku_id' => 1, 'status' => 1]), 'nothing is live yet');
         $back = self::open($web, (string) $r->location());
         self::assertSame(Words::say('MATCH_NOTICE', 'pending_second', '"Elux Legend Blue Razz"'), self::toast($back));
-        self::assertSame(['Elux Legend Blue Razz ' . Words::say('SIMPLE_MATCH', 'id', '5001') . ' ' . Words::SIMPLE_MATCH['waiting']], self::matched($back, $counted, 'vapebig'));
+        self::assertSame(['Elux Legend Blue Razz ' . self::idLine('5001') . ' ' . Words::SIMPLE_MATCH['waiting']], self::matched($back, $counted, 'vapebig'));
     }
 
     public function testAProductDecidedOneAtATimeIsSaidSoAndRefusedWithTheWayToItsPage(): void

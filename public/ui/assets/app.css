@@ -2058,17 +2058,18 @@ table.item-cards .c-fill { font: 500 13px/20px var(--font); }
 }
 /* ==== end search-match-ux ========================================================================================================= */
 
-/* ==== simple-matching (branch simple-matching, docs/decisions.md SM1-SM9) =========================================================
+/* ==== simple-matching (branch simple-matching, docs/decisions.md SM1-SM11) ========================================================
    Products › Simple matching: a plain table (the warehouse product, then one column per store); a store's cell is the products matched
-   there (name and ID, a small label for one waiting for a second OK) and one box with Apply (a plain dropdown: the box and its own
-   list), or "+" for one more. 44 px to tap, 16 px in the box (no zoom on a phone). One block at the end of the file. */
+   there (name, ID and its status on the store, a small label for one waiting for a second OK) and one box with Apply (a plain
+   dropdown: the box and its own list, which app.js draws), or "+" for one more. 44 px to tap, 16 px in the box (no zoom on a phone).
+   One block at the end of the file. */
 table.simple-match th.c-head { min-width: 12rem; text-align: left; vertical-align: top; }
 table.simple-match .sm-code { display: block; color: var(--ink-muted); font: 500 12px/18px var(--font); }
 table.simple-match .sm-name { font-weight: 600; overflow-wrap: anywhere; }
 table.simple-match td.c-store { text-align: left; vertical-align: top; min-width: 14rem; max-width: 24rem; padding: 8px; }
 table.simple-match .sm-matched { display: grid; gap: 4px; margin: 0 0 6px; padding: 0; list-style: none; }
 table.simple-match .sm-match { overflow-wrap: anywhere; }
-table.simple-match span.sm-id, table.simple-match span.sm-note { color: var(--ink-muted); font-size: 13px; white-space: nowrap; }
+table.simple-match span.sm-id, table.simple-match span.sm-site, table.simple-match span.sm-note { color: var(--ink-muted); font-size: 13px; white-space: nowrap; }
 table.simple-match span.sm-wait { margin-left: 2px; white-space: nowrap; }
 table.simple-match tr[id] { scroll-margin-top: 96px; }
 table.simple-match tbody tr.here > * { background: var(--row-selected); }
@@ -2086,6 +2087,20 @@ table.simple-match details.sm-more > summary {
 }
 table.simple-match details.sm-more > summary::-webkit-details-marker { display: none; }
 table.simple-match details.sm-more[open] > summary { margin-bottom: 6px; }
+/* The box's own list (SM11; a browser's <datalist> popup is one line as wide as the box, and cut long names). app.js moves it to the
+   page's top level and places it under the box (above it when there is more room there): no table, card or scrolling box cuts it,
+   under the phone's top bar, above its tab bar. Wider than the box where the screen allows (app.js sets the width, the edge and the
+   height it has room for); its own scroll. Each choice is two lines that wrap: the full name, then its ID, status and strength. */
+.sm-list {
+  position: fixed; z-index: 35; top: 0; left: 0; width: min(36rem, calc(100vw - 32px)); max-height: 24rem; margin: 0; padding: 4px;
+  overflow-y: auto; overscroll-behavior: contain; list-style: none; text-align: left;
+  background: var(--card); color: var(--ink-body); border: 1px solid var(--hairline); border-radius: var(--r-12); box-shadow: var(--shadow-float);
+}
+.sm-list > li { display: grid; gap: 2px; min-height: 44px; margin: 0; padding: 8px 12px; border-radius: var(--r-8); cursor: pointer; }
+.sm-list > li:hover { background: var(--row-open); }
+.sm-list > li.is-active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.sm-list .sm-opt-name { color: var(--ink); font: 500 14px/20px var(--font); overflow-wrap: anywhere; }
+.sm-list .sm-opt-meta { color: var(--ink-muted); font: 400 13px/18px var(--font); overflow-wrap: anywhere; }
 @container (max-width: 640px) {
   /* As a card: the product across the card, each store's name above what it has (the box needs the card's width) */
   table.stack.simple-match th.c-head { grid-column: 1 / -1; }

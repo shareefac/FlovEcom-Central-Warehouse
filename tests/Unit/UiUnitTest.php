@@ -862,9 +862,60 @@ final class UiUnitTest extends TestCase
         self::assertNotSame([], $m[1]);
         foreach ($m[1] as $selector) {
             foreach (explode(',', $selector) as $one) {
-                self::assertMatchesRegularExpression('/span\.(sm-id|sm-note|sm-wait)\s*$/', trim($one), 'one line only for a short span');
+                self::assertMatchesRegularExpression('/span\.(sm-id|sm-site|sm-note|sm-wait)\s*$/', trim($one), 'one line only for a short span');
             }
         }
+    }
+
+    /**
+     * Simple matching's list (docs/decisions.md SM11; the owner, 26 Oct 2026: the browser's dropdown cut long names, "I want to still
+     * see the full name"): the box is a combobox whose list app.js draws itself (no <datalist>), at the page's top level (no table
+     * or card cuts it), two lines a choice that wrap, wider than the box where there is room, opening to the left near the right
+     * edge of the screen and never past it, with its own scroll; Up, Down, Enter (which sends nothing while the list is open) and
+     * Escape; a press on the list keeps the focus in the box, and a choice is an input event, as a datalist's was, so the race fixes
+     * of SM4 follow it.
+     */
+    public function testSimpleMatchingsListIsThePagesOwnOnTwoLinesAndOpensToTheLeft(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $view = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/simple_match.php');
+        $fragment = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/simple_match_options.php');
+        foreach (['simple_match' => $view, 'simple_match_options' => $fragment] as $name => $src) {
+            $markup = (string) preg_replace('/<\?php.*?\?>/s', '', $src); // (the templates' comments name what was there before)
+            self::assertStringNotContainsString('<datalist', $markup, "{$name}: no native popup");
+            self::assertStringNotContainsString(' list="', $markup, $name);
+        }
+        self::assertStringContainsString('role="listbox"', $view);
+        self::assertStringNotContainsString("getAttribute('list')", $js);
+        self::assertStringContainsString("var list = form.querySelector('ul[data-sm-list]');", $js);
+        self::assertStringContainsString('document.body.appendChild(list);', $js, 'the list sits at the page\'s top level');
+        foreach (["input.setAttribute('role', 'combobox');", "input.setAttribute('aria-controls', list.id);", "input.setAttribute('aria-expanded', 'true');",
+            "input.setAttribute('aria-activedescendant', li.id);", "li.setAttribute('role', 'option');"] as $aria) {
+            self::assertStringContainsString($aria, $js);
+        }
+        // Where it opens: from the box's left edge, wider than the box where there is room, to the left near the right edge of the
+        // screen, never past it.
+        self::assertStringContainsString('var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);', $js);
+        self::assertStringContainsString('left = r.right - width; // near the right edge of the screen: it opens to the left', $js);
+        self::assertStringContainsString('left = Math.max(edge, Math.min(left, vw - edge - width));', $js);
+        // The keys, and the one tap.
+        foreach (["ev.key === 'ArrowDown'", "ev.key === 'ArrowUp'", "ev.key === 'Escape'"] as $key) {
+            self::assertStringContainsString($key, $js);
+        }
+        self::assertStringContainsString('ev.preventDefault(); // the list is open: Enter chooses, and sends nothing', $js);
+        self::assertStringContainsString("list.addEventListener('mousedown', function (ev) {\n      ev.preventDefault();", $js, 'a press keeps the focus in the box');
+        self::assertStringContainsString("input.dispatchEvent(new window.Event('input', { bubbles: true }));", $js, 'a choice is an input event, as a datalist\'s');
+        // Each choice's two lines are built as text from the fragment's (nothing of its markup is kept).
+        self::assertStringContainsString("span.textContent = part ? part.textContent.trim() : '';", $js);
+        // The CSS: fixed, above the table, its own scroll; the lines wrap; 44 px to tap.
+        self::assertSame(1, preg_match('/^\.sm-list \{[^}]*\}/m', $css, $list));
+        foreach (['position: fixed', 'z-index: 35', 'overflow-y: auto', 'max-height: 24rem'] as $rule) {
+            self::assertStringContainsString($rule, $list[0]);
+        }
+        self::assertSame(1, preg_match('/^\.sm-list > li \{[^}]*min-height: 44px[^}]*cursor: pointer/m', $css));
+        self::assertSame(1, preg_match('/^\.sm-list \.sm-opt-name \{[^}]*overflow-wrap: anywhere/m', $css));
+        self::assertSame(0, preg_match('/^\.sm-list[^{]*\{[^}]*(nowrap|text-overflow|ellipsis)/m', $css), 'a long name is never cut');
     }
 
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void

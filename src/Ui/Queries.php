@@ -1267,7 +1267,8 @@ final class Queries
      * a year from the profile (the item's "Product: …" line is the best seller's, U122). A suggested row carries the suggestion's
      * number and the variant's map_version: what By Item's bulk form sends back (U124). $names adds every variant's own names
      * (the page's 50 items need them; the CSV of every item does not, so its suggested and waiting reads leave the profiles alone
-     * and its matched rows come in listing order).
+     * and its matched rows come in listing order), and to the matched and waiting rows what their status on the website is read from
+     * (SITE_STATUS_COLUMNS, with the variant's open suggestion by its unique key: Simple matching's cells, SM11).
      *
      * @param list<int> $skuIds
      * @return array{matched: list<array<string, mixed>>, suggested: list<array<string, mixed>>, waiting: list<array<string, mixed>>}
@@ -1281,10 +1282,12 @@ final class Queries
         $in = implode(',', array_fill(0, count($skuIds), '?'));
         $cols = $names ? ', lp.product_title, lp.variant_title' : '';
         $profile = 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id ';
+        $site = $names ? ', ' . self::SITE_STATUS_COLUMNS : '';
+        $open = $names ? 'LEFT JOIN match_proposal p ON p.open_listing_id = cl.id ' : '';
         return [
             'matched' => $this->db->all(
                 'SELECT cl.sku_id, cl.channel_id, cl.id AS listing_id, cl.external_variant_id, cl.units_per_item, cl.status, lp.product_title, lp.units_365d'
-                . ($names ? ', lp.variant_title' : '') . ' FROM channel_listing cl ' . $profile
+                . ($names ? ', lp.variant_title' : '') . $site . ' FROM channel_listing cl ' . $profile . $open
                 . "WHERE cl.sku_id IN ({$in}) ORDER BY cl.sku_id, cl.channel_id, " . ($names ? 'COALESCE(lp.units_30d, 0) DESC, ' : '') . 'cl.id',
                 $skuIds,
             ),
@@ -1295,8 +1298,8 @@ final class Queries
                 $skuIds,
             ),
             'waiting' => $this->db->all(
-                'SELECT d.sku_id, cl.channel_id, d.listing_id, cl.external_variant_id, d.id AS decision_id, d.units_per_item' . $cols
-                . ' FROM match_decision d JOIN channel_listing cl ON cl.id = d.listing_id ' . ($names ? $profile : '')
+                'SELECT d.sku_id, cl.channel_id, d.listing_id, cl.external_variant_id, d.id AS decision_id, d.units_per_item' . $cols . $site
+                . ' FROM match_decision d JOIN channel_listing cl ON cl.id = d.listing_id ' . ($names ? $profile . $open : '')
                 . "WHERE d.state = 'pending_second' AND d.action = 'link' AND d.sku_id IN ({$in}) ORDER BY d.sku_id, cl.channel_id, d.id",
                 $skuIds,
             ),
@@ -1447,9 +1450,20 @@ final class Queries
     }
 
     /**
+     * What a row needs for CW\Mapping\SiteState::read() of its status on the website (M66; Simple matching says it, SM11), read from
+     * the profile (`lp`) and the open suggestion (`p`) the statement joins anyway: the stored state's two statuses and its date, what
+     * a matching run recorded (`features_status`; JSON's null is the text "null", which SiteState::text() reads as none) and what the
+     * computer's check recorded (`check_status`: a text only, as New Variants reads it).
+     */
+    private const SITE_STATUS_COLUMNS = 'lp.site_variant_status, lp.site_product_status, lp.site_state_at, '
+        . "JSON_UNQUOTE(JSON_EXTRACT(lp.features, '$.variant_status')) AS features_status, "
+        . "CASE WHEN JSON_TYPE(JSON_EXTRACT(p.evidence, '$.variant_status')) = 'STRING' THEN JSON_UNQUOTE(JSON_EXTRACT(p.evidence, '$.variant_status')) END AS check_status";
+
+    /**
      * The picker's rows: website products with their state (STORE_STATES), name, price, units sold, barcodes and open suggestion;
      * for By Item's quick match also what its "Match to …" form sends (the variant's map_version, the open suggestion's number and
-     * its units) and the features the matching read (strength, size, flavour, range). One read by primary key for a page of them.
+     * its units) and the features the matching read (strength, size, flavour, range); and what its status on the website is read
+     * from (SITE_STATUS_COLUMNS: Simple matching's list, SM11). One read by primary key for a page of them.
      *
      * @param list<int> $listingIds
      * @return array<int, array<string, mixed>> listing id => row
@@ -1463,7 +1477,8 @@ final class Queries
         $out = [];
         foreach ($this->db->all(
             'SELECT cl.id AS listing_id, cl.channel_id, cl.external_variant_id, cl.map_version, ' . self::STATE_SQL . ' AS state, lp.product_title, lp.variant_title, lp.brand, '
-            . 'lp.price, lp.barcodes, lp.units_30d, lp.units_365d, lp.features, p.id AS proposal_id, p.band, p.proposed_sku_id, p.ai_units_per_item FROM channel_listing cl '
+            . 'lp.price, lp.barcodes, lp.units_30d, lp.units_365d, lp.features, p.id AS proposal_id, p.band, p.proposed_sku_id, p.ai_units_per_item, '
+            . self::SITE_STATUS_COLUMNS . ' FROM channel_listing cl '
             . self::STATE_JOINS
             . 'LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE cl.id IN (' . implode(',', array_fill(0, count($listingIds), '?')) . ')',
             $listingIds,

@@ -4972,9 +4972,13 @@ final class Words
      * and `too_many` is a store's name or "all stores", read from the channel table.
      */
     /**
-     * Products › Simple matching (docs/decisions.md SM1-SM9; the owner's request of 25 Oct 2026: "easy and simple: click Apply and it
+     * Products › Simple matching (docs/decisions.md SM1-SM11; the owner's request of 25 Oct 2026: "easy and simple: click Apply and it
      * matches"): the table's head, a cell's lines, the one box of a cell (a plain dropdown), the line under it, and the refusals of
      * Apply (`said_*`), each said in the cell it was about. A match made is said by the matching pages' own notice (MATCH_NOTICE).
+     * `option*` are the box's words for a choice (SM10: what Apply compares); the list shows a choice on two lines, its name and then
+     * "ID … · <its status on the store> · …" (SM11: the status as the store says it, Published, Bin, Draft; `status_product` when its
+     * product is not published, `status_unknown` when nothing is known or the state is too old), with the marks `own_page` and
+     * `lead_decides`.
      */
     public const SIMPLE_MATCH = [
         'search' => 'Search the warehouse products',
@@ -4984,6 +4988,10 @@ final class Words
         'option' => 'ID %2$s · %1$s',
         'option_own_page' => 'ID %2$s · decided on its own page · %1$s',
         'option_lead' => 'ID %2$s · a matching lead decides it · %1$s',
+        'status_unknown' => 'status not known',
+        'status_product' => '%s · product %s',
+        'own_page' => 'decided on its own page',
+        'lead_decides' => 'a matching lead decides it',
         'waiting' => 'Waiting for a second OK',
         'pick' => 'Its name or ID on %s',
         'pick_hint' => 'Name or ID',

@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace CW\Ui\Controller;
 
+use CW\Clock;
 use CW\CwException;
 use CW\Db;
 use CW\Mapping\DecisionService;
 use CW\Mapping\OneAtATime;
+use CW\Mapping\SiteState;
 use CW\Ui\ByProductContext;
 use CW\Ui\Context;
 use CW\Ui\Html;
@@ -17,7 +19,7 @@ use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
 /**
- * Products › Simple matching (docs/decisions.md SM1-SM9; the owner's request of 25 Oct 2026: "Create a simple page with a table with 4
+ * Products › Simple matching (docs/decisions.md SM1-SM11; the owner's request of 25 Oct 2026: "Create a simple page with a table with 4
  * columns: one for CW, one for Vape and Go, one for Vape Big and one for Electrofag ... If nothing is matched there is a blank simple
  * dropdown so I can search with just what it is called on that store, or the ID it has ... click Apply and it matches, with a plus
  * button so if there is a duplicate I can match that too. One dropdown is enough.").
@@ -28,7 +30,8 @@ use CW\Ui\Words;
  * that changes a match. It only ADDS a match: a match is changed or undone on the website product's own page, as before. Every rule
  * of a match stays DecisionService's (the person's name on the decision and its audit row, a version that moved, the suggestion it
  * must name, a Conflict for a matching lead, a spot check's owner, a product decided one at a time on its own page, a second OK);
- * this page says the outcome in a short line.
+ * this page says the outcome in a short line. Each website product shows its status on its store after its ID, in a matched cell and
+ * on the second line of its choice in the box's list (SM11: SiteState's reading, siteStatus()).
  *
  *   GET  /ui/match            the list (linking.view): `q` the search, `page`; back from Apply: `notice` + `prev` (the matching pages'
  *                             notice), or `said` (a refusal, SAID) + `prev` (the website product) + `ch` (the store) + `t` (what was
@@ -83,16 +86,17 @@ final class SimpleMatchController
         // A typed ID to confirm (`confirm`, from Apply without the script): the product as this page shows it now, in its cell's box,
         // or, when it no longer waits for a match, "Choose one from the list".
         $chosen = null;
+        $status = self::siteStatus($ctx);
         $confirm = $decide && $at !== null && $said === null ? UiRequest::id($req->param('confirm')) : null;
         $store = $confirm === null ? null : ReviewController::store($stores, $req->param('ch'));
         if ($confirm !== null && $store !== null) {
-            $chosen = self::choices($ctx, [$confirm], (int) $store['id'])[0] ?? null;
+            $chosen = self::choices($ctx, [$confirm], (int) $store['id'], $status)[0] ?? null;
             $chosen = $chosen === null ? null : $chosen + ['sku' => $at, 'channel' => (string) $store['code']];
             $said = $chosen !== null ? null : ['code' => 'choose', 'text' => Words::SIMPLE_MATCH['said_choose'], 'link' => null, 'sku' => $at,
                 'channel' => (string) $store['code'], 'typed' => ''];
         }
         $keep = array_filter(['q' => $text === '' ? null : $text, 'page' => $page > 1 ? $page : null], static fn (mixed $v): bool => $v !== null);
-        $rows = self::rows($q->productRows($ids), $stores, $q->productCells($ids), $decide, $at, $said, $chosen);
+        $rows = self::rows($q->productRows($ids), $stores, $q->productCells($ids), $status, $decide, $at, $said, $chosen);
         $base = ['q' => $text === '' ? null : $text];
         return $ctx->page('simple_match', [
             'stores' => $stores,
@@ -116,9 +120,10 @@ final class SimpleMatchController
      * for ONE warehouse product, as a fragment app.js copies into the cell's dropdown. An empty box (no `q`, or spaces): the
      * computer's suggestions of this product on that store; a text: that store's waiting products with every word in their names (and
      * what else the quick match reads) or whose ID it is, best sellers first. At most OPTIONS_MAX. Each choice carries what Apply sends
-     * for it (the website product, its version, its open suggestion of any product: the decision must name it, I7) and says when it
-     * is decided one at a time on its own page, or (for a Matcher) by a matching lead. An error is a page in words, which app.js does
-     * not show (it shows its own line).
+     * for it (the website product, its version, its open suggestion of any product: the decision must name it, I7) and the box's words
+     * for it, and shows two lines (SM11): its full name on the store, then its ID, its status on the store, its strength and, when
+     * it is decided one at a time on its own page or (for a Matcher) by a matching lead, that. An error is a page in words, which app.js
+     * does not show (it shows its own line).
      */
     public function options(Context $ctx): HtmlResponse
     {
@@ -149,7 +154,7 @@ final class SimpleMatchController
             $exact = $q->listingByOption((int) $store['id'], $text) ?? ($named === null ? null : $q->listingByOption((int) $store['id'], $named));
             $ids = array_values(array_unique([...($exact === null ? [] : [$exact]), ...$q->waitingListings((int) $store['id'], $text, 1, self::OPTIONS_MAX)['ids']]));
         }
-        $choices = array_slice(self::choices($ctx, $ids, (int) $store['id']), 0, self::OPTIONS_MAX);
+        $choices = array_slice(self::choices($ctx, $ids, (int) $store['id'], self::siteStatus($ctx)), 0, self::OPTIONS_MAX);
         $says = $choices !== [] ? '' : ($text === '' ? Words::SIMPLE_MATCH['type_more'] : Words::say('SIMPLE_MATCH', 'found_none', (string) $store['name']));
         return $ctx->fragment('simple_match_options', ['sku' => $id, 'store' => (string) $store['code'], 'choices' => $choices, 'says' => $says]);
     }
@@ -230,7 +235,7 @@ final class SimpleMatchController
         // The box must name the product the hidden fields carry: its words as its list shows them, or its ID. A box whose text was changed
         // after the choice (without the script nothing clears the hidden fields) is not that product: what it holds now is taken as
         // typed (Codex's second review, HIGH).
-        if ($box !== (string) $row['external_variant_id'] && $box !== trim(self::choices($ctx, [$listingId], (int) $store['id'])[0]['label'] ?? '')) {
+        if ($box !== (string) $row['external_variant_id'] && $box !== trim(self::choices($ctx, [$listingId], (int) $store['id'], self::siteStatus($ctx))[0]['label'] ?? '')) {
             return $asTyped();
         }
         $own = $row['proposal_id'] !== null && (string) $row['proposal_id'] === $proposal && $row['proposed_sku_id'] !== null
@@ -283,14 +288,17 @@ final class SimpleMatchController
     }
 
     /**
-     * The choices of a cell's dropdown, in the order given: the website products of the store that still wait for a match, each as the
-     * box shows it ("ID <option> · <name>", choiceName(), and "decided on its own page" for one OneAtATime names, "a matching lead decides it" for a
-     * Conflict when the person is a Matcher) with what Apply sends for it (its version and its open suggestion of any product).
+     * The choices of a cell's dropdown, in the order given: the website products of the store that still wait for a match, each with the
+     * box's words for it (`label`: "ID <option> · <name>", choiceName(), and "decided on its own page" for one OneAtATime names, "a
+     * matching lead decides it" for a Conflict when the person is a Matcher: what Apply compares the box with), what Apply sends for it
+     * (its version and its open suggestion of any product), and the two lines the list shows (SM11): `name`, its full name on the store
+     * (name(), as the matched cells show it), and `meta`, "ID <option> · <its status on the store> · <strength>" and the mark.
      *
      * @param list<int> $ids website products
-     * @return list<array{label: string, listing_id: int, map_version: int, proposal_id: ?int, option: string}>
+     * @param \Closure(array<string, mixed>): string $status siteStatus()'s
+     * @return list<array{label: string, listing_id: int, map_version: int, proposal_id: ?int, option: string, name: string, meta: string}>
      */
-    private static function choices(Context $ctx, array $ids, int $storeId): array
+    private static function choices(Context $ctx, array $ids, int $storeId, \Closure $status): array
     {
         $data = $ctx->queries()->pickerRows($ids);
         // The products no list answers (held back, a spot check's match, found on arrival): one read for them all (OneAtATime).
@@ -304,10 +312,39 @@ final class SimpleMatchController
             }
             $option = (string) $r['external_variant_id'];
             $word = isset($once[$lid]) ? 'option_own_page' : ($r['band'] === 'Conflict' && !$lead ? 'option_lead' : 'option');
+            $meta = [Words::say('SIMPLE_MATCH', 'id', $option), $status($r), self::strength($r)];
+            $meta[] = $word === 'option_own_page' ? Words::SIMPLE_MATCH['own_page'] : ($word === 'option_lead' ? Words::SIMPLE_MATCH['lead_decides'] : null);
             $out[] = ['label' => Words::say('SIMPLE_MATCH', $word, self::choiceName($r), $option), 'listing_id' => $lid, 'map_version' => (int) $r['map_version'],
-                'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'], 'option' => $option];
+                'proposal_id' => $r['proposal_id'] === null ? null : (int) $r['proposal_id'], 'option' => $option, 'name' => self::name($r),
+                'meta' => implode(' · ', array_filter($meta, static fn (?string $part): bool => $part !== null))];
         }
         return $out;
+    }
+
+    /**
+     * A website product's status on its store, as it is said after its ID (SM11; the owner, 26 Oct 2026: "the status of the variant
+     * ... from each shop, the same way you show the ID"): its website state as CW\Mapping\SiteState reads it (the stored state; else
+     * what a matching run recorded; else what the computer's check recorded), in the store's own word ("Published", "Bin", "Draft"),
+     * with its product's status when that is known and is not Published ("Published · product Draft"). "status not known" when no
+     * reader knows it, or when the stored state is older than the setting (SiteState::tooOld(), the setting read once, and only when a
+     * stored state is asked about). Read from the columns Queries::pickerRows and productCells give (SITE_STATUS_COLUMNS).
+     *
+     * @return \Closure(array<string, mixed>): string
+     */
+    private static function siteStatus(Context $ctx): \Closure
+    {
+        $now = Clock::now();
+        $days = null;
+        return static function (array $r) use ($ctx, $now, &$days): string {
+            $state = SiteState::read($r, ['variant_status' => $r['features_status'] ?? null], ['variant_status' => $r['check_status'] ?? null]);
+            if ($state['source'] === null
+                || ($state['source'] === SiteState::STORED && SiteState::tooOld($state['as_of'], $days ??= SiteState::maxDays($ctx->db), $now))) {
+                return Words::SIMPLE_MATCH['status_unknown'];
+            }
+            $own = SiteState::text($state['variant_status']) ?? Words::SIMPLE_MATCH['status_unknown'];
+            $product = SiteState::text($state['product_status']);
+            return $product !== null && $product !== SiteState::PUBLISHED ? Words::say('SIMPLE_MATCH', 'status_product', $own, $product) : $own;
+        };
     }
 
     /**
@@ -362,18 +399,19 @@ final class SimpleMatchController
     /**
      * The page's rows: each warehouse product with one cell per store, in the stores' order. A cell lists the website products matched
      * to it on that store (the best seller first) and then the matches of it that wait for a second OK, each with its name on the store,
-     * its ID, "1 sale = N" when N is not 1 and "On hold"; and, for someone who may decide, the add control: shown at once in an empty
-     * cell, behind "+" in one that has a product (open again with what the box held after a refusal, and with the product
-     * a typed ID names, chosen, to confirm).
+     * its ID and its status on the store after it (SM11), "1 sale = N" when N is not 1 and "On hold"; and, for someone who may decide,
+     * the add control: shown at once in an empty cell, behind "+" in one that has a product (open again with what the box held after a
+     * refusal, and with the product a typed ID names, chosen, to confirm).
      *
      * @param list<array<string, mixed>> $products Queries::productRows
      * @param list<array{id: int, code: string, name: string}> $stores
      * @param array{matched: list<array<string, mixed>>, suggested: list<array<string, mixed>>, waiting: list<array<string, mixed>>} $cells Queries::productCells
+     * @param \Closure(array<string, mixed>): string $status siteStatus()'s
      * @param array{code: string, text: string, link: ?string, sku: int, channel: ?string, typed: string}|null $said
-     * @param array{label: string, listing_id: int, map_version: int, proposal_id: ?int, option: string, sku: int, channel: string}|null $chosen
+     * @param array{label: string, listing_id: int, map_version: int, proposal_id: ?int, option: string, name: string, meta: string, sku: int, channel: string}|null $chosen
      * @return list<array<string, mixed>>
      */
-    private static function rows(array $products, array $stores, array $cells, bool $decide, ?int $at, ?array $said, ?array $chosen = null): array
+    private static function rows(array $products, array $stores, array $cells, \Closure $status, bool $decide, ?int $at, ?array $said, ?array $chosen = null): array
     {
         $by = [];
         foreach (['matched', 'waiting'] as $state) {
@@ -388,7 +426,7 @@ final class SimpleMatchController
                 }
                 $option = (string) ($r['external_variant_id'] ?? '');
                 $by[(int) $r['sku_id']][(int) $r['channel_id']][] = ['listing_id' => (int) $r['listing_id'], 'name' => self::name($r),
-                    'id' => $option === '' ? null : Words::say('SIMPLE_MATCH', 'id', $option), 'link' => '/ui/review/listing/' . (int) $r['listing_id'],
+                    'id' => $option === '' ? null : Words::say('SIMPLE_MATCH', 'id', $option), 'site' => $status($r), 'link' => '/ui/review/listing/' . (int) $r['listing_id'],
                     'waiting' => $state === 'waiting', 'notes' => $notes];
             }
         }
@@ -425,14 +463,15 @@ final class SimpleMatchController
 
     /**
      * A website product's name on its store: its product's name and its own option name on one line (a line break or a tab the intake
-     * kept is a space: a box holds one line, and a choice is the box's words; Codex's sixth review), else "(no name)".
+     * kept is a space: a box holds one line, and a choice is the box's words; Codex's sixth review), else "(no name)". Whole: a matched
+     * cell and the first line of a choice wrap a long name, never cut it (SM11; each title is at most 512 characters, 0001).
      *
      * @param array<string, mixed> $r
      */
     private static function name(array $r): string
     {
         $name = trim((string) preg_replace('/\s+/u', ' ', (string) ($r['product_title'] ?? '') . ' ' . (string) ($r['variant_title'] ?? '')));
-        return $name === '' ? Words::LISTING['no_title'] : mb_substr($name, 0, 200);
+        return $name === '' ? Words::LISTING['no_title'] : $name;
     }
 
     /**
@@ -446,13 +485,16 @@ final class SimpleMatchController
     private static function choiceName(array $r): string
     {
         $flat = static fn (mixed $v): string => trim((string) preg_replace('/\s+/u', ' ', (string) ($v ?? '')));
+        // What stands between the product's name and the rest, trimmed by whole characters (a byte mask would cut a "£" after it: the
+        // Codex review of c330f42, LOW).
+        $edges = static fn (string $v): string => (string) preg_replace('/^[\s\-|·,:]+|[\s\-|·,:]+$/u', '', $v);
         $product = $flat($r['product_title'] ?? null);
         $variant = $flat($r['variant_title'] ?? null);
         if ($variant === '' || $product === '') {
             $name = $variant !== '' ? $variant : $product;
         } elseif (mb_stripos($variant, $product) !== false) {
-            $rest = $flat(trim(str_ireplace($product, ' ', $variant), " \t-|·,:"));
-            $rest = trim($rest, " -|·,:");
+            // Taken out whatever its case, accents included ("CAFÉ" in "Café ..."), as mb_stripos() found it (the same review, LOW).
+            $rest = $edges($flat(preg_replace('/' . preg_quote($product, '/') . '/iu', ' ', $variant)));
             $name = $rest === '' ? $variant : $rest . ' · ' . $product;
         } elseif (mb_stripos($product, $variant) !== false) {
             $name = $product;
@@ -462,24 +504,36 @@ final class SimpleMatchController
         if ($name === '') {
             return Words::LISTING['no_title'];
         }
-        $mg = null;
+        $mg = self::strength($r);
+        // A name that starts with its strength already ("10mg | Black Mamba") does not say it twice.
+        $first = $mg !== null && preg_match('/^' . preg_quote(substr($mg, 0, -2), '/') . '\s?mg\b/iu', $name) !== 1;
+        return mb_substr(($first ? $mg . ' · ' : '') . $name, 0, 200);
+    }
+
+    /**
+     * A website product's strength ("20mg"), or null: the strength the matching reads from it (DecisionService::cardFrom), else the
+     * last "<n>mg" its store's own words name, its option name first (SM10; the second line of its choice says it too, SM11).
+     *
+     * @param array<string, mixed> $r a Queries::pickerRows row
+     */
+    private static function strength(array $r): ?string
+    {
         try {
             $card = DecisionService::cardFrom(['product_title' => $r['product_title'] ?? null, 'variant_title' => $r['variant_title'] ?? null,
                 'brand' => $r['brand'] ?? null], Html::json($r['features'] ?? null));
             $v = $card['strength_mg'] ?? null;
-            $mg = is_int($v) || is_float($v) ? Html::dec($v) . 'mg' : null;
+            if (is_int($v) || is_float($v)) {
+                return Html::dec($v) . 'mg';
+            }
         } catch (CwException) {
-            $mg = null; // nothing the matching read: the name alone
+            // nothing the matching read: the store's own words below
         }
-        // Not read by the matching: the last strength the store's own words name ("... - 20mg"), its option name first.
-        foreach ([$variant, $product] as $words) {
-            if ($mg === null && preg_match_all('/(\d+(?:\.\d+)?)\s?mg\b/iu', $words, $m) > 0) {
-                $mg = end($m[1]) . 'mg';
+        foreach ([$r['variant_title'] ?? null, $r['product_title'] ?? null] as $words) {
+            if (preg_match_all('/(\d+(?:\.\d+)?)\s?mg\b/iu', (string) preg_replace('/\s+/u', ' ', (string) ($words ?? '')), $m) > 0) {
+                return end($m[1]) . 'mg';
             }
         }
-        // A name that starts with its strength already ("10mg | Black Mamba") does not say it twice.
-        $first = $mg !== null && preg_match('/^' . preg_quote(substr($mg, 0, -2), '/') . '\s?mg\b/iu', $name) !== 1;
-        return mb_substr(($first ? $mg . ' · ' : '') . $name, 0, 200);
+        return null;
     }
 
     private static function text(mixed $v): ?string
