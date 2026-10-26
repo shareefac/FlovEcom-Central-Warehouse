@@ -337,6 +337,7 @@ final class WordsTest extends TestCase
             '0046_rollback_export.sql', // Pack RB
             '0047_staff_session_limits.sql', // how long a person stays signed in (SL1)
             '0048_totp_off_switch.sql', // 2-step verification switched off for a while (TF1)
+            '0051_hide_unsold.sql', // HU (hide-unsold): the matching lists leave out what was not sold in a year (HU1)
         ] as $file) {
             preg_match_all("/^ \\('([a-z_]+\.[a-z_.]+)','/m", $sql($file), $m);
             $keys = [...$keys, ...$m[1]];
@@ -1019,5 +1020,39 @@ final class WordsTest extends TestCase
         self::assertSame(['vapeandgo', 'vapebig', 'electrofag', 'another'], array_column(SimpleMatchController::stores([['id' => 4, 'code' => 'another', 'name' => 'Another'],
             ['id' => 1, 'code' => 'electrofag', 'name' => 'Electrofag'], ['id' => 3, 'code' => 'vapebig', 'name' => 'Vape Big'],
             ['id' => 2, 'code' => 'vapeandgo', 'name' => 'Vape and Go']]), 'code'), 'the owner\'s order, any other store after them');
+    }
+
+    // ---- HU (hide-unsold, 26 Oct 2026; docs/decisions.md HU1-HU9) ------------------------------------------------------------------
+
+    /**
+     * What staff read of the products the matching lists leave out: Store Products' one quiet line in the owner's words (HU3), why a
+     * warehouse product is not offered to match to (HU5), and the setting (HU1): a plain name and what it does, the year said, and the
+     * two values it may hold (on: 365 days; off: 0), listed under Matching products.
+     */
+    public function testTheProductsTheMatchingListsLeaveOutAreSaidInPlainWords(): void
+    {
+        self::assertSame('3 products not sold in a year are hidden.', Words::say('STORE_PRODUCTS', 'unsold_many', 3));
+        self::assertSame('12,900 products not sold in a year are hidden.', Words::say('STORE_PRODUCTS', 'unsold_many', 12900));
+        self::assertSame('1 product not sold in a year is hidden.', Words::STORE_PRODUCTS['unsold_one']);
+        self::assertSame(['Show them', 'Show it', 'Products not sold in a year are shown.', 'Hide them'], [Words::STORE_PRODUCTS['unsold_show'],
+            Words::STORE_PRODUCTS['unsold_show_one'], Words::STORE_PRODUCTS['unsold_shown'], Words::STORE_PRODUCTS['unsold_hide']]);
+        self::assertContains('stopped', SimpleMatchController::SAID);
+        self::assertStringStartsWith('Nothing was saved', Words::SIMPLE_MATCH['said_stopped']);
+        foreach ([Words::SIMPLE_MATCH['stopped'], Words::SIMPLE_MATCH['stopped_choices'], Words::SIMPLE_MATCH['said_stopped'], Words::LISTING['found_stopped'],
+            Words::LISTING['pick_stopped']] as $text) {
+            self::assertStringContainsStringIgnoringCase('not sold any more', $text, 'the product card\'s own words (Not sold any more)');
+        }
+        self::assertSame('Joined into CW-000123: match that one instead.', Words::say('SIMPLE_MATCH', 'joined', 'CW-000123'));
+        self::assertSame('Joined into CW-000123', Words::say('LISTING', 'found_joined', 'CW-000123'));
+        $key = Queries::UNSOLD_SETTING;
+        self::assertSame('Hide website products not sold in a year', Words::SETTING[$key]);
+        self::assertStringContainsString('365', Words::SETTING_HELP[$key], 'the year is said: the setting is on (365 days) or off (0)');
+        self::assertStringContainsString('exact', Words::SETTING_HELP[$key], 'and how a hidden product is still found');
+        self::assertSame(Words::SETTING_TOPIC['mapping'], Words::settingTopic($key));
+        foreach ([...array_filter(Words::STORE_PRODUCTS, static fn (string $k): bool => str_starts_with($k, 'unsold'), ARRAY_FILTER_USE_KEY),
+            Words::SIMPLE_MATCH['stopped'], Words::SIMPLE_MATCH['stopped_choices'], Words::SIMPLE_MATCH['said_stopped'], Words::SIMPLE_MATCH['joined'],
+            Words::LISTING['found_stopped'], Words::LISTING['found_joined'], Words::LISTING['pick_stopped'], Words::SETTING[$key], Words::SETTING_HELP[$key]] as $text) {
+            self::assertDoesNotMatchRegularExpression('/units_365d|created_at|discontinued|merged_into|item_card|channel_listing|\bSKU\b|\bUTC\b/i', $text, 'no code on a screen (rule 2)');
+        }
     }
 }

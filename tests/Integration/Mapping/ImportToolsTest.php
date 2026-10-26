@@ -397,6 +397,44 @@ final class ImportToolsTest extends MappingTestCase
         self::assertSame(2, self::tool('create_staff', '--email=bob@example.test', ['CW_APP_ENV' => $env])['code']);
     }
 
+    // ---- HU9 (hide-unsold, 26 Oct 2026; the owner's answer "b") ----------------------------------------------------------------------
+
+    /**
+     * The import tool records a NEW store's first load (`channel.first_load_at`): the moment its first run that made website products ended
+     * (the last product it made). A later run never moves it: what it adds is new (shown until a year old even if nothing sells), and a store
+     * whose first load is recorded keeps it.
+     */
+    public function testTheFirstImportOfANewStoreRecordsItsFirstLoad(): void
+    {
+        $this->dir = sys_get_temp_dir() . '/cw-firstload-' . bin2hex(random_bytes(4));
+        mkdir($this->dir, 0700);
+        $write = function (string $name, array $ids): string {
+            $file = "{$this->dir}/{$name}.jsonl.gz";
+            file_put_contents($file, gzencode(implode("\n", array_map(static fn (int $id): string => self::exportLine($id, ['units_365d' => 0]), $ids)) . "\n"));
+            return $file;
+        };
+        $site = $this->site('newstore', 'shadow');
+        $first = static fn (): ?string => ($v = self::$db->value('SELECT first_load_at FROM channel WHERE id = ?', [$site->channelId])) === null ? null : (string) $v;
+        self::assertNull($first(), 'a new store: no first load yet');
+        $r = self::tool('import_listings', '--channel=newstore', '--file=' . $write('one', [7101, 7102, 7103]));
+        self::assertSame(0, $r['code'], $r['err']);
+        $loaded = (string) self::$db->value('SELECT MAX(created_at) FROM channel_listing WHERE channel_id = ?', [$site->channelId]);
+        self::assertSame($loaded, $first(), 'the end of its first load: the last product it made');
+        self::assertStringContainsString('first_load=', $r['out']);
+        $r = self::tool('import_listings', '--channel=newstore', '--file=' . $write('two', [7101, 7104]));
+        self::assertSame(0, $r['code'], $r['err']);
+        self::assertSame($loaded, $first(), 'a later run does not move it');
+        self::assertStringNotContainsString('first_load=', $r['out']);
+        self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM channel_listing WHERE channel_id = ? AND created_at > ?', [$site->channelId, $loaded]),
+            'what the later run made is new');
+        // A dry state-only run, or a run that makes nothing, records nothing for a store that has none.
+        $other = $this->site('emptystore', 'shadow');
+        self::tool('import_listings', '--channel=emptystore', '--file=' . $write('three', [7201]), '--state-only', '--exported-at=2026-10-20T10:00:00Z');
+        self::assertNull(self::$db->value('SELECT first_load_at FROM channel WHERE id = ?', [$other->channelId]));
+    }
+
+    // ---- end of HU9
+
     /** Copies the fixtures to a temp dir and gzips the exports (the tools read .jsonl.gz). */
     private function fixtures(): string
     {

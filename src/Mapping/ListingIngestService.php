@@ -355,6 +355,21 @@ final class ListingIngestService
     }
 
     /**
+     * Records a store's first load once (HU9, docs/decisions.md; `channel.first_load_at`, 0051): the moment its first list load ended, as the
+     * last website product the store has when a run that made products ends. Called by bin/import_listings.php at the end of such a run; it
+     * writes only while the store has none (0051 recorded it for the stores already loaded), so a later run never moves it and what it adds
+     * counts as new. A website product first seen at or before it was on the store then: the matching lists hide it at once when it sold
+     * nothing in a year (CW\Ui\Queries::unsoldBefore). Returns the time recorded, or null when the store had one already (or has no product).
+     */
+    public static function recordFirstLoad(Db $db, int $channelId): ?string
+    {
+        $n = $db->run('UPDATE channel SET first_load_at = (SELECT MAX(cl.created_at) FROM channel_listing cl WHERE cl.channel_id = ?) '
+            . 'WHERE id = ? AND first_load_at IS NULL', [$channelId, $channelId])->rowCount();
+        $at = $n === 0 ? null : $db->value('SELECT first_load_at FROM channel WHERE id = ?', [$channelId]);
+        return $at === null ? null : (string) $at;
+    }
+
+    /**
      * One line of a first-match export (tools/first_match/export.php) in the PUT /v1/listings shape.
      * The export's attribute list [{attr_id, name, value, is_variable}] is kept whole, as
      * {"items": [...]}: the Normalizer reads exactly that list (is_variable decides between values).

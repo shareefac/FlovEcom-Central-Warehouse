@@ -23,7 +23,8 @@ use CW\Ui\Words;
  * A row no bulk action takes (held back, or a match of a spot check: OneAtATime, M63, U139) has no tick box and says so under
  * its name, as on the match-strength lists. A matching lead's bar also has "Create new warehouse products for these" (docs/decisions.md
  * NF1, NF7): it posts the same ticks to its preview (StoreNewItemsController), and the "Not matched" filter (no warehouse product,
- * nothing suggested) with the search finds a family for it.
+ * nothing suggested) with the search finds a family for it. An old product not matched yet that sold nothing in a year is left out of
+ * Not matched, Suggested and All, and of their counts; ONE quiet line at the end says how many, with "Show them" (`unsold=1`; HU1-HU4).
  */
 final class StoreProductsController
 {
@@ -40,7 +41,7 @@ final class StoreProductsController
         if ($store === null) {
             return $ctx->page('store_products', ['store' => null, 'stores' => [], 'rows' => [], 'states' => [], 'state' => null, 'sort' => 'sold_30', 'text' => '',
                 'total' => 0, 'page_no' => 1, 'pages' => 1, 'prev_link' => null, 'next_link' => null, 'bulkActions' => [], 'bulkMax' => 0, 'bulkKeep' => [],
-                'allLink' => '', 'clear_link' => '/ui/review/store', 'clear_search' => '/ui/review/store', 'lookOnly' => null, 'newHint' => null], 200,
+                'allLink' => '', 'clear_link' => '/ui/review/store', 'clear_search' => '/ui/review/store', 'lookOnly' => null, 'newHint' => null, 'unsold' => null, 'unsoldShown' => false], 200,
                 ['title' => Words::MENU['store_products'], 'active' => 'store_products']);
         }
         $state = in_array($req->param('state'), Queries::STORE_STATES, true) ? (string) $req->param('state') : null;
@@ -48,8 +49,18 @@ final class StoreProductsController
         $text = mb_substr(trim($req->param('q') ?? ''), 0, 100);
         $page = UiRequest::id($req->param('page')) ?? 1;
         $counts = $q->storeStateCounts($store['id']);
-        $result = $q->storeProducts($store['id'], $state, $text, $sort, $page, $counts);
-        $base = ['channel' => $store['code'], 'state' => $state, 'sort' => $sort === 'sold_30' ? null : $sort, 'q' => $text === '' ? null : $text];
+        // HU3: an old product not matched yet that sold nothing in a year is left out of the two waiting states and All, and their counts,
+        // unless "Show them" was chosen (`unsold=1`, which every link of the list then keeps) or the setting is off.
+        $on = $q->unsoldOn();
+        $showUnsold = $on && $req->param('unsold') === '1';
+        $hidden = $on && !$showUnsold ? $q->unsoldHidden($store['id']) : null;
+        if ($hidden !== null) {
+            $counts['suggested'] = max(0, $counts['suggested'] - Queries::unsoldOfState($hidden, 'suggested'));
+            $counts['not_matched'] = max(0, $counts['not_matched'] - Queries::unsoldOfState($hidden, 'not_matched'));
+        }
+        $result = $q->storeProducts($store['id'], $state, $text, $sort, $page, $counts, $hidden);
+        $base = ['channel' => $store['code'], 'state' => $state, 'sort' => $sort === 'sold_30' ? null : $sort, 'q' => $text === '' ? null : $text,
+            'unsold' => $showUnsold ? '1' : null];
         $bulkActions = ReviewController::bulkActions('store', null, $me->roles, []);
         $newItems = BulkDecisions::offered('new_item', BulkDecisions::STORE_NEW, null, $me->roles, []);
         if ($newItems) {
@@ -138,8 +149,33 @@ final class StoreProductsController
             'lookOnly' => $me->canDecide() ? null : Words::whoCan('mapping.decide'),
             // the line that says how to make a family's new products, where such rows are listed (NF7)
             'newHint' => $newItems && $state === 'not_matched' ? Words::STORE_NEW['hint'] : null,
+            // HU3: the one quiet line at the end of the list: how many it hides with "Show them", or, while they are shown, "Hide them".
+            'unsold' => self::unsoldLine($hidden === null ? null : $result['hidden'], $showUnsold, $base),
+            // ... and the search and sort form keeps "Show them" (Codex's review of d65d1f2, MEDIUM: a search or a sort dropped it)
+            'unsoldShown' => $showUnsold,
         // Back from a decision (the Check & match fold or the variant's page opened from it, docs/decisions.md CM3): what was done.
         ], 200, ['title' => Words::MENU['store_products'], 'active' => 'store_products', 'notice' => (new ReviewController())->notice($ctx, null)]);
+    }
+
+    /**
+     * Store Products' one quiet line (docs/decisions.md HU3; the owner's words: "N products not sold in a year are hidden. Show them"): how
+     * many rows of this state and search are hidden ($hidden; nothing when none is) with the link that shows them, or, while they are shown,
+     * the link that hides them again. The links are the list as it is (store, state, sort, search), page 1.
+     *
+     * @param array<string, scalar|null> $base
+     * @return array{text: string, link: string, href: string}|null
+     */
+    public static function unsoldLine(?int $hidden, bool $shown, array $base): ?array
+    {
+        if ($shown) {
+            return ['text' => Words::STORE_PRODUCTS['unsold_shown'], 'link' => Words::STORE_PRODUCTS['unsold_hide'],
+                'href' => Html::url('/ui/review/store', array_replace($base, ['unsold' => null]))];
+        }
+        if ($hidden === null || $hidden <= 0) {
+            return null;
+        }
+        return ['text' => $hidden === 1 ? Words::STORE_PRODUCTS['unsold_one'] : Words::say('STORE_PRODUCTS', 'unsold_many', $hidden),
+            'link' => Words::STORE_PRODUCTS[$hidden === 1 ? 'unsold_show_one' : 'unsold_show'], 'href' => Html::url('/ui/review/store', array_replace($base, ['unsold' => '1']))];
     }
 
     /**

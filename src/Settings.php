@@ -217,6 +217,11 @@ final class Settings
         // 90 days ahead, one that happens once that day in the UK (`uk_time`; checked against the clock when it is saved). Empty: the code.
         'auth.totp_off_until' => ['pattern' => \CW\Auth\SecondStep::FORM, 'pattern_says' => 'a UK date and time like 2026-10-27 18:00 (empty: the code is asked for)',
             'uk_time' => true, 'ahead_max_days' => \CW\Auth\SecondStep::MAX_DAYS],
+        // ---- HU (hide-unsold, 0051; docs/decisions.md HU1): the matching lists leave out a website product not matched yet that sold nothing in
+        // the last year and was first seen more than a year ago. On (365 days) or off (0): the stores send the units of a year and of 30 days
+        // only, so no other number of days can be known (a day count would otherwise be 0 to 120).
+        'mapping.hide_unsold_days' => ['in' => [0, 365]],
+        // ---- end of HU
     ];
 
     /**

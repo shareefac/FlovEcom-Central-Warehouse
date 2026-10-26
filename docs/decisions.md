@@ -11949,3 +11949,131 @@ form (forms do not nest), so nothing of the order's form is sent with it. No rea
 No help text. `testADraftIsCancelledFromItsPage` (red first: `runs/poone_cancel_red.log`); `BehaviourItemsTest` and `PurchaseOrderScreensTest`
 use the step again.
 
+## The matching lists leave out what does not matter (branch `hide-unsold`, 26 Oct 2026; HU1-HU9)
+
+The owner approved on 26 Oct 2026 ("Yes, build it"): hide the website products with no sales in the last year from the matching lists, so
+staff only see what matters (about 12,900 rows on production by the earlier count of "not matched, nothing sold in a year"); and never offer
+a warehouse product that is not sold any more, or joined into another one, as one to match to (he also approved marking the 50 duplicate
+"Crystal Pro Max 4000" items not sold any more on their cards after this ships). Built from main `2febd84` in `/root/cw-hideold`, rebased on
+`e5da244` (PX11). Migration `0051_hide_unsold.sql` (two indexes and a column of `channel` in place, each store's first load, one setting);
+`bin/import_listings.php` records a new store's first load (HU9); no new permission; `DecisionService` not changed; nothing in the data is deleted
+or changed (the lists read one more condition). Code: `src/Ui/Queries.php` (its HU block: `UNSOLD_SETTING`, `UNSOLD_HIDDEN_SQL`,
+`STOPPED_SQL`, `unsoldBefore()`, `unsoldShown()`, `exactIds()`, `unsoldHidden()`, `unsoldOfState()`; and the lists that use them),
+`src/Ui/Controller/{StoreProductsController,SimpleMatchController,ReviewController}.php`, views `store_products`, `simple_match`, `listing`,
+`src/Settings.php` (one rule), `src/Ui/Words.php` (marked HU blocks). Tests: `tests/Integration/UiKernel/HideUnsoldScreenTest.php`,
+`tests/Integration/Migration0051Test.php`, `ImportToolsTest::testTheFirstImportOfANewStoreRecordsItsFirstLoad`,
+`WordsTest::testTheProductsTheMatchingListsLeaveOutAreSaidInPlainWords` (red first: `runs/hideold_red1.log`, 12 failing, and for HU9 and the
+Codex finding `runs/hideold_b_red.log`; green: `runs/hideold_green2.log`, `runs/hideold_b_green2.log`).
+
+**HU1. Which website products are hidden, and the one setting.** A website product (a `channel_listing` row) that is not matched yet
+(`unmapped` or `suggested`, with no decision waiting for a second OK), sold nothing in the last year (`listing_profile.units_365d` is 0 or
+NULL, or it has no profile), and is OLD: first seen by the warehouse system more than 365 days ago, or at or before the end of its store's
+first load (HU9, the owner's answer "b"). "First seen" is `channel_listing.created_at`:
+when CW made the row (the store's push, or the load of its list), never changed after; it is the earliest date CW keeps of a product that
+never sold (the profile's own date is the same moment or later; the stores' "added" date is in their export, `prodt_added_date`, but never
+stored; the imported sales history starts on 1 Oct 2025 for Vape and Go and on 8 May 2026 for Electrofag, and says nothing of a product that
+never sold). A product added after its store's first load with no sales yet is therefore never hidden before it is a year old. (As first
+approved, with the year alone, the rule hid nothing on production until about October 2027: every product there was first seen when its
+store's list was loaded, in October 2026. HU9 answers that.) The setting
+`mapping.hide_unsold_days` (Settings › Matching products; 365 = on, the default; 0 = off; empty = not set = off; a schema before 0051 = off):
+an on/off switch in days, because the stores send the units of the last 30 days and of the last 365 days only, so "nothing sold in N days" can
+be known for a year and for no other N (`Settings::RULES` allows 0 and 365; the words say the 365 days, which cannot change). Read once per
+request with the stores' first loads (`Queries::unsoldBefore($store)`: the later of now minus the days and just after the store's first load,
+UTC; one value per store, never worked out per row).
+
+**HU2. Where.** The lists staff browse to match: Products › Store Products (its Not matched and Suggested states and All, with their counts);
+Mapping › To review (every match-strength list, its count, the legend's counts and "N left", the next one after a decision; the same
+`bandCounts()` gives the badge and tiles of Home and the Dashboard, so they count the same rows); New Variants (its counts, list and CSV; only
+"Any time" can hold such a product, the page's periods being a year at most, so a shorter period runs the statement of before); Simple
+matching's choices for a cell (the search, and an empty box's suggestions of the item). Never hidden: a matched, on-hold, ignored or landing
+product, or one waiting for a second OK (Store Products' All and New Variants' All keep them). Left as they were: By Item and its picker (a
+matching lead's page), the website product's own page, Find, Duplicates, the "By store" overview's coverage figures (`coverage()`,
+`unproposed()`, `storeBands()`: figures of the whole catalogue), and the bulk actions (they act on the ticked rows of a page).
+
+**HU3. Store Products' one quiet line.** At the end of the list, before the pager, one plain paragraph (`p.muted.unsold-line`): "N products
+not sold in a year are hidden. Show them" (one: "1 product not sold in a year is hidden. Show it"), the owner's words; nothing when none is.
+It counts the rows of the state and search shown (a search's own one pass says of each id it finds whether it is hidden: no second pass).
+"Show them" is the same list with `unsold=1`: every product, the raw counts, and the line "Products not sold in a year are shown. Hide them";
+the states, the sort, the search and the pager keep `unsold=1`. A bulk action's way back and the Check & match fold's way back (StoreContext)
+do not carry it: they come back with them hidden, the quiet default. No filter chip, no help paragraph (the owner: pages simple, in the
+monday.com style). With the setting off there is no line at all.
+
+**HU4. A hidden product is found by its exact store ID or barcode.** On every list of HU2, a search whose text is the product's option number
+as typed (the unique (store, option number) index) or one of its barcodes (the index of 0005, every form a number may be stored in:
+`Gtin::forms`) lists it (`Queries::exactIds()`, an exception in `unsoldShown()`); the words of its name do not bring it back (else every word
+search would show them again). Simple matching already offered the product whose ID is typed first (`listingByOption`, SM4); a barcode now
+finds a hidden one there too.
+
+**HU5. A warehouse product not sold any more, or joined into another, is not offered to match to.** "Not sold any more" is its product card's
+flag (`item_card.discontinued` = 1, the card's "Not sold any more: never suggest it on Reorder"); "joined" is `sku.merged_into_sku_id`.
+- Simple matching's list leaves out both (joined ones were left out already), and counts what it lists (`productTotal(true)`: the products
+  not joined, minus `STOPPED_SQL`). A CW number written as one ("CW-000123", "cw 123", "#123"; not a bare number, a barcode or a word) shows
+  that product whatever it is, read only: under its name "Not sold any more (product card): it is not matched here." or "Joined into
+  CW-…: match that one instead.", no box, "+" or Apply in any cell; what is matched to it is still listed. Its choices (a hand-made request)
+  are none, with that line; Apply refuses `stopped` ("Nothing was saved: …", said above the list) before anything is decided. What Simple
+  matching did for a joined product before is unchanged (options 404 `item_joined`, Apply `gone`, DecisionService `sku_merged`). The
+  check is the page's, not a rule under the lock: a card marked while Apply runs is no stock rule, and the product's own page (a matching
+  lead's) can still match one on purpose.
+- The website product's page, "Pick a different product" (`searchSkus(…, matching: true)`): the same rule; its exact CW number lists it with no
+  "Use" and "Not sold any more (product card)" or "Joined into CW-…". A `pick` that names one (an old link) is said
+  ("That warehouse product is not sold any more …") and not compared, as a joined one always was; the evidence's "Use" links (candidates,
+  the AI's pick, the closest) leave it out. Not changed: a suggestion the computer made of such an item is still shown on its page.
+- The 50 "Crystal Pro Max 4000" items leave Simple matching and the picker the moment their cards say "Not sold any more" (nothing is cached).
+
+**HU6. The counts stay cheap.** Store Products' and New Variants' hidden counts are ONE statement (`UNSOLD_HIDDEN_SQL`: one range of the new
+index, its units from the narrow index of 0020, its waiting decision and open suggestion from their unique indexes), taken off the store's
+three narrow counts (`storeStateCounts`) by kind (`unsoldOfState()`; New Variants splits New / Suggested / Not checked by its `n_new` and
+`n_open`). To review's counts add one condition to the statements they already run. Simple matching's total is two index counts.
+
+**HU7. How the condition is read (EXPLAIN on the test machine, `runs/hideold_explain.txt`: two stores of 400 website products, 40 items).**
+The condition that keeps a row (`unsoldShown()`) asks the cheap things first: the status (lists of every state), then `created_at >=` the date,
+and only then, for an old row, a sold unit (a dependent subquery on `ix_listing_profile_units`, "Using index": never the profile's wide row).
+With HU9 every product still to match on production is old (it was there at the first load), so each one's units are asked once, of
+that narrow index (about a megabyte for the stores' 90,000), as the list's own sort already reads it. Plans: the hidden count `cl range
+ix_channel_listing_unsold Using index`, `lu ref ix_listing_profile_units Using index`, the decision and suggestions `eq_ref` by their unique
+keys (NO_SEMIJOIN on the decision: else MySQL read every decision's entry of that index first); Store Products' lists `cl ref/range
+ix_channel_listing_unsold Using index` (hinted while the condition applies: the index holds the store, the status, the date and the id; not for
+a search, which reads its ids by the primary key), `lp ref ix_listing_profile_units Using index`; To review's list and counts `p ref
+ix_match_proposal_open_band`, `cl eq_ref PRIMARY` as before, plus the dependent `lu`; New Variants' "any time" `cl ref ix_channel_listing_seen
+Backward index scan` as before; Simple matching's choices `cl ref` as before plus `lu`; `STOPPED_SQL` `c ref ix_item_card_discontinued Using
+index`; Simple matching's list `s ref ix_sku_merged_into`, the card by `ix_item_card_discontinued`.
+
+**HU8. The two indexes of 0051, in place.** `channel_listing (channel_id, status, created_at)` (`ix_channel_listing_unsold`: a store's
+products still to match first seen before a date, one range; 0001's (channel_id, status) is a part of it and stays, the code names it in
+hints) and `item_card (discontinued)` (`ix_item_card_discontinued`: the handful not sold any more). Each `ALGORITHM = INPLACE, LOCK = NONE`
+(no table copy: `Migration0051Test` holds the tables' InnoDB ids), the ALTERs first; not unique; the old code runs on the new schema; the code
+names them in hints, ignored before the migration. And `channel.first_load_at` (HU9), added in place to a table of a handful of rows.
+
+**HU9. Answered: a product already on its store at the store's first load counts as old (the owner's answer "b", "Hide them now", 26 Oct
+2026).** The question: as first approved (the year alone) the rule hid nothing on production until about October 2027, because CW first saw
+every product when the stores were loaded. Offered: (a) keep it; (b) treat a product that was already there when its store was first loaded as
+old; (c) keep the shops' own "added" date. The owner chose (b): the about 12,900 not matched and unsold are hidden now; a product added after
+the load is shown until it is a year old; a hidden one is still found by its exact ID or barcode and comes back on its first sale; a product
+the shop added in the year before the load and never sold is hidden too (the price of "now").
+- **Old** is: `created_at <= channel.first_load_at` OR `created_at < now - 365 days`. Per store that is ONE moment, the later of the year and
+  just after the first load (`unsoldBefore($store)`, + 1 microsecond: a product first seen AT the load is one of it), read once per request
+  with the setting; a list of one store compares `created_at >=` it (one `?`), a list of every store (To review with no store chosen, the
+  band counts) a CASE of the stores' ids and their moments (a handful, written in the statement), else the year; never a join or a sum per row.
+- **The first load, recorded once.** `channel.first_load_at` (0051), the end of the store's first list load. The most reliable source CW has is
+  the stores' own rows: the import runs leave no record of a run (an audit row per batch, with no run, and nothing for a push), while the rows
+  of a load are made one after another, batch by batch. So 0051 sets it to the end of the store's first run of website products made with no
+  gap of more than 30 minutes between two (the batches of an import, or a connector's first full push), at most a day after the store's
+  first product, by window functions in one UPDATE; a store with no product stays NULL (the year alone). `bin/import_listings.php` records a
+  NEW store's at the end of its first run that makes products (`ListingIngestService::recordFirstLoad`: the store's last product then; only
+  while NULL, never moved after; printed `first_load=`). A store first filled by its connector's pushes stays NULL (the year alone), the safe
+  side. A load split over runs more than 30 minutes apart (0051), or over several tool runs (a new store), keeps the first run's end: the rest
+  count as new until a year old, also the safe side; a migration can set another time.
+- Pinned: `HideUnsoldScreenTest::testAProductAlreadyThereAtItsStoresFirstLoadCountsAsOld` (a product first seen AT the load hidden, after it
+  shown, a store with no load recorded by the year, the lists of every store each with its own moment, the counts, exact ID and barcode, the year
+  after an old load, the first sale), `Migration0051Test::testTheMigrationRecordsEachStoresFirstLoad` (a load of batches, a slow load, a store
+  with none, a load capped at a day), `ImportToolsTest::testTheFirstImportOfANewStoreRecordsItsFirstLoad`.
+
+Still open: (1) By Item's picker lists every product, as before (a lead's page); it can take the same rule with one argument. (2) The words
+("not sold in a year", "Show them", "Hide them") are provisional, as every word (U70); change them in `Words` only.
+
+### The Codex review (on `d65d1f2`; `runs/hideold_codex_review.txt`): one MEDIUM, fixed test-first
+
+- **MEDIUM: after "Show them", a search or a new sort hid them again.** The list's search box and its sort are one GET form, which had no
+  `unsold` field, so it dropped `unsold=1`. The form now carries `unsold=1` while they are shown (`unsoldShown`, a hidden field) and nothing
+  while they are hidden. Red first (`runs/hideold_b_red.log`); in `testStoreProductsHidesAnOldProductNotSoldInAYearAndOneQuietLineShowsThem`
+  (the form's fields, a search by name and a new sort after "Show them").

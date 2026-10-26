@@ -9,6 +9,9 @@
 <?php if ($state !== null): ?>
   <input type="hidden" name="state" value="<?= $e($state) ?>">
 <?php endif; ?>
+<?php if ($unsoldShown): ?>
+  <input type="hidden" name="unsold" value="1">
+<?php endif; ?>
   <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="sp-q"><?= $word('QUEUE', 'text') ?></label><input id="sp-q" type="search" name="q" value="<?= $e($text) ?>" maxlength="100" placeholder="<?= $word('FIND', 'listings') ?>" aria-keyshortcuts="/" data-page-search></div>
   <details class="tb-pop">
     <summary class="btn ghost sm"><span class="ico ico-sort" aria-hidden="true"></span><span><?= $word('UI', 'sort') ?></span></summary>
@@ -121,6 +124,9 @@
 <?= $partial('bulk_bar', ['actions' => $bulkActions, 'max' => $bulkMax]) ?>
 </form>
 <?php endif; ?>
+<?php endif; ?>
+<?php if ($unsold !== null): ?>
+<p class="muted unsold-line" data-unsold><?= $e($unsold['text']) ?> <a href="<?= $e($unsold['href']) ?>"><?= $e($unsold['link']) ?></a></p>
 <?php endif; ?>
 
 <?php if ($pages > 1): ?>

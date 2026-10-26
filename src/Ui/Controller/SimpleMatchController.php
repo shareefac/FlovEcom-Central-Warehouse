@@ -31,7 +31,9 @@ use CW\Ui\Words;
  * of a match stays DecisionService's (the person's name on the decision and its audit row, a version that moved, the suggestion it
  * must name, a Conflict for a matching lead, a spot check's owner, a product decided one at a time on its own page, a second OK);
  * this page says the outcome in a short line. Each website product shows its status on its store after its ID, in a matched cell and
- * on the second line of its choice in the box's list (SM11: SiteState's reading, siteStatus()).
+ * on the second line of its choice in the box's list (SM11: SiteState's reading, siteStatus()). HU (26 Oct 2026): the list leaves out a
+ * warehouse product not sold any more (its product card) as it did a joined one, and its exact CW number shows either with no box; a cell's
+ * choices leave out an old website product that sold nothing in a year unless its exact ID or barcode is typed (HU2, HU4, HU5).
  *
  *   GET  /ui/match            the list (linking.view): `q` the search, `page`; back from Apply: `notice` + `prev` (the matching pages'
  *                             notice), or `said` (a refusal, SAID) + `prev` (the website product) + `ch` (the store) + `t` (what was
@@ -55,7 +57,8 @@ final class SimpleMatchController
     /** The most choices one dropdown lists (a page of Queries::waitingListings; the suggestions too). */
     public const OPTIONS_MAX = 20;
     /** The refusals Apply says, by their code in the address (`said`): only these are read back, never a text. */
-    public const SAID = ['choose', 'other_store', 'not_waiting', 'changed', 'own_page', 'not_allowed', 'gone', 'other'];
+    public const SAID = ['choose', 'other_store', 'not_waiting', 'changed', 'own_page', 'not_allowed', 'gone', 'other',
+        'stopped']; // HU5: the warehouse product is not sold any more (its product card)
     /** The refusals that lead to the website product's own page, where its decision is made or its reason shown. */
     private const SAID_LINK = ['own_page', 'not_allowed', 'other'];
     /** A website product that still waits for a match (Queries::STATE_SQL): no match, no decision waiting, not ignored, no landing page. */
@@ -73,14 +76,15 @@ final class SimpleMatchController
         $layout = ['title' => Words::MENU['simple_match'], 'active' => 'simple_match', 'notice' => (new ReviewController())->notice($ctx, null)];
         $lookOnly = $decide ? null : Words::whoCan('mapping.decide');
         // By Item's list as it opens (the warehouse products not joined into another one, by CW number) and its search: a search's ids
-        // in one pass (which also counts them), else the count of the products and only this page of them.
+        // in one pass (which also counts them), else the count of the products and only this page of them. Not a product that is not
+        // sold any more (its product card), unless its CW number is searched: then it is shown with no box (HU5, `matchable`).
         $per = Queries::PER_PAGE;
-        $all = $text === '' ? null : $q->productIds(null, null, [], $text);
-        $total = $all === null ? $q->productTotal() : count($all);
+        $all = $text === '' ? null : $q->productIds(null, null, [], $text, null, 0, true);
+        $total = $all === null ? $q->productTotal(true) : count($all);
         $pages = max(1, (int) ceil($total / $per));
         $page = min(max(1, UiRequest::id($req->param('page')) ?? 1), $pages);
         $offset = ($page - 1) * $per;
-        $ids = $all === null ? $q->productIds(null, null, [], '', $per, $offset) : array_slice($all, $offset, $per);
+        $ids = $all === null ? $q->productIds(null, null, [], '', $per, $offset, true) : array_slice($all, $offset, $per);
         $at = UiRequest::id($req->param('at'));
         $said = self::said($ctx, $stores, $at);
         // A typed ID to confirm (`confirm`, from Apply without the script): the product as this page shows it now, in its cell's box,
@@ -142,17 +146,22 @@ final class SimpleMatchController
         if ($sku['merged_into_sku_id'] !== null) {
             return $ctx->error(404, 'item_joined', 'the item was merged into another one', $back);
         }
+        if ((int) $sku['discontinued'] === 1) {
+            // Not sold any more (its product card): nothing is matched to it here (HU5); the line under the box says so.
+            return $ctx->fragment('simple_match_options', ['sku' => $id, 'store' => (string) $store['code'], 'choices' => [], 'says' => Words::SIMPLE_MATCH['stopped_choices']]);
+        }
         $raw = mb_substr(trim($ctx->req->param('q') ?? ''), 0, self::KEPT_MAX);
         $text = ByProductContext::text($raw);
+        // An old product that sold nothing in a year is not offered, unless its exact ID or barcode is typed (HU2, HU4).
         if ($text === '') {
-            $ids = $q->suggestedFor($id, (int) $store['id'], self::OPTIONS_MAX);
+            $ids = $q->suggestedFor($id, (int) $store['id'], self::OPTIONS_MAX, true);
         } else {
             // The product whose ID is exactly what was typed first (a short ID is part of many others, which may sell more), then the
             // search (Codex's review of the branch, LOW 4); for a choice's words kept in the box after a refusal, the product its ID
             // names, so it can be chosen anew as it is now (Codex's fifth review).
             $named = self::idOf($raw);
             $exact = $q->listingByOption((int) $store['id'], $text) ?? ($named === null ? null : $q->listingByOption((int) $store['id'], $named));
-            $ids = array_values(array_unique([...($exact === null ? [] : [$exact]), ...$q->waitingListings((int) $store['id'], $text, 1, self::OPTIONS_MAX)['ids']]));
+            $ids = array_values(array_unique([...($exact === null ? [] : [$exact]), ...$q->waitingListings((int) $store['id'], $text, 1, self::OPTIONS_MAX, true)['ids']]));
         }
         $choices = array_slice(self::choices($ctx, $ids, (int) $store['id'], self::siteStatus($ctx)), 0, self::OPTIONS_MAX);
         $says = $choices !== [] ? '' : ($text === '' ? Words::SIMPLE_MATCH['type_more'] : Words::say('SIMPLE_MATCH', 'found_none', (string) $store['name']));
@@ -210,6 +219,9 @@ final class SimpleMatchController
         };
         if ($sku['merged_into_sku_id'] !== null) {
             return $refuse('gone');
+        }
+        if ((int) $sku['discontinued'] === 1) {
+            return $refuse('stopped'); // not sold any more (its product card): shown read only, never matched here (HU5)
         }
         $listingId = UiRequest::id($req->field('listing_id'));
         if ($listingId === null) {
@@ -433,6 +445,10 @@ final class SimpleMatchController
         $rows = [];
         foreach ($products as $p) {
             $id = (int) $p['id'];
+            // A product found by its exact CW number that is joined into another one or not sold any more (its product card): shown
+            // with why, and with no box in any cell (HU5).
+            $stop = ($p['merged_into_sku_id'] ?? null) !== null ? Words::say('SIMPLE_MATCH', 'joined', (string) ($p['merged_code'] ?? ''))
+                : ((int) ($p['discontinued'] ?? 0) === 1 ? Words::SIMPLE_MATCH['stopped'] : null);
             $out = [];
             foreach ($stores as $si => $s) {
                 $items = $by[$id][(int) $s['id']] ?? [];
@@ -443,7 +459,7 @@ final class SimpleMatchController
                     'channel' => (string) $s['code'],
                     'items' => $items,
                     'said' => $here === null ? null : ['text' => $here['text'], 'link' => $here['link']],
-                    'add' => !$decide ? null : [
+                    'add' => !$decide || $stop !== null ? null : [
                         'plus' => $items !== [],
                         'open' => $here !== null || $pick !== null,
                         'typed' => $pick['label'] ?? ($here['typed'] ?? ''),
@@ -456,7 +472,7 @@ final class SimpleMatchController
                     ],
                 ];
             }
-            $rows[] = ['id' => $id, 'code' => (string) $p['code'], 'name' => self::text($p['name'] ?? null), 'cells' => $out, 'here' => $at === $id];
+            $rows[] = ['id' => $id, 'code' => (string) $p['code'], 'name' => self::text($p['name'] ?? null), 'cells' => $out, 'here' => $at === $id, 'stop' => $stop];
         }
         return $rows;
     }

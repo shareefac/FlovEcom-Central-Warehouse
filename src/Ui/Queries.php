@@ -11,6 +11,7 @@ use CW\Mapping\KeyHold;
 use CW\Mapping\OneAtATime;
 use CW\Mapping\SiteState;
 use CW\Matching\Gtin;
+use CW\Settings;
 
 /**
  * The read side of the /ui screens (all SELECTs; the only writes of the UI are DecisionService's
@@ -67,13 +68,18 @@ final class Queries
         return $this->db->all('SELECT id, code, name FROM channel ORDER BY code');
     }
 
-    /** @return array<string, array<int, int>> band => channel id => open proposals still to decide */
+    /**
+     * @return array<string, array<int, int>> band => channel id => open proposals still to decide (the lists' rows: an old product not sold
+     *         in a year left out, HU2)
+     */
     public function bandCounts(): array
     {
         $out = [];
+        [$shown, $shownParams] = $this->unsoldShown(true, null, false);
         foreach ($this->db->all(
             'SELECT p.band, cl.channel_id, COUNT(*) AS n FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id '
-            . 'WHERE p.status = \'open\' AND ' . self::OPEN_STATUS . ' AND ' . self::NO_PENDING . ' GROUP BY p.band, cl.channel_id',
+            . 'WHERE p.status = \'open\' AND ' . self::OPEN_STATUS . ' AND ' . self::NO_PENDING . ($shown === '' ? '' : ' AND ' . $shown) . ' GROUP BY p.band, cl.channel_id',
+            $shownParams,
         ) as $r) {
             $out[(string) $r['band']][(int) $r['channel_id']] = (int) $r['n'];
         }
@@ -87,9 +93,10 @@ final class Queries
      */
     public function listLeft(string $band, ?int $channelId): int
     {
+        [$shown, $shownParams] = $this->unsoldShown(true, $channelId, false); // (the list's rows: HU2)
         return (int) $this->db->value('SELECT COUNT(*) FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id '
-            . "WHERE p.status = 'open' AND p.band = ? AND " . self::OPEN_STATUS . ' AND ' . self::NO_PENDING . ($channelId === null ? '' : ' AND cl.channel_id = ?'),
-            $channelId === null ? [$band] : [$band, $channelId]);
+            . "WHERE p.status = 'open' AND p.band = ? AND " . self::OPEN_STATUS . ' AND ' . self::NO_PENDING . ($channelId === null ? '' : ' AND cl.channel_id = ?')
+            . ($shown === '' ? '' : ' AND ' . $shown), [...($channelId === null ? [$band] : [$band, $channelId]), ...$shownParams]);
     }
 
     /**
@@ -334,6 +341,12 @@ final class Queries
         if ($text !== '') {
             $where[] = $text;
             array_push($params, ...$textParams);
+        }
+        // An old product not sold in a year is left out, unless the search names it exactly (HU2, HU4).
+        [$shown, $shownParams] = $this->unsoldShown(true, $channelId, false, $this->unsoldOn() && trim($q) !== '' ? $this->exactIds(SearchText::parse($q), $channelId) : []);
+        if ($shown !== '') {
+            $where[] = $shown;
+            array_push($params, ...$shownParams);
         }
         return [implode(' AND ', $where), $params];
     }
@@ -674,10 +687,16 @@ final class Queries
      * id; filtered by state and by a text (title, brand, option number, barcode). $counts (storeStateCounts) gives the total of an
      * unfiltered or state-filtered page without a count of its own.
      *
+     * With $hidden (unsoldHidden(), the setting on and "Show them" not chosen: HU3) an old product not sold in a year is left out of the
+     * two waiting states and of All, unless the search names it exactly (HU4); $counts are then the counts without them, and `hidden`
+     * says how many rows of this state and search are left out: from $hidden without a search, else from the search's own one pass
+     * (each id it finds says whether it is hidden: one more column, no second pass).
+     *
      * @param array<string, int>|null $counts
-     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int}
+     * @param array{all: int, open: int, new: int}|null $hidden
+     * @return array{rows: list<array<string, mixed>>, total: int, page: int, pages: int, hidden: int}
      */
-    public function storeProducts(int $channelId, ?string $state, string $q, string $sort, int $page, ?array $counts = null): array
+    public function storeProducts(int $channelId, ?string $state, string $q, string $sort, int $page, ?array $counts = null, ?array $hidden = null): array
     {
         $where = ['cl.channel_id = ?'];
         $params = [$channelId];
@@ -686,24 +705,39 @@ final class Queries
             $where[] = self::STATE_WHERE[$state];
         }
         $q = trim($q);
+        $s = SearchText::parse($q);
         if ($q !== '') {
             // what the search finds, by the indexes (searchedIds): the statement reads no profile but its units (SI3)
-            $where[] = self::idsIn($this->searchedIds(SearchText::parse($q), $channelId, false));
+            $where[] = self::idsIn($this->searchedIds($s, $channelId, false));
         }
+        // HU3: only the two waiting states (and All) can hold a hidden row
+        $hide = $hidden !== null && in_array($state, [null, 'suggested', 'not_matched'], true) && $this->unsoldOn();
+        [$shown, $shownParams] = $this->unsoldShown($hide, $channelId, $state === null, $hide && $q !== '' ? $this->exactIds($s, $channelId) : []);
         $col = self::STORE_SORTS[$sort] ?? 'units_30d';
         $other = $col === 'units_30d' ? 'units_365d' : 'units_30d';
         $order = " ORDER BY COALESCE(lp.{$col}, 0) DESC, COALESCE(lp.{$other}, 0) DESC, cl.id ASC";
         $hint = self::UNITS_HINT;
         $from = 'FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ' . implode(' AND ', $where);
+        $left = 0;
         if ($q !== '') {
             // A search reads the profile of every website product of the store: ONE pass gives every id it finds, in the page's
-            // order, so the count and the page come from it (two passes before: a COUNT, then the page).
-            $all = array_map('intval', $this->db->column('SELECT ' . $hint . 'cl.id ' . $from . $order, $params));
+            // order, so the count and the page come from it (two passes before: a COUNT, then the page). Each says whether it is shown.
+            $found = $this->db->all('SELECT ' . $hint . 'cl.id' . ($shown === '' ? ', 1' : ', ' . $shown) . ' AS shown ' . $from . $order, [...$shownParams, ...$params]);
+            $all = array_map(static fn (array $r): int => (int) $r['id'], array_values(array_filter($found, static fn (array $r): bool => (int) $r['shown'] === 1)));
+            $left = count($found) - count($all);
             $total = count($all);
             $pages = max(1, (int) ceil($total / self::PER_PAGE));
             $page = min(max(1, $page), $pages);
             $ids = array_slice($all, ($page - 1) * self::PER_PAGE, self::PER_PAGE);
         } else {
+            if ($shown !== '') {
+                $where[] = $shown;
+                array_push($params, ...$shownParams);
+                $from = 'FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE ' . implode(' AND ', $where);
+                $left = self::unsoldOfState($hidden ?? ['all' => 0, 'open' => 0, 'new' => 0], $state);
+                // the store's entries of the index of 0051 hold all the listing's columns the conditions read (status, first seen, id)
+                $hint = '/*+ INDEX(lp ix_listing_profile_units) INDEX(cl ix_channel_listing_unsold) */ ';
+            }
             if ($counts !== null) {
                 $total = $state === null ? array_sum($counts) : ($counts[$state] ?? 0);
             } else {
@@ -724,7 +758,7 @@ final class Queries
             . 'LEFT JOIN sku ps ON ps.id = p.proposed_sku_id WHERE cl.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')' . $order,
             $ids,
         );
-        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages];
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pages' => $pages, 'hidden' => $left];
     }
 
     // ------------------------------------------------------------------------------------------
@@ -843,6 +877,10 @@ final class Queries
      * the others (the open suggestions of that strength, by their index); else one grouped read of the period's entries of the
      * index (the open suggestion's row is read only for a product that has one).
      *
+     * An old product not sold in a year (HU2) is in none of the counts: it can only be in a period that starts before the store's
+     * unsoldBefore() (its first load, or a year ago). For the store's own counts, the hidden ones are read by unsoldHidden() and taken off
+     * their kinds; the grouped read leaves them out by unsoldShown().
+     *
      * @param array{first: ?string, last: ?string}|null $range seenRange() when the caller has it
      * @return array<string, int>
      */
@@ -850,16 +888,21 @@ final class Queries
     {
         $range ??= $this->seenRange($channelId);
         $out = array_fill_keys(self::NEW_KINDS, 0);
+        $before = $this->unsoldBefore($channelId);
+        $hide = $before !== null && ($since === null || strcmp($since, $before) < 0);
         if ($since === null || $range['first'] === null || strcmp($range['first'], $since) >= 0) {
             $store = $this->storeStateCounts($channelId);
             $new = (int) $this->db->value("SELECT COUNT(*) FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id WHERE p.status = 'open' "
                 . "AND p.band = 'New item' AND p.proposed_new_item = 1 AND cl.channel_id = ? AND " . self::NEW_UNMATCHED, [$channelId]);
-            return ['new' => $new, 'suggested' => max(0, $store['suggested'] - $new), 'not_checked' => $store['not_matched'], 'linked' => $store['linked'],
+            $hid = $hide ? $this->unsoldHidden($channelId) : ['all' => 0, 'open' => 0, 'new' => 0];
+            return ['new' => max(0, $new - $hid['new']), 'suggested' => max(0, $store['suggested'] - $new - ($hid['open'] - $hid['new'])),
+                'not_checked' => max(0, $store['not_matched'] - ($hid['all'] - $hid['open'])), 'linked' => $store['linked'],
                 'quarantined' => $store['quarantined'], 'waiting' => $store['waiting'], 'ignored' => $store['ignored'], 'landing' => $store['landing']];
         }
         // The alias is not `state`: GROUP BY would take match_decision's column of that name before it.
+        [$shown, $shownParams] = $this->unsoldShown($hide, $channelId, true);
         foreach ($this->db->all('SELECT ' . self::SEEN_JOIN_HINT . self::NEW_KIND_SQL . ' AS kind, COUNT(*) AS n FROM channel_listing cl ' . self::STATE_JOINS
-            . 'WHERE cl.channel_id = ? AND cl.created_at >= ? GROUP BY kind', [$channelId, $since]) as $r) {
+            . 'WHERE cl.channel_id = ? AND cl.created_at >= ?' . ($shown === '' ? '' : ' AND ' . $shown) . ' GROUP BY kind', [$channelId, $since, ...$shownParams]) as $r) {
             $out[(string) $r['kind']] = (int) $r['n'];
         }
         return $out;
@@ -913,6 +956,15 @@ final class Queries
             // (by the primary key: not the period's index, which would walk every variant of the store; SI3)
             $where[] = self::idsIn($this->searchedIds(SearchText::parse($q), $channelId, false));
             $hint = $join === '' ? '' : '/*+ JOIN_ORDER(cl, p) INDEX(p uq_match_proposal_open) */ ';
+        }
+        // An old product not sold in a year is left out (HU2), unless the search names it exactly (HU4): only a period that starts
+        // before the store's unsoldBefore() can hold one, so the statement of a later period is the one of before.
+        $before = $this->unsoldBefore($channelId);
+        $hide = $before !== null && ($since === null || strcmp($since, $before) < 0);
+        [$shown, $shownParams] = $this->unsoldShown($hide, $channelId, $filter === null, $hide && $q !== '' ? $this->exactIds(SearchText::parse($q), $channelId) : []);
+        if ($shown !== '') {
+            $where[] = $shown;
+            array_push($params, ...$shownParams);
         }
         $from = 'FROM channel_listing cl ' . $join . 'WHERE ' . implode(' AND ', $where);
         if ($q !== '' && $page !== null) {
@@ -1127,10 +1179,15 @@ final class Queries
         return ['total' => $total, 'every' => $every, 'matched' => $matched, 'suggested' => $suggested];
     }
 
-    /** How many warehouse products By Item and Simple matching list without a filter: the ones not joined into another (ix_sku_merged_into). */
-    public function productTotal(): int
+    /**
+     * How many warehouse products By Item and Simple matching list without a filter: the ones not joined into another (ix_sku_merged_into);
+     * for Simple matching ($matchable, HU5) also not the ones not sold any more (their product card): STOPPED_SQL taken off, one range of
+     * item_card's index of 0051.
+     */
+    public function productTotal(bool $matchable = false): int
     {
-        return (int) $this->db->value('SELECT COUNT(*) FROM sku WHERE merged_into_sku_id IS NULL');
+        $all = (int) $this->db->value('SELECT COUNT(*) FROM sku WHERE merged_into_sku_id IS NULL');
+        return $matchable ? max(0, $all - (int) $this->db->value(self::STOPPED_SQL)) : $all;
     }
 
     /**
@@ -1188,11 +1245,23 @@ final class Queries
      *    reads every listing row of the store first);
      *  - `suggested`: from the open suggestions (the (status, proposed_sku_id, …) index of 0024), not from every product.
      *
+     * Simple matching's list ($matchable, with no coverage filter; HU5) also leaves out a product not sold any more (its product card), by
+     * item_card's index of 0051; a CW number written as one ("CW-003906", "cw 3906") is that product whatever it is, joined or not sold
+     * any more: the page shows it with no box.
+     *
      * @param list<int> $storeIds the stores, the one with the fewest matched products first for `every`
      * @return array{0: string, 1: list<mixed>, 2: string} the SQL after SELECT … , its values, and the product id's column
      */
-    private function productFrom(?string $coverage, ?int $storeId, array $storeIds, string $q): array
+    private function productFrom(?string $coverage, ?int $storeId, array $storeIds, string $q, bool $matchable = false): array
     {
+        if ($matchable && $coverage === null) {
+            $s = SearchText::parse($q);
+            if ($s->explicitCw()) {
+                return ['FROM sku s WHERE s.id = ?', [(int) $s->cwId()], 's.id'];
+            }
+            [$text, $textParams] = $this->productText($q);
+            return ['FROM sku s WHERE ' . self::MATCHABLE_SKU . ($text === '' ? '' : ' AND ' . $text), $textParams, 's.id'];
+        }
         [$text, $textParams] = $this->productText($q);
         if ($coverage === 'suggested') {
             return ['FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id JOIN sku s ON s.id = p.proposed_sku_id '
@@ -1223,9 +1292,9 @@ final class Queries
      * @param list<int> $storeIds
      * @return list<int>
      */
-    public function productIds(?string $coverage, ?int $storeId, array $storeIds, string $q, ?int $limit = null, int $offset = 0): array
+    public function productIds(?string $coverage, ?int $storeId, array $storeIds, string $q, ?int $limit = null, int $offset = 0, bool $matchable = false): array
     {
-        [$from, $params, $id] = $this->productFrom($coverage, $storeId, $storeIds, $q);
+        [$from, $params, $id] = $this->productFrom($coverage, $storeId, $storeIds, $q, $matchable);
         return array_map('intval', $this->db->column(
             'SELECT ' . ($coverage === 'suggested' ? self::OPEN_SKU_HINT . 'DISTINCT ' : '') . "{$id} {$from} ORDER BY {$id}" . ($limit !== null ? ' LIMIT ? OFFSET ?' : ''),
             $limit !== null ? [...$params, $limit, $offset] : $params,
@@ -1247,16 +1316,20 @@ final class Queries
      * Products by id, in id order: the rows of a page of By Item (and of a slice of its CSV).
      *
      * @param list<int> $ids
-     * @return list<array<string, mixed>> id, code, name, brand, flavour (the quick match's first words: ByProductController::firstSearch)
+     * @return list<array<string, mixed>> id, code, name, brand, flavour (the quick match's first words: ByProductController::firstSearch),
+     *         and whether it may be matched to (HU5: `merged_into_sku_id` with `merged_code`, and `discontinued`, 1 when its card says it
+     *         is not sold any more)
      */
     public function productRows(array $ids): array
     {
         if ($ids === []) {
             return [];
         }
-        // Pack B (PB12): with the item's family (By Item names it), two primary-key joins.
-        return $this->db->all('SELECT s.id, s.code, s.name, s.brand, s.flavour, f.name AS family_name FROM sku s LEFT JOIN item_family_member fm ON fm.sku_id = s.id '
-            . 'LEFT JOIN item_family f ON f.id = fm.family_id WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY s.id', $ids);
+        // Pack B (PB12): with the item's family (By Item names it), two primary-key joins; HU5: its card and the item it was joined into, two more.
+        return $this->db->all('SELECT s.id, s.code, s.name, s.brand, s.flavour, f.name AS family_name, s.merged_into_sku_id, m.code AS merged_code, '
+            . 'COALESCE(ic.discontinued, 0) AS discontinued FROM sku s LEFT JOIN item_family_member fm ON fm.sku_id = s.id '
+            . 'LEFT JOIN item_family f ON f.id = fm.family_id LEFT JOIN sku m ON m.id = s.merged_into_sku_id LEFT JOIN item_card ic ON ic.sku_id = s.id '
+            . 'WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY s.id', $ids);
     }
 
     /**
@@ -1356,14 +1429,17 @@ final class Queries
 
     /**
      * The picker's first list: the website products of one store whose open suggestion proposes this warehouse product and that
-     * still wait for a match. @return list<int> listing ids
+     * still wait for a match; with $hideUnsold (Simple matching's empty box, HU2) not an old one that sold nothing in a year.
+     * @return list<int> listing ids
      */
-    public function suggestedFor(int $skuId, int $channelId, int $limit = 50): array
+    public function suggestedFor(int $skuId, int $channelId, int $limit = 50, bool $hideUnsold = false): array
     {
+        [$shown, $shownParams] = $this->unsoldShown($hideUnsold, $channelId, false);
         return array_map('intval', $this->db->column(
             'SELECT p.listing_id FROM match_proposal p JOIN channel_listing cl ON cl.id = p.listing_id '
-            . "WHERE p.status = 'open' AND p.proposed_sku_id = ? AND cl.channel_id = ? AND " . self::WAITING_LISTING . ' ORDER BY p.listing_id LIMIT ?',
-            [$skuId, $channelId, $limit],
+            . "WHERE p.status = 'open' AND p.proposed_sku_id = ? AND cl.channel_id = ? AND " . self::WAITING_LISTING . ($shown === '' ? '' : ' AND ' . $shown)
+            . ' ORDER BY p.listing_id LIMIT ?',
+            [$skuId, $channelId, ...$shownParams, $limit],
         ));
     }
 
@@ -1399,11 +1475,12 @@ final class Queries
      * attributes, its features; the owner's "search all attribute", 20 Oct 2026), or the whole text is its option number or one of
      * its barcodes as before. The longest word is asked first: a variant it rules out is not read for the others. Every waiting
      * variant of the store is read once (a LIKE scan of about 10,000 profiles, in one statement); no count: one more row than the
-     * page says whether there is a next one.
+     * page says whether there is a next one. With $hideUnsold (Simple matching's choices, HU2) an old product that sold nothing in a
+     * year is left out unless the text is its exact ID or barcode (HU4); By Item's picker (a lead's page) lists every one, as before.
      *
      * @return array{ids: list<int>, more: bool}
      */
-    public function waitingListings(int $channelId, string $q, int $page, int $perPage = self::PICK_PER_PAGE): array
+    public function waitingListings(int $channelId, string $q, int $page, int $perPage = self::PICK_PER_PAGE, bool $hideUnsold = false): array
     {
         $where = ['cl.channel_id = ?', self::WAITING_LISTING];
         $params = [$channelId];
@@ -1416,6 +1493,11 @@ final class Queries
         if ($q !== '') {
             // what the search finds, by the indexes (searchedIds, the quick match's fields: SI3); the statement reads no profile but its units
             $where[] = self::idsIn($this->searchedIds($s, $channelId, true));
+        }
+        [$shown, $shownParams] = $this->unsoldShown($hideUnsold, $channelId, false, $hideUnsold && $this->unsoldOn() && $q !== '' ? $this->exactIds($s, $channelId) : []);
+        if ($shown !== '') {
+            $where[] = $shown;
+            array_push($params, ...$shownParams);
         }
         $ids = array_map('intval', $this->db->column(
             'SELECT ' . self::UNITS_HINT . 'cl.id FROM channel_listing cl LEFT JOIN listing_profile lp ON lp.listing_id = cl.id WHERE '
@@ -1571,9 +1653,12 @@ final class Queries
             'SELECT s.id, s.code, s.name, s.brand, s.sell_policy, s.strength_mg, s.nic_type, s.line, s.form, s.flavour, s.volume_ml, s.puffs, s.pack_units, '
             . 's.merged_into_sku_id, s.origin, s.origin_listing_id, IF(s.origin = \'vpg_mint\', ol.external_variant_id, NULL) AS vpg_variant_id, '
             // Pack B (PB12): the item's family, which the matching pages name (two primary-key joins).
-            . 'f.name AS family_name '
+            . 'f.name AS family_name, '
+            // HU5: whether it may be matched to: its card says it is not sold any more (1), and the code of the item it was joined into.
+            . 'COALESCE(ic.discontinued, 0) AS discontinued, mi.code AS merged_code '
             . 'FROM sku s LEFT JOIN channel_listing ol ON ol.id = s.origin_listing_id LEFT JOIN item_family_member fm ON fm.sku_id = s.id '
-            . 'LEFT JOIN item_family f ON f.id = fm.family_id WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
+            . 'LEFT JOIN item_family f ON f.id = fm.family_id LEFT JOIN item_card ic ON ic.sku_id = s.id LEFT JOIN sku mi ON mi.id = s.merged_into_sku_id '
+            . 'WHERE s.id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')',
             $ids,
         ) as $r) {
             $out[(int) $r['id']] = $r;
@@ -1690,9 +1775,13 @@ final class Queries
      * Items matching a typed search: a CW code (CW-000123 or its number), a barcode, or every
      * word in the name / brand / line / flavour. Merged-away items are left out.
      *
+     * $matching (the website product's "Pick a different product", HU5): an item not sold any more (its product card) is left out too,
+     * except that a CW number written as one ("CW-003906", "cw 3906") finds that item whatever it is, joined or not sold any more: the
+     * page shows it with no "Use" (skus()' `merged_into_sku_id` / `discontinued` say why).
+     *
      * @return list<array<string, mixed>>
      */
-    public function searchSkus(string $q, int $limit = 20): array
+    public function searchSkus(string $q, int $limit = 20, bool $matching = false): array
     {
         $s = SearchText::parse($q);
         $q = $s->text;
@@ -1713,16 +1802,18 @@ final class Queries
         [$words, $params] = $s->explicitCw() ? ['', []] : $s->allWords("CONCAT_WS(' ', name, brand, line, flavour)", 'brand');
         if ($words !== '') {
             $params[] = $limit;
+            // (for a match, not one that is not sold any more either: the page's 20 are the ones it may offer, HU5)
             $ids = array_merge($ids, $this->db->column(
-                'SELECT id FROM sku WHERE merged_into_sku_id IS NULL AND ' . $words . ' ORDER BY name LIMIT ?',
+                'SELECT s.id FROM sku s WHERE ' . ($matching ? self::MATCHABLE_SKU : 's.merged_into_sku_id IS NULL') . ' AND ' . $words . ' ORDER BY s.name LIMIT ?',
                 $params,
             ));
         }
         $ids = array_slice(array_values(array_unique(array_map('intval', $ids))), 0, $limit);
         $rows = $this->skus($ids);
+        $exact = $matching && $s->explicitCw() ? $s->cwId() : null;
         $out = [];
         foreach ($ids as $id) {
-            if (isset($rows[$id]) && $rows[$id]['merged_into_sku_id'] === null) {
+            if (isset($rows[$id]) && ($id === $exact || ($rows[$id]['merged_into_sku_id'] === null && (!$matching || (int) $rows[$id]['discontinued'] === 0)))) {
                 $out[] = $rows[$id];
             }
         }
@@ -1854,5 +1945,170 @@ final class Queries
     public static function escapeLike(string $s): string
     {
         return addcslashes($s, '\\%_');
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // HU (hide-unsold, 26 Oct 2026; docs/decisions.md HU1-HU9): the matching lists leave out a website product not matched yet that sold
+    // nothing in the last year and was first seen more than a year ago or was on its store at its first load (HU9), and Simple matching
+    // and the website product's picker leave out a warehouse product that is not sold any more (its product card) or joined into another
+    // one. Nothing in the data changes.
+    // ------------------------------------------------------------------------------------------
+
+    /** The setting (0051): 365 = on, 0 = off (Settings::RULES); not there or not a number: off. */
+    public const UNSOLD_SETTING = 'mapping.hide_unsold_days';
+
+    /**
+     * How many of a store's website products are hidden, read from the index of 0051 alone (store, the two waiting statuses, first
+     * seen before the date: one range), each one's units from the narrow index of 0020 and its waiting decision from its unique index:
+     * `n_all` of them, `n_open` with an open suggestion (Store Products' "Suggested"; the rest are "Not matched") and `n_new` whose open
+     * suggestion says "new product" (New Variants' "New"). Params: the store, its date (unsoldBefore()). The NOT EXISTS of the units
+     * asks for a SOLD unit, so a product with no profile, or with no units recorded, counts as not sold (HU1). The waiting decision is
+     * looked up for each of those rows (NO_SEMIJOIN: else MySQL reads every decision's entry of that index first, to compare them all).
+     */
+    public const UNSOLD_HIDDEN_SQL = 'SELECT /*+ INDEX(cl ix_channel_listing_unsold) */ COUNT(*) AS n_all, '
+        . 'COALESCE(SUM(EXISTS (SELECT 1 FROM match_proposal po WHERE po.open_listing_id = cl.id)), 0) AS n_open, '
+        . "COALESCE(SUM(EXISTS (SELECT 1 FROM match_proposal pn WHERE pn.open_listing_id = cl.id AND pn.proposed_new_item = 1 AND pn.band = 'New item')), 0) AS n_new "
+        . "FROM channel_listing cl WHERE cl.channel_id = ? AND cl.status IN ('unmapped', 'suggested') AND cl.created_at < ? "
+        . 'AND NOT EXISTS (SELECT /*+ INDEX(lu ix_listing_profile_units) */ 1 FROM listing_profile lu WHERE lu.listing_id = cl.id AND lu.units_365d > 0) '
+        . 'AND NOT EXISTS (SELECT /*+ NO_SEMIJOIN() */ 1 FROM match_decision pw WHERE pw.pending_listing_id = cl.id)';
+
+    /** How many warehouse products, not joined into another one, are not sold any more (their product card): the index of 0051 on item_card. */
+    public const STOPPED_SQL = 'SELECT /*+ INDEX(c ix_item_card_discontinued) */ COUNT(*) FROM item_card c JOIN sku s ON s.id = c.sku_id '
+        . 'WHERE c.discontinued = 1 AND s.merged_into_sku_id IS NULL';
+
+    /** A warehouse product `s` that may be offered to match to: not joined into another one, not "not sold any more" on its card (HU5). */
+    private const MATCHABLE_SKU = 's.merged_into_sku_id IS NULL AND NOT EXISTS (SELECT /*+ INDEX(c ix_item_card_discontinued) */ 1 FROM item_card c '
+        . 'WHERE c.discontinued = 1 AND c.sku_id = s.id)';
+
+    /**
+     * The cut-offs, read once per instance (one request sees one set): null when the setting is off (0, not set, or not there yet: a code
+     * before 0051); else `year` (now minus the days, UTC) and, per store, the moment before which its website product first seen is old:
+     * the later of the year and just after its first load (`channel.first_load_at`, 0051: a product first seen AT it was on the store
+     * then; HU9). false: not read yet.
+     *
+     * @var array{year: string, stores: array<int, string>}|false|null
+     */
+    private array|false|null $unsoldCuts = false;
+
+    /** @return array{year: string, stores: array<int, string>}|null */
+    private function unsoldCuts(): ?array
+    {
+        if ($this->unsoldCuts === false) {
+            $days = Settings::number($this->db, self::UNSOLD_SETTING, 0);
+            $this->unsoldCuts = null;
+            if ($days > 0) {
+                $year = Clock::db(Clock::now()->modify('-' . $days . ' days'));
+                $stores = [];
+                foreach ($this->db->all('SELECT id, first_load_at FROM channel') as $r) {
+                    $after = $r['first_load_at'] === null ? null : Clock::db(Clock::fromDb((string) $r['first_load_at'])->modify('+1 microsecond'));
+                    $stores[(int) $r['id']] = $after !== null && strcmp($after, $year) > 0 ? $after : $year;
+                }
+                $this->unsoldCuts = ['year' => $year, 'stores' => $stores];
+            }
+        }
+        return $this->unsoldCuts;
+    }
+
+    /** Whether the matching lists leave out the old products not sold in a year (the setting is on: HU1). */
+    public function unsoldOn(): bool
+    {
+        return $this->unsoldCuts() !== null;
+    }
+
+    /**
+     * The moment (UTC, CW's format) before which a website product of this store first seen, not matched yet and with nothing sold in the
+     * last year is left out of the matching lists; null when the setting is off. "First seen" is channel_listing.created_at: when the
+     * warehouse system made the row (the store's push, or the load of its list), never changed after. Old is: first seen more than a year
+     * ago (the stores' own year of units, listing_profile.units_365d: HU1), or at or before the end of the store's first load (it was on the
+     * store then: HU9, the owner's answer "b"). One value per store, read once per request: the lists never work it out per row.
+     */
+    public function unsoldBefore(int $channelId): ?string
+    {
+        $c = $this->unsoldCuts();
+        return $c === null ? null : ($c['stores'][$channelId] ?? $c['year']);
+    }
+
+    /**
+     * The condition that keeps a website product (`cl`) on a list while the old ones not sold in a year are hidden ($hide and the setting
+     * on; HU1, HU9): first seen since its store's unsoldBefore() (one store: one `?`; every store, $channelId null: each store's own value,
+     * a CASE of the stores' ids written with their values, a handful), or a unit sold in the last year (the narrow index of 0020: never the
+     * profile's row), or found by the search's exact ID or barcode ($exact, exactIds(): HU4). For a list of every state ($anyState: Store
+     * Products' All, New Variants' All) also any product that is not waiting for a match (matched, on hold, ignored, a landing page, or with
+     * a decision waiting for a second OK). The cheap tests come first: a new product is kept without a look at its units. ['', []] when
+     * nothing is hidden.
+     *
+     * @param list<int> $exact
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private function unsoldShown(bool $hide, ?int $channelId, bool $anyState, array $exact = []): array
+    {
+        $cuts = $hide ? $this->unsoldCuts() : null;
+        if ($cuts === null) {
+            return ['', []];
+        }
+        $or = $anyState ? ["cl.status NOT IN ('unmapped', 'suggested')"] : [];
+        if ($channelId !== null) {
+            $or[] = 'cl.created_at >= ?';
+            $params = [$cuts['stores'][$channelId] ?? $cuts['year']];
+        } else {
+            $params = [];
+            $when = '';
+            foreach ($cuts['stores'] as $id => $before) {
+                $when .= ' WHEN ? THEN ?';
+                array_push($params, $id, $before);
+            }
+            $or[] = $when === '' ? 'cl.created_at >= ?' : 'cl.created_at >= CAST(CASE cl.channel_id' . $when . ' ELSE ? END AS DATETIME(6))';
+            $params[] = $cuts['year'];
+        }
+        $or[] = 'EXISTS (SELECT /*+ INDEX(lu ix_listing_profile_units) */ 1 FROM listing_profile lu WHERE lu.listing_id = cl.id AND lu.units_365d > 0)';
+        if ($anyState) {
+            $or[] = 'EXISTS (SELECT 1 FROM match_decision pw WHERE pw.pending_listing_id = cl.id)';
+        }
+        if ($exact !== []) {
+            $or[] = self::idsIn($exact);
+        }
+        return ['(' . implode(' OR ', $or) . ')', $params];
+    }
+
+    /**
+     * The website products a search names exactly (HU4): its option number as typed (uq_channel_listing_variant) and its barcodes (the
+     * index of 0005, every form of a number: Gtin::forms), of one store or of every store ($channelId null). A hidden product is found by
+     * these, never by the words of its name.
+     *
+     * @return list<int>
+     */
+    private function exactIds(SearchText $s, ?int $channelId): array
+    {
+        if ($s->isEmpty()) {
+            return [];
+        }
+        $ids = array_map('intval', $channelId === null
+            ? $this->db->column('SELECT cl.id FROM channel ch JOIN channel_listing cl ON cl.channel_id = ch.id AND cl.external_variant_id = ?', [$s->text])
+            : $this->db->column('SELECT id FROM channel_listing WHERE channel_id = ? AND external_variant_id = ?', [$channelId, $s->text]));
+        return array_values(array_unique([...$ids, ...$this->listingsByCode($s, $channelId)]));
+    }
+
+    /**
+     * How many of a store's website products are hidden (UNSOLD_HIDDEN_SQL): `all`, `open` (with an open suggestion), `new` (whose open
+     * suggestion says "new product"); all 0 when the setting is off.
+     *
+     * @return array{all: int, open: int, new: int}
+     */
+    public function unsoldHidden(int $channelId): array
+    {
+        $before = $this->unsoldBefore($channelId);
+        $r = $before === null ? null : $this->db->one(self::UNSOLD_HIDDEN_SQL, [$channelId, $before]);
+        return ['all' => (int) ($r['n_all'] ?? 0), 'open' => (int) ($r['n_open'] ?? 0), 'new' => (int) ($r['n_new'] ?? 0)];
+    }
+
+    /** How many of Store Products' rows of a state are hidden ($hidden: unsoldHidden()): its two waiting states, and All (null). @param array{all: int, open: int, new: int} $hidden */
+    public static function unsoldOfState(array $hidden, ?string $state): int
+    {
+        return match ($state) {
+            null => $hidden['all'],
+            'suggested' => $hidden['open'],
+            'not_matched' => $hidden['all'] - $hidden['open'],
+            default => 0,
+        };
     }
 }

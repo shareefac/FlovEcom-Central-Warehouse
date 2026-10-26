@@ -7,7 +7,8 @@
 // the page's own (SM11: a hidden <ul> that app.js fills from the options fragment and draws under the box, each choice on two lines;
 // a browser's <datalist> cut long names). Without app.js the box takes the store's ID, and the product it names comes back chosen in
 // the box (and in its list), with a line asking to confirm it (one more Apply). On a phone each row is a card, each cell named by its
-// store.
+// store. A product found by its exact CW number that is joined into another one or not sold any more (its product card) says why under
+// its name and has no box in any cell (docs/decisions.md HU5).
 ?>
 <?= $head(\CW\Ui\Words::MENU['simple_match'], intro: 'simple_match', look: $lookOnly) ?>
 <?php if ($stores === []): ?>
@@ -40,7 +41,7 @@
   <tbody>
 <?php foreach ($rows as $r): ?>
     <tr id="m-<?= $e($r['id']) ?>"<?php if ($r['here']): ?> class="here"<?php endif; ?>>
-      <th scope="row" class="c-head"><span class="sm-code"><?= $e($r['code']) ?></span> <span class="sm-name"><?= $e($r['name'] ?? '') ?></span></th>
+      <th scope="row" class="c-head"><span class="sm-code"><?= $e($r['code']) ?></span> <span class="sm-name"><?= $e($r['name'] ?? '') ?></span><?php if ($r['stop'] !== null): ?> <span class="o-sub sm-stop"><?= $e($r['stop']) ?></span><?php endif; ?></th>
 <?php foreach ($r['cells'] as $c): ?>
       <td class="c-store" data-label="<?= $e($c['store']) ?>" data-channel="<?= $e($c['channel']) ?>">
 <?php if ($c['items'] !== []): ?>

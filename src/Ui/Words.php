@@ -2454,6 +2454,7 @@ final class Words
         'mapping.arrival_queue_alarm' => 'Most waiting variants the timer takes by itself',
         'mapping.arrival_state_max_days' => 'How old the website\'s state may be',
         'mapping.landing_rule_on_arrival' => 'Find landing pages by the rule when they arrive', // 0050 (LP4)
+        'mapping.hide_unsold_days' => 'Hide website products not sold in a year', // 0051 (HU1, hide-unsold)
         // ---- Pack E
         'reports.low_stock_default' => 'Low stock: units left',
         'reports.slow_after_days' => 'Slow stock: days without a sale',
@@ -3752,6 +3753,12 @@ final class Words
         'mapping.landing_rule_on_arrival' => 'On: a new website product is marked as a landing page when the rule is sure: it has no option of its own, '
             . 'and other options of the same page have one. Off: only when the website itself says it is a landing page. A matching lead can '
             . 'always put one back as a real product.',
+        // 0051 (HU1, hide-unsold): on or off; the year is said because it cannot change (the stores send the units of a year).
+        'mapping.hide_unsold_days' => '365 (on): a website product that is not matched yet and sold nothing in the last 365 days is left out of '
+            . 'Store Products, To review, New Variants and Simple matching\'s choices when it was already on its store at the store\'s first load, '
+            . 'or was first seen more than 365 days ago. A product added after that load is shown until it is a year old. Its exact ID or '
+            . 'barcode still finds it, its first sale brings it back, and Store Products says how many are hidden, with a link to show them. '
+            . '0 (off): every product is listed. Only these two: the websites send the units of the last year, not of any number of days.',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
         // How long a person stays signed in (0047, docs/decisions.md SL4): the words never repeat the value (rule 20).
@@ -4454,6 +4461,11 @@ final class Words
         'stale_version' => 'This website product changed since this was decided (it was matched again, or the website changed its name, brand or barcodes).',
         'stale_proposal' => 'This website product has a newer suggestion since this was decided.',
         'stale_fix' => 'Cancel it and decide again.',
+        // ---- HU5 (hide-unsold, 26 Oct 2026): "Pick a different product" does not offer a warehouse product not sold any more or joined.
+        'found_stopped' => 'Not sold any more (product card)',
+        'found_joined' => 'Joined into %s',
+        'pick_stopped' => 'That warehouse product is not sold any more (product card), so it is not offered for a match. The suggested one is shown again.',
+        // ---- end of HU5
     ];
 
     /** Waiting for a second OK (/ui/review?queue=pending, plan §6.14) and the waiting box of a website product. */
@@ -4803,6 +4815,14 @@ final class Words
         'empty_filter' => 'No website product fits your search or filter.',
         'empty_filter_text' => 'Other products of this store are hidden by it.',
         'unlink_note' => 'To undo a match, open the product: a matching lead uses "Change this match" and says why. It is one at a time because it changes a stock link.',
+        // ---- HU3 (hide-unsold, 26 Oct 2026): the one quiet line at the end of the list (the owner's words), and its way back.
+        'unsold_one' => '1 product not sold in a year is hidden.',
+        'unsold_many' => '%s products not sold in a year are hidden.',
+        'unsold_show' => 'Show them',
+        'unsold_show_one' => 'Show it',
+        'unsold_shown' => 'Products not sold in a year are shown.',
+        'unsold_hide' => 'Hide them',
+        // ---- end of HU3
     ];
 
     /**
@@ -5019,6 +5039,12 @@ final class Words
         'empty_search' => 'No warehouse product has these words, this CW number or this barcode.',
         'clear' => 'Show every warehouse product',
         'no_stores' => 'No store is set up in this system yet.',
+        // ---- HU5 (hide-unsold, 26 Oct 2026): a warehouse product found by its exact CW number that is not offered to match to.
+        'stopped' => 'Not sold any more (product card): it is not matched here.',
+        'joined' => 'Joined into %s: match that one instead.',
+        'stopped_choices' => 'This warehouse product is not sold any more (product card), so nothing is matched to it here.',
+        'said_stopped' => 'Nothing was saved: this warehouse product is not sold any more (product card), so it is not matched here.',
+        // ---- end of HU5
     ];
 
     public const BY_ITEM_BULK = [

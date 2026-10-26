@@ -225,8 +225,9 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::$db->exec('UPDATE listing_profile SET price = 4.99 WHERE listing_id = ?', [$newer]);
         $this->suggested($alt, '9003', 'Suggested one', 30, 'Key', $sku);
         $this->variant($big, '7001', 'Big one', 10);
-        $ceeOne = $this->variant($cee, '5001', 'Cee one', 10);
-        $this->variant($cee, '5002', 'Cee old one', 400 * 1440);
+        // (both sold in the last year: Any time would hide them once first seen more than a year ago and sold nothing, HU1)
+        $ceeOne = $this->variant($cee, '5001', 'Cee one', 10, ['units_365d' => 1]);
+        $this->variant($cee, '5002', 'Cee old one', 400 * 1440, ['units_365d' => 1]);
         $this->heartbeat($alt, 10, 'shadow');
         $web = $this->signIn($this->uiUser('mapper'));
 
@@ -254,6 +255,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('NEW_VARIANTS', 'shown', 3, 3), $page->text());
         // First seen is UK time: a July morning in UTC is an hour later in London.
         self::$db->exec("UPDATE channel_listing SET created_at = '2021-07-01 11:30:00' WHERE id = ?", [$older]);
+        self::$db->exec('UPDATE listing_profile SET units_365d = 1 WHERE listing_id = ?', [$older]); // HU1: one that sold nothing in a year would be hidden
         $all = $web->get(self::PATH, ['period' => 'all', 'state' => 'all']);
         self::assertSame(['Suggested one', 'Newer one', 'Older one'], self::titles($all));
         self::assertSame('1 Jul 2021, 12:30', self::row($all, 3)[Words::NEW_VARIANTS['first_seen']]);
@@ -479,7 +481,7 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         $whole = $q->newVariantCounts((int) $alt->channelId, null);
         self::assertSame(['new' => 2, 'suggested' => 2, 'not_checked' => 2, 'linked' => 1, 'quarantined' => 0, 'waiting' => 1, 'ignored' => 1, 'landing' => 0], $whole);
         self::assertSame($whole, $q->newVariantCounts((int) $alt->channelId, '2020-01-01 00:00:00.000000'));
-        $this->variant($alt, '1010', 'Very old one', 500 * 1440);
+        $this->variant($alt, '1010', 'Very old one', 500 * 1440, ['units_365d' => 1]); // HU1: sold in the last year (else it would be hidden)
         $since = \CW\Clock::db(\CW\Clock::now()->modify('-30 days'));
         self::assertSame($whole, $q->newVariantCounts((int) $alt->channelId, $since), 'counted from the period\'s rows');
         self::assertSame(array_replace($whole, ['not_checked' => 3]), $q->newVariantCounts((int) $alt->channelId, null));

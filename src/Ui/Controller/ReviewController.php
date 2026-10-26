@@ -475,8 +475,12 @@ final class ReviewController
 
         $target = $targetId !== null ? ($skus[$targetId] ?? null) : null;
         $pickNote = null;
-        if ($pick !== null && ($target === null || $target['merged_into_sku_id'] !== null)) {
-            $pickNote = $target === null ? Words::LISTING['pick_missing'] : Words::LISTING['pick_merged'];
+        // HU5: a warehouse product not sold any more (its product card) is not offered to match to: a `pick` that names one (an old link)
+        // is said and not compared, as a joined one. (A refused form's own product, or the suggestion's, is the page's as before.)
+        $stoppedPick = $pick !== null && $target !== null && (int) ($target['discontinued'] ?? 0) === 1 && $pick === UiRequest::id($req->param('pick'))
+            && $pick !== $proposedId;
+        if ($pick !== null && ($target === null || $target['merged_into_sku_id'] !== null || $stoppedPick)) {
+            $pickNote = $target === null ? Words::LISTING['pick_missing'] : ($stoppedPick && $target['merged_into_sku_id'] === null ? Words::LISTING['pick_stopped'] : Words::LISTING['pick_merged']);
             $targetId = $proposedId;
             $target = $targetId !== null ? ($skus[$targetId] ?? null) : null;
         }
@@ -510,10 +514,13 @@ final class ReviewController
         $searchText = mb_substr(trim($req->param('s') ?? ''), 0, 100);
         $found = [];
         if ($searchText !== '') {
-            $rows = $q->searchSkus($searchText);
+            // HU5: not a product not sold any more (its product card) or joined into another; its exact CW number shows it, with no "Use".
+            $rows = $q->searchSkus($searchText, 20, true);
             $bc = $q->barcodesOfMany(array_map(static fn (array $r): int => (int) $r['id'], $rows));
             foreach ($rows as $r) {
-                $found[] = $this->skuView($r) + ['barcodes' => $bc[(int) $r['id']] ?? []];
+                $stop = $r['merged_into_sku_id'] !== null ? Words::say('LISTING', 'found_joined', (string) ($r['merged_code'] ?? ''))
+                    : ((int) $r['discontinued'] === 1 ? Words::LISTING['found_stopped'] : null);
+                $found[] = $this->skuView($r) + ['barcodes' => $bc[(int) $r['id']] ?? [], 'stop' => $stop];
             }
         }
 
@@ -593,7 +600,8 @@ final class ReviewController
         $qq = $qc !== null ? $qc->query() : ($sample !== null ? ['sample' => $sample['id']] : ($byProduct !== null ? $byProduct->query()
             : ($store !== null ? array_filter($store->query(), static fn (mixed $v): bool => $v !== null) : [])));
         $pickUrl = static fn (int $sid): string => Html::url('/ui/review/listing/' . $id, $qq + ['pick' => $sid]) . '#decide';
-        $usable = static fn (?int $sid): bool => $sid !== null && isset($skus[$sid]) && $skus[$sid]['merged_into_sku_id'] === null;
+        // (HU5: nor a product not sold any more, by its product card: it has no "Use")
+        $usable = static fn (?int $sid): bool => $sid !== null && isset($skus[$sid]) && $skus[$sid]['merged_into_sku_id'] === null && (int) $skus[$sid]['discontinued'] === 0;
 
         $attributes = [];
         foreach (is_array(Html::json($l['attributes'])['items'] ?? null) ? array_slice(Html::json($l['attributes'])['items'], 0, 30) : [] as $a) {

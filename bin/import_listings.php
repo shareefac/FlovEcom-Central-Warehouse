@@ -41,6 +41,11 @@ declare(strict_types=1);
  * otherwise be `--apply`), an option with no value or given twice, or a stray word ends it with exit 2 before anything is read.
  * Values are written with "=". --apply without --state-only is refused too: the ordinary import always writes.
  *
+ * A NEW store's first load (docs/decisions.md HU9): at the end of its first ordinary run that makes website products, the store's
+ * `channel.first_load_at` is set to its last product's first-seen time (ListingIngestService::recordFirstLoad; never moved after, and
+ * 0051 set it for the stores already loaded) and printed as `first_load=`. Its products first seen until then count as already on the
+ * store: the matching lists hide them at once when they sold nothing in a year.
+ *
  * Exit codes: 0 ok · 1 some lines skipped, or (--state-only) left · 2 usage · 3 cannot run.
  */
 
@@ -214,5 +219,10 @@ exit(Cli::main('import_listings', ['channel:', 'file:', 'batch:', 'exported-at:'
             $code, basename($file), implode(',', array_keys($sites)), $tot['lines'], $tot['received'], $tot['created'], $tot['updated'],
             $tot['unchanged'], $tot['identity_changed'], $tot['skipped'], $tot['batches'], $tot['barcodes_dropped'], $tot['listings_with_dropped'],
             $at, $tot['state_written'], $tot['state_ignored'], $tot['state_older'], $ms));
+        // A new store's first load (HU9): recorded at the end of its first run that made website products, never moved after.
+        $first = $tot['created'] > 0 ? ListingIngestService::recordFirstLoad($cli->db, (int) $channelId) : null;
+        if ($first !== null) {
+            $cli->log("first_load={$first} (the store's first load: its products first seen until then count as already there; HU9)");
+        }
         return $tot['skipped'] > 0 ? Cli::PROBLEM : Cli::OK;
     }, strict: true));
