@@ -134,7 +134,9 @@ final class ReportRefreshTest extends StockTestCase
         $this->ok($this->res->cancel($vpg, 'o2', ['u4'], true, $this->key('cancel')));
         $this->ok($this->res->returnUnits($vpg, 'o1', ['u1'], $this->key('return')));
 
-        $r = $this->job()->run(true);
+        // The orders are on the test clock's days (September 2026) and the sends on today's: one run reaches today whatever the
+        // date (the setting's 31 days stopped short of it from 26 Oct 2026 on).
+        $r = $this->job()->run(true, null, 3660);
         $today = ReportRefresh::ukDay(Clock::db(Clock::now()));
         self::assertGreaterThanOrEqual(2, $r['days']);
         $rows = [];
@@ -161,10 +163,10 @@ final class ReportRefreshTest extends StockTestCase
         $one26 = (new ReportViews(self::$db))->sales('2026-09-26', '2026-09-26', $vpg->channelId);
         self::assertSame([['day' => '2026-09-26', 'orders' => 1, 'units_sold' => 1, 'units_sent' => 0, 'units_cancelled' => 0, 'units_returned' => 0]], $one26['days']);
         $before = self::days();
-        $this->job()->run(true);
+        $this->job()->run(true, null, 3660);
         self::assertEquals($before, self::days());
         self::rebuild();
-        $this->job()->run(true);
+        $this->job()->run(true, null, 3660);
         self::assertEquals($before, self::days());
     }
 
