@@ -233,6 +233,31 @@ final class ErpOpeningTest extends StockTestCase
         self::assertSame([$a => '2.500000', $b => '3.000000'], (new CostHints(self::$db))->average([$a, $b]));
     }
 
+    /**
+     * ERPNext's item list (Stock > Item, Report view) carries the Vape and Go variant number in its "Variant ID" column
+     * (custom_variant_id); its "Product ID" column (custom_product_id) is empty on every item (read on the live ERPNext, 27 Oct 2026).
+     * The item list is read by Variant ID, and by it first when a file has both columns; a file with Product ID alone still reads.
+     */
+    public function testTheItemListReadsErpnextsVariantIdColumn(): void
+    {
+        $site = $this->site();
+        $a = $this->item('legacy');
+        $b = $this->item('legacy');
+        $this->listing($site, '201', $a);
+        $this->listing($site, '202', $b);
+        $stock = $this->stockCsv([['P201', self::MAIN, 6, '2'], ['P202', self::MAIN, 3, '4']]);
+        $both = $this->dir . '/items_both.csv';
+        file_put_contents($both, "\"ID\",\"Item Name\",\"Product ID\",\"Variant ID\"\n\"P201\",\"Made-up A\",\"\",\"201\"\n\"P202\",\"Made-up B\",\"\",\"202\"\n");
+        $plan = $this->plan($stock, $both);
+        self::assertSame([$a => ['target' => 6, 'earlier' => 0, 'unit_cost' => '2.000000'], $b => ['target' => 3, 'earlier' => 0, 'unit_cost' => '4.000000']],
+            $plan['items'], 'Variant ID is read, the empty Product ID is not');
+        $only = $this->dir . '/items_vid.csv';
+        file_put_contents($only, "\"ID\",\"Variant ID\"\n\"P201\",\"201\"\n");
+        self::assertSame([$a], array_keys($this->plan($this->stockCsv([['P201', self::MAIN, 6, '2']], [], true, null, 'one.csv'), $only)['items']));
+        self::assertSame([$b], array_keys($this->plan($this->stockCsv([['P202', self::MAIN, 3, '4']], [], true, null, 'two.csv'),
+            $this->itemList(['P202' => '202'], 'items_pid.csv'))['items']), 'a Product ID column alone still reads');
+    }
+
     // ---- unresolved lines --------------------------------------------------------------------------------------------------------
 
     public function testUnresolvedLinesAreListedAndNeverGuessed(): void

@@ -10,7 +10,7 @@ declare(strict_types=1);
  * marks pending purchase invoices Synced without sending them).
  *
  *   php bin/import_erp_opening.php --file=<Stock Balance .csv|.xlsx> --as-of=<ISO time> --doc-ref=<id> --source=<text>
- *       [--item-list=<ERPNext Item list .csv|.xlsx: ID, Product ID>] [--pending-sales=<.csv|.xlsx: Variant ID or Item Code, Qty>]
+ *       [--item-list=<ERPNext Item list .csv|.xlsx: ID, Variant ID (or Product ID)>] [--pending-sales=<.csv|.xlsx: Variant ID or Item Code, Qty>]
  *       [--replaces=<the earlier opening's doc_ref>] [--report=<lines.csv>] [--db=<schema>] [--admin]
  *       DRY RUN (the default): reads, plans and prints; writes NOTHING (no stock, no run row) except the --report file.
  *   ... --apply --sha256=<hex of --file> [--approved-by=<who>]

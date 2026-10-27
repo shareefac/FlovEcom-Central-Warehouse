@@ -44,7 +44,9 @@ final class ErpOpeningFiles
         'item_name' => ['item_name'],
     ];
     public const STOCK_REQUIRED = ['item_code', 'warehouse', 'qty', 'rate'];
-    public const MAP_COLUMNS = ['item_code' => ['item_code', 'id', 'item', 'name'], 'product_id' => ['product_id']];
+    // ERPNext's item list carries the Vape and Go variant number in "Variant ID" (custom_variant_id); its "Product ID" is empty
+    // (live ERPNext, 27 Oct 2026). Variant ID is read first; a file with Product ID alone still reads.
+    public const MAP_COLUMNS = ['item_code' => ['item_code', 'id', 'item', 'name'], 'product_id' => ['variant_id', 'product_id']];
     public const PENDING_COLUMNS = ['variant' => ['variant_id', 'product_id', 'prodt_id', 'variant'], 'item_code' => ['item_code', 'item'],
         'qty' => ['qty', 'quantity', 'units']];
     public const MAX_QTY = 10_000_000;
@@ -153,7 +155,7 @@ final class ErpOpeningFiles
     public static function itemMap(string $path): array
     {
         [, $cols, , , $rest] = self::header(self::records($path), self::MAP_COLUMNS, ['item_code', 'product_id'],
-            'the item list needs the columns ID (or Item Code) and Product ID');
+            'the item list needs the columns ID (or Item Code) and Variant ID (or Product ID)');
         $map = [];
         $codes = [];
         $ambiguous = [];

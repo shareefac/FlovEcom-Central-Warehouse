@@ -2677,8 +2677,8 @@ dry run's summary.
    - The alternative (the live figures, no date): `/app/bin/view/report`, columns Item Code, Warehouse, Actual Quantity, Valuation Rate,
      Stock Value, filter Warehouse = `Stores - VPG`, Menu › Export, all rows, CSV.
 2. **The item list (needed for every item CW has no ERPNext link for).** ERPNext: Stock › Item, switch to **Report view**
-   (`/app/item/view/report`), remove every filter (disabled items too: they may hold stock), Pick Columns: **ID** and **Product ID**
-   (the custom field with the Vape and Go variant number), Menu › Export, **all** rows, CSV.
+   (`/app/item/view/report`), remove every filter (disabled items too: they may hold stock), Pick Columns: **ID** and **Variant ID**
+   (the custom field with the Vape and Go variant number; ERPNext's "Product ID" column is empty on every item, read 27 Oct 2026), Menu › Export, **all** rows, CSV.
 3. **The sales not yet in ERPNext (required for `--apply` while `erp_opening.require_pending_sales` is on).** Read from the website's own
    database at the same moment by `bin/erp_pending_sales.php` (read only: SELECTs in a read-only transaction, each capped in time):
    ```

@@ -12077,3 +12077,11 @@ Still open: (1) By Item's picker lists every product, as before (a lead's page);
   `unsold` field, so it dropped `unsold=1`. The form now carries `unsold=1` while they are shown (`unsoldShown`, a hidden field) and nothing
   while they are hidden. Red first (`runs/hideold_b_red.log`); in `testStoreProductsHidesAnOldProductNotSoldInAYearAndOneQuietLineShowsThem`
   (the form's fields, a search by name and a new sort after "Show them").
+
+### PI19. The item list is read by ERPNext's "Variant ID" (27 Oct 2026)
+
+A read of the live ERPNext (27 Oct 2026) showed the Vape and Go variant number in the Item field `custom_variant_id` (label
+"Variant ID"); `custom_product_id` ("Product ID") is empty on every item. The import read only a "Product ID" column, so an item list
+exported as `docs/ops.md` said would have resolved no item. `ErpOpeningFiles::MAP_COLUMNS` now reads "Variant ID" first and "Product ID"
+when a file has only that (the rollback file's item list shares the reader); `docs/ops.md` names "Variant ID".
+`ErpOpeningTest::testTheItemListReadsErpnextsVariantIdColumn` (red first: `runs/erpvid_red.log`).

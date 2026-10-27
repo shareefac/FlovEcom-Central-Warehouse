@@ -16,7 +16,7 @@ declare(strict_types=1);
  *
  * --since: rows booked at or after it, in UTC (2026-11-01T22:00:00Z, or 2026-11-01 22:00:00); without it, the as-of moment of the
  *   EARLIEST finished ERPNext opening (bin/import_erp_opening.php; RB13): a later run never moves the cut-off.
- * --item-list: the ERPNext item list (ID or Item Code, and Product ID) the opening used; without it only CW's own ERPNext links
+ * --item-list: the ERPNext item list (ID or Item Code, and Variant ID or Product ID) the opening used; without it only CW's own ERPNext links
  *   (sku_erp_item) name ERPNext items, and every other item is listed as having none.
  * Exit codes: 0 ok · 2 usage · 3 cannot run (connection, settings, a file that cannot be written).
  */
