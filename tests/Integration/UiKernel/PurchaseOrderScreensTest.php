@@ -386,7 +386,7 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         self::assertSame(403, $sc->get("/ui/documents/{$id}/pdf")->status);
         self::assertStringNotContainsString('PO-000001', $sc->get('/ui/documents')->text());
         self::assertSame(200, $sc->get('/ui/documents')->status);
-        $card = $buyer->get('/ui/purchasing/suppliers/' . $s['id']);
+        $card = $buyer->get('/ui/purchasing/suppliers/' . $s['id'], ['tab' => 'orders']); // the supplier's Orders tab (docs/decisions.md W9.3)
         self::assertStringContainsString(Words::SUPPLIER['orders'], $card->text());
         self::assertContains("/ui/purchasing/orders/{$id2}", $card->hrefs());
         self::assertSame(200, $reviewer->get('/ui/purchasing/orders')->status, 'the reviewer reads the list');

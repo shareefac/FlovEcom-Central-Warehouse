@@ -70,6 +70,13 @@ final class ReorderScreensTest extends KernelUiTestCase
             array_map(static fn (array $t): array => [$t['label'], $t['href'], $t['current']], self::sectionTabs($page)), 'Purchasing › Reorder');
         self::assertSame(['Suggestions', 'Brands', 'Anomalies', 'Sales history', 'Suppliers', 'Low-stock warnings'], array_column(self::segments($page), 'label'));
         self::assertSame('Suggestions', self::segments($page)[0]['current'] ? 'Suggestions' : null);
+        // The report (docs/decisions.md W9.11): the lines grouped, ONE "Create draft orders", in the bar at the bottom of the list.
+        $xp = new \DOMXPath($page->dom());
+        $groups = array_map(static fn (\DOMNode $b): string => trim((string) $b->textContent), iterator_to_array($xp->query('//main//div[contains(@class, "doc-group")]/h3/button') ?: []));
+        self::assertSame(Words::REORDER['group_urgent'], $groups[0] ?? null, 'what will run out first');
+        self::assertSame([], array_diff($groups, [Words::REORDER['group_urgent'], Words::REORDER['group_buy'], Words::REORDER['group_enough']]));
+        self::assertSame(1, $xp->query('//button[normalize-space(.)="' . Words::REORDER['create'] . '"]')->length, 'one Create draft orders');
+        self::assertSame(1, $xp->query('//form[@action="/ui/purchasing/reorder/draft"]/div[@class="doc-bar"]/button[contains(@class, "primary")]')->length);
         $form = $page->form('/ui/purchasing/reorder/draft');
         self::assertSame('3', $form['row_count']);
         self::assertSame(['pick_' . $s['b'], 'pick_' . $s['d'], 'pick_' . $s['a']], array_values(array_filter(array_keys($form), static fn (string $k): bool => str_starts_with($k, 'pick_'))),

@@ -55,6 +55,9 @@ final class UiTemplatesTest extends TestCase
             'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before',
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D
             'home_find', 'bell', // Home's Find box and the bell (docs/decisions.md HV1, HV4)
+            // Suppliers and buying on the approved patterns (docs/decisions.md W9): the bars, the supplier form's field, the products board
+            'supplier_bar', 'supplier_field', 'supplier_items_board', 'supplier_items_bar', 'return_bar', 'return_files', 'reorder_bar', 'low_stock_bar',
+            'recheck_bar', 'export_bar',
             'page_frame'] as $t) { // design v5: what the statement draws under itself
             self::assertContains($t . '.php', $names);
         }
@@ -237,7 +240,10 @@ final class UiTemplatesTest extends TestCase
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D (docs/decisions.md PD13)
             'po_supplier_needs', 'po_products', // pack PO (PO3); PO on one page (PX8): the product box's choices
             'invoice_edit', 'doc_totals', 'doc_party', 'doc_bar', // the supplier invoice on one page, the shared document pieces (PV)
-            'po_action', 'si_action'] as $name) { // the approved design: a saved order's or invoice's actions (PV19)
+            'po_action', 'si_action', // the approved design: a saved order's or invoice's actions (PV19)
+            // Suppliers and buying on the approved patterns (docs/decisions.md W9)
+            'supplier_bar', 'supplier_field', 'supplier_items_board', 'supplier_items_bar', 'return_bar', 'return_files', 'reorder_bar', 'low_stock_bar',
+            'recheck_bar', 'export_bar', 'arrivals', 'invoices_timed', 'reorder_suppliers', 'reorder_low_stock'] as $name) {
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {
@@ -1486,6 +1492,102 @@ final class UiTemplatesTest extends TestCase
             self::assertMatchesRegularExpression('#<div class="actions sticky doc-bar">\s*<a class="btn ghost" href="[^"]*" data-leave>.*?</a>\s*<span class="doc-bar-note">.*?</span>\s*'
                 . '<button class="btn" type="submit" name="action" value="save">.*?</button>\s*<button type="submit" name="action" value="post" class="btn primary">#s',
                 $t[$name . '.php'], "{$name}: Leave, the note, Save, then the final button");
+        }
+    }
+
+    /**
+     * Suppliers and buying on the approved patterns (wave w9, docs/decisions.md W9; the shared parts docs/dev.md lists): each page's template
+     * carries its pattern's parts, and none carries the old toolbar's Filter pop-over, the "How it works" fold or the old facts list.
+     *   1 board: the toolbar (one Show row; one search where the list has one), each group a coloured heading with its count over a card with
+     *     the 6 px edge, the status cell filled with its colour, the row's link, "+ New …" at the end of the open group where one starts here;
+     *   2 record: the status block in the head with its action bar at the right, the figures strip, the paper card (the party and its facts),
+     *     the supplier's four tabs;
+     *   3 one-page form: the fields in two columns, typed values guarded, the bar at the bottom with "Leave without saving" and the main action;
+     *   5 report: the figures strip and the boards with the coloured edge.
+     */
+    public function testTheBuyingPagesFollowTheApprovedPatterns(): void
+    {
+        $t = self::templates();
+        $board = ['<div class="grp-block doc-group ', '<button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-', '<span class="grp-count">',
+            '<div class="table-wrap doc-board" id="g-', '<td class="c-status doc-st '];
+        $pins = [
+            'board' => $board,
+            'toolbar' => ['<form class="toolbar" method="get"', '<div class="tb-state">'],
+            'search' => ['<div class="tb-search">', '<input id="tb-q" type="search"'],
+            'row_link' => ['<a class="o-name row-link"'],
+            'add_row' => ['<tr class="grp-add">', '<a class="add-item"'],
+            'new' => ['<details class="fold new-order drawer" id="new"', '<form class="doc-details" method="post"', '<fieldset class="doc-grid">'],
+            'record' => ['<div class="doc-head">', 'side: $bar', '<section class="doc-progress rp-figs"', '<article class="doc-view"', "\$partial('doc_party'"],
+            'related' => ['<section class="doc-related"', '<div class="board-head"><h2 id="', '<div class="table-wrap doc-board '],
+            'tabs' => ['<nav class="tabs record-tabs" id="record-tabs"', ' aria-current="page"', '<?php if (!$t[\'current\']): ?> href="'],
+            'form' => ['<form class="doc-details" method="post"', '<fieldset class="doc-grid', 'data-unsaved="1"', 'data-unsaved-text="'],
+            'report' => ['<section class="doc-progress rp-figs"', '<div class="grp-block doc-group ', 'class="table-wrap doc-board'],
+        ];
+        $pages = [
+            'suppliers' => ['board', 'toolbar', 'search', 'row_link', 'add_row'], 'supplier_items_board' => ['board', 'row_link', 'add_row'],
+            'supplier' => ['record', 'tabs', 'related'], 'supplier_form' => ['form'],
+            'supplier_returns' => ['board', 'toolbar', 'search', 'row_link', 'add_row', 'new'], 'supplier_return' => ['record', 'form', 'related'],
+            'invoices' => ['board', 'toolbar', 'search', 'row_link', 'add_row', 'new'],
+            'invoices_to_match' => ['board', 'toolbar', 'row_link'], 'invoices_not_invoiced' => ['board', 'toolbar', 'search', 'row_link'],
+            'invoices_timed' => ['board', 'row_link'], 'arrivals' => ['board', 'row_link'], 'incidents' => ['board', 'toolbar'],
+            'duty_register' => ['report', 'toolbar', 'search'], 'reorder' => ['report', 'toolbar', 'search'], 'reorder_low_stock' => ['report', 'toolbar', 'search'],
+            'reorder_brands' => ['report'], 'reorder_anomalies' => ['report'], 'reorder_suppliers' => ['report'], 'sales_history' => ['report'],
+        ];
+        foreach ($pages as $name => $patterns) {
+            $src = $t[$name . '.php'] ?? '';
+            foreach ($patterns as $p) {
+                foreach ($pins[$p] as $part) {
+                    self::assertStringContainsString($part, $src, "{$name}: the {$p} pattern's {$part}");
+                }
+            }
+            foreach (['class="tb-pop"', 'class="fold how"', 'ico-filter', '<dl class="wide', 'class="kpis'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old} is the old layout");
+            }
+            if (in_array('board', $patterns, true) && in_array('toolbar', $patterns, true)) {
+                self::assertSame(1, substr_count($src, '<div class="tb-state">'), "{$name}: one Show row");
+                self::assertLessThanOrEqual(1, substr_count($src, '<input id="tb-q" type="search"'), "{$name}: one search box");
+            }
+        }
+        // A row that holds its own form keeps it in td.c-next, raised above the row's link (main's shared rule, W8).
+        foreach (['arrivals', 'invoices_not_invoiced'] as $name) {
+            self::assertMatchesRegularExpression('#<td class="c-next">\s*(<\?php[^>]*\?>\s*)?(<a class="btn sm"|<form)#', $t[$name . '.php'], "{$name}: the row's own action in td.c-next");
+        }
+        // A one-page form's bar: "Leave without saving" first, the main action last (the supplier's one Save; a return's draft: Save the lines,
+        // then "Make the return final", which names its own form).
+        self::assertStringContainsString("\$partial('doc_bar', ['back' =>", $t['supplier_form.php']);
+        self::assertSame(1, substr_count($t['supplier_form.php'], "'primary' => true"), 'the supplier form: one Save');
+        self::assertMatchesRegularExpression('#<div class="doc-bar">\s*<a class="btn ghost" href="[^"]*" data-leave>.*?</a>\s*<span class="doc-bar-note">.*?</span>\s*'
+            . '(<\?php if \(\$lines !== \[\]\): \?>\s*)?<button class="btn" type="submit" form="ret-lines">.*?</button>\s*(<\?php endif; \?>\s*)?'
+            . '<button type="submit" class="btn primary" form="ret-post">#s', $t['supplier_return.php'], 'the draft: Leave, the note, Save the lines, then Make final');
+        // The supplier form: 27 fields in three sections, the country a picker of every country (what CW keeps: its two-letter code).
+        preg_match_all("/\\\$field\\('([a-z0-9_]+)'/", $t['supplier_form.php'], $fields);
+        self::assertSame(array_keys(\CW\Suppliers\Suppliers::FIELDS), array_values(array_intersect(array_keys(\CW\Suppliers\Suppliers::FIELDS), $fields[1])), 'every field');
+        self::assertCount(27, $fields[1]);
+        self::assertSame(['details', 'terms', 'dd'], preg_match_all("/^    '([a-z]+)' => \\[\$/m", $t['supplier_form.php'], $sec) > 0 ? $sec[1] : []);
+        self::assertStringContainsString("\$field('country', 'country', 'country')", $t['supplier_form.php']);
+        self::assertStringContainsString('\CW\Ui\Words::COUNTRY as $code => $name', $t['supplier_field.php']);
+        self::assertCount(249, Words::COUNTRY, 'ISO 3166-1');
+        foreach (array_keys(Words::COUNTRY) as $code) {
+            self::assertMatchesRegularExpression('/^[A-Z]{2}$/', $code, 'what Suppliers keeps');
+        }
+        // What to buy: ONE "Create draft orders", in the bar at the bottom of its form; the sales data's upkeep under More in the head.
+        self::assertSame(1, substr_count($t['reorder.php'] . $t['reorder_bar.php'], "\$word('REORDER', 'create')"));
+        self::assertMatchesRegularExpression("#<div class=\"doc-bar\">\\s*<span class=\"doc-bar-note\">.*?</span>\\s*<button type=\"submit\" class=\"btn primary\"><\\?= \\\$word\\('REORDER', 'create'\\) \\?></button>#s",
+            $t['reorder.php']);
+        self::assertStringContainsString("\$partial('reorder_bar'", $t['reorder.php']);
+        foreach (['/ui/purchasing/reorder/refresh', '/ui/purchasing/reorder/recalculate', '/ui/purchasing/reorder/brands', '/ui/purchasing/reorder/anomalies',
+            '/ui/purchasing/sales-history', '/ui/purchasing/reorder.csv'] as $upkeep) {
+            self::assertStringContainsString($upkeep, $t['reorder_bar.php'], "under More: {$upkeep}");
+            self::assertStringNotContainsString($upkeep, $t['reorder.php'], "not on the page itself: {$upkeep}");
+        }
+        self::assertStringContainsString('<details class="more">', $t['reorder_bar.php']);
+        self::assertStringNotContainsString(' primary', $t['reorder_bar.php'], 'nothing in the head is a main action');
+        // The new pieces close what they open (a stray </div> in a bar pushes the next step out of the head).
+        foreach (['supplier_bar', 'supplier_field', 'supplier_items_board', 'supplier_items_bar', 'return_bar', 'return_files', 'reorder_bar', 'low_stock_bar',
+            'recheck_bar', 'export_bar', ...array_keys($pages)] as $name) {
+            foreach (['div', 'details', 'form', 'section', 'table', 'article', 'fieldset', 'nav'] as $tag) {
+                self::assertSame(preg_match_all('/<' . $tag . '\b/', $t[$name . '.php']), substr_count($t[$name . '.php'], '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
+            }
         }
     }
 

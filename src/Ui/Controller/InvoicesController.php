@@ -85,7 +85,7 @@ final class InvoicesController
         $credited = $kind === 'invoice' ? $ctx->supplierInvoices()->creditedOn($ids) : [];
         $refs = $ctx->supplierInvoices()->refsOf($ids);
         $today = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d');
-        $rows = array_map(fn (array $r): array => $this->listRow($kind, $r, $credited[(int) $r['id']] ?? 0, $refs[(int) $r['id']] ?? null, $today), $listed);
+        $rows = array_map(fn (array $r): array => self::listRow($kind, $r, $credited[(int) $r['id']] ?? 0, $refs[(int) $r['id']] ?? null, $today), $listed);
         $k = Words::INVOICE_KIND[$kind];
         return $ctx->page('invoices', [
             'kind' => $kind,
@@ -137,10 +137,17 @@ final class InvoicesController
         $rows = $ctx->supplierInvoices()->toMatch($show);
         $claims = $ctx->supplierInvoices()->claimsOn(array_map(static fn (array $r): int => (int) $r['id'], $rows));
         $notice = $ctx->req->param('notice');
+        $rows = array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id'], 'group' => (string) $r['match_state'],
+            'claims' => array_map(static fn (array $c): string => self::claimText($c), $claims[(int) $r['id']] ?? [])], $rows);
+        $order = [];
+        foreach (['needs_review', 'accepted', 'within_tolerance', 'matched'] as $m) {
+            $order[$m] = [Words::tone('MATCH_STATE', $m), Words::MATCH_STATE[$m]];
+        }
         return $ctx->page('invoices_to_match', [
             'show' => $show,
-            'rows' => array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id'],
-                'claims' => array_map(static fn (array $c): string => self::claimText($c), $claims[(int) $r['id']] ?? [])], $rows),
+            'rows' => $rows,
+            // The board (docs/decisions.md W9.8): the invoices by their match.
+            'groups' => Html::groups($rows, $order),
             'limit' => SupplierInvoices::LIST_LIMIT,
             'canRecheck' => Documents::mayPost($ctx->me()->roles, 'SINV') && $rows !== [],
             'rules' => self::rulesText($ctx),
@@ -170,9 +177,12 @@ final class InvoicesController
         $supplier = UiRequest::id($ctx->req->param('supplier'));
         $rows = $ctx->supplierInvoices()->notInvoiced($supplier, $q);
         $canPost = Documents::mayPost($ctx->me()->roles, 'SINV');
+        $rows = array_map(static fn (array $r): array => $r + ['form_key' => $canPost ? FormOnce::newKey() : null, 'group' => 'waiting'], $rows);
         return $ctx->page('invoices_not_invoiced', [
             // One key a row: each "Book its invoice" is its own form (FormOnce: a double click books one invoice).
-            'rows' => array_map(static fn (array $r): array => $r + ['form_key' => $canPost ? FormOnce::newKey() : null], $rows),
+            'rows' => $rows,
+            // The board (docs/decisions.md W9.8): one group, the deliveries waiting for their invoice.
+            'groups' => Html::groups($rows, ['waiting' => ['needs', Words::INVOICES['group_not_invoiced']]]),
             'q' => $q,
             'supplier' => $supplier,
             'suppliers' => self::suppliers($ctx),
@@ -778,7 +788,7 @@ final class InvoicesController
      * @param array<string, mixed> $r SupplierInvoices::list() row
      * @return array<string, mixed>
      */
-    private function listRow(string $kind, array $r, int $creditedE2 = 0, ?array $refs = null, string $today = ''): array
+    public static function listRow(string $kind, array $r, int $creditedE2 = 0, ?array $refs = null, string $today = ''): array
     {
         $status = (string) $r['status'];
         $reversal = $r['reverses_id'] !== null;

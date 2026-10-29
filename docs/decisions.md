@@ -13579,3 +13579,107 @@ row, which scrolls inside the strip while More stays put), and the menu is place
 (`max-width: min(32rem, 100%)`, `min-width: min(220px, 100%)`), at every width; the narrow-screen rule that put it against More is gone. The
 row is the page's width inside its gutters, so the menu keeps the 16 px gutters on a phone. `UiUnitTest::testTheTabRowsMoreMenuStaysOnTheScreen`
 pins the rules.
+
+## Suppliers and buying on the approved patterns (wave w9, branch `wave-w9`, 29 Oct 2026; W9.1-W9.14)
+
+The owner's word of 29 Oct ("all design convert our new claude suggested design") for Purchasing's suppliers, returns, credit notes, the
+invoice lists, Goods In's Arriving, Incidents and Duty register, and Reorder with its pages. Layout and words only: no route, permission,
+migration, setting or service rule changed; every form posts what and where it did (FormOnce, versions, CSRF as before). Built on main's
+shared parts (docs/dev.md "The approved design's shared classes", DS1-DS6, CV13-CV14, GV11, GV25, HV1-HV9) and, on main `b06e109`,
+W8's (the figures strip `.doc-progress.rp-figs` with `.step-sub`, the related records `.doc-related`, the details forms `form.doc-details`, the
+row action `td.c-next` above the row's link); no new CSS class.
+
+**W9.1. One way to group a board.** `Html::groups($rows, [key => [tone, words]])` turns rows that carry their `group` key into the board's
+groups in a fixed order, only those with rows (the three boards of main keep their own `boardGroups()`). Each list below builds its rows'
+`group` in its controller (or, for the small settings lists, in its template) and draws the board of PV18: a coloured heading with its count
+over a card with the 6 px edge, the status cell filled with its colour.
+
+**W9.2. Suppliers is a board.** Groups by status in this order: waiting for a reviewer's OK, draft ("+ New supplier" at its end), can order,
+stopped. One search (name, code, VAT number), one Show row: the status menu (every supplier or one status) with the two ticks it had
+(background check due soon, approved by one person), Export and "+ New supplier" at the right (`OWN_TOOLBAR`). Home's links (`?status=draft`,
+`?due=1`) still narrow it. "Approved alone" is the line under the status; an overdue check is the red date (`td.late`). The bank sentence
+moved to the form (it is about what the form keeps).
+
+**W9.3. A supplier is a record page with four tabs.** The head: its name, the status as the solid block, the action bar at the right
+(`supplier_bar`): the next step in the accent ("Ask a reviewer to approve" / "Make it usable" for a draft or stopped supplier whose details are
+complete; else "Start a new order" for one we order from), the rest under More (change the details, start an order, add a proof document,
+stop ordering: each fold opens under the bar). Then the reviewer's or second person's boxes (unchanged), whether we can order (one line, with
+what is missing), the figures strip (products, main supplier of, no price yet, the next background check), and the tabs (`nav.tabs.record-tabs`,
+`?tab=`, the open one without href): Details (the paper card: the supplier's block beside its terms, the background check and duty stamps, then
+the arrivals settings at `#arrivals` as before), Items and packs (the supplier's products as a board, `supplier_items_board`, shared with the
+products page; "+ Add a product" at the end of the first group), Orders (its last 10 orders as a board), Invoices (its latest 10 invoices as the
+invoices board's rows, `InvoicesController::listRow()`, now public; the whole list one link away; Items, Orders and Invoices are related records, `.doc-related`). A tab's rows are read only when it is open
+(the Invoices tab adds one read of the existing `SupplierInvoices::list()` with its supplier filter, the only new read). Orders and Invoices
+are drawn only for who reads them (`purchasing.view`, `invoices.view`). The history stays at the bottom.
+
+**W9.4. A new supplier is one page.** The 27 fields in three sections of two columns (`fieldset.doc-grid`, one field a `div.doc-field`:
+`supplier_field`): Details (name, code, legal name, company and VAT numbers, the country, the address, the contact, other contacts, notes), Terms
+(payment terms and days, delivery and order days, smallest order, VAT code), Background check (checked on, by, next check, what was checked,
+bought from abroad, the duty-stamp arrangement). The country is a picker of every ISO 3166-1 country by name (`Words::COUNTRY`, 249; the United
+Kingdom first and chosen by default), which sends the same two-letter code the service checks (a saved code outside the list is kept as its own
+choice). The bar at the bottom (`doc_bar`): "Leave without saving" and the one Save ("Save as draft" for a new one); typed values are guarded
+(`data-unsaved`, and `data-dirty` when a refused form is drawn back). The same page changes a supplier. The help lines under the fields went
+(the picker replaces the code hint; the error says "Choose the supplier's country from the list").
+
+**W9.5. Returns is a board.** Groups: draft ("+ New return" at its end), waiting for an OK, final with the credit still to come, credited,
+cancelled. One search (it finds the supplier too, so the supplier menu went; a `?supplier=` link still narrows it), one Show row (any status or
+one, the tick for cancelled drafts). The new return's drawer holds the quick way from a delivery first, then the four fields in two columns.
+The "How it works" fold went.
+
+**W9.6. A return: its draft is one page, a final one a record page.** The head and its bar (`return_bar`: "Book the supplier's credit note" the
+next step on a final return; under More: stop a draft, take back a request, cancel a final return) and the figures strip (units going back,
+lines, claimed, credit) on both. The creator's draft: its details in two columns (their own form and button, as before), the lines board in its
+own form (`#ret-lines`), the add row (an item, a claim), the files on the left and the claim on the right, and the bar at the bottom: "Leave
+without saving", what making it final does, "Save the lines" (`form="ret-lines"`) and "Make the return final" (`form="ret-post"`, the form
+that always posted it). The forms stay separate (not OV's one form: not in this brief); the leaving forms carry `data-leaves`, so a typed
+line is said before a final or an add leaves it (CV14). A final return: the paper card (the supplier's block beside the facts, the lines, the
+files and the claim), its credit notes as a board, its history.
+
+**W9.7. Credit notes.** The list was already the board (PV18); its Draft group now ends with "+ New credit note" (the drawer), whose fields are
+in two columns. Both kinds of paper keep the same words' keys (`INVOICE_KIND add_row`). A credit note's page is PV19's, unchanged.
+
+**W9.8. To match, Not invoiced yet, Timed and Arriving are boards.** To match: the Show menu (to check, differences accepted) in place of its
+two links, "Check these again" plain in the head's bar, the invoices grouped by their match, the claims under the status. Not invoiced yet: one
+search and the supplier in the Show row, one group with the value waiting in its count; each row keeps its "Book its invoice" form (in `td.c-next`, above the row's link). Timed: could
+not be made final (red, the reason under it), then waiting for its time. Arriving: late, being received (a receipt started), on the way; each
+row keeps "Receive" or "Open its receipt". These lists have no search of their own today (To match, Timed, Arriving): none was added.
+
+**W9.9. Incidents is a board.** The Show row (open, dealt with, nothing needed or all; the kind), the incidents grouped by state, each row the
+problem with where the items are, its state filled, the delivery line it came from, who found it; an open one closes from its row's fold (the
+same form, `incidents.resolve`). The closing help line went.
+
+**W9.10. The duty register is a report.** Export at the head's right, the alarm or note as before, the figures strip (delivery lines with what
+the register lists, held unstamped, taken in on a declaration, the day the held place must be empty), one search and the Show row (the dates,
+the supplier, the stamp, the delivery's state), then the register's lines as a board with the stamp filled with its colour, the unstamped stock
+and where it is, and what was taken in on a declaration (its warning to count them kept).
+
+**W9.11. What to buy: the suggestion list first, ONE "Create draft orders", the sales data's upkeep under More.** The head's bar holds only
+More: the download, "Sales data and settings" (what is loaded per website, when the demand was worked out, Work out again, Work out sales
+again: reorder.manage), the brands, the days left out, the sales history. Then what the last create made, the figures strip (products to buy,
+will run out and the cost on this page, when the figures were worked out and the sales' last day, "Out of date" when anything is), one search
+and the Show row (to buy or every product, the two ticks; the brand, the main supplier, the stock to use), the suggestions grouped will run out,
+to buy, enough for now, and the bar at the bottom of the draft form with its one main button. A missing sales load is one note above the list.
+The draft form carries what it did (`row_count` first, FormOnce, the filters) and now `data-unsaved` (a typed pack count is said before a link
+leaves).
+
+**W9.12. Reorder's other pages are reports.** Brands, Days left out, Suppliers, Low-stock warnings and Sales history: the figures strip, then
+the board(s) with the coloured edge; a brand's or a supplier's change form in two columns at `#change` (Leave, Save); the days to add in two
+columns; the periods grouped left out and used again; low-stock grouped below the safety stock and every other, its two buttons in the bar at
+the bottom (keep each website's own, then use the safety stock: the main one), "Work out again" under More; each website's sales a group
+(amber while products are unmatched). Their help paragraphs went; the figures say the normal days.
+
+**W9.13. Not done here, said here.** No page moved in the menu (Sections unchanged). Proposed for the owner: Reorder's Brands, Days left out,
+Sales history, Suppliers and Low-stock warnings are set-up pages and could go under Purchasing's More (they are Reorder's segments today); so
+could Invoices › Timed and Goods In › Duty register. A search box on To match, Timed and Arriving (a filter the lists do not have) and a figures
+strip on a credit note's page (PV19) are left for a later step. Not seen in a real browser here: check the pages at 375 px and 1,280 px.
+
+**W9.14. Tests.** Red first (`runs/w9_red.log`: main `fcddc98` with the new tests). `UiTemplatesTest::testTheBuyingPagesFollowTheApprovedPatterns`
+(each template's pattern parts, no old toolbar pieces, the supplier form's 27 fields in three sections and the country picker, ONE "Create draft
+orders" in its bar and the upkeep under More, every tag closed) and the new partials in the existing lints (`testThereAreTemplatesToCheck`, the
+buying pages' cards-and-words lint); `tests/Integration/UiKernel/BuyingPatternsScreensTest.php` (the pages as served: a new supplier through
+its record page and tabs to the board; a return's drawer, draft, list and final page; a credit note's board; the lists' Show rows; the
+reports' strips; What to buy's More); `ReorderScreensTest` (the groups and the one main button on a list with rows).
+
+*Tests* (30 Oct 2026, on the tree rebased on `b06e109`): `tests/Unit` and `tests/Integration/UiKernel`: OK (1031 tests, 125139 assertions);
+the rest of the suite (`runs/smlabel_partc.cmd`): OK, 1098 tests, 82 skipped (the HTTP tests of slot `ui`); slot `ui` (`UiAuthTest`,
+`UiSecurityTest`, `UiReviewFlowTest`): OK (44 tests). Logs: `runs/w9_final_unit_uikernel.log`, `runs/w9_final_partc.log`, `runs/w9_final_ui.log`.

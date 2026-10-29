@@ -940,6 +940,36 @@ The classes it added (CSS: the "w8" block of `app.css`); a new page of these pat
   pages as served). A record's bar is a partial (`stock_op_bar`, `handover_bar`, `customer_bar`) passed to `$head(..., side: $bar)` inside
   `div.doc-head`, as `po_bar`.
 
+### Suppliers and buying on the approved patterns (`docs/decisions.md` W9)
+
+Every page keeps its address, its routes and its forms; only the layout follows the pattern (1 board, 2 record, 3 one-page form, 5 report),
+on main's shared parts above (`.doc-group`, `.doc-board`, `td.doc-st`, `.doc-head`, `.doc-actions` + `details.more`, `.doc-view` +
+`doc_party`, `.doc-foot`, `doc_totals`, `.doc-bar` / `doc_bar`, `.doc-grid`) and W8's (`section.doc-progress.rp-figs` with `p.step-sub`,
+`section.doc-related`, `form.doc-details`, `td.c-next` above the row's link). No new CSS class.
+
+| Page | Template (+ partials) | Pattern |
+|---|---|---|
+| `/ui/purchasing/suppliers` | `suppliers` | 1 board: groups by status (`SuppliersController::board()`), Show = the status + the two ticks, "+ New supplier" at the end of Draft |
+| a supplier `/ui/purchasing/suppliers/{id}` | `supplier` (+ `supplier_bar`, `supplier_items_board`) | 2 record: tabs Details / Items and packs / Orders / Invoices (`?tab=`, `#record-tabs`), the figures strip |
+| `/ui/purchasing/suppliers/new`, `/{id}/edit` | `supplier_form` (+ `supplier_field`, `doc_bar`) | 3 one-page form: Details, Terms, Background check (`fieldset.doc-grid`), the country a picker (`Words::COUNTRY`), one Save |
+| `/ui/purchasing/suppliers/{id}/items` | `supplier_items` (+ `supplier_items_bar`, `supplier_items_board`) | 1 board (the tab's board, whole) |
+| `/ui/purchasing/returns` | `supplier_returns` | 1 board (draft, waiting, final: credit to come, credited, cancelled); the new return's drawer in two columns |
+| a return `/ui/purchasing/returns/{id}` | `supplier_return` (+ `return_bar`, `return_files`) | 3 for its creator's draft (the details form, the lines form `#ret-lines`, the bar: Leave, Save the lines, Make final = `form="ret-post"`); 2 otherwise |
+| `/ui/purchasing/credit-notes` | `invoices` (credit note) | 1 board (already PV18) + "+ New credit note" at the end of Draft (`#new`); the drawer in two columns |
+| a credit note | `supplier_invoice` | 2 (PV19, unchanged) |
+| `/ui/purchasing/invoices/to-match`, `/not-invoiced`, `/timed` | `invoices_to_match` (+ `recheck_bar`), `invoices_not_invoiced`, `invoices_timed` | 1 boards |
+| `/ui/receiving/arriving`, `/ui/receiving/incidents` | `arrivals`, `incidents` | 1 boards (an open incident closes from its row's fold) |
+| `/ui/receiving/duty` | `duty_register` (+ `export_bar`) | 5 report |
+| `/ui/purchasing/reorder` | `reorder` (+ `reorder_bar`) | 5 report, the suggestion list first; ONE "Create draft orders" in the `.doc-bar` at the bottom of its form; the sales data and its upkeep under More |
+| `/ui/purchasing/reorder/brands`, `/anomalies`, `/suppliers`, `/low-stock`, `/ui/purchasing/sales-history` | `reorder_brands`, `reorder_anomalies`, `reorder_suppliers`, `reorder_low_stock` (+ `low_stock_bar`), `sales_history` | 5 reports |
+
+- A board's groups: `Html::groups($rows, [key => [tone, words]])` (each row's `group` key); a tab row of a record page is `nav.tabs.record-tabs`
+  (the open tab without href, CV13). A record's bar is a partial passed to `$head(..., side: $bar)` inside `div.doc-head`, as `po_bar`.
+- A row that holds its own form (Receive, Book its invoice) keeps it in `td.c-next` (raised above `a.row-link`); an incident has no page of its
+  own, so its row has no row link (the delivery line is a plain link).
+- Tests: `UiTemplatesTest::testTheBuyingPagesFollowTheApprovedPatterns` (the templates), `tests/Integration/UiKernel/BuyingPatternsScreensTest.php`
+  (the pages as served), `ReorderScreensTest::testTheBuyerFiltersABrandReadsWhyAndCreatesADraft` (the one "Create draft orders").
+
 
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 

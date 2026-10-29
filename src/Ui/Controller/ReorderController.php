@@ -344,6 +344,15 @@ final class ReorderController
         }
         $drafts = self::draftsOf($ctx, array_values(array_filter(array_map(static fn (array $l): ?int => (int) $l['in_drafts'] > 0 ? (int) $l['sku_id'] : null, $lines))));
         $rows = array_map(static fn (array $l): array => self::screenLine($l, $drafts[(int) $l['sku_id']] ?? null), $lines);
+        // The report (docs/decisions.md W9.11): the lines grouped will run out, to buy, enough for now; the figures strip.
+        $valueE4 = 0;
+        $urgent = 0;
+        foreach ($rows as &$r) {
+            $r['group'] = $r['urgent'] ? 'urgent' : ((int) $r['packs'] > 0 ? 'buy' : 'enough');
+            $valueE4 += (int) ($r['value_e4'] ?? 0);
+            $urgent += $r['urgent'] ? 1 : 0;
+        }
+        unset($r);
         $me = $ctx->me();
         $canDraft = Documents::mayPost($me->roles, 'PO');
         $notice = $this->notice($ctx);
@@ -353,6 +362,9 @@ final class ReorderController
         }
         return $ctx->page('reorder', [
             'rows' => $rows,
+            'groups' => Html::groups($rows, ['urgent' => ['blocked', Words::REORDER['group_urgent']], 'buy' => ['info', Words::REORDER['group_buy']],
+                'enough' => ['done', Words::REORDER['group_enough']]]),
+            'strip' => ['urgent' => $urgent, 'value' => Html::money(ReorderList::amount($valueE4))],
             'total' => $total,
             'page' => $page,
             'pages' => $pages,

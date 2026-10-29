@@ -64,11 +64,22 @@ final class SupplierReturnsController
                 'supplier' => (string) ($r['supplier_name'] ?? ''), 'delivery' => $r['grn_number'], 'reason' => $r['reason_label'], 'units' => (int) $r['units'],
                 'claim' => $reversal ? null : $r['claim_total'], 'credit' => $credit, 'credit_word' => $credit === null ? null : Words::of('CREDIT_STATE', $credit),
                 'credit_tone' => $credit === null ? 'info' : Words::tone('CREDIT_STATE', $credit), 'tone' => $reversal ? 'off' : Words::tone('DOC_STATUS', (string) $r['status']),
-                'state_word' => $reversal ? Words::INVOICES['reversal'] : Words::of('DOC_STATUS', (string) $r['status']), 'made_by' => (string) ($r['created_by_name'] ?? '')];
+                'state_word' => $reversal ? Words::INVOICES['reversal'] : Words::of('DOC_STATUS', (string) $r['status']), 'made_by' => (string) ($r['created_by_name'] ?? ''),
+                // The board (docs/decisions.md W9.5): draft, waiting for an OK, final with the credit to come, credited, cancelled.
+                'group' => match (true) {
+                    $reversal || in_array($r['status'], ['reversed', 'cancelled'], true) => 'cancelled',
+                    $r['status'] === 'draft' => 'draft',
+                    $r['status'] === 'awaiting_approval' => 'waiting',
+                    $credit === 'credited' => 'credited',
+                    default => 'to_credit',
+                }];
         }
         $choices = $ctx->supplierReturns()->formChoices();
         return $ctx->page('supplier_returns', [
             'rows' => $rows,
+            'groups' => Html::groups($rows, ['draft' => ['waiting', Words::RETURNS['group_draft']], 'waiting' => ['review', Words::RETURNS['group_waiting']],
+                'to_credit' => ['needs', Words::RETURNS['group_to_credit']], 'credited' => ['done', Words::RETURNS['group_credited']],
+                'cancelled' => ['off', Words::RETURNS['group_cancelled']]]),
             'limit' => SupplierReturns::LIST_LIMIT,
             'f' => $f,
             'filtered' => $f['q'] !== '' || $f['state'] !== null || $f['supplier'] !== null || $f['cancelled'],
@@ -310,6 +321,23 @@ final class SupplierReturnsController
         foreach ($lines as $l) {
             $total += $l['amount'] === null ? 0 : InvoiceMath::e2((string) $l['amount']);
         }
+        // The record page (docs/decisions.md W9.6): the supplier's block beside the return's facts (the supplier itself is the block), the
+        // record it cancels or that cancels it as links; the figures strip.
+        $facts = self::facts($rec, $doc);
+        $docFacts = array_values(array_filter($facts, static fn (array $f): bool => $f['label'] !== Words::INVOICES['supplier']));
+        if ($doc->isReversal()) {
+            $docFacts[] = ['label' => Words::RECORD['cancels'], 'value' => (string) ($rec['reverses_number'] ?? ''), 'href' => SupplierReturns::PATH . '/' . (int) $doc->reversesId];
+        }
+        if ($reversedBy !== null) {
+            $docFacts[] = ['label' => Words::STOCK_OPS['cancelled_by'], 'value' => $reversedBy['number'] === null ? Words::STOCK_OPS['cancel_waiting'] : (string) $reversedBy['number'],
+                'href' => SupplierReturns::PATH . '/' . $reversedBy['id']];
+        }
+        $units = 0;
+        foreach ($lines as $l) {
+            $units += abs((int) ($l['qty'] ?? 0));
+        }
+        $figures = ['units' => $units, 'lines' => count($lines), 'claim' => Html::money(InvoiceMath::fromE2($total)),
+            'credit' => $rec['credit_state'] === null || $doc->isReversal() ? Words::RETURNS['credit_none'] : Words::of('CREDIT_STATE', (string) $rec['credit_state'])];
         $h = $extra['header'] ?? null;
         $v = static fn (string $f, mixed $fromRec): string => $h !== null && array_key_exists($f, $h) ? (string) $h[$f] : ($fromRec === null ? '' : (string) $fromRec);
         return $ctx->page('supplier_return', [
@@ -317,7 +345,10 @@ final class SupplierReturnsController
             'doc' => $doc,
             'rec' => $rec,
             'title' => Words::docTitle('DN', $doc->number, (string) ($rec['supplier_name'] ?? ''), $doc->isReversal() ? (string) ($rec['reverses_number'] ?? '#' . $doc->reversesId) : null),
-            'facts' => self::facts($rec, $doc),
+            'facts' => $facts,
+            'party' => ['label' => Words::RETURNS['party'], 'name' => (string) ($rec['supplier_name'] ?? ''), 'href' => '/ui/purchasing/suppliers/' . $supplier, 'lines' => []],
+            'docFacts' => $docFacts,
+            'figures' => $figures,
             'lines' => $lines,
             // A claim without goods (what did not come, an overcharge): nothing leaves the stock, and its page says so.
             'claimOnly' => $claimOnly,

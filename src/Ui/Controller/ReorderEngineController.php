@@ -155,9 +155,12 @@ final class ReorderEngineController
         $rows = array_map(static fn (array $l): array => $l + [
             'per_day' => ReorderList::perDay((int) $l['d_e6']),
             'safety_line' => Words::say('REORDER_LOW', 'safety_line', (int) $l['safety'], ReorderList::perDay((int) $l['d_e6'])),
+            // The report (docs/decisions.md W9.12): below the safety stock first, then every other product.
+            'group' => !empty($l['below_safety']) ? 'below' : 'rest',
         ], $res['lines']);
         return $ctx->page('reorder_low_stock', [
             'rows' => $rows,
+            'groups' => Html::groups($rows, ['below' => ['needs', Words::REORDER_LOW['group_below']], 'rest' => ['info', Words::REORDER_LOW['group_rest']]]),
             'total' => $res['total'],
             'page' => $page,
             'pages' => $pages,

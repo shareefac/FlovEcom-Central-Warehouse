@@ -260,11 +260,39 @@ final class SupplierItemsController
     /** @return list<array<string, mixed>> */
     private function rows(Context $ctx, int $supplierId): array
     {
-        return $ctx->db->all(
+        return self::rowsOf($ctx->db, $supplierId);
+    }
+
+    /**
+     * A supplier's items, raw (the CSV) or with their display texts (`shown`: the items page and the supplier's "Items and packs" tab,
+     * docs/decisions.md W9.3).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function rowsOf(Db $db, int $supplierId, bool $shown = false): array
+    {
+        $rows = $db->all(
             'SELECT i.*, k.code AS sku_code, k.name AS sku_name, k.brand, k.merged_into_sku_id, m.code AS merged_code FROM supplier_item i '
             . 'JOIN sku k ON k.id = i.sku_id LEFT JOIN sku m ON m.id = k.merged_into_sku_id WHERE i.supplier_id = ? ORDER BY i.is_active DESC, k.name, i.units_per_pack',
             [$supplierId],
         );
+        return $shown ? array_map(self::row(...), $rows) : $rows;
+    }
+
+    /**
+     * The board of a supplier's products (docs/decisions.md W9.3): main supplier, a backup supplier, no longer bought here.
+     *
+     * @param list<array<string, mixed>> $rows rowsOf() rows
+     * @return list<array{key: string, tone: string, name: string, rows: list<array<string, mixed>>}>
+     */
+    public static function board(array $rows): array
+    {
+        foreach ($rows as &$r) {
+            $r['group'] = (int) $r['is_active'] !== 1 ? 'off' : ((int) $r['is_preferred'] === 1 ? 'main' : 'other');
+        }
+        unset($r);
+        return Html::groups($rows, ['main' => ['done', Words::SUPPLIER_ITEMS['group_main']], 'other' => ['info', Words::SUPPLIER_ITEMS['group_other']],
+            'off' => ['off', Words::SUPPLIER_ITEMS['group_off']]]);
     }
 
     /** @param array<string, mixed> $r @return array<string, mixed> a supplier item row with its display texts (money as £1,234.56, F397) */

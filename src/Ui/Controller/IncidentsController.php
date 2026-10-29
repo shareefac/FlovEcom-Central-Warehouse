@@ -30,8 +30,15 @@ final class IncidentsController
         $kind = $req->param('kind');
         $kind = isset(Incidents::KINDS[$kind ?? '']) ? $kind : null;
         $canResolve = $ctx->me()->can('incidents.resolve');
+        $rows = array_map(self::screenRow(...), (new Incidents($ctx->db))->list($state, $kind));
+        $order = [];
+        foreach (Incidents::STATUSES as $st) {
+            $order[$st] = [Words::tone('INCIDENT_STATE', $st), Words::INCIDENT_STATE[$st]];
+        }
         return $ctx->page('incidents', [
-            'rows' => array_map(self::screenRow(...), (new Incidents($ctx->db))->list($state, $kind)),
+            'rows' => $rows,
+            // The board (docs/decisions.md W9.9): open, dealt with, nothing needed.
+            'groups' => Html::groups($rows, $order),
             'status' => $state ?? 'all',
             'kind' => $kind,
             'kinds' => Words::INCIDENT_KIND,
@@ -64,6 +71,7 @@ final class IncidentsController
         $closed = $r['status'] === 'open' ? null : Words::say('INCIDENTS', 'closed', Words::of('INCIDENT_STATE', (string) $r['status']), Html::when((string) $r['resolved_at']),
             (string) ($r['resolved_by_name'] ?? $r['resolved_actor'] ?? ''), (string) $r['resolution']);
         return $r + [
+            'group' => (string) $r['status'],
             'title' => Words::say('INCIDENTS', 'title', Words::of('INCIDENT_KIND', (string) $r['kind']), (int) $r['units'], (string) ($r['sku_name'] ?? $r['sku_code'])),
             'from' => $r['external_ref'] === null || $r['external_ref'] === ''
                 ? Words::say('INCIDENTS', 'from_no_invoice', (string) $r['number'], (int) $r['line_no'], (string) $r['supplier_name'])

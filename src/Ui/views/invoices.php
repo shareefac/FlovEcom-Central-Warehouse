@@ -40,9 +40,11 @@
 <?php if ($formKey !== null): ?>
 <details class="fold new-order drawer" id="new"<?php if ($error !== null): ?> open<?php endif; ?>>
   <summary><?= $e($k['start']) ?></summary>
-  <form class="record" method="post" action="<?= $e($base) ?>">
+  <form class="doc-details" method="post" action="<?= $e($base) ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
+    <fieldset class="doc-grid">
+    <legend class="visually-hidden"><?= $e($k['start']) ?></legend>
     <label><?= $word('INVOICES', 'supplier') ?>
       <select name="supplier_id" required>
         <option value=""><?= $word('STOCK_OPS', 'choose') ?></option>
@@ -53,7 +55,8 @@
     </label>
     <label><?= $e($k['number']) ?> <input type="text" name="invoice_number" value="<?= $e($typed['invoice_number'] ?? '') ?>" maxlength="64"></label>
     <label><?= $e($k['date']) ?> <input type="date" name="invoice_date" value="<?= $e($typed['invoice_date'] ?? '') ?>"></label>
-    <p class="actions"><button type="submit" class="btn primary"><?= $e($k['start_button']) ?></button></p>
+    <p class="actions doc-wide"><button type="submit" class="btn primary"><?= $e($k['start_button']) ?></button></p>
+    </fieldset>
   </form>
 </details>
 <?php endif; ?>
@@ -104,7 +107,9 @@
       </tr>
 <?php endforeach; ?>
 <?php if ($g['key'] === 'draft' && $canPost && $kind === 'invoice'): ?>
-      <tr class="grp-add"><td colspan="7" data-label=""><a class="add-item" href="/ui/purchasing/invoices/new"><?= $word('PI_ONE', 'add_row') ?></a></td></tr>
+      <tr class="grp-add"><td colspan="7" data-label=""><a class="add-item" href="/ui/purchasing/invoices/new"><?= $e($k['add_row']) ?></a></td></tr>
+<?php elseif ($g['key'] === 'draft' && $formKey !== null && $kind === 'credit_note'): ?>
+      <tr class="grp-add"><td colspan="5" data-label=""><a class="add-item" href="#new"><?= $e($k['add_row']) ?></a></td></tr>
 <?php endif; ?>
     </tbody>
   </table>

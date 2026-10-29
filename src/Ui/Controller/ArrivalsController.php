@@ -34,6 +34,9 @@ use CW\Ui\Words;
 final class ArrivalsController
 {
     public const ARRIVING = '/ui/receiving/arriving';
+    /** Arriving's board (docs/decisions.md W9.8): its groups in their order, their colours and words. */
+    private const BOARD = ['late' => ['needs', Words::ARRIVALS['group_late']], 'receiving' => ['info', Words::ARRIVALS['group_receiving']],
+        'on_way' => ['waiting', Words::ARRIVALS['group_on_way']]];
     public const TIMED = '/ui/purchasing/invoices/timed';
 
     public static function routes(Router $r): void
@@ -48,10 +51,13 @@ final class ArrivalsController
 
     public function arriving(Context $ctx, int $status = 200, ?CwException $error = null): HtmlResponse
     {
-        $rows = self::service($ctx)->arriving(UiRequest::id($ctx->req->param('supplier')));
+        $rows = array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . $r['invoice_id'],
+            'receipt_href' => $r['receipt_id'] === null ? null : '/ui/receiving/' . $r['receipt_id'],
+            // The board (docs/decisions.md W9.8): late, being received (its receipt started), on the way.
+            'group' => $r['receipt_id'] !== null ? 'receiving' : ($r['late'] ? 'late' : 'on_way')], self::service($ctx)->arriving(UiRequest::id($ctx->req->param('supplier'))));
         return $ctx->page('arrivals', [
-            'rows' => array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . $r['invoice_id'],
-                'receipt_href' => $r['receipt_id'] === null ? null : '/ui/receiving/' . $r['receipt_id']], $rows),
+            'rows' => $rows,
+            'groups' => Html::groups($rows, self::BOARD),
             'limit' => Arrivals::ARRIVING_LIMIT,
             'canReceive' => Documents::mayPost($ctx->me()->roles, 'GRN'),
             'error' => $error === null ? null : InvoicesController::plain($error),
@@ -84,10 +90,13 @@ final class ArrivalsController
 
     public function timed(Context $ctx): HtmlResponse
     {
-        $rows = $ctx->supplierInvoices()->scheduled();
+        $rows = array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id'],
+            'at' => self::when((string) $r['submit_at']), 'failed' => $r['submit_failed_at'] !== null, 'group' => $r['submit_failed_at'] !== null ? 'failed' : 'waiting'],
+            $ctx->supplierInvoices()->scheduled());
         return $ctx->page('invoices_timed', [
-            'rows' => array_map(static fn (array $r): array => $r + ['href' => SupplierInvoices::PATHS['invoice'] . '/' . (int) $r['id'],
-                'at' => self::when((string) $r['submit_at']), 'failed' => $r['submit_failed_at'] !== null], $rows),
+            'rows' => $rows,
+            // The board (docs/decisions.md W9.8): the ones that could not be made final first, then the ones waiting for their time.
+            'groups' => Html::groups($rows, ['failed' => ['blocked', Words::ARRIVALS['could_not']], 'waiting' => ['waiting', Words::ARRIVALS['waiting']]]),
             'limit' => SupplierInvoices::LIST_LIMIT,
         ], 200, ['title' => Words::SEGMENT['timed']]);
     }

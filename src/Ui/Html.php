@@ -198,6 +198,29 @@ final class Html
         };
     }
 
+    /**
+     * A board's groups (the approved board, docs/decisions.md PV18, W9.1): the rows by their `group` key, in $order's order (key => [tone,
+     * name]), only the groups that have rows. Each group: key, tone, name, rows.
+     *
+     * @param list<array<string, mixed>> $rows
+     * @param array<string, array{0: string, 1: string}> $order
+     * @return list<array{key: string, tone: string, name: string, rows: list<array<string, mixed>>}>
+     */
+    public static function groups(array $rows, array $order): array
+    {
+        $by = [];
+        foreach ($rows as $r) {
+            $by[(string) $r['group']][] = $r;
+        }
+        $out = [];
+        foreach ($order as $key => [$tone, $name]) {
+            if (isset($by[$key])) {
+                $out[] = ['key' => (string) $key, 'tone' => $tone, 'name' => $name, 'rows' => $by[$key]];
+            }
+        }
+        return $out;
+    }
+
     /** Percentage with one decimal, '-' when there is nothing to divide. */
     public static function pct(int|float $part, int|float $whole): string
     {

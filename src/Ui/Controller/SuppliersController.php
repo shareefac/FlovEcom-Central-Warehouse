@@ -38,6 +38,8 @@ final class SuppliersController
     /** "Checks due": the next due-diligence review within this many days. */
     public const DUE_WINDOW_DAYS = 30;
     public const LIST_LIMIT = 500;
+    /** The supplier's latest invoices on its Invoices tab (docs/decisions.md W9.3); the whole list is the Invoices page's. */
+    public const TAB_ROWS = 10;
 
     public function index(Context $ctx): HtmlResponse
     {
@@ -46,11 +48,16 @@ final class SuppliersController
         $today = $ctx->suppliers()->today();
         foreach ($rows as &$r) {
             $r['dd_overdue'] = $r['dd_next_review_on'] !== null && (string) $r['dd_next_review_on'] < $today;
+            // The board (docs/decisions.md W9.2): each supplier in its status's group, the cell in the status's colour.
+            $r['group'] = (string) $r['status'];
+            $r['tone'] = Words::tone('SUPPLIER_STATUS', (string) $r['status']);
+            $r['alone_open'] = $r['status'] === 'active' && (int) $r['approved_alone'] + (int) $r['route_alone'] > 0 && $r['alone_checked_by'] === null;
         }
         unset($r);
         $canManage = $ctx->me()->can('suppliers.manage');
         return $ctx->page('suppliers', [
             'rows' => $rows,
+            'groups' => Html::groups($rows, self::board()),
             'filters' => $f,
             'filtered' => $f['status'] !== null || $f['q'] !== '' || $f['due'] || $f['alone'],
             'statuses' => self::STATUS_LABELS,
@@ -59,6 +66,21 @@ final class SuppliersController
             'dueDays' => self::DUE_WINDOW_DAYS,
             'limit' => self::LIST_LIMIT,
         ], 200, ['title' => Words::MENU['suppliers'], 'active' => 'suppliers', 'notice' => null]);
+    }
+
+    /**
+     * The board's groups in their order (docs/decisions.md W9.2): waiting for a reviewer's OK, draft (its last row "+ New supplier"), can
+     * order, stopped; each in its status's colour and words.
+     *
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function board(): array
+    {
+        $out = [];
+        foreach (['pending_approval', 'draft', 'active', 'inactive'] as $status) {
+            $out[$status] = [Words::tone('SUPPLIER_STATUS', $status), Words::SUPPLIER_STATUS[$status]];
+        }
+        return $out;
     }
 
     public function csv(Context $ctx): HtmlResponse
@@ -412,6 +434,25 @@ final class SuppliersController
                 },
             ];
         }
+        // The record page's tabs (docs/decisions.md W9.3): Details, Items and packs, Orders, Invoices (the last two for who reads them); the
+        // open one has no link (CV13). Each tab's rows are read only when it is open.
+        $tabs = ['details' => true, 'items' => true, 'orders' => $recentPos !== null, 'invoices' => $me->can('invoices.view')];
+        $tab = (string) ($ctx->req->param('tab') ?? 'details');
+        if (!($tabs[$tab] ?? false)) {
+            $tab = 'details';
+        }
+        $tabList = [];
+        foreach (array_keys(array_filter($tabs)) as $k) {
+            $tabList[] = ['key' => $k, 'label' => Words::SUPPLIER['tab_' . $k], 'current' => $k === $tab,
+                'href' => $k === $tab ? null : Html::url('/ui/purchasing/suppliers/' . $id, $k === 'details' ? [] : ['tab' => $k]) . '#record-tabs'];
+        }
+        $invoiceRows = null;
+        if ($tab === 'invoices') {
+            $listed = array_slice($ctx->supplierInvoices()->list('invoice', ['supplier' => $id, 'show' => 'all']), 0, self::TAB_ROWS);
+            $credited = $ctx->supplierInvoices()->creditedOn(array_map(static fn (array $r): int => (int) $r['id'], $listed));
+            $londonDay = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d');
+            $invoiceRows = array_map(static fn (array $r): array => InvoicesController::listRow('invoice', $r, $credited[(int) $r['id']] ?? 0, null, $londonDay), $listed);
+        }
         // The details that are empty are named once (F373).
         $empty = [];
         foreach (['legal_name', 'company_number', 'vat_number', 'contact_name', 'phone', 'payment_terms', 'default_lead_days', 'review_days', 'min_order_value'] as $k) {
@@ -419,8 +460,30 @@ final class SuppliersController
                 $empty[] = Words::of('SUPPLIER_FIELD', $k);
             }
         }
+        // The paper card (docs/decisions.md W9.3): the supplier's block (its legal name, address and how to reach it) beside its terms.
+        $address = implode(', ', array_values(array_filter([(string) $s['address_line1'], (string) ($s['address_line2'] ?? ''), (string) ($s['city'] ?? ''),
+            trim((string) $s['postcode'] . ' ' . (string) $s['country'])], static fn (string $v): bool => trim($v) !== '')));
+        $party = ['label' => Words::SUPPLIER['party'], 'name' => (string) (($s['legal_name'] ?? '') !== '' ? $s['legal_name'] : $s['name']), 'href' => null,
+            'lines' => array_values(array_filter([$address, (string) ($s['contact_name'] ?? ''), (string) $s['email'], (string) ($s['phone'] ?? '')],
+                static fn (string $v): bool => trim($v) !== ''))];
+        $facts = [];
+        foreach ([
+            'company_number' => $s['company_number'], 'vat_number' => $s['vat_number'],
+            'payment' => $s['payment_terms'] === null || $s['payment_terms'] === '' ? null
+                : ($s['payment_terms_days'] !== null ? Words::say('SUPPLIER', 'payment_days', (string) $s['payment_terms'], (int) $s['payment_terms_days']) : (string) $s['payment_terms']),
+            'lead' => $s['default_lead_days'] === null ? null : Html::int($s['default_lead_days']),
+            'every' => $s['review_days'] === null ? null : Html::int($s['review_days']),
+            'min_order' => $s['min_order_value'] === null ? null : Html::money($s['min_order_value']),
+            'vat' => $s['default_vat_code'], 'currency' => $s['currency'], 'erp' => $s['erp_name'],
+        ] as $k => $v) {
+            if ($v !== null && trim((string) $v) !== '') {
+                $facts[] = ['label' => Words::SUPPLIER[$k], 'value' => (string) $v];
+            }
+        }
         return $ctx->page('supplier', [
             's' => $s,
+            'party' => $party,
+            'facts' => $facts,
             'title' => Words::say('SUPPLIER', 'title', (string) $s['name'], (string) $s['code']),
             'people' => [
                 'created' => $name($s['created_by']) ?? Words::ANOMALIES['set_up'], 'updated' => $name($s['updated_by']) ?? Words::ANOMALIES['set_up'],
@@ -443,6 +506,11 @@ final class SuppliersController
             'secondPerson' => ApprovalRules::on($db, 'approvals.supplier_activation'),
             'arrivals' => ArrivalsController::supplierBox($ctx, (int) $s['id'], (string) $s['status']), // pack J (PJ5, PJ6): goods on their way
             'recentPos' => $recentPos,
+            'tab' => $tab,
+            'tabs' => $tabList,
+            'itemRows' => $tab === 'items' ? SupplierItemsController::rowsOf($db, $id, true) : [],
+            'invoiceRows' => $invoiceRows,
+            'tabRows' => self::TAB_ROWS,
             'canOrder' => $canPost && $s['status'] !== 'inactive',
             'canRequest' => $canManage && in_array($s['status'], ['draft', 'inactive'], true),
             'canEdit' => $canManage && $s['status'] !== 'pending_approval',

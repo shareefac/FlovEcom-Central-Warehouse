@@ -1,5 +1,16 @@
+<?php
+// One supplier, the record page (the owner's approved design of 29 Oct 2026, PO_View; docs/decisions.md W9.3): its name with its status as
+// a solid block, the action bar at the head's right (supplier_bar: the next step in the accent, the rest under More), a reviewer's or a
+// second person's box when one waits, whether we can order from it, the figures strip (products, main supplier of, no price yet, the next
+// background check), then its four tabs: Details (the paper card: the supplier's block beside its terms, the background check and duty
+// stamps, its arrivals settings), Items and packs, Orders, Invoices; then its approvals and checks. Every form posts where it did.
+?>
 <p class="crumbs"><a href="/ui/purchasing/suppliers"><?= $word('MENU', 'suppliers') ?></a></p>
-<?= $head((string) $title, intro: 'supplier', meta: $stateChip('SUPPLIER_STATUS', (string) $s['status'])) ?>
+<?php $bar = $partial('supplier_bar', ['s' => $s, 'canEdit' => $canEdit, 'canOrder' => $canOrder, 'canRequest' => $canRequest, 'canDeactivate' => $canDeactivate,
+    'missing' => $missing, 'secondPerson' => $secondPerson, 'maxMb' => $maxMb, 'errorCode' => $errorCode]); ?>
+<div class="doc-head">
+<?= $head((string) $title, intro: 'supplier', side: $bar, meta: $stateChip('SUPPLIER_STATUS', (string) $s['status']) . ($alone !== null && $alone['checked'] === null ? ' ' . $chip('needs', \CW\Ui\Words::SUPPLIERS['alone_chip']) : '')) ?>
+</div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -23,7 +34,6 @@
 <?php if ($alone['checked'] !== null): ?>
   <p><?= $e($alone['checked']) ?></p>
 <?php elseif ($alone['may_check']): ?>
-  <p class="muted"><?= $word('SUPPLIER', 'alone_does') ?></p>
   <form class="inline" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/check-alone') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
@@ -82,149 +92,94 @@
 <?php endif; ?>
 <?php endforeach; ?>
 
-<section class="card box" aria-labelledby="activation-h">
-  <h2 id="activation-h"><?= $word('SUPPLIER', 'can_order') ?></h2>
+<section id="activation" aria-labelledby="activation-h">
+  <h2 id="activation-h" class="visually-hidden"><?= $word('SUPPLIER', 'can_order') ?></h2>
 <?php if ($s['status'] === 'active'): ?>
   <p><?= $say('SUPPLIER', 'yes_since', \CW\Ui\Html::day((string) $s['approved_at']), (string) ($people['approved'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?></p>
-<?php if ($canDeactivate): ?>
-  <details class="action">
-    <summary><?= $word('SUPPLIER', 'stop') ?></summary>
-    <p class="hint"><?= $word('SUPPLIER', $secondPerson ? 'stop_does' : 'stop_does_alone') ?></p>
-    <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/deactivate') ?>">
-      <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-      <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
-      <label><?= $word('SUPPLIER', 'stop_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
-      <p class="actions"><button type="submit" class="btn risky"><?= $word('SUPPLIER', 'stop_button') ?></button></p>
-    </form>
-  </details>
-<?php endif; ?>
 <?php elseif ($s['status'] === 'pending_approval'): ?>
   <p><strong><?= $word('SUPPLIER', 'waiting') ?></strong> <?= $word('SUPPLIER', 'waiting_locked') ?></p>
 <?php if (!$secondPerson && ($open['activation']['may_withdraw'] ?? false)): ?>
-  <p class="note"><?= $word('SUPPLIER', 'waiting_rule_off') ?></p>
+  <p><?= $word('SUPPLIER', 'waiting_rule_off') ?></p>
 <?php endif; ?>
-<?php else: ?>
-<?php if ($s['status'] === 'inactive'): ?>
+<?php elseif ($s['status'] === 'inactive'): ?>
   <p><?php if ($s['deactivated_at'] !== null): ?><?= $say('SUPPLIER', 'stopped', \CW\Ui\Html::day((string) $s['deactivated_at']), (string) ($people['deactivated'] ?? \CW\Ui\Words::ANOMALIES['set_up']), (string) $s['deactivate_reason']) ?><?php else: ?><?= $word('SUPPLIER', 'stopped_plain') ?><?php endif; ?> <?= $word('SUPPLIER', $secondPerson ? 'stopped_again' : 'stopped_again_alone') ?></p>
 <?php else: ?>
   <p><?= $word('SUPPLIER', $secondPerson ? 'draft' : 'draft_alone') ?><?php if ($canRequest): ?> <?= $word('SUPPLIER', $secondPerson ? 'draft_todo' : 'draft_todo_alone') ?><?php endif; ?></p>
 <?php endif; ?>
 <?php if ($canRequest && $missing !== []): ?>
-  <p class="note"><?= $say('SUPPLIER', 'missing', $missingText) ?></p>
+  <p><strong><?= $say('SUPPLIER', 'missing', $missingText) ?></strong></p>
 <?php elseif ($canRequest): ?>
-  <form class="quick" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/request-activation') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
-    <button type="submit" class="primary btn lg"><span class="btn-title"><?php if (!$secondPerson): ?><?= $word('SUPPLIER', 'ask_alone') ?><?php elseif ($s['approved_at'] === null): ?><?= $word('SUPPLIER', 'ask') ?><?php else: ?><?= $word('SUPPLIER', 'ask_again') ?><?php endif; ?></span> <span class="sub"><?= $word('SUPPLIER', $secondPerson ? 'ask_does' : 'ask_alone_does') ?></span></button>
-  </form>
-<?php endif; ?>
-<?php endif; ?>
-<?php if ($canEdit): ?>
-  <p class="actions"><a class="btn" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/edit') ?>"><?= $word('SUPPLIER', 'change') ?></a></p>
+  <p class="muted"><?= $word('SUPPLIER', $secondPerson ? 'ask_does' : 'ask_alone_does') ?></p>
 <?php endif; ?>
 </section>
 
-<div class="cols">
-  <section class="card" aria-labelledby="details-h">
-    <h2 id="details-h"><?= $word('SUPPLIER', 'details') ?></h2>
-    <dl>
-<?php if ($s['legal_name'] !== null && $s['legal_name'] !== ''): ?>
-      <dt><?= $word('SUPPLIER', 'legal_name') ?></dt><dd><?= $e($s['legal_name']) ?></dd>
-<?php endif; ?>
-<?php if ($s['company_number'] !== null && $s['company_number'] !== ''): ?>
-      <dt><?= $word('SUPPLIER', 'company_number') ?></dt><dd><?= $e($s['company_number']) ?></dd>
-<?php endif; ?>
-<?php if ($s['vat_number'] !== null && $s['vat_number'] !== ''): ?>
-      <dt><?= $word('SUPPLIER', 'vat_number') ?></dt><dd><?= $e($s['vat_number']) ?></dd>
-<?php endif; ?>
-      <dt><?= $word('SUPPLIER', 'address') ?></dt><dd><?= $e($s['address_line1']) ?><?php if ($s['address_line2'] !== null): ?>, <?= $e($s['address_line2']) ?><?php endif; ?><?php if ($s['city'] !== null): ?>, <?= $e($s['city']) ?><?php endif; ?> <?= $e($s['postcode']) ?> <?= $e($s['country']) ?></dd>
-<?php if ($s['contact_name'] !== null && $s['contact_name'] !== ''): ?>
-      <dt><?= $word('SUPPLIER', 'contact') ?></dt><dd><?= $e($s['contact_name']) ?></dd>
-<?php endif; ?>
-      <dt><?= $word('SUPPLIER', 'email') ?></dt><dd><?= $e($s['email']) ?></dd>
-<?php if ($s['phone'] !== null && $s['phone'] !== ''): ?>
-      <dt><?= $word('SUPPLIER', 'phone') ?></dt><dd><?= $e($s['phone']) ?></dd>
-<?php endif; ?>
+<section class="doc-progress rp-figs" aria-label="<?= $word('SUPPLIER', 'figures') ?>">
+  <div class="doc-step"><p class="doc-step-label"><?= $word('SUPPLIER', 'fig_products') ?></p><p class="doc-step-big"><?= $n($items['active']) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('SUPPLIER', 'fig_main') ?></p><p class="doc-step-big"><?= $n($items['preferred']) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('SUPPLIER', 'fig_no_price') ?></p><p class="doc-step-big"><?= $n($items['no_price']) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('SUPPLIER', 'dd_next') ?></p><p class="doc-step-big"><?php if ($s['dd_next_review_on'] !== null): ?><?= $day($s['dd_next_review_on']) ?><?php else: ?><?= $word('SUPPLIER', 'not_yet') ?><?php endif; ?></p><?php if ($ddOverdue): ?><p class="step-sub"><?= $word('SUPPLIERS', 'overdue') ?></p><?php endif; ?></div>
+</section>
+
+<nav class="tabs record-tabs" id="record-tabs" aria-label="<?= $e($title) ?>">
+<?php foreach ($tabs as $t): ?>
+  <a class="tab"<?php if ($t['current']): ?> aria-current="page"<?php endif; ?><?php if (!$t['current']): ?> href="<?= $u((string) $t['href']) ?>"<?php endif; ?>><span><?= $e($t['label']) ?></span></a>
+<?php endforeach; ?>
+</nav>
+
+<?php if ($tab === 'details'): ?>
+<article class="doc-view" aria-labelledby="details-h">
+  <h2 id="details-h" class="doc-label"><?= $word('SUPPLIER', 'details') ?></h2>
+<?= $partial('doc_party', ['party' => $party, 'facts' => $facts]) ?>
 <?php if ($s['contacts_note'] !== null && $s['contacts_note'] !== ''): ?>
-      <dt><?= $word('SUPPLIER', 'contacts_note') ?></dt><dd class="pre"><?= $e($s['contacts_note']) ?></dd>
-<?php endif; ?>
-<?php if ($s['payment_terms'] !== null && $s['payment_terms'] !== ''): ?>
-      <dt><?= $word('SUPPLIER', 'payment') ?></dt><dd><?php if ($s['payment_terms_days'] !== null): ?><?= $say('SUPPLIER', 'payment_days', (string) $s['payment_terms'], (int) $s['payment_terms_days']) ?><?php else: ?><?= $e($s['payment_terms']) ?><?php endif; ?></dd>
-<?php endif; ?>
-<?php if ($s['default_lead_days'] !== null): ?>
-      <dt><?= $word('SUPPLIER', 'lead') ?></dt><dd><?= $n($s['default_lead_days']) ?></dd>
-<?php endif; ?>
-<?php if ($s['review_days'] !== null): ?>
-      <dt><?= $word('SUPPLIER', 'every') ?></dt><dd><?= $n($s['review_days']) ?></dd>
-<?php endif; ?>
-<?php if ($s['min_order_value'] !== null): ?>
-      <dt><?= $word('SUPPLIER', 'min_order') ?></dt><dd><?= $money($s['min_order_value']) ?></dd>
-<?php endif; ?>
-      <dt><?= $word('SUPPLIER', 'vat') ?></dt><dd><?= $e($s['default_vat_code']) ?></dd>
-      <dt><?= $word('SUPPLIER', 'currency') ?></dt><dd><?= $e($s['currency']) ?></dd>
-<?php if ($s['erp_name'] !== null): ?>
-      <dt><?= $word('SUPPLIER', 'erp') ?></dt><dd><?= $e($s['erp_name']) ?></dd>
+  <p class="doc-label"><?= $word('SUPPLIER', 'contacts_note') ?></p>
+  <p class="pre"><?= $e($s['contacts_note']) ?></p>
 <?php endif; ?>
 <?php if ($s['notes'] !== null && $s['notes'] !== ''): ?>
-      <dt><?= $word('SUPPLIER', 'notes') ?></dt><dd class="pre"><?= $e($s['notes']) ?></dd>
+  <p class="doc-label"><?= $word('SUPPLIER', 'notes') ?></p>
+  <p class="pre"><?= $e($s['notes']) ?></p>
 <?php endif; ?>
-    </dl>
-<?php if ($emptyText !== ''): ?>
-    <p class="hint"><?= $say('SUPPLIER', 'not_filled', $emptyText) ?></p>
-<?php endif; ?>
-    <p class="hint"><?= $say('SUPPLIER', 'created', \CW\Ui\Html::when((string) $s['created_at']), (string) $people['created']) ?> · <?= $say('SUPPLIER', 'last_changed', \CW\Ui\Html::when((string) $s['updated_at']), (string) $people['updated']) ?></p>
-  </section>
-
-  <section class="card" aria-labelledby="dd-h">
-    <h2 id="dd-h"><?= $word('SUPPLIER', 'dd') ?></h2>
-    <dl>
-      <dt><?= $word('SUPPLIER', 'dd_on') ?></dt><dd><?php if ($s['dd_checked_on'] !== null): ?><?= $day($s['dd_checked_on']) ?><?php else: ?><span class="muted"><?= $word('SUPPLIER', 'not_yet') ?></span><?php endif; ?></dd>
+  <div class="doc-meta">
+    <section aria-labelledby="dd-h">
+      <h3 id="dd-h" class="doc-label"><?= $word('SUPPLIER', 'dd') ?></h3>
+      <dl class="doc-facts">
+        <dt><?= $word('SUPPLIER', 'dd_on') ?></dt><dd><?php if ($s['dd_checked_on'] !== null): ?><?= $day($s['dd_checked_on']) ?><?php else: ?><span class="muted"><?= $word('SUPPLIER', 'not_yet') ?></span><?php endif; ?></dd>
 <?php if ($people['dd'] !== null): ?>
-      <dt><?= $word('SUPPLIER', 'dd_by') ?></dt><dd><?= $e($people['dd']) ?></dd>
+        <dt><?= $word('SUPPLIER', 'dd_by') ?></dt><dd><?= $e($people['dd']) ?></dd>
 <?php endif; ?>
 <?php if ($s['dd_evidence'] !== null && $s['dd_evidence'] !== ''): ?>
-      <dt><?= $word('SUPPLIER', 'dd_what') ?></dt><dd class="pre"><?= $e($s['dd_evidence']) ?></dd>
+        <dt><?= $word('SUPPLIER', 'dd_what') ?></dt><dd class="pre"><?= $e($s['dd_evidence']) ?></dd>
 <?php endif; ?>
-      <dt><?= $word('SUPPLIER', 'dd_file') ?></dt><dd><?php if ($files['dd'] !== null): ?><a href="<?= $u('/ui/files/' . $files['dd']['id']) ?>"><?= $e($files['dd']['original_name']) ?></a> <span class="muted">(<?= $e($files['dd']['size']) ?>)</span><?php else: ?><span class="muted"><?= $word('SUPPLIER', 'none_uploaded') ?></span><?php endif; ?></dd>
-      <dt><?= $word('SUPPLIER', 'dd_next') ?></dt><dd><?php if ($s['dd_next_review_on'] !== null): ?><?= $day($s['dd_next_review_on']) ?><?php endif; ?><?php if ($ddOverdue): ?> <?= $chip('blocked', \CW\Ui\Words::SUPPLIERS['overdue']) ?><?php endif; ?></dd>
-    </dl>
-    <h3><?= $word('SUPPLIER', 'route') ?></h3>
-    <dl>
-      <dt><?= $word('SUPPLIER', 'abroad') ?></dt><dd><?php if ((int) $s['is_overseas'] === 1): ?><?= $word('SUPPLIER', 'yes') ?><?php else: ?><?= $word('SUPPLIER', 'no_uk') ?><?php endif; ?></dd>
+        <dt><?= $word('SUPPLIER', 'dd_file') ?></dt><dd><?php if ($files['dd'] !== null): ?><a href="<?= $u('/ui/files/' . $files['dd']['id']) ?>"><?= $e($files['dd']['original_name']) ?></a> <span class="muted">(<?= $e($files['dd']['size']) ?>)</span><?php else: ?><span class="muted"><?= $word('SUPPLIER', 'none_uploaded') ?></span><?php endif; ?></dd>
+        <dt><?= $word('SUPPLIER', 'dd_next') ?></dt><dd><?php if ($s['dd_next_review_on'] !== null): ?><?= $day($s['dd_next_review_on']) ?><?php endif; ?><?php if ($ddOverdue): ?> <?= $chip('blocked', \CW\Ui\Words::SUPPLIERS['overdue']) ?><?php endif; ?></dd>
+      </dl>
+    </section>
+    <section aria-labelledby="route-h">
+      <h3 id="route-h" class="doc-label"><?= $word('SUPPLIER', 'route') ?></h3>
+      <dl class="doc-facts">
+        <dt><?= $word('SUPPLIER', 'abroad') ?></dt><dd><?php if ((int) $s['is_overseas'] === 1): ?><?= $word('SUPPLIER', 'yes') ?><?php else: ?><?= $word('SUPPLIER', 'no_uk') ?><?php endif; ?></dd>
 <?php if ((int) $s['is_overseas'] === 1 || $s['import_route'] !== null): ?>
-      <dt><?= $word('SUPPLIER', 'route_how') ?></dt><dd class="pre"><?= $e($s['import_route']) ?></dd>
-      <dt><?= $word('SUPPLIER', 'route_file') ?></dt><dd><?php if ($files['import_route'] !== null): ?><a href="<?= $u('/ui/files/' . $files['import_route']['id']) ?>"><?= $e($files['import_route']['original_name']) ?></a><?php else: ?><span class="muted"><?= $word('SUPPLIER', 'none_uploaded') ?></span><?php endif; ?></dd>
-      <dt><?= $word('SUPPLIER', 'route_ok') ?></dt><dd><?php if ($s['import_route_approved_at'] !== null): ?><?= $say('SUPPLIER', 'route_ok_line', \CW\Ui\Html::when((string) $s['import_route_approved_at']), (string) ($people['route'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?><?php else: ?><?= $chip('needs', \CW\Ui\Words::SUPPLIER['not_yet']) ?><?php endif; ?></dd>
+        <dt><?= $word('SUPPLIER', 'route_how') ?></dt><dd class="pre"><?= $e($s['import_route']) ?></dd>
+        <dt><?= $word('SUPPLIER', 'route_file') ?></dt><dd><?php if ($files['import_route'] !== null): ?><a href="<?= $u('/ui/files/' . $files['import_route']['id']) ?>"><?= $e($files['import_route']['original_name']) ?></a><?php else: ?><span class="muted"><?= $word('SUPPLIER', 'none_uploaded') ?></span><?php endif; ?></dd>
+        <dt><?= $word('SUPPLIER', 'route_ok') ?></dt><dd><?php if ($s['import_route_approved_at'] !== null): ?><?= $say('SUPPLIER', 'route_ok_line', \CW\Ui\Html::when((string) $s['import_route_approved_at']), (string) ($people['route'] ?? \CW\Ui\Words::ANOMALIES['set_up'])) ?><?php else: ?><?= $chip('needs', \CW\Ui\Words::SUPPLIER['not_yet']) ?><?php endif; ?></dd>
 <?php endif; ?>
-    </dl>
-<?php if ($canEdit): ?>
-    <details class="action">
-      <summary><?= $word('SUPPLIER', 'upload') ?></summary>
-      <form class="upload" method="post" enctype="multipart/form-data" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/evidence') ?>">
-        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-        <input type="hidden" name="version" value="<?= $e($s['version']) ?>">
-        <label><?= $word('SUPPLIER', 'upload_of') ?>
-          <select name="kind">
-            <option value="dd"><?= $word('SUPPLIER', 'upload_dd') ?></option>
-            <option value="import_route"><?= $word('SUPPLIER', 'upload_route') ?></option>
-          </select>
-        </label>
-        <label><?= $say('SUPPLIER', 'upload_file', $maxMb) ?> <input type="file" name="file" required></label>
-        <p class="actions"><button class="btn" type="submit"><?= $word('SUPPLIER', 'upload_button') ?></button></p>
-      </form>
-    </details>
+      </dl>
+    </section>
+  </div>
+<?php if ($emptyText !== ''): ?>
+  <p class="muted"><?= $say('SUPPLIER', 'not_filled', $emptyText) ?></p>
 <?php endif; ?>
-  </section>
-</div>
+  <p class="muted"><?= $say('SUPPLIER', 'created', \CW\Ui\Html::when((string) $s['created_at']), (string) $people['created']) ?> · <?= $say('SUPPLIER', 'last_changed', \CW\Ui\Html::when((string) $s['updated_at']), (string) $people['updated']) ?></p>
+</article>
 
 <section class="card" aria-labelledby="arrivals-h" id="arrivals">
   <h2 id="arrivals-h"><?= $word('ARRIVALS', 'supplier_title') ?></h2>
-  <p class="muted"><?= $word('ARRIVALS', 'supplier_text') ?><?php if (!$arrivals['own']): ?> <?= $word('ARRIVALS', 'own_none') ?><?php endif; ?></p>
+<?php if (!$arrivals['own']): ?>
+  <p class="muted"><?= $word('ARRIVALS', 'own_none') ?></p>
+<?php endif; ?>
 <?php if ($arrivals['canEdit']): ?>
-  <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/arrivals') ?>">
+  <form class="record" method="post" action="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/arrivals') ?>" data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label class="choice"><input type="checkbox" name="sell_before" value="1"<?php if ($arrivals['sell_before']): ?> checked<?php endif; ?>> <?= $word('ARRIVALS', 'sell_before') ?></label>
-    <p class="hint"><?= $word('ARRIVALS', 'sell_before_hint') ?></p>
     <label><?= $word('ARRIVALS', 'default_mode') ?>
       <select name="default_mode">
 <?php foreach (\CW\Ui\Words::RECEIVE_MODE as $code => $label): ?>
@@ -235,49 +190,80 @@
     <p class="actions"><button class="btn" type="submit"><?= $word('ARRIVALS', 'save') ?></button></p>
   </form>
 <?php else: ?>
-  <dl class="wide">
+  <dl class="doc-facts">
     <dt><?= $word('ARRIVALS', 'sell_before') ?></dt><dd><?php if ($arrivals['sell_before']): ?><?= $word('ARRIVALS', 'yes') ?><?php else: ?><?= $word('ARRIVALS', 'no') ?><?php endif; ?></dd>
     <dt><?= $word('ARRIVALS', 'default_mode') ?></dt><dd><?= $e(\CW\Ui\Words::RECEIVE_MODE[$arrivals['mode']] ?? '') ?></dd>
   </dl>
 <?php endif; ?>
 </section>
+<?php endif; ?>
 
-<section aria-labelledby="items-h">
-  <h2 id="items-h"><?= $word('SUPPLIER', 'products') ?></h2>
-  <p><?= $say('SUPPLIER', 'products_line', $items['active'], $items['preferred']) ?><?php if ($items['no_price'] > 0): ?> <?= $say('SUPPLIER', 'products_no_price', $items['no_price']) ?><?php endif; ?></p>
-  <p class="actions"><a class="btn" href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items') ?>"><?= $word('SUPPLIER', 'products_open') ?></a><?php if ($canManage): ?>
-    <a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items/new') ?>"><?= $word('SUPPLIER', 'products_add') ?></a><?php endif; ?></p>
+<?php if ($tab === 'items'): ?>
+<section class="doc-related" aria-labelledby="items-h">
+  <div class="board-head"><h2 id="items-h" class="board-sub"><?= $word('SUPPLIER', 'tab_items') ?></h2><a href="<?= $u('/ui/purchasing/suppliers/' . $s['id'] . '/items') ?>"><?= $word('SUPPLIER', 'products_open') ?></a></div>
+  <p class="muted"><?= $say('SUPPLIER', 'products_line', $items['active'], $items['preferred']) ?></p>
+<?= $partial('supplier_items_board', ['rows' => $itemRows, 'canManage' => $canManage, 'supplierId' => (int) $s['id']]) ?>
 </section>
+<?php endif; ?>
 
-<?php if ($recentPos !== null): ?>
-<section aria-labelledby="pos-h">
-  <h2 id="pos-h"><?= $word('SUPPLIER', 'orders') ?></h2>
+<?php if ($tab === 'orders' && $recentPos !== null): ?>
+<section class="doc-related" aria-labelledby="pos-h">
+  <div class="board-head"><h2 id="pos-h" class="board-sub"><?= $word('SUPPLIER', 'orders') ?></h2><a href="<?= $u('/ui/purchasing/orders', ['supplier' => $s['id']]) ?>"><?= $word('SUPPLIER', 'all_orders') ?></a></div>
 <?php if ($recentPos === []): ?>
   <p class="muted"><?= $word('SUPPLIER', 'no_orders') ?></p>
 <?php else: ?>
-  <div class="table-wrap">
-  <table class="stack list orders">
+  <div class="table-wrap doc-board info">
+  <table class="stack list board doc-list orders">
     <thead>
-      <tr><th scope="col"><?= $word('SUPPLIER', 'order') ?></th><th scope="col"><?= $word('SUPPLIER', 'status') ?></th><th scope="col"><?= $word('SUPPLIER', 'dated') ?></th>
+      <tr><th scope="col" class="c-item"><?= $word('SUPPLIER', 'order') ?></th><th scope="col" class="c-status"><?= $word('SUPPLIER', 'status') ?></th><th scope="col"><?= $word('SUPPLIER', 'dated') ?></th>
         <th scope="col"><?= $word('SUPPLIER', 'expected') ?></th><th scope="col" class="num"><?= $word('SUPPLIER', 'total') ?></th><th scope="col"><?= $word('SUPPLIER', 'check') ?></th></tr>
     </thead>
     <tbody>
 <?php foreach ($recentPos as $p): ?>
-      <tr class="<?= $e($p['state_tone']) ?>">
-        <th scope="row" class="c-head"><a class="o-name" href="<?= $u('/ui/purchasing/orders/' . $p['id']) ?>"><?= $e($p['number_line']) ?></a></th>
-        <td class="c-status"><?= $chip($p['state_tone'], $p['state_word']) ?></td>
+      <tr>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/purchasing/orders/' . $p['id']) ?>"><?= $e($p['number_line']) ?></a></th>
+        <td class="c-status doc-st <?= $e($p['state_tone']) ?>"><?= $e($p['state_word']) ?></td>
         <td data-label="<?= $word('SUPPLIER', 'dated') ?>"><?php if ($p['doc_date'] !== null): ?><?= $day($p['doc_date']) ?><?php endif; ?></td>
         <td data-label="<?= $word('SUPPLIER', 'expected') ?>"><?php if ($p['expected_date'] !== null): ?><?= $day($p['expected_date']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('SUPPLIER', 'total') ?>"><?= $e($p['total']) ?></td>
-        <td data-label="<?= $word('SUPPLIER', 'check') ?>"><?php if ($p['check'] !== null): ?><?= $chip($p['check_tone'], $p['check']) ?><?php endif; ?></td>
+        <td data-label="<?= $word('SUPPLIER', 'check') ?>"><?php if ($p['check'] !== null): ?><span class="tag <?= $e($p['check_tone']) ?>"><?= $e($p['check']) ?></span><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>
     </tbody>
   </table>
   </div>
 <?php endif; ?>
-  <p class="actions"><a href="<?= $u('/ui/purchasing/orders', ['supplier' => $s['id']]) ?>"><?= $word('SUPPLIER', 'all_orders') ?></a><?php if ($canOrder): ?>
-    <a href="<?= $u('/ui/purchasing/orders/new', ['supplier' => $s['id']]) ?>"><?= $word('SUPPLIER', 'new_order') ?></a><?php endif; ?></p>
+</section>
+<?php endif; ?>
+
+<?php if ($tab === 'invoices' && $invoiceRows !== null): ?>
+<section class="doc-related" aria-labelledby="invoices-h">
+  <div class="board-head"><h2 id="invoices-h" class="board-sub"><?= $word('SUPPLIER', 'invoices') ?></h2><a href="<?= $u('/ui/purchasing/invoices', ['supplier' => $s['id'], 'show' => 'all']) ?>"><?= $word('SUPPLIER', 'all_invoices') ?></a></div>
+<?php if ($invoiceRows === []): ?>
+  <p class="muted"><?= $word('SUPPLIER', 'no_invoices') ?></p>
+<?php else: ?>
+  <p class="muted"><?= $say('SUPPLIER', 'invoices_latest', $tabRows) ?></p>
+  <div class="table-wrap doc-board info">
+  <table class="stack list board doc-list">
+    <thead>
+      <tr><th scope="col" class="c-item"><?= $word('INVOICE_KIND', 'col') ?></th><th scope="col" class="c-status"><?= $word('DOC_LIST', 'status') ?></th><th scope="col"><?= $word('DOC_LIST', 'match') ?></th>
+        <th scope="col"><?= $word('DOC_LIST', 'due') ?></th><th scope="col" class="num"><?= $word('DOC_LIST', 'total') ?></th><th scope="col" class="num"><?= $word('DOC_LIST', 'balance') ?></th></tr>
+    </thead>
+    <tbody>
+<?php foreach ($invoiceRows as $r): ?>
+      <tr>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($r['href']) ?>"><?= $e($r['title']) ?></a><span class="o-sub"><?= $e($r['date']) ?><?php if ($r['refs'] !== ''): ?> · <?= $e($r['refs']) ?><?php endif; ?></span></th>
+        <td class="c-status doc-st <?= $e($r['cell_tone']) ?>"><?= $e($r['cell_word']) ?></td>
+        <td data-label="<?= $word('DOC_LIST', 'match') ?>"><?php if ($r['tag'] !== null): ?><span class="tag <?= $e($r['tag']['tone']) ?>"><?= $e($r['tag']['text']) ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('DOC_LIST', 'due') ?>"<?php if ($r['late']): ?> class="late"<?php endif; ?>><?= $e($r['due']) ?></td>
+        <td class="num" data-label="<?= $word('DOC_LIST', 'total') ?>"><?php if ($r['gross'] !== null): ?><?= $money($r['gross']) ?><?php endif; ?></td>
+        <td class="num" data-label="<?= $word('DOC_LIST', 'balance') ?>"><?= $e($r['balance'] ?? '') ?></td>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+<?php endif; ?>
 </section>
 <?php endif; ?>
 
