@@ -2140,3 +2140,91 @@ section.po-summary details.po-cancel > summary::-webkit-details-marker { display
 section.po-summary details.po-cancel label { display: block; max-width: 20rem; margin: 8px 0; }
 section.po-summary details.po-cancel select, section.po-summary details.po-cancel input { width: 100%; min-height: 44px; font-size: 16px; }
 /* ==== end po-one-page ============================================================================================================== */
+/* ==== pi-one-page (branch pi-one-page, docs/decisions.md PV) ======================================================================
+   The supplier invoice on one page, and the shared pieces of a document's page that the purchase order, the supplier invoice and (later)
+   the sales invoice use, in Zoho Inventory's layout and spacing with CW's own colours, type and words: the header fields in a grid (two
+   columns, one on a phone), the lines table with its headings, the totals on the right under the lines, the bar at the bottom that stays
+   on the screen while the form is (Save, Confirm), the clean list whose row opens the document, and the saved document: its actions in
+   one bar at the top, the supplier's block beside the dates, the lines, the totals. The invoice's supplier box, item box and "+ Add new"
+   forms are the order page's (.po-box-field, .po-add, .sm-list). Layout only: no new colours or type. */
+/* The header grid */
+.doc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; align-items: start; margin: 0; padding: 20px 24px; }
+@media (max-width: 639.98px) { .doc-grid { grid-template-columns: minmax(0, 1fr); } }
+form.po-editor fieldset.doc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; align-items: start; }
+@media (max-width: 639.98px) { form.po-editor fieldset.doc-grid { grid-template-columns: minmax(0, 1fr); padding: 16px; } }
+.doc-grid > label, .doc-grid > .po-box-field, .doc-grid > .doc-field { margin: 0; min-width: 0; }
+.doc-grid .doc-wide, form.po-editor fieldset.doc-grid details.po-add, form.po-editor fieldset.doc-grid .po-ask, form.po-editor fieldset.doc-grid .po-fixed { grid-column: 1 / -1; }
+.doc-field { display: grid; gap: 6px; }
+.doc-field > .doc-pair { display: flex; gap: 8px; align-items: stretch; }
+.doc-field > .doc-pair > select { flex: 1 1 auto; min-width: 0; }
+.doc-field > .doc-pair > button { flex: none; }
+/* The lines: a board in a card with its headings; numbers on the right; the last row adds a line */
+table.doc-lines th.num, table.doc-lines td.num { white-space: nowrap; }
+table.doc-lines td.num input { max-width: 8rem; margin-left: auto; text-align: right; }
+table.doc-lines .o-sub { display: block; color: var(--ink-muted); font-size: 12px; line-height: 18px; font-weight: 400; }
+details.pi-charge { margin: 0; }
+details.pi-charge > summary { display: flex; align-items: center; min-height: 44px; color: var(--accent-hover); font-weight: 600; cursor: pointer; }
+details.pi-charge .doc-charge { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; padding: 0 0 12px; }
+details.pi-charge .doc-charge label { flex: 1 1 10rem; }
+/* Under the lines: the notes and the file on the left, the totals on the right */
+.doc-foot { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 24rem); gap: 20px 32px; align-items: start; }
+@media (max-width: 639.98px) { .doc-foot { grid-template-columns: minmax(0, 1fr); } }
+.doc-notes { display: grid; gap: 12px; min-width: 0; }
+.doc-notes .doc-pair { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.doc-notes .doc-pair > label { flex: 1 1 12rem; min-width: 0; }
+.doc-notes ul.files { margin: 0; padding-left: 18px; }
+.doc-totals { margin-left: auto; width: 100%; max-width: 24rem; padding: 16px 20px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); }
+.doc-totals dl { grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; align-items: center; margin: 0; }
+.doc-totals dt { color: var(--ink-body); }
+.doc-totals dd { text-align: right; font-variant-numeric: tabular-nums; }
+.doc-totals dd input { width: 8.5rem; text-align: right; }
+.doc-totals .grand { padding-top: 10px; border-top: 1px solid var(--hairline); color: var(--ink); font-weight: 700; font-size: 16px; }
+@container (max-width: 560px) { .doc-totals dl { grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; } .doc-totals dl dt:not(:first-child) { margin-top: 0; } }
+/* The bar at the bottom: on the screen while its form is, the main action last (on the right); on a phone it takes the tab bar's place */
+.doc-bar {
+  position: sticky; bottom: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px;
+  margin: 8px calc(-1 * var(--gutter)) 0; padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom));
+  background: var(--card); border-top: 1px solid var(--hairline); box-shadow: var(--shadow-up);
+}
+.doc-bar > a.btn { margin-right: auto; }
+section.po-summary.doc-summary { display: contents; }
+section.po-summary .doc-totals .actions { margin: 0; }
+@media (max-width: 699.98px) {
+  body:has(.doc-bar) .tabbar { display: none; }
+  body:has(.doc-bar) { padding-bottom: 0; }
+  .doc-bar > button, .doc-bar > a.btn { flex: 1 1 auto; }
+  .doc-bar > a.btn { margin-right: 0; }
+}
+.doc-later { margin: 0; }
+.doc-later > summary { display: flex; align-items: center; min-height: 44px; color: var(--accent-hover); font-weight: 600; cursor: pointer; }
+.doc-later .doc-charge { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; padding: 0 0 12px; }
+/* The clean list: one row a document; the row opens it */
+table.doc-list tbody tr { position: relative; }
+table.doc-list tr > :first-child { position: static; }
+table.doc-list a.row-link::after { content: ""; position: absolute; inset: 0; z-index: 1; }
+table.doc-list td.c-status { width: 1%; }
+@container (max-width: 640px) { table.stack.doc-list .c-head { grid-row: 1; } } /* a card: the number and the status first, then the date */
+.toolbar .tb-state { display: inline-flex; align-items: center; gap: 8px; }
+.toolbar .tb-state label.tb-check { min-height: 36px; padding: 6px 12px; font-size: 13px; }
+.toolbar .tb-state select { width: auto; min-height: 36px; height: 36px; padding-top: 6px; padding-bottom: 6px; font-size: 13px; }
+@media (max-width: 639.98px) { .toolbar .tb-state { flex: 1 1 100%; } .toolbar .tb-state select { flex: 1 1 auto; height: 44px; min-height: 44px; } }
+/* The saved document: its actions in one bar at the top (a step that needs a reason opens under the bar), then the document itself */
+.doc-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin: 0 0 20px; }
+.doc-actions > form { margin: 0; }
+.doc-actions > details.doc-act { margin: 0; padding: 0; border: 0; background: none; }
+.doc-actions > details.doc-act > summary { list-style: none; }
+.doc-actions > details.doc-act > summary::-webkit-details-marker { display: none; }
+.doc-actions > details.doc-act[open] { flex: 1 1 100%; order: 99; }
+.doc-actions > details.doc-act[open] > summary { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-hover); }
+.doc-act-panel { margin: 10px 0 0; padding: 16px 20px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); max-width: 40rem; }
+.doc-act-panel form.record { max-width: none; }
+.doc-view { margin: 0 0 24px; padding: 24px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); }
+.doc-view .table-wrap { border-radius: var(--r-12); }
+.doc-meta { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 32px; margin: 0 0 20px; }
+@media (max-width: 639.98px) { .doc-meta { grid-template-columns: minmax(0, 1fr); } .doc-view { padding: 16px; } }
+.doc-party { margin: 0; }
+.doc-label { margin: 0 0 6px; font: 600 12px/16px var(--font); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-muted); }
+.doc-party p { margin: 0; }
+.doc-party .doc-party-name { font: 600 16px/24px var(--font); color: var(--ink); }
+.doc-facts { margin: 0; }
+/* ==== end pi-one-page =============================================================================================================== */

@@ -45,6 +45,9 @@ final class InvoicesController
     public static function routes(Router $r): void
     {
         $c = new self();
+        $one = new InvoiceOnePage(); // the supplier invoice on one page (docs/decisions.md PV)
+        $r->add('GET', InvoiceOnePage::NEW, 'doc.SINV.post', $one->newPage(...));
+        $r->add('GET', InvoiceOnePage::PRODUCTS, 'doc.SINV.post', $one->products(...));
         $r->add('GET', self::TO_MATCH, 'invoices.view', $c->toMatch(...));
         $r->add('POST', self::TO_MATCH . '/recheck', 'doc.SINV.post', $c->recheck(...));
         $r->add('GET', self::NOT_INVOICED, 'invoices.view', $c->notInvoiced(...));
@@ -53,11 +56,13 @@ final class InvoicesController
         foreach (SupplierInvoices::PATHS as $kind => $base) {
             $post = 'doc.' . SupplierInvoices::KINDS[$kind] . '.post';
             $r->add('GET', $base, 'invoices.view', static fn (Context $ctx): HtmlResponse => $c->index($ctx, $kind));
-            $r->add('POST', $base, $post, static fn (Context $ctx): HtmlResponse => $c->create($ctx, $kind));
+            // An invoice's new page and its draft's one form (PV); a credit note keeps its forms (pack C).
+            $r->add('POST', $base, $post, static fn (Context $ctx): HtmlResponse => $kind === 'invoice' ? $one->create($ctx) : $c->create($ctx, $kind));
             $r->add('GET', $base . '/{id}', 'invoices.view', static fn (Context $ctx): HtmlResponse => $c->show($ctx, $kind));
             foreach (self::ACTIONS as $action) {
                 $method = lcfirst(str_replace(' ', '', ucwords(str_replace('-', ' ', $action))));
-                $r->add('POST', $base . '/{id}/' . $action, $post, static fn (Context $ctx): HtmlResponse => $c->{$method}($ctx, $kind));
+                $r->add('POST', $base . '/{id}/' . $action, $post, $action === 'lines' && $kind === 'invoice'
+                    ? $one->lines(...) : static fn (Context $ctx): HtmlResponse => $c->{$method}($ctx, $kind));
             }
         }
         $r->add('POST', SupplierInvoices::PATHS['invoice'] . '/{id}/accept', 'invoices.accept', $c->accept(...));
@@ -74,7 +79,10 @@ final class InvoicesController
         $me = $ctx->me();
         $canPost = Documents::mayPost($me->roles, $type);
         $f = self::filters($ctx->req);
-        $rows = array_map(fn (array $r): array => $this->listRow($kind, $r), $ctx->supplierInvoices()->list($kind, $f));
+        $listed = $ctx->supplierInvoices()->list($kind, $f);
+        // PV: what is still owed on each final invoice (its total less its final credit notes), in one grouped read.
+        $credited = $kind === 'invoice' ? $ctx->supplierInvoices()->creditedOn(array_map(static fn (array $r): int => (int) $r['id'], $listed)) : [];
+        $rows = array_map(fn (array $r): array => $this->listRow($kind, $r, $credited[(int) $r['id']] ?? 0), $listed);
         $k = Words::INVOICE_KIND[$kind];
         return $ctx->page('invoices', [
             'kind' => $kind,
@@ -88,7 +96,8 @@ final class InvoicesController
             'matchStates' => Words::MATCH_STATE,
             'suppliers' => self::suppliers($ctx),
             'canPost' => $canPost,
-            'formKey' => $canPost ? FormOnce::newKey() : null,
+            // A credit note is still started from its fold (pack C); a new invoice is its own page (PV1).
+            'formKey' => $canPost && $kind === 'credit_note' ? FormOnce::newKey() : null,
             'typed' => $typed ?? [],
             'lookOnly' => $canPost ? null : Words::whoCan('doc.' . $type . '.post'),
             'error' => $error === null ? null : self::plain($error),
@@ -494,6 +503,12 @@ final class InvoicesController
         $type = $ctx->documents()->typeInfo($doc->docType);
         $canPost = Documents::mayPost($me->roles, $doc->docType);
         $editable = $doc->status === 'draft' && $canPost && $doc->createdBy === $me->id;
+        if ($editable && $kind === 'invoice') {
+            // The supplier invoice on one page (docs/decisions.md PV3): its creator's draft is the same page as a new invoice; what a
+            // refused form of another route typed comes back in it.
+            $typed = ($extra['typed'] ?? []) + ($extra['header'] ?? []) + ($extra['add'] ?? []);
+            return (new InvoiceOnePage())->editPage($ctx, $id, $status, $error, $notice, ['typed' => $typed] + $extra);
+        }
         $lines = $si->lines($id);
         $tasks = DocumentsController::tasks($ctx->db, $id);
         $open = null;
@@ -537,6 +552,10 @@ final class InvoicesController
             'rec' => $rec,
             'title' => Words::docTitle($doc->docType, $doc->number, (string) ($rec['supplier_name'] ?? ''), $original ? null : (string) ($rec['reverses_number'] ?? '#' . $doc->reversesId)),
             'facts' => self::facts($rec, $doc, $kind),
+            // The saved document's head and totals (PV: the shared pieces doc_party and doc_totals).
+            'party' => self::party($ctx, $rec),
+            'docFacts' => self::docFacts($rec, $doc, $kind),
+            'totalRows' => self::totalRows($rec, $doc, $kind, $sum),
             'lines' => array_map(static fn (array $l): array => $l + ['kind_word' => Words::of('INVOICE_LINE', (string) $l['kind']),
                 'packs_text' => $l['kind'] === 'goods' ? ReceivingController::packsText((int) $l['packs'], (string) ($l['purchase_unit'] ?? 'each'), (int) $l['units_per_pack']) : null,
                 'match' => $match['lines'][(int) $l['line_no']] ?? null], $lines),
@@ -596,6 +615,9 @@ final class InvoicesController
     public static function plain(CwException $e): string
     {
         $d = $e->detail;
+        if ($e->errorCode === 'bad_field' && in_array($d['field'] ?? null, ['invoice_date', 'due_date'], true)) {
+            return Words::INVOICE_ERROR['bad_date']; // a date that is not one (the Codex review of 6418b15, finding 8)
+        }
         return match ($e->errorCode) {
             'duplicate_invoice' => Words::say('INVOICE_ERROR', 'duplicate_invoice', (string) ($d['key'] ?? ''), (string) ($d['other_label'] ?? '')),
             'not_found' => Words::say('STOCK_ERROR', 'not_found', (string) ($d['q'] ?? '')),
@@ -603,6 +625,7 @@ final class InvoicesController
             'credit_more_than_invoiced' => isset($d['left']) ? Words::say('INVOICE_ERROR', 'credit_left', (int) $d['left']) : self::problemText(['code' => $e->errorCode,
                 'message' => $e->getMessage()] + (isset($d['line']) ? ['line' => (int) $d['line']] : [])),
             'note_required' => Words::INVOICE_ERROR['accept_note'],
+            'scan_pending', 'not_final' => $e->getMessage(), // made in words (the invoice on one page, PV)
             default => isset(Words::INVOICE_ERROR[$e->errorCode]) && is_int($d['line'] ?? null)
                 ? Words::say('INVOICE_ERROR', 'on_line', (int) $d['line'], Words::INVOICE_ERROR[$e->errorCode])
                 : (Words::INVOICE_ERROR[$e->errorCode] ?? Words::ARRIVAL_ERROR[$e->errorCode] ?? Words::STOCK_ERROR[$e->errorCode] ?? Words::RECEIPT_ERROR[$e->errorCode]
@@ -704,10 +727,12 @@ final class InvoicesController
      * @param array<string, mixed> $r SupplierInvoices::list() row
      * @return array<string, mixed>
      */
-    private function listRow(string $kind, array $r): array
+    private function listRow(string $kind, array $r, int $creditedE2 = 0): array
     {
         $status = (string) $r['status'];
         $reversal = $r['reverses_id'] !== null;
+        $owed = $kind === 'invoice' && !$reversal && $status === 'posted' && $r['gross_total'] !== null
+            ? Html::money(InvoiceMath::fromE2(InvoiceMath::e2((string) $r['gross_total']) - $creditedE2)) : null;
         return [
             'href' => SupplierInvoices::PATHS[$kind] . '/' . (int) $r['id'],
             'number' => $r['number'] === null ? Words::STOCK_OPS['no_number'] : (string) $r['number'],
@@ -721,6 +746,8 @@ final class InvoicesController
             'state_word' => $reversal ? Words::INVOICES['reversal'] : Words::of('DOC_STATUS', $status),
             'match' => $r['match_state'],
             'made_by' => (string) ($r['created_by_name'] ?? ''),
+            'due' => ($r['due_date'] ?? null) === null || $reversal ? '' : Html::day((string) $r['due_date']),
+            'balance' => $owed,
         ];
     }
 
@@ -762,6 +789,82 @@ final class InvoicesController
     }
 
     /**
+     * The supplier's block of a saved invoice or credit note (PV, doc_party): its name and page, its address and e-mail.
+     *
+     * @param array<string, mixed> $rec SupplierInvoices::record()
+     * @return array{label: string, name: string, href: string, lines: list<string>}
+     */
+    private static function party(Context $ctx, array $rec): array
+    {
+        $s = $ctx->db->one('SELECT address_line1, address_line2, city, postcode, email, phone FROM supplier WHERE id = ?', [(int) $rec['supplier_id']]) ?? [];
+        $place = trim(implode(' ', array_filter([(string) ($s['city'] ?? ''), (string) ($s['postcode'] ?? '')], static fn (string $v): bool => $v !== '')));
+        return ['label' => Words::DOC['party'], 'name' => (string) ($rec['supplier_name'] ?? ''), 'href' => '/ui/purchasing/suppliers/' . (int) $rec['supplier_id'],
+            'lines' => array_values(array_filter([(string) ($s['address_line1'] ?? ''), (string) ($s['address_line2'] ?? ''), $place, (string) ($s['email'] ?? ''),
+                (string) ($s['phone'] ?? '')], static fn (string $v): bool => trim($v) !== ''))];
+    }
+
+    /**
+     * A saved invoice's or credit note's facts beside the supplier's block (PV): its numbers and dates, the records it names (links), who
+     * made it and when; the money is in the totals block.
+     *
+     * @param array<string, mixed> $rec
+     * @return list<array{label: string, value: string, href?: string}>
+     */
+    private static function docFacts(array $rec, Document $doc, string $kind): array
+    {
+        $by = static fn (?string $at, ?string $who): ?string => $at === null ? null : Words::say('STOCK_OPS', 'by', Html::when($at), (string) ($who ?? Words::RECORD['by_cw']));
+        $base = SupplierInvoices::PATHS[$kind];
+        $rows = [
+            ['label' => Words::INVOICE_KIND[$kind]['number'], 'value' => $doc->externalRef],
+            ['label' => Words::INVOICE_KIND[$kind]['date'], 'value' => $doc->docDate === null ? null : Html::day($doc->docDate)],
+            ['label' => Words::PI_ONE['due'], 'value' => $kind === 'invoice' && ($rec['due_date'] ?? null) !== null ? Html::day((string) $rec['due_date']) : null],
+            ['label' => Words::INVOICES['credits'], 'value' => $kind === 'credit_note' ? ($rec['credits_number'] === null ? Words::INVOICES['on_account'] : (string) $rec['credits_number']) : null,
+                'href' => $kind === 'credit_note' && $rec['credits_document_id'] !== null ? '/ui/purchasing/invoices/' . (int) $rec['credits_document_id'] : null],
+            ['label' => Words::INVOICES['debit_note'], 'value' => $kind === 'credit_note' && $rec['debit_note_number'] !== null ? (string) $rec['debit_note_number'] : null,
+                'href' => $kind === 'credit_note' && $rec['debit_note_document_id'] !== null ? '/ui/purchasing/returns/' . (int) $rec['debit_note_document_id'] : null],
+            ['label' => Words::RECORD['cancels'], 'value' => $doc->isReversal() ? (string) ($rec['reverses_number'] ?? '') : null,
+                'href' => $doc->isReversal() ? $base . '/' . (int) $doc->reversesId : null],
+            ['label' => Words::STOCK_OPS['cancelled_by'], 'value' => $rec['reversed_by_id'] === null ? null : (string) ($rec['reversed_by_number'] ?? Words::STOCK_OPS['cancel_waiting']),
+                'href' => $rec['reversed_by_id'] === null ? null : $base . '/' . (int) $rec['reversed_by_id']],
+            ['label' => Words::STOCK_OPS['made'], 'value' => $by($doc->createdAt, $rec['created_by_name'] === null ? null : (string) $rec['created_by_name'])],
+            ['label' => Words::STOCK_OPS['asked'], 'value' => $by($doc->submittedAt, $rec['submitted_by_name'] === null ? null : (string) $rec['submitted_by_name'])],
+            ['label' => Words::INVOICES['posted'], 'value' => $by($doc->postedAt, $rec['posted_by_name'] === null ? null : (string) $rec['posted_by_name'])],
+            ['label' => Words::STOCK_OPS['stopped_at'], 'value' => $doc->cancelledAt === null ? null : $by($doc->cancelledAt, $rec['cancelled_by_name'] === null ? null
+                : (string) $rec['cancelled_by_name']) . ': ' . (string) $doc->cancelReason],
+        ];
+        return array_values(array_map(static fn (array $r): array => array_filter($r, static fn (mixed $v): bool => $v !== null),
+            array_filter($rows, static fn (array $r): bool => $r['value'] !== null && $r['value'] !== '')));
+    }
+
+    /**
+     * A saved invoice's or credit note's totals (PV, doc_totals): the lines' sub total, the total without VAT and the VAT as the paper says
+     * them, the total; an invoice's credit notes and what is still owed once it is final.
+     *
+     * @param array<string, mixed> $rec
+     * @return list<array{label: string, value: string, grand?: bool}>
+     */
+    private static function totalRows(array $rec, Document $doc, string $kind, int $sumE2): array
+    {
+        $money = static fn (mixed $v): string => Html::money((string) $v);
+        $rows = [['label' => Words::DOC['sub_total'], 'value' => Html::money(InvoiceMath::fromE2($sumE2))]];
+        if ($rec['net_total'] !== null && InvoiceMath::e2((string) $rec['net_total']) !== $sumE2) {
+            $rows[] = ['label' => Words::PI_ONE['paper_net'], 'value' => $money($rec['net_total'])];
+        }
+        if ($rec['vat_total'] !== null) {
+            $rows[] = ['label' => Words::INVOICES['vat'], 'value' => $money($rec['vat_total'])];
+        }
+        $rows[] = ['label' => Words::INVOICE_KIND[$kind]['gross'], 'value' => $rec['gross_total'] === null ? Html::money(InvoiceMath::fromE2($sumE2)) : $money($rec['gross_total']),
+            'grand' => true];
+        if ($kind === 'invoice' && (int) $rec['credited_e2'] > 0) {
+            $rows[] = ['label' => Words::INVOICES['credited'], 'value' => Html::money(InvoiceMath::fromE2((int) $rec['credited_e2']))];
+        }
+        if ($kind === 'invoice' && $doc->status === 'posted' && $rec['owed_e2'] !== null) {
+            $rows[] = ['label' => Words::DOC['balance'], 'value' => Html::money(InvoiceMath::fromE2((int) $rec['owed_e2']))];
+        }
+        return $rows;
+    }
+
+    /**
      * The details form's values: what a refused form sent, else the record's.
      *
      * @param array<string, mixed> $rec
@@ -788,7 +891,7 @@ final class InvoicesController
      * @param array<string, mixed> $m InvoiceMatch::compute()
      * @return array<string, mixed>
      */
-    private static function matchView(array $m, bool $posted): array
+    public static function matchView(array $m, bool $posted): array
     {
         $lines = [];
         foreach ($m['lines'] as $no => $l) {
@@ -830,11 +933,12 @@ final class InvoicesController
 
     /**
      * The lines of a draft with the table's edits applied: per stored line `p_<n>` (packs), `pp_<n>` (pack price), `a_<n>` (amount),
-     * `d_<n>` (words) and `x_<n>` (remove). The table must hold the stored lines (`line_count`): a draft changed meanwhile is refused.
+     * `d_<n>` (words) and `x_<n>` (remove), without the row $remove (the one page's remove button, PV). The table must hold the stored lines
+     * (`line_count`): a draft changed meanwhile is refused.
      *
      * @return list<array<string, mixed>>
      */
-    private static function editedLines(Context $ctx, int $id): array
+    public static function editedLines(Context $ctx, int $id, ?int $remove = null): array
     {
         $req = $ctx->req;
         $current = $ctx->db->all('SELECT dl.line_no, dl.sku_id, dl.amount, dl.description, sl.* FROM document_line dl JOIN sinv_line sl ON sl.document_id = dl.document_id '
@@ -846,8 +950,8 @@ final class InvoicesController
         $int = static fn (mixed $v): ?int => $v === null ? null : (int) $v;
         foreach ($current as $l) {
             $n = (int) $l['line_no'];
-            if ($req->field('x_' . $n) === '1') {
-                continue;
+            if ($req->field('x_' . $n) === '1' || $n === $remove) {
+                continue; // its remove box, or the row's own remove (the invoice on one page, PV): not read
             }
             if ($l['kind'] === 'goods') {
                 $packs = trim((string) ($req->field('p_' . $n) ?? (string) $l['packs']));

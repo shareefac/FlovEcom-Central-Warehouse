@@ -393,6 +393,12 @@ final class UiUnitTest extends TestCase
             'POST /ui/purchasing/orders/{id}/new-item'] as $gone) {
             self::assertArrayNotHasKey($gone, $byPath, $gone);
         }
+        // The supplier invoice on one page (docs/decisions.md PV): the page and its item box's choices are the invoice desk's (doc.SINV.post),
+        // as is its one form (the list's address for a new invoice, the draft's /lines after).
+        self::assertSame('doc.SINV.post', $byPath['GET /ui/purchasing/invoices/new']);
+        self::assertSame('doc.SINV.post', $byPath['GET /ui/purchasing/invoices/products']);
+        self::assertSame('doc.SINV.post', $byPath['POST /ui/purchasing/invoices']);
+        self::assertSame('doc.SINV.post', $byPath['POST /ui/purchasing/invoices/{id}/lines']);
         $people = 0;
         foreach ($byPath as $key => $access) {
             self::assertTrue(in_array($access, [Route::PUBLIC, Route::ANY], true) || isset(Permissions::MAP[$access]), "{$key}: {$access}");
@@ -1001,6 +1007,40 @@ final class UiUnitTest extends TestCase
         // "Cancel draft" is a small button, not a card: the page's generic <details> border and padding are taken off it (seen in a
         // real Chrome on staging, 26 Oct 2026: a wide empty outline around the button).
         self::assertSame(1, preg_match('/^section\.po-summary details\.po-cancel \{[^}]*border: 0;[^}]*padding: 0;[^}]*background: none/m', $css), 'no outline around Cancel draft');
+    }
+
+    /**
+     * The supplier invoice on one page (docs/decisions.md PV; the brief: reuse the shared combo() and the order page's inline add-new forms,
+     * never a second dropdown): its supplier box and item box ARE the order page's (no new combo() call), the item box asks the invoice's own
+     * route for the same fragment (the one fetch, still only this site's own routes), "From" keeps the chosen supplier's deliveries and
+     * orders, the due date follows the supplier's terms until the person types one. The layout pieces are plain shared classes: the header
+     * grid (two columns, one on a phone), the lines, the totals on the right, the bar that stays at the bottom, the clean list whose row
+     * opens the document, the document's action bar.
+     */
+    public function testTheInvoicePageUsesTheOrdersDropdownsAndTheSharedLayout(): void
+    {
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        self::assertSame(3, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s');
+        self::assertStringContainsString("var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };", $js, 'the same fragment from the invoice\'s own route');
+        self::assertStringContainsString("if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {", $js);
+        self::assertStringContainsString("(base.indexOf('/ui/purchasing/orders/products?') !== 0 && base.indexOf('/ui/purchasing/invoices/products?') !== 0)", $js);
+        self::assertStringContainsString("each(document.querySelectorAll('select[data-pi-from]'), function (from) {", $js);
+        self::assertStringContainsString("each(document.querySelectorAll('input[data-pi-due]'), function (due) {", $js);
+        self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'still one fetch');
+        // The Codex review of 6418b15, finding 4 (driven in node: runs/pione_js_harness/): the due date is filled only while the box is empty
+        // or holds the date the page filled; a date typed, or the box cleared by the person, is theirs; due_shown follows what it shows.
+        self::assertStringContainsString("if (typed || days === null || !m || (due.value !== '' && due.value !== auto)) {", $js);
+        self::assertStringContainsString("due.addEventListener('input', function () { typed = true; });", $js);
+        self::assertStringContainsString('shown.value = due.value;', $js);
+        foreach (['/^\.doc-grid \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/m' => 'the header in two columns',
+            '/^@media \(max-width: 639\.98px\) \{ \.doc-grid \{ grid-template-columns: minmax\(0, 1fr\); \} \}/m' => 'one column on a phone',
+            '/^\.doc-bar \{[^}]*position: sticky;[^}]*bottom: 0/m' => 'the bar stays visible',
+            '/^\.doc-totals \{[^}]*margin-left: auto/m' => 'the totals on the right',
+            '/^table\.doc-list a\.row-link::after \{[^}]*position: absolute;[^}]*inset: 0/m' => 'a row opens its document',
+            '/^\.doc-actions \{[^}]*display: flex/m' => 'the document\'s actions in one bar'] as $rule => $why) {
+            self::assertSame(1, preg_match($rule, $css), $why);
+        }
     }
 
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void

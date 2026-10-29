@@ -49,7 +49,8 @@ final class SupplierInvoices
     public const CHARGE_KINDS = ['freight', 'duty', 'service', 'other'];
     public const LINE_FIELDS = ['kind', 'sku_id', 'packs', 'units_per_pack', 'pack_price', 'amount', 'description', 'grn_document_id', 'grn_line_no', 'po_document_id',
         'po_line_no', 'credit_of_line_no', 'supplier_code', 'purchase_unit', 'entry'];
-    public const HEADER_FIELDS = ['invoice_number', 'invoice_date', 'net_total', 'vat_total', 'gross_total', 'note', 'credits_id', 'debit_note_id'];
+    public const HEADER_FIELDS = ['invoice_number', 'invoice_date', 'net_total', 'vat_total', 'gross_total', 'note', 'credits_id', 'debit_note_id',
+        'due_date']; // PV (0052): when the supplier wants an invoice paid
     public const MAX_LINES = 1000;
     public const NUMBER_MAX = 64;
     public const NOTE_MAX = 1000;
@@ -89,8 +90,9 @@ final class SupplierInvoices
 
     /**
      * A new draft invoice or credit note of $supplierId. Header (all optional on a draft): invoice_number, invoice_date (Y-m-d),
-     * net_total, vat_total, gross_total (checked against net + VAT when typed), note; a credit note's credits_id (the invoice it reduces)
-     * and debit_note_id (the return it answers). 409 duplicate_invoice (the number is on a live record of the supplier). Audit
+     * net_total, vat_total, gross_total (checked against net + VAT when typed), note; an invoice's due_date (Y-m-d, not before the date on
+     * the paper; PV, 0052; not given: the date on the paper plus the supplier's payment terms, when both are known); a credit note's
+     * credits_id (the invoice it reduces) and debit_note_id (the return it answers). 409 duplicate_invoice (the number is on a live record of the supplier). Audit
      * invoice.create / credit_note.create.
      *
      * @param array<string, mixed> $header
@@ -100,16 +102,21 @@ final class SupplierInvoices
         $type = self::KINDS[$kind] ?? throw new CwException('unknown_kind', 'there is no such kind of supplier invoice', 400);
         return $this->db->transaction(function (Db $db) use ($caller, $kind, $type, $supplierId, $header): Document {
             self::mayPost($db, $caller, $type);
-            $s = $db->one('SELECT id, code, name FROM supplier WHERE id = ? FOR SHARE', [$supplierId])
+            $s = $db->one('SELECT id, code, name, payment_terms_days FROM supplier WHERE id = ? FOR SHARE', [$supplierId])
                 ?? throw new CwException('unknown_supplier', 'there is no such supplier', 404, ['field' => 'supplier_id']);
             $h = $this->header($kind, $supplierId, $header, null);
+            if ($kind === 'invoice' && !array_key_exists('due_date', $header) && $h['invoice_date'] !== null && $s['payment_terms_days'] !== null) {
+                // PV8 (the Codex review of 6418b15, finding 4): an invoice made without a due date gets the date on the paper plus the
+                // supplier's payment terms; one given (a date, or cleared on purpose) is kept as given.
+                $h['due_date'] = (new \DateTimeImmutable($h['invoice_date']))->modify('+' . (int) $s['payment_terms_days'] . ' days')->format('Y-m-d');
+            }
             $doc = $this->docs->createDraft($caller, $type, ['external_ref' => $h['invoice_number'], 'doc_date' => $h['invoice_date'], 'note' => $h['note']]);
             try {
                 // Pack J (PJ6): an invoice's goods come in the way its supplier chose (else the setting) until the person chooses otherwise.
                 $db->exec('INSERT INTO supplier_invoice (document_id, kind, supplier_id, invoice_key, net_total, vat_total, gross_total, credits_document_id, '
-                    . 'debit_note_document_id, receive_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    . 'debit_note_document_id, receive_mode, due_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     [$doc->id, $kind, $supplierId, self::key($h['invoice_number']), $h['net_total'], $h['vat_total'], $h['gross_total'], $h['credits_id'], $h['debit_note_id'],
-                        $kind === 'invoice' ? (new \CW\Arrivals\Arrivals($db))->prefsOf($supplierId)['mode'] : null, $this->nowDb(), $this->nowDb()]);
+                        $kind === 'invoice' ? (new \CW\Arrivals\Arrivals($db))->prefsOf($supplierId)['mode'] : null, $h['due_date'], $this->nowDb(), $this->nowDb()]);
             } catch (\PDOException $e) {
                 throw $this->duplicate($e, $kind, $supplierId, (string) self::key($h['invoice_number']), $doc->id);
             }
@@ -244,13 +251,13 @@ final class SupplierInvoices
             $doc = $this->docs->updateDraft($caller, $id, $version, ['external_ref' => $h['invoice_number'], 'doc_date' => $h['invoice_date'], 'note' => $h['note']]);
             try {
                 $db->exec('UPDATE supplier_invoice SET invoice_key = ?, net_total = ?, vat_total = ?, gross_total = ?, credits_document_id = ?, debit_note_document_id = ?, '
-                    . 'updated_at = ? WHERE document_id = ?', [self::key($h['invoice_number']), $h['net_total'], $h['vat_total'], $h['gross_total'], $h['credits_id'],
-                        $h['debit_note_id'], $this->nowDb(), $id]);
+                    . 'due_date = ?, updated_at = ? WHERE document_id = ?', [self::key($h['invoice_number']), $h['net_total'], $h['vat_total'], $h['gross_total'], $h['credits_id'],
+                        $h['debit_note_id'], $h['due_date'], $this->nowDb(), $id]);
             } catch (\PDOException $e) {
                 throw $this->duplicate($e, $kind, (int) $cur['supplier_id'], (string) self::key($h['invoice_number']), $id);
             }
             Audit::write($db, $caller, $kind === 'invoice' ? 'invoice.header' : 'credit_note.header', 'document', (string) $id, null,
-                ['version' => $doc->version, 'number' => $h['invoice_number'], 'net' => $h['net_total'], 'vat' => $h['vat_total']]);
+                ['version' => $doc->version, 'number' => $h['invoice_number'], 'net' => $h['net_total'], 'vat' => $h['vat_total']] + ($h['due_date'] === null ? [] : ['due' => $h['due_date']]));
             return $doc;
         });
     }
@@ -413,18 +420,31 @@ final class SupplierInvoices
      * Adds a goods line by barcode, CW number or words (StockOps::resolve: `choices` when several match, `not_found` when none): packs of
      * the barcode's units (or of this supplier's pack of the item when the barcode is the unit's own), at the price typed, else the
      * supplier item's last price, else £0. Not linked to a delivery or an order (the match flags it: no delivery).
+     * PV (the invoice on one page): $supplierItemId, one of THIS supplier's active packs (the item box's choice), names the item and its
+     * pack (422 unknown_supplier_item otherwise); $unitsPerPack, the items per pack typed with a new item, when no pack of the supplier is
+     * named.
      *
      * @return array{status: string, document: Document, line_no?: int, choices?: list<array<string, mixed>>}
      */
-    public function addItem(Caller $caller, int $id, int $version, string $q, int $packs, ?string $packPrice, ?int $skuId = null): array
+    public function addItem(Caller $caller, int $id, int $version, string $q, int $packs, ?string $packPrice, ?int $skuId = null, ?int $supplierItemId = null,
+        ?int $unitsPerPack = null): array
     {
-        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $q, $packs, $packPrice, $skuId): array {
+        return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $q, $packs, $packPrice, $skuId, $supplierItemId, $unitsPerPack): array {
             [, $cur] = $this->current($id);
             if ($packs < 1 || $packs > PoMath::MAX_PACKS) {
                 throw new CwException('bad_line', 'packs: a whole number from 1 to ' . number_format(PoMath::MAX_PACKS), 422, ['field' => 'packs']);
             }
+            if ($unitsPerPack !== null && ($unitsPerPack < 1 || $unitsPerPack > 1_000_000)) {
+                throw new CwException('bad_line', 'items per pack: a whole number from 1', 422, ['field' => 'units_per_pack']);
+            }
             $per = 1;
-            if ($skuId === null) {
+            $chosen = null;
+            if ($supplierItemId !== null) {
+                $chosen = $db->one('SELECT si.sku_id, si.supplier_code, si.purchase_unit, si.units_per_pack, si.last_pack_price FROM supplier_item si JOIN sku s ON s.id = si.sku_id '
+                    . 'WHERE si.id = ? AND si.supplier_id = ? AND si.is_active = 1 AND s.merged_into_sku_id IS NULL', [$supplierItemId, (int) $cur['supplier_id']])
+                    ?? throw new CwException('unknown_supplier_item', 'that pack is not one of this supplier\'s', 422, ['field' => 'pick_si']);
+                $skuId = (int) $chosen['sku_id'];
+            } elseif ($skuId === null) {
                 $r = (new StockOps($db, $this->docs))->resolve($q);
                 if ($r['status'] !== 'found') {
                     return ['status' => $r['status'], 'document' => $this->docs->get($id), 'choices' => $r['choices'] ?? []];
@@ -434,9 +454,9 @@ final class SupplierInvoices
             } elseif ($db->value('SELECT 1 FROM sku WHERE id = ? AND merged_into_sku_id IS NULL', [$skuId]) === null) {
                 throw new CwException('unknown_sku', 'there is no such item', 422);
             }
-            $si = $db->one('SELECT supplier_code, purchase_unit, units_per_pack, last_pack_price FROM supplier_item WHERE supplier_id = ? AND sku_id = ? AND is_active = 1 '
-                . 'ORDER BY is_preferred DESC, id LIMIT 1', [(int) $cur['supplier_id'], $skuId]);
-            $upp = $per > 1 || $si === null ? $per : (int) $si['units_per_pack'];
+            $si = $chosen ?? ($unitsPerPack !== null ? null : $db->one('SELECT supplier_code, purchase_unit, units_per_pack, last_pack_price FROM supplier_item '
+                . 'WHERE supplier_id = ? AND sku_id = ? AND is_active = 1 ORDER BY is_preferred DESC, id LIMIT 1', [(int) $cur['supplier_id'], $skuId]));
+            $upp = $unitsPerPack ?? ($per > 1 || $si === null ? $per : (int) $si['units_per_pack']);
             $price = $packPrice !== null && trim($packPrice) !== '' ? self::packPrice($packPrice, 'pack_price')
                 : ($si !== null && $si['last_pack_price'] !== null && $upp === (int) $si['units_per_pack'] ? (string) $si['last_pack_price'] : '0.0000');
             $lines = $this->lineRows($id);
@@ -833,7 +853,7 @@ final class SupplierInvoices
     public function record(int $id): ?array
     {
         $r = $this->db->one(
-            'SELECT d.*, si.kind, si.supplier_id, si.net_total, si.vat_total, si.gross_total, si.credits_document_id, si.debit_note_document_id, si.match_state, '
+            'SELECT d.*, si.kind, si.supplier_id, si.net_total, si.vat_total, si.gross_total, si.credits_document_id, si.debit_note_document_id, si.match_state, si.due_date, '
             . 'si.match_lines_off, si.match_difference, si.match_checked_at, si.accepted_at, si.accept_note, s.code AS supplier_code, s.name AS supplier_name, '
             . 'si.receive_mode, si.submit_at, si.submit_by, si.submit_failed_at, si.submit_error, si.submit_receipt_id, tb.display_name AS submit_by_name, '
             . 'ci.number AS credits_number, dn.number AS debit_note_number, ab.display_name AS accepted_by_name, '
@@ -965,7 +985,7 @@ final class SupplierInvoices
         }
         return $this->db->all(
             'SELECT d.id, d.number, d.status, d.doc_date, d.created_at, d.posted_at, d.reverses_id, d.external_ref, si.supplier_id, s.name AS supplier_name, '
-            . 'si.net_total, si.vat_total, si.gross_total, si.match_state, si.match_lines_off, si.match_difference, ci.number AS credits_number, '
+            . 'si.net_total, si.vat_total, si.gross_total, si.match_state, si.match_lines_off, si.match_difference, si.due_date, ci.number AS credits_number, '
             . 'cb.display_name AS created_by_name, od.number AS reverses_number, '
             . "(SELECT t.kind FROM review_task t WHERE t.subject_type = 'document' AND t.subject_id = d.id AND t.state = 'open' ORDER BY t.id LIMIT 1) AS open_task "
             . 'FROM document d LEFT JOIN supplier_invoice si ON si.document_id = COALESCE(d.reverses_id, d.id) LEFT JOIN supplier s ON s.id = si.supplier_id '
@@ -1008,6 +1028,28 @@ final class SupplierInvoices
             $out[(int) $r['invoice_id']][] = ['id' => (int) $r['id'], 'number' => (string) $r['number'], 'claim_total' => (string) $r['claim_total'],
                 'credit_state' => SupplierReturns::creditState($r['claim_total'] === null ? null : InvoiceMath::e2((string) $r['claim_total']),
                     $credited[(int) $r['id']] ?? 0)];
+        }
+        return $out;
+    }
+
+    /**
+     * What the posted credit notes took off each of these invoices (net + VAT, in pence; PV: the list's balance), in one grouped read on
+     * ix_supplier_invoice_credits. An invoice without any is left out.
+     *
+     * @param list<int> $invoiceIds
+     * @return array<int, int> invoice id => pence credited
+     */
+    public function creditedOn(array $invoiceIds): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $invoiceIds)));
+        if ($ids === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($this->db->all('SELECT c.credits_document_id AS id, SUM(c.gross_total) AS credited FROM supplier_invoice c JOIN document d ON d.id = c.document_id '
+            . "AND d.status = 'posted' WHERE c.credits_document_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ") AND c.kind = 'credit_note' "
+            . 'GROUP BY c.credits_document_id', $ids) as $r) {
+            $out[(int) $r['id']] = InvoiceMath::e2((string) ($r['credited'] ?? '0'));
         }
         return $out;
     }
@@ -1144,7 +1186,7 @@ final class SupplierInvoices
     private function current(int $id): array
     {
         $r = $this->db->one('SELECT d.doc_type, d.status, d.external_ref, d.doc_date, d.note, si.supplier_id, si.net_total, si.vat_total, si.gross_total, '
-            . 'si.credits_document_id, si.debit_note_document_id FROM document d JOIN supplier_invoice si ON si.document_id = d.id WHERE d.id = ? FOR UPDATE OF d', [$id])
+            . 'si.credits_document_id, si.debit_note_document_id, si.due_date FROM document d JOIN supplier_invoice si ON si.document_id = d.id WHERE d.id = ? FOR UPDATE OF d', [$id])
             ?? throw new CwException('unknown_document', 'there is no such supplier invoice', 404);
         $kind = self::kindOf((string) $r['doc_type']) ?? throw new CwException('not_an_invoice', 'this is not a supplier invoice or credit note', 404);
         return [$kind, $r];
@@ -1155,7 +1197,7 @@ final class SupplierInvoices
      *
      * @param array<string, mixed> $in
      * @param array<string, mixed>|null $cur
-     * @return array{invoice_number: ?string, invoice_date: ?string, net_total: ?string, vat_total: ?string, gross_total: ?string, note: ?string, credits_id: ?int, debit_note_id: ?int}
+     * @return array{invoice_number: ?string, invoice_date: ?string, net_total: ?string, vat_total: ?string, gross_total: ?string, note: ?string, credits_id: ?int, debit_note_id: ?int, due_date: ?string}
      */
     private function header(string $kind, int $supplierId, array $in, ?array $cur): array
     {
@@ -1169,6 +1211,7 @@ final class SupplierInvoices
             'net_total' => $cur['net_total'] ?? null, 'vat_total' => $cur['vat_total'] ?? null,
             'credits_id' => isset($cur['credits_document_id']) ? (int) $cur['credits_document_id'] : null,
             'debit_note_id' => isset($cur['debit_note_document_id']) ? (int) $cur['debit_note_document_id'] : null,
+            'due_date' => $cur['due_date'] ?? null,
         ];
         if (array_key_exists('invoice_number', $in)) {
             $h['invoice_number'] = self::text($in['invoice_number'], self::NUMBER_MAX, 'invoice_number');
@@ -1185,6 +1228,22 @@ final class SupplierInvoices
         }
         if (array_key_exists('note', $in)) {
             $h['note'] = self::text($in['note'], self::NOTE_MAX, 'note');
+        }
+        // PV (0052): an invoice's due date, a date on or after the date on the paper; a credit note is not paid, so it has none.
+        if (array_key_exists('due_date', $in)) {
+            $d = $in['due_date'];
+            if ($d === null || $d === '') {
+                $h['due_date'] = null;
+            } elseif ($kind !== 'invoice') {
+                throw new CwException('bad_field', 'a credit note has no due date', 400, ['field' => 'due_date']);
+            } elseif (!is_string($d) || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $d) !== 1 || \DateTimeImmutable::createFromFormat('!Y-m-d', $d)?->format('Y-m-d') !== $d) {
+                throw new CwException('bad_field', 'the due date is a date (YYYY-MM-DD)', 422, ['field' => 'due_date']);
+            } else {
+                $h['due_date'] = $d;
+            }
+        }
+        if ($h['due_date'] !== null && $h['invoice_date'] !== null && $h['due_date'] < $h['invoice_date']) {
+            throw new CwException('due_before_date', 'the due date is on or after the date on the paper', 422, ['field' => 'due_date']);
         }
         foreach (['net_total', 'vat_total'] as $k) {
             if (array_key_exists($k, $in)) {

@@ -289,16 +289,16 @@ final class PurchaseOrdersController
         $choices = [];
         if (mb_strlen($q) >= 2) {
             $r = $this->service($ctx)->resolve($sid, $q);
-            $rows = $r['status'] === 'choices' ? $r['choices'] : ($r['status'] === 'found' ? [$this->foundChoice($ctx, $r)] : []);
+            $rows = $r['status'] === 'choices' ? $r['choices'] : ($r['status'] === 'found' ? [self::foundRow($ctx->db, $r)] : []);
             $choices = array_map(self::productChoice(...), $rows);
         }
         return $ctx->fragment('po_products', ['choices' => $choices, 'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('PO_ONE', 'none', $q) : '']);
     }
 
-    /** A resolve() `found` as a choice row. @param array<string, mixed> $r @return array<string, mixed> */
-    private function foundChoice(Context $ctx, array $r): array
+    /** A resolve() `found` as a choice row (the order's product box and the supplier invoice's item box, PV). @param array<string, mixed> $r @return array<string, mixed> */
+    public static function foundRow(Db $db, array $r): array
     {
-        $s = $ctx->db->one('SELECT code, name, brand FROM sku WHERE id = ?', [(int) $r['sku_id']]) ?? [];
+        $s = $db->one('SELECT code, name, brand FROM sku WHERE id = ?', [(int) $r['sku_id']]) ?? [];
         $si = $r['supplier_item'] ?? null;
         return ['sku_id' => (int) $r['sku_id'], 'sku_code' => (string) ($s['code'] ?? ''), 'name' => (string) ($s['name'] ?? ''), 'brand' => $s['brand'] ?? null,
             'supplier_item_id' => $si === null ? null : (int) $si['id'], 'units_per_pack' => (int) $r['units_per_pack'], 'supplier_code' => $si['supplier_code'] ?? null,
@@ -364,7 +364,7 @@ final class PurchaseOrdersController
     }
 
     /** An item as a choice row without a supply (productChoice()'s input). @return array<string, mixed> */
-    private static function itemChoiceRow(Context $ctx, int $sku): array
+    public static function itemChoiceRow(Context $ctx, int $sku): array
     {
         $r = $ctx->db->one('SELECT id, code, name, brand FROM sku WHERE id = ?', [$sku]) ?? ['id' => $sku, 'code' => '', 'name' => '', 'brand' => null];
         return ['sku_id' => (int) $r['id'], 'sku_code' => (string) $r['code'], 'name' => (string) $r['name'], 'brand' => $r['brand'], 'supplier_item_id' => null,
@@ -1084,7 +1084,80 @@ final class PurchaseOrdersController
                 count($lines), $extra);
             return $ctx->page('purchase_order_edit', $data, $status, $layout);
         }
-        return $ctx->page('purchase_order', $data + $this->viewData($ctx, $doc, $po, $canPost, $supplierName), $status, $layout);
+        $data += $this->viewData($ctx, $doc, $po, $canPost, $supplierName);
+        // The saved order read like a document (docs/decisions.md PV): the shared head and totals, and the next papers' ways in.
+        $receivable = $doc->status === 'posted' && in_array($state, ['approved', 'sent', 'part_received'], true);
+        return $ctx->page('purchase_order', $data + self::docView($data, $doc, $po, $supplier, $supplierName) + [
+            'canReceive' => $receivable && Documents::mayPost($me->roles, 'GRN'),
+            'canInvoice' => $receivable && Documents::mayPost($me->roles, 'SINV'),
+        ], $status, $layout);
+    }
+
+    /**
+     * A saved order's head and totals as a document (PV; the shared doc_party and doc_totals): the supplier's block, the order's facts (its
+     * state, check, dates, reference, note, source, the orders it corrects or that correct it, who did what and when), the totals.
+     *
+     * @param array<string, mixed> $data page()'s and viewData()'s
+     * @param array<string, mixed> $po
+     * @param array<string, mixed> $supplier
+     * @return array{party: array<string, mixed>, docFacts: list<array<string, mixed>>, totalRows: list<array<string, mixed>>}
+     */
+    private static function docView(array $data, Document $doc, array $po, array $supplier, string $supplierName): array
+    {
+        $people = $data['people'];
+        $by = static fn (?string $at, ?string $who): ?string => $at === null ? null : Words::say('ORDER', 'by', Html::when($at), (string) $who);
+        $place = trim(implode(' ', array_filter([(string) ($supplier['city'] ?? ''), (string) ($supplier['postcode'] ?? '')], static fn (string $v): bool => $v !== '')));
+        $facts = [
+            ['label' => Words::ORDER['status'], 'value' => Words::of('PO_STATE', (string) $data['state'])],
+            ['label' => Words::ORDER['check'], 'value' => $doc->reviewState === null ? Words::ORDER['not_confirmed'] : Words::of('CHECK_STATE', $doc->reviewState)],
+            ['label' => Words::ORDER['order_date'], 'value' => $doc->docDate === null ? null : Html::day($doc->docDate)],
+            ['label' => Words::ORDER['expected'], 'value' => ($po['expected_date'] ?? null) === null ? null : Html::day((string) $po['expected_date'])],
+            ['label' => Words::ORDER['ref'], 'value' => $doc->externalRef],
+            ['label' => Words::ORDER['note'], 'value' => $doc->note],
+            ['label' => Words::ORDER['source'], 'value' => Words::of('PO_SOURCE', (string) ($po['source'] ?? 'manual'))],
+            ['label' => Words::ORDER['corrects'], 'value' => $data['amends'] === null ? null : (string) $data['amends']['number'],
+                'href' => $data['amends'] === null ? null : '/ui/purchasing/orders/' . (int) $data['amends']['id']],
+        ];
+        foreach ($data['amendedBy'] as $a) {
+            $facts[] = ['label' => Words::ORDER['corrected_by'], 'value' => (string) $a['label'], 'href' => '/ui/purchasing/orders/' . (int) $a['id']];
+        }
+        $sent = ($po['sent_at'] ?? null) === null ? null : Words::say('ORDER', 'sent_line', Html::when((string) $po['sent_at']), (string) $people['sent'],
+            lcfirst(Words::of('SEND_VIA', (string) $po['sent_via']))) . (($po['sent_to'] ?? null) !== null ? ' ' . Words::say('ORDER', 'sent_to', (string) $po['sent_to']) : '');
+        $cancelled = null;
+        if ($data['reversal'] !== null) {
+            $r = $data['reversal'];
+            $cancelled = $r->number === null ? Words::ORDER['cancel_waiting'] : Html::day($r->docDate) . ' · ' . (string) ($data['reversalReason'] ?? '')
+                . ($r->note !== null && $r->note !== '' ? ' – ' . $r->note : '') . ' (' . Words::say('ORDER', 'cancel_record', (string) $r->number) . ')';
+        } elseif ($doc->cancelledAt !== null) {
+            $cancelled = Words::say('ORDER', 'with_reason', Words::say('ORDER', 'by', Html::when($doc->cancelledAt), (string) $people['cancelled']), (string) $data['cancelReason']);
+        }
+        array_push($facts,
+            ['label' => Words::ORDER['started'], 'value' => $by($doc->createdAt, (string) $people['created'])],
+            ['label' => Words::ORDER['asked'], 'value' => $by($doc->submittedAt, (string) $people['submitted'])],
+            ['label' => Words::ORDER['confirmed'], 'value' => $by($doc->postedAt, (string) $people['posted'])],
+            ['label' => Words::ORDER['sent'], 'value' => $sent],
+            ['label' => Words::ORDER['closed'], 'value' => ($po['closed_at'] ?? null) === null ? null : Words::say('ORDER', 'with_reason',
+                Words::say('ORDER', 'by', Html::when((string) $po['closed_at']), (string) $people['closed']), (string) $po['close_reason'])],
+            ['label' => Words::ORDER['cancelled'], 'value' => $cancelled],
+            ['label' => Words::ORDER['cancel_pdf'], 'value' => $data['reversal'] === null ? null : Words::ORDER['cancel_pdf'],
+                'href' => $data['reversal'] === null ? null : '/ui/purchasing/orders/' . (int) $data['reversal']->id . '/pdf'],
+        );
+        $count = count($data['lines']);
+        $rows = [['label' => Words::ORDER['products'], 'value' => Words::say('ORDER', $count === 1 ? 'products_line_one' : 'products_line', $count, (int) $data['units'])
+            . ((int) $data['received'] > 0 ? ', ' . Words::say('ORDER', 'delivered_line', (int) $data['received']) : '')],
+            ['label' => Words::ORDER['net'], 'value' => (string) $data['totals']['net']]];
+        foreach ($data['totals']['by_code'] as $code => $v) {
+            $rows[] = ['label' => Words::say('ORDER', 'vat_line', (string) $code, $data['vatLabels'][$code] ?? $v['rate'] . '%'), 'value' => (string) $v['vat']];
+        }
+        $rows[] = ['label' => Words::ORDER['gross'], 'value' => (string) $data['totals']['gross'], 'grand' => true];
+        return [
+            'party' => ['label' => Words::DOC['party'], 'name' => $supplierName, 'href' => '/ui/purchasing/suppliers/' . (int) ($supplier['id'] ?? 0),
+                'lines' => array_values(array_filter([(string) ($supplier['address_line1'] ?? ''), (string) ($supplier['address_line2'] ?? ''), $place,
+                    (string) ($supplier['email'] ?? ''), (string) ($supplier['phone'] ?? '')], static fn (string $v): bool => trim($v) !== ''))],
+            'docFacts' => array_values(array_map(static fn (array $f): array => array_filter($f, static fn (mixed $v): bool => $v !== null),
+                array_filter($facts, static fn (array $f): bool => $f['value'] !== null && $f['value'] !== ''))),
+            'totalRows' => $rows,
+        ];
     }
 
     /**
@@ -1529,8 +1602,8 @@ final class PurchaseOrdersController
         }
         if ($f['q'] !== '') {
             $like = '%' . addcslashes($f['q'], '%_\\') . '%';
-            $where[] = '(d.number LIKE ? OR d.external_ref LIKE ?)';
-            array_push($params, $like, $like);
+            $where[] = '(d.number LIKE ? OR d.external_ref LIKE ? OR s.name LIKE ?)'; // the supplier too: the list's one search (PV)
+            array_push($params, $like, $like, $like);
         }
         if ($f['rejected']) {
             $where[] = "d.review_state = 'rejected'";

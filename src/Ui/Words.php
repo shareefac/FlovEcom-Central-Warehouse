@@ -37,7 +37,7 @@ final class Words
         'SIGN_IN', 'REFUSAL', 'DOC_TYPE', 'DOC_TYPES', 'CHECK_STATE', 'CHECKS', 'RECORDS', 'RECORD', 'RECORD_NOTICE', 'COMPANY', 'COMPANY_NOTICE',
         'SETTINGS_PAGE', 'REASON_USE', 'SETTING_TOPIC', 'SETTING_HELP', 'STAFF', 'STAFF_NOTICE', 'SPOT', 'FIELD', 'FORM_VALUE', 'NIC_TYPE', 'AI_FIELD',
         'AI_FIELD_STATE', 'ACTION_DONE', 'MOVEMENT', 'ORIGIN', 'QUEUE', 'LISTING', 'PENDING', 'MATCH_NOTICE', 'MATCH_ERROR', 'SAMPLE', 'SAMPLE_FIT', 'DUPS',
-        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'REORDER', 'WHY',
+        'DUP_NOTICE', 'DUP_ERROR', 'SEARCH', 'FIND', 'ITEM', 'PO', 'PO_FILTER', 'PO_SOURCE', 'ORDERS', 'ORDER', 'PO_NOTICE', 'BUY_ERROR', 'PO_WARN', 'PO_ADD', 'PO_ONE', 'PI_ONE', 'DOC', 'DOC_LIST', 'REORDER', 'WHY',
         'REORDER_ITEM', 'BRANDS', 'ANOMALIES', 'REORDER_NOTICE', 'SALES', 'SUPPLIERS', 'SUPPLIER', 'SUPPLIER_FIELD', 'SUPPLIER_FORM', 'SUPPLIER_NOTICE', 'SUPPLIER_ITEMS', 'SI_NOTICE',
         'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
         'SELLING', 'SELLING_NOTICE', 'SITE_SYNC', 'SELLING_ERROR', 'MODE_MEANING', 'RECEIPT_STATE', 'BENCH_STATE', 'INCIDENT_WHERE',
@@ -582,6 +582,7 @@ final class Words
             'If a website product is not matched to a warehouse product, its sales are not used: the list below shows the biggest ones.'],
         'orders' => ['Every order to a supplier.', 'Press "New purchase order" to start one, or open one to see where it is.'],
         'order_new' => ['A new order to a supplier.', ''], // PO on one page (docs/decisions.md PX1)
+        'invoice_new' => ['A new invoice from a supplier.', ''], // the supplier invoice on one page (docs/decisions.md PV)
         'order_draft' => ['A new order, not confirmed yet.', 'Over the approval limit, a reviewer OKs it first.'], // correction f
         // Pack PO (PO4): the step "Add a new item" of the order editor.
         'order' => ['One order: what was ordered, where it is now, and what to do next.', ''],
@@ -669,7 +670,7 @@ final class Words
             'Choose the pack item, which way and how many packs, then book it.'],
         // --- Pack C (IM7): supplier invoices, credit notes, returns to suppliers.
         'invoices' => ['The invoices of our suppliers, each checked against the order and the delivery.',
-            'To book the invoice of a delivery, open "Not invoiced yet" and press "Book its invoice".'],
+            'Press "New supplier invoice" to book one, or open one to see it.'],
         'credit_notes' => ['The credit notes our suppliers sent us.', 'Book one from the return it answers, or from the invoice it reduces.'],
         'to_match' => ['Final invoices that do not match their order or delivery, oldest first.',
             'Open one, see which line is off, then ask the supplier for a credit note or accept the difference with a reason.'],
@@ -5716,7 +5717,7 @@ final class Words
         'show' => 'Show',
         'all_orders' => 'All orders',
         'any_supplier' => 'Any supplier',
-        'search' => 'Number or supplier\'s reference',
+        'search' => 'Number, reference or supplier',
         'rejected' => 'Reviewer said not OK',
         'all' => 'Also show cancellation records',
         // Behaviour item 8 (F305): goods-in and the purchasing desk see no drafts unless they ask.
@@ -5814,6 +5815,9 @@ final class Words
         'cancel_record' => 'Cancellation record %s',
         'cancel_waiting' => 'A cancellation waits for a reviewer\'s OK',
         'cancel_pdf' => 'Cancellation PDF',
+        // The saved order's action bar (docs/decisions.md PV): the next papers' ways in
+        'receive' => 'Receive the goods',
+        'record_invoice' => 'Record its invoice',
         'a_draft' => 'a draft',
         // Totals and downloads
         'totals' => 'Totals',
@@ -6193,6 +6197,92 @@ final class Words
         // "Cancel draft" (the owner, 26 Oct 2026, PX11): a saved draft's small plain button and its one step
         'cancel' => 'Cancel draft',
         'cancel_note' => 'Note',
+    ];
+
+    /**
+     * The supplier invoice on ONE page (the owner, 29 Oct 2026: "keep always user experience much good" and "professional: refer Zoho
+     * Inventory"; docs/decisions.md PV): the header in two columns, the lines with their headings, the totals, the bar at the bottom.
+     */
+    public const PI_ONE = [
+        'title' => 'New supplier invoice',
+        'supplier_hint' => 'Type the supplier',
+        'suppliers' => 'Suppliers',
+        'number' => 'Supplier\'s invoice number',
+        'date' => 'Invoice date',
+        'due' => 'Due date',
+        'from' => 'From',
+        'from_none' => 'Nothing: the lines by hand',
+        'from_deliveries' => 'Deliveries not invoiced yet',
+        'from_orders' => 'Open orders',
+        'from_delivery' => '%s · %s · %s · %s items to invoice',
+        'from_order' => '%s · %s · %s',
+        'fill' => 'Fill the lines',
+        'lines' => 'Lines',
+        'item' => 'Item',
+        'qty' => 'Qty',
+        'price' => 'Price',
+        'amount' => 'Amount',
+        'add_line' => '+ Add line',
+        'item_box' => 'Scan or search an item',
+        'items' => 'Items',
+        'loading' => 'Looking…',
+        'failed' => 'The list could not be loaded. Type the item, then press Add.',
+        'packs' => 'Qty',
+        'pack_price' => 'Price £',
+        'add' => 'Add',
+        'add_charge' => '+ Add delivery, duty or other charge',
+        'charge_kind' => 'Kind',
+        'charge_amount' => 'Amount £',
+        'charge_words' => 'What it is for',
+        'charge_button' => 'Add the charge',
+        'remove' => 'Remove line %s',
+        'remove_col' => 'Remove',
+        'line_n' => 'Line %s',
+        'paper_net' => 'Total without VAT on the paper',
+        'paper_vat' => 'VAT on the paper',
+        'notes' => 'Notes',
+        'file' => 'Invoice file',
+        'file_kind' => 'What the file is',
+        'files' => 'Files kept with it',
+        'draft' => 'Save as draft',
+        'final' => 'Save and make final',
+        'choose' => 'Several items have "%s" in them. Choose one:',
+        'choose_this' => 'Add this one',
+        // The Codex review of 6418b15 (findings 1 and 3)
+        'not_final' => 'Saved as a draft, not made final: %s',
+        'too_many' => 'This invoice has too many lines to change them on this page: they are shown as they are. You can still add lines, type the totals and make it final.',
+    ];
+
+    /**
+     * The shared pieces of a document's page (docs/decisions.md PV; reused by the purchase order, the supplier invoice and, later, the sales
+     * invoice): the totals block, the bar at the bottom, the action bar at the top, the supplier's block.
+     */
+    public const DOC = [
+        'leave' => 'Leave without saving',
+        'sub_total' => 'Sub total',
+        'total' => 'Total',
+        'actions' => 'What you can do',
+        'totals' => 'Totals',
+        'party' => 'Supplier',
+        'facts' => 'Details',
+        'credited' => 'Credited',
+        'balance' => 'Balance',
+        'more' => 'More',
+    ];
+
+    /** The columns and the filter of a list of documents (orders, supplier invoices; later sales invoices; docs/decisions.md PV). */
+    public const DOC_LIST = [
+        'date' => 'Date',
+        'number' => 'Number',
+        'supplier' => 'Supplier',
+        'status' => 'Status',
+        'total' => 'Total',
+        'due' => 'Due date',
+        'balance' => 'Balance',
+        'expected' => 'Expected',
+        'any_state' => 'Every status',
+        'show' => 'Show',
+        'state_label' => 'Status',
     ];
 
     /** What to buy (/ui/purchasing/reorder, plan §6.22). REORDER['demand'] is correction e. */
@@ -9810,12 +9900,25 @@ final class Words
         'file_again' => 'This file was already kept with it.',
         'accepted' => 'Accepted. The invoice leaves the "To match" list.',
         'rechecked' => 'Checked again: %s changed.',
+        // The invoice on one page (docs/decisions.md PV)
+        'saved' => 'Saved as a draft.',
+        'removed' => 'Line removed.',
+        'supplier_added' => 'Supplier added and chosen. It is a draft supplier until a reviewer approves it.',
     ];
 
     /** A refused change of an invoice or a credit note, by error code (a code without words keeps the service's sentence). */
     public const INVOICE_ERROR = [
         'on_line' => 'Line %s: %s',
         'supplier_required' => 'Choose the supplier.',
+        // The invoice on one page (docs/decisions.md PV)
+        'need_supplier' => 'Choose the supplier first. Nothing was saved.',
+        'need_product' => 'Scan or choose an item first. Nothing was saved.',
+        'need_source' => 'Choose a delivery or an order first. Nothing was saved.',
+        'due_before_date' => 'The due date is before the invoice date: check both on the paper.',
+        'unknown_supplier_item' => 'That pack is not one of this supplier\'s: choose the item again.',
+        'bad_qty' => 'The quantity is a whole number above 0. Nothing was saved.',
+        'scan_pending' => 'The item box still holds "%s": press Add, or clear it, then save again. Nothing was saved.',
+        'bad_date' => 'A date is not a real date: check it on the paper. Nothing was saved.',
         'delivery_not_posted' => 'That delivery is not booked in (or was cancelled).',
         'return_not_posted' => 'Only a final return gets a credit note.',
         'order_not_posted' => 'That order is not confirmed.',

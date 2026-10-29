@@ -12085,3 +12085,155 @@ A read of the live ERPNext (27 Oct 2026) showed the Vape and Go variant number i
 exported as `docs/ops.md` said would have resolved no item. `ErpOpeningFiles::MAP_COLUMNS` now reads "Variant ID" first and "Product ID"
 when a file has only that (the rollback file's item list shares the reader); `docs/ops.md` names "Variant ID".
 `ErpOpeningTest::testTheItemListReadsErpnextsVariantIdColumn` (red first: `runs/erpvid_red.log`).
+
+## The supplier invoice on one page, and the professional look (branch `pi-one-page`, 29 Oct 2026; PV1-PV17)
+
+The owner, 29 Oct 2026: "purchase order / purchase invoice / sales invoice — keep always user experience much good" and "and professional:
+refer Zoho Inventory and make it professional". The brief (`runs/pione_brief.txt`): the purchase invoice on ONE page like the order's (PX1-PX11),
+laid out as Zoho Inventory's "New Bill"; the same look for the order's and the invoice's list, new/edit page and saved document; Zoho as the
+reference for layout, spacing and hierarchy only (CW's own colours, type and words; no Zoho name, logo or icon); sales invoices not built, but
+the layout pieces shared for them. Built from main `e52154f` in `/root/cw-pione`. Code: `src/Ui/Controller/InvoiceOnePage.php` (new),
+`InvoicesController` (routes, the saved document's data, the list's due date and balance), `PurchaseOrdersController` (the saved order's
+data, the list's search), `ReceivingController` (one line: `?po=`), `src/Invoices/SupplierInvoices.php` (the due date, a line as a pack of the
+supplier, `creditedOn`), `migrations/0052_invoice_due_date.sql`, views `invoice_edit` (new), `doc_totals`, `doc_party`, `doc_bar` (new,
+shared), `invoices`, `supplier_invoice`, `purchase_orders`, `purchase_order`, `purchase_order_edit`; `src/Ui/{Sections,Words}.php`,
+`public/ui/assets/app.{js,css}`. No new permission; every service rule of pack C and pack J unchanged.
+
+**PV1. One page at once.** `GET /ui/purchasing/invoices/new` (`doc.SINV.post`) is the page: the list's "New supplier invoice" button (the
+statement's create button, `Sections`; the list's fold "Book an invoice by hand" is gone for invoices) and a confirmed order's "Record its
+invoice" lead to it (`?supplier=&from=po:<id>`). Opening it writes nothing. A credit note keeps its fold and its forms (pack C).
+
+**PV2. When the draft is made.** The page's one form posts to `POST /ui/purchasing/invoices`; with a supplier and anything to keep (a line,
+"From", a charge, "+ Add new item", "Save as draft", "Save and make final") the draft is made and everything applied in ONE transaction under
+FormOnce (`InvoiceOnePage::create`): the same form sent twice makes one draft. Every refusal rolls it all back: no supplier (422
+`need_supplier`), Add with nothing (422 `need_product`), "Fill the lines" with nothing chosen (422 `need_source`), a duplicate supplier number
+(409, PC12's words), another supplier's delivery, an item search with several answers (the choices on the page) or none: nothing is left,
+what was typed comes back. "Save as draft" with only a supplier makes an empty draft. "Save and make final" is the save, then the posting
+(PV16): a refused posting keeps the saved draft, never a half-final invoice.
+
+**PV3. The draft is the same page.** Its creator's draft opens as the one page (`InvoicesController::page` hands it to
+`InvoiceOnePage::editPage`); its one form posts to the draft's `/lines` (version and line count first), saved in one transaction: the header
+fields it sent, the lines as edited (each row's ×: `remove_line`, not read), "From", the action, the file; "make final" comes after that
+transaction (PV16). A refusal of the save saves nothing. "+ Add new item" also runs through FormOnce (it makes an item). A form of the old
+lines table (no action) saves its rows as before; Add with nothing on a draft saves the form (Enter in a field). Anyone else sees the saved document (PV12); their POST is refused by the service (403 `not_creator`).
+
+**PV4. "From".** A plain select of the open deliveries (`SupplierInvoices::notInvoiced`) and the open orders (approved, sent, part received)
+of every supplier while the supplier can still change, the new page, even when the address chose one (each option names its supplier,
+`data-supplier`; the script keeps the chosen supplier's and follows a change of supplier, so the plain select works without it: the Codex
+review of 6418b15, finding 5); a draft's, its supplier's only. "Fill the lines" (or any other action with one chosen) applies it. On the new page a
+delivery is the existing quick way (`createFromReceipt`: its number, date, copy and lines), then what was typed wins; an order is
+`createDraft` + `addOrder`. On a draft: `addReceipt` / `addOrder`. Another supplier's document is refused by those services (422, in words).
+A received order is not offered: its deliveries are.
+
+**PV5. The supplier.** The order page's dropdown (`select[data-po-supplier]`, the same `combo()`), every supplier (one switched off since
+can still send an invoice, as before; one not approved yet or switched off says so on its second line), its payment terms on its option.
+"+ Add new supplier" is the order page's small form (`PoAddNew`): `Suppliers::create` (a draft supplier, `suppliers.manage`), FormOnce, the
+page back with it chosen and what was typed carried, the item chosen in the box as its item (`pick_sku` with the item's own words: a pack of
+the supplier before is not the new one's; the order page's `carriedPick()`, the Codex review of 6418b15, finding 6); the others see "Ask a
+buyer to add it." (403 if sent anyway). Once the draft exists its
+supplier is fixed: no service changes an invoice's supplier (stop the draft and start again).
+
+**PV6. The lines.** Item, Qty (packs, the pack under it), Price (a pack's), Amount, ×. **No VAT column** (a decision against the brief's
+list): an invoice's VAT is one figure typed exactly as the paper states it, and CW never works VAT out (PC1, the column comment of
+`vat_total`); a VAT per line would be a second VAT that can disagree with the paper's. "+ Add line" is the order page's item box (the same
+engine, its fragment `po_products` from the invoice desk's own route `GET /ui/purchasing/invoices/products`, `doc.SINV.post`;
+`app.js` `ALSO` lets that one route's answers through `fragment()`): a choice of one of this supplier's packs adds that pack
+(`SupplierInvoices::addItem`'s new `$supplierItemId`; another supplier's pack: 422 `unknown_supplier_item`), else as the old Add did
+(StockOps::resolve). "+ Add new item" is the order page's form: Pack B's item (`items.create`), this supplier's pack when a code, a pack or a
+price is typed (as PX4), its line (the items per pack typed: `addItem`'s new `$unitsPerPack`). A charge (delivery, duty, service, other: the
+kinds the rules allow) is a fold under the lines; a charge typed is kept with whatever is pressed (as the order page's delivery charge, PX10),
+and never typed again after an Add that found several items. "Save and make final" with words left in the item box is refused (422
+`scan_pending`, as the order's Confirm: what is made final is what the person sees); "Save as draft" leaves the box alone.
+
+**PV7. The totals.** On the right: Sub total (the lines), "Total without VAT on the paper" and "VAT on the paper" (typed; the match's total
+check needs the paper's figure, PC3), Total (the paper's total without VAT, else the lines, plus the VAT). A draft says in one line how it
+would match now (pack C's preview), above the lines; its problems are listed above the form.
+
+**PV8. The due date (0052).** `supplier_invoice.due_date` (DATE NULL, added in place). The invoice date plus the supplier's
+`payment_terms_days` when CW has them: on the new page (drawn when both are known, and by the script while the box is empty or still holds
+the date it filled), and by the service when a draft is made without one (`createDraft`: "Book its invoice", and the new page's first form
+when no date was shown; the new page sends `due_shown`, what its box showed, so a date cleared there is kept cleared). A saved draft shows its
+own: a due date the person cleared stays empty when drawn again and on the next save (the Codex review of 6418b15, finding 4). Editable;
+never before the invoice date (422 `due_before_date`); a date that is not one is refused in words (`bad_date`, finding 8); none on a credit
+note (400). It changes nothing in the match, the postings or the stock; the document and the list show it.
+
+**PV9. Notes and the file.** The note is a text area. The file is part of the one form (multipart), with what it is (the supplier's paper by
+default): attached in the save and committed with it, before "make final" (PV16), so "book as received" finds its copy and a refused posting
+keeps the file with the draft. Only a commit that fails after the bytes are stored leaves a file without a row: `FileStore`'s stance for every
+attachment (append-only storage; `verify()` counts orphans; harmless). A file refused (type, size) is said, nothing saved.
+
+**PV10. The bar at the bottom.** It stays on the screen while the form is (`position: sticky`; on a phone it takes the tab bar's place):
+"Leave without saving" (a link), "Save as draft", "Save and make final" (the one primary button). The brief's "Save" for posting is worded
+"Save and make final": the order page's "Save" keeps a draft, and one word must mean one thing (writing rule 13). A draft's "Make it final
+later" (pack J) is a fold above the bar whose controls name the form `pi-schedule` (forms do not nest); "How its goods come in" and "Stop
+this draft" are folds after the form, as their own forms.
+
+**PV11. The lists.** One clean table: Date, Number (theirs under it), Supplier, Status (the solid pill), Total (with VAT), and for invoices
+Due date and Balance (the total less the final credit notes: `SupplierInvoices::creditedOn`, one grouped read; payments are not in CW), for
+orders Expected. One search box (orders: now the supplier's name too), a status select, "+ New …" at the right; a row opens its paper (a
+stretched link). The URL's other filters (supplier, match, stopped; sent back, with the cancellation records) ride as hidden fields, so a
+search keeps them (the Codex review of 6418b15, finding 7). The order list's grouping by state with group totals and its "how it works" fold are gone; drafts stay hidden for goods in
+and the desk (behaviour item 8); the URL's other filters still work.
+
+**PV12. The saved document.** Its actions in one bar at the top (`.doc-actions`; a step that needs a reason or a choice is a fold that opens
+under the bar), the supplier's block beside the facts (`doc_party`), the lines, the totals on the right (`doc_totals`), then the rest as
+before. An invoice: accept the differences (`invoices.accept`), book its credit note, take it back, attach a file, cancel it. An order:
+Confirm, Take back, Send, the PDF, "Receive the goods" (Goods In's new delivery with the order chosen: `?po=`, `doc.GRN.post`), "Record its
+invoice" (PV1, `doc.SINV.post`), Copy, Correct, Close, Reopen, Cancel. The short help lines under the order's actions and the big buttons'
+second lines are left out (the owner's "no help paragraphs").
+
+**PV13. The order's page in the same look, behaving as before.** The head fields in the shared grid, the board with its headings, the totals
+on the right, the bar at the bottom (`doc_bar` inside the summary section, which is `display: contents`, so the bar sticks for the whole
+form). Every PX pin holds (the summary's two buttons, "Cancel draft" in it, two folds, no help line, the board's last row).
+
+**PV14. Shared for the sales invoice.** Plain CSS classes and three partials, listed in `docs/dev.md`: `.doc-grid`, `.doc-lines`,
+`.doc-foot`, `.doc-totals`, `.doc-bar`, `.doc-list` + `a.row-link`, `.doc-actions` + `details.doc-act`, `.doc-view`, `.doc-meta`, the
+status pill `.chip` (`$chip`/`$stateChip`); `doc_totals`, `doc_party`, `doc_bar`; words `Words::DOC`, `Words::DOC_LIST`.
+
+**PV15. Not changed, and known limits.** Credit notes (their pages and forms), every service rule (doc.SINV.post, invoices.accept, the
+duplicate number, VAT as stated, the 3-way match and its tolerances, FormOnce, versions, the creator's drafts, pack J). The totals are worked
+out when the page is drawn (no sums in the browser). "From" lists at most `SupplierInvoices::LIST_LIMIT` deliveries and orders (every
+supplier's while the supplier can still change, PV4). A pack chosen in the item box is that pack; typed words with Enter still find the
+supplier's preferred pack (as before). An invoice with more lines than the form can carry shows them read-only (PV17): its existing lines are
+then not changed or removed from the page.
+
+Tests (red first: `runs/pione_red.log`, 15 failures and 4 errors on `e52154f`): `tests/Integration/UiKernel/InvoiceOnePageScreensTest.php`
+(new, 9 tests: the page opens and makes nothing; one draft per double submit and none after a refusal; "From" fills and another supplier's is
+refused; "+ Add new supplier" / "+ Add new item" and who sees them; the duplicate number, "make final" keeps the match, the differences
+accepted, the list; CSRF on every POST and the creator's draft; without the script; the item box and a pack chosen; the order's screens in
+the same look), `tests/Integration/Invoices/InvoiceOnePageServiceTest.php` (the due date, a pack of the supplier, the balance),
+`tests/Integration/Invoices/Migration0052Test.php`, `UiUnitTest::testTheInvoicePageUsesTheOrdersDropdownsAndTheSharedLayout` and the route
+levels, `WordsTest::testTheInvoicePageSaysWhatTheOrdersPageSays`, `SectionsTest` (the button, `/new` keeps its tab), `UiTemplatesTest` and
+`InvoiceTemplatesTest` (the new templates). Changed for the new page: `InvoiceScreensTest` and `ArrivalScreensTest` (a draft's `/details`
+and `/post` forms are the one form's fields and its "make final" button). The order page's tests are unchanged.
+
+### The Codex review of 6418b15 (`runs/pione_codex_review.txt`): six MEDIUM, two LOW, all real, each shown failing first
+
+Red on 6418b15: `runs/pione_codex_red.log` (InvoiceOnePageScreensTest: findings 1-7) and `runs/pione_codex_red8.log` (finding 8, a 500); the
+JavaScript in node: `runs/pione_js.log` (`runs/pione_js_harness/`, outside the repo: 6418b15's app.js fails 3 due-date checks, the new one
+passes all 16). Green after: `runs/pione_codex_green.log`, `runs/pione_codex_green2.log`.
+
+**PV16. "Save and make final" is the save, then the posting (finding 1).** Making it final inside the save's transaction put pack J's "book as
+received" (its receipt's stock and feed locks) before the SINV number series, while a "count on arrival" posting holds the series and then
+asks for the feed: a lock cycle between two postings. Now the save commits first (a new draft under FormOnce, with its file), then
+`SupplierInvoices::submit` runs exactly as pack C and pack J post (its own transactions; the receipt before the invoice, PJ9), so no lock is
+taken out of the order those postings keep. A refused posting leaves the draft saved and says so: "Saved as a draft, not made final: …" with
+the problems (422); never a half-final invoice. The same form sent twice: one draft (FormOnce), and the second lands on the invoice already
+final. The race itself is not re-run by a test here (it needs two posting workers holding the series and the feed); the order is the one
+pack J's race tests prove. `testASupplierAndALineMakeOneDraftOnceAndARefusalMakesNone` (a refused posting keeps the draft and the edits),
+`testMakeFinalSentTwiceIsOnceAndARefusalKeepsTheFile`.
+
+**Finding 2 (an orphan file on a refused posting)** is gone with PV16: the file's rows commit with the save (PV9). Same test.
+
+**PV17. A big invoice (finding 3).** The one form sends 2 fields a line plus `InvoiceOnePage::FIXED_FIELDS` (48, with room to spare); when
+that reaches PHP's `max_input_vars` (read on the server, `UiRequest::maxInputVars()`) the lines are shown read-only with one line saying so,
+and the form carries no line rows (no `line_count`: the lines are not saved again); the head, the totals, "+ Add line", a charge and the bar
+work, so it is saved and made final from the page. `testABigInvoiceShowsItsLinesReadOnlyAndIsStillMadeFinal` (a draft of max_input_vars / 2
++ 10 lines: 400 form_truncated before).
+
+**Finding 4 (a cleared due date came back), finding 8 (a date that is not one: 500), finding 5 ("From" after another supplier), finding 6 (the
+item chosen lost through "+ Add new supplier"), finding 7 (a search dropped the other filters):** PV8, PV4, PV5, PV11 as amended above.
+`testAClearedDueDateStaysClearedAndTheTermsFillANewOne`, `testADateThatIsNotARealDateIsRefusedInWords`,
+`testFromADeliveryOrAnOrderFillsTheLinesAndAnotherSuppliersIsRefused`, `testTheItemChosenGoesThroughANewSupplier`,
+`testASearchKeepsTheOtherFilters`; the due date's script: `UiUnitTest::testTheInvoicePageUsesTheOrdersDropdownsAndTheSharedLayout` and the
+node harness (the old script filled a date the person had cleared again, and overwrote a saved date when the invoice date changed).

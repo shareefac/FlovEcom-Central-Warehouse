@@ -96,7 +96,8 @@ final class ReceivingController
             'newSuppliers' => $canPost ? $ctx->db->all("SELECT id, code, name, status FROM supplier WHERE status <> 'inactive' ORDER BY name, id") : [],
             'orders' => $canPost ? $ctx->goodsReceipts()->receivableOrders() : [],
             'formKey' => $canPost ? ($ctx->req->field(FormOnce::FIELD) ?? FormOnce::newKey()) : null,
-            'typed' => $error === null ? [] : $ctx->req->post,
+            // The order's page's "Receive" (docs/decisions.md PV) opens this form with its order chosen (?po=).
+            'typed' => $error === null ? (UiRequest::id($ctx->req->param('po')) === null ? [] : ['po_id' => (string) UiRequest::id($ctx->req->param('po'))]) : $ctx->req->post,
             'limit' => self::LIST_LIMIT,
             'error' => $error,
             'canPost' => $canPost,

@@ -132,15 +132,16 @@ final class InvoiceScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::INVOICES['match_preview'], $page->text());
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM document_file WHERE document_id = ? AND role = 'supplier_invoice'", [$id]), 'the delivery\'s copy');
 
-        // The paper charges £4.00 a pack where the delivery said £3.00: the lines are typed as the paper says them.
+        // The paper charges £4.00 a pack where the delivery said £3.00: the lines are typed as the paper says them. The draft is the
+        // invoice's one page (docs/decisions.md PV): its one form saves the lines, the totals typed, and makes it final.
         $form = $page->form('/ui/purchasing/invoices/' . $id . '/lines');
         $form['pp_1'] = '4.00';
         self::assertSame(303, $desk->post('/ui/purchasing/invoices/' . $id . '/lines', $form)->status);
         $page = $desk->get('/ui/purchasing/invoices/' . $id);
-        $form = ['net_total' => '40.00', 'vat_total' => '8.00'] + $page->form('/ui/purchasing/invoices/' . $id . '/details');
-        self::assertSame(303, $desk->post('/ui/purchasing/invoices/' . $id . '/details', $form)->status);
+        $form = ['net_total' => '40.00', 'vat_total' => '8.00', 'action' => 'save'] + $page->form('/ui/purchasing/invoices/' . $id . '/lines');
+        self::assertSame(303, $desk->post('/ui/purchasing/invoices/' . $id . '/lines', $form)->status);
         $page = $desk->get('/ui/purchasing/invoices/' . $id);
-        $r = $desk->post('/ui/purchasing/invoices/' . $id . '/post', $page->form('/ui/purchasing/invoices/' . $id . '/post'));
+        $r = $desk->post('/ui/purchasing/invoices/' . $id . '/lines', ['action' => 'post'] + $page->form('/ui/purchasing/invoices/' . $id . '/lines'));
         self::assertSame(303, $r->status, $r->describe());
         $page = $desk->follow($r);
         self::assertStringContainsString(Words::say('INVOICE_NOTICE', 'posted', 'SINV-000001'), $page->text());
@@ -198,10 +199,9 @@ final class InvoiceScreensTest extends KernelUiTestCase
         $form['pp_1'] = '4.00';
         self::assertSame(303, $desk->post('/ui/purchasing/invoices/' . $id . '/lines', $form)->status);
         $page = $desk->get('/ui/purchasing/invoices/' . $id);
-        $form = ['net_total' => '40.00', 'vat_total' => '8.00'] + $page->form('/ui/purchasing/invoices/' . $id . '/details');
-        self::assertSame(303, $desk->post('/ui/purchasing/invoices/' . $id . '/details', $form)->status);
-        $page = $desk->get('/ui/purchasing/invoices/' . $id);
-        $page = $desk->follow($desk->post('/ui/purchasing/invoices/' . $id . '/post', $page->form('/ui/purchasing/invoices/' . $id . '/post')));
+        // The invoice's one page (PV): the totals typed and made final with its one form.
+        $form = ['net_total' => '40.00', 'vat_total' => '8.00', 'action' => 'post'] + $page->form('/ui/purchasing/invoices/' . $id . '/lines');
+        $page = $desk->follow($desk->post('/ui/purchasing/invoices/' . $id . '/lines', $form));
         self::assertStringContainsString(Words::MATCH_STATE['matched'], $page->text(), '£10 dearer than the delivery: the invoice price is the right price');
         self::assertStringContainsString(Words::say('INVOICES', 'price_info_more_delivery', '£10.00'), $page->text());
         self::assertStringNotContainsString(Words::MATCH_WHY['price_over'], $page->text());

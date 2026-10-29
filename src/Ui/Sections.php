@@ -150,8 +150,10 @@ final class Sections
             // yet, the supplier's credit notes) and returns to suppliers.
             'invoices' => ['segments' => true, 'pages' => [
                 ['key' => 'invoices', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices',
-                    'match' => ['/ui/purchasing/invoices', '/ui/purchasing/invoices/{id}*', '/ui/purchasing/invoices/from-receipt'],
-                    'new' => ['perm' => 'doc.SINV.post', 'href' => '/ui/purchasing/invoices#new', 'label' => 'invoices']],
+                    'match' => ['/ui/purchasing/invoices', '/ui/purchasing/invoices/{id}*', '/ui/purchasing/invoices/from-receipt', '/ui/purchasing/invoices/new',
+                        '/ui/purchasing/invoices/products'],
+                    // The supplier invoice on one page (docs/decisions.md PV1): "New supplier invoice" opens the page itself.
+                    'new' => ['perm' => 'doc.SINV.post', 'href' => '/ui/purchasing/invoices/new', 'label' => 'invoices']],
                 ['key' => 'to_match', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices/to-match', 'match' => ['/ui/purchasing/invoices/to-match*'],
                     'badge' => 'invoices_to_match'],
                 ['key' => 'not_invoiced', 'perm' => 'invoices.view', 'path' => '/ui/purchasing/invoices/not-invoiced', 'match' => ['/ui/purchasing/invoices/not-invoiced*']],

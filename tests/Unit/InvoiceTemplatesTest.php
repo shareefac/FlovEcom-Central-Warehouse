@@ -15,7 +15,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class InvoiceTemplatesTest extends TestCase
 {
-    private const TEMPLATES = ['invoices', 'invoices_to_match', 'invoices_not_invoiced', 'supplier_invoice', 'supplier_returns', 'supplier_return'];
+    private const TEMPLATES = ['invoices', 'invoices_to_match', 'invoices_not_invoiced', 'supplier_invoice', 'supplier_returns', 'supplier_return', 'invoice_edit'];
 
     public function testTheyTurnIntoCardsAndTakeEveryWordFromWords(): void
     {

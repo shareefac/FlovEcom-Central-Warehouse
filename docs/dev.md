@@ -684,6 +684,41 @@ Document and file tests notes:
   own code) lives outside it (`/root/cw_work/runs/poone_js_harness/`, run on the test machine).
 
 
+### The supplier invoice on one page, and the shared document pieces (`docs/decisions.md` PV1-PV17)
+
+| Path | What |
+|---|---|
+| `src/Ui/Controller/InvoiceOnePage.php` | `newPage` (`GET /ui/purchasing/invoices/new`, nothing written), `create` (`POST /ui/purchasing/invoices` for an invoice: FormOnce, the draft and the form applied in one transaction), `lines` (an invoice draft's `POST {id}/lines`: the one form), `makeFinal` ("Save and make final": after the save commits, `SupplierInvoices::submit` as pack C/J post, PV16), `products` (`GET /ui/purchasing/invoices/products`, the item box's choices: the order page's `po_products` fragment), `editPage`, `sources` ("From"), `linesFit` (the field budget from `max_input_vars`, PV17) |
+| `src/Ui/Controller/InvoicesController.php` | the routes; an invoice draft of its creator goes to `InvoiceOnePage::editPage`; the saved document's `party`, `docFacts`, `totalRows`; the list's due date and balance |
+| `src/Invoices/SupplierInvoices.php` | header `due_date` (0052), `addItem(..., $supplierItemId, $unitsPerPack)`, `creditedOn()` |
+| `migrations/0052_invoice_due_date.sql` | `supplier_invoice.due_date` (DATE NULL, INSTANT) |
+| views `invoice_edit` (the one page), `invoices`, `supplier_invoice`, `purchase_orders`, `purchase_order`, `purchase_order_edit` | the lists, the new/edit pages and the saved documents in the shared look |
+| `public/ui/assets/app.js` | `ALSO` (the invoice's item box: the same fragment from its own route), `select[data-pi-from]` (keeps the chosen supplier's deliveries and orders), `input[data-pi-due]` (the due date from the terms); the supplier and item boxes are the order page's (no new `combo()`) |
+
+**The shared document pieces** (for the order, the supplier invoice and, later, the sales invoice; CSS in `app.css`'s "pi-one-page" block):
+
+| Piece | Class / partial | Notes |
+|---|---|---|
+| Header grid | `.doc-grid` (on a `fieldset`; in `form.po-editor` too) | two columns, one under 640 px; `.doc-wide` spans both; `.doc-field` + `.doc-pair` = a select and its button |
+| Lines table | `table.stack.list.board.doc-lines` | headings in `thead`; numbers `.num`; `.o-sub` the line under a cell; the last row `tr.grp-add` adds a line |
+| Under the lines | `.doc-foot` | notes/files left (`.doc-notes`), totals right |
+| Totals block | partial `doc_totals` (`label`, `rows`: label + value, `grand`, or `input` name/id/value) → `section.doc-totals` | right-aligned, `max-width` 24rem; inside the order's summary it is a `div.doc-totals` |
+| Action bar (bottom) | partial `doc_bar` (`back`, `buttons`: value, label, primary) → `div.doc-bar` | sticky at the bottom of its form; on a phone it replaces the tab bar; "Leave without saving" first, the primary button last |
+| Status pill | `.chip` via `$chip` / `$stateChip` | the one status-to-colour mapping (`Ui\Html::chip`) |
+| Clean list | `table.stack.list.doc-list` with `a.row-link` in the number's cell | the whole row opens the document; in a card the number and pill come first |
+| Document view | `article.doc-view` + partial `doc_party` (`party`: label, name, href, lines; `facts`: label, value, href) → `.doc-meta` | the other party's block beside the facts |
+| Document actions (top) | `div.doc-actions` with buttons, links, inline forms and `details.doc-act` (summary as a button, `.doc-act-panel` under the bar) | an open step takes its own row under the bar |
+| Words | `Words::DOC`, `Words::DOC_LIST` | "Leave without saving", Sub total, Total, Balance; the list's columns and filter |
+
+- Tests: `tests/Integration/UiKernel/InvoiceOnePageScreensTest.php`, `tests/Integration/Invoices/InvoiceOnePageServiceTest.php`,
+  `tests/Integration/Invoices/Migration0052Test.php`, `UiUnitTest::testTheInvoicePageUsesTheOrdersDropdownsAndTheSharedLayout` (the JS and CSS
+  pins), `WordsTest::testTheInvoicePageSaysWhatTheOrdersPageSays`. An invoice draft's form is `$r->form('/ui/purchasing/invoices/{id}/lines')`
+  (`csrf`, `version`, `line_count`, `form_key` first; "make final" is `action=post`); the new page's is `$r->form('/ui/purchasing/invoices')`
+  (`csrf`, `form_key` first). Pass `true` as `form()`'s second argument to get the note (a text area).
+- The page's JavaScript was driven in node with a minimal DOM (`/root/cw_work/runs/pione_js_harness/`, outside the repo: copy it into the
+  worktree for a run through the slot runner, `/root/poone_js/node` on cw-test, and remove it); the repo pins it by strings in `UiUnitTest`.
+
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

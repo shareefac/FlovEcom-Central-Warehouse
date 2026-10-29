@@ -214,8 +214,13 @@
   // was asked of; anything else (the sign-in page of a session that ended, an error page, no network, another address) fails, and the
   // caller shows the page's words for that.
   var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?' };
+  // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
+  var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
   var fragment = function (url, marker) {
     var path = FRAGMENTS[marker];
+    if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {
+      path = ALSO[marker];
+    }
     if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {
       return Promise.reject(new Error('not a fragment of this site'));
     }
@@ -980,7 +985,9 @@
     var sku = form ? form.querySelector('input[type="hidden"][name="pick_sku"]') : null;
     var panel = document.getElementById(input.getAttribute('data-panel') || '');
     var supplier = document.getElementById('po-supplier');
-    if (base.indexOf('/ui/purchasing/orders/products?') !== 0 || !list || !list.id || !note || !si || !sku || !window.fetch || !window.DOMParser) {
+    // The order's route, or the supplier invoice's (docs/decisions.md PV: the invoice's item box is this one).
+    if ((base.indexOf('/ui/purchasing/orders/products?') !== 0 && base.indexOf('/ui/purchasing/invoices/products?') !== 0) || !list || !list.id || !note || !si || !sku
+        || !window.fetch || !window.DOMParser) {
       return;
     }
     var ask = (input.closest('section') || form).querySelector('.po-ask');
@@ -1117,6 +1124,71 @@
         draw([]);
         pick();
       });
+    }
+  });
+
+  // The supplier invoice's "From" (docs/decisions.md PV): every open delivery and order, each naming its supplier (data-supplier), so the
+  // plain select works without the script; here only the chosen supplier's are offered (the others hidden and switched off), and a choice
+  // of another supplier's goes when the supplier changes. The server refuses another supplier's document anyway.
+  each(document.querySelectorAll('select[data-pi-from]'), function (from) {
+    var supplier = document.getElementById('po-supplier');
+    var keep = function () {
+      var chosen = supplier ? supplier.value : '';
+      each(from.querySelectorAll('option[data-supplier]'), function (o) {
+        var off = chosen !== '' && o.getAttribute('data-supplier') !== chosen;
+        o.hidden = off;
+        o.disabled = off;
+        if (off && o.selected) {
+          from.value = '';
+        }
+      });
+      each(from.querySelectorAll('optgroup'), function (g) {
+        g.hidden = g.querySelector('option:not([disabled])') === null;
+      });
+    };
+    keep();
+    if (supplier) {
+      supplier.addEventListener('change', keep);
+    }
+  });
+
+  // The supplier invoice's due date (docs/decisions.md PV): the invoice date plus the supplier's payment terms in days (data-terms: on the
+  // supplier's option, or on the box when the supplier is fixed), while the box is empty or still holds the date filled for the person
+  // (data-auto); once the person types in it, or clears it, it is theirs (the Codex review of 6418b15, finding 4). The new page's
+  // due_shown says what the box showed, so a date cleared on purpose is not filled again by the server. No terms: left as it is.
+  each(document.querySelectorAll('input[data-pi-due]'), function (due) {
+    var form = due.form;
+    var date = form ? form.querySelector('input[name="invoice_date"]') : null;
+    var shown = form ? form.querySelector('input[type="hidden"][name="due_shown"]') : null;
+    var supplier = document.getElementById('po-supplier');
+    var typed = false;
+    var auto = due.getAttribute('data-auto') === '1' ? due.value : null;
+    if (!date) {
+      return;
+    }
+    var terms = function () {
+      var o = supplier && supplier.selectedIndex >= 0 ? supplier.options[supplier.selectedIndex] : null;
+      var t = o ? o.getAttribute('data-terms') : due.getAttribute('data-terms');
+      return t !== null && /^[0-9]{1,4}$/.test(t) ? parseInt(t, 10) : null;
+    };
+    var fill = function () {
+      var days = terms();
+      var m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(date.value);
+      if (typed || days === null || !m || (due.value !== '' && due.value !== auto)) {
+        return;
+      }
+      var d = new Date(Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10) + days));
+      var two = function (n) { return (n < 10 ? '0' : '') + n; };
+      due.value = d.getUTCFullYear() + '-' + two(d.getUTCMonth() + 1) + '-' + two(d.getUTCDate());
+      auto = due.value;
+      if (shown) {
+        shown.value = due.value;
+      }
+    };
+    due.addEventListener('input', function () { typed = true; });
+    date.addEventListener('change', fill);
+    if (supplier) {
+      supplier.addEventListener('change', fill);
     }
   });
 

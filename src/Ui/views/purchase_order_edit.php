@@ -7,7 +7,10 @@
 // ending with "+ Add new supplier"; the scan box gets the same dropdown, ending with "+ Add new item". Both small forms are fields of this
 // form, each with its own button: a fold without the script, opened by the dropdown's last line with it. A person who may not add one
 // sees the line naming whom to ask instead. A saved draft has "Cancel draft" beside Save and Confirm (PX11): one small step of its own form
-// (its controls name the form po-cancel, drawn after this one, as forms do not nest), the existing cancel route.
+// (its controls name the form po-cancel, drawn after this one, as forms do not nest), the existing cancel route. The professional look
+// (docs/decisions.md PV, Zoho Inventory's layout; the order behaves as before, PX1-PX11): the head fields in the shared grid (two columns, one
+// on a phone), the board of products with its headings, the totals on the right and the bar at the bottom that stays on the screen
+// (doc_bar: leave without saving, Save, Confirm), all inside the summary section the tests know.
 ?>
 <p class="crumbs"><a href="/ui/purchasing/orders"><?= $word('MENU', 'orders') ?></a></p>
 <?= $head((string) $title, intro: $isNew ? 'order_new' : 'order_draft', meta: $isNew ? '' : $stateChip('PO_STATE', 'draft')) ?>
@@ -44,7 +47,7 @@
 <?php endif; ?>
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
   <button type="submit" name="action" value="add" class="po-default" tabindex="-1" aria-hidden="true"><?= $word('ORDER', 'add_button') ?></button>
-  <fieldset class="po-header">
+  <fieldset class="po-header doc-grid">
     <legend class="visually-hidden"><?= $word('ORDER', 'order') ?></legend>
 <?php if ($supplierFixed): ?>
     <p class="po-fixed"><?= $word('ORDER', 'supplier') ?>: <a href="<?= $u('/ui/purchasing/suppliers/' . ($supplier['id'] ?? 0)) ?>"><?= $e($supplierName) ?></a></p>
@@ -84,7 +87,7 @@
     <p class="note"><?= $say('ORDER', 'too_many', $maxLines) ?></p>
 <?php endif; ?>
     <div class="table-wrap">
-    <table class="stack list board po-lines">
+    <table class="stack list board po-lines doc-lines">
       <thead>
         <tr>
           <th scope="col" class="c-item"><?= $word('ORDER', 'product') ?></th>
@@ -193,7 +196,8 @@
   </section>
 <?php endif; ?>
 
-  <section class="card totals po-summary" aria-label="<?= $word('PO_ONE', 'summary') ?>">
+  <section class="po-summary doc-summary" aria-label="<?= $word('PO_ONE', 'summary') ?>">
+    <div class="card totals doc-totals">
     <dl>
       <dt><?= $word('ORDER', 'products') ?></dt><dd><?= $say('ORDER', count($lines) === 1 ? 'products_line_one' : 'products_line', count($lines), $units) ?></dd>
       <dt><label for="po-delivery"><?= $word('PO_ONE', 'delivery') ?></label></dt><dd><input id="po-delivery" type="text" name="charge_amount" inputmode="decimal" class="short" value="<?= $e($typed['charge_amount'] ?? '') ?>"></dd>
@@ -203,10 +207,6 @@
 <?php endforeach; ?>
       <dt><?= $word('ORDER', 'gross') ?></dt><dd><strong><?= $e($totals['gross']) ?></strong></dd>
     </dl>
-    <div class="actions">
-      <button type="submit" name="action" value="save" class="btn secondary"><?= $word('PO_ONE', 'save') ?></button>
-      <button type="submit" name="action" value="approve" class="btn primary"><?php if ($overLimit): ?><?= $word('PO', 'confirm_over_limit') ?><?php else: ?><?= $word('PO_ONE', 'confirm') ?><?php endif; ?></button>
-    </div>
 <?php if (!$isNew): ?>
     <details class="po-cancel"<?php if ($reasonError === 'cancel'): ?> open<?php endif; ?>>
       <summary class="btn secondary sm"><?= $word('PO_ONE', 'cancel') ?></summary>
@@ -220,6 +220,9 @@
       <button type="submit" form="po-cancel" class="btn danger-outline sm"><?= $word('ORDER', 'cancel_draft_button') ?></button>
     </details>
 <?php endif; ?>
+    </div>
+<?= $partial('doc_bar', ['back' => '/ui/purchasing/orders', 'buttons' => [['value' => 'save', 'label' => \CW\Ui\Words::PO_ONE['save']],
+    ['value' => 'approve', 'label' => $overLimit ? \CW\Ui\Words::PO['confirm_over_limit'] : \CW\Ui\Words::PO_ONE['confirm'], 'primary' => true]]]) ?>
   </section>
 </form>
 <?php if (!$isNew): ?>

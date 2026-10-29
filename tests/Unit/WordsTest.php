@@ -1003,6 +1003,23 @@ final class WordsTest extends TestCase
         }
     }
 
+    /** The supplier invoice on one page (docs/decisions.md PV) speaks as the order's page does: one name for one thing, refusals that say nothing was saved. */
+    public function testTheInvoicePageSaysWhatTheOrdersPageSays(): void
+    {
+        self::assertSame(Words::NEW['invoices'], Words::PI_ONE['title'], 'one name for one thing: the button and the page');
+        foreach (['need_supplier', 'need_product', 'need_source'] as $k) {
+            self::assertStringEndsWith('Nothing was saved.', Words::INVOICE_ERROR[$k], $k);
+        }
+        self::assertSame(Words::PO_ADD['new_supplier'], '+ Add new supplier', 'the same "+ Add new" lines as the order\'s page');
+        foreach (['date', 'number', 'supplier', 'status', 'total', 'due', 'balance', 'expected', 'any_state', 'show'] as $k) {
+            self::assertArrayHasKey($k, Words::DOC_LIST, $k);
+        }
+        self::assertNotSame(Words::PO_ONE['save'], Words::PI_ONE['final'], 'the order\'s "Save" keeps a draft: the invoice\'s button that makes it final says so');
+        foreach (['leave', 'sub_total', 'total', 'actions'] as $k) {
+            self::assertArrayHasKey($k, Words::DOC, 'the shared document pieces\' words: ' . $k);
+        }
+    }
+
     public function testSimpleMatchingSaysEveryRefusalInWords(): void
     {
         self::assertSame('Simple matching', Words::MENU['simple_match']);

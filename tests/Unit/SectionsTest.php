@@ -329,6 +329,11 @@ final class SectionsTest extends TestCase
         self::assertSame([], Sections::frame(['buyer'], [], '/ui/purchasing/orders/new')['actions'], 'the new order\'s page has no create button of its own');
         self::assertSame('orders', Sections::frame(['buyer'], [], '/ui/purchasing/orders/new')['here']['tab'] ?? null, 'it keeps Purchase Orders marked');
         self::assertSame([], Sections::frame(['reviewer'], [], '/ui/purchasing/orders')['actions'], 'a reviewer does not order');
+        // The supplier invoice on one page (docs/decisions.md PV): "New supplier invoice" opens the page itself, not a fold of the list.
+        self::assertSame(['label' => 'New supplier invoice', 'href' => '/ui/purchasing/invoices/new'], Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices')['actions'][0] ?? null);
+        self::assertSame([], Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['actions'], 'the new invoice\'s page has no create button of its own');
+        self::assertSame(['invoices', 'invoices'], [Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['here']['tab'] ?? null,
+            Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['here']['page'] ?? null], 'it keeps Invoices marked');
         self::assertTrue(Sections::frame(['buyer'], [], '/ui/purchasing/orders')['pagebar']['flow'], 'the buying flow on Purchasing');
         self::assertSame([['label' => 'Receive delivery', 'href' => '/ui/receiving#new']], Sections::frame(['goods_in'], [], '/ui/receiving')['actions']);
         self::assertSame(['/ui/people#new', '/ui/reference/warehouses#new', '/ui/reference/reasons#new'], array_column(Sections::frame(['admin'], [], '/ui/people')['actions'], 'href'));
