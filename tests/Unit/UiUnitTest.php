@@ -1267,6 +1267,35 @@ final class UiUnitTest extends TestCase
     }
 
     /**
+     * The tab row's More (docs/decisions.md HV3, HV9; the Codex review of fcddc98): its menu never leaves the screen. A buyer on All Products at
+     * 375 px had All Products and More alone in the row; the strip did not grow, so More sat near the left edge and its wide menu, put to
+     * More's right edge, ran off the left of the screen (Families and Multipacks cut). Now the strip fills the row, so More is always at the
+     * row's right end (also when the row scrolls: More is outside the scrolling strip), and the menu is placed against the whole row (the row
+     * is its positioned box, the More itself is not): its right edge the row's, never wider than the row, at every width, with or without
+     * the script. No rule of a narrow screen puts it back against More or in the flow.
+     */
+    public function testTheTabRowsMoreMenuStaysOnTheScreen(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $rule = static function (string $selector) use ($css): string {
+            self::assertSame(1, preg_match('/^' . preg_quote($selector, '/') . ' \{([^}]*)\}/m', $css, $m), "the rule {$selector}");
+            return $m[1];
+        };
+        self::assertStringContainsString('position: relative', $rule('.tabs-row'), 'the row is the menu\'s box');
+        self::assertStringContainsString('flex: 1 1 auto', $rule('.tabs-row > .tabs'), 'the strip fills the row: More at its right end');
+        $more = $rule('details.more.tabs-more, details.more.tabs-more[open]');
+        foreach (['position: static', 'flex: none'] as $want) {
+            self::assertStringContainsString($want, $more, "More: {$want} (not the menu's box; open, it does not take the row)");
+        }
+        $menu = $rule('.tabs-more > .more-menu');
+        foreach (['position: absolute', 'right: 0', 'left: auto', 'max-width: min(32rem, 100%)', 'min-width: min(220px, 100%)'] as $want) {
+            self::assertStringContainsString($want, $menu, "the menu: {$want}");
+        }
+        self::assertDoesNotMatchRegularExpression('/details\.more\.tabs-more\s*\{[^}]*position:\s*relative/', $css, 'no width puts the menu back against More');
+        self::assertDoesNotMatchRegularExpression('/\.tabs-more\s*>\s*\.more-menu\s*\{[^}]*calc\(100vw/', $css, 'bounded by the row, not by the window');
+    }
+
+    /**
      * One set of tabs, buttons and status parts for every page (the owner, 29 Oct 2026, looking at the item page's design: "tab change follow
      * this design pattern and button all design follow this"; the parts board TP_Parts and IT_Item; docs/decisions.md DS1-DS6), as CSS:
      * the tabs underline with a 3 px accent bar on the open tab and a count bubble that turns accent on it, 44 px to tap, one row that

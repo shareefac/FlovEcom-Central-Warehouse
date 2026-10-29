@@ -13564,3 +13564,18 @@ form's grid, lines board, guard, bar with Leave first and Save before the final 
 pop-over, folds, tiles or facts list; every tag the new pieces open closed). `tests/Integration/UiKernel/StockPatternsScreensTest.php` checks
 the served pages (a stock in and a transfer from the board to the draft to the record page, a hand-over and its customer and balances, the
 reports). `StockScreensTest` and `ReservationsScreenTest` read the figures from the strip. Red first: `runs/w8_red.log` (5 failures on main).
+
+## Home and a shorter menu: the Codex review of fcddc98 (`runs/hmone_codex_review.txt`), one MEDIUM, fixed test-first (branch `menu-more-fix`, 29 Oct 2026; HV9)
+
+The coordinator checked fcddc98 on staging in Chrome at desktop width (Home and the menu look right); Codex found one MEDIUM. Red first:
+`runs/hmone_more_red.log`.
+
+**HV9. The tab row's More menu never leaves the screen (MEDIUM).** A buyer on Products › All Products at 375 px has All Products and More alone
+in the row. The strip did not grow (`flex: 0 1 auto`), so More sat near the left edge, and its menu (up to 32rem wide) was put against More's
+right edge: it ran off the left of the screen and cut Families and Multipacks, with or without the script (on a wide screen a short row sent
+it under the sidebar the same way). Now the strip fills the row (`flex: 1 1 auto`), so More is always at the row's right end (also on a long
+row, which scrolls inside the strip while More stays put), and the menu is placed against the whole row: the row is its positioned box
+(`.tabs-row { position: relative }`, the More `details` static), its right edge is the row's and it is never wider than the row
+(`max-width: min(32rem, 100%)`, `min-width: min(220px, 100%)`), at every width; the narrow-screen rule that put it against More is gone. The
+row is the page's width inside its gutters, so the menu keeps the 16 px gutters on a phone. `UiUnitTest::testTheTabRowsMoreMenuStaysOnTheScreen`
+pins the rules.
