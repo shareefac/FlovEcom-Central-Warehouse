@@ -38,6 +38,7 @@ final class StoreQueuesController
     {
         $c = new self();
         $r->add('GET', self::PATH . '/suspense', 'queues.view', $c->suspense(...));
+        $r->add('GET', self::PATH . '/suspense/items', Suspense::PERM, $c->suspenseItems(...));
         $r->add('POST', self::PATH . '/suspense/{id}/pick', 'queues.suspense', $c->suspensePick(...));
         $r->add('POST', self::PATH . '/suspense/{id}/dismiss', 'queues.suspense', $c->suspenseDismiss(...));
         $r->add('GET', self::PATH . '/corrections', 'queues.view', $c->corrections(...));
@@ -65,8 +66,77 @@ final class StoreQueuesController
     {
         $state = QueueRules::status($ctx->req->param('status'));
         $rows = (new Suspense($ctx->db))->list($state);
-        return $this->page($ctx, 'queue_suspense', 'queue_suspense', Suspense::PERM, $state, $rows, static fn (array $r): array => self::suspenseRow($r)
-            + ['typed' => $typed !== null && $typed['id'] === (int) $r['id'] ? $typed : null], $status, $error);
+        $me = $ctx->me();
+        $canAct = $me->can(Suspense::PERM);
+        $canAdd = $me->can('items.create');
+        // The item a refused answer named, drawn as picked again (LQ6): its name and code when the code is an item's.
+        $picked = '';
+        if ($typed !== null && $typed['form'] === 'pick' && trim($typed['item']) !== '') {
+            $sku = $ctx->db->one('SELECT code, name FROM sku WHERE code = ? AND merged_into_sku_id IS NULL', [strtoupper(trim($typed['item']))]);
+            $picked = $sku === null ? '' : Words::say('LQ', 'label', self::oneLine((string) $sku['name']), (string) $sku['code']);
+        }
+        $words = static fn (array $r): array => self::suspenseRow($r, $canAct, $canAdd, $typed !== null && $typed['id'] === (int) $r['id'] ? $typed + ['picked' => $picked] : null);
+        return $this->page($ctx, 'queue_suspense', 'queue_suspense', Suspense::PERM, $state, $rows, $words, $status, $error, [
+            'groups' => self::suspenseGroups(array_map($words, array_slice($rows, 0, QueueRules::PAGE)), $state),
+            'itemsHref' => self::PATH . '/suspense/items?',
+            'addWords' => $canAdd ? Words::LQ['add_new'] : '',
+            'askWords' => $canAdd ? '' : Words::askToAdd('items.create'),
+        ]);
+    }
+
+    /**
+     * GET /suspense/items?q=: the item box's choices (LQ5; queues.suspense, read only): a fragment of what the words name (StockOps::resolve:
+     * a barcode, a CW number, else words of the name, brand or range, at most StockOps::SEARCH_LIMIT), each with its CW code and the units on
+     * hand in our own warehouses; fewer than 2 characters: nothing; nothing found: said.
+     */
+    public function suspenseItems(Context $ctx): HtmlResponse
+    {
+        $q = mb_substr(trim((string) ($ctx->req->param('q') ?? '')), 0, 100);
+        $choices = [];
+        if (mb_strlen($q) >= 2) {
+            $r = $ctx->stockOps()->resolve($q);
+            $rows = $r['status'] === 'choices' ? $r['choices']
+                : ($r['status'] === 'found' ? $ctx->db->all('SELECT id AS sku_id, code, name, brand FROM sku WHERE id = ?', [(int) $r['sku_id']]) : []);
+            $ids = array_map(static fn (array $c): int => (int) $c['sku_id'], $rows);
+            $held = $ids === [] ? [] : array_column($ctx->db->all('SELECT b.sku_id, SUM(b.on_hand) AS units FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id '
+                . "WHERE w.stock_owner = 'own' AND b.sku_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ') GROUP BY b.sku_id', $ids), 'units', 'sku_id');
+            foreach ($rows as $c) {
+                $name = self::oneLine((string) $c['name']);
+                $choices[] = ['label' => Words::say('LQ', 'label', $name, (string) $c['code']), 'code' => (string) $c['code'], 'name' => $name,
+                    'meta' => implode(' · ', array_filter([(string) $c['code'], (string) ($c['brand'] ?? ''), Words::say('LQ', 'in_stock', (int) ($held[(int) $c['sku_id']] ?? 0))],
+                        static fn (string $v): bool => $v !== ''))];
+            }
+        }
+        return $ctx->fragment('queue_items', ['choices' => $choices, 'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('LQ', 'none', $q) : '']);
+    }
+
+    private static function oneLine(string $name): string
+    {
+        return trim((string) preg_replace('/\s+/u', ' ', $name));
+    }
+
+    /**
+     * The board's groups (LQ2): goods in (blue), then corrections (amber), each with its rows, its heading (waiting for an item while the list
+     * shows the waiting lines), its count with the stores the lines came from, and the units column's name (a correction: "Set to").
+     *
+     * @param list<array<string, mixed>> $rows suspenseRow() rows
+     * @return list<array{key: string, tone: string, name: string, count: string, units_col: string, rows: list<array<string, mixed>>}>
+     */
+    private static function suspenseGroups(array $rows, ?string $state): array
+    {
+        $out = [];
+        foreach (['goods' => false, 'corrections' => true] as $key => $correction) {
+            $in = array_values(array_filter($rows, static fn (array $r): bool => $r['correction'] === $correction));
+            if ($in === []) {
+                continue;
+            }
+            $stores = array_values(array_unique(array_filter(array_map(static fn (array $r): string => (string) ($r['store']['name'] ?? ''), $in))));
+            $count = count($in) === 1 ? Words::LQ['count_one'] : Words::say('LQ', 'count_many', count($in));
+            $out[] = ['key' => $key, 'tone' => $correction ? 'needs' : 'info', 'name' => Words::LQ[$key . ($state === 'open' ? '_waiting' : '')],
+                'count' => $stores === [] ? $count : Words::say('LQ', 'count_from', $count, Words::andList($stores)),
+                'units_col' => Words::LQ[$correction ? 'col_set_to' : 'col_units'], 'rows' => $in];
+        }
+        return $out;
     }
 
     /** @return array{id: int, form: string, item: string, units: string, note: string} what an answer of a row sent (as typed, cut to its boxes' sizes) */
@@ -225,8 +295,15 @@ final class StoreQueuesController
     // The rows in words
     // ------------------------------------------------------------------------------------------
 
-    /** @param array<string, mixed> $r a Suspense::list() row @return array<string, mixed> */
-    public static function suspenseRow(array $r): array
+    /**
+     * A row of the board in words (LQ3): what came in, where from, why it waits, its status cell, its units; for someone who may answer an open
+     * line, what the answer's boxes hold (as a refused answer typed them: OV7) and where "+ Add new item" leads (items.create).
+     *
+     * @param array<string, mixed> $r a Suspense::list() row
+     * @param array{id: int, form: string, item: string, units: string, note: string, picked?: string}|null $typed
+     * @return array<string, mixed>
+     */
+    public static function suspenseRow(array $r, bool $canAct = false, bool $canAdd = false, ?array $typed = null): array
     {
         $names = [];
         if ($r['external_variant_id'] !== null) {
@@ -245,8 +322,23 @@ final class StoreQueuesController
             'why' => Words::say('SUSPENSE', 'why', Words::of('RELAY_REASON', (string) $r['reason'])),
             'received' => Words::say('QUEUES', 'received', Html::when((string) $r['created_at'])),
             'correction' => $correction,
-            'picked' => $r['sku_code'] === null ? null : Words::say('SUSPENSE', 'picked', (string) $r['sku_name'], (string) $r['sku_code']),
+            'picked' => $r['sku_code'] === null ? null : Words::say('LQ', 'label', self::oneLine((string) $r['sku_name']), (string) $r['sku_code']),
             'closed' => self::closed($r),
+            'what' => (string) ($r['description'] ?? '') !== '' ? (string) $r['description'] : Words::SUSPENSE['no_description'],
+            'where' => Words::say('LQ', 'where', Words::of('RELAY_KIND', (string) $r['movement_type']), (string) $r['doc_ref'], (int) $r['line_index'],
+                Html::when((string) $r['created_at'])),
+            'units' => $correction ? (int) $r['qty'] : abs((int) $r['qty']),
+            'st_tone' => match ((string) $r['status']) { 'open' => $correction ? 'needs' : 'info', 'resolved' => 'done', default => 'off' },
+            'st_word' => match ((string) $r['status']) {
+                'open' => Words::LQ[$correction ? 'st_correction' : 'st_waiting'], 'resolved' => Words::LQ[$correction ? 'st_sent' : 'st_placed'], default => Words::LQ['st_closed'] },
+            'answer' => $canAct && (string) $r['status'] === 'open',
+            'typed_item' => $typed !== null && $typed['form'] === 'pick' ? $typed['item'] : '',
+            'typed_units' => $typed !== null && $typed['form'] === 'pick' ? $typed['units'] : '1',
+            'typed_note' => $typed !== null && $typed['form'] === 'pick' ? $typed['note'] : '',
+            'typed_close' => $typed !== null && $typed['form'] === 'dismiss' ? $typed['note'] : null,
+            'picked_label' => $typed !== null && $typed['form'] === 'pick' ? (string) ($typed['picked'] ?? '') : '',
+            'add_href' => $canAdd ? Html::url('/ui/items/new', ['name' => mb_substr(trim((string) ($r['description'] ?? '')), 0, 120)]) . '#new' : '',
+            'note_shown' => (string) ($r['note'] ?? ''),
         ];
     }
 

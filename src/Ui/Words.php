@@ -54,6 +54,8 @@ final class Words
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         // "Final uses what is on the screen" (docs/decisions.md OV)
         'OP_FINAL',
+        // Lines to place as a board (docs/decisions.md LQ)
+        'LQ',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
         // pack D (docs/decisions.md PD13)
         'SALE', 'SALE_STATE', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
@@ -10184,19 +10186,52 @@ final class Words
         'erp_item' => 'ERPNext item %s',
         'names' => 'The store named it: %s.',
         'why' => 'Why it waits: %s.',
-        'picked' => 'Placed on "%s" (%s).',
-        'pick_legend' => 'Place it on an item',
-        'item' => 'Item code',
-        'item_hint' => 'Like CW-000123. Find the item under Products.',
-        'units' => 'Item units in one unit of this line',
-        'units_hint' => 'Leave 1 unless the line counts packs.',
-        'book' => 'Book it on this item',
-        'book_hint' => 'This books the stock now, in the store\'s warehouse, with the ERPNext document\'s name.',
-        'to_corrections' => 'Send it to the ERPNext corrections',
-        'correction_hint' => 'This books nothing: the correction then waits under ERPNext corrections.',
-        'dismiss_legend' => 'Close it without booking',
-        'dismiss' => 'Nothing to book: close it',
         'none_open_text' => 'New lines arrive when a store sends an ERPNext document with a product the warehouse system cannot match.',
+    ];
+
+    /**
+     * Approvals › From the stores › Lines to place as a board (docs/decisions.md LQ1-LQ8; the owner's OK of 29 Oct 2026): the groups, the
+     * columns, the status cell, the item box (the order page's dropdown) and the row's menu. No help paragraphs.
+     */
+    public const LQ = [
+        'goods_waiting' => 'Goods in waiting for an item',
+        'corrections_waiting' => 'Corrections waiting for an item',
+        'goods' => 'Goods in',
+        'corrections' => 'Corrections',
+        'count_one' => '1 line',
+        'count_many' => '%s lines',
+        'count_from' => '%s · %s',
+        'col_what' => 'What came in',
+        'col_status' => 'Status',
+        'col_units' => 'Units',
+        'col_set_to' => 'Set to',
+        'col_item' => 'Item in CW',
+        'col_each' => 'Units each',
+        'col_note' => 'Note',
+        'col_action' => 'Action',
+        'where' => '%s · %s line %s · %s',
+        'st_waiting' => 'Waiting',
+        'st_correction' => 'Correction',
+        'st_placed' => 'Placed',
+        'st_sent' => 'Sent on',
+        'st_closed' => 'Closed',
+        'label' => '%s · %s',
+        'item_code' => 'CW code, like CW-000123',
+        'item_find' => 'Type a name or scan a barcode',
+        'choices' => 'Matching items',
+        'in_stock' => '%s in stock',
+        'none' => 'No item has "%s" in it.',
+        'loading' => 'Looking…',
+        'failed' => 'The list could not be loaded. Type the CW code instead.',
+        'choose' => 'Choose the item from the list, or type its CW code.',
+        'change' => 'Change',
+        'add_new' => '+ Add new item',
+        'note_hint' => 'Why this item',
+        'place' => 'Place',
+        'to_corrections' => 'Send to corrections',
+        'menu' => 'More for this line',
+        'close_note' => 'Why it is closed',
+        'close' => 'Close it, nothing to place',
     ];
 
     /** Approvals › From the stores › ERPNext corrections. */

@@ -39,7 +39,10 @@ final class HandMadeController
     public function form(Context $ctx): HtmlResponse
     {
         $notice = $ctx->req->param('notice');
-        return $this->page($ctx, 200, null, [], null, FormOnce::newKey(), $notice !== null ? (Words::ITEMS_NOTICE[$notice] ?? null) : null);
+        // A name brought by a link (Lines to place's "+ Add new item", docs/decisions.md LQ5) fills in the name; nothing is made until it is sent.
+        $name = trim((string) ($ctx->req->param('name') ?? ''));
+        return $this->page($ctx, 200, null, $name === '' ? [] : ['name' => mb_substr($name, 0, 120)], null, FormOnce::newKey(),
+            $notice !== null ? (Words::ITEMS_NOTICE[$notice] ?? null) : null);
     }
 
     public function create(Context $ctx): HtmlResponse

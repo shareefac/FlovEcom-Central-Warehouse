@@ -79,7 +79,8 @@ final class StoreQueuesScreensTest extends KernelUiTestCase
 
         // Lines to place: the item's code and a note; the line is booked and the notice names the item.
         $page = $web->get(self::PATH . '/suspense');
-        self::assertStringContainsString('Delivery: 2 of "Mango 10ml"', $page->text());
+        self::assertStringContainsString(Words::LQ['goods_waiting'], $page->text(), 'the board of Lines to place (docs/decisions.md LQ2)');
+        self::assertStringContainsString('Mango 10ml', $page->text());
         $form = $page->form(self::PATH . '/suspense/' . $ids['suspense'] . '/pick');
         $r = $web->post(self::PATH . '/suspense/' . $ids['suspense'] . '/pick', ['item' => $ids['code'], 'units' => '1', 'note' => 'the new mango'] + $form);
         self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));

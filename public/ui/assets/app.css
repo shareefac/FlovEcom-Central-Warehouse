@@ -2317,3 +2317,28 @@ td.late { color: var(--st-red); font-weight: 600; }
   table.stack.doc-lines tr.grp-add > td { grid-column: 1 / -1; }
 }
 /* ==== end pi-design ================================================================================================================ */
+
+/* Lines to place as a board (Approvals › From the stores, docs/decisions.md LQ2-LQ3; the owner's OK of 29 Oct 2026). The board is the shared
+   one of pi-design above (.doc-group with its .grp-title, .doc-board's 6 px coloured edge, td.doc-st's solid status cell); here only what
+   the rows add: their boxes, the status cell kept solid on hover, the item chosen as a green chip, the row's menu a small fold. */
+table.lq-lines th, table.lq-lines td { vertical-align: top; }
+table.lq-lines td.doc-st { vertical-align: middle; }
+table.lq-lines tbody tr:hover > td.doc-st { background: var(--t-fill, var(--st-grey)); }
+table.lq-lines td.lq-item { min-width: 16rem; }
+table.lq-lines td.lq-item input[type="text"], table.lq-lines td input[name="note"] { width: 100%; min-width: 10rem; }
+table.lq-lines .lq-answer { display: inline; margin: 0; }
+.lq-picked {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; margin: 0; padding: 0 4px 0 10px;
+  border-radius: var(--r-10); background: var(--sf-green); color: var(--sf-green-ink); font: 600 13px/18px var(--font);
+}
+.lq-picked button { min-height: 28px; }
+details.lq-menu { display: inline-block; margin: 0 0 0 6px; vertical-align: top; }
+details.lq-menu > summary {
+  display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-10); cursor: pointer; list-style: none;
+  color: var(--ink-muted); font: 700 18px/1 var(--font);
+}
+details.lq-menu > summary::-webkit-details-marker { display: none; }
+details.lq-menu > summary::before { content: "\22EF"; content: "\22EF" / ""; }
+details.lq-menu > summary:hover { background: var(--page-alt); color: var(--ink); }
+details.lq-menu[open] { display: block; margin: 8px 0 0; }
+details.lq-menu form.record { margin-top: 8px; max-width: 22rem; }

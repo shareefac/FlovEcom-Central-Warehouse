@@ -12416,3 +12416,56 @@ note in its row). Changed: `StockOpsScreensTest`, `HandoverScreensTest` (a draft
 `UiUnitTest::testTheFinalButtonsSendOnceAndAStoppedSendKeepsItsEdits`, and driven in node outside the repo (`runs/opfinal_js_harness/`, run on
 cw-test through the slot runner): e52154f's app.js fails 3 of 9 checks, this one passes all (`runs/opfinal_js.log`). Not seen in a real
 browser.
+
+## Lines to place as a board (branch `op-final-visible`, second commit, 29 Oct 2026; LQ1-LQ8)
+
+The owner approved a new look for Approvals › From the stores › Lines to place on 29 Oct 2026 (relayed by the coordinator, with a static
+mockup, `LP_Queue.dc.html`): the waiting lines as rows of a board, monday.com style; the item picked with the order page's dropdown; closing a
+line in the row's menu; no help paragraphs. Built on the first commit (OV1-OV8) in `/root/cw-opfinal`. No migration, no new permission, no
+service rule changed (`Queues\Suspense` untouched). Code: `src/Ui/Controller/StoreQueuesController.php` (suspense, suspenseItems,
+suspenseRow, suspenseGroups), `src/Ui/Controller/HandMadeController.php` (the name a link brings), views `queue_suspense` (rewritten),
+`queue_items` (new), `src/Ui/Words.php` (`LQ`), `public/ui/assets/app.{js,css}`.
+
+**LQ1. What stays.** The route and its rules: `POST /ui/queues/suspense/{id}/pick` with `item` (the item's CW code), `units` (the item's units
+in one unit of the line) and `note`, `queues.suspense`, CSRF, booked once (the queue's key: a second answer is refused, a second click of
+the same booking shows its first answer), the store's selling warehouse, a correction sent onward to ERPNext corrections without booking
+stock; `POST .../dismiss` with its note. The status filter and the count line on top. A refused answer keeps what was typed in its row (OV7).
+
+**LQ2. Two groups.** "Goods in waiting for an item" (the tone `info`: --st-blue) and "Corrections waiting for an item" (`needs`:
+--st-amber); when the filter shows placed or closed lines too, "Goods in" and "Corrections". Each: a heading in its colour with a muted
+count and the stores its lines came from ("2 lines · Vape and Go"), then the table in a card (`.table-wrap`) with a 6 px left edge of that
+colour. Since the rebase onto main `8f6fbb7` this is the shared board of the order and invoice lists (pi-design, PV18): `.doc-group` with its
+`.grp-title` (the heading folds its group, `.grp-toggle`), `.table-wrap.doc-board`, `td.doc-st`; this page adds only its rows' own CSS
+(`table.lq-lines`, `.lq-picked`, `details.lq-menu`, the status cell kept solid on hover). A group with no line is left out.
+
+**LQ3. The row.** What came in (the store's name of it; the variant and ERPNext item; the kind, the ERPNext document and line, when it
+arrived; why it waits), Status (the cell filled solid in its tone's colour, white words: Waiting, Correction, Placed, Sent on, Closed:
+`td.doc-st`), Units (a correction: "Set to", the figure ERPNext set), Item in CW, Units each, Note, and the action: "Place" (the one primary
+button), or "Send to corrections" for a correction (a plain button: it books nothing). The row's answer is ONE form: its boxes sit in their
+cells and name it (`form="lq-pick-<id>"`; a `<form>` cannot span cells), its button in the last cell. A placed or closed line shows the item
+it was placed on, its note and who closed it when, with no box. On a phone the table is cards, as every list (`table.stack`).
+
+**LQ4. Item in CW: the order page's dropdown.** The site's one dropdown (`combo()`, PX6) on the `item` box: typing a name, a barcode or a CW
+number (2 characters or more, 300 ms after the last key; at once with Enter, so a scanner's Enter looks the scan up) asks the items route
+(LQ5); each choice is two lines: the name, then the CW code, brand and stock. A choice puts its CW code in the box, which the form sends as
+before, and shows it as a green "picked" chip (`.lq-picked`) with "Change" (the box back, empty). One item found by Enter is chosen; Enter
+never sends the row. Place with words that are no choice and no CW code says "Choose the item from the list, or type its CW code." and
+sends nothing (asked in the capture phase, before "send once"). The list's last line is "+ Add new item" for someone who may add items
+(`items.create`): the new item page with the line's name filled in (LQ5); for the others the line naming whom to ask (`Words::askToAdd`,
+not a choice). An answer asked for before newer words is never drawn. Without the script: the plain text box for the CW code (its
+placeholder says so), and "+ Add new item" as a link under it.
+
+**LQ5. The items route and the new item page.** `GET /ui/queues/suspense/items?q=` (`queues.suspense`, read only): a fragment (`queue_items`,
+`data-lq-fragment`, one more marker in app.js's `FRAGMENTS`, the one fetch) of what `StockOps::resolve` finds (a usable barcode, a CW number,
+else every word in the name, brand or range; items joined into another are never offered), at most `StockOps::SEARCH_LIMIT`, each with the
+units on hand in our own warehouses (`stock_owner = own`); fewer than 2 characters: nothing; nothing found: said. `GET /ui/items/new?name=`
+fills in the name (at most 120 characters); nothing is made until the form is sent, under its own rules.
+
+**LQ6. A refused answer.** The row comes back with the code, units and note typed (OV7); when the code is an item's, the box says so
+(`data-picked`: its name and code) and the script draws it picked again; a refused close comes back with its note and the row's menu open.
+
+**LQ7. Closing a line.** In the row's menu (`details.lq-menu`, a "⋯" button named "More for this line" to a screen reader): its note and
+"Close it, nothing to place". No longer a separate form under each card.
+
+**LQ8. Words, and what was left out.** Every word in `Words::LQ`. Left out (the owner's "no help paragraphs"): the hints under the item code,
+the units and the buttons and the fieldset's legend (their words are removed from `Words::SUSPENSE`, with the old button words). The mockup's search box above the board is not built (the list is at most one page of waiting lines; the status filter stays).

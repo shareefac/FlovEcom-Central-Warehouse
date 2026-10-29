@@ -224,12 +224,13 @@
   each(document.querySelectorAll('form[method="post"]'), sendOnce);
 
   // The one read of the network: a read-only fragment of this site's own matching routes, By Item's quick match (/ui/review/products/…),
-  // the lists' Check & match fold (/ui/review/listing/…/check) and Simple matching's choices of a cell (/ui/match/options?…), each named
+  // the lists' Check & match fold (/ui/review/listing/…/check), Simple matching's choices of a cell (/ui/match/options?…), the order's product
+  // box (/ui/purchasing/orders/products?…) and Lines to place's item box (/ui/queues/suspense/items?…, docs/decisions.md LQ5), each named
   // by its marker. Fetched with the session's cookie for
   // this site only, parsed inert by DOMParser (nothing in it runs) and given back only when its root carries the marker of the route it
   // was asked of; anything else (the sign-in page of a session that ended, an error page, no network, another address) fails, and the
   // caller shows the page's words for that.
-  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?' };
+  var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', '[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?' };
   // The supplier invoice's item box (docs/decisions.md PV) is the order page's: the same fragment, from the invoice's own route.
   var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };
   var fragment = function (url, marker) {
@@ -1215,6 +1216,152 @@
     if (supplier) {
       supplier.addEventListener('change', fill);
       supplier.addEventListener('change', say);
+    }
+  });
+
+  // Lines to place (Approvals › From the stores, docs/decisions.md LQ4): a row's "Item in CW" is the order page's dropdown. Without the script
+  // it is the text box for the item's CW code (the server reads `item` as it always did). Here: typing a name, a barcode or a CW number (2
+  // characters or more, 300 ms after the last key; at once with Enter, so a scan is looked up when the scanner sends Enter) asks the items route
+  // (the read-only fragment at data-options) for the items it names, each with its CW code and its stock; a choice puts its CW code in the box,
+  // which the row's form sends, and shows it as a green "picked" chip with "Change" (the box back, empty). One item found by Enter is chosen.
+  // The list ends with "+ Add new item" (the new item page, the line's name filled in) or the line naming whom to ask. Place with words that
+  // are no choice and no CW code says the page's words (data-choose) and sends nothing. A refused answer's item comes back picked
+  // (data-picked). Every word comes from the page.
+  each(document.querySelectorAll('input[data-lq-pick]'), function (input) {
+    var base = input.getAttribute('data-options') || '';
+    var cell = input.parentNode;
+    var form = input.form;
+    var list = cell ? cell.querySelector('ul[data-lq-list]') : null;
+    var chip = cell ? cell.querySelector('[data-lq-chip]') : null;
+    var chipName = chip ? chip.querySelector('[data-lq-chip-name]') : null;
+    var change = chip ? chip.querySelector('button[data-lq-change]') : null;
+    var note = cell ? cell.querySelector('[data-lq-note]') : null;
+    if (base.indexOf('/ui/queues/suspense/items?') !== 0 || !form || !list || !list.id || !chip || !chipName || !change || !note || !window.fetch || !window.DOMParser) {
+      return;
+    }
+    var link = cell.querySelector('[data-lq-add-link]');
+    if (link) {
+      link.hidden = true; // said as the list's last line
+    }
+    input.removeAttribute('maxlength'); // a name is typed here; what the form sends is the CW code of the item chosen
+    input.placeholder = input.getAttribute('data-placeholder') || input.placeholder;
+    var timer = 0;
+    var turn = 0;
+    var say = function (text) {
+      note.textContent = text;
+      note.hidden = text === '';
+    };
+    var options = function () { return list.querySelectorAll('li[role="option"]:not([aria-disabled="true"])'); };
+    var draw = function (from) {
+      while (list.firstChild) {
+        list.removeChild(list.firstChild);
+      }
+      var n = 0;
+      each(from, function (o) {
+        var li = document.createElement('li');
+        li.id = list.id + '-' + n++;
+        li.setAttribute('role', 'option');
+        li.setAttribute('aria-selected', 'false');
+        each(['data-label', 'data-code'], function (name) {
+          li.setAttribute(name, o.getAttribute(name) || '');
+        });
+        var part = function (cls) { var p = o.querySelector('.' + cls); return p ? p.textContent.trim() : ''; };
+        twoLines(li, part('sm-opt-name'), part('sm-opt-meta'));
+        list.appendChild(li);
+      });
+      lastLine(input, list, n);
+      c.mark(-1);
+    };
+    // The item chosen: its CW code in the box (the form sends it), the box hidden behind the chip naming it.
+    var picked = function (label) {
+      window.clearTimeout(timer);
+      turn++;
+      say('');
+      chipName.textContent = label;
+      chip.hidden = false;
+      input.hidden = true;
+    };
+    var c = combo(input, list, {
+      options: options,
+      choose: function (li) {
+        if (li.getAttribute('data-add') === '1') {
+          var href = input.getAttribute('data-add-href') || '';
+          if (href.indexOf('/ui/items/new') === 0) {
+            window.location.href = href;
+          }
+          return;
+        }
+        input.value = li.getAttribute('data-code') || '';
+        picked(li.getAttribute('data-label') || input.value);
+      },
+      enter: function (ev) {
+        ev.preventDefault(); // Enter in the box never sends the row: it looks the words up now (a scanner's Enter), and one item found is chosen
+        window.clearTimeout(timer);
+        load(input.value.trim(), true);
+      },
+    });
+    var load = function (q, enter) {
+      if (q.length < 2) {
+        return;
+      }
+      var mine = ++turn;
+      say(input.getAttribute('data-loading') || '');
+      fragment(base + 'q=' + encodeURIComponent(q), '[data-lq-fragment]')
+        .then(function (node) {
+          if (mine !== turn) {
+            return;
+          }
+          var found = node.querySelectorAll('ul[data-lq-choices] > li[data-code]');
+          draw(found);
+          var says = node.querySelector('[data-lq-says]');
+          say(says ? says.textContent.trim() : '');
+          if (enter && found.length === 1) {
+            c.choose(options()[0]);
+            return;
+          }
+          c.open(); // (only while the box has the focus)
+        })
+        .catch(function () {
+          if (mine !== turn) {
+            return;
+          }
+          draw([]);
+          say(input.getAttribute('data-failed') || '');
+        });
+    };
+    input.addEventListener('input', function () {
+      window.clearTimeout(timer);
+      turn++; // the words changed: no answer asked for before them is drawn
+      c.unshut();
+      draw([]);
+      var v = input.value.trim();
+      if (v.length < 2) {
+        say('');
+        return;
+      }
+      timer = window.setTimeout(function () { load(v, false); }, 300);
+    });
+    change.addEventListener('click', function () {
+      chip.hidden = true;
+      input.hidden = false;
+      input.value = '';
+      draw([]);
+      input.focus();
+    });
+    // Place with words in the box that are no item chosen and no CW code: asked before the "send once" of every form (the capture phase),
+    // so a submit stopped here never leaves its button disabled.
+    document.addEventListener('submit', function (ev) {
+      var v = input.value.trim();
+      if (ev.target !== form || input.hidden || v === '' || /^cw-?[0-9]{1,10}$/i.test(v)) {
+        return; // an item chosen (the chip), a CW code typed, or nothing (the box is required: the browser says so)
+      }
+      ev.preventDefault();
+      say(input.getAttribute('data-choose') || '');
+      input.focus();
+    }, true);
+    draw([]);
+    if (input.getAttribute('data-picked')) {
+      picked(input.getAttribute('data-picked'));
     }
   });
 

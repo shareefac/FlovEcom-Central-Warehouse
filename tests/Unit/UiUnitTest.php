@@ -387,6 +387,9 @@ final class UiUnitTest extends TestCase
         // the step's routes are gone.
         self::assertSame('doc.PO.post', $byPath['GET /ui/purchasing/orders/new']);
         self::assertSame('doc.PO.post', $byPath['GET /ui/purchasing/orders/products']);
+        // Lines to place as a board (docs/decisions.md LQ5): the item box's choices are for those who place lines, read only.
+        self::assertSame('queues.suspense', $byPath['GET /ui/queues/suspense/items']);
+        self::assertArrayNotHasKey('POST /ui/queues/suspense/items', $byPath);
         self::assertSame('doc.PO.post', $byPath['POST /ui/purchasing/orders']);
         self::assertSame('doc.PO.post', $byPath['POST /ui/purchasing/orders/{id}/lines']);
         foreach (['POST /ui/purchasing/orders/new-supplier', 'POST /ui/purchasing/orders/{id}/new-supplier', 'GET /ui/purchasing/orders/{id}/new-item',
@@ -951,7 +954,7 @@ final class UiUnitTest extends TestCase
         $js = (string) file_get_contents(Assets::dir() . '/app.js');
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         self::assertSame(1, preg_match_all('/var combo = function \(input, list, cfg\) \{/', $js), 'one engine');
-        self::assertSame(3, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier and the product');
+        self::assertSame(4, substr_count($js, ' = combo('), 'Simple matching\'s cells, the supplier, the product and Lines to place\'s item (LQ4)');
         foreach (['document.body.appendChild(list);', "input.setAttribute('role', 'combobox');", "input.setAttribute('aria-activedescendant', li.id);",
             'var width = Math.min(Math.max(36 * rem, r.width), vw - 2 * edge);', "list.addEventListener('mousedown', function (ev) {"] as $once) {
             self::assertSame(1, substr_count($js, $once), "in the engine only: {$once}");
@@ -991,6 +994,33 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString('draw([]); // the words changed: the choices on show were for other words', $js, 'finding 2: the product box');
         self::assertStringContainsString("draw(list.querySelectorAll('li[data-label]')); // the choice the page drew (kept after a refusal) is drawn as any other", $js,
             'finding 5');
+    }
+
+    /**
+     * Lines to place as a board (docs/decisions.md LQ2-LQ4), driven in node outside the repo (runs/opfinal_js_harness/run_lq.js): the item box is
+     * the site's one dropdown on the row's `item` box, asking only its own route; a choice sends its CW code and shows the green chip; Place
+     * with words that are no choice is stopped before "send once"; the status cell is filled solid and the board has its coloured edge.
+     */
+    public function testLinesToPlaceUseTheOneDropdownAndTheBoardLook(): void
+    {
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        self::assertStringContainsString("each(document.querySelectorAll('input[data-lq-pick]'), function (input) {", $js);
+        self::assertStringContainsString("base.indexOf('/ui/queues/suspense/items?') !== 0", $js, 'a path of this site\'s own route, nothing else');
+        self::assertStringContainsString("fragment(base + 'q=' + encodeURIComponent(q), '[data-lq-fragment]')", $js);
+        self::assertStringContainsString("var c = combo(input, list, {\n      options: options,\n      choose: function (li) {\n        if (li.getAttribute('data-add') === '1') {\n          var href = input.getAttribute('data-add-href') || '';", $js);
+        self::assertStringContainsString("        input.value = li.getAttribute('data-code') || '';", $js, 'a choice sends its CW code, as typing it does');
+        self::assertStringContainsString("if (ev.target !== form || input.hidden || v === '' || /^cw-?[0-9]{1,10}$/i.test(v)) {", $js);
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        // The board is the shared one (pi-design): the group, its card's coloured edge, the solid status cell; kept solid on hover here.
+        $tpl = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/queue_suspense.php');
+        foreach (['grp-block doc-group', 'table-wrap doc-board', 'c-status doc-st', 'class="grp-toggle"'] as $shared) {
+            self::assertStringContainsString($shared, $tpl, $shared);
+        }
+        self::assertSame(1, preg_match('/^\.doc-board \{[^}]*border-left: 6px solid var\(--t-fill/m', $css), 'the coloured edge');
+        self::assertSame(1, preg_match('/^td\.doc-st \{[^}]*background: var\(--t-fill, var\(--st-grey\)\); color: var\(--on-fill\)/m', $css), 'the status cell filled solid');
+        self::assertSame(1, preg_match('/^table\.lq-lines tbody tr:hover > td\.doc-st \{ background: var\(--t-fill/m', $css), 'and on hover');
+        self::assertStringNotContainsString('.lq-board', $css, 'no second copy of the board');
+        self::assertSame(1, preg_match('/^\.lq-picked \{[^}]*background: var\(--sf-green\); color: var\(--sf-green-ink\)/m', $css), 'the green chip');
     }
 
     /**
@@ -1036,7 +1066,9 @@ final class UiUnitTest extends TestCase
     {
         $js = (string) file_get_contents(Assets::dir() . '/app.js');
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
-        self::assertSame(3, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s');
+        // No new dropdown for the invoice: its supplier and item boxes are the order page's. The fourth combo() call is Lines to place's item
+        // box (docs/decisions.md LQ4), on the same engine (testOneDropdownForTheMatchingCellsTheSupplierAndTheProduct counts them).
+        self::assertSame(4, substr_count($js, ' = combo('), 'no new dropdown: the supplier and the item boxes are the order page\'s');
         self::assertStringContainsString("var ALSO = { '[data-po-fragment]': '/ui/purchasing/invoices/products?' };", $js, 'the same fragment from the invoice\'s own route');
         self::assertStringContainsString("if (path && url.indexOf(path) !== 0 && ALSO[marker] && url.indexOf(ALSO[marker]) === 0) {", $js);
         self::assertStringContainsString("(base.indexOf('/ui/purchasing/orders/products?') !== 0 && base.indexOf('/ui/purchasing/invoices/products?') !== 0)", $js);
@@ -1112,7 +1144,7 @@ final class UiUnitTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/\b(XMLHttpRequest|WebSocket|sendBeacon|EventSource)\b/', $js, 'no other way to the network');
         self::assertSame(1, preg_match_all('/\bfetch\s*\(/', $js), 'one fetch: the matching fragments\'');
         self::assertStringContainsString("var FRAGMENTS = { '[data-qp-fragment]': '/ui/review/products/', '[data-lc-fragment]': '/ui/review/listing/', "
-            . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?' };", $js,
+            . "'[data-sm-fragment]': '/ui/match/options?', '[data-po-fragment]': '/ui/purchasing/orders/products?', '[data-lq-fragment]': '/ui/queues/suspense/items?' };", $js,
             'each marker with the path of its own route, nothing else');
         self::assertStringContainsString("if (!path || url.indexOf(path) !== 0 || !window.fetch || !window.DOMParser) {", $js, 'a path of that route, or no request');
         self::assertMatchesRegularExpression("#var base = box\\.getAttribute\\('data-options'\\) \\|\\| '';#", $js, 'the quick match\'s address is the page\'s');

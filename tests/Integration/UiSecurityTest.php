@@ -27,6 +27,7 @@ final class UiSecurityTest extends UiTestCase
         '/ui/stock/sales', '/ui/stock/sales.csv', '/ui/stock/sales/1', '/ui/stock/sales/dispatch', '/ui/stock/sales/returns', '/ui/stock/sales/returns.csv', // the last six: pack D
         // Pack F (PF5): Approvals › From the stores
         '/ui/queues/suspense', '/ui/queues/corrections', '/ui/queues/modes', '/ui/queues/oversold?status=all',
+        '/ui/queues/suspense/items?q=mango', // Lines to place's item box (docs/decisions.md LQ5)
         // --- Pack G
         '/ui/purchasing/reorder/suppliers', '/ui/purchasing/reorder/low-stock',
         // --- end of Pack G
