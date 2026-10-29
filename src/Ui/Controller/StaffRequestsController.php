@@ -45,7 +45,14 @@ final class StaffRequestsController
         try {
             $r = (new RoleRequests($ctx->db))->decide($ctx->caller(), $id, $approve, $ctx->req->field('note'));
         } catch (CwException $e) {
+            // Answered from Approvals › Waiting for you (docs/decisions.md AV5): the refusal comes back there, on the request.
+            if (InboxController::from($ctx)) {
+                return InboxController::refused($ctx, 'staff-' . $id, Words::STAFF_REQUESTS[$e->errorCode] ?? Words::error($e->errorCode, $e->getMessage()), $e);
+            }
             return $this->page($ctx, $e->httpStatus, $id, $e);
+        }
+        if (InboxController::from($ctx)) {
+            return InboxController::answered($ctx, 'staff', (string) $r['result']);
         }
         return HtmlResponse::redirect('/ui/staff-requests?notice=' . $r['result']);
     }

@@ -41,16 +41,8 @@
         <td class="num" data-label="<?= $e($g['units_col']) ?>"><?= $n($r['units']) ?></td>
 <?php if ($r['answer']): ?>
         <td class="lq-item" data-label="<?= $word('LQ', 'col_item') ?>">
-          <input type="text" name="item" form="lq-pick-<?= $e($r['id']) ?>" id="lq-item-<?= $e($r['id']) ?>" value="<?= $e($r['typed_item']) ?>" maxlength="16" required autocomplete="off" inputmode="text"
-            aria-label="<?= $word('LQ', 'col_item') ?>" placeholder="<?= $word('LQ', 'item_code') ?>" data-lq-pick data-options="<?= $e($itemsHref) ?>" data-placeholder="<?= $word('LQ', 'item_find') ?>"
-            data-picked="<?= $e($r['picked_label']) ?>" data-add="<?= $e($addWords) ?>" data-add-href="<?= $e($r['add_href']) ?>" data-ask="<?= $e($askWords) ?>"
-            data-loading="<?= $word('LQ', 'loading') ?>" data-failed="<?= $word('LQ', 'failed') ?>" data-choose="<?= $word('LQ', 'choose') ?>">
-          <ul class="sm-list" id="lq-list-<?= $e($r['id']) ?>" role="listbox" aria-label="<?= $word('LQ', 'choices') ?>" data-lq-list hidden></ul>
-          <p class="lq-picked" data-lq-chip hidden><span data-lq-chip-name></span> <button type="button" class="btn ghost sm" data-lq-change><?= $word('LQ', 'change') ?></button></p>
-          <p class="po-says" data-lq-note hidden></p>
-<?php if ($r['add_href'] !== ''): ?>
-          <a class="add-item" href="<?= $u($r['add_href']) ?>" data-lq-add-link><?= $e($addWords) ?></a>
-<?php endif; ?>
+<?= $partial('lq_item_box', ['id' => (string) $r['id'], 'form' => 'lq-pick-' . $r['id'], 'value' => $r['typed_item'], 'picked' => $r['picked_label'], 'itemsHref' => $itemsHref,
+    'addHref' => $r['add_href'], 'addWords' => $addWords, 'askWords' => $askWords]) ?>
         </td>
         <td class="num" data-label="<?= $word('LQ', 'col_each') ?>"><input type="number" name="units" form="lq-pick-<?= $e($r['id']) ?>" class="short" min="1" max="10000" step="1" value="<?= $e($r['typed_units']) ?>" required aria-label="<?= $word('LQ', 'col_each') ?>"></td>
         <td data-label="<?= $word('LQ', 'col_note') ?>"><input type="text" name="note" form="lq-pick-<?= $e($r['id']) ?>" value="<?= $e($r['typed_note']) ?>" minlength="<?= $e($noteMin) ?>" maxlength="<?= $e($noteMax) ?>" required placeholder="<?= $word('LQ', 'note_hint') ?>" aria-label="<?= $word('LQ', 'col_note') ?>"></td>

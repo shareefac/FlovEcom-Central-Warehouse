@@ -58,7 +58,7 @@ final class StartSettingsWordsTest extends KernelUiTestCase
         $buyer = $this->plainNames($buyer, 'Ben Buyer');
 
         $pages = [
-            [$reviewer, '/ui/documents/reviews', 'Waiting for me', 'reviews'],
+            [$reviewer, '/ui/documents/reviews', 'Documents to review', 'reviews'],
             [$reviewer, '/ui/documents', 'History', 'documents'],
             [$reviewer, '/ui/documents/' . $doc->id, 'Adjustment ADJ-000001', 'document'],
             [$reviewer, '/ui/documents/' . $held->id, 'Adjustment (no number yet)', 'document'],

@@ -59,7 +59,8 @@ final class MenusTest extends KernelUiTestCase
         // Approvals: the reviewer's queue; the others read the history.
         // Pack F (PF5): From the stores, for everyone who reads records.
         self::assertSame(['History', 'From the stores'], self::tabLabels($buyer->get('/ui/documents')));
-        self::assertSame(['Waiting for me', 'History', 'Staff requests', 'From the stores'], self::tabLabels($reviewer->get('/ui/documents')));
+        // Waiting for you (docs/decisions.md AV1) first, for the people who answer any of its kinds; the old queue is "Documents to review".
+        self::assertSame(['Waiting for you', 'Documents to review', 'History', 'Staff requests', 'From the stores'], self::tabLabels($reviewer->get('/ui/documents')));
         // Settings: everyone reads; Stores (system.view) for the reviewer; Users leads the others to "Roles and permissions".
         self::assertSame(['Company', 'Warehouses', 'Users', 'Approval Rules', 'Reasons', 'System'], self::tabLabels($buyer->get('/ui/reference/company')));
         self::assertSame(['Company', 'Warehouses', 'Stores', 'Users', 'Approval Rules', 'Reasons', 'System'], self::tabLabels($reviewer->get('/ui/reference/company')));

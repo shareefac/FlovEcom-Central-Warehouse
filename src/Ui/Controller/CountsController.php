@@ -253,29 +253,15 @@ final class CountsController
     public function reviews(Context $ctx, int $status = 200, ?CwException $error = null, ?string $notice = null): HtmlResponse
     {
         $me = $ctx->me();
-        $reviews = $ctx->countReviews();
         $warehouse = UiRequest::id($ctx->req->param('warehouse'));
-        $open = $reviews->open(['warehouse' => $warehouse]);
         $n = $ctx->req->param('notice');
         $notice ??= $n !== null && isset(Words::COUNT_NOTICE[$n]) ? Words::say('COUNT_NOTICE', $n, (string) ($ctx->req->param('number') ?? '')) : null;
-        $groups = array_fill_keys(['line', ...CountReviews::LISTED_SOURCES], []);
-        foreach ($open['lines'] as $r) {
-            $no = $reviews->refusal($me->id, $me->roles, $r);
-            $groups['line'][] = $r + ['href' => self::PATH . '/' . $r['document_id'], 'action' => self::PATH . '/differences/line/' . $r['document_id'] . '/' . $r['line_no'],
-                'why' => self::overWords($r['over'], $r['review_units'], $r['review_percent']), 'refusal' => $no === null ? null : self::refusalWords($no['code'])];
-        }
-        foreach ($open['engine'] as $r) {
-            $no = $reviews->refusal($me->id, $me->roles, $r);
-            $near = in_array($r['source'], CountReviews::NEAR_SOURCES, true);
-            $groups[$r['source']][] = $r + ['href' => $r['document_id'] === null ? null : self::PATH . '/' . $r['document_id'], 'action' => self::PATH . '/differences/review/' . $r['id'],
-                'why' => self::engineWhy($r), 'refusal' => $no === null ? null : self::refusalWords($no['code']),
-                'number' => $near ? null : $r['ref'], 'held' => null, 'counted' => $r['proposed_qty'], 'counted_by_name' => null];
-        }
+        $open = self::differences($ctx, $warehouse);
         $rule = $ctx->documents()->typeInfo(CountSheets::TYPE);
         return $ctx->page('stock_count_reviews', [
-            'groups' => array_filter($groups),
+            'groups' => $open['groups'],
             'tones' => ['line' => 'needs', 'count_after_movements' => 'blocked', 'count_near_ship' => 'review', 'ship_near_count' => 'review', 'unship_near_count' => 'review'],
-            'rows_n' => count($open['lines']) + count($open['engine']),
+            'rows_n' => $open['n'],
             'more' => $open['more'],
             'page_size' => CountReviews::PAGE,
             'second' => Words::say('COUNTS', match ((string) $rule['review_rule']) {
@@ -290,6 +276,35 @@ final class CountsController
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::title('count_differences'), 'notice' => $notice]);
+    }
+
+    /**
+     * The open count differences in words, by group (the line above the limits first, then each source of CountReviews::LISTED_SOURCES;
+     * an empty group left out): each row with its sheet's page (`href`), its answer's route (`action`), why it waits (`why`) and why this
+     * person may not answer it (`refusal`, null when they may). The Differences page and Approvals › Waiting for you (InboxController, AV4)
+     * read the same rows.
+     *
+     * @return array{groups: array<string, list<array<string, mixed>>>, n: int, more: bool}
+     */
+    public static function differences(Context $ctx, ?int $warehouse = null): array
+    {
+        $me = $ctx->me();
+        $reviews = $ctx->countReviews();
+        $open = $reviews->open(['warehouse' => $warehouse]);
+        $groups = array_fill_keys(['line', ...CountReviews::LISTED_SOURCES], []);
+        foreach ($open['lines'] as $r) {
+            $no = $reviews->refusal($me->id, $me->roles, $r);
+            $groups['line'][] = $r + ['href' => self::PATH . '/' . $r['document_id'], 'action' => self::PATH . '/differences/line/' . $r['document_id'] . '/' . $r['line_no'],
+                'why' => self::overWords($r['over'], $r['review_units'], $r['review_percent']), 'refusal' => $no === null ? null : self::refusalWords($no['code'])];
+        }
+        foreach ($open['engine'] as $r) {
+            $no = $reviews->refusal($me->id, $me->roles, $r);
+            $near = in_array($r['source'], CountReviews::NEAR_SOURCES, true);
+            $groups[$r['source']][] = $r + ['href' => $r['document_id'] === null ? null : self::PATH . '/' . $r['document_id'], 'action' => self::PATH . '/differences/review/' . $r['id'],
+                'why' => self::engineWhy($r), 'refusal' => $no === null ? null : self::refusalWords($no['code']),
+                'number' => $near ? null : $r['ref'], 'held' => null, 'counted' => $r['proposed_qty'], 'counted_by_name' => null];
+        }
+        return ['groups' => array_filter($groups), 'n' => count($open['lines']) + count($open['engine']), 'more' => $open['more']];
     }
 
     /** POST differences/line/{id}/{line}: `answer` accept | reject, with a note. */
@@ -326,10 +341,17 @@ final class CountsController
             }
             $back = $fn($answer, (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
+            // Answered from Approvals › Waiting for you: the refusal comes back there, on the record (docs/decisions.md AV5).
+            if (InboxController::from($ctx)) {
+                return InboxController::refused($ctx, InboxController::countKey($ctx), self::plain($e), $e);
+            }
             return $this->reviews($ctx, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/differences', $answer === 'accept' ? ['notice' => 'accepted']
-            : ($back === null ? ['notice' => 'rejected_already'] : ['notice' => 'rejected', 'number' => $back->number])));
+        $notice = $answer === 'accept' ? ['notice' => 'accepted'] : ($back === null ? ['notice' => 'rejected_already'] : ['notice' => 'rejected', 'number' => $back->number]);
+        if (InboxController::from($ctx)) {
+            return InboxController::answered($ctx, 'count', $notice['notice'], (string) ($notice['number'] ?? ''));
+        }
+        return HtmlResponse::redirect(Html::url(self::PATH . '/differences', $notice));
     }
 
     // ------------------------------------------------------------------------------------------

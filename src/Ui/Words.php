@@ -66,7 +66,7 @@ final class Words
         'INVOICE_NOTICE', 'INVOICE_ERROR', 'RETURNS', 'RETURN_NOTICE', 'RETURN_ERROR',
         // Pack F (PF5-PF10)
         'QUEUE_STATE', 'QUEUES', 'RELAY_KIND', 'RELAY_REASON', 'SUSPENSE', 'CORRECTIONS', 'MODES', 'OVERSOLD', 'OVERSELL_KIND', 'OVERSELL_RESOLUTION',
-        'QUEUE_NOTICE', 'QUEUE_ERROR', 'ALERT',
+        'QUEUE_NOTICE', 'QUEUE_ERROR', 'INBOX', 'ALERT',
         // 0050: landing pages (docs/decisions.md LP1-LP12)
         'LANDING', 'WEBSITE_BUG', 'LANDING_RESOLUTION',
         'ROLES_EDIT', 'ROLES_ERROR', 'REPORTS', // Pack E
@@ -256,7 +256,8 @@ final class Words
         // ---- end Pack E
         'audit' => 'Audit Log',
         // Approvals
-        'reviews' => 'Waiting for me',
+        'inbox' => 'Waiting for you', // docs/decisions.md AV1
+        'reviews' => 'Documents to review', // AV9: the name of its group on Waiting for you
         'documents' => 'History',
         'staff_requests' => 'Staff requests',
         // Settings
@@ -415,6 +416,7 @@ final class Words
         'slow_stock' => 'Products in stock that have not sold for a long time.',
         // ---- end Pack E
         'audit' => 'Everything that was changed, by whom and when.',
+        'inbox' => 'Everything that waits for your answer, one record at a time.', // AV1
         'reviews' => 'Other people\'s work that needs your OK or your check.',
         'documents' => 'Every final record, by number.',
         'staff_requests' => 'Changes of staff access that wait for your OK.',
@@ -449,6 +451,7 @@ final class Words
         'linking_pending' => 'waiting for your second OK',
         'linking_duplicates' => 'waiting for you to decide',
         'reviews_open' => 'waiting for you',
+        'approvals_inbox' => 'records waiting for your answer', // AV10
         'barcodes_open' => 'barcodes for you to check',
         'incidents_open' => 'issues still open',
         'stock_in_open' => 'stock in records waiting for your check or OK',
@@ -491,7 +494,7 @@ final class Words
         'search' => 'Find a product',
         'reasons' => 'Reasons',
         'series' => 'Numbering',
-        'reviews' => 'Waiting for me',
+        'reviews' => 'Documents to review',
         'pending' => 'Second approval',
         'samples' => 'Spot checks',
         'item' => 'Warehouse product',
@@ -569,6 +572,7 @@ final class Words
         'card_form' => ['The legal and buying details of one product.', 'Fill them in, then press Confirm when they are right.'],
         'barcodes' => ['Barcodes the computer could not place.', 'Decide which product (single or pack) each one belongs to.'],
         'reviews' => ['Other people\'s work that needs your OK or your check.', 'Do the top list first: nothing happens until you say yes.'],
+        'inbox' => ['Everything that waits for your answer.', 'Open one, answer it, and the next one opens.'], // AV1
         'documents' => ['Every final record (today: purchase orders and their cancellations), newest first.', ''],
         'document' => ['The permanent record of one document and its checks.', 'To change an order, open it under Purchasing.'],
         'reorder' => ['What to buy now, worked out from recent website sales (unusual days left out), delivery times, and the stock you have and have ordered.',
@@ -10565,6 +10569,85 @@ final class Words
         'newer_count' => 'A later shelf count already set this stock figure. Close this correction. Nothing was booked.',
         'bad_field' => 'Choose how it was sorted out. Nothing was saved.',
         'other' => 'This did not work: %s. Nothing was saved.',
+    ];
+
+    /**
+     * Approvals › Waiting for you (docs/decisions.md AV1-AV14; the approved mockups AP_Inbox, AP_Phone): the groups, the rows, the open
+     * record's head and facts, the next record. Each answer keeps the words of its kind's own page (CORRECTIONS, LQ, COUNTS, OVERSOLD,
+     * MODES, WEBSITE_BUG, STAFF_REQUESTS, RECORD, SUPPLIER, COMPANY), and so does its notice.
+     */
+    public const INBOX = [
+        // The groups, in the page's order, and one record of each
+        'kind_corrections' => 'ERPNext corrections',
+        'kind_suspense' => 'Lines to place',
+        'kind_counts' => 'Count differences',
+        'kind_oversold' => 'Oversold',
+        'kind_modes' => 'Mode changes',
+        'kind_landing' => 'Website bugs',
+        'kind_staff' => 'Staff requests',
+        'kind_documents' => 'Documents to review',
+        'one_corrections' => 'ERPNext correction',
+        'one_suspense' => 'Line to place',
+        'one_counts' => 'Count difference',
+        'one_oversold' => 'Oversold order',
+        'one_modes' => 'Mode change',
+        'one_landing' => 'Website bug',
+        'one_staff' => 'Staff request',
+        'one_documents' => 'To review',
+        'task_approval' => 'Needs your OK',
+        'task_review' => 'To check',
+        // The list
+        'list' => 'Waiting records',
+        'all' => 'Open the list',
+        'all_named' => 'Open the list of %s',
+        'more_rows' => 'The first %s are shown. Answer these to see the rest.',
+        'meta_correction' => 'Set to %s · %s',
+        'meta_suspense' => '%s of %s · %s',
+        'meta_count' => '%s · counted %s, system %s',
+        'meta_oversold' => 'Short by %s · %s',
+        'meta_mode' => 'ERPNext set %s · %s',
+        'meta_landing' => 'Order %s · %s',
+        'meta_staff' => 'Asks for %s · %s',
+        'meta_document' => '%s · check by %s',
+        'late' => 'Late: %s',
+        'none' => 'Nothing is waiting for you.',
+        'none_text' => 'When a record needs your answer, it shows here.',
+        'not_yours' => 'Your jobs answer none of the records listed here. Nothing was changed.',
+        // The open record
+        'record' => 'The open record',
+        'of' => '%s of %s',
+        'waiting' => 'Waiting',
+        'next' => 'Next: %s',
+        'last' => 'This is the last one.',
+        'more' => 'More answers',
+        'note' => 'Note',
+        'note_hint' => 'What you did, or why',
+        'asked' => 'Asked %s',
+        'set_up' => 'Set up their sign-in: %s.',
+        'does' => '%s: %s',
+        'none_yet' => 'None',
+        'yes' => 'Yes',
+        'no' => 'No',
+        'open_sheet' => 'Open the count sheet',
+        'open_supplier' => 'Open the supplier',
+        // The facts (big figures)
+        'f_set_to' => 'ERPNext set it to',
+        'f_held' => 'CW held then',
+        'f_paid' => 'Kept for paid orders',
+        'f_change' => 'Difference',
+        'f_came' => 'Came in as',
+        'f_from' => 'From',
+        'f_system' => 'System',
+        'f_short' => 'Short by',
+        'f_left' => 'Left for sale',
+        'f_order' => 'Order',
+        'f_mode' => 'ERPNext set',
+        'f_cw' => 'CW has now',
+        'f_low' => 'Low-stock level',
+        'f_ordered' => 'Units ordered',
+        'f_paid_q' => 'Paid',
+        'f_option' => 'Option number',
+        'f_items' => 'Items',
     ];
 
     /** The alerts to a person (bin/health_alert.php, Ops\AlertDispatch): the message's lines. */

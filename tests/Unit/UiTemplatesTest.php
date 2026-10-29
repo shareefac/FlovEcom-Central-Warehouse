@@ -1151,16 +1151,33 @@ final class UiTemplatesTest extends TestCase
     }
 
     /**
+     * The forms of a template whose main buttons submit them a page may draw several of (docs/decisions.md DS5, AV13): a work queue whose
+     * rows are each one small form answered in turn (Simple matching's Apply; Lines to place's Place is the data's choice, checked on the
+     * rendered page), and the OK of each record's decision where a page lists several records. template => a piece of the form's action.
+     */
+    private const ROW_MAIN = [
+        'simple_match' => '$apply',
+        'staff_requests' => '/ui/staff-requests/',
+        'company' => '/ui/reference/company/reviews/',
+        'purchase_order' => '/ui/documents/reviews/',
+        'receipt' => '/ui/documents/reviews/',
+        'supplier' => '/ui/purchasing/suppliers/tasks/',
+    ];
+
+    /**
      * Where a template's main (magenta) buttons are, as "where => how many": each form (`form #<id>` or `form at line <n>`) counts the main
      * buttons that submit it (inside it, or naming it with form="..."), and "outside a form" counts the main links and fold buttons (they
-     * submit nothing) and the buttons of a part drawn inside its caller's form. Only a class that names `primary` in the markup itself is
+     * submit nothing) and the buttons of a part drawn inside its caller's form. A form that only filters or searches (method GET, or no
+     * method) is named `GET form …`, and a form a loop draws once per row ` (each row)` after its name, with its action: neither may hold a
+     * main button (the Codex review of DS1-DS6, AV13), but the forms of ROW_MAIN. Only a class that names `primary` in the markup itself is
      * counted: one named under a condition (`<?php if ($primary): ?>`: the data decides, a document's next step, the Dashboard's first job)
      * is left to the check of the rendered pages (tests/Support/MainButtons, on every page the kernel tests open). The branches of one
      * if / elseif / else count as the largest; what a loop draws counts as many.
      *
+     * @param array<string, string> $actions filled with each form's action attribute as written (form key => action)
      * @return array<string, int>
      */
-    private static function mainButtons(string $src): array
+    private static function mainButtons(string $src, array &$actions = []): array
     {
         $php = '<\?(?:php|=).*?\?>';
         $re = '#(?<tag><(?<close>/?)(?<name>form|button|a|summary|input)\b(?<attrs>(?:' . $php . '|"(?:[^"<]|' . $php . ')*"|\'[^\']*\'|[^>"\'])*)>)'
@@ -1177,7 +1194,10 @@ final class UiTemplatesTest extends TestCase
             $attrs = $m['attrs'][0];
             if ($name === 'form') {
                 $id = preg_match('/\bid="([^"<]*)"/', $attrs, $i) === 1 ? $i[1] : null;
-                $tokens[] = ['kw' => $m['close'][0] === '/' ? 'form_close' : 'form_open', 'line' => $line, 'key' => $id !== null ? "form #{$id}" : "form at line {$line}"];
+                $get = preg_match('/\bmethod="post"/i', $attrs) !== 1;
+                $action = preg_match('#\baction="((?:[^"<]|' . $php . ')*)"#s', $attrs, $a) === 1 ? $a[1] : '';
+                $tokens[] = ['kw' => $m['close'][0] === '/' ? 'form_close' : 'form_open', 'line' => $line,
+                    'key' => ($get ? 'GET ' : '') . ($id !== null ? "form #{$id}" : "form at line {$line}"), 'action' => $action];
                 continue;
             }
             if ($m['close'][0] === '/' || preg_match('#\bclass="((?:[^"<]|' . $php . ')*)"#s', $attrs, $c) !== 1) {
@@ -1196,15 +1216,17 @@ final class UiTemplatesTest extends TestCase
         $counts = [];
         $open = null; // the form being read
         $n = 0;
-        $walk = function (int $i, array $stop) use (&$walk, &$counts, &$open, $tokens, &$n): int {
+        $loops = 0; // how many loops the walk is inside
+        $walk = function (int $i, array $stop) use (&$walk, &$counts, &$open, &$actions, &$loops, $tokens, &$n): int {
             while ($i < count($tokens)) {
                 $t = $tokens[$i];
                 if (in_array($t['kw'], $stop, true)) {
                     return $i;
                 }
                 if ($t['kw'] === 'form_open') {
-                    $open = str_starts_with($t['key'], 'form #') ? $t['key'] : $t['key'] . ' #' . (++$n);
+                    $open = (str_contains($t['key'], 'form #') ? $t['key'] : $t['key'] . ' #' . (++$n)) . ($loops > 0 ? ' (each row)' : '');
                     $counts[$open] ??= 0;
+                    $actions[$open] = $t['action'];
                 } elseif ($t['kw'] === 'form_close') {
                     $open = null;
                 } elseif ($t['kw'] === 'main') {
@@ -1233,10 +1255,12 @@ final class UiTemplatesTest extends TestCase
                     $open = $after;
                     $i = $j;
                 } elseif (in_array($t['kw'], ['foreach', 'for', 'while'], true)) {
-                    // A loop draws its body again and again: read it twice (a form it opens is a new form each time).
+                    // A loop draws its body again and again: read it twice (a form it opens is a new form each time, drawn on each row).
                     $end = 'end' . $t['kw'];
+                    $loops++;
                     $j = $walk($i + 1, [$end]);
                     $walk($i + 1, [$end]);
+                    $loops--;
                     $i = $j;
                 }
                 $i++;
@@ -1248,29 +1272,78 @@ final class UiTemplatesTest extends TestCase
     }
 
     /**
+     * What breaks the one main action in a template's source (mainButtons()): a form with two main buttons, two main links outside the forms,
+     * a main button in a filter or search form, a main button repeated on every row (but ROW_MAIN's).
+     *
+     * @return list<string>
+     */
+    private static function mainButtonProblems(string $name, string $src): array
+    {
+        $name = basename($name, '.php');
+        $actions = [];
+        $out = [];
+        foreach (self::mainButtons($src, $actions) as $where => $count) {
+            if (str_starts_with($where, 'GET ')) {
+                $out[] = "{$name}: {$where} is a filter or a search, yet holds a main button";
+            } elseif (str_ends_with($where, ' (each row)') && !(isset(self::ROW_MAIN[$name]) && str_contains($actions[$where] ?? '', self::ROW_MAIN[$name]))) {
+                $out[] = "{$name}: {$where} draws a main button on every row";
+            } elseif ($count > 1) {
+                $out[] = "{$name}: {$where} holds {$count} main buttons";
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
      * One main action (the owner, 29 Oct 2026: "button all design follow this"; the parts board: "One main button per page"; docs/decisions.md
-     * DS5): in every template a form holds at most one main (magenta) button, and at most one main link or fold button stands outside the
-     * forms. The rendered pages are checked too (tests/Support/MainButtons, run by the kernel's browser on every page a test opens).
+     * DS5, AV13): in every template a form holds at most one main (magenta) button, at most one main link or fold button stands outside the
+     * forms, a filter or search form holds none, and a main button is not repeated row by row (but the documented row answers). The rendered
+     * pages are checked too (tests/Support/MainButtons, run by the kernel's browser on every page a test opens).
      */
     public function testEveryPageHasAtMostOneMainButtonPerForm(): void
     {
         $forms = 0;
+        $problems = [];
         foreach (self::templates() as $name => $src) {
-            foreach (self::mainButtons($src) as $where => $count) {
-                $forms++;
-                self::assertLessThanOrEqual(1, $count, "{$name}: {$where} holds {$count} main buttons");
-            }
+            $forms += count(self::mainButtons($src));
+            array_push($problems, ...self::mainButtonProblems($name, $src));
         }
+        self::assertSame([], $problems);
         self::assertGreaterThan(60, $forms, 'the main buttons were found');
         // The count itself: two in one form; the branches of one if; a loop; a button naming its form from outside; a link.
         self::assertSame(['form at line 1 #1' => 2], self::mainButtons('<form method="post"><button class="btn primary">A</button><button class="btn primary">B</button></form>'));
         self::assertSame(['form at line 1 #1' => 1], self::mainButtons('<form method="post"><?php if ($a): ?><button class="btn primary">A</button><?php elseif ($b): ?>'
             . '<button class="btn primary">B</button><?php else: ?><button class="btn">C</button><?php endif; ?></form>'));
         self::assertSame(['form at line 1 #1' => 2], self::mainButtons('<form method="post"><?php foreach ($rows as $r): ?><button class="btn primary">A</button><?php endforeach; ?></form>'));
-        self::assertSame(['form at line 1 #1' => 1, 'form at line 1 #2' => 1], self::mainButtons('<?php foreach ($rows as $r): ?><form method="post"><button class="btn primary">A</button></form><?php endforeach; ?>'));
         self::assertSame(['form #f' => 2], self::mainButtons('<form id="f" method="post"><button class="btn primary">A</button></form><button form="f" class="btn primary">B</button>'));
         self::assertSame(['outside a form' => 2], self::mainButtons('<a class="btn primary" href="/a">A</a><form method="post"><a class="btn primary" href="/b">B</a></form>'));
         self::assertSame([], self::mainButtons('<button class="btn<?php if ($primary): ?> primary<?php endif; ?>">A</button><a class="btn" href="/">B</a>'), 'the data decides: the rendered check');
+        // The Codex review of DS1-DS6 (AV13): a primary Apply of a filter beside a primary Save; a primary button on every row's own form.
+        $page = '<form class="toolbar" method="get" action="/ui/x"><button class="btn primary">Apply</button></form>'
+            . '<form method="post" action="/ui/x/save"><button class="btn primary">Save</button></form>';
+        self::assertSame(['GET form at line 1 #1' => 1, 'form at line 1 #2' => 1], self::mainButtons($page));
+        self::assertSame(['x: GET form at line 1 #1 is a filter or a search, yet holds a main button'], self::mainButtonProblems('x', $page));
+        self::assertSame(['x: GET form at line 1 #1 is a filter or a search, yet holds a main button'],
+            self::mainButtonProblems('x', '<form action="/ui/x"><button class="btn primary">Show</button></form>'), 'no method is a GET form');
+        $rows = '<?php foreach ($rows as $r): ?><form method="post" action="<?= $u(\'/ui/arriving/\' . $r[\'id\'] . \'/receive\') ?>"><button class="btn primary">Receive</button></form><?php endforeach; ?>';
+        self::assertSame(['form at line 1 #1 (each row)' => 1, 'form at line 1 #2 (each row)' => 1], self::mainButtons($rows));
+        self::assertSame(['x: form at line 1 #1 (each row) draws a main button on every row', 'x: form at line 1 #2 (each row) draws a main button on every row'],
+            self::mainButtonProblems('x', $rows));
+        $ok = '<?php foreach ($requests as $r): ?><form method="post" action="<?= $u(\'/ui/staff-requests/\' . $r[\'id\'] . \'/approve\') ?>"><button class="btn primary">OK</button></form><?php endforeach; ?>';
+        self::assertSame([], self::mainButtonProblems('staff_requests', $ok), 'the OK of each record\'s decision (DS5)');
+        self::assertNotSame([], self::mainButtonProblems('x', $ok), 'only where it is documented');
+        // The same two cases on a rendered page (tests/Support/MainButtons).
+        self::assertCount(1, \CW\Tests\Support\MainButtons::problems($page));
+        self::assertStringContainsString('filter (GET)', \CW\Tests\Support\MainButtons::problems($page)[0]);
+        $drawn = '<form method="post" action="/ui/arriving/1/receive"><button class="btn primary">Receive</button></form>'
+            . '<form method="post" action="/ui/arriving/2/receive"><button class="btn primary">Receive</button></form>';
+        self::assertSame(['a row action repeated (/ui/arriving/{n}/receive): 2 main buttons (Receive | Receive)'], \CW\Tests\Support\MainButtons::problems($drawn));
+        self::assertSame([], \CW\Tests\Support\MainButtons::problems(str_replace('/ui/arriving/', '/ui/staff-requests/', str_replace('/receive', '/approve', $drawn))),
+            'the OK of each record\'s decision');
+        self::assertSame([], \CW\Tests\Support\MainButtons::problems('<form method="post" action="/ui/queues/suspense/1/pick"><button class="btn primary">Place</button></form>'
+            . '<form method="post" action="/ui/queues/suspense/2/pick"><button class="btn primary">Place</button></form>'), 'Lines to place\'s Place (LP_Queue)');
+        self::assertSame([], \CW\Tests\Support\MainButtons::problems('<form method="post" action="/ui/review/listing/7/decide"><button class="btn primary">Yes</button></form>'
+            . '<form method="post" action="/ui/review/listing/7/decide"><button class="btn primary">Save</button></form>'), 'one record\'s two forms (a quick Yes beside the full form): one per form');
     }
 
     public function testTheLintItselfCatchesWhatItIsFor(): void

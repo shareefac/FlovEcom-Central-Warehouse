@@ -41,7 +41,10 @@ final class SectionsTest extends TestCase
         foreach (Sections::MAP as $s => $section) {
             self::assertArrayHasKey($s, Words::SECTION);
             self::assertNotSame('', Words::SECTION_DESC[$s] ?? '', "{$s}: its one line");
-            self::assertSame(['tabs'], array_keys($section), $s);
+            self::assertSame([], array_diff(array_keys($section), ['tabs', 'count']), $s);
+            if (isset($section['count'])) {
+                self::assertArrayHasKey($section['count'], $section['tabs'], "{$s}: the tab whose count is the section's (docs/decisions.md AV10)");
+            }
             foreach ($section['tabs'] as $t => $tab) {
                 $what = "{$s} / {$t}";
                 self::assertArrayHasKey($t, Words::MENU, "{$what}: its name");
@@ -57,15 +60,24 @@ final class SectionsTest extends TestCase
                     $keys[] = $key;
                     $where = "{$what} / {$key}";
                     self::assertSame([], array_diff(array_keys($page), ['perm', 'path', 'query', 'match', 'badge', 'key', 'new']), $where);
-                    self::assertArrayHasKey($page['perm'], Permissions::MAP, $where);
                     self::assertArrayHasKey($page['path'], $gets, "{$where}: a real GET route");
-                    self::assertTrue($gets[$page['path']] === $page['perm'] || $gets[$page['path']] === 'any',
-                        "{$where}: the link is shown to exactly the people the route lets in");
+                    if (is_array($page['perm'])) {
+                        // Any of a list (Approvals › Waiting for you, AV1): a route open to every signed-in person, whose page refuses the rest.
+                        foreach ($page['perm'] as $perm) {
+                            self::assertArrayHasKey($perm, Permissions::MAP, $where);
+                        }
+                        self::assertSame('any', $gets[$page['path']], "{$where}: a page for the holders of any of several permissions checks them itself");
+                    } else {
+                        self::assertArrayHasKey($page['perm'], Permissions::MAP, $where);
+                        self::assertTrue($gets[$page['path']] === $page['perm'] || $gets[$page['path']] === 'any',
+                            "{$where}: the link is shown to exactly the people the route lets in");
+                    }
                     if (($tab['segments'] ?? false) === true) {
                         self::assertArrayHasKey($key, Words::SEGMENT, "{$where}: the segment's name");
                     }
                     if (isset($page['badge'])) {
                         self::assertContains($page['badge'], ['linking_pending', 'linking_duplicates', 'reviews_open', 'barcodes_open', 'incidents_open', 'counts_open',
+                            'approvals_inbox', // AV10
                             ...array_keys(\CW\Ui\Context::STOCK_BADGES), 'invoices_to_match',
                             'arrivals_late', 'invoices_timed_failed', // Pack J (PJ10, PJ14)
                             // Pack F (PF5)
@@ -86,7 +98,7 @@ final class SectionsTest extends TestCase
             }
         }
         self::assertSame(['linking_pending', 'linking_duplicates', 'barcodes_open', 'stock_in_open', 'stock_out_open', 'transfers_open', 'releases_open',
-            'adjustments_open', 'counts_open', 'incidents_open', 'arrivals_late', 'invoices_to_match', 'invoices_timed_failed', 'reviews_open', // Pack J: 2 badges
+            'adjustments_open', 'counts_open', 'incidents_open', 'arrivals_late', 'invoices_to_match', 'invoices_timed_failed', 'approvals_inbox', 'reviews_open', // Pack J: 2 badges
             'queue_suspense', 'queue_corrections', 'queue_modes', 'queue_oversold', 'queue_landing'], Sections::badgeNames());
     }
 
@@ -176,6 +188,7 @@ final class SectionsTest extends TestCase
             ['/ui/purchasing/supplier-items/12', [], 'purchasing', 'suppliers', 'suppliers'],
             ['/ui/system/audit', [], 'reports', 'audit', 'audit'],
             ['/ui/documents/reviews', [], 'approvals', 'reviews', 'reviews'],
+            ['/ui/approvals', ['open' => 'corrections-12'], 'approvals', 'inbox', 'inbox'],
             ['/ui/documents/12', [], 'approvals', 'documents', 'documents'],
             ['/ui/staff-requests', [], 'approvals', 'staff_requests', 'staff_requests'],
             ['/ui/reference/company/edit', [], 'settings', 'company', 'company'],
@@ -224,7 +237,10 @@ final class SectionsTest extends TestCase
         self::assertSame(['Purchase Orders', 'Goods In', 'Returns', 'Suppliers'], $tabs(['goods_in'], 'purchasing'));
         // Pack F (PF5): From the stores, for everyone who reads records.
         self::assertSame(['History', 'From the stores'], $tabs(['buyer'], 'approvals'));
-        self::assertSame(['Waiting for me', 'History', 'Staff requests', 'From the stores'], $tabs(['reviewer'], 'approvals'));
+        self::assertSame(['Waiting for you', 'Documents to review', 'History', 'Staff requests', 'From the stores'], $tabs(['reviewer'], 'approvals'));
+        // Approvals › Waiting for you (AV1): for the people who answer any of its kinds, first; a buyer answers none.
+        self::assertSame(['Waiting for you', 'History', 'From the stores'], $tabs(['purchasing_desk'], 'approvals'));
+        self::assertSame(['Waiting for you', 'History'], $tabs(['warehouse'], 'approvals'), 'the count differences: a job without the stores\' queues');
         self::assertNotSame(Sections::menu(['buyer']), Sections::menu(['purchasing_desk']));
         self::assertNotSame(Sections::menu(['purchasing_desk']), Sections::menu(['reviewer']));
         // Pack B: Families and Multipacks for everyone who sees products; Add Item for the catalogue team.

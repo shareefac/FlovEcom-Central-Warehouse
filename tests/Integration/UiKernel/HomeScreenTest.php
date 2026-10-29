@@ -148,7 +148,8 @@ final class HomeScreenTest extends KernelUiTestCase
         self::assertStringContainsString('Still missing: legal name', $by['company_confirm']['text']);
         self::assertSame(['1 waits for you', '/ui/documents/reviews#approvals'], [$by['approvals']['count'], $by['approvals']['href']]);
         // The approvals card counts what the menu badge counts: the same number, never one the person cannot clear.
-        self::assertSame(['href' => '/ui/documents/reviews', 'count' => 1], self::nav($home)['Approvals']);
+        // The menu's Approvals entry opens Waiting for you (docs/decisions.md AV1, AV10), and its badge counts the same record.
+        self::assertSame(['href' => '/ui/approvals', 'count' => 1], self::nav($home)['Approvals']);
         $first = $s['members'][0];
         self::assertSame('Spot check home-1: are these 20 matches right?', $by['spot_check']['title']);
         self::assertSame('0 of 20 checked', $by['spot_check']['count']);

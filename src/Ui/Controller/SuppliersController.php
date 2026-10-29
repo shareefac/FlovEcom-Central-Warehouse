@@ -286,10 +286,17 @@ final class SuppliersController
                 default => $ctx->suppliers()->withdraw($ctx->caller(), $taskId),
             };
         } catch (CwException $e) {
+            // An OK or Not OK sent from Approvals › Waiting for you (docs/decisions.md AV5): the refusal comes back there, on the task.
+            if ($what !== 'withdraw' && InboxController::from($ctx)) {
+                return InboxController::refused($ctx, 'documents-' . $taskId, self::plain($e), $e);
+            }
             return $this->card($ctx, $sid, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url('/ui/purchasing/suppliers/' . $sid,
-            ['notice' => ['approve' => 'approved', 'reject' => 'rejected', 'withdraw' => 'withdrawn'][$what]]));
+        $notice = ['approve' => 'approved', 'reject' => 'rejected', 'withdraw' => 'withdrawn'][$what];
+        if ($what !== 'withdraw' && InboxController::from($ctx)) {
+            return InboxController::answered($ctx, 'supplier', $notice);
+        }
+        return HtmlResponse::redirect(Html::url('/ui/purchasing/suppliers/' . $sid, ['notice' => $notice]));
     }
 
     // ------------------------------------------------------------------------------------------

@@ -65,7 +65,7 @@
       <label for="note-<?= $e($r['id']) ?>"><?= $word('BARCODE', 'note') ?></label>
       <input id="note-<?= $e($r['id']) ?>" type="text" name="note" maxlength="500">
     </fieldset>
-    <p class="actions"><button type="submit" class="btn primary"><?= $word('BARCODE', 'save_decision') ?></button></p>
+    <p class="actions"><button type="submit" class="btn"><?= $word('BARCODE', 'save_decision') ?></button></p>
   </form>
 <?php endif; ?>
 </article>

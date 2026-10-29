@@ -396,6 +396,13 @@ final class Context
                 $out[$badge] = ($this->checksByType[$type]['review'] ?? 0) + ($this->checksByType[$type]['approval'] ?? 0);
             }
         }
+        // Approvals › Waiting for you (docs/decisions.md AV10): every record this person may answer, each kind counted as on its own tab
+        // (the stores' queues, the count differences, the reviews), and the staff requests they may decide.
+        if ($this->who !== null && \CW\Ui\Controller\InboxController::kinds($this->who->roles) !== []) {
+            $staff = $this->who->can('staff.approve') ? (new \CW\Staff\RoleRequests($this->db))->decidableCount($this->who->id, $this->who->roles) : 0;
+            $out['approvals_inbox'] = $staff + ($out['reviews_open'] ?? 0) + ($out['counts_open'] ?? 0) + ($out['queue_suspense'] ?? 0) + ($out['queue_corrections'] ?? 0)
+                + ($out['queue_modes'] ?? 0) + ($out['queue_oversold'] ?? 0) + ($out['queue_landing'] ?? 0);
+        }
         return $this->badges = $out;
     }
 

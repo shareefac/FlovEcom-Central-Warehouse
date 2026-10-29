@@ -241,7 +241,8 @@ final class PeopleScreenTest extends KernelUiTestCase
         $form = $admin->get('/ui/people/' . $u['id'])->form('/ui/people/' . $u['id'] . '/roles');
         unset($form['role_reviewer']);
         self::assertSame(303, $admin->post('/ui/people/' . $u['id'] . '/roles', $form)->status);
-        self::assertSame([Words::MENU['documents'], Words::MENU['store_queues']], self::tabLabels($web->get('/ui/documents')), 'the same session, the next request');
+        // A stock controller still answers the stores' queues: Waiting for you stays (docs/decisions.md AV1), the reviewer's queue goes.
+        self::assertSame([Words::MENU['inbox'], Words::MENU['documents'], Words::MENU['store_queues']], self::tabLabels($web->get('/ui/documents')), 'the same session, the next request');
         self::assertSame(['Dashboard', 'Products', 'Stock', 'Purchasing', 'Reports', 'Approvals', 'Settings'], array_keys(self::nav($web->get('/ui/'))), 'a stock controller now (with the store reports, pack E)');
         $revoked = self::$db->one("SELECT revoked_at, revoked_by FROM staff_role WHERE staff_user_id = ? AND role = 'reviewer'", [$u['id']]);
         self::assertNotNull($revoked['revoked_at']);

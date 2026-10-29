@@ -809,6 +809,31 @@ The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shar
   `ReceivingWordsTest`. The script in node: `/root/cw_work/runs/gione_js_harness/` (outside the repo; copy into `tools/gione_js/` for a
   run through the slot runner with `/root/poone_js/node`, and remove it).
 
+### Approvals › Waiting for you (`docs/decisions.md` AV1-AV14)
+
+The approved design (`AP_Inbox`, `AP_Phone`): one page of every record the person may answer, one record open, one decision. It has no
+decision logic: each answer is a form of the kind's own route, which leads back here when the form says `inbox=1`.
+
+| Path | What |
+|---|---|
+| `src/Ui/Controller/InboxController.php` | `KINDS` (order, who, colour, own page), `PERMS` (the tab's permissions, any of them), `kinds($roles)`, `GET /ui/approvals` (`Route::ANY`, 403 for who answers none), `group()` per kind, `record()` (facts, lines, the decision: `action`, `main`, fields, `more`), and for the kinds' actions `from()`, `answered()`, `refused()`, `countKey()` |
+| views `approvals_inbox` (the list), `approvals_record` (the open record: `form#ap-answer`, the main button naming it, `details.more` with `formaction` buttons or `details.doc-act` folds), `lq_item_box` (Lines to place's item box, shared with `queue_suspense`) | |
+| `src/Ui/Sections.php` | a page's `perm` may be a list (any of them: `Sections::may`; its route is `Route::ANY`); a section's `count` names the tab whose count is the section's |
+| `src/Ui/Context.php` | badge `approvals_inbox` |
+| `src/Ui/Words.php` | `INBOX` (the groups, the rows' lines, the record's head, the facts); `MENU inbox`; `MENU reviews` is "Documents to review" |
+
+- A kind's action that may be answered from the inbox: on success `if (InboxController::from($ctx)) return InboxController::answered($ctx,
+  '<notice words>', $notice, $arg)` (a new notice group goes in `InboxController::NOTICES`), on a `CwException` `InboxController::refused($ctx,
+  '<kind>-<id>', <the page's words for it>, $e)`. A new kind: a `KINDS` row, its permission in `PERMS`, `group()` and `record()` cases, its words
+  (`INBOX kind_*`, `one_*`), its count in `approvals_inbox`.
+- Classes: `.ap-inbox` (the two columns), `.ap-list`, `.ap-group` (+ a tone), `.ap-gh`, `.ap-dot`, `.ap-row` (`.sel`), `.ap-record` (+ a tone) >
+  `.card.ap-card` (`.ap-rhead`, `dl.ap-facts` > `.ap-fact`, `.ap-line`, `form.ap-answer`, `.ap-actions`, `.ap-next`).
+- Tests: `tests/Integration/UiKernel/ApprovalsInboxScreensTest.php` (twin records answered on the kind's page and in the inbox: the same
+  record, stock and audit rows), `tests/Unit/InboxUnitTest.php`. The inbox's answer form is `$r->form(<the kind's route>)` (`csrf`, `inbox`,
+  `inbox_pos`, `inbox_next` first).
+- The main-button checks (AV13): `tests/Support/MainButtons::ROW_ANSWERS` and `UiTemplatesTest::ROW_MAIN` list the routes whose forms may each
+  hold a main button on one page; a GET form never holds one.
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

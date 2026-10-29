@@ -35,10 +35,35 @@ final class ReviewsController
 {
     public function queue(Context $ctx): HtmlResponse
     {
-        $me = $ctx->me();
         $types = array_map('strval', $ctx->db->column('SELECT code FROM document_type'));
         $type = $ctx->req->param('type');
         $type = $type !== null && (in_array($type, $types, true) || $type === 'Supplier' || $type === 'Company') ? $type : null;
+        $lists = self::tasks($ctx, $type);
+        // The filter offers only the kinds in use today (plan F102): the live document types, suppliers and the company details.
+        $docs = $ctx->documents();
+        $filter = [];
+        foreach (ReferenceController::TYPE_ORDER as $code) {
+            if (in_array($code, $types, true) && ($docs->handler($code) !== null || $type === $code)) {
+                $filter[$code] = Words::docType($code, true);
+            }
+        }
+        $filter['Supplier'] = Words::CHECKS['suppliers'];
+        $filter['Company'] = Words::CHECKS['company'];
+        return $ctx->page('reviews', ['approvals' => $lists['approval'], 'reviews' => $lists['review'], 'type' => $type, 'types' => $filter], 200,
+            ['title' => Words::title('reviews'), 'active' => 'reviews']);
+    }
+
+    /**
+     * The open tasks of the queue, oldest first in each list: `approval` (nothing goes ahead until a reviewer says yes) and `review`
+     * (done already, a reviewer checks it); documents, suppliers and the company details. Each row says why this person may not decide
+     * it (`refusal`, null when they may) and where it is decided (`href`); `subject` is document, supplier or company. $type narrows the
+     * rows to a document type, Supplier or Company. The queue and Approvals › Waiting for you (InboxController, AV4) read the same rows.
+     *
+     * @return array{approval: list<array<string, mixed>>, review: list<array<string, mixed>>}
+     */
+    public static function tasks(Context $ctx, ?string $type = null): array
+    {
+        $me = $ctx->me();
         $now = gmdate('Y-m-d H:i:s');
         $lists = ['approval' => [], 'review' => []];
         // A purchase order (and its cancellation record, which has no purchase_order row of its own) is named by its supplier and
@@ -59,7 +84,7 @@ final class ReviewsController
             $no = $ctx->documents()->refusalFor($me->id, $me->roles, $doc, (string) $r['kind']);
             $isPo = $doc->docType === 'PO';
             $lists[(string) $r['kind']][] = [
-                'task_id' => (int) $r['task_id'], 'document_id' => $doc->id,
+                'subject' => 'document', 'kind' => (string) $r['kind'], 'task_id' => (int) $r['task_id'], 'document_id' => $doc->id,
                 'label' => Words::docTitle($doc->docType, $doc->number, $r['supplier_name'] === null ? null : (string) $r['supplier_name'],
                     $doc->isReversal() ? (string) ($r['cancels_number'] ?? '#' . $doc->reversesId) : null, $r['type_name'] === null ? null : (string) $r['type_name']),
                 'type' => $doc->docType, 'href' => match ($doc->docType) {
@@ -91,7 +116,8 @@ final class ReviewsController
             }
             $no = Suppliers::refusal($me->id, $me->roles, $r, $r);
             $lists[(string) $r['kind']][] = [
-                'task_id' => (int) $r['task_id'], 'document_id' => null, 'label' => Words::say('CHECKS', 'supplier', (string) $r['name']), 'type' => 'Supplier',
+                'subject' => 'supplier', 'kind' => (string) $r['kind'], 'task_id' => (int) $r['task_id'], 'document_id' => null,
+                'label' => Words::say('CHECKS', 'supplier', (string) $r['name']), 'type' => 'Supplier',
                 'href' => '/ui/purchasing/suppliers/' . (int) $r['supplier_id'],
                 'reason' => (string) $r['task_reason'], 'money' => null, 'items' => null, 'opened_by' => $r['opened_by_name'], 'opened_at' => $r['opened_at'],
                 'due_at' => $r['due_at'], 'overdue' => (string) $r['due_at'] < $now, 'refusal' => Words::refusal($no),
@@ -113,7 +139,8 @@ final class ReviewsController
             $no = $ctx->company()->refusal($me->id, $me->roles, $r);
             $changed = $what[(int) $r['task_id']] ?? '';
             $lists[(string) $r['kind']][] = [
-                'task_id' => (int) $r['task_id'], 'document_id' => null, 'label' => Words::CHECKS['company_changed'] . ($changed !== '' ? " ({$changed})" : ''),
+                'subject' => 'company', 'kind' => (string) $r['kind'], 'task_id' => (int) $r['task_id'], 'document_id' => null,
+                'label' => Words::CHECKS['company_changed'] . ($changed !== '' ? " ({$changed})" : ''),
                 'type' => 'Company details',
                 'href' => '/ui/reference/company', 'reason' => (string) $r['task_reason'], 'money' => null, 'items' => null, 'opened_by' => $r['opened_by_name'],
                 'opened_at' => $r['opened_at'], 'due_at' => $r['due_at'], 'overdue' => (string) $r['due_at'] < $now, 'refusal' => Words::refusal($no),
@@ -123,18 +150,7 @@ final class ReviewsController
             usort($list, static fn (array $a, array $b): int => [(string) $a['opened_at'], $a['task_id']] <=> [(string) $b['opened_at'], $b['task_id']]);
         }
         unset($list);
-        // The filter offers only the kinds in use today (plan F102): the live document types, suppliers and the company details.
-        $docs = $ctx->documents();
-        $filter = [];
-        foreach (ReferenceController::TYPE_ORDER as $code) {
-            if (in_array($code, $types, true) && ($docs->handler($code) !== null || $type === $code)) {
-                $filter[$code] = Words::docType($code, true);
-            }
-        }
-        $filter['Supplier'] = Words::CHECKS['suppliers'];
-        $filter['Company'] = Words::CHECKS['company'];
-        return $ctx->page('reviews', ['approvals' => $lists['approval'], 'reviews' => $lists['review'], 'type' => $type, 'types' => $filter], 200,
-            ['title' => Words::title('reviews'), 'active' => 'reviews']);
+        return $lists;
     }
 
     public function approve(Context $ctx): HtmlResponse
@@ -177,6 +193,10 @@ final class ReviewsController
                 };
             }
         } catch (CwException $e) {
+            // Answered from Approvals › Waiting for you (docs/decisions.md AV5): the refusal comes back there, on the record.
+            if (InboxController::from($ctx)) {
+                return InboxController::refused($ctx, 'documents-' . $taskId, DocumentsController::plain($e), $e);
+            }
             return match (true) {
                 // Pack C: an invoice, a credit note or a return shows the refusal on its own page.
                 in_array($task['doc_type'], ['SINV', 'SCN'], true) => (new InvoicesController())->page($ctx, $task['doc_type'] === 'SINV' ? 'invoice' : 'credit_note', $docId,
@@ -187,6 +207,9 @@ final class ReviewsController
                 $stock !== null => (new StockOpsController())->page($ctx, $stock, $docId, $e->httpStatus, $e),
                 default => (new DocumentsController())->page($ctx, $docId, $e->httpStatus, $e),
             };
+        }
+        if (InboxController::from($ctx)) {
+            return InboxController::answered($ctx, 'record', $notice);
         }
         if ($stock !== null) {
             return HtmlResponse::redirect(Html::url(StockOps::PATHS[$stock] . '/' . $docId, ['notice' => $notice]));

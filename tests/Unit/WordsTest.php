@@ -255,7 +255,7 @@ final class WordsTest extends TestCase
         self::assertSame('', Words::comingLater(['buyer']));
         self::assertSame('Our name, numbers and addresses as printed on every purchase order. You can look; Reviewers change this.', Words::intro('company', 'Reviewers'));
         self::assertSame('', Words::intro('no-such-page'));
-        self::assertSame('Waiting for me', Words::title('reviews'));
+        self::assertSame('Documents to review', Words::title('reviews'));
         self::assertSame('Purchase Orders', Words::title('orders'));
     }
 

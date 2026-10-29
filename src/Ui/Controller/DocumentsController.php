@@ -232,16 +232,7 @@ final class DocumentsController
         }
         // People by name; a set-up actor ("system:…") is never shown as a code (plan rule 10).
         $data['people'] = array_map(static fn (?string $p): ?string => $p !== null && str_starts_with($p, 'system:') ? Words::RECORD['by_cw'] : $p, $data['people']);
-        $message = null;
-        if ($error !== null) {
-            // The service's refusals in the page's words, by code (plan F055); a code without words keeps the service's message.
-            $message = match (true) {
-                isset(self::ERRORS[$error->errorCode]) => Words::RECORD[self::ERRORS[$error->errorCode]],
-                $error->errorCode === 'note_required' => Words::noteRequired($error->detail),
-                isset(Words::REFUSAL[$error->errorCode]) && $error->errorCode !== 'role_not_allowed' => Words::REFUSAL[$error->errorCode],
-                default => Words::error($error->errorCode, $error->getMessage()),
-            };
-        }
+        $message = $error === null ? null : self::plain($error);
         return $ctx->page('document', $data + [
             'title' => Words::docTitle($doc->docType, $doc->number, null, null, (string) $data['type']['name']),
             'kindName' => Words::docType($doc->docType, false, (string) $data['type']['name']),
@@ -268,6 +259,17 @@ final class DocumentsController
             'errorCode' => $error?->errorCode,
             'waiting' => $open !== null,
         ], $status, ['title' => Words::docTitle($doc->docType, $doc->number, null, null, (string) $data['type']['name']), 'active' => 'documents', 'notice' => $notice]);
+    }
+
+    /** The service's refusals in the page's words, by code (plan F055); a code without words keeps the service's message. */
+    public static function plain(CwException $error): string
+    {
+        return match (true) {
+            isset(self::ERRORS[$error->errorCode]) => Words::RECORD[self::ERRORS[$error->errorCode]],
+            $error->errorCode === 'note_required' => Words::noteRequired($error->detail),
+            isset(Words::REFUSAL[$error->errorCode]) && $error->errorCode !== 'role_not_allowed' => Words::REFUSAL[$error->errorCode],
+            default => Words::error($error->errorCode, $error->getMessage()),
+        };
     }
 
     /**

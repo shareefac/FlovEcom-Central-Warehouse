@@ -139,9 +139,16 @@ final class CompanyController
         try {
             $d = $ctx->company()->decideReview($ctx->caller(), $ctx->id(), $approve, $ctx->req->field('note'));
         } catch (CwException $e) {
+            // Answered from Approvals › Waiting for you (docs/decisions.md AV5): the refusal comes back there, on the check.
+            if (InboxController::from($ctx)) {
+                return InboxController::refused($ctx, 'documents-' . $ctx->id(), self::plain($ctx, $e, 'changed_saved')->getMessage(), $e);
+            }
             return $this->page($ctx, $e->httpStatus, self::plain($ctx, $e, 'changed_saved'));
         }
         $notice = $approve ? 'review_approved' : ($d['unconfirmed_version'] !== null ? 'review_rejected' : 'review_rejected_kept');
+        if (InboxController::from($ctx)) {
+            return InboxController::answered($ctx, 'company', $notice);
+        }
         return HtmlResponse::redirect(Html::url('/ui/reference/company', ['notice' => $notice]));
     }
 
@@ -323,7 +330,7 @@ final class CompanyController
      * A refusal of the service in the page's words, by its code (the service's message is the API's and stays as it is): a
      * stale form names who saved the details and when (UK time); a refusal for a job says who may.
      */
-    private static function plain(Context $ctx, CwException $e, string $changedKey): CwException
+    public static function plain(Context $ctx, CwException $e, string $changedKey): CwException
     {
         $text = match ($e->errorCode) {
             'company_changed' => (static function () use ($ctx, $e, $changedKey): string {

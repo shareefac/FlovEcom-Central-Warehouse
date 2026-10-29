@@ -748,6 +748,9 @@ final class Kernel
         // ---- Pack F (docs/decisions.md PF5-PF9): Approvals › From the stores. queues.view looks; each answer needs its queue's permission
         // (queues.suspense, queues.corrections, queues.modes, queues.oversell), checked again by CW\Queues\* (never admin). ----
         \CW\Ui\Controller\StoreQueuesController::routes($r);
+        // Approvals › Waiting for you (docs/decisions.md AV1-AV14): every record the person may answer on one page. Any signed-in person
+        // asks; the page refuses whoever answers none of its kinds. Its answers are the forms of the kinds' own routes (above).
+        \CW\Ui\Controller\InboxController::routes($r);
         return $this->router = $r;
     }
 

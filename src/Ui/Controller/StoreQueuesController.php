@@ -71,11 +71,7 @@ final class StoreQueuesController
         $canAct = $me->can(Suspense::PERM);
         $canAdd = $me->can('items.create');
         // The item a refused answer named, drawn as picked again (LQ6): its name and code when the code is an item's.
-        $picked = '';
-        if ($typed !== null && $typed['form'] === 'pick' && trim($typed['item']) !== '') {
-            $sku = $ctx->db->one('SELECT code, name FROM sku WHERE code = ? AND merged_into_sku_id IS NULL', [strtoupper(trim($typed['item']))]);
-            $picked = $sku === null ? '' : Words::say('LQ', 'label', self::oneLine((string) $sku['name']), (string) $sku['code']);
-        }
+        $picked = $typed !== null && $typed['form'] === 'pick' ? self::pickedLabel($ctx, $typed['item']) : '';
         $words = static fn (array $r): array => self::suspenseRow($r, $canAct, $canAdd, $typed !== null && $typed['id'] === (int) $r['id'] ? $typed + ['picked' => $picked] : null);
         return $this->page($ctx, 'queue_suspense', 'queue_suspense', Suspense::PERM, $state, $rows, $words, $status, $error, [
             'groups' => self::suspenseGroups(array_map($words, array_slice($rows, 0, QueueRules::PAGE)), $state),
@@ -125,6 +121,16 @@ final class StoreQueuesController
         }
         return $ctx->fragment('queue_items', ['choices' => $choices, 'exact' => $exact && count($choices) === 1,
             'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('LQ', 'none', $q) : '']);
+    }
+
+    /** The item box's chip for a typed CW code (LQ6): the item's name and code when the code is an item's, else ''. */
+    public static function pickedLabel(Context $ctx, string $item): string
+    {
+        if (trim($item) === '') {
+            return '';
+        }
+        $sku = $ctx->db->one('SELECT code, name FROM sku WHERE code = ? AND merged_into_sku_id IS NULL', [strtoupper(trim($item))]);
+        return $sku === null ? '' : Words::say('LQ', 'label', self::oneLine((string) $sku['name']), (string) $sku['code']);
     }
 
     private static function oneLine(string $name): string
@@ -182,10 +188,11 @@ final class StoreQueuesController
             $r = (new Suspense($ctx->db))->pick($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('item') ?? ''), (int) ($units === '' ? '1' : $units),
                 (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->suspense($ctx, $e->httpStatus, $e, self::typedAnswer($ctx, 'pick'));
+            return self::fromInbox($ctx, 'suspense', $e) ?? $this->suspense($ctx, $e->httpStatus, $e, self::typedAnswer($ctx, 'pick'));
         }
         $notice = $r['result'] === 'queued' ? 'sent_to_corrections' : ($r['replayed'] ? 'booked_before' : 'booked');
-        return HtmlResponse::redirect(Html::url(self::PATH . '/suspense', ['notice' => $notice, 'item' => $r['sku_code']]));
+        return self::toInbox($ctx, $notice, (string) $r['sku_code'])
+            ?? HtmlResponse::redirect(Html::url(self::PATH . '/suspense', ['notice' => $notice, 'item' => $r['sku_code']]));
     }
 
     public function suspenseDismiss(Context $ctx): HtmlResponse
@@ -193,9 +200,9 @@ final class StoreQueuesController
         try {
             (new Suspense($ctx->db))->dismiss($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->suspense($ctx, $e->httpStatus, $e, self::typedAnswer($ctx, 'dismiss'));
+            return self::fromInbox($ctx, 'suspense', $e) ?? $this->suspense($ctx, $e->httpStatus, $e, self::typedAnswer($ctx, 'dismiss'));
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/suspense', ['notice' => 'closed']));
+        return self::toInbox($ctx, 'closed') ?? HtmlResponse::redirect(Html::url(self::PATH . '/suspense', ['notice' => 'closed']));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -214,10 +221,10 @@ final class StoreQueuesController
         try {
             $r = (new Corrections($ctx->db))->confirm($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->corrections($ctx, $e->httpStatus, $e);
+            return self::fromInbox($ctx, 'corrections', $e) ?? $this->corrections($ctx, $e->httpStatus, $e);
         }
         $notice = $r['replayed'] ? 'confirmed_before' : ($r['delta'] === 0 ? 'confirmed_nothing' : 'confirmed');
-        return HtmlResponse::redirect(Html::url(self::PATH . '/corrections', ['notice' => $notice]));
+        return self::toInbox($ctx, $notice) ?? HtmlResponse::redirect(Html::url(self::PATH . '/corrections', ['notice' => $notice]));
     }
 
     public function correctionDismiss(Context $ctx): HtmlResponse
@@ -225,9 +232,9 @@ final class StoreQueuesController
         try {
             (new Corrections($ctx->db))->dismiss($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->corrections($ctx, $e->httpStatus, $e);
+            return self::fromInbox($ctx, 'corrections', $e) ?? $this->corrections($ctx, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/corrections', ['notice' => 'closed']));
+        return self::toInbox($ctx, 'closed') ?? HtmlResponse::redirect(Html::url(self::PATH . '/corrections', ['notice' => 'closed']));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -246,9 +253,10 @@ final class StoreQueuesController
         try {
             $r = (new ModeChanges($ctx->db))->accept($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->modes($ctx, $e->httpStatus, $e);
+            return self::fromInbox($ctx, 'modes', $e) ?? $this->modes($ctx, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/modes', ['notice' => $r['applied'] === 'mode' ? 'accepted_mode' : 'accepted_policy']));
+        $notice = $r['applied'] === 'mode' ? 'accepted_mode' : 'accepted_policy';
+        return self::toInbox($ctx, $notice) ?? HtmlResponse::redirect(Html::url(self::PATH . '/modes', ['notice' => $notice]));
     }
 
     public function modeDismiss(Context $ctx): HtmlResponse
@@ -256,9 +264,9 @@ final class StoreQueuesController
         try {
             (new ModeChanges($ctx->db))->dismiss($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->modes($ctx, $e->httpStatus, $e);
+            return self::fromInbox($ctx, 'modes', $e) ?? $this->modes($ctx, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/modes', ['notice' => 'kept']));
+        return self::toInbox($ctx, 'kept') ?? HtmlResponse::redirect(Html::url(self::PATH . '/modes', ['notice' => 'kept']));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -278,9 +286,9 @@ final class StoreQueuesController
         try {
             (new Oversells($ctx->db))->handle($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('resolution') ?? ''), (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->oversold($ctx, $e->httpStatus, $e);
+            return self::fromInbox($ctx, 'oversold', $e) ?? $this->oversold($ctx, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/oversold', ['notice' => 'handled']));
+        return self::toInbox($ctx, 'handled') ?? HtmlResponse::redirect(Html::url(self::PATH . '/oversold', ['notice' => 'handled']));
     }
 
     public function oversoldNote(Context $ctx): HtmlResponse
@@ -288,9 +296,11 @@ final class StoreQueuesController
         try {
             (new Oversells($ctx->db))->addNote($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->oversold($ctx, $e->httpStatus, $e);
+            return self::fromInbox($ctx, 'oversold', $e) ?? $this->oversold($ctx, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/oversold', ['notice' => 'noted']) . '#oversold-' . $ctx->id());
+        // A note settles nothing: the inbox keeps this record open.
+        return self::toInbox($ctx, 'noted', '', 'oversold-' . $ctx->id())
+            ?? HtmlResponse::redirect(Html::url(self::PATH . '/oversold', ['notice' => 'noted']) . '#oversold-' . $ctx->id());
     }
 
     // ------------------------------------------------------------------------------------------
@@ -312,9 +322,24 @@ final class StoreQueuesController
             (new LandingOrders($ctx->db))->handle($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('resolution') ?? ''), (string) ($ctx->req->field('note') ?? ''),
                 $paid === '0' || $paid === '1' ? (int) $paid : null);
         } catch (CwException $e) {
-            return $this->landing($ctx, $e->httpStatus, $e);
+            return self::fromInbox($ctx, 'landing', $e) ?? $this->landing($ctx, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url(self::PATH . '/landing', ['notice' => 'handled']));
+        return self::toInbox($ctx, 'handled') ?? HtmlResponse::redirect(Html::url(self::PATH . '/landing', ['notice' => 'handled']));
+    }
+
+    /**
+     * An answer sent from Approvals › Waiting for you (docs/decisions.md AV5): the same route, permission, service and notice; only where it
+     * leads differs. toInbox: the inbox on the next record (or on $stay), with this notice; null when the answer came from the queue's page.
+     */
+    private static function toInbox(Context $ctx, string $notice, string $item = '', ?string $stay = null): ?HtmlResponse
+    {
+        return InboxController::from($ctx) ? InboxController::answered($ctx, 'queue', $notice, $item, $stay) : null;
+    }
+
+    /** A refused answer sent from the inbox: back there, on the record, in this page's words; null when it came from the queue's page. */
+    private static function fromInbox(Context $ctx, string $kind, CwException $e): ?HtmlResponse
+    {
+        return InboxController::from($ctx) ? InboxController::refused($ctx, $kind . '-' . $ctx->id(), self::plain($e), $e) : null;
     }
 
     // ------------------------------------------------------------------------------------------

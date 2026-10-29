@@ -11,14 +11,16 @@ use CW\Auth\Permissions;
  * design v3): seven sidebar sections, the tabs inside each, and the segmented filter inside a tab. The sidebar, the tab bar, the
  * segmented filter, the phone bar, Home's "What you can use" and the tests all read this map; no view names a page itself.
  *
- *   section => ['tabs' => [tab => tab]]                       the sidebar item; its words are Words::SECTION and SECTION_DESC
+ *   section => ['tabs' => [tab => tab], 'count'?: tab]        the sidebar item; its words are Words::SECTION and SECTION_DESC; `count`: the tab
+ *                                                          whose count is the section's (an inbox of the others' records), else their sum
  *   tab     => ['pages' => list<page>, 'segments'?: true, 'keep'?: list<string>]   a tab; its name is Words::MENU[tab]; `keep`: the
  *                                                          query values (a store, `channel`) its segments carry from the current request
  *           |  ['soon' => true]                                a tab not built yet: drawn disabled with a "Soon" chip, never a link
  *   page    => ['perm', 'path', 'query'?, 'match', 'badge'?, 'key'?, 'new'?]
  *
  * A page is one GET route: `perm` is exactly the permission the route checks (Ui\Kernel), so a link is shown to exactly the people
- * the route lets in (Tests\Unit\SectionsTest). A tab shows when the person may open at least one of its pages, and links to the
+ * the route lets in (Tests\Unit\SectionsTest); a list of permissions (any of them) is a route open to every signed-in person whose
+ * page refuses the others itself (Approvals › Waiting for you). A tab shows when the person may open at least one of its pages, and links to the
  * first of them; a section shows when one of its tabs does. In a tab with `segments` each page is a segment named
  * Words::SEGMENT[key]. `match` lists the request paths that belong to the page (detail pages, forms sent back with an error):
  * `{id}` is a number, a trailing `*` any rest, `?k=v` a query value; the most specific pattern wins (locate()). `badge` names a count
@@ -180,7 +182,11 @@ final class Sections
             // ---- end Pack E
             'audit' => ['pages' => [['perm' => 'audit.view', 'path' => '/ui/system/audit', 'match' => ['/ui/system/audit*']]]],
         ]],
-        'approvals' => ['tabs' => [
+        // The section's count is its inbox's (`count`, docs/decisions.md AV10): every record the person may answer, counted once.
+        'approvals' => ['count' => 'inbox', 'tabs' => [
+            // Waiting for you (AV1): every kind the person may answer on one page; the tab is for the holders of any of its permissions.
+            'inbox' => ['pages' => [['perm' => Controller\InboxController::PERMS, 'path' => '/ui/approvals', 'match' => ['/ui/approvals', '/ui/approvals/*'],
+                'badge' => 'approvals_inbox']]],
             'reviews' => ['pages' => [['perm' => 'documents.review', 'path' => '/ui/documents/reviews', 'match' => ['/ui/documents/reviews*'], 'badge' => 'reviews_open']]],
             'documents' => ['pages' => [['perm' => 'documents.view', 'path' => '/ui/documents', 'match' => ['/ui/documents', '/ui/documents/*', '/ui/files/*']]]],
             'staff_requests' => ['pages' => [['perm' => 'staff.approve', 'path' => '/ui/staff-requests', 'match' => ['/ui/staff-requests*']]]],
@@ -299,7 +305,7 @@ final class Sections
                 }
                 $pages = [];
                 foreach ($tab['pages'] as $page) {
-                    if (Permissions::can($roles, $page['perm'])) {
+                    if (self::may($roles, $page['perm'])) {
                         $pages[] = ['key' => (string) ($page['key'] ?? $t)] + $page;
                     }
                 }
@@ -375,6 +381,11 @@ final class Sections
                     'countWords' => $words, 'current' => $here !== null && $here['section'] === $s && $here['tab'] === $t, 'soon' => false];
             }
             $tabsOf[$s] = $list;
+            // A section with an inbox counts the inbox only: its other tabs list the same records again (AV10).
+            $inbox = self::MAP[$s]['count'] ?? null;
+            if ($inbox !== null && isset($tabs[$inbox])) {
+                $total = (int) (array_column($list, 'count', 'key')[$inbox] ?? 0);
+            }
             $first = array_values(array_filter($list, static fn (array $x): bool => !$x['soon']))[0];
             $nav[] = ['key' => $s, 'label' => Words::SECTION[$s], 'href' => $first['href'], 'query' => $first['query'], 'count' => $total,
                 'countWords' => Words::BADGE['section'], 'current' => $here !== null && $here['section'] === $s];
@@ -507,6 +518,17 @@ final class Sections
             }
         }
         return $out;
+    }
+
+    /** Whether the roles may open a page: its permission, or any of its list of permissions. @param list<string> $roles @param string|list<string> $perm */
+    public static function may(array $roles, string|array $perm): bool
+    {
+        foreach ((array) $perm as $p) {
+            if (Permissions::can($roles, $p)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @return list<string> every badge name the map uses */

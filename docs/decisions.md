@@ -12908,3 +12908,129 @@ the script; the phone markup; a big delivery paged within the field budget; the 
 row). Changed for the one page: `ReceivingScreensTest` (the bench page's forms are the one form's; the invoice copy a file of it; the
 markup pins), `UiTemplatesTest` (the views; "New delivery"), `SectionsTest` ("New delivery"). The script driven in node with a minimal DOM:
 `runs/gione_js_harness/` (outside the repo) and `runs/gione_js.log`.
+
+## Approvals › Waiting for you: one inbox, one record at a time (branch `approvals-inbox`, 29 Oct 2026; AV1-AV14)
+
+The owner approved the Approvals screens of the canvas "CW Daily Screens" on 29 Oct 2026 (relayed by the coordinator with the static mockups
+`AP_Inbox` and `AP_Phone`): one page listing every record the signed-in person may answer, grouped by kind, one record open with its facts and
+ONE decision. Built from main `7cfcc89`, rebased on `d18e699` (goods in on one page), in `/root/cw-apone`. No migration, no new permission, no
+service rule changed: every answer is the kind's own route. Code: `src/Ui/Controller/InboxController.php` (new), views `approvals_inbox`,
+`approvals_record`, `lq_item_box` (new), the hooks in `StoreQueuesController`, `CountsController`, `StaffRequestsController`,
+`ReviewsController`, `SuppliersController`, `CompanyController`; `src/Ui/Sections.php`, `src/Ui/Context.php`, `src/Ui/Words.php` (`INBOX`),
+`public/ui/assets/app.css` (the `.ap-*` block).
+
+**AV1. One page.** `GET /ui/approvals`, "Approvals › Waiting for you", the first tab of Approvals, so the menu's Approvals entry opens it.
+The route is `Route::ANY`; the page itself refuses (403, `INBOX not_yours`) a person whose jobs answer none of its kinds, and the tab is shown
+to exactly those people: a page of `Ui\Sections` may now name a list of permissions (any of them, `Sections::may`), and the inbox names
+`InboxController::PERMS` (every kind's permission; `InboxUnitTest` holds the two equal for every job). A buyer, a viewer, the auditor and
+admin answer nothing: their Approvals entry opens History, as before.
+
+**AV2. The kinds, in the brief's order.** Who answers each is its own page's permission; the colour is a tone of `Words::TONES`.
+
+| Kind | Rows (as on its own page) | Who | Colour | Its own page (the group's "Open the list") |
+|---|---|---|---|---|
+| ERPNext corrections | `Corrections::list('open')` | `queues.corrections` | amber `needs` | /ui/queues/corrections |
+| Lines to place | `Suspense::list('open')` | `queues.suspense` | blue `info` | /ui/queues/suspense |
+| Count differences | `CountsController::differences()`, only the rows without a refusal | `doc.CNT.post` (`Documents::mayPost`) | purple `review` | /ui/stock/counts/differences |
+| Oversold | `Oversells::list('open')` | `queues.oversell` | red `blocked` | /ui/queues/oversold |
+| Mode changes | `ModeChanges::list('open')` | `queues.modes` | navy `off` | /ui/queues/modes |
+| Website bugs | `LandingOrders::list('open')` | `queues.oversell` | grey `waiting` | /ui/queues/landing |
+| Staff requests | `RoleRequests::pending()`, only `can` | `staff.approve` | blue `info` | /ui/staff-requests |
+| Documents to review | `ReviewsController::tasks()` (documents, suppliers, the company details), only the rows without a refusal; the OKs first | `documents.review`, `documents.approve`, `suppliers.approve`, `company.confirm` | purple `review` | /ui/documents/reviews |
+
+Seven tones for eight kinds: blue and purple are used twice, never side by side. A kind with nothing waiting is not drawn.
+
+**AV3. The list.** A card; each group a heading (the dot and the name in the kind's colour, its count, "Open the list"), each row a plain link
+`?open=<kind>-<id>` (its title, and one muted line: "Set to 22 · 29 Oct 2026", "CS-00041 · counted 160, system 200", …), the open one on
+the selected tint with the accent's 4 px edge (`aria-current`). At most a page of a kind is listed (the queues' 50, the count differences'
+page), then "The first N are shown"; the heading's count is the kind's whole count, the badge's. Without `open` the first record is open
+(as the mockup draws it); an `open` that is not waiting, or not of the right shape, opens the first one (never an error).
+
+**AV4. The same rows as the kinds' pages.** Two readers were moved, unchanged, out of a page method so both pages read them:
+`CountsController::differences()` (from `reviews()`) and `ReviewsController::tasks()` (from `queue()`; each row now also says its `subject`
+and `kind`). `StoreQueuesController::pickedLabel()` (the item box's chip of a refused answer) likewise; `DocumentsController::plain()` (a
+record page's refusal in words) and `CompanyController::plain()` became public.
+
+**AV5. No decision logic of its own.** An answer is a form of the kind's OWN route (`/ui/queues/<queue>/<id>/<answer>`,
+`/ui/stock/counts/differences/line|review/…`, `/ui/staff-requests/<id>/approve|reject`, `/ui/documents/reviews/<task>/approve|reject`,
+`/ui/purchasing/suppliers/tasks/<task>/approve|reject`, `/ui/reference/company/reviews/<task>/approve|reject`): the same permission on the
+route, CSRF, field parsing, service call, note rules, outcome, notice and audit. The form adds `inbox=1`, `inbox_next` (the record drawn after
+it) and `inbox_pos` (its place in the list). Each of those actions, when `InboxController::from()` (a POST with `inbox=1`), leads back to the
+inbox instead of its page: `answered()` redirects to `/ui/approvals?notice=<its code>&words=<whose notice words>&open=<next>&pos=<place>` (the
+inbox shows that page's own notice: `QUEUE_NOTICE`, `COUNT_NOTICE`, `StaffRequestsController::NOTICES`, `RECORD_NOTICE`, `SUPPLIER_NOTICE`,
+`COMPANY_NOTICE`); a refusal (`refused()`) draws the inbox with the same status, on that record, the refusal in that page's words, and what
+was typed kept. Only the inbox's own address is ever a target; `inbox_next` must be a key (`/^[a-z]{4,12}-[a-z0-9_]{1,40}$/`), `inbox_pos`
+digits, else they are dropped. A supplier's Withdraw is not offered in the inbox and never leads there.
+
+**AV6. The open record.** A card with the kind's colour on a 6 px top edge (the tone sits on a wrapper, so `.card.waiting`'s amber panel
+never applies): "<kind> · <from> · N of M", the title (a link to the item, the variant or the record's own page where the person may open
+it), a muted line (the CW code, the variant, the e-mail), the status block "Waiting" in the kind's colour; the facts as big figures
+(`dl.ap-facts`; a difference signed and green or red); the lines that say what it is and what the answers do (the kinds' own words: the
+correction's effect, the line's place and why it waits, why a difference waits, the order and what happened, what accepting a mode does,
+"No stock moved for it", how the person set up their sign-in, what OK and Not OK do); the notes so far (Oversold); links (the count sheet,
+the supplier). Then ONE decision: the form `#ap-answer` with the fields the kind needs and the main answer in magenta (outside the form, it
+names it), then More (`details.more`) with the rarer answers: a button of the same form with its own route (`formaction`; it sends the same
+note: Close a correction, Keep what CW has, Add the note only, Reject a count) or, where the main answer takes no note or another one, a fold
+with its own small form and note (Not OK of a staff request, a document, a supplier's task or the company details; Close a line to place).
+The note is the kind's: required with the queues' and the counts' limits, optional on a record's OK, none on a staff request's OK (its page
+has none). Then "Next: <its title>", or "This is the last one."
+
+| Kind | Facts | Main answer | Under More |
+|---|---|---|---|
+| ERPNext corrections | ERPNext set it to, CW held then, Kept for paid orders, Difference | Confirm (note) | Close it (same note) |
+| Lines to place | Units (or Set to), Came in as, From | Place / Send to corrections (item box, units each, note) | Close it (its own note) |
+| Count differences | Counted, System, Difference, Counted by | Accept the count (`answer=accept`, note) | Reject: put it back (`answer=reject`, same note), when it may be rejected |
+| Oversold | Short by, Left for sale, Order, From | Mark handled (how, note) | Add the note (same note) |
+| Mode changes | ERPNext set, CW has now, Low-stock level | Accept the change (note) | Keep what CW has (same note) |
+| Website bugs | Units ordered, Paid, Option number | Mark handled (how, note, `paid` as seen) | — |
+| Staff requests | What is asked, Jobs now, Jobs asked for, Asked by | OK (no note) | Not OK (its own note) |
+| Documents to review | Value (no VAT) or Items, Asked by, Check by (red when late) | the record page's OK (optional note) | Not OK (its own note) |
+
+**AV7. Lines to place keeps its item box (LQ).** The box of LQ4-LQ6 became the partial `lq_item_box` (the input with `data-lq-pick`, its
+list, chip, note line and "+ Add new item"), drawn by `queue_suspense` in its cell as before and by the inbox (`id` `ap`, form `ap-answer`);
+app.js is unchanged (the box's parent holds its parts). Without the script it is the CW code's text box.
+
+**AV8. The next record, keeping the place.** `inbox_next` is the row after the open one in the page's order: the next of the same kind, else
+the first of the next kind. After an answer that record opens; if it is not waiting any more, the record now at the answered one's place
+(`pos`, the list being one shorter), else the last. An answer that settles nothing (Oversold's "Add the note") keeps the same record open.
+A refused answer of a record that is still waiting comes back on it; one that was answered meanwhile (409) is said above the list and the
+record now at its place opens.
+
+**AV9. One name for one thing.** The old tab "Waiting for me" (the review queue) is now "Documents to review" (`MENU`, `PAGE_TITLE`), the name
+of its group in the inbox; "Waiting for you" is the inbox.
+
+**AV10. The badge counts the inbox.** `Context::badges()['approvals_inbox']` is the sum of what each kind's own badge counts for this person
+(`queue_*`, `counts_open`, `reviews_open`) plus the staff requests they may decide (`RoleRequests::decidableCount`), for a person who answers
+a kind. A section may name the tab whose count is its own (`Sections::MAP` `count`): Approvals counts its inbox once, where it summed its
+tabs (which list the same records again: the tabs keep their own counts). The Stock section still counts its count differences under Counts.
+
+**AV11. Phone and no script.** Under 700 px the open record comes first (`order: -1`, the mockup's "1 of 5" in its head) and the list after it;
+the facts fill three a row, 20 px; the main answer takes two thirds of its row and More the rest; the fields are 16 px; every row and link
+is 44 px or more; no sideways scroll (the long names wrap). Every answer is a plain POST form; More and its folds are `<details>`.
+
+**AV12. Not built, said here.** The mockup's Show menu (Waiting / Answered today / All) and a search: an answered record stays on its kind's
+own page, whose Show filter lists it, and each group links there. A supplier's task is decided in the inbox with the words of its slot (the
+card's), its evidence one link away ("Open the supplier"); the inbox does not repeat the card's "not OK" words that depend on the supplier
+being abroad.
+
+**AV13. The main-button checks miss no case (the Codex review of DS1-DS6, two findings).** `tests/Support/MainButtons` (every page a kernel
+test opens) now also fails a main button in a form that only filters or searches (method GET or none, or `formmethod` GET), and forms of one
+route (its path, every number `{n}`) for two or more records (the numbers differ) that each hold a main button: a main button repeated row by
+row. Two forms of the very same address are one record's answers (the variant page's quick "Yes" beside its full form: one per form, DS5) and
+pass. Allowed, as DS5 documents (`ROW_ANSWERS`): Lines to place's Place, Simple matching's Apply, and the OK of each record's decision
+(`/ui/documents/reviews/{n}/approve`, `/ui/staff-requests/{n}/approve`, `/ui/reference/company/reviews/{n}/approve`,
+`/ui/purchasing/suppliers/tasks/{n}/approve`, and the second approval of a match, `/ui/review/decision/{n}/approve`).
+`UiTemplatesTest::testEveryPageHasAtMostOneMainButtonPerForm` reads the same two cases in the source (a `GET form …`, a form a loop opens
+` (each row)`; the exceptions by template and action, `ROW_MAIN`) and names each problem. Caught and fixed: the barcode review's "Save
+decision" on every row is plain now. Arrivals' "Receive" was plain already (DS5).
+
+**AV14. Tests.** Red first (`runs/apone_red.log`: 15 failures and errors on `7cfcc89`). `ApprovalsInboxScreensTest` (new): who sees which
+kinds (the stock controller, the desk, a reviewer, and the 403 of a buyer, a viewer, admin, the auditor), the menu and the badge; every answer
+of the stores' queues sent on its own page and in the inbox on twin records, with the same record, stock and audit rows; Website bugs, Count
+differences (accept, and reject under More) and Staff requests and Documents to review (OK; Not OK refused without a note, the fold open
+again, then reversed) likewise; the next record and the kept place, a refusal with what was typed, an answer refused because someone answered
+it meanwhile; the plain forms, the one main button and the item box; the inbox's fields change nothing but where the answer leads (the
+route's permission and CSRF; an outside `inbox_next` dropped). `InboxUnitTest` (new): the tab for exactly the people the page lets in, the
+section's count, the kinds' words and colours, the CSS of the approved design, the templates. Changed: `SectionsTest`, `MenusTest`, `PeopleScreenTest`,
+`ReviewScreensTest`, `HomeScreenTest`, `StartSettingsWordsTest`, `WordsTest` (the inbox tab, the renamed tab, the menu's link), and the
+main-button checks (AV13). Not seen in a real browser.
