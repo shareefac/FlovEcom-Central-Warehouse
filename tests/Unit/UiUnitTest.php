@@ -994,6 +994,21 @@ final class UiUnitTest extends TestCase
     }
 
     /**
+     * "Final uses what is on the screen" (docs/decisions.md OV5, OV6), driven in node outside the repo (runs/opfinal_js_harness/): a send
+     * stopped by the "not saved" question keeps its own form marked unsaved (a stock record's lines form both guards its edits and leaves
+     * the page); the question looks at the other forms only; "send once" disables the buttons that name their form from outside it (the
+     * count sheet's "Before you make it final").
+     */
+    public function testTheFinalButtonsSendOnceAndAStoppedSendKeepsItsEdits(): void
+    {
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        self::assertStringContainsString("      window.setTimeout(function () {\n        if (!ev.defaultPrevented) {\n          form.removeAttribute('data-dirty');", $js);
+        self::assertStringNotContainsString("form.addEventListener('submit', function () { form.removeAttribute('data-dirty'); });", $js);
+        self::assertStringContainsString("        if (f !== form && dirty === null) {", $js);
+        self::assertStringContainsString("var buttons = Array.prototype.filter.call(form.elements, function (el) {\n        return el.tagName === 'BUTTON' && el.getAttribute('type') === 'submit';", $js);
+    }
+
+    /**
      * The order page in a real Chrome (the coordinator, on 0917562): a closed "+ Add new" form drew an empty card (its header hidden by the
      * script, its card border and padding kept), and an open one pushed the header's other fields to the bottom of their row. With the script a
      * closed form takes no room at all (without it, its header shows and opens it); the header's fields keep to the top of their row.

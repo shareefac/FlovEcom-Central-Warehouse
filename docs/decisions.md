@@ -12335,3 +12335,84 @@ without the script. The invoices' Show menu sends `open`, `all` or `cancelled`; 
 (which still opens on "all"), and the hidden `cancelled` field is gone (PV18 amended). An action under More refused for its reason (the
 order's Correct, Cancel, Reopen; the invoice's Accept, Cancel) opens More as well as its own fold. `UiUnitTest` (the phone pin),
 `testShowOpenWinsOverAnOldCancelledLink`, `testARefusedActionUnderMoreOpensMore`; `testASearchKeepsTheOtherFilters` reads "all" from the menu.
+
+## Final uses what is on the screen (branch `op-final-visible`, 29 Oct 2026; OV1-OV8)
+
+From the owner's UX review of 29 Oct 2026 (Codex's evidence: `stock_op.php:94,119,206`, `StockOpsController.php:209`, `handover.php:79,100,149`,
+`HandoversController.php:212`). On a stock record (Stock In, Stock Out, Adjustments, Transfers, Releases) and a hand-over, the lines were
+saved by one form (`/lines`) and the record was made final by a SEPARATE small form (`/post`: csrf and version only). Units or a price
+changed on the screen and not saved first were lost: the record was made final with the OLD stored values. The same on the count sheet
+("Before you make it final" was a link outside the quantity form) and on Lines to place (a refused answer came back empty). Built from main
+`e52154f` in `/root/cw-opfinal`, rebased onto main `8f6fbb7` (the supplier invoice and order pages, PV1-PV26). No migration, no new route, no new permission, no service rule changed. Code: `src/Ui/Controller/
+{StockOpsController,HandoversController,CountsController,StoreQueuesController}.php`, views `stock_op`, `handover`, `stock_count`,
+`queue_suspense`, `src/Ui/Words.php` (`OP_FINAL`, `NOTHING_SAVED`, `notFinal()`), `public/ui/assets/app.js` (OV5, OV6).
+
+**OV1. One form: the lines and the final button.** A draft's lines table is the one form. Its bar (`.actions.sticky`, the receive editor's,
+so it stays in reach on a long record) holds "Save" (`action=save`: keeps a draft, as "Save the lines" did) and the record's own final words
+as the one primary button (`action=post`: "Make it final: add the stock", "... take the stock off", "... the stock goes out", unchanged: one
+word means one thing, and the button now makes final what the person sees). Save comes first, so Enter in a units box saves, as before;
+it never makes a record final. What making it final does (and "a reviewer's OK first" when a rule asks) is said above the bar, as the final
+box said it. The final box and its post-only form are not drawn while the one form carries the button. Both buttons post to the existing
+route `POST {id}/lines` (`doc.<TYPE>.post` / `doc.TRD.post`, CSRF, the version); without `action` it saves, as before.
+
+**OV2. The order of the save and the posting (the decision the brief asked for).** `action=post` reads the table as the save does
+(`editedLines`: the stored lines must be the drawn ones, else 409; units a whole number, else 422), then: when anything differs from what
+is stored (a line removed, other units, another cost or price, another reason; a price typed another way, 1.5 for 1.500000, is the same:
+`sameMoney`), `StockOps::saveLines` / `Handovers::saveLines` in their own transaction, committed (version + 1); then `StockOps::post` /
+`Handovers::post` with the new version, in their own transaction, exactly as the post-only form calls them (Documents::post: the
+validation, the approval rules, the size rule, the handler's stock limits, the booking). The posting is never nested inside the save's
+transaction (the lesson of PV16: a lock taken out of the order the postings keep). Nothing changed: no save, no version bump, no
+`document.lines` audit; it just posts with the form's version, as the post-only form did. The same form sent twice: the second finds the
+lines it would save already stored, so it only posts, and the version (or "not a draft") refuses it (409): nothing is done twice.
+
+**OV3. A refused save, a refused posting.** A refused save (units not a number, a cost refused, a line refused by the service) saves
+nothing and makes nothing final; the page comes back with what was typed in its boxes (`typedLines`: units, cost or price, reason, the
+remove boxes; not after a 409, whose rows may name other products). A posting refused AFTER the save (nobody named for a sample, below
+zero, no price, the room holds too little, a warehouse switched off meanwhile) leaves the draft with the saved lines and says, in plain
+words, "Saved as a draft, not made final: " and the refusal, its "Nothing was saved." left out (`Words::notFinal`); the page shows the saved
+lines and the new version, so pressing the button again after putting it right works. Refused with nothing changed: the refusal as before.
+
+**OV4. A record too big for one form (max_input_vars).** PHP drops the fields past `max_input_vars` without a word and Kernel refuses a POST
+that reaches it (I73). The one form sends csrf, version, line_count, the button, and per line its units, its cost or price (stock in,
+release, hand-over), its reason (adjustment) and its remove box counted ticked (`StockOpsController::oneFormFields`,
+`HandoversController::oneFormFields`; pinned to the rendered form by a test that counts every named field). The budget is read on the server
+(`UiRequest::maxInputVars()`, from `ini_get`, no number in the code): while the fields stay below it, the one form; else the lines form
+keeps only "Save the lines" (as before) and the final box comes back with its post-only form and one line: "This record has too many lines
+to save and make final in one go. Press "Save the lines" under the lines first, then make it final here." So a long record can always be
+made final. At PHP's default of 1,000: a stock in, an adjustment or a release up to 331 lines, a stock out or transfer up to 497, a hand-over up to 331. A
+record with no lines keeps the final box too (its refusal, "no products yet", as before).
+
+**OV5. What else on the page would lose typed edits.** The other forms of a draft (Add and its choices, the details, stop, the files, a
+hand-over's copy) are `data-leaves`; the lines form and the details form are `data-unsaved` (app.js's existing guard, the receive editor's):
+sending one with edits typed in the other asks first ("You have changes on this page that are not saved. ..."). The details stay their own
+folded form (in scope: the lines; the guard covers the header). app.js: the question looks at the other forms only (a form that both
+guards and leaves never asks about itself), and a send stopped by Cancel keeps its own form marked unsaved (before, the mark went with the
+stopped send, so the next form asked nothing).
+
+**OV6. The count sheet's "Before you make it final".** It was a link outside the quantity form, so a quantity typed and not saved with
+Enter was lost on the way to the review. It is now a submit button of the quantity form (`form="count-lines"`, `then=review`, kept where
+the card was): the same handler saves the page's quantities exactly as Enter does (only the boxes changed on this page, by `was_<line>`,
+so a page drawn before a later count never empties or overwrites it; each with the moment its box was filled in, `at_<line>`; a blind
+count stays blind), then the review page opens with the saved notice. A refused quantity stays on the sheet with what was typed. Enter
+still presses "Save this page" (the first button of the form in tree order). With no line on the page (a filter), the link stays. app.js's
+"send once" now also disables the buttons that name their form from outside it (`form.elements`).
+
+**OV7. Lines to place: a refused answer keeps what was typed.** "Book it" / "Send to the corrections" refused (an item code CW does not
+know, a units figure out of range, a short note) came back with the row's boxes empty. The row's form now comes back with the item code,
+the units and the note as sent (cut to the boxes' sizes); a refused "Close it" keeps its note with its fold open. Other rows are as drawn.
+
+**OV8. Kept.** Every service rule: the creator's drafts, versions, FormOnce on the create forms, `doc.<TYPE>.post` / `doc.TRD.post` (never
+admin), the approval rules ("awaiting approval", tested with an adjustment raised on the screen above the "stock put back" limit), the size
+rule, below zero, CSRF; the `/post` route and its form (the fallback of OV4); the look (the classes in use; the bar is the receive
+editor's).
+
+Tests (red first: `runs/opfinal_red.log`, 8 failures and 2 errors on `e52154f`): `tests/Integration/UiKernel/OpFinalScreensTest.php` (new, 10
+tests: 5 saved, 7 on the screen, the final button posts 7; Save keeps a draft and a final with nothing changed just posts; a refused
+posting after the save keeps the saved lines and says why, a refused save keeps what was typed; an adjustment raised on the screen waits
+for an OK with the new units; the one form's fields counted; a record too big for one form is saved first, then made final; a hand-over's
+price on the screen is the price made final, sent twice once; a hand-over refused after its save keeps the prices; the count review button
+saves the typed quantity with its moment, keeps a later count and a blind count; a refused Lines-to-place answer keeps the item, units and
+note in its row). Changed: `StockOpsScreensTest`, `HandoverScreensTest` (a draft's final press is the one form's `action=post`). app.js:
+`UiUnitTest::testTheFinalButtonsSendOnceAndAStoppedSendKeepsItsEdits`, and driven in node outside the repo (`runs/opfinal_js_harness/`, run on
+cw-test through the slot runner): e52154f's app.js fails 3 of 9 checks, this one passes all (`runs/opfinal_js.log`). Not seen in a real
+browser.

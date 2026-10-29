@@ -174,13 +174,56 @@ final class HandoversController
         }, ['header' => $typed]);
     }
 
-    /** POST {id}/lines: every line as the table sent it (units, price; a ticked "remove" takes a line off). */
+    /**
+     * POST {id}/lines: every line as the table sent it (units, price; a ticked "remove" takes a line off). The table and the final button
+     * are one form (docs/decisions.md OV1-OV3, as a stock record's): `action` = `post` saves the lines as sent when they differ from the
+     * stored ones (Handovers::saveLines, its own transaction, committed), then makes the hand-over final (Handovers::post, its own
+     * transaction); nothing changed: it just posts. A refused save saves nothing and keeps what was typed; a posting refused after the
+     * save keeps the saved draft and says "Saved as a draft, not made final: ...". Without `action` (or `save`): the lines are saved.
+     */
     public function lines(Context $ctx): HtmlResponse
     {
-        return $this->act($ctx, static function (Handovers $svc, int $id, int $version) use ($ctx): array {
-            $svc->saveLines($ctx->caller(), $id, $version, self::editedLines($ctx, $id));
-            return ['notice' => 'lines'];
-        });
+        $id = $ctx->id();
+        $svc = self::service($ctx);
+        if (!$svc->isHandover($id)) {
+            return self::notFound($ctx);
+        }
+        $version = UiRequest::id($ctx->req->field('version'));
+        if ($version === null) {
+            return $ctx->error(400, 'bad_version', 'this form has no version: reload the page');
+        }
+        $final = $ctx->req->field('action') === 'post';
+        $saved = false;
+        try {
+            $edit = self::editedLines($ctx, $id);
+            if (!$final || $edit['changed']) {
+                $version = $svc->saveLines($ctx->caller(), $id, $version, $edit['lines'])->version;
+                $saved = true;
+            }
+        } catch (CwException $e) {
+            return $this->page($ctx, $id, $e->httpStatus, $e, null, $e->errorCode === 'version_conflict' ? [] : ['typedLines' => StockOpsController::typedLines($ctx->req)]);
+        }
+        if (!$final) {
+            return HtmlResponse::redirect(Html::url(Handovers::PATH . '/' . $id, ['notice' => 'lines']));
+        }
+        try {
+            $d = $svc->post($ctx->caller(), $id, $version);
+        } catch (CwException $e) {
+            return $this->page($ctx, $id, $e->httpStatus, $e, null, ['notFinal' => $saved]);
+        }
+        return HtmlResponse::redirect(Html::url(Handovers::PATH . '/' . $id, self::postedQuery($d)));
+    }
+
+    /** The fields the lines form can send (OV4): csrf, version, line_count, the button pressed, and per line its units, price and "remove". */
+    public static function oneFormFields(int $lines): int
+    {
+        return 4 + $lines * 3;
+    }
+
+    /** Whether the lines and the final button fit one form below PHP's max_input_vars (Kernel, I73). */
+    public static function oneFormFits(int $lines): bool
+    {
+        return self::oneFormFields($lines) < UiRequest::maxInputVars();
     }
 
     /** POST {id}/add: an item by barcode, CW number or words (`choices` shown on the page), or one chosen from the choices. */
@@ -209,12 +252,19 @@ final class HandoversController
         }, ['add' => $typed], $extra);
     }
 
+    /** POST {id}/post: the post-only form (a hand-over too big for the one form, or one with no lines yet: OV4). */
     public function post(Context $ctx): HtmlResponse
     {
         return $this->act($ctx, static function (Handovers $svc, int $id, int $version) use ($ctx): array {
-            $d = $svc->post($ctx->caller(), $id, $version);
-            return $d->status === 'awaiting_approval' ? ['notice' => 'submitted'] : ['notice' => 'posted', 'query' => ['number' => $d->number]];
+            $q = self::postedQuery($svc->post($ctx->caller(), $id, $version));
+            return ['notice' => $q['notice'], 'query' => array_diff_key($q, ['notice' => true])];
         });
+    }
+
+    /** @return array<string, string> the notice (and number) of a hand-over made final or sent for a reviewer's OK */
+    private static function postedQuery(Document $d): array
+    {
+        return $d->status === 'awaiting_approval' ? ['notice' => 'submitted'] : ['notice' => 'posted', 'number' => (string) $d->number];
     }
 
     public function cancel(Context $ctx): HtmlResponse
@@ -347,8 +397,11 @@ final class HandoversController
             'typedAdd' => $extra['typedAdd'] ?? $extra['add'] ?? ['q' => '', 'qty' => '1', 'price' => ''],
             'typedCancel' => $extra['typedCancel'] ?? ['code' => '', 'note' => ''],
             'typedStop' => (string) ($extra['stop'] ?? ''),
+            'typedLines' => $extra['typedLines'] ?? [],
+            // One form for the lines and the final button while PHP takes every field it can send (OV4); else save first, then the post-only form.
+            'oneForm' => $editable && $lines !== [] && self::oneFormFits(count($lines)),
             'lookOnly' => $canPost ? null : Words::whoCan('doc.TRD.post'),
-            'error' => $error === null ? null : self::plain($error),
+            'error' => $error === null ? null : (($extra['notFinal'] ?? false) === true ? Words::notFinal(self::plain($error)) : self::plain($error)),
             'errorCode' => $error?->errorCode,
         ], $status, ['title' => Words::docTitle($doc->docType, $doc->number), 'notice' => $notice]);
     }
@@ -785,9 +838,10 @@ final class HandoversController
 
     /**
      * The lines of a draft with the table's edits applied: per stored line `u_<n>` (units), `p_<n>` (price) and `x_<n>` (remove). The
-     * table must hold the stored lines (`line_count`): a draft changed meanwhile is refused (409).
+     * table must hold the stored lines (`line_count`): a draft changed meanwhile is refused (409). `changed`: whether anything differs from
+     * what is stored (a line removed, other units, another price; a price typed another way, 2.4 for 2.400000, is the same).
      *
-     * @return list<array<string, mixed>>
+     * @return array{lines: list<array<string, mixed>>, changed: bool}
      */
     private static function editedLines(Context $ctx, int $id): array
     {
@@ -797,19 +851,23 @@ final class HandoversController
             throw new CwException('version_conflict', 'the lines changed since this page was drawn', 409);
         }
         $out = [];
+        $changed = false;
         foreach ($current as $l) {
             $n = (int) $l['line_no'];
             if ($req->field('x_' . $n) === '1') {
+                $changed = true;
                 continue;
             }
             $u = trim((string) ($req->field('u_' . $n) ?? (string) $l['qty']));
             if (preg_match('/^[0-9]{1,8}$/D', $u) !== 1) {
                 throw new CwException('qty_positive', 'the units are a whole number above zero', 422, ['line' => $n]);
             }
+            $stored = $l['unit_cost'] === null ? null : (string) $l['unit_cost'];
             $price = $req->field('p_' . $n);
-            $price = $price === null ? ($l['unit_cost'] === null ? null : (string) $l['unit_cost']) : (trim($price) === '' ? null : str_replace(['£', ','], '', trim($price)));
+            $price = $price === null ? $stored : (trim($price) === '' ? null : str_replace(['£', ','], '', trim($price)));
+            $changed = $changed || (int) $u !== (int) $l['qty'] || !StockOpsController::sameMoney($price, $stored);
             $out[] = ['sku_id' => (int) $l['sku_id'], 'qty' => (int) $u, 'unit_cost' => $price];
         }
-        return $out;
+        return ['lines' => $out, 'changed' => $changed];
     }
 }

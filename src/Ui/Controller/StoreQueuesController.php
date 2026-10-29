@@ -57,11 +57,23 @@ final class StoreQueuesController
     // Lines to place (goods-in suspense)
     // ------------------------------------------------------------------------------------------
 
-    public function suspense(Context $ctx, int $status = 200, ?CwException $error = null): HtmlResponse
+    /**
+     * @param array{id: int, form: string, item: string, units: string, note: string}|null $typed what a refused answer sent, drawn again in
+     *        its row (docs/decisions.md OV7)
+     */
+    public function suspense(Context $ctx, int $status = 200, ?CwException $error = null, ?array $typed = null): HtmlResponse
     {
         $state = QueueRules::status($ctx->req->param('status'));
         $rows = (new Suspense($ctx->db))->list($state);
-        return $this->page($ctx, 'queue_suspense', 'queue_suspense', Suspense::PERM, $state, $rows, self::suspenseRow(...), $status, $error);
+        return $this->page($ctx, 'queue_suspense', 'queue_suspense', Suspense::PERM, $state, $rows, static fn (array $r): array => self::suspenseRow($r)
+            + ['typed' => $typed !== null && $typed['id'] === (int) $r['id'] ? $typed : null], $status, $error);
+    }
+
+    /** @return array{id: int, form: string, item: string, units: string, note: string} what an answer of a row sent (as typed, cut to its boxes' sizes) */
+    private static function typedAnswer(Context $ctx, string $form): array
+    {
+        $f = static fn (string $name, int $max): string => mb_substr((string) ($ctx->req->field($name) ?? ''), 0, $max);
+        return ['id' => $ctx->id(), 'form' => $form, 'item' => $f('item', 16), 'units' => $f('units', 5), 'note' => $f('note', QueueRules::NOTE_MAX)];
     }
 
     public function suspensePick(Context $ctx): HtmlResponse
@@ -74,7 +86,7 @@ final class StoreQueuesController
             $r = (new Suspense($ctx->db))->pick($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('item') ?? ''), (int) ($units === '' ? '1' : $units),
                 (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->suspense($ctx, $e->httpStatus, $e);
+            return $this->suspense($ctx, $e->httpStatus, $e, self::typedAnswer($ctx, 'pick'));
         }
         $notice = $r['result'] === 'queued' ? 'sent_to_corrections' : ($r['replayed'] ? 'booked_before' : 'booked');
         return HtmlResponse::redirect(Html::url(self::PATH . '/suspense', ['notice' => $notice, 'item' => $r['sku_code']]));
@@ -85,7 +97,7 @@ final class StoreQueuesController
         try {
             (new Suspense($ctx->db))->dismiss($ctx->caller(), $ctx->id(), (string) ($ctx->req->field('note') ?? ''));
         } catch (CwException $e) {
-            return $this->suspense($ctx, $e->httpStatus, $e);
+            return $this->suspense($ctx, $e->httpStatus, $e, self::typedAnswer($ctx, 'dismiss'));
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/suspense', ['notice' => 'closed']));
     }

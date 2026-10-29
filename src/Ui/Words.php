@@ -52,6 +52,8 @@ final class Words
         'BY_ITEM_BULK', 'BY_ITEM_SKIP', 'STORE_NEW', 'SIMPLE_MATCH',
         'NEW_VARIANTS', 'NEW_VARIANT_ACTION', 'NEW_VARIANT_DONE', 'NEW_VARIANT_PENDING', 'NEW_VARIANT_STATE', 'NEW_VARIANT_FILTER', 'ARRIVAL_LEFT',
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
+        // "Final uses what is on the screen" (docs/decisions.md OV)
+        'OP_FINAL',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
         // pack D (docs/decisions.md PD13)
         'SALE', 'SALE_STATE', 'SALE_ORIGIN', 'SALE_ORDER', 'DISPATCH', 'DISPATCH_CHIP', 'SALE_RETURNS', 'SALE_RETURN_KIND', 'SALE_RESTOCK', 'SALE_RESTOCK_TEXT',
@@ -2010,6 +2012,22 @@ final class Words
         'booked_none' => 'A move between two places of one warehouse changes no figure.',
         'back' => 'Back to %s',
     ];
+
+    /**
+     * "Final uses what is on the screen" (docs/decisions.md OV1-OV8): a stock record's and a hand-over's lines and their final button are one
+     * form. "Save" keeps a draft; the final button saves what is on the screen, then makes it final.
+     */
+    public const OP_FINAL = [
+        'save' => 'Save',
+        // A posting refused after its save (the draft keeps the saved lines). %s: the refusal in words, "Nothing was saved." left out.
+        'not_final' => 'Saved as a draft, not made final: %s',
+        // A record with more lines than one form can carry (max_input_vars): %s is the lines' save button.
+        'too_many' => 'This record has too many lines to save and make final in one go. Press "%s" under the lines first, then make it final here.',
+        'unsaved' => 'You have changes on this page that are not saved. They are lost if you go on. Press Cancel, then save them first. (OK goes on without them.)',
+    ];
+
+    /** "Nothing was saved." as the refusals say it (left out of OP_FINAL not_final, where the lines were saved). */
+    public const NOTHING_SAVED = 'Nothing was saved.';
 
     /** A stock record's attachment roles (StockOps::FILE_ROLES). */
     public const STOCK_FILE = [
@@ -11223,6 +11241,15 @@ final class Words
     public static function noteRequired(array $detail): string
     {
         return is_int($detail['line'] ?? null) ? sprintf(self::ERROR['note_required_line'], $detail['line']) : self::ERROR['note_required'];
+    }
+
+    /**
+     * A posting refused after the lines were saved (docs/decisions.md OV3): "Saved as a draft, not made final: " and the refusal, its
+     * "Nothing was saved." left out (the lines were saved; what it says of booking stays).
+     */
+    public static function notFinal(string $refusal): string
+    {
+        return self::say('OP_FINAL', 'not_final', trim((string) preg_replace('/ {2,}/', ' ', str_replace(self::NOTHING_SAVED, '', $refusal))));
     }
 
     /** The heading of an error page ($post: the refusal of a button press, not of a page). */

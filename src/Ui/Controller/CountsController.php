@@ -320,7 +320,8 @@ final class CountsController
      * may also bring the moment it was filled in (`at_<line>`, milliseconds since 1970 UTC, written by app.js from the moment the page
      * was drawn: review M-7, 14 Oct 2026); CountSheets refuses one after now or before the line was on the sheet, and without one the
      * moment it is saved counts. A quantity that is a barcode CW knows, or 9 digits or more, is refused as a barcode (review M-5). A
-     * refusal saves nothing of the page and shows it again with what was typed.
+     * refusal saves nothing of the page and shows it again with what was typed. Sent by "Before you make it final" (`then` = review, a
+     * button of the same form: docs/decisions.md OV6), the review page opens after the save instead of the sheet.
      */
     public function lines(Context $ctx): HtmlResponse
     {
@@ -364,6 +365,10 @@ final class CountsController
         } catch (CwException $e) {
             // The moments come back with the page, except after a refused moment: Enter again then saves with the time now.
             return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typedQ' => $typed, 'typedAt' => $e->errorCode === 'bad_count_time' ? [] : $typedAt]);
+        }
+        if ($ctx->req->field('then') === 'review') {
+            // "Before you make it final" is a button of this form (OV6): the quantities typed are saved first, then the review page opens.
+            return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id . '/differences', ['notice' => $changed === 0 ? 'lines_same' : 'lines', 'n' => $changed]));
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $changed === 0 ? 'lines_same' : 'lines', 'n' => $changed, 'page' => self::pageNo($ctx->req, 'field'),
             'show' => self::showOf($ctx->req, 'field')]));

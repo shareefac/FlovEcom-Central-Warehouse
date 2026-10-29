@@ -36,7 +36,7 @@
 <section aria-labelledby="lines-h">
   <h2 id="lines-h"><?= $word('HANDOVER', 'lines') ?></h2>
 <?php if ($editable): ?>
-  <form class="inline stock-add" method="post" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/add') ?>">
+  <form class="inline stock-add" method="post" data-leaves="1" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/add') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <label><?= $word('HANDOVER', 'add_q') ?> <input type="search" name="q" value="<?= $e($typedAdd['q']) ?>" maxlength="100" autocomplete="off" autofocus required></label>
@@ -55,7 +55,7 @@
         <tr>
           <th scope="row" class="c-head"><?= $e($c['name']) ?><span class="o-sub"><?= $e($c['code']) ?><?php if ($c['brand'] !== null): ?> &middot; <?= $e($c['brand']) ?><?php endif; ?></span></th>
           <td class="c-next">
-            <form class="inline" method="post" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/add') ?>">
+            <form class="inline" method="post" data-leaves="1" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/add') ?>">
               <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
               <input type="hidden" name="version" value="<?= $e($version) ?>">
               <input type="hidden" name="sku_id" value="<?= $e($c['sku_id']) ?>">
@@ -76,7 +76,7 @@
 <?php if ($lines === []): ?>
   <p class="muted"><?= $word('HANDOVER', 'no_lines') ?></p>
 <?php elseif ($editable): ?>
-  <form class="record stock-lines" method="post" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/lines') ?>">
+  <form class="record stock-lines" method="post" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <input type="hidden" name="line_count" value="<?= $e(count($lines)) ?>">
@@ -96,17 +96,29 @@
 <?php foreach ($lines as $l): ?>
         <tr>
           <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name']) ?></a><span class="o-sub"><?= $e($l['code']) ?></span></th>
-          <td data-label="<?= $word('HANDOVER', 'line_units') ?>" class="num"><input type="text" name="u_<?= $e($l['line_no']) ?>" value="<?= $e($l['qty']) ?>" inputmode="numeric" maxlength="9" aria-label="<?= $word('HANDOVER', 'line_units') ?>"></td>
-          <td data-label="<?= $word('HANDOVER', 'line_price') ?>" class="num"><input type="text" name="p_<?= $e($l['line_no']) ?>" value="<?= $dec($l['unit_cost']) ?>" inputmode="decimal" maxlength="16" aria-label="<?= $word('HANDOVER', 'line_price') ?>"><?php if ($l['remembered'] !== null): ?><span class="o-sub"><?= $say('HANDOVER', 'line_remembered', \CW\Ui\Html::money($l['remembered'])) ?></span><?php elseif ($l['unit_cost'] === null): ?><span class="o-sub"><?= $word('HANDOVER', 'line_no_price') ?></span><?php endif; ?></td>
+          <td data-label="<?= $word('HANDOVER', 'line_units') ?>" class="num"><input type="text" name="u_<?= $e($l['line_no']) ?>" value="<?= $e($typedLines[$l['line_no']]['u'] ?? $l['qty']) ?>" inputmode="numeric" maxlength="9" aria-label="<?= $word('HANDOVER', 'line_units') ?>"></td>
+          <td data-label="<?= $word('HANDOVER', 'line_price') ?>" class="num"><input type="text" name="p_<?= $e($l['line_no']) ?>" value="<?php if (isset($typedLines[$l['line_no']]['p'])): ?><?= $e($typedLines[$l['line_no']]['p']) ?><?php else: ?><?= $dec($l['unit_cost']) ?><?php endif; ?>" inputmode="decimal" maxlength="16" aria-label="<?= $word('HANDOVER', 'line_price') ?>"><?php if ($l['remembered'] !== null): ?><span class="o-sub"><?= $say('HANDOVER', 'line_remembered', \CW\Ui\Html::money($l['remembered'])) ?></span><?php elseif ($l['unit_cost'] === null): ?><span class="o-sub"><?= $word('HANDOVER', 'line_no_price') ?></span><?php endif; ?></td>
           <td data-label="<?= $word('HANDOVER', 'line_amount') ?>" class="num"><?php if ($l['amount'] !== null): ?><?= $money($l['amount']) ?><?php endif; ?></td>
           <td data-label="<?= $word('HANDOVER', 'line_stock') ?>"><?php if ($l['stock'] !== null): ?><?= $say('HANDOVER', 'line_stock_text', number_format($l['stock']['on_hand']), number_format($l['stock']['available'])) ?><?php endif; ?></td>
-          <td data-label="<?= $word('HANDOVER', 'line_remove') ?>"><label class="choice"><input type="checkbox" name="x_<?= $e($l['line_no']) ?>" value="1"> <?= $word('HANDOVER', 'line_remove') ?></label></td>
+          <td data-label="<?= $word('HANDOVER', 'line_remove') ?>"><label class="choice"><input type="checkbox" name="x_<?= $e($l['line_no']) ?>" value="1"<?php if (($typedLines[$l['line_no']]['x'] ?? '') === '1'): ?> checked<?php endif; ?>> <?= $word('HANDOVER', 'line_remove') ?></label></td>
         </tr>
 <?php endforeach; ?>
       </tbody>
     </table>
     </div>
+<?php if ($oneForm): ?>
+    <p class="hint"><?= $word('HANDOVER', 'final_does') ?></p>
+<?php if ($ruleWaits): ?>
+    <p class="muted"><?= $word('HANDOVER', 'final_waits') ?></p>
+<?php endif; ?>
+    <div class="actions sticky">
+      <button type="submit" name="action" value="save"><?= $word('OP_FINAL', 'save') ?></button>
+      <button type="submit" name="action" value="post" class="primary"><?= $word('HANDOVER', 'final_button') ?></button>
+      <span class="muted"><?= $say('HANDOVER', 'total_units', number_format($units)) ?> &middot; <?= $say('HANDOVER', 'net_so_far', \CW\Ui\Html::money($sums['net'])) ?></span>
+    </div>
+<?php else: ?>
     <p class="actions"><button type="submit"><?= $word('HANDOVER', 'save_lines') ?></button> <span class="muted"><?= $say('HANDOVER', 'total_units', number_format($units)) ?> &middot; <?= $say('HANDOVER', 'net_so_far', \CW\Ui\Html::money($sums['net'])) ?></span></p>
+<?php endif; ?>
   </form>
 <?php else: ?>
   <div class="table-wrap">
@@ -149,29 +161,34 @@
 <?php if ($editable): ?>
 <details class="fold"<?php if (in_array($errorCode, ['customer_required', 'unknown_customer', 'customer_off', 'warehouse_required', 'warehouse_inactive', 'not_own_stock', 'vat_code_off', 'vat_code_required', 'bad_field'], true)): ?> open<?php endif; ?>>
   <summary><?= $word('HANDOVER', 'details') ?></summary>
-  <form class="record" method="post" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/details') ?>">
+  <form class="record" method="post" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/details') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
 <?= $partial('handover_fields', ['form' => $form]) ?>
     <p class="actions"><button type="submit"><?= $word('HANDOVER', 'save_details') ?></button></p>
   </form>
 </details>
+<?php if (!$oneForm): ?>
 <section class="card final-box" aria-labelledby="final-h">
   <h2 id="final-h"><?= $word('HANDOVER', 'final_title') ?></h2>
   <p><?= $word('HANDOVER', 'final_does') ?></p>
 <?php if ($ruleWaits): ?>
   <p class="muted"><?= $word('HANDOVER', 'final_waits') ?></p>
 <?php endif; ?>
-  <form class="inline" method="post" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/post') ?>">
+<?php if ($lines !== []): ?>
+  <p class="note"><?= $say('OP_FINAL', 'too_many', \CW\Ui\Words::HANDOVER['save_lines']) ?></p>
+<?php endif; ?>
+  <form class="inline" method="post" data-leaves="1" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/post') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <button type="submit" class="primary"><?= $word('HANDOVER', 'final_button') ?></button>
   </form>
 </section>
+<?php endif; ?>
 <details class="fold">
   <summary><?= $word('HANDOVER', 'stop_title') ?></summary>
   <p class="muted"><?= $word('HANDOVER', 'stop_text') ?></p>
-  <form class="record" method="post" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/cancel') ?>">
+  <form class="record" method="post" data-leaves="1" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/cancel') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <label><?= $word('HANDOVER', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
@@ -204,7 +221,7 @@
 <section aria-labelledby="copy-h">
   <h2 id="copy-h"><?= $word('HANDOVER', 'copy_title') ?></h2>
   <p class="muted"><?= $word('HANDOVER', 'copy_text') ?></p>
-  <form class="inline" method="post" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/copy') ?>">
+  <form class="inline" method="post" data-leaves="1" action="<?= $u('/ui/stock/handovers/' . $doc->id . '/copy') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <button type="submit"><?= $word('HANDOVER', 'copy_button') ?></button>
   </form>

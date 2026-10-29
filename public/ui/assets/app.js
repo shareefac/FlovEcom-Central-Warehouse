@@ -176,11 +176,24 @@
     var mark = function () { form.setAttribute('data-dirty', '1'); };
     form.addEventListener('input', mark);
     form.addEventListener('change', mark);
-    form.addEventListener('submit', function () { form.removeAttribute('data-dirty'); });
+    // Sent: nothing of it is left unsaved, unless the send was stopped (Cancel on the question below: a stock record's lines form both
+    // guards its edits and leaves the page, docs/decisions.md OV5).
+    form.addEventListener('submit', function (ev) {
+      window.setTimeout(function () {
+        if (!ev.defaultPrevented) {
+          form.removeAttribute('data-dirty');
+        }
+      }, 0);
+    });
   });
   each(document.querySelectorAll('form[data-leaves]'), function (form) {
     form.addEventListener('submit', function (ev) {
-      var dirty = document.querySelector('form[data-unsaved][data-dirty]');
+      var dirty = null;
+      each(document.querySelectorAll('form[data-unsaved][data-dirty]'), function (f) {
+        if (f !== form && dirty === null) {
+          dirty = f;
+        }
+      });
       if (form.getAttribute('data-busy') === '1') {
         ev.preventDefault();
         window.alert(form.getAttribute('data-busy-text') || 'The photo is still being made smaller: wait a moment, then press the button again.');
@@ -193,13 +206,16 @@
     });
   });
 
-  // A form that changes something is sent once: the button is disabled on the first submit.
+  // A form that changes something is sent once: the button is disabled on the first submit. Its buttons are those inside it and those
+  // outside that name it (form="…": the count sheet's "Before you make it final", docs/decisions.md OV6).
   var sendOnce = function (form) {
     form.addEventListener('submit', function (ev) {
       if (ev.defaultPrevented) {
         return;
       }
-      var buttons = form.querySelectorAll('button[type="submit"]');
+      var buttons = Array.prototype.filter.call(form.elements, function (el) {
+        return el.tagName === 'BUTTON' && el.getAttribute('type') === 'submit';
+      });
       window.setTimeout(function () {
         each(buttons, function (b) { b.disabled = true; });
       }, 0);

@@ -36,7 +36,7 @@
 <section aria-labelledby="lines-h">
   <h2 id="lines-h"><?= $word('STOCK_OPS', 'lines') ?></h2>
 <?php if ($editable): ?>
-  <form class="inline stock-add" method="post" action="<?= $u($base . '/' . $doc->id . '/add') ?>">
+  <form class="inline stock-add" method="post" data-leaves="1" action="<?= $u($base . '/' . $doc->id . '/add') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <label><?= $word('STOCK_OPS', 'add_q') ?> <input type="search" name="q" value="<?= $e($typedAdd['q']) ?>" maxlength="100" autocomplete="off" autofocus required></label>
@@ -69,7 +69,7 @@
         <tr>
           <th scope="row" class="c-head"><?= $e($c['name']) ?><span class="o-sub"><?= $e($c['code']) ?><?php if ($c['brand'] !== null): ?> · <?= $e($c['brand']) ?><?php endif; ?></span></th>
           <td class="c-next">
-            <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/add') ?>">
+            <form class="inline" method="post" data-leaves="1" action="<?= $u($base . '/' . $doc->id . '/add') ?>">
               <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
               <input type="hidden" name="version" value="<?= $e($version) ?>">
               <input type="hidden" name="sku_id" value="<?= $e($c['sku_id']) ?>">
@@ -91,7 +91,7 @@
 <?php if ($lines === []): ?>
   <p class="muted"><?= $word('STOCK_OPS', 'no_lines') ?></p>
 <?php elseif ($editable): ?>
-  <form class="record stock-lines" method="post" action="<?= $u($base . '/' . $doc->id . '/lines') ?>">
+  <form class="record stock-lines" method="post" action="<?= $u($base . '/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <input type="hidden" name="line_count" value="<?= $e(count($lines)) ?>">
@@ -116,9 +116,9 @@
 <?php foreach ($lines as $l): ?>
         <tr>
           <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name']) ?></a><span class="o-sub"><?= $e($l['code']) ?></span></th>
-          <td data-label="<?= $word('STOCK_OPS', 'line_units') ?>" class="num"><input type="text" name="u_<?= $e($l['line_no']) ?>" value="<?= $e($l['qty']) ?>" inputmode="numeric" maxlength="9" aria-label="<?= $word('STOCK_OPS', 'line_units') ?>"></td>
+          <td data-label="<?= $word('STOCK_OPS', 'line_units') ?>" class="num"><input type="text" name="u_<?= $e($l['line_no']) ?>" value="<?= $e($typedLines[$l['line_no']]['u'] ?? $l['qty']) ?>" inputmode="numeric" maxlength="9" aria-label="<?= $word('STOCK_OPS', 'line_units') ?>"></td>
 <?php if ($priced): ?>
-          <td data-label="<?php if ($kind === 'release'): ?><?= $word('STOCK_OPS', 'line_price') ?><?php else: ?><?= $word('STOCK_OPS', 'line_cost') ?><?php endif; ?>" class="num"><input type="text" name="c_<?= $e($l['line_no']) ?>" value="<?= $dec($l['unit_cost']) ?>" inputmode="decimal" maxlength="16" aria-label="<?= $word('STOCK_OPS', 'line_cost') ?>"><?php if ($l['average'] !== null): ?><span class="o-sub"><?= $say('STOCK_OPS', 'line_average', \CW\Ui\Html::money($l['average'])) ?></span><?php endif; ?></td>
+          <td data-label="<?php if ($kind === 'release'): ?><?= $word('STOCK_OPS', 'line_price') ?><?php else: ?><?= $word('STOCK_OPS', 'line_cost') ?><?php endif; ?>" class="num"><input type="text" name="c_<?= $e($l['line_no']) ?>" value="<?php if (isset($typedLines[$l['line_no']]['c'])): ?><?= $e($typedLines[$l['line_no']]['c']) ?><?php else: ?><?= $dec($l['unit_cost']) ?><?php endif; ?>" inputmode="decimal" maxlength="16" aria-label="<?= $word('STOCK_OPS', 'line_cost') ?>"><?php if ($l['average'] !== null): ?><span class="o-sub"><?= $say('STOCK_OPS', 'line_average', \CW\Ui\Html::money($l['average'])) ?></span><?php endif; ?></td>
           <td data-label="<?= $word('STOCK_OPS', 'line_amount') ?>" class="num"><?php if ($l['amount'] !== null): ?><?= $money($l['amount']) ?><?php endif; ?></td>
 <?php endif; ?>
 <?php if ($kind === 'adjust'): ?>
@@ -126,19 +126,31 @@
             <select name="r_<?= $e($l['line_no']) ?>" aria-label="<?= $word('STOCK_OPS', 'line_reason') ?>">
               <option value=""><?= $word('STOCK_OPS', 'choose') ?></option>
 <?php foreach ($reasons as $r): ?>
-              <option value="<?= $e($r['code']) ?>"<?php if ($l['reason_code'] === $r['code']): ?> selected<?php endif; ?>><?= $e($r['label']) ?></option>
+              <option value="<?= $e($r['code']) ?>"<?php if (($typedLines[$l['line_no']]['r'] ?? $l['reason_code']) === $r['code']): ?> selected<?php endif; ?>><?= $e($r['label']) ?></option>
 <?php endforeach; ?>
             </select>
           </td>
 <?php endif; ?>
           <td data-label="<?= $word('STOCK_OPS', 'line_stock') ?>"><?php if ($l['stock'] !== null): ?><?= $say('STOCK_OPS', 'line_stock_text', number_format($l['stock']['on_hand']), number_format($l['stock']['available'])) ?><?php endif; ?></td>
-          <td data-label="<?= $word('STOCK_OPS', 'line_remove') ?>"><label class="choice"><input type="checkbox" name="x_<?= $e($l['line_no']) ?>" value="1"> <?= $word('STOCK_OPS', 'line_remove') ?></label></td>
+          <td data-label="<?= $word('STOCK_OPS', 'line_remove') ?>"><label class="choice"><input type="checkbox" name="x_<?= $e($l['line_no']) ?>" value="1"<?php if (($typedLines[$l['line_no']]['x'] ?? '') === '1'): ?> checked<?php endif; ?>> <?= $word('STOCK_OPS', 'line_remove') ?></label></td>
         </tr>
 <?php endforeach; ?>
       </tbody>
     </table>
     </div>
+<?php if ($oneForm): ?>
+    <p class="hint"><?= $e($k['final_does']) ?></p>
+<?php if ($ruleWaits): ?>
+    <p class="muted"><?= $word('STOCK_OPS', 'final_waits') ?></p>
+<?php endif; ?>
+    <div class="actions sticky">
+      <button type="submit" name="action" value="save"><?= $word('OP_FINAL', 'save') ?></button>
+      <button type="submit" name="action" value="post" class="primary"><?= $e($k['final_button']) ?></button>
+      <span class="muted"><?= $say('STOCK_OPS', 'total_units', number_format($units)) ?><?php if ($priced): ?> · <?= $money($total) ?><?php endif; ?></span>
+    </div>
+<?php else: ?>
     <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_lines') ?></button> <span class="muted"><?= $say('STOCK_OPS', 'total_units', number_format($units)) ?><?php if ($priced): ?> · <?= $money($total) ?><?php endif; ?></span></p>
+<?php endif; ?>
   </form>
 <?php else: ?>
   <div class="table-wrap">
@@ -190,29 +202,34 @@
 <?php if ($editable): ?>
 <details class="fold"<?php if (in_array($errorCode, ['warehouse_required', 'warehouse_inactive', 'location_mismatch', 'location_inactive', 'not_own_stock', 'owner_differs', 'release_from_own', 'release_to_other', 'reason_not_applicable', 'reason_inactive', 'bad_field'], true)): ?> open<?php endif; ?>>
   <summary><?= $word('STOCK_OPS', 'details') ?></summary>
-  <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/details') ?>">
+  <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/details') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
 <?= $partial('stock_op_fields', ['form' => $form, 'kind' => $kind]) ?>
     <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
   </form>
 </details>
+<?php if (!$oneForm): ?>
 <section class="card final-box" aria-labelledby="final-h">
   <h2 id="final-h"><?= $word('STOCK_OPS', 'final_title') ?></h2>
   <p><?= $e($k['final_does']) ?></p>
 <?php if ($ruleWaits): ?>
   <p class="muted"><?= $word('STOCK_OPS', 'final_waits') ?></p>
 <?php endif; ?>
-  <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/post') ?>">
+<?php if ($lines !== []): ?>
+  <p class="note"><?= $say('OP_FINAL', 'too_many', \CW\Ui\Words::STOCK_OPS['save_lines']) ?></p>
+<?php endif; ?>
+  <form class="inline" method="post" data-leaves="1" action="<?= $u($base . '/' . $doc->id . '/post') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <button type="submit" class="primary"><?= $e($k['final_button']) ?></button>
   </form>
 </section>
+<?php endif; ?>
 <details class="fold">
   <summary><?= $word('STOCK_OPS', 'stop_title') ?></summary>
   <p class="muted"><?= $word('STOCK_OPS', 'stop_text') ?></p>
-  <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/cancel') ?>">
+  <form class="record" method="post" data-leaves="1" action="<?= $u($base . '/' . $doc->id . '/cancel') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <label><?= $word('STOCK_OPS', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
@@ -264,7 +281,7 @@
   </ul>
 <?php endif; ?>
 <?php if ($canFile): ?>
-  <form class="record" method="post" enctype="multipart/form-data" action="<?= $u($base . '/' . $doc->id . '/files') ?>">
+  <form class="record" method="post" enctype="multipart/form-data" data-leaves="1" action="<?= $u($base . '/' . $doc->id . '/files') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <label><?= $word('STOCK_OPS', 'file_role') ?>
       <select name="role">

@@ -89,7 +89,7 @@ final class StockOpsScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::say('STOCK_NOTICE', 'added', 'Gamma pod 2ml', 6, 1), $added->text());
         $r = $this->submit($web, $page, 'lines', ['u_1' => '7']);
         self::assertSame(303, $r->status, $r->describe());
-        $r = $this->submit($web, $page, 'post');
+        $r = $this->submit($web, $page, 'lines', ['action' => 'post']);
         self::assertSame(303, $r->status, $r->describe());
         $done = $web->follow($r);
         self::assertStringContainsString(Words::say('STOCK_NOTICE', 'posted', 'SIN-000001'), $done->text());
@@ -118,18 +118,18 @@ final class StockOpsScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('purchasing_desk'));
         $page = $this->start($web, 'out', ['reason_code' => 'sample']);
         $this->submit($web, $page, 'add', ['q' => (string) $sku, 'qty' => '2']);
-        $r = $this->submit($web, $page, 'post');
+        $r = $this->submit($web, $page, 'lines', ['action' => 'post']);
         self::assertSame(422, $r->status, $r->describe());
         self::assertStringContainsString(Words::STOCK_ERROR['given_to_required'], $r->text());
         $r = $this->submit($web, $page, 'details', ['given_to' => 'Sam at the shop']);
         self::assertSame(303, $r->status, $r->describe());
-        $r = $this->submit($web, $page, 'post');
+        $r = $this->submit($web, $page, 'lines', ['action' => 'post']);
         self::assertSame(303, $r->status, $r->describe());
         self::assertStringContainsString('Sam at the shop', $web->get('/ui/stock/movements')->text(), 'the movement names who it was given to');
         // Too many: never below zero for a protected product.
         $page2 = $this->start($web, 'out', ['reason_code' => 'trade_sale']);
         $this->submit($web, $page2, 'add', ['q' => (string) $sku, 'qty' => '5']);
-        $r = $this->submit($web, $page2, 'post');
+        $r = $this->submit($web, $page2, 'lines', ['action' => 'post']);
         self::assertSame(422, $r->status);
         self::assertStringContainsString(Words::say('STOCK_ERROR', 'below_zero', 1, (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$sku]), 2, 5), $r->text());
     }
@@ -142,12 +142,12 @@ final class StockOpsScreensTest extends KernelUiTestCase
         // The room's stock is recorded with a stock in.
         $in = $this->start($sc, 'in', ['warehouse' => (string) $vpg2, 'reason_code' => 'opening_stock']);
         $this->submit($sc, $in, 'add', ['q' => (string) $sku, 'qty' => '30']);
-        self::assertSame(303, $this->submit($sc, $in, 'post')->status);
+        self::assertSame(303, $this->submit($sc, $in, 'lines', ['action' => 'post'])->status);
         $desk = $this->signIn($this->uiUser('purchasing_desk'));
         $rel = $this->start($desk, 'release', ['warehouse' => (string) $vpg2, 'external_ref' => 'VT-101']);
         $r = $this->submit($desk, $rel, 'add', ['q' => (string) $sku, 'qty' => '10', 'cost' => '2.25']);
         self::assertSame(303, $r->status, $r->describe());
-        $r = $this->submit($desk, $rel, 'post');
+        $r = $this->submit($desk, $rel, 'lines', ['action' => 'post']);
         self::assertSame(303, $r->status, $r->describe());
         $pdf = $desk->get($rel . '/pdf');
         self::assertSame('application/pdf', $pdf->header('content-type'));
@@ -177,7 +177,7 @@ final class StockOpsScreensTest extends KernelUiTestCase
         $shop = (int) self::$db->value("SELECT id FROM warehouse WHERE code = 'SHOP'");
         $t = $this->start($sc, 'transfer', ['to_warehouse' => (string) $shop]);
         $this->submit($sc, $t, 'add', ['q' => (string) $sku, 'qty' => '3']);
-        self::assertSame(303, $this->submit($sc, $t, 'post')->status);
+        self::assertSame(303, $this->submit($sc, $t, 'lines', ['action' => 'post'])->status);
         $note = $sc->get($t . '/pdf');
         self::assertSame('application/pdf', $note->header('content-type'));
     }
@@ -204,7 +204,7 @@ final class StockOpsScreensTest extends KernelUiTestCase
         self::assertSame(404, $sc->get('/ui/stock/in/' . $id)->status);
         // The adjustment needs a reason on each line.
         $this->submit($sc, $page, 'add', ['q' => (string) $sku, 'qty' => '-1', 'reason' => 'damaged']);
-        $r = $this->submit($sc, $page, 'post');
+        $r = $this->submit($sc, $page, 'lines', ['action' => 'post']);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(3, (int) self::$db->value('SELECT on_hand FROM stock_balance WHERE sku_id = ? AND warehouse_id = 1', [$sku]));
         self::assertSame('write_off', self::$db->value('SELECT movement_type FROM stock_ledger WHERE document_id = ?', [$id]));

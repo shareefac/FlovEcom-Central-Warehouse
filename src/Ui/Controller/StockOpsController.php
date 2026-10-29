@@ -168,13 +168,60 @@ final class StockOpsController
         }, ['header' => $typed]);
     }
 
-    /** POST {id}/lines: every line as the table sent it (units, cost or price, reason; a ticked "remove" takes a line off). */
+    /**
+     * POST {id}/lines: every line as the table sent it (units, cost or price, reason; a ticked "remove" takes a line off). The table and
+     * the final button are one form (docs/decisions.md OV1-OV3): `action` = `post` saves the lines as sent when they differ from the
+     * stored ones (StockOps::saveLines, its own transaction, committed), then makes the record final (post(): StockOps::post, its own
+     * transaction, as the post-only form does); nothing changed: it just posts. A refused save saves nothing and keeps what was typed;
+     * a posting refused after the save keeps the saved draft and says "Saved as a draft, not made final: ...". Without `action` (or
+     * `save`): the lines are saved, as before.
+     */
     public function lines(Context $ctx, string $kind): HtmlResponse
     {
-        return $this->act($ctx, $kind, static function (StockOps $ops, int $id, int $version) use ($ctx, $kind): array {
-            $ops->saveLines($ctx->caller(), $id, $version, self::editedLines($ctx, $kind, $id));
-            return ['notice' => 'lines'];
-        });
+        $id = $ctx->id();
+        if (!$this->belongs($ctx, $kind, $id)) {
+            return $ctx->error(404, 'not_found', 'there is no such record', [StockOps::PATHS[$kind], Words::STOCK_KIND[$kind]['tab']]);
+        }
+        $version = UiRequest::id($ctx->req->field('version'));
+        if ($version === null) {
+            return $ctx->error(400, 'bad_version', 'this form has no version: reload the page');
+        }
+        $final = $ctx->req->field('action') === 'post';
+        $ops = $ctx->stockOps();
+        $saved = false;
+        try {
+            $edit = self::editedLines($ctx, $kind, $id);
+            if (!$final || $edit['changed']) {
+                $version = $ops->saveLines($ctx->caller(), $id, $version, $edit['lines'])->version;
+                $saved = true;
+            }
+        } catch (CwException $e) {
+            // A table drawn before the lines changed (409) is not typed back: its rows may name other products now.
+            return $this->page($ctx, $kind, $id, $e->httpStatus, $e, null, $e->errorCode === 'version_conflict' ? [] : ['typedLines' => self::typedLines($ctx->req)]);
+        }
+        if (!$final) {
+            return HtmlResponse::redirect(Html::url(StockOps::PATHS[$kind] . '/' . $id, ['notice' => 'lines']));
+        }
+        try {
+            return $this->posted($ctx, $kind, $ops->post($ctx->caller(), $id, $version));
+        } catch (CwException $e) {
+            return $this->page($ctx, $kind, $id, $e->httpStatus, $e, null, ['notFinal' => $saved]);
+        }
+    }
+
+    /**
+     * The fields the lines form can send (docs/decisions.md OV4): csrf, version, line_count and the button pressed (`action`), and per
+     * line its units, its cost or price (stock in, release), its reason (adjustment) and its "remove" box (counted ticked).
+     */
+    public static function oneFormFields(string $kind, int $lines): int
+    {
+        return 4 + $lines * (2 + (in_array($kind, ['in', 'release'], true) ? 1 : 0) + ($kind === 'adjust' ? 1 : 0));
+    }
+
+    /** Whether the lines and the final button fit one form: every field it can send stays below PHP's max_input_vars (Kernel, I73). */
+    public static function oneFormFits(string $kind, int $lines): bool
+    {
+        return self::oneFormFields($kind, $lines) < UiRequest::maxInputVars();
     }
 
     /** POST {id}/add: a product by barcode, CW number or words (`choices` shown on the page), or one chosen from the choices. */
@@ -206,16 +253,29 @@ final class StockOpsController
         return $res;
     }
 
+    /** POST {id}/post: the post-only form (a record too big for the one form, or one with no lines yet: OV4). */
     public function post(Context $ctx, string $kind): HtmlResponse
     {
         return $this->act($ctx, $kind, static function (StockOps $ops, int $id, int $version) use ($ctx): array {
-            $d = $ops->post($ctx->caller(), $id, $version);
-            if ($d->status === 'awaiting_approval') {
-                return ['notice' => 'submitted'];
-            }
-            $none = (int) $ctx->db->value('SELECT COUNT(*) FROM stock_ledger WHERE document_id = ?', [$d->id]) === 0;
-            return ['notice' => $none ? 'posted_none' : 'posted', 'query' => ['number' => $d->number]];
+            return self::postedNotice($ctx, $ops->post($ctx->caller(), $id, $version));
         });
+    }
+
+    /** The record's page after it was made final or sent for a reviewer's OK, with its notice. */
+    private function posted(Context $ctx, string $kind, Document $d): HtmlResponse
+    {
+        $r = self::postedNotice($ctx, $d);
+        return HtmlResponse::redirect(Html::url(StockOps::PATHS[$kind] . '/' . $d->id, ['notice' => $r['notice']] + ($r['query'] ?? [])));
+    }
+
+    /** @return array{notice: string, query?: array<string, mixed>} */
+    private static function postedNotice(Context $ctx, Document $d): array
+    {
+        if ($d->status === 'awaiting_approval') {
+            return ['notice' => 'submitted'];
+        }
+        $none = (int) $ctx->db->value('SELECT COUNT(*) FROM stock_ledger WHERE document_id = ?', [$d->id]) === 0;
+        return ['notice' => $none ? 'posted_none' : 'posted', 'query' => ['number' => $d->number]];
     }
 
     public function cancel(Context $ctx, string $kind): HtmlResponse
@@ -373,8 +433,11 @@ final class StockOpsController
             'typedAdd' => $extra['typedAdd'] ?? $extra['add'] ?? ['q' => '', 'qty' => '1', 'cost' => '', 'reason' => ''],
             'typedCancel' => $extra['typedCancel'] ?? ['code' => '', 'note' => ''],
             'typedStop' => (string) ($extra['stop'] ?? ''),
+            'typedLines' => $extra['typedLines'] ?? [],
+            // One form for the lines and the final button while PHP takes every field it can send (OV4); else save first, then the post-only form.
+            'oneForm' => $editable && $lines !== [] && self::oneFormFits($kind, count($lines)),
             'lookOnly' => $canPost ? null : Words::whoCan('doc.' . $doc->docType . '.post'),
-            'error' => $error === null ? null : self::plain($error),
+            'error' => $error === null ? null : (($extra['notFinal'] ?? false) === true ? Words::notFinal(self::plain($error)) : self::plain($error)),
             'errorCode' => $error?->errorCode,
             'balanceHref' => $kind === 'release' ? Html::url('/ui/stock/accounts') . '#account-' . (int) $doc->warehouseId : null,
         ], $status, ['title' => Words::docTitle($doc->docType, $doc->number), 'notice' => $notice]);
@@ -594,9 +657,11 @@ final class StockOpsController
 
     /**
      * The lines of a draft with the table's edits applied: per stored line `u_<n>` (units), `c_<n>` (cost or price), `r_<n>` (reason)
-     * and `x_<n>` (remove). The table must hold the stored lines (`line_count`): a draft changed meanwhile is refused (409).
+     * and `x_<n>` (remove). The table must hold the stored lines (`line_count`): a draft changed meanwhile is refused (409). `changed`:
+     * whether anything differs from what is stored (a line removed, other units, another cost or price, another reason; a cost typed
+     * another way, 1.5 for 1.500000, is the same).
      *
-     * @return list<array<string, mixed>>
+     * @return array{lines: list<array<string, mixed>>, changed: bool}
      */
     private static function editedLines(Context $ctx, string $kind, int $id): array
     {
@@ -607,21 +672,50 @@ final class StockOpsController
             throw new CwException('version_conflict', 'the lines changed since this page was drawn', 409);
         }
         $out = [];
+        $changed = false;
         foreach ($current as $l) {
             $n = (int) $l['line_no'];
             if ($req->field('x_' . $n) === '1') {
+                $changed = true;
                 continue;
             }
             $u = trim((string) ($req->field('u_' . $n) ?? (string) $l['qty']));
             if (preg_match('/^[+-]?[0-9]{1,8}$/D', $u) !== 1) {
                 throw new CwException($kind === 'adjust' ? 'qty_nonzero' : 'qty_positive', 'the units are a whole number', 422, ['line' => $n]);
             }
+            $stored = $l['unit_cost'] === null ? null : (string) $l['unit_cost'];
             $cost = $req->field('c_' . $n);
-            $cost = $cost === null ? ($l['unit_cost'] === null ? null : (string) $l['unit_cost']) : (trim($cost) === '' ? null : str_replace(['£', ','], '', trim($cost)));
+            $cost = $cost === null ? $stored : (trim($cost) === '' ? null : str_replace(['£', ','], '', trim($cost)));
+            $storedReason = $l['reason_code'] === null ? null : (string) $l['reason_code'];
             $reason = $req->field('r_' . $n);
-            $out[] = ['sku_id' => (int) $l['sku_id'], 'qty' => (int) $u, 'unit_cost' => $cost,
-                'reason_code' => $reason === null ? ($l['reason_code'] === null ? null : (string) $l['reason_code']) : ($reason === '' ? null : $reason),
+            $reason = $reason === null ? $storedReason : ($reason === '' ? null : $reason);
+            $changed = $changed || (int) $u !== (int) $l['qty'] || !self::sameMoney($cost, $stored) || $reason !== $storedReason;
+            $out[] = ['sku_id' => (int) $l['sku_id'], 'qty' => (int) $u, 'unit_cost' => $cost, 'reason_code' => $reason,
                 'description' => $l['description'] === null ? null : (string) $l['description']];
+        }
+        return ['lines' => $out, 'changed' => $changed];
+    }
+
+    /** Whether a typed cost or price is the stored one (both empty, or the same amount; anything that is not a number differs). */
+    public static function sameMoney(?string $typed, ?string $stored): bool
+    {
+        if ($typed === null || $stored === null) {
+            return $typed === $stored;
+        }
+        $num = '/^[0-9]{1,12}(\.[0-9]{1,6})?$/D';
+        return preg_match($num, $typed) === 1 && preg_match($num, $stored) === 1 && bccomp($typed, $stored, 6) === 0;
+    }
+
+    /**
+     * What a refused lines form sent, to draw again in its boxes (units, cost or price, reason, remove): line number => field => value.
+     *
+     * @return array<int, array<string, string>>
+     */
+    public static function typedLines(UiRequest $req): array
+    {
+        $out = [];
+        foreach ($req->fieldsMatching('/^[ucprx]_[1-9][0-9]{0,4}$/D') as $name => $v) {
+            $out[(int) substr($name, 2)][$name[0]] = mb_substr($v, 0, 40);
         }
         return $out;
     }

@@ -111,11 +111,11 @@ final class HandoverScreensTest extends KernelUiTestCase
         $draft = $web->get($page);
         self::assertStringContainsString(Words::HANDOVER_ERROR['company_not_confirmed'], $draft->text(), 'the page says the invoice waits, before anyone asks for it');
         // Make it final; the same form sent again books nothing twice.
-        $final = $draft->form($page . '/post');
-        $r = $web->post($page . '/post', $final);
+        $final = ['action' => 'post'] + $draft->form($page . '/lines', true);
+        $r = $web->post($page . '/lines', $final);
         self::assertSame(303, $r->status, $r->describe());
         self::assertStringContainsString(Words::say('HANDOVER_NOTICE', 'posted', 'TRD-000001'), $web->follow($r)->text());
-        $again = $web->post($page . '/post', $final);
+        $again = $web->post($page . '/lines', $final);
         self::assertSame(409, $again->status, $again->describe());
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM stock_ledger WHERE document_id = ?', [$id]));
         self::assertSame(25, (int) self::$db->value("SELECT on_hand FROM stock_balance WHERE sku_id = ? AND warehouse_id = (SELECT id FROM warehouse WHERE code = 'MAIN')", [$sku]));
@@ -129,7 +129,7 @@ final class HandoverScreensTest extends KernelUiTestCase
         self::assertSame(303, $r->status, $r->describe());
         $copy = (string) parse_url((string) $r->location(), PHP_URL_PATH);
         self::assertStringContainsString(Words::HANDOVER_NOTICE['copied'], $web->follow($r)->text());
-        $r = $this->submit($web, $copy, $copy . '/post');
+        $r = $this->submit($web, $copy, $copy . '/lines', ['action' => 'post']);
         self::assertSame(303, $r->status, $r->describe());
         $inv = $web->get($copy . '/pdf');
         self::assertSame(200, $inv->status, $inv->describe());
@@ -171,7 +171,7 @@ final class HandoverScreensTest extends KernelUiTestCase
         self::assertSame(303, $r->status, $r->describe());
         $page = (string) parse_url((string) $r->location(), PHP_URL_PATH);
         self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $sku, 'qty' => '1', 'price' => '1000.00'])->status);
-        self::assertSame(303, $this->submit($web, $page, $page . '/post')->status);
+        self::assertSame(303, $this->submit($web, $page, $page . '/lines', ['action' => 'post'])->status);
         $balances = '/ui/stock/handovers/balances';
         $path = $balances . '/' . $cp . '/payments';
         $form = $web->get($balances)->form($path);
@@ -214,7 +214,7 @@ final class HandoverScreensTest extends KernelUiTestCase
         $page = (string) parse_url((string) $r->location(), PHP_URL_PATH);
         $id = (int) basename($page);
         $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $sku, 'qty' => '2', 'price' => '3.00']);
-        self::assertSame(303, $this->submit($web, $page, $page . '/post')->status);
+        self::assertSame(303, $this->submit($web, $page, $page . '/lines', ['action' => 'post'])->status);
         $pdf = $web->get('/ui/documents/' . $id . '/pdf');
         self::assertSame(409, $pdf->status, $pdf->describe());
         self::assertStringContainsString(Words::HANDOVER_ERROR['company_not_confirmed_posted'], $pdf->text());

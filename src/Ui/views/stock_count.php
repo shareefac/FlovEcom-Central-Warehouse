@@ -2,7 +2,8 @@
 // One count record (docs/decisions.md CT1-CT5, CT14). An open sheet, for the person who opened it: the scan box, its lines 50 a page
 // (a quantity is saved when Enter is pressed in its box: the page's form goes, and only the lines changed on it are kept; app.js
 // marks a box typed in and not saved yet, and writes the moment it was filled in into at_<line>, counted from data-drawn: review M-7),
-// the download and the upload with its preview, "Before you make it final", stop it. A final sheet: what was booked for each
+// the download and the upload with its preview, "Before you make it final" (a button of the quantity form: it saves what was typed, then
+// opens the review page, docs/decisions.md OV6), stop it. A final sheet: what was booked for each
 // line and its check; cancel it as a whole. The record that puts a count back, or cancels a sheet: its facts and what it is about.
 ?>
 <p class="crumbs"><a href="<?= $e($listHref) ?>"><?= $word('SEGMENT', 'count_sheets') ?></a></p>
@@ -65,7 +66,7 @@
 <?php if ($lines === []): ?>
   <p class="muted"><?php if ($lines_n === 0): ?><?= $word('COUNTS', 'no_lines') ?><?php else: ?><?= $word('COUNTS', 'no_lines_shown') ?><?php endif; ?></p>
 <?php elseif ($editable): ?>
-  <form class="record count-lines" method="post" action="<?= $u($base . '/lines') ?>" data-drawn="<?= $e($drawnMs) ?>" data-mark="q_" data-mark-text="<?= $word('COUNTS', 'unsaved') ?>" data-unsaved="1" data-unsaved-text="<?= $word('COUNTS', 'unsaved_leave') ?>">
+  <form class="record count-lines" id="count-lines" method="post" action="<?= $u($base . '/lines') ?>" data-drawn="<?= $e($drawnMs) ?>" data-mark="q_" data-mark-text="<?= $word('COUNTS', 'unsaved') ?>" data-unsaved="1" data-unsaved-text="<?= $word('COUNTS', 'unsaved_leave') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="page" value="<?= $e($page_no) ?>">
     <input type="hidden" name="show" value="<?= $e($show) ?>">
@@ -129,7 +130,11 @@
 <section class="card final-box" aria-labelledby="final-h">
   <h2 id="final-h"><?= $word('COUNTS', 'final_title') ?></h2>
   <p><?= $word('COUNTS', 'final_text') ?></p>
+<?php if ($kind === 'sheet' && $lines !== []): ?>
+  <p class="actions"><button type="submit" form="count-lines" name="then" value="review" class="primary"><?= $word('COUNTS', 'final_link') ?></button></p>
+<?php else: ?>
   <p class="actions"><a class="btn primary" href="<?= $u($base . '/differences') ?>"><?= $word('COUNTS', 'final_link') ?></a></p>
+<?php endif; ?>
 </section>
 
 <details class="fold"<?php if ($report !== null || in_array($errorCode, ['bad_file', 'no_file', 'too_large', 'upload_failed', 'bad_counted_at', 'too_many_rows'], true)): ?> open<?php endif; ?> id="paper">
