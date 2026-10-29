@@ -2167,14 +2167,14 @@ details.pi-charge > summary { display: flex; align-items: center; min-height: 44
 details.pi-charge .doc-charge { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; padding: 0 0 12px; }
 details.pi-charge .doc-charge label { flex: 1 1 10rem; }
 /* Under the lines: the notes and the file on the left, the totals on the right */
-.doc-foot { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 24rem); gap: 20px 32px; align-items: start; }
+.doc-foot { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 28rem); gap: 20px 32px; align-items: start; }
 @media (max-width: 639.98px) { .doc-foot { grid-template-columns: minmax(0, 1fr); } }
 .doc-notes { display: grid; gap: 12px; min-width: 0; }
 .doc-notes .doc-pair { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .doc-notes .doc-pair > label { flex: 1 1 12rem; min-width: 0; }
 .doc-notes ul.files { margin: 0; padding-left: 18px; }
-.doc-totals { margin-left: auto; width: 100%; max-width: 24rem; padding: 16px 20px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); }
-.doc-totals dl { grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; align-items: center; margin: 0; }
+.doc-totals { margin-left: auto; width: 100%; max-width: 28rem; padding: 16px 20px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); }
+.doc-totals dl { grid-template-columns: minmax(12rem, 1fr) auto; gap: 10px 16px; align-items: center; margin: 0; } /* the words have room (PV29) */
 .doc-totals dt { color: var(--ink-body); }
 .doc-totals dd { text-align: right; font-variant-numeric: tabular-nums; }
 .doc-totals dd input { width: 8.5rem; text-align: right; }
@@ -2315,6 +2315,22 @@ td.late { color: var(--st-red); font-weight: 600; }
   table.stack.doc-lines td.num[data-label] > * { grid-column: 1; }
   table.stack.doc-lines td.num input { width: 100%; max-width: none; }
   table.stack.doc-lines tr.grp-add > td { grid-column: 1 / -1; }
+}
+/* The coordinator's Chrome check of 8f6fbb7 (PV27, PV29): a saved document's action bar is in the head, at its right beside the title
+   (on a phone under it, from the left); the new invoice's head is the design's grid (the supplier beside its number, a draft's fixed
+   supplier too); the "+ Add line" row has Qty and Price in their columns and Add at its end, one under another on a phone. */
+.doc-head .page-head { align-items: flex-start; }
+.doc-head .ph-actions { flex: 0 1 auto; max-width: 100%; }
+.ph-actions > .doc-actions { margin: 0; justify-content: flex-end; }
+@media (max-width: 639.98px) { .ph-actions { flex: 1 1 100%; } .ph-actions > .doc-actions { justify-content: flex-start; } }
+form.pi-editor fieldset.doc-grid .pi-fixed { grid-column: auto; }
+table.pi-lines tr.po-add-row > td { padding: 8px; vertical-align: top; }
+table.pi-lines tr.po-add-row td.num input { width: 100%; max-width: 8rem; min-height: 44px; }
+table.pi-lines tr.po-add-row td.po-add-go { text-align: right; }
+@container (max-width: 640px) {
+  table.stack.doc-lines tr.grp-add > td.num[data-label] { grid-column: 1 / -1; text-align: left; }
+  table.pi-lines tr.po-add-row td.num input { max-width: none; }
+  table.pi-lines tr.po-add-row td.po-add-go { text-align: left; }
 }
 /* ==== end pi-design ================================================================================================================ */
 

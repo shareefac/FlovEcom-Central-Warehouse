@@ -1178,7 +1178,9 @@
     var date = form ? form.querySelector('input[name="invoice_date"]') : null;
     var shown = form ? form.querySelector('input[type="hidden"][name="due_shown"]') : null;
     var supplier = document.getElementById('po-supplier');
-    var typed = false;
+    // A page drawn again after a refusal with the box cleared by the person (due_shown kept, the box empty) starts as theirs (the Codex
+    // review of 8f6fbb7, M2; PV32): a new invoice date does not fill it again.
+    var typed = !!(shown && shown.value !== '' && due.value === '');
     var auto = due.getAttribute('data-auto') === '1' ? due.value : null;
     if (!date) {
       return;

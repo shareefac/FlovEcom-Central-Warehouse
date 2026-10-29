@@ -11,7 +11,7 @@
 // pack C), their controls in the page named with form=.
 ?>
 <p class="crumbs"><a href="/ui/purchasing/invoices"><?= $e($k['tab']) ?></a></p>
-<?= $head((string) $title, intro: $isNew ? 'invoice_new' : 'supplier_invoice', meta: $isNew ? '' : $stateChip('DOC_STATUS', 'draft')) ?>
+<?= $head((string) $title, intro: $isNew ? 'invoice_new' : 'supplier_invoice', meta: $isNew ? '' : $stateChip('DOC_STATUS', 'draft'), side: $isNew ? '' : null) ?>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php if (count($problemsOfError) > 1): ?>
@@ -46,9 +46,9 @@
   <fieldset class="po-header doc-grid">
     <legend class="visually-hidden"><?= $e($k['one']) ?></legend>
 <?php if ($supplierFixed): ?>
-    <p class="po-fixed"><?= $word('INVOICES', 'supplier') ?>: <a href="<?= $u('/ui/purchasing/suppliers/' . $supplierId) ?>"><?= $e($supplierName) ?></a></p>
+    <p class="po-fixed pi-fixed"><?= $word('INVOICES', 'supplier') ?>: <a href="<?= $u('/ui/purchasing/suppliers/' . $supplierId) ?>"><?= $e($supplierName) ?></a></p>
 <?php else: ?>
-    <div class="po-box-field doc-wide">
+    <div class="po-box-field">
       <label for="po-supplier"><?= $word('INVOICES', 'supplier') ?></label>
       <select name="supplier_id" id="po-supplier" data-po-supplier data-placeholder="<?= $word('PI_ONE', 'supplier_hint') ?>" data-label="<?= $word('PI_ONE', 'suppliers') ?>"<?php if ($canAddSupplier): ?> data-add="<?= $word('PO_ADD', 'new_supplier') ?>" data-panel="pi-add-supplier"<?php else: ?> data-ask="<?= $e($askSupplier) ?>"<?php endif; ?>>
         <option value=""><?= $word('ORDERS', 'choose_supplier') ?></option>
@@ -151,21 +151,19 @@
         </tr>
 <?php endforeach; ?>
         <tr class="grp-add po-add-row">
-          <td colspan="5" data-label="">
-            <div class="po-add-line">
-              <div class="po-box-field">
-                <label for="po-q" class="visually-hidden"><?= $word('PI_ONE', 'item_box') ?></label>
-                <input id="po-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" autocomplete="off" placeholder="<?= $word('PI_ONE', 'add_line') ?>" data-po-pick data-options="<?= $e($productsUrl) ?>" data-loading="<?= $word('PI_ONE', 'loading') ?>" data-failed="<?= $word('PI_ONE', 'failed') ?>"<?php if ($canAddItem): ?> data-add="<?= $word('PO_ADD', 'new_item') ?>" data-panel="pi-add-item"<?php else: ?> data-ask="<?= $e($askItem) ?>"<?php endif; ?>>
-                <input type="hidden" name="pick_si" value="<?= $e($pick['si']) ?>">
-                <input type="hidden" name="pick_sku" value="<?= $e($pick['sku']) ?>">
-                <ul class="sm-list" id="po-q-list" role="listbox" aria-label="<?= $word('PI_ONE', 'items') ?>" data-po-list hidden><?php if ($pick['choice'] !== null): ?><li role="option" aria-selected="false" data-label="<?= $e($pick['choice']['label']) ?>" data-si="<?= $e($pick['choice']['si']) ?>" data-sku="<?= $e($pick['choice']['sku']) ?>"><span class="sm-opt-name"><?= $e($pick['choice']['name']) ?></span> <span class="sm-opt-meta"><?= $e($pick['choice']['meta']) ?></span></li><?php endif; ?></ul>
-                <p class="sm-msg muted" data-po-note aria-live="polite" hidden></p>
-              </div>
-              <label class="po-packs"><?= $word('PI_ONE', 'packs') ?> <input type="number" name="packs" min="1" max="1000000" value="<?= $e($packs) ?>" class="short"></label>
-              <label class="po-packs"><?= $word('PI_ONE', 'pack_price') ?> <input type="text" name="price" inputmode="decimal" maxlength="16" value="<?= $e($price) ?>" class="short"></label>
-              <button type="submit" name="action" value="add" class="btn secondary"><?= $word('PI_ONE', 'add') ?></button>
+          <td class="c-item" data-label="">
+            <div class="po-box-field">
+              <label for="po-q" class="visually-hidden"><?= $word('PI_ONE', 'item_box') ?></label>
+              <input id="po-q" type="search" name="q" value="<?= $e($q) ?>" maxlength="100" autocomplete="off" placeholder="<?= $word('PI_ONE', 'add_line') ?>" data-po-pick data-options="<?= $e($productsUrl) ?>" data-loading="<?= $word('PI_ONE', 'loading') ?>" data-failed="<?= $word('PI_ONE', 'failed') ?>"<?php if ($canAddItem): ?> data-add="<?= $word('PO_ADD', 'new_item') ?>" data-panel="pi-add-item"<?php else: ?> data-ask="<?= $e($askItem) ?>"<?php endif; ?>>
+              <input type="hidden" name="pick_si" value="<?= $e($pick['si']) ?>">
+              <input type="hidden" name="pick_sku" value="<?= $e($pick['sku']) ?>">
+              <ul class="sm-list" id="po-q-list" role="listbox" aria-label="<?= $word('PI_ONE', 'items') ?>" data-po-list hidden><?php if ($pick['choice'] !== null): ?><li role="option" aria-selected="false" data-label="<?= $e($pick['choice']['label']) ?>" data-si="<?= $e($pick['choice']['si']) ?>" data-sku="<?= $e($pick['choice']['sku']) ?>"><span class="sm-opt-name"><?= $e($pick['choice']['name']) ?></span> <span class="sm-opt-meta"><?= $e($pick['choice']['meta']) ?></span></li><?php endif; ?></ul>
+              <p class="sm-msg muted" data-po-note aria-live="polite" hidden></p>
             </div>
           </td>
+          <td class="num" data-label="<?= $word('PI_ONE', 'qty') ?>"><label class="visually-hidden" for="pi-packs"><?= $word('PI_ONE', 'packs') ?></label><input id="pi-packs" type="number" name="packs" min="1" max="1000000" value="<?= $e($packs) ?>" class="short"></td>
+          <td class="num" data-label="<?= $word('PI_ONE', 'price') ?>"><label class="visually-hidden" for="pi-price"><?= $word('PI_ONE', 'pack_price') ?></label><input id="pi-price" type="text" name="price" inputmode="decimal" maxlength="16" value="<?= $e($price) ?>" class="short"></td>
+          <td colspan="2" class="po-add-go" data-label=""><button type="submit" name="action" value="add" class="btn secondary"><?= $word('PI_ONE', 'add') ?></button></td>
         </tr>
       </tbody>
     </table>

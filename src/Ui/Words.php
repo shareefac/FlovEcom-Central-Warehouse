@@ -6286,6 +6286,7 @@ final class Words
         'choose_this' => 'Add this one',
         // The Codex review of 6418b15 (findings 1 and 3)
         'not_final' => 'Saved as a draft, not made final: %s',
+        'form_again' => 'This form was sent before and the draft may have changed since. Check the draft below, then press "Save and make final" again.',
         'terms_hint' => 'From the supplier\'s terms: %s days.',
         'add_row' => '+ New supplier invoice',
         'too_many' => 'This invoice has too many lines to change them on this page: they are shown as they are. You can still add lines, type the totals and make it final.',
@@ -6331,6 +6332,9 @@ final class Words
         'left_to_bill' => '%s left to bill',
         'arriving' => 'On its way',
         'delivery_cancelled' => 'Delivery cancelled',
+        // The order's strip never says "X of Y" with X over Y (the Chrome check of 8f6fbb7, PV28)
+        'more_than_ordered' => '%s (%s more than ordered)',
+        'more_than_received' => '%s (%s more than received)',
     ];
 
     /** The columns and the filter of a list of documents (orders, supplier invoices; later sales invoices; docs/decisions.md PV). */

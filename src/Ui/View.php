@@ -86,8 +86,8 @@ final class View
             'stateChip' => static fn (string $group, ?string $code): string => Html::chip(Words::tone($group, $code), Words::of($group, $code)),
             'intro' => static fn (string $page, ?string $lookOnly = null): string => Html::lede(...Words::introParts($page, $lookOnly)),
             'head' => fn (string $title, ?string $intro = null, ?string $look = null, string $chips = '', string $meta = '', string $aside = '',
-                ?string $lede = null, ?string $more = null, string $tag = '', ?string $eyebrow = null): string
-                => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow),
+                ?string $lede = null, ?string $more = null, string $tag = '', ?string $eyebrow = null, ?string $side = null): string
+                => $this->head($title, $intro, $look, $chips, $meta, $aside, $lede, $more, $tag, $eyebrow, $side),
             'explain' => static fn (string $key, ?string $label = null): string => Html::help($key, $label),
             // The task board (design v4): one group of rows, its title in its colour; $group null = no title.
             'cards' => fn (array $cards, ?string $group = null, string $tone = 'info', string $id = 'tasks'): string
@@ -129,16 +129,17 @@ final class View
     /**
      * The statement and the frame under it (the $head helper): Html::statement with the section's name as the eyebrow (the brand on a
      * page outside every section) and the page's create button, then page_frame.php: the section's tabs, the buying flow, the
-     * segmented filter, the switched-off strip.
+     * segmented filter, the switched-off strip. $side (docs/decisions.md PV27): what the header's right holds instead of the create button
+     * (a saved document's action bar); '' for nothing (the new page of what the button makes); null: the create button.
      */
     private function head(string $title, ?string $intro, ?string $look, string $chips, string $meta, string $aside, ?string $lede, ?string $more,
-        string $tag, ?string $eyebrow): string
+        string $tag, ?string $eyebrow, ?string $side = null): string
     {
         $this->headDrawn = true;
         $f = $this->frame;
         $pagebar = is_array($f['pagebar'] ?? null) ? $f['pagebar'] : null;
         [$sentence, $line] = $intro !== null ? Words::introParts($intro, $look) : ['', $look !== null ? sprintf(Words::UI['look_only'], $look) : ''];
-        $actions = is_array($f['actions'] ?? null) && $f['actions'] !== [] ? $this->render('split', ['actions' => $f['actions']]) : '';
+        $actions = $side ?? (is_array($f['actions'] ?? null) && $f['actions'] !== [] ? $this->render('split', ['actions' => $f['actions']]) : '');
         return Html::statement($eyebrow ?? ($pagebar !== null ? (string) $pagebar['label'] : Words::UI['brand']), $title, $lede ?? $sentence, $more ?? $line, $tag,
             $chips, $aside, $meta, $actions)
             . $this->render('page_frame', ['pagebar' => $pagebar, 'flow' => $f['flow'] ?? null, 'segments' => $f['segments'] ?? [],

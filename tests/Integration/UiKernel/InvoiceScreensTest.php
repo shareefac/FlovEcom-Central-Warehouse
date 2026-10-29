@@ -145,7 +145,8 @@ final class InvoiceScreensTest extends KernelUiTestCase
         self::assertSame(303, $r->status, $r->describe());
         $page = $desk->follow($r);
         self::assertStringContainsString(Words::say('INVOICE_NOTICE', 'posted', 'SINV-000001'), $page->text());
-        self::assertStringContainsString(Words::MATCH_STATE['needs_review'], $page->text(), '£10 (33 %) dearer than the delivery: outside the tolerance');
+        // Its status block says what the list says (docs/decisions.md PV31): "Needs a look".
+        self::assertStringContainsString(Words::INVOICES['needs_look'], $page->text(), '£10 (33 %) dearer than the delivery: outside the tolerance');
         self::assertStringContainsString(Words::MATCH_WHY['price_over'], $page->text());
 
         // "To match": the badge, the list, and the acceptance with a reason.

@@ -747,6 +747,10 @@ invoice reuses them):
 - The differences panel takes every figure from `InvoiceMatch::compute()` (its lines carry `po_key`, the order line priced from) plus one
   batched read of the ordered units (PV24, PV25); the order's "still to come" is `PurchaseOrdersController::toCome($lines)`.
 - "Save and make final" posts the version its save left (FormOnce's stored `version` on a new invoice; PV21).
+- `$head(..., side: ...)` (PV27): the head's right holds a saved document's action bar (`po_bar`, `si_bar`) instead of the create button;
+  `side: ''` shows nothing (the new invoice page). CSS: `.doc-head .page-head`, `.ph-actions > .doc-actions`.
+- The order's strip words: `progress()`'s `received_line` / `invoiced_line` (PV28). "From": `InvoiceOnePage::sources($ctx, $supplier, $draftId)`
+  (PV30). The item box's order: `PurchaseOrders::resolve()` and `Queries::searchSkus(..., beginsFirst: true)` (PV31).
 - Tests: `UiUnitTest::testTheBoardsAndTheDocumentsFollowTheApprovedDesign` (CSS pins; the shared pieces close every tag), the three
   `InvoiceOnePageScreensTest` screen tests named in PV20, `Migration0053Test`.
 

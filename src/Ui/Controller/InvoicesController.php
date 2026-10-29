@@ -647,7 +647,7 @@ final class InvoicesController
             'credit_more_than_invoiced' => isset($d['left']) ? Words::say('INVOICE_ERROR', 'credit_left', (int) $d['left']) : self::problemText(['code' => $e->errorCode,
                 'message' => $e->getMessage()] + (isset($d['line']) ? ['line' => (int) $d['line']] : [])),
             'note_required' => Words::INVOICE_ERROR['accept_note'],
-            'scan_pending', 'not_final' => $e->getMessage(), // made in words (the invoice on one page, PV)
+            'scan_pending', 'not_final', 'form_again' => $e->getMessage(), // made in words (the invoice on one page, PV; form_again: PV32)
             default => isset(Words::INVOICE_ERROR[$e->errorCode]) && is_int($d['line'] ?? null)
                 ? Words::say('INVOICE_ERROR', 'on_line', (int) $d['line'], Words::INVOICE_ERROR[$e->errorCode])
                 : (Words::INVOICE_ERROR[$e->errorCode] ?? Words::ARRIVAL_ERROR[$e->errorCode] ?? Words::STOCK_ERROR[$e->errorCode] ?? Words::RECEIPT_ERROR[$e->errorCode]

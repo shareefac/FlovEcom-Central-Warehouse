@@ -1062,7 +1062,7 @@ final class PurchaseOrders
                 return $this->forItem($supplierId, (int) $sku['id'], 1);
             }
         }
-        $found = (new Queries($this->db))->searchSkus($q, self::SEARCH_LIMIT);
+        $found = (new Queries($this->db))->searchSkus($q, self::SEARCH_LIMIT, false, true);
         if ($found === []) {
             return ['status' => 'not_found'];
         }
@@ -1079,8 +1079,17 @@ final class PurchaseOrders
                 'supplier_item_id' => $si === null ? null : (int) $si['id'], 'units_per_pack' => $si === null ? null : (int) $si['units_per_pack'],
                 'supplier_code' => $si['supplier_code'] ?? null, 'purchase_unit' => $si['purchase_unit'] ?? null];
         }
-        usort($choices, static fn (array $a, array $b): int => [$a['supplier_item_id'] === null, ] <=> [$b['supplier_item_id'] === null]);
-        return ['status' => 'choices', 'choices' => $choices];
+        // The order (the Chrome check of 8f6fbb7, docs/decisions.md PV31): the name the words are, then names beginning with them, then the
+        // rest; in each, this supplier's items before those not set up with it yet; then as found (by name).
+        $norm = static fn (string $v): string => mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $v)));
+        $want = $norm($q);
+        $rank = [];
+        foreach ($choices as $i => $c) {
+            $name = $norm((string) $c['name']);
+            $rank[$i] = [$name === $want ? 0 : (str_starts_with($name, $want) ? 1 : 2), $c['supplier_item_id'] === null ? 1 : 0, $i];
+        }
+        uksort($choices, static fn (int $a, int $b): int => $rank[$a] <=> $rank[$b]);
+        return ['status' => 'choices', 'choices' => array_values($choices)];
     }
 
     // ------------------------------------------------------------------------------------------

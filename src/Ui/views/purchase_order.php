@@ -1,13 +1,16 @@
 <?php
 // A purchase order, read like a document (docs/decisions.md PV12, PV19: the owner's approved design; the order's rules and actions as
-// before): its status a solid block beside the title, one action bar (the next step in the accent: confirm, send, receive the goods, record
-// its invoice, take it back or copy; the others under More: the PDF, correct, close, reopen, cancel ...; a step that needs a reason or a
-// choice opens under the bar: po_action), the progress strip (ordered, received, invoiced, expected and what is still to come), the
+// before): its status a solid block beside the title, one action bar at the head's right (po_bar, PV27: the next step in the accent:
+// confirm, send, receive the goods, record its invoice, take it back or copy; the others under More: the PDF, correct, close, reopen,
+// cancel ...; a step that needs a reason or a choice opens under the bar: po_action), the progress strip (ordered, received, invoiced, expected and what is still to come), the
 // supplier's block beside its facts, the lines, the totals on the right with its files to download, then its files and its history.
 ?>
 <p class="crumbs"><a href="/ui/purchasing/orders"><?= $word('MENU', 'orders') ?></a></p>
+<?php $bar = $partial('po_bar', ['moreActions' => $moreActions, 'mainAction' => $mainAction, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit,
+    'supplier' => $supplier, 'sendVia' => $sendVia, 'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey,
+    'cancelReasons' => $cancelReasons, 'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]); ?>
 <div class="doc-head">
-<?= $head($title, intro: 'order', meta: $stateChip('PO_STATE', $state) . ($doc->reviewState !== null && $doc->reviewState !== 'not_required'
+<?= $head($title, intro: 'order', side: $bar, meta: $stateChip('PO_STATE', $state) . ($doc->reviewState !== null && $doc->reviewState !== 'not_required'
     ? ' <span class="tag band ' . $e(\CW\Ui\Words::tone('REVIEW_STATE', $doc->reviewState)) . '">' . $e(\CW\Ui\Words::of('REVIEW_STATE', $doc->reviewState)) . '</span>' : '')) ?>
 </div>
 <?php if ($error !== null): ?>
@@ -73,33 +76,11 @@
 </section>
 <?php endforeach; ?>
 
-<div class="doc-actions" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
-<?php if ($moreActions !== []): ?>
-<?php // An action under More refused for its reason opens More too, so its open fold is seen (the Codex review of 9ce3515, L6; PV26).
-$moreOpen = (in_array('amend', $moreActions, true) && $reasonError === 'amend') || (in_array('cancel', $moreActions, true) && $reasonError === 'cancel')
-    || (in_array('reopen', $moreActions, true) && $errorCode === 'reopen_reason_required'); ?>
-  <details class="doc-more"<?php if ($moreOpen): ?> open<?php endif; ?>>
-    <summary class="btn secondary sm"><?= $word('DOC', 'more') ?></summary>
-    <div class="doc-more-menu">
-<?php foreach ($moreActions as $a): ?>
-<?= $partial('po_action', ['a' => $a, 'primary' => false, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit, 'supplier' => $supplier, 'sendVia' => $sendVia,
-    'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey, 'cancelReasons' => $cancelReasons,
-    'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]) ?>
-<?php endforeach; ?>
-    </div>
-  </details>
-<?php endif; ?>
-<?php if ($mainAction !== null): ?>
-<?= $partial('po_action', ['a' => $mainAction, 'primary' => true, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit, 'supplier' => $supplier, 'sendVia' => $sendVia,
-    'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey, 'cancelReasons' => $cancelReasons,
-    'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]) ?>
-<?php endif; ?>
-</div>
 <?php if ($progress !== null): ?>
 <section class="doc-progress" aria-label="<?= $word('DOC', 'progress') ?>">
   <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'ordered') ?></p><p class="doc-step-big"><?= $n($progress['ordered']) ?></p></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'received') ?></p><p class="doc-step-big"><?= $say('DOC', 'of', $progress['received'], $progress['ordered']) ?></p><progress class="done" max="<?= $e(max(1, $progress['ordered'])) ?>" value="<?= $e(min($progress['received'], $progress['ordered'])) ?>"></progress></div>
-  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'invoiced') ?></p><p class="doc-step-big"><?= $say('DOC', 'of', $progress['invoiced'], $progress['received']) ?></p><progress class="review" max="<?= $e(max(1, $progress['received'])) ?>" value="<?= $e(min($progress['invoiced'], max(1, $progress['received']))) ?>"></progress></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'received') ?></p><p class="doc-step-big"><?= $e($progress['received_line']) ?></p><progress class="done" max="<?= $e(max(1, $progress['ordered'])) ?>" value="<?= $e(min($progress['received'], max(1, $progress['ordered']))) ?>"></progress></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'invoiced') ?></p><p class="doc-step-big"><?= $e($progress['invoiced_line']) ?></p><progress class="review" max="<?= $e(max(1, $progress['received'])) ?>" value="<?= $e(min($progress['invoiced'], max(1, $progress['received']))) ?>"></progress></div>
   <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'expected') ?></p><p class="doc-step-big"><?php if ($progress['expected'] !== null): ?><?= $day($progress['expected']) ?><?php endif; ?></p><?php if ($progress['to_come'] > 0): ?><p class="muted"><?= $say('DOC', 'to_come', $progress['to_come']) ?></p><?php endif; ?></div>
 </section>
 <?php endif; ?>

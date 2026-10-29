@@ -1,16 +1,25 @@
 <?php
 // A supplier's invoice or credit note (pack C, PC17), read like a document (docs/decisions.md PV12, PV19: the owner's approved design): its
-// status a solid block beside the title, one action bar (the next step in the accent: accept the differences, take it back, book its credit
-// note or attach a file; the others under More; si_action), then what differs from the order and the delivery when its match is off (the
+// status a solid block beside the title ("Needs a look" when its match needs review, as the list says: PV31), one action bar at the head's
+// right (si_bar, PV27: the next step in the accent: accept the differences, take it back, book its credit note or attach a file; the
+// others under More; si_action), then what differs from the order and the delivery when its match is off (the
 // three ways side by side, the cells that differ tinted), then the paper: the supplier's block, its facts (dates, what it is for, who did
 // what), its balance large on the right, the lines, its files and its totals; then its goods on their way, its credit notes, what it records
 // for the stock value, and its history. An invoice's draft is the
 // one page for its creator (invoice_edit); a credit note's draft keeps its forms here (pack C), for its creator.
 ?>
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $e($k['tab']) ?></a></p>
+<?php
+// The status block says what the list says (PV31): a final invoice whose match needs review "Needs a look" (amber), "Final" a quiet line
+// beside it; else its status, and its match as a soft tag.
+$needsLook = !$doc->isReversal() && $doc->status === 'posted' && $storedMatch === 'needs_review';
+$bar = $editable ? '' : $partial('si_bar', ['moreActions' => $moreActions, 'mainAction' => $mainAction, 'doc' => $doc, 'base' => $base, 'rec' => $rec, 'k' => $k,
+    'match' => $match, 'typedAccept' => $typedAccept, 'typedCancel' => $typedCancel, 'creditKey' => $creditKey, 'reverse' => $reverse]); ?>
 <div class="doc-head">
-<?= $head((string) $title, intro: $introKey, look: $lookOnly, chips: $doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status),
-    meta: $storedMatch !== null ? '<span class="tag band ' . $e(\CW\Ui\Words::tone('MATCH_STATE', $storedMatch)) . '">' . $e(\CW\Ui\Words::of('MATCH_STATE', $storedMatch)) . '</span>' : '') ?>
+<?= $head((string) $title, intro: $introKey, look: $lookOnly, side: $editable ? null : $bar,
+    chips: $doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : ($needsLook ? $chip('needs', \CW\Ui\Words::INVOICES['needs_look']) : $stateChip('DOC_STATUS', $doc->status)),
+    meta: $needsLook ? '<span class="muted">' . $e(\CW\Ui\Words::of('DOC_STATUS', 'posted')) . '</span>'
+        : ($storedMatch !== null ? '<span class="tag band ' . $e(\CW\Ui\Words::tone('MATCH_STATE', $storedMatch)) . '">' . $e(\CW\Ui\Words::of('MATCH_STATE', $storedMatch)) . '</span>' : '')) ?>
 </div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
@@ -365,25 +374,6 @@
   </form>
 </details>
 <?php else: ?>
-<div class="doc-actions" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
-<?php if ($moreActions !== []): ?>
-<?php // An action under More refused for its reason opens More too, so its open fold is seen (the Codex review of 9ce3515, L6; PV26).
-$moreOpen = (in_array('accept', $moreActions, true) && $typedAccept !== '') || (in_array('reverse', $moreActions, true) && $typedCancel['code'] !== ''); ?>
-  <details class="doc-more"<?php if ($moreOpen): ?> open<?php endif; ?>>
-    <summary class="btn secondary sm"><?= $word('DOC', 'more') ?></summary>
-    <div class="doc-more-menu">
-<?php foreach ($moreActions as $a): ?>
-<?= $partial('si_action', ['a' => $a, 'primary' => false, 'doc' => $doc, 'base' => $base, 'rec' => $rec, 'k' => $k, 'match' => $match, 'typedAccept' => $typedAccept, 'typedCancel' => $typedCancel,
-    'creditKey' => $creditKey, 'reverse' => $reverse]) ?>
-<?php endforeach; ?>
-    </div>
-  </details>
-<?php endif; ?>
-<?php if ($mainAction !== null): ?>
-<?= $partial('si_action', ['a' => $mainAction, 'primary' => true, 'doc' => $doc, 'base' => $base, 'rec' => $rec, 'k' => $k, 'match' => $match, 'typedAccept' => $typedAccept, 'typedCancel' => $typedCancel,
-    'creditKey' => $creditKey, 'reverse' => $reverse]) ?>
-<?php endif; ?>
-</div>
 <?php if ($canWithdraw): ?>
 <p class="muted"><?= $word('STOCK_OPS', 'withdraw_text') ?></p>
 <?php endif; ?>

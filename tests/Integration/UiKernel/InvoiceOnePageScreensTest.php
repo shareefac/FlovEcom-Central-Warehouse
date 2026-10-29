@@ -839,6 +839,35 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
     }
 
     /**
+     * The Codex review of 8f6fbb7, M1 (PV32): a form FormOnce remembered before PV21 (its result names no saved version) is never made final
+     * when sent again: the draft may have been changed since; the page asks for "Save and make final" on the draft as it is now.
+     */
+    public function testAFormRememberedWithoutItsSavedVersionIsNeverMadeFinal(): void
+    {
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier('Old Replay Ltd');
+        $web = $this->signIn($deskUser);
+        $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'REPLAY-OLD', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
+            'charge_description' => 'Carriage', 'action' => 'post'] + self::newForm($web->get('/ui/purchasing/invoices/new'));
+        self::assertSame(422, $web->post('/ui/purchasing/invoices', $send)->status);
+        $id = (int) self::$db->value("SELECT id FROM document WHERE doc_type = 'SINV' AND external_ref = 'REPLAY-OLD'");
+        // As FormOnce stored it before PV21: no version in its result.
+        $row = self::$db->one('SELECT idem_key, response_body FROM idempotency WHERE idem_key LIKE ?', ['%:' . $send['form_key']]);
+        self::assertNotNull($row);
+        $body = json_decode((string) $row['response_body'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertArrayHasKey('version', $body);
+        unset($body['version']);
+        self::$db->exec('UPDATE idempotency SET response_body = ? WHERE idem_key = ?', [json_encode($body, JSON_THROW_ON_ERROR), $row['idem_key']]);
+        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'save']
+            + self::draftForm($web->get("/ui/purchasing/invoices/{$id}"), $id));
+        self::assertSame(303, $r->status, $r->describe());
+        $r = $web->post('/ui/purchasing/invoices', $send);
+        self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]), 'an old form made final what it never saw: ' . $r->describe());
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertStringContainsString(Words::PI_ONE['form_again'], $r->text());
+    }
+
+    /**
      * Review 2, M2 (PV22): a due date cleared on the new page stays cleared through a refused button ("Fill the lines" with nothing chosen)
      * and the save after it.
      */
@@ -1004,6 +1033,14 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
         self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/amend")]'),
             'the order\'s Correct, refused without a reason');
+        // The Codex review of 8f6fbb7, L3 (PV32): a reason that needs a note, sent without one, opens the same folds.
+        $r = $web->post($path . '/cancel', ['reason_code' => 'other', 'note' => ''] + $web->get($path)->form($path . '/cancel'));
+        self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
+        self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/cancel")]'),
+            'the order\'s Cancel, "other" without its note');
+        $r = $web->post($path . '/amend', ['reason_code' => 'other', 'note' => ''] + $web->get($path)->form($path . '/amend'));
+        self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/amend")]'),
+            'the order\'s Correct, "other" without its note: ' . $r->describe());
         $deskUser = $this->uiUser('purchasing_desk');
         $desk = $this->signIn($deskUser);
         $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'MORE-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
@@ -1014,6 +1051,176 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
         self::assertSame(1, self::nodes($r, '//details[contains(@class, "doc-more")][@open]//details[contains(@class, "doc-act")][@open]//form[contains(@action, "/reverse")]'),
             'the invoice\'s Cancel, refused without the note "other" needs');
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The coordinator's Chrome check of 8f6fbb7 on staging (29 Oct 2026): docs/decisions.md PV27-PV31
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Item 1 (PV27): a saved order's and a saved invoice's action bar (More and the next step) is in the header, at its right beside the
+     * title, before the warnings, the reviewer's card and the section's pills; the header's "+ New ..." button gives it that place. Item 8: the
+     * new invoice page shows no "+ New supplier invoice" of its own; the list still does.
+     */
+    public function testTheActionBarIsInTheHeaderAndTheNewPageHasNoNewButton(): void
+    {
+        $s = $this->supplier('Head Actions Ltd');
+        $o = $this->order((int) $s['id'], 2);
+        $web = $this->signIn($this->uiUser('buyer'));
+        $view = $web->get('/ui/purchasing/orders/' . $o['po']);
+        $bar = '//header[contains(@class, "page-head")]/div[contains(@class, "ph-actions")]/div[contains(@class, "doc-actions")]';
+        self::assertSame(1, self::nodes($view, $bar), $view->describe());
+        self::assertSame(1, self::nodes($view, $bar . '/details[contains(@class, "doc-more")]'));
+        self::assertSame(1, self::nodes($view, $bar . '/*[contains(@class, "primary")] | ' . $bar . '/details/summary[contains(@class, "primary")]'));
+        self::assertSame(1, self::nodes($view, '//main//div[contains(@class, "doc-actions")]'), 'one bar');
+        self::assertSame(0, self::nodes($view, '//header[contains(@class, "page-head")]//a[contains(@href, "/ui/purchasing/orders/new")]'), 'the bar takes the "+ New" place');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $desk = $this->signIn($deskUser);
+        $send = ['supplier_id' => (string) $s['id'], 'invoice_number' => 'HEAD-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400), 'charge_amount' => '5.00',
+            'charge_description' => 'Carriage', 'net_total' => '5.00', 'vat_total' => '1.00', 'action' => 'post'] + self::newForm($desk->get('/ui/purchasing/invoices/new'));
+        $id = self::invoiceId($desk->post('/ui/purchasing/invoices', $send)->location());
+        $inv = $desk->get('/ui/purchasing/invoices/' . $id);
+        self::assertSame(1, self::nodes($inv, $bar . '/details[contains(@class, "doc-more")]'), $inv->describe());
+        self::assertSame(1, self::nodes($inv, '//main//div[contains(@class, "doc-actions")]'));
+        $new = '//header[contains(@class, "page-head")]//a[contains(@href, "/ui/purchasing/invoices/new")]';
+        self::assertSame(0, self::nodes($desk->get('/ui/purchasing/invoices/new'), $new), 'not on the new page itself');
+        self::assertGreaterThanOrEqual(1, self::nodes($desk->get('/ui/purchasing/invoices'), $new), 'the list keeps it');
+    }
+
+    /**
+     * Item 2 (PV28): the order's strip never says "X of Y" with X over Y: more received than ordered, or more invoiced than received, says
+     * how many more.
+     */
+    public function testTheStripNeverSaysMoreOfLess(): void
+    {
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier('Strip Words Ltd');
+        $o = $this->order((int) $s['id'], 3);
+        $si = new SupplierInvoices(self::$db, new Documents(self::$db, DocumentHandlers::all(self::$db)), fn (): FileStore => $this->store());
+        $desk = Caller::staff($deskUser['id']);
+        $d = $si->createDraft($desk, 'invoice', (int) $s['id'], ['invoice_number' => 'STRIP-1', 'invoice_date' => gmdate('Y-m-d', time() - 86400)]);
+        $d = $si->addOrder($desk, $d->id, $d->version, $o['po']);
+        $d = $si->saveHeader($desk, $d->id, $d->version, ['net_total' => '6.00', 'vat_total' => '0.00']);
+        self::assertSame('posted', $si->submit($desk, $d->id, $d->version)->status);
+        $web = $this->signIn($this->uiUser('buyer'));
+        $strip = function (int $received) use ($web, $o): string {
+            // By hand, put back at once (for the stock checks after the test).
+            self::$db->exec("UPDATE po_line SET received_units = ? WHERE document_id = ? AND kind = 'item'", [$received, $o['po']]);
+            self::$db->exec("UPDATE purchase_order SET state = ? WHERE document_id = ?", [$received >= 3 ? 'received' : 'part_received', $o['po']]);
+            $text = implode(' ', self::texts($web->get('/ui/purchasing/orders/' . $o['po']), '//section[contains(@class, "doc-progress")]//p[contains(@class, "doc-step-big")]'));
+            self::$db->exec("UPDATE po_line SET received_units = 0 WHERE document_id = ? AND kind = 'item'", [$o['po']]);
+            self::$db->exec("UPDATE purchase_order SET state = 'approved' WHERE document_id = ?", [$o['po']]);
+            return $text;
+        };
+        $two = $strip(2);
+        self::assertStringContainsString(Words::say('DOC', 'of', 2, 3), $two);
+        self::assertStringContainsString(Words::say('DOC', 'more_than_received', 3, 1), $two, 'invoiced 3, received 2');
+        self::assertStringNotContainsString(Words::say('DOC', 'of', 3, 2), $two);
+        $four = $strip(4);
+        self::assertStringContainsString(Words::say('DOC', 'more_than_ordered', 4, 1), $four, 'received 4 of an order of 3');
+        self::assertStringContainsString(Words::say('DOC', 'of', 3, 4), $four);
+    }
+
+    /**
+     * Item 4 (PV29): the new page's head is the design's grid: Supplier | Supplier's invoice number; "From" its own row; Invoice date | Due date
+     * (one column on a phone: UiUnitTest). Item 5: the "+ Add line" row puts Qty and Price in their columns and Add at the end of the row.
+     */
+    public function testTheNewPageHeadAndItsAddRowFollowTheDesign(): void
+    {
+        $s = $this->supplier('Grid Invoices Ltd', 30);
+        $web = $this->signIn($this->uiUser('purchasing_desk'));
+        $page = $web->get('/ui/purchasing/invoices/new', ['supplier' => $s['id']]);
+        $head = '//fieldset[contains(@class, "po-header")]';
+        $cells = array_map(static fn (\DOMElement $c): string => $c->getAttribute('class') . '|' . implode(',', array_map(static fn (\DOMElement $i): string => $i->getAttribute('name'),
+            iterator_to_array((new \DOMXPath($c->ownerDocument))->query('.//input[@name and not(@type="hidden")] | .//select[@name]', $c)))),
+            iterator_to_array((new \DOMXPath($page->dom()))->query($head . '/*[self::div or self::label]')));
+        self::assertSame(['po-box-field|supplier_id', '|invoice_number', 'doc-field doc-wide|from', '|invoice_date', '|due_date'],
+            array_map(static fn (string $c): string => (string) preg_replace('/^[^|]*?\b(po-box-field|doc-field doc-wide)\b[^|]*\|/', '$1|', $c), $cells), 'the grid\'s cells in order');
+        self::assertSame(0, self::nodes($page, $head . '/div[contains(@class, "po-box-field")][contains(@class, "doc-wide")]'), 'the supplier half the row');
+        $row = '//table[contains(@class, "pi-lines")]//tr[contains(@class, "grp-add")]/td';
+        self::assertSame(4, self::nodes($page, $row));
+        self::assertSame(1, self::nodes($page, '(' . $row . ')[1]//input[@name="q"]'));
+        self::assertSame(1, self::nodes($page, '(' . $row . ')[2][@data-label="' . Words::PI_ONE['qty'] . '"]//input[@name="packs"]'));
+        self::assertSame(1, self::nodes($page, '(' . $row . ')[3][@data-label="' . Words::PI_ONE['price'] . '"]//input[@name="price"]'));
+        self::assertSame(1, self::nodes($page, '(' . $row . ')[4]//button[@value="add"]'));
+    }
+
+    /**
+     * Item 6 (PV30): "From" offers only what "Fill the lines" takes: an order with nothing left to invoice (its units on final invoices, or
+     * all on this draft already) and a delivery all on this draft are left out.
+     */
+    public function testFromLeavesOutWhatHasNothingLeftToInvoice(): void
+    {
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier('From Left Ltd');
+        $done = $this->order((int) $s['id'], 2);
+        $open = $this->order((int) $s['id'], 2);
+        $web = $this->signIn($deskUser);
+        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'from' => 'po:' . $done['po'], 'invoice_number' => 'LEFT-1',
+            'invoice_date' => gmdate('Y-m-d', time() - 86400), 'net_total' => '4.00', 'vat_total' => '0.00', 'action' => 'post'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame('posted', self::$db->value('SELECT status FROM document WHERE id = ?', [self::invoiceId($r->location())]));
+        $page = $web->get('/ui/purchasing/invoices/new', ['supplier' => $s['id']]);
+        self::assertSame(0, self::nodes($page, '//select[@name="from"]//option[@value="po:' . $done['po'] . '"]'), 'every unit invoiced');
+        self::assertSame(1, self::nodes($page, '//select[@name="from"]//option[@value="po:' . $open['po'] . '"]'));
+        // A draft holding every unit of an order and of a delivery: neither is offered on it again.
+        $x = $this->delivery($deskUser['id'], (int) $s['id'], 3, '1.00');
+        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'from' => 'grn:' . $x['grn'], 'invoice_number' => 'LEFT-2', 'action' => 'from']
+            + self::newForm($web->get('/ui/purchasing/invoices/new')));
+        $id = self::invoiceId($r->location());
+        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['from' => 'po:' . $open['po'], 'action' => 'from'] + self::draftForm($web->get("/ui/purchasing/invoices/{$id}"), $id));
+        self::assertSame(303, $r->status, $r->describe());
+        $draft = $web->get("/ui/purchasing/invoices/{$id}");
+        self::assertSame(0, self::nodes($draft, '//select[@name="from"]//option[@value="po:' . $open['po'] . '"]'), 'all on this draft');
+        self::assertSame(0, self::nodes($draft, '//select[@name="from"]//option[@value="grn:' . $x['grn'] . '"]'), 'all on this draft');
+    }
+
+    /**
+     * Item 7 (PV31): a final invoice whose match needs review says "Needs a look" in its status block (amber), as the list does; "Final" is a
+     * quiet line beside it, and no second tag says the same.
+     */
+    public function testANeedsALookInvoiceSaysSoAsTheListDoes(): void
+    {
+        $this->setting('invoices.check_price', 'true');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier('Look Words Ltd');
+        $x = $this->delivery($deskUser['id'], (int) $s['id'], 10, '3.00');
+        $web = $this->signIn($deskUser);
+        $r = $web->post('/ui/purchasing/invoices', ['supplier_id' => (string) $s['id'], 'from' => 'grn:' . $x['grn'], 'invoice_number' => 'LOOK-W1',
+            'invoice_date' => gmdate('Y-m-d', time() - 86400), 'action' => 'from'] + self::newForm($web->get('/ui/purchasing/invoices/new')));
+        $id = self::invoiceId($r->location());
+        $r = $web->post("/ui/purchasing/invoices/{$id}/lines", ['pp_1' => '4.00', 'net_total' => '40.00', 'vat_total' => '0.00', 'action' => 'post']
+            + self::draftForm($web->follow($r), $id));
+        self::assertSame('needs_review', self::$db->value('SELECT match_state FROM supplier_invoice WHERE document_id = ?', [$id]), $r->describe());
+        $view = $web->get('/ui/purchasing/invoices/' . $id);
+        self::assertSame([Words::INVOICES['needs_look']], self::texts($view, '//div[contains(@class, "doc-head")]//h1//span[contains(@class, "chip")][contains(@class, "needs")]'));
+        self::assertSame([Words::of('DOC_STATUS', 'posted')], self::texts($view, '//div[contains(@class, "doc-head")]//p[contains(@class, "ph-meta")]/span[contains(@class, "muted")]'));
+        self::assertSame(0, self::nodes($view, '//div[contains(@class, "doc-head")]//span[contains(@class, "tag")]'), 'no second word for it');
+        self::assertSame([Words::INVOICES['needs_look']], self::texts($web->get('/ui/purchasing/invoices', ['q' => 'LOOK-W1']), '//td[contains(@class, "doc-st")]'));
+    }
+
+    /**
+     * Item 9 (PV31): the item box (the order's and the invoice's one engine) puts the name the words begin first, the supplier's items
+     * before items not set up with the supplier yet, then the rest.
+     */
+    public function testTheItemBoxPutsTheNameTheWordsBeginFirst(): void
+    {
+        $pmUser = $this->uiUser('purchasing_manager');
+        $s = $this->supplier('Rank Items Ltd');
+        $t = 'Qz' . bin2hex(random_bytes(3));
+        $other = $this->dryItem("{$t} Cotton Elf Bar 600 Prefilled Pod Kit");
+        $this->dryItem("{$t} Elf Bar 600 Prefilled Pod Kit");
+        $longer = $this->dryItem("{$t} Elf Bar 600 Prefilled Pod Kit 3 Pack");
+        $this->dryItem("Elf Bar 600 {$t} Prefilled");
+        $items = new SupplierItems(self::$db);
+        $items->create(Caller::staff($pmUser['id']), (int) $s['id'], $other, ['units_per_pack' => '1', 'supplier_code' => 'RK-1'], ['pack_price' => '1.00']);
+        $items->create(Caller::staff($pmUser['id']), (int) $s['id'], $longer, ['units_per_pack' => '1', 'supplier_code' => 'RK-2'], ['pack_price' => '1.00']);
+        $web = $this->signIn($pmUser);
+        foreach (['/ui/purchasing/invoices/products', '/ui/purchasing/orders/products'] as $route) {
+            $order = self::texts($web->get($route, ['supplier' => $s['id'], 'q' => "{$t} Elf Bar 600 Prefilled"]), '//ul[@data-po-choices]/li/span[@class="sm-opt-name"]');
+            self::assertSame(["{$t} Elf Bar 600 Prefilled Pod Kit 3 Pack", "{$t} Elf Bar 600 Prefilled Pod Kit", "{$t} Cotton Elf Bar 600 Prefilled Pod Kit",
+                "Elf Bar 600 {$t} Prefilled"], $order, $route . ': begins with the words (the supplier\'s first), then the rest (the supplier\'s first)');
+        }
     }
 
     public function testTheItemBoxListsTheSuppliersItemsAndAChoiceAddsItsPack(): void

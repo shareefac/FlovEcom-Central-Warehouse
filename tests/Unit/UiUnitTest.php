@@ -1117,10 +1117,21 @@ final class UiUnitTest extends TestCase
             '/\.doc-bar > button \{ flex: 1 1 0;/' => 'phone: the two buttons equal',
             // The Codex review of 9ce3515, M3 (PV26): on a phone More's menu is in the flow under its button (with or without the script),
             // never placed against the page.
-            '/@media \(max-width: 639\.98px\) \{ \.doc-more \{[^}]*\} \.doc-more-menu \{[^}]*position: static/' => 'phone: More opens under its button'] as $rule => $why) {
+            '/@media \(max-width: 639\.98px\) \{ \.doc-more \{[^}]*\} \.doc-more-menu \{[^}]*position: static/' => 'phone: More opens under its button',
+            // The coordinator's Chrome check of 8f6fbb7 (PV27, PV29): the totals' words have room; the action bar in the header, and on a
+            // phone under the title, from the left; the new page's head one column and the "+ Add line" row's cells one under another.
+            '/^\.doc-totals \{[^}]*max-width: 28rem/m' => 'the totals box wide enough',
+            '/^\.doc-totals dl \{ grid-template-columns: minmax\(12rem, 1fr\) auto;/m' => 'the totals\' words have room',
+            '/^\.ph-actions > \.doc-actions \{[^}]*margin: 0/m' => 'the bar in the header',
+            '/@media \(max-width: 639\.98px\) \{ \.ph-actions \{[^}]*flex: 1 1 100%[^}]*\} \.ph-actions > \.doc-actions \{[^}]*justify-content: flex-start/' => 'phone: the bar under the title',
+            '/@media \(max-width: 639\.98px\) \{ form\.po-editor fieldset\.doc-grid \{ grid-template-columns: minmax\(0, 1fr\);/' => 'phone: the head one column',
+            '/^table\.pi-lines tr\.po-add-row > td \{/m' => 'the add row in its columns',
+            '/table\.stack\.doc-lines tr\.grp-add > td \{ grid-column: 1 \/ -1; \}/' => 'phone: the add row\'s cells one under another'] as $rule => $why) {
             self::assertSame(1, preg_match($rule, $css), $why);
         }
         self::assertStringContainsString("hint.textContent = (hint.getAttribute('data-words') || '').replace('%s', String(days));", $js, 'the due date says where it comes from');
+        // The Codex review of 8f6fbb7, M2 (PV32): a due date the person cleared, kept through a refused button (due_shown), stays theirs.
+        self::assertStringContainsString("var typed = !!(shown && shown.value !== '' && due.value === '');", $js, 'a cleared due date stays cleared after a refusal');
         // The pieces drawn inside the action bar, its More menu and the paper close what they open (a stray </div> once closed the bar early
         // and pushed the next step out of it).
         foreach (['po_action', 'si_action', 'doc_party', 'doc_totals', 'doc_bar'] as $name) {

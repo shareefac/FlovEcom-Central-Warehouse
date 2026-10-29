@@ -1779,9 +1779,12 @@ final class Queries
      * except that a CW number written as one ("CW-003906", "cw 3906") finds that item whatever it is, joined or not sold any more: the
      * page shows it with no "Use" (skus()' `merged_into_sku_id` / `discontinued` say why).
      *
+     * $beginsFirst (the order's and the invoice's item box, docs/decisions.md PV31): the items whose name begins with the words are read
+     * first, so a long list of other matches never pushes them out of the $limit.
+     *
      * @return list<array<string, mixed>>
      */
-    public function searchSkus(string $q, int $limit = 20, bool $matching = false): array
+    public function searchSkus(string $q, int $limit = 20, bool $matching = false, bool $beginsFirst = false): array
     {
         $s = SearchText::parse($q);
         $q = $s->text;
@@ -1801,10 +1804,14 @@ final class Queries
         // every word, in any order, as SearchText compares them (spaces and hyphens left out); not for a text written as a CW number
         [$words, $params] = $s->explicitCw() ? ['', []] : $s->allWords("CONCAT_WS(' ', name, brand, line, flavour)", 'brand');
         if ($words !== '') {
+            if ($beginsFirst) {
+                $params[] = addcslashes($q, '\\%_') . '%';
+            }
             $params[] = $limit;
             // (for a match, not one that is not sold any more either: the page's 20 are the ones it may offer, HU5)
             $ids = array_merge($ids, $this->db->column(
-                'SELECT s.id FROM sku s WHERE ' . ($matching ? self::MATCHABLE_SKU : 's.merged_into_sku_id IS NULL') . ' AND ' . $words . ' ORDER BY s.name LIMIT ?',
+                'SELECT s.id FROM sku s WHERE ' . ($matching ? self::MATCHABLE_SKU : 's.merged_into_sku_id IS NULL') . ' AND ' . $words
+                . ' ORDER BY ' . ($beginsFirst ? 's.name LIKE ? DESC, ' : '') . 's.name LIMIT ?',
                 $params,
             ));
         }

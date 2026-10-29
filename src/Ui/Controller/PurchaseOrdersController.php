@@ -1100,8 +1100,10 @@ final class PurchaseOrdersController
             'overLimit' => $okFirst && $netE2 > 0 && PoMath::approvalUnits($netE2) > $limit,
             'error' => $error === null ? null : self::plain($error),
             'errorCode' => $error?->errorCode,
-            // A cancel or correct sent without a reason (behaviour item 6): that form opens again at its list.
-            'reasonError' => $error?->errorCode === 'bad_reason' ? (str_ends_with($ctx->req->path, '/amend') ? 'amend' : 'cancel') : null,
+            // A cancel or correct sent without a reason (behaviour item 6), or with a reason that needs a note and none (the Codex review of
+            // 8f6fbb7, L3; PV32): that form opens again at its list, the action that was sent.
+            'reasonError' => in_array($error?->errorCode, ['bad_reason', 'note_required'], true)
+                ? (str_ends_with($ctx->req->path, '/amend') ? 'amend' : (str_ends_with($ctx->req->path, '/cancel') ? 'cancel' : null)) : null,
             'importErrors' => $extra['importErrors'] ?? [],
             'fileName' => self::fileName($doc),
         ];
@@ -1170,7 +1172,7 @@ final class PurchaseOrdersController
      *
      * @param array<string, mixed> $po
      * @param list<array<string, mixed>> $lines the order's lines (viewData's: kind, qty, received_units)
-     * @return array{ordered: int, received: int, invoiced: int, expected: ?string, to_come: int}|null
+     * @return array{ordered: int, received: int, invoiced: int, expected: ?string, to_come: int, received_line: string, invoiced_line: string}|null
      */
     private static function progress(Context $ctx, Document $doc, array $po, string $state, int $units, int $received, array $lines): ?array
     {
@@ -1180,7 +1182,11 @@ final class PurchaseOrdersController
         $invoiced = (int) $ctx->db->value("SELECT COALESCE(SUM(IF(si.kind = 'invoice', dl.qty, -dl.qty)), 0) FROM sinv_line sl JOIN supplier_invoice si ON si.document_id = sl.document_id "
             . "JOIN document d ON d.id = sl.document_id AND d.status = 'posted' JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no "
             . "WHERE sl.po_document_id = ? AND sl.kind = 'goods'", [$doc->id]);
-        return ['ordered' => $units, 'received' => $received, 'invoiced' => max(0, $invoiced), 'expected' => ($po['expected_date'] ?? null) === null ? null : (string) $po['expected_date'],
+        $invoiced = max(0, $invoiced);
+        return ['ordered' => $units, 'received' => $received, 'invoiced' => $invoiced, 'expected' => ($po['expected_date'] ?? null) === null ? null : (string) $po['expected_date'],
+            // Never "X of Y" with X over Y (PV28): more received than ordered, or more invoiced than received, says how many more.
+            'received_line' => $received > $units ? Words::say('DOC', 'more_than_ordered', $received, $received - $units) : Words::say('DOC', 'of', $received, $units),
+            'invoiced_line' => $invoiced > $received ? Words::say('DOC', 'more_than_received', $invoiced, $invoiced - $received) : Words::say('DOC', 'of', $invoiced, $received),
             'to_come' => in_array($state, ['approved', 'sent', 'part_received'], true) ? self::toCome($lines) : 0];
     }
 

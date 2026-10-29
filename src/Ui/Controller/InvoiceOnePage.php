@@ -257,7 +257,8 @@ final class InvoiceOnePage
      * and says so ("Saved as a draft, not made final: …" with the problems), never a half-final invoice. A form sent again finds the invoice
      * final already and lands on it. It posts the version the save left ($saved; the Codex review of e1db3a4, M1, PV21): a draft changed
      * since (the same form sent again after other edits) is refused as changed meanwhile, never made final unseen. $saved null: a form
-     * remembered by FormOnce before PV21, which posts the draft as it is (as before).
+     * remembered by FormOnce before PV21 (its result names no version), sent again: the draft may have changed since, so it is not made
+     * final; its page asks for "Save and make final" on it as it is now (the Codex review of 8f6fbb7, M1; PV32).
      */
     private static function makeFinal(Context $ctx, int $id, ?int $saved): HtmlResponse
     {
@@ -265,8 +266,11 @@ final class InvoiceOnePage
         if ($doc->status !== 'draft') {
             return self::finalRedirect($id, $doc);
         }
+        if ($saved === null) {
+            return self::draftPage($ctx, $id, 409, new CwException('form_again', Words::PI_ONE['form_again'], 409), []);
+        }
         try {
-            $doc = $ctx->supplierInvoices()->submit($ctx->caller(), $id, $saved ?? $doc->version);
+            $doc = $ctx->supplierInvoices()->submit($ctx->caller(), $id, $saved);
         } catch (CwException $e) {
             $now = $ctx->documents()->get($id);
             if ($now->status !== 'draft') {
@@ -688,7 +692,7 @@ final class InvoiceOnePage
             'choices' => $extra['choices'] ?? null,
             // While the supplier can still change (the new page), every supplier's open deliveries and orders, each naming its own: the script
             // keeps the chosen one's (the Codex review of 6418b15, finding 5); a draft's supplier is fixed.
-            'sources' => self::sources($ctx, $fixed ? $supplierId : null),
+            'sources' => self::sources($ctx, $fixed ? $supplierId : null, $doc?->id),
             'dueAuto' => $dueAuto,
             // What the box showed when the page was drawn: a due date the person cleared keeps its marker through a refused button (the
             // Codex review of e1db3a4, M2, PV22), so the save after it does not fill the terms' date again.
@@ -780,21 +784,48 @@ final class InvoiceOnePage
 
     /**
      * "From" (PV4): the deliveries not invoiced yet (SupplierInvoices::notInvoiced) and the open orders (approved, sent, part received) of
-     * the supplier, or of every supplier while none is chosen (each naming its supplier; the script keeps the chosen one's).
+     * the supplier, or of every supplier while none is chosen (each naming its supplier; the script keeps the chosen one's). Only what "Fill
+     * the lines" takes (the Chrome check of 8f6fbb7, PV30): an order with an item line not yet on final invoices (net of their credit notes)
+     * nor on this draft (SupplierInvoices::addOrder's rule), a delivery with units left once this draft's lines on it are counted
+     * (addReceipt's).
      *
      * @return array{deliveries: list<array{value: string, supplier: int, label: string}>, orders: list<array{value: string, supplier: int, label: string}>}
      */
-    public static function sources(Context $ctx, ?int $supplierId): array
+    public static function sources(Context $ctx, ?int $supplierId, ?int $draftId = null): array
     {
-        $deliveries = array_map(static fn (array $r): array => ['value' => 'grn:' . (int) $r['id'], 'supplier' => (int) $r['supplier_id'],
-            'label' => Words::say('PI_ONE', 'from_delivery', (string) $r['number'], (string) $r['supplier_name'], Html::day($r['doc_date'] === null ? null : (string) $r['doc_date']),
-                (int) $r['units_left'])],
-            $ctx->supplierInvoices()->notInvoiced($supplierId));
+        $onDraft = [];
+        if ($draftId !== null) {
+            foreach ($ctx->db->all('SELECT sl.grn_document_id, SUM(dl.qty) AS units FROM sinv_line sl JOIN document_line dl ON dl.document_id = sl.document_id '
+                . "AND dl.line_no = sl.line_no WHERE sl.document_id = ? AND sl.kind = 'goods' AND sl.grn_document_id IS NOT NULL GROUP BY sl.grn_document_id", [$draftId]) as $r) {
+                $onDraft[(int) $r['grn_document_id']] = (int) $r['units'];
+            }
+        }
+        $deliveries = [];
+        foreach ($ctx->supplierInvoices()->notInvoiced($supplierId) as $r) {
+            $left = (int) $r['units_left'] - ($onDraft[(int) $r['id']] ?? 0);
+            if ($left > 0) {
+                $deliveries[] = ['value' => 'grn:' . (int) $r['id'], 'supplier' => (int) $r['supplier_id'], 'label' => Words::say('PI_ONE', 'from_delivery', (string) $r['number'],
+                    (string) $r['supplier_name'], Html::day($r['doc_date'] === null ? null : (string) $r['doc_date']), $left)];
+            }
+        }
+        // An item line of the order with units left: ordered, less the final invoices' units on it (net of their credit notes), less this
+        // draft's (addOrder's rule, one statement: ix_sinv_line_po).
+        $billed = "COALESCE((SELECT SUM(IF(si.kind = 'invoice', bl.qty, -bl.qty)) FROM sinv_line sl JOIN supplier_invoice si ON si.document_id = sl.document_id "
+            . "JOIN document sd ON sd.id = sl.document_id AND sd.status = 'posted' JOIN document_line bl ON bl.document_id = sl.document_id AND bl.line_no = sl.line_no "
+            . "WHERE sl.po_document_id = pl.document_id AND sl.po_line_no = pl.line_no AND sl.kind = 'goods'), 0)";
+        $mine = $draftId === null ? '0' : "COALESCE((SELECT SUM(ml.qty) FROM sinv_line sm JOIN document_line ml ON ml.document_id = sm.document_id AND ml.line_no = sm.line_no "
+            . "WHERE sm.document_id = ? AND sm.po_document_id = pl.document_id AND sm.po_line_no = pl.line_no AND sm.kind = 'goods'), 0)";
+        $params = $draftId === null ? [] : [$draftId];
+        if ($supplierId !== null) {
+            $params[] = $supplierId;
+        }
         $orders = array_map(static fn (array $r): array => ['value' => 'po:' . (int) $r['id'], 'supplier' => (int) $r['supplier_id'],
             'label' => Words::say('PI_ONE', 'from_order', (string) $r['number'], (string) $r['supplier_name'], Html::day($r['doc_date'] === null ? null : (string) $r['doc_date']))],
             $ctx->db->all("SELECT d.id, d.number, d.doc_date, p.supplier_id, s.name AS supplier_name FROM purchase_order p JOIN document d ON d.id = p.document_id "
-                . "AND d.status = 'posted' JOIN supplier s ON s.id = p.supplier_id WHERE p.state IN ('approved', 'sent', 'part_received')"
-                . ($supplierId === null ? '' : ' AND p.supplier_id = ?') . ' ORDER BY d.id DESC LIMIT ' . SupplierInvoices::LIST_LIMIT, $supplierId === null ? [] : [$supplierId]));
+                . "AND d.status = 'posted' JOIN supplier s ON s.id = p.supplier_id WHERE p.state IN ('approved', 'sent', 'part_received') "
+                . "AND EXISTS (SELECT 1 FROM po_line pl JOIN document_line pdl ON pdl.document_id = pl.document_id AND pdl.line_no = pl.line_no WHERE pl.document_id = d.id "
+                . "AND pl.kind = 'item' AND pdl.sku_id IS NOT NULL AND pl.packs * pl.units_per_pack - {$billed} - {$mine} > 0)"
+                . ($supplierId === null ? '' : ' AND p.supplier_id = ?') . ' ORDER BY d.id DESC LIMIT ' . SupplierInvoices::LIST_LIMIT, $params));
         return ['deliveries' => $deliveries, 'orders' => $orders];
     }
 

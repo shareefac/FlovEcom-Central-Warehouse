@@ -12514,3 +12514,48 @@ the node harness (words with Enter not chosen; a scan chosen).
 **LQ10. Every row says its store (finding 6).** The rows had lost "From <store>" (only the group's heading listed the stores), though Place
 books into the row's store's warehouse. Each row's first cell says it again, escaped. `testEveryRowSaysWhichStoreItCameFrom` (two stores,
 one named with markup).
+
+## The supplier invoice and the orders: the Chrome check of 8f6fbb7 on staging and its Codex review (branch `pi-one-page`, fourth commit, 29 Oct 2026; PV27-PV32)
+
+The coordinator's Chrome check of 8f6fbb7 on staging (29 Oct 2026, nine items) and the Codex review of 8f6fbb7 (`runs/pione_codex_review4.txt`).
+
+Red first: `runs/pione_chrome_red.log` (seven tests on 8f6fbb7), `runs/pione_c4_red.log` and `runs/pione_js_c4_red.log` (the review's three).
+
+**PV27. A saved document's action bar is in its head (item 1), and the new page has no "+ New" of its own (item 8).** `$head` takes
+`side`: what the head's right holds instead of the section's create button (null: the button, as before; '' : nothing). A saved order
+(`po_bar`) and a saved invoice or credit note (`si_bar`) put their bar there, beside the title, before the warnings, the reviewer's card and
+the section's pills; the "+ New ..." button gives it that place (the design's head has none). On a phone the bar sits under the title,
+from the left. The new invoice page passes '' (the list keeps its button). A credit note's draft (its forms on the page) keeps the button.
+
+**PV28. The order's strip never says "X of Y" with X over Y (item 2).** More received than ordered says "11 (1 more than ordered)", more
+invoiced than received "30 (2 more than received)"; the bars stay full.
+
+**PV29. Room and the design's grid (items 3, 4, 5).** The totals box is up to 28 rem with its words' column at least 12 rem (the document's
+foot gives it 20-28 rem), so "Total before VAT" and "VAT S (Standard rate 20%)" stay on one line. The new invoice's head is Supplier |
+Supplier's invoice number, "From" its own row, Invoice date | Due date (a draft's fixed supplier the same; one column on a phone). The
+"+ Add line" row has the item box in the Item column, Qty and Price in theirs and Add at its end; on a phone its cells are one under another.
+UiUnitTest pins the phone rules (the head's bar, the grid, the add row).
+
+**PV30. "From" offers only what "Fill the lines" takes (item 6).** An order is offered while one of its item lines has units left: ordered,
+less the final invoices' units on it (net of their credit notes), less this draft's (`SupplierInvoices::addOrder`'s rule, in one statement);
+a delivery while its units left (`grn_invoice_left`) exceed this draft's lines on it (`addReceipt`'s rule).
+
+**PV31. One wording for "needs a look", and the item box's order (items 7, 9).** A final invoice whose match needs review shows "Needs a
+look" (amber) as its status block, as the list does, with "Final" a quiet line beside it and no second tag; other invoices keep their status
+and the match as a soft tag. The item box (`PurchaseOrders::resolve`, the order's and the invoice's one engine): the name the words are,
+then names that begin with them, then the rest; in each, this supplier's items before those not set up with it yet; then by name.
+`Queries::searchSkus(..., beginsFirst: true)` reads the names that begin with the words first, so 20 other matches never push them out.
+
+**PV32. The Codex review of 8f6fbb7: three incomplete fixes, finished.**
+- M1: a form FormOnce remembered before PV21 (no saved version in its result), sent again on a draft, is not made final: the draft may
+  have changed since; its page says so (`PI_ONE form_again`, 409). `testAFormRememberedWithoutItsSavedVersionIsNeverMadeFinal` (the stored
+  result's version taken out, as before PV21).
+- M2: app.js starts the due date as the person's (`typed`) when the page comes back with the cleared marker (`due_shown` set, the box
+  empty), so changing the invoice date does not fill it again. The node harness's check, and a UiUnitTest pin.
+- L3: a cancel or correct refused for a reason that needs a note (`note_required`) opens More and its fold, as a missing reason does; the
+  fold is the action that was sent (its path). `testARefusedActionUnderMoreOpensMore`.
+
+Tests: `InvoiceOnePageScreensTest` (`testTheActionBarIsInTheHeaderAndTheNewPageHasNoNewButton`, `testTheStripNeverSaysMoreOfLess`,
+`testTheNewPageHeadAndItsAddRowFollowTheDesign`, `testFromLeavesOutWhatHasNothingLeftToInvoice`, `testANeedsALookInvoiceSaysSoAsTheListDoes`,
+`testTheItemBoxPutsTheNameTheWordsBeginFirst` through both routes, the two above), `UiUnitTest` (the pins), `InvoiceScreensTest` reads
+"Needs a look".
