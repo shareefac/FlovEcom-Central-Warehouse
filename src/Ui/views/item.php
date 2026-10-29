@@ -3,7 +3,10 @@
 // status block, its code and short identity line, the actions this person may use: item_bar), the stock strip, the recent movements, where it
 // sells; then the tabs that hold the parts and forms of before (Details, Barcodes, Suppliers and packs, Store matching, History). The tabs are
 // plain links (?tab=): the page draws every part and opens one, so it works without the script; a #fragment inside a closed part opens it
-// too (CSS :target). The open tab has no link (CV13: a click never reloads the page). Every form, rule and permission is as before.
+// too (CSS :target), and then the tabs say so: that part's tab looks open and the open one gives way to its twin, a link (IV16). The open tab
+// has no link (CV13: a click never reloads the page). Every form that keeps typed values carries main's guard (data-unsaved, CV14: a tab
+// link asks first), every form that leaves asks first when another holds typed values (data-leaves; IV13). Every rule and permission is as
+// before.
 ?>
 <p class="crumbs"><a href="/ui/items/cards"><?= $word('MENU', 'cards') ?></a></p>
 <?php $bar = $partial('item_bar', ['actions' => $actions, 'skuId' => $sku['id']]); ?>
@@ -155,7 +158,10 @@
 <section class="item-parts" id="it-tabs" aria-label="<?= $word('ITEM', 'tabs') ?>">
   <nav class="tabs item-tabs" aria-label="<?= $word('ITEM', 'tabs') ?>">
 <?php foreach (\CW\Ui\Controller\ItemController::TABS as $t): ?>
-    <a class="tab"<?php if ($tab === $t): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/items/' . $sku['id'], ['tab' => $t]) ?>#it-tabs"<?php endif; ?>><span><?= $word('ITEM', 'tab_' . $t) ?></span><?php if (($tabCounts[$t] ?? 0) > 0): ?><span class="count"><?= $n($tabCounts[$t]) ?></span><?php endif; ?></a>
+    <a class="tab" data-tab="<?= $e($t) ?>"<?php if ($tab === $t): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/items/' . $sku['id'], ['tab' => $t]) ?>#it-tabs"<?php endif; ?>><span><?= $word('ITEM', 'tab_' . $t) ?></span><?php if (($tabCounts[$t] ?? 0) > 0): ?><span class="count"><?= $n($tabCounts[$t]) ?></span><?php endif; ?></a>
+<?php if ($tab === $t): ?>
+    <a class="tab tab-back" data-tab="<?= $e($t) ?>" href="<?= $u('/ui/items/' . $sku['id'], ['tab' => $t]) ?>#it-tabs"><span><?= $word('ITEM', 'tab_' . $t) ?></span><?php if (($tabCounts[$t] ?? 0) > 0): ?><span class="count"><?= $n($tabCounts[$t]) ?></span><?php endif; ?></a>
+<?php endif; ?>
 <?php endforeach; ?>
   </nav>
   <div class="it-panels">
@@ -205,18 +211,19 @@
 <?php if ($rules['missing'] !== [] && $card['state'] !== 'confirmed'): ?>
   <p class="hint"><?= $say('CARD', 'missing', implode(', ', $rules['missing'])) ?></p>
 <?php elseif ($confirmKey !== null): ?>
-  <form class="confirm-card" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/card/confirm') ?>">
+<?php $ack = $rules['warnings'] !== [] || array_filter($rules['blocked'], static fn (array $b): bool => $b['still']) !== []; ?>
+  <form class="confirm-card" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/card/confirm') ?>"<?php if ($ack): ?> data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1"<?php else: ?> data-leaves="1"<?php endif; ?>>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($confirmKey) ?>">
     <input type="hidden" name="version" value="<?= $e($card['version']) ?>">
-<?php if ($rules['warnings'] !== [] || array_filter($rules['blocked'], static fn (array $b): bool => $b['still']) !== []): ?>
+<?php if ($ack): ?>
     <label class="choice dup-confirm"><input type="checkbox" name="acknowledge_block" value="1"> <?= $word('CARD', 'acknowledge') ?></label>
 <?php endif; ?>
     <button type="submit" class="btn primary"><?= $word('CARD', 'confirm') ?></button>
   </form>
 <?php endif; ?>
 <?php if ($fileFlavour !== null): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/card/accept') ?>">
+  <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/card/accept') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($fileFlavour['formKey']) ?>">
     <input type="hidden" name="version" value="<?= $e($card['version']) ?>">
@@ -241,7 +248,7 @@
         <td data-label="<?= $word('CARD', 'suggestion') ?>"><strong><?= $e($p['shown']) ?></strong></td>
         <td data-label="<?= $word('CARD', 'says_so') ?>"><ul class="plain"><?php foreach ($p['sources'] as $src): ?><li><?= $e($src) ?></li><?php endforeach; ?></ul></td>
         <td class="c-next">
-          <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/card/accept') ?>">
+          <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/card/accept') ?>" data-leaves="1">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <input type="hidden" name="form_key" value="<?= $e($p['formKey']) ?>">
             <input type="hidden" name="version" value="<?= $e($card['version']) ?>">
@@ -294,7 +301,7 @@
         <td data-label="<?= $word('BARCODE', 'barcode') ?>"><?= $e($b['barcode']) ?></td>
         <td data-label="<?= $word('BARCODE', 'units') ?>" class="num">
 <?php if ($canEditBarcodes && $b['stored']): ?>
-          <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/units') ?>">
+          <form class="inline" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/units') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <input type="hidden" name="form_key" value="<?= $e($b['unitsKey']) ?>">
             <input type="hidden" name="barcode" value="<?= $e($b['barcode']) ?>">
@@ -314,7 +321,7 @@
 <?php if ($b['stored']): ?>
           <details class="remove-barcode">
             <summary><?= $word('BARCODE', 'remove') ?></summary>
-            <form method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/remove') ?>">
+            <form method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes/remove') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
               <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
               <input type="hidden" name="form_key" value="<?= $e($b['removeKey']) ?>">
               <input type="hidden" name="barcode" value="<?= $e($b['barcode']) ?>">
@@ -341,7 +348,7 @@
   </p>
 <?php endif; ?>
 <?php if ($canEditBarcodes): ?>
-  <form class="add-barcode" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes') ?>">
+  <form class="add-barcode" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/barcodes') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($barcodeAddKey) ?>">
     <label for="new-barcode"><?= $word('BARCODE', 'add') ?></label>
@@ -488,7 +495,7 @@
   </table>
   </div>
 <?php if ($sm['canSet']): ?>
-  <form class="record selling-mode-form" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/selling-mode') ?>">
+  <form class="record selling-mode-form" method="post" action="<?= $u('/ui/items/' . $sku['id'] . '/selling-mode') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($sm['formKey']) ?>">
     <input type="hidden" name="stamp" value="<?= $e($sm['stamp']) ?>">

@@ -862,7 +862,10 @@ strip is `.doc-progress`, the movements a board with `td.doc-st`, the parts unde
 - Classes: `.item-head` (`.item-id`), `.item-bar` (a fixed bar at the bottom of a phone in the tab bar's place), `.item-strip` (`.step-sub`,
   `.doc-step-big.free`), `.item-wh` (the per-warehouse fold), `.item-moves`, `.item-sells` (`.item-chips`), `.item-parts` > `nav.tabs.item-tabs`
   + `.it-panels` > `.it-panel` (`.open`; `:target` / `:has(:target)` open a part a #fragment points into).
-- The open tab has no href (CV13, `tests/Support/CurrentTabs`); the others link `?tab=<key>#it-tabs`.
+- The open tab has no href (CV13, `tests/Support/CurrentTabs`); the others link `?tab=<key>#it-tabs`; each tab has `data-tab`; the open
+  one has a hidden twin `a.tab.tab-back` (a link back to it, shown when a #fragment shows another part: IV16).
+- Every form of the page that keeps typed values carries `data-unsaved="1"` (+ `data-unsaved-text`), every form that leaves it
+  `data-leaves="1"` (IV13): a new form on the item page does the same.
 - A tab opens from `?tab=`, else from the redirect's notice (`NOTICE_TABS`), else (a refused POST) from the form's address; a new notice of
   the page that belongs to another tab goes in `NOTICE_TABS`.
 - Tests: `tests/Integration/UiKernel/ItemPageScreensTest.php`, `tests/Unit/ItemPageUnitTest.php`. In a kernel test the actions are

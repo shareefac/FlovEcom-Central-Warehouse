@@ -82,12 +82,22 @@ final class ItemPageUnitTest extends TestCase
             '/@media \(min-width: 640px\) \{ \.item-strip \{ grid-template-columns: none; grid-auto-flow: column;/' => 'the strip in one row',
             '/\.item-head \.ph-actions > \.item-bar \{\s*position: fixed;[^}]*bottom: 0;/' => 'phone: the actions at the bottom of the screen',
             '/body:has\(\.item-bar\) \.tabbar \{ display: none; \}/' => 'phone: in the tab bar\'s place',
+            // IV16: a #fragment that shows another part makes the tabs say so, and the open tab a link again (its twin).
+            '/^\.item-tabs > \.tab-back \{ display: none; \}/m' => 'the twin is hidden until a #fragment shows another part',
+            '/\.item-parts:has\(\.it-panel:not\(\.open\):target, \.it-panel:not\(\.open\) :target\) \.item-tabs > \.tab\[aria-current\] \{ display: none; \}/'
+                => 'then the open tab gives way',
+            '/\.item-parts:has\(\.it-panel:not\(\.open\):target, \.it-panel:not\(\.open\) :target\) \.item-tabs > \.tab-back \{ display: inline-flex; \}/'
+                => 'to its twin, a link',
+            '/\.item-parts:has\(#t-barcodes:target, #t-barcodes :target\) \.item-tabs > \.tab\[data-tab="barcodes"\]:not\(\.tab-back\)/' => 'the shown part\'s tab looks open',
             '/\.item-bar > details\.more > \.more-menu \{\s*position: absolute; top: auto; bottom: calc\(100% \+ 6px\);/' => 'phone: More opens upwards'] as $rule => $why) {
             self::assertSame(1, preg_match($rule, $css), $why);
         }
         $src = (string) file_get_contents(View::defaultDir() . '/item.php');
         self::assertStringContainsString('<nav class="tabs item-tabs"', $src, 'the ONE tabs component (DS2)');
-        self::assertStringContainsString('<a class="tab"<?php if ($tab === $t): ?> aria-current="page"<?php else: ?> href="', $src, 'the open tab has no link (CV13)');
+        self::assertStringContainsString('<a class="tab" data-tab="<?= $e($t) ?>"<?php if ($tab === $t): ?> aria-current="page"<?php else: ?> href="', $src, 'the open tab has no link (CV13)');
+        foreach (\CW\Ui\Controller\ItemController::TABS as $k) {
+            self::assertSame(1, preg_match('/\.item-parts:has\(#t-' . $k . ':target, #t-' . $k . ' :target\) \.item-tabs > \.tab\[data-tab="' . $k . '"\]:not\(\.tab-back\)/', $css), "{$k}: its tab looks open when a #fragment shows its part");
+        }
         self::assertStringContainsString('class="c-status doc-st <?= $e($r[\'tone\']) ?>"', $src, 'the movements\' solid cells');
         foreach (['div', 'details', 'form', 'section', 'table', 'tr', 'p', 'nav'] as $tag) {
             self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "item: every <{$tag}> closed");

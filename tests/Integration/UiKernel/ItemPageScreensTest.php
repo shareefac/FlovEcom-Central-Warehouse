@@ -158,7 +158,7 @@ final class ItemPageScreensTest extends KernelUiTestCase
     {
         $xp = self::xp($r);
         $out = [];
-        foreach ($xp->query('//nav[contains(concat(" ", @class, " "), " item-tabs ")]/a') ?: [] as $i => $a) {
+        foreach ($xp->query('//nav[contains(concat(" ", @class, " "), " item-tabs ")]/a[not(contains(@class, "tab-back"))]') ?: [] as $i => $a) {
             /** @var \DOMElement $a */
             self::assertSame('tab', $a->getAttribute('class'), 'the one tabs component (DS2)');
             $key = ItemController::TABS[$i];
@@ -215,11 +215,12 @@ final class ItemPageScreensTest extends KernelUiTestCase
         $order = (string) self::xp($page)->evaluate('string(//div[contains(@class, "item-bar")]/a[contains(@class, "primary")]/@href)');
         parse_str((string) parse_url($order, PHP_URL_QUERY), $q);
         self::assertSame('/ui/purchasing/orders/new', parse_url($order, PHP_URL_PATH));
-        self::assertSame([(string) $s['id'], (string) $si['id']], [$q['supplier'] ?? null, $q['pick_si'] ?? null], 'the main supplier and its box');
+        self::assertSame(['supplier' => (string) $s['id'], 'pick_si' => (string) $si['id']], $q, 'the main supplier and its box, and nothing else (IV14)');
         $new = self::open($buyer, $order);
         self::assertSame(200, $new->status, $new->describe());
         $f = $new->form('/ui/purchasing/orders');
-        self::assertSame([(string) $s['id'], (string) $si['id'], $q['q']], [$f['supplier_id'] ?? null, $f['pick_si'] ?? null, $f['q'] ?? null],
+        self::assertSame([(string) $s['id'], (string) $si['id'], 'Pod Salt Bar X 10ml Lemon Lime 10mg · ' . $code . ' · box of 10'],
+            [$f['supplier_id'] ?? null, $f['pick_si'] ?? null, $f['q'] ?? null],
             'the new order\'s page has the supplier and the box chosen: nothing is written until Add');
         self::assertSame(0, (int) self::$db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'PO'"));
         $r = $buyer->post('/ui/purchasing/orders', $f + ['action' => 'add']);
@@ -443,7 +444,7 @@ final class ItemPageScreensTest extends KernelUiTestCase
             'history' => [Words::ITEM['tab_history'], $href('history'), false, false],
         ], $tabs, 'Details first and open, and no link: a click never reloads the page (CV13)');
         self::assertSame($href('details'), self::itemTabs($lead->get("/ui/items/{$sku}", ['tab' => 'barcodes']))['details'][1], 'a closed tab is a link');
-        $count = static fn (UiResponse $r, string $k): string => self::squash((string) self::xp($r)->evaluate('string(//nav[contains(@class, "item-tabs")]/a[contains(@href, "tab=' . $k . '")]/span[contains(@class, "count")])'));
+        $count = static fn (UiResponse $r, string $k): string => self::squash((string) self::xp($r)->evaluate('string(//nav[contains(@class, "item-tabs")]/a[@data-tab="' . $k . '"][1]/span[contains(@class, "count")])'));
         self::assertSame(['2', '1', '1'], [$count($page, 'barcodes'), $count($page, 'packs'), $count($page, 'stores')], 'how many barcodes, supplies and matched products');
         // Each part in its tab, with its forms as before.
         $in = static fn (UiResponse $r, string $panel, string $xpath): int => self::xp($r)->query('//div[@id="t-' . $panel . '"]' . $xpath)->length;
@@ -494,5 +495,136 @@ final class ItemPageScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::ITEM['history_none'], self::squash((string) self::xp($page)->evaluate('string(//div[@id="t-history"])')));
         self::assertSame([], self::sells($page), 'no store yet: no chip');
         self::assertStringContainsString(Words::ITEM['sells_none'], $page->text());
+    }
+    // ------------------------------------------------------------------------------------------
+    // The Codex review of e15fe51 (docs/decisions.md IV13-IV16)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * IV13: a value typed in a tab's form (a barcode, items per scan, a reason, the selling mode) is not lost by a click on another tab: every
+     * form that keeps typed values carries main's guard (data-unsaved, CV14: a link that leaves asks first), and every form of the page that
+     * leaves it asks first when another one holds typed values (data-leaves).
+     */
+    public function testATabLinkAsksFirstWhenAFormHoldsTypedValues(): void
+    {
+        $vpg = $this->site('vapeandgo');
+        $sku = $this->item('legacy', 4, 'Guarded liquid');
+        $this->listing($vpg, 'V1', $sku);
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id) VALUES ('4006381333931', ?)", [$sku]);
+        $page = $this->signIn($this->uiUser(['mapping_lead', 'stock_controller']))->get("/ui/items/{$sku}");
+        $xp = self::xp($page);
+        $editable = [];
+        foreach ($xp->query('//main//form[@method="post"]') ?: [] as $form) {
+            /** @var \DOMElement $form */
+            $action = (string) parse_url($form->getAttribute('action'), PHP_URL_PATH);
+            self::assertSame('1', $form->getAttribute('data-leaves'), "{$action}: leaving with typed values elsewhere asks first");
+            $typed = $xp->query('.//input[not(@type="hidden")] | .//select | .//textarea', $form)->length > 0;
+            if ($typed) {
+                $editable[] = (string) preg_replace('#^/ui/items/[0-9]+#', '', $action);
+                self::assertSame('1', $form->getAttribute('data-unsaved'), "{$action}: what is typed here is guarded");
+                self::assertSame(Words::OP_FINAL['unsaved'], $form->getAttribute('data-unsaved-text'), "{$action}: in the page's words");
+            } else {
+                self::assertFalse($form->hasAttribute('data-unsaved'), "{$action}: nothing to type");
+            }
+        }
+        sort($editable);
+        self::assertSame(['/barcodes', '/barcodes/remove', '/barcodes/units', '/family', '/selling-mode'], $editable);
+        foreach (self::itemTabs($page) as $key => $t) {
+            if ($t[1] !== '') {
+                self::assertStringStartsWith("/ui/items/{$sku}?tab={$key}", $t[1], 'a tab is a link that leaves (the guard asks), never a #fragment (it would not ask)');
+            }
+        }
+    }
+
+    /**
+     * IV14 (the Codex review, MEDIUM 2): "Order more" keeps its box for an item whose name is as long as a name may be: the new order's page
+     * names the box from the box itself, so the address's words (cut at 255 characters) no longer decide.
+     */
+    public function testOrderMoreKeepsTheBoxOfAnItemWithALongName(): void
+    {
+        $name = 'Long ' . str_repeat('flavour ', 30);
+        $name = mb_substr($name . str_repeat('x', 255), 0, 255);
+        $sku = $this->item('strict', 0, $name);
+        $s = $this->supplier('Long Supplies');
+        $si = $this->supply((int) $s['id'], $sku, 12, 'LS-12');
+        $buyer = $this->signIn($this->uiUser('buyer'));
+        $order = (string) self::xp($buyer->get("/ui/items/{$sku}"))->evaluate('string(//div[contains(@class, "item-bar")]/a[contains(@class, "primary")]/@href)');
+        self::assertGreaterThan(255, mb_strlen(\CW\Ui\Controller\PurchaseOrdersController::productChoice(['sku_id' => $sku, 'sku_code' => sprintf('CW-%06d', $sku),
+            'name' => $name, 'brand' => null, 'supplier_item_id' => (int) $si['id'], 'units_per_pack' => 12, 'supplier_code' => 'LS-12', 'purchase_unit' => 'box'])['label']),
+            'the box\'s words are longer than the address keeps');
+        $new = self::open($buyer, $order);
+        $f = $new->form('/ui/purchasing/orders');
+        self::assertSame([(string) $s['id'], (string) $si['id']], [$f['supplier_id'] ?? null, $f['pick_si'] ?? null], 'the box is chosen');
+        $r = $buyer->post('/ui/purchasing/orders', $f + ['action' => 'add']);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame([(int) $si['id'], 12], array_map('intval', array_values((array) self::$db->one('SELECT supplier_item_id, units_per_pack FROM po_line'))));
+        // Another supplier's box in the address is not chosen, whatever the words say.
+        $other = $this->supplier('Other Supplies');
+        $theirs = $this->supply((int) $other['id'], $sku, 6, 'OT-6', false);
+        $f = $buyer->get('/ui/purchasing/orders/new', ['supplier' => (string) $s['id'], 'pick_si' => (string) $theirs['id']])->form('/ui/purchasing/orders');
+        self::assertSame(['', ''], [$f['pick_si'] ?? null, $f['q'] ?? null]);
+    }
+
+    /**
+     * IV15 (the Codex review, MEDIUM 3): the same "Start" form sent again (a retry, the same key) does what it did the first time, even when
+     * the item was joined into another one in between: the request is the item as sent; whether it is carried is decided once, inside.
+     */
+    public function testARetriedNewRecordReplaysAfterItsItemIsJoined(): void
+    {
+        $a = $this->item('strict', 3, 'Retried coil');
+        $b = $this->item('strict', 0, 'Survivor coil');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $f = $web->get('/ui/stock/transfers', ['item' => (string) $a])->form('/ui/stock/transfers', true);
+        $send = ['to_warehouse' => (string) self::warehouseId('VERIFY')] + $f;
+        $first = $web->post('/ui/stock/transfers', $send);
+        self::assertSame(303, $first->status, $first->describe());
+        self::assertStringContainsString('add=' . sprintf('CW-%06d', $a), (string) $first->location());
+        self::$db->exec('UPDATE sku SET merged_into_sku_id = ? WHERE id = ?', [$b, $a]);
+        $again = $web->post('/ui/stock/transfers', $send);
+        self::assertSame([303, $first->location()], [$again->status, $again->location()], 'the retry replays: ' . $again->describe());
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM document WHERE doc_type = 'TRF'"));
+        // A new form for the joined item: a new record, nothing carried.
+        $f = $web->get('/ui/stock/transfers', ['item' => (string) $a])->form('/ui/stock/transfers', true);
+        self::assertArrayNotHasKey('item', $f);
+        $r = $web->post('/ui/stock/transfers', ['to_warehouse' => (string) self::warehouseId('VERIFY'), 'item' => (string) $a] + $f);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertStringNotContainsString('add=', (string) $r->location(), 'a joined item is not put in the box');
+        // The same key with another item is another request: refused.
+        $other = $web->post('/ui/stock/transfers', ['item' => (string) $b] + $send);
+        self::assertSame(422, $other->status, $other->describe());
+    }
+
+    /**
+     * IV16 (the Codex review, LOW): an old link into a part (#barcodes) shows that part without the script; the tabs then say so and the open
+     * tab is a link again (its hidden twin, shown only then), so there is always a way back to it.
+     */
+    public function testTheOpenTabHasAWayBackWhenAFragmentShowsAnotherPart(): void
+    {
+        $sku = $this->item('strict', 0, 'Fragment item');
+        $web = $this->signIn($this->uiUser('viewer'));
+        foreach (['details', 'barcodes'] as $open) {
+            $page = $web->get("/ui/items/{$sku}", ['tab' => $open]);
+            $xp = self::xp($page);
+            $tabs = $xp->query('//nav[contains(@class, "item-tabs")]/a');
+            $keys = [];
+            foreach ($tabs ?: [] as $a) {
+                /** @var \DOMElement $a */
+                $keys[] = $a->getAttribute('data-tab') . ($a->getAttribute('aria-current') === 'page' ? '*' : '') . (str_contains($a->getAttribute('class'), 'tab-back') ? '<' : '');
+            }
+            $want = [];
+            foreach (ItemController::TABS as $k) {
+                $want[] = $k === $open ? $k . '*' : $k;
+                if ($k === $open) {
+                    $want[] = $k . '<';
+                }
+            }
+            self::assertSame($want, $keys, 'each tab names its part; the open one has its twin right after it');
+            $back = $xp->query('//nav[contains(@class, "item-tabs")]/a[contains(@class, "tab-back")]')->item(0);
+            self::assertInstanceOf(\DOMElement::class, $back);
+            self::assertSame("/ui/items/{$sku}?tab={$open}#it-tabs", $back->getAttribute('href'));
+            self::assertSame('tab tab-back', $back->getAttribute('class'));
+            self::assertFalse($back->hasAttribute('aria-current'));
+            self::assertSame(1, $xp->query('//div[@id="t-' . $open . '" and contains(@class, "open")]')->length);
+        }
     }
 }

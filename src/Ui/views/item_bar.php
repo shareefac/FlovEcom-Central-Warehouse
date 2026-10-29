@@ -7,7 +7,7 @@
 <?php if ($actions['count'] !== null || $actions['move'] !== null || $actions['order'] !== null || $actions['more'] !== []): ?>
 <div class="doc-actions item-bar" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
 <?php if ($actions['count'] !== null): ?>
-  <form class="inline" method="post" action="/ui/stock/counts">
+  <form class="inline" method="post" action="/ui/stock/counts" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($actions['count']['key']) ?>">
     <input type="hidden" name="warehouse" value="<?= $e($actions['count']['warehouse']) ?>">

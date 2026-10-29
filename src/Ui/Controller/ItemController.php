@@ -429,11 +429,10 @@ final class ItemController
                 $actions['move'] = Html::url(StockOps::PATHS['transfer'], ['item' => $id]) . '#new';
             }
             if (Documents::mayPost($roles, 'PO')) {
+                // The pick alone (IV14): the new order's page names the box by its own words (a long name's words were cut in the address).
                 $actions['order'] = $supply !== null
-                    ? Html::url('/ui/purchasing/orders/new', ['supplier' => $supply['supplier_id'], 'pick_si' => $supply['id'], 'q' => PurchaseOrdersController::productChoice([
-                        'sku_id' => $id, 'sku_code' => (string) $sku['code'], 'name' => (string) $sku['name'], 'brand' => $sku['brand'], 'supplier_item_id' => $supply['id'],
-                        'units_per_pack' => $supply['units_per_pack'], 'supplier_code' => $supply['supplier_code'], 'purchase_unit' => $supply['purchase_unit']])['label']])
-                    : Html::url('/ui/purchasing/orders/new', ['pick_sku' => $id, 'q' => PurchaseOrdersController::productChoice(PurchaseOrdersController::itemChoiceRow($ctx, $id))['label']]);
+                    ? Html::url('/ui/purchasing/orders/new', ['supplier' => $supply['supplier_id'], 'pick_si' => $supply['id']])
+                    : Html::url('/ui/purchasing/orders/new', ['pick_sku' => $id]);
             }
             foreach (['in' => 'more_in', 'out' => 'more_out', 'adjust' => 'more_adjust'] as $kind => $word) {
                 if (Documents::mayPost($roles, StockOps::KINDS[$kind])) {

@@ -10,7 +10,7 @@
     <span class="o-sub"><a href="<?= $u('/ui/items/families/' . $family['id']) ?>"><?= $word('FAMILY', 'open') ?></a></span></p>
 <?php endif; ?>
 <?php if ($canFamily): ?>
-  <form class="inline item-family" method="post" action="<?= $u('/ui/items/' . $skuId . '/family') ?>">
+  <form class="inline item-family" method="post" action="<?= $u('/ui/items/' . $skuId . '/family') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="seen" value="<?php if ($family !== null): ?><?= $e($family['id']) ?><?php endif; ?>">
     <label for="if-name"><?= $word('FAMILY', 'put_label') ?> <span class="hint"><?= $word('FAMILY', 'put_hint') ?></span></label>

@@ -250,6 +250,12 @@ final class PurchaseOrdersController
         // The item page's "Order more" (docs/decisions.md IV2): the main supplier's box of the item, chosen in the product box (checked by
         // picked(): this supplier's, in use, its item not joined into another; else the box keeps the words alone).
         $typed['pick_si'] = (string) (UiRequest::id($ctx->req->param('pick_si')) ?? '');
+        // A product chosen in the address is named by its own words (IV14), never by the address's `q`, which is cut at 255 characters: a
+        // long name's words (name, CW number, pack) were cut, so picked() no longer knew the choice and the box lost it.
+        $own = $this->pickChoice($ctx, UiRequest::id($typed['supplier_id']), $typed);
+        if ($own !== null) {
+            $typed['q'] = $own['label'];
+        }
         $notice = self::noticeKey($ctx);
         return $this->newOrderPage($ctx, 200, null, $notice === null ? null : Words::PO_NOTICE[$notice], ['typed' => $typed, 'q' => $typed['q'] ?? '',
             'packs' => $typed['packs'] ?? '1']);
@@ -679,10 +685,23 @@ final class PurchaseOrdersController
     private function picked(Context $ctx, ?int $supplierId, array $typed, string $q): array
     {
         $none = ['si' => '', 'sku' => '', 'choice' => null];
+        $choice = $q === '' ? null : $this->pickChoice($ctx, $supplierId, $typed);
+        return $choice !== null && $choice['label'] === $q ? ['si' => $choice['si'], 'sku' => $choice['sku'], 'choice' => $choice] : $none;
+    }
+
+    /**
+     * The product a form or an address names in `pick_si` (this supplier's, in use, its item not joined into another) or `pick_sku` (an item
+     * not joined into another), as the product box's choice (productChoice()); null when it names none of those (IV14: picked() and newPage).
+     *
+     * @param array<string, mixed> $typed
+     * @return array{label: string, name: string, meta: string, si: string, sku: string}|null
+     */
+    private function pickChoice(Context $ctx, ?int $supplierId, array $typed): ?array
+    {
         $si = UiRequest::id(is_string($typed['pick_si'] ?? null) ? $typed['pick_si'] : null);
         $sku = $si === null ? UiRequest::id(is_string($typed['pick_sku'] ?? null) ? $typed['pick_sku'] : null) : null;
-        if ($q === '' || ($si === null && $sku === null)) {
-            return $none;
+        if ($si === null && $sku === null) {
+            return null;
         }
         $row = $si !== null
             ? $ctx->db->one('SELECT s.id AS sku_id, s.code, s.name, s.brand, si.id AS si_id, si.units_per_pack, si.supplier_code, si.purchase_unit FROM supplier_item si '
@@ -690,12 +709,11 @@ final class PurchaseOrdersController
             : $ctx->db->one('SELECT id AS sku_id, code, name, brand, NULL AS si_id, NULL AS units_per_pack, NULL AS supplier_code, NULL AS purchase_unit FROM sku '
                 . 'WHERE id = ? AND merged_into_sku_id IS NULL', [$sku]);
         if ($row === null) {
-            return $none;
+            return null;
         }
-        $choice = self::productChoice(['sku_id' => (int) $row['sku_id'], 'sku_code' => (string) $row['code'], 'name' => (string) $row['name'], 'brand' => $row['brand'],
+        return self::productChoice(['sku_id' => (int) $row['sku_id'], 'sku_code' => (string) $row['code'], 'name' => (string) $row['name'], 'brand' => $row['brand'],
             'supplier_item_id' => $row['si_id'] === null ? null : (int) $row['si_id'], 'units_per_pack' => (int) ($row['units_per_pack'] ?? 1),
             'supplier_code' => $row['supplier_code'], 'purchase_unit' => (string) ($row['purchase_unit'] ?? 'each')]);
-        return $choice['label'] === $q ? ['si' => $choice['si'], 'sku' => $choice['sku'], 'choice' => $choice] : $none;
     }
 
     /**

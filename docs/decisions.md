@@ -13286,3 +13286,34 @@ the other counter's page of 50 with "The first 50 are shown" and the count of 51
 check (goods in: 403 from the inbox, no tab; a stock controller: not listed, not counted; a reviewer: listed and counted); a purchase
 order's check answered in the inbox shows the order page's notice; a flag about a count's time has no "Counted"; the open row has no link
 and the forms carry `data-unsaved`. Not seen in a real browser.
+
+## The item page: the Codex review of e15fe51 (`runs/itone_codex_review.txt`), three MEDIUM and one LOW, each shown failing first (branch `item-fixes`, 29 Oct 2026; IV13-IV16)
+
+The coordinator checked e15fe51 on staging in Chrome (desktop): it matches the design. Fixed from main `e15fe51` in `/root/cw-itone` (rebased
+onto `5b8420a`, AV15-AV19); red first:
+`runs/itone_fix_red.log`.
+
+**IV13. A tab link no longer throws typed values away (MEDIUM 1).** A barcode typed in Barcodes, items per scan, a removal's reason, the
+selling mode's reason and threshold, a family's name were lost by a click on another tab (a plain link: the page reloads). Every form of the
+page that keeps typed values now carries main's guard (`data-unsaved="1"`, its words `OP_FINAL unsaved`), so main's link guard (CV14) asks
+first, in the page, and the same link pressed again goes on; every form of the page that leaves it (Count it, "Use this", the card's
+confirmation) carries `data-leaves="1"`, so it asks first when another form holds typed values. The card's confirmation is guarded only when
+it draws its tick box. The tabs stay plain links (never a `#fragment`, which the guard lets through). `UiTemplatesTest` lists `item` and
+`item_groups` with the editors.
+
+**IV14. "Order more" keeps its box for a long name (MEDIUM 2).** The link carried the box's words in `q`; `newPage` cuts `q` at 255
+characters, so for a 255-character name (with its CW number and pack after it) `picked()` no longer knew the choice and the box lost it (Add
+then searched the words). The link now carries the pick alone (`supplier`, `pick_si`; `pick_sku` without a main supply), and `newPage` names
+a pick from the address by its own words (`pickChoice()`, split out of `picked()`: this supplier's box, in use, its item not joined away; else
+nothing, and the address's words stay as typed). "+ Add new supplier" coming back works as before (its `q` is the pick's own words too).
+
+**IV15. A retried "Start" replays after its item is joined (MEDIUM 3).** FormOnce compared the request with the item only when the item could
+still be carried (`itemOf()`), so the same form sent again after the item was joined into another was "another request" (422
+`idempotency_key_reused`) instead of the first send's redirect. The request is now the item as sent; whether it is carried (`add=`) is decided
+once, inside the effect. The same key with another item is still refused.
+
+**IV16. A #fragment keeps the tabs in step, without the script (LOW).** An old link into a part (`#barcodes`, `#card`) shows that part
+(CSS `:target`), but the open tab stayed marked and, being the open tab, had no link (CV13): no way back to it without the script. Each tab now
+names its part (`data-tab`); the open tab has a hidden twin right after it (`a.tab.tab-back`, a link to `?tab=<open>`, never current). When a
+fragment shows another part, CSS shows that part's tab as open, hides the open tab and shows its twin in its place. `UiTemplatesTest` lets
+the twin (item page only, never current) hold its link; `CurrentTabs` passes (the twin is not current).

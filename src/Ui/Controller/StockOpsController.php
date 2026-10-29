@@ -129,17 +129,21 @@ final class StockOpsController
     public function create(Context $ctx, string $kind): HtmlResponse
     {
         $typed = self::typedHeader($ctx->req);
-        // The item the item page started it for (IV2): its CW number goes into the draft's add box (`add`); nothing else is added.
-        $item = self::itemOf($ctx, UiRequest::id($ctx->req->field('item')));
+        // The item the item page started it for (IV2): its CW number goes into the draft's add box (`add`); nothing else is added. The request
+        // FormOnce compares is the item AS SENT (IV15): whether it may be carried is decided once, inside, so a retry of the same form replays
+        // what the first send did even when the item was joined into another in between.
+        $sent = $ctx->req->field('item');
+        $sent = $sent === null || $sent === '' ? null : $sent;
         try {
-            $r = FormOnce::run($ctx, 'ui.stockop.create', ['kind' => $kind] + $typed + ($item === null ? [] : ['item' => $item['id']]),
-                function (Db $db) use ($ctx, $kind, $typed, $item): OpResult {
+            $r = FormOnce::run($ctx, 'ui.stockop.create', ['kind' => $kind] + $typed + ($sent === null ? [] : ['item' => $sent]),
+                function (Db $db) use ($ctx, $kind, $typed, $sent): OpResult {
+                    $item = $sent === null ? null : self::itemOf($ctx, UiRequest::id($sent));
                     $d = $ctx->stockOps()->createDraft($ctx->caller(), $kind, $typed);
                     return OpResult::of(303, ['result' => 'created', 'document_id' => $d->id,
                         'redirect' => Html::url(StockOps::PATHS[$kind] . '/' . $d->id, ['notice' => 'created'] + ($item === null ? [] : ['add' => $item['code']]))]);
                 });
         } catch (CwException $e) {
-            return $this->index($ctx, $kind, $e->httpStatus, $e, $typed + ($item === null ? [] : ['item' => (string) $item['id']]));
+            return $this->index($ctx, $kind, $e->httpStatus, $e, $typed + ($sent === null ? [] : ['item' => $sent]));
         }
         return FormOnce::redirect($r);
     }

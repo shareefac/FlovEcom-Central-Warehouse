@@ -2585,6 +2585,18 @@ table.gi-lines .gi-why:empty { display: none; }
 .it-panels:has(:target) > .it-panel.open:not(:target):not(:has(:target)) { display: none; }
 .it-panel > section, .it-panel > .card { margin: 0 0 16px; }
 .it-panel > section.item-card { margin-top: 0; }
+/* A #fragment that shows another part (an old link: #barcodes, #card) keeps the tabs in step without the script (IV16): that part's tab looks
+   open, and the open tab gives way to its twin, a link back to it (the open tab itself is no link, CV13). */
+.item-tabs > .tab-back { display: none; }
+.item-parts:has(.it-panel:not(.open):target, .it-panel:not(.open) :target) .item-tabs > .tab[aria-current] { display: none; }
+.item-parts:has(.it-panel:not(.open):target, .it-panel:not(.open) :target) .item-tabs > .tab-back { display: inline-flex; }
+.item-parts:has(#t-details:target, #t-details :target) .item-tabs > .tab[data-tab="details"]:not(.tab-back),
+.item-parts:has(#t-barcodes:target, #t-barcodes :target) .item-tabs > .tab[data-tab="barcodes"]:not(.tab-back),
+.item-parts:has(#t-packs:target, #t-packs :target) .item-tabs > .tab[data-tab="packs"]:not(.tab-back),
+.item-parts:has(#t-stores:target, #t-stores :target) .item-tabs > .tab[data-tab="stores"]:not(.tab-back),
+.item-parts:has(#t-history:target, #t-history :target) .item-tabs > .tab[data-tab="history"]:not(.tab-back) {
+  color: var(--accent-hover); border-bottom-color: var(--accent);
+}
 /* A phone (IT_Phone): the actions are a bar at the bottom of the screen in the tab bar's place, their buttons side by side; More opens upwards */
 @media (max-width: 699.98px) {
   .item-head .ph-actions > .item-bar {

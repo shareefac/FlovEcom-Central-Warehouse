@@ -1314,13 +1314,20 @@ final class UiTemplatesTest extends TestCase
                 }
                 $tabs++;
                 $where = "{$name} line {$el['line']}";
+                if (in_array('tab-back', $el['classes'], true)) {
+                    // The item page's way back to its open tab (docs/decisions.md IV16): never current, hidden (CSS) unless a #fragment showed
+                    // another part; a link to the open tab is then a link to a part that is not shown.
+                    self::assertSame('item.php', $name, "{$where}: only the item page draws a tab's twin");
+                    self::assertStringNotContainsString('aria-current', $el['attrs'], "{$where}: never the current tab");
+                    continue;
+                }
                 self::assertSame(1, substr_count($el['attrs'], ' href='), "{$where}: one href");
                 self::assertMatchesRegularExpression('/<\?php (?:else|if \(![^?]*\)): \?> href=/', $el['attrs'], "{$where}: the href only when it is not the page shown");
             }
         }
         self::assertGreaterThanOrEqual(20, $tabs, 'every tab row was read');
         $templates = self::templates();
-        foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit', 'approvals_record'] as $name) {
+        foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit', 'approvals_record', 'item', 'item_groups'] as $name) {
             $src = $templates[$name . '.php'];
             self::assertStringContainsString('data-unsaved="1"', $src, "{$name}: its form keeps typed values, so a link asks first");
             preg_match_all('/<a\b(?:<\?(?:php|=).*?\?>|[^>])*>/s', $src, $links);
