@@ -26,106 +26,144 @@ use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
 /**
- * The receiving screens (IM6 Receive (+ invoice), Phase I-3; docs/decisions.md I141): the receipts list with the "new delivery"
- * form, the ONE-FORM receive editor of a draft (header, a scan / supplier-code / search box whose Enter adds a line and saves every
- * edit in the table, the lines with their pack, price, PO line and selling mode, the checklist of what posting would do and what
- * stops it, "Save and post"), "receive all as ordered" from the PO, the supplier-sheet import, the files (the invoice copy, a
- * delivery note, photos, duty evidence), the receipt's read-only page (what was booked where, the incidents, the review and
- * reversal), and the goods-in bench: its list of deliveries to check and the bench check of one (tablet and phone width, a page of
- * lines at a time, a scanner can type the stamp code).
+ * The receiving screens (IM6 Receive (+ invoice), Phase I-3; docs/decisions.md I141; Goods in on ONE page since 29 Oct 2026, GV1-GV10):
+ * the Goods in board (Arriving orders with "Receive", Being checked, Ready to book in, Booked in today; Show; one search) with the "new
+ * delivery" drawer; a delivery not booked in yet on ONE page for everyone who receives goods (onePage(): its details, the scan box, the
+ * lines with their check and duty stamp, the problem panel on the row, the prices fold for the buying desk, photos and papers, "Book in";
+ * one form, lines()); "receive all as ordered" from the PO, the supplier-sheet import, the files; the read-only page of a delivery booked
+ * in (what was booked where, the incidents, the review and reversal) and of a draft for someone who only looks; the bench list.
  *
- * receiving.view looks; doc.GRN.post (goods_in, purchasing_desk, purchasing_manager) acts, checked again by CW\Receiving\GoodsReceipts;
- * a draft's header and lines are its creator's (others see it read-only, with the bench check and "post"); reviewers decide on the
- * receipt's page (the forms post to /ui/documents/reviews/{task}/..., which come back here). The "new delivery" form carries a
- * FormOnce key; every other form the version it was drawn with (409: the page is redrawn with the current data). The editor sends
- * `version`, `line_count` and `lines_editable` FIRST and is offered while its fields stay below max_input_vars (editorFits(): 6 a
- * line); a longer receipt is read-only here and changed with the sheet import.
+ * receiving.view looks; doc.GRN.post (goods_in, purchasing_desk, purchasing_manager) acts, checked again by CW\Receiving\GoodsReceipts:
+ * a draft's header and lines are its creator's (saveDraft); the check is anyone's who receives goods (bench()), so is a draft's supplier
+ * invoice (setInvoice) and booking it in (post()); reviewers decide on the delivery's page (the forms post to /ui/documents/reviews/{task}/...,
+ * which come back here). The "new delivery" form and each Arriving "Receive" carry a FormOnce key; every other form the version it was drawn
+ * with, and the one page the stamps of what it shows (a save drawn before someone else's is saved while what it changes was not changed
+ * meanwhile, else drawn again with what was typed: GV4). The one page sends `version`, `page`, `line_count` and `lines_editable` first and
+ * shows as many lines as max_input_vars carries (pageSize()), a page at a time beyond that (GV7).
  *
- * Plain words (U85-U90): every word of these pages comes from Ui\Words (RECEIVING, RECEIPT, BENCH, RECEIPT_NOTICE, RECEIPT_ERROR,
- * ...); the services' refusals are said again by error code (plain()), and the goods-in plan's problems and warnings by
- * Ui\ReceiptWords. The services' own messages are unchanged.
+ * Plain words (U85-U90): every word of these pages comes from Ui\Words (GI, GI_STATE, GI_CHECK, GI_DUTY, RECEIVING, RECEIPT, BENCH,
+ * RECEIPT_NOTICE, RECEIPT_ERROR, ...); the services' refusals are said again by error code (plain()), and the goods-in plan's problems and
+ * warnings by Ui\ReceiptWords. The services' own messages are unchanged.
  */
 final class ReceivingController
 {
     /** The notices named in a redirect (their words: Words::RECEIPT_NOTICE). */
     public const NOTICES = Words::RECEIPT_NOTICE;
-    /** The list's "Show" filter: a delivery's state, or "checked at the bench, not booked in yet", or "refused at the bench". */
+    /** The old links' state filter (Home's cards): a delivery's state, or "checked at the bench, not booked in yet", or "refused at the bench". */
     public const STATE_FILTERS = ['draft', 'checked', 'refused', 'posted', 'reversed', 'cancelled'];
+    /** The board's Show menu (docs/decisions.md GV1): today and open (''), every delivery, the cancelled ones. */
+    public const SHOWS = ['', 'all', 'cancelled'];
+    /** Where a delivery is on the board (Words::GI_STATE), and the board's groups in their order with their colours. */
+    public const BOARD_STATES = ['todo', 'checking', 'refused', 'ready', 'posted', 'reversed', 'cancelled'];
+    public const BOARD = ['arriving' => 'info', 'checking' => 'review', 'ready' => 'needs', 'today' => 'done', 'booked' => 'done', 'cancelled' => 'off'];
     public const LIST_LIMIT = 300;
-    /** The editor's fields outside its line rows (csrf, version, stamp, line_count, lines_editable, 9 header fields, q, packs, price, the button, a choice). */
-    public const EDITOR_FIXED_FIELDS = 26;
-    /** Fields of one line in the editor: packs, price, units per pack, PO line, mode, note. */
-    public const EDITOR_LINE_FIELDS = 6;
-    /** Lines on one page of the bench check (14 fields each, well below max_input_vars). */
-    public const BENCH_PAGE = 40;
+    /** A duty line's stamp answer (Words::GI_DUTY): the kind of stamp on the pack, on the pack without its kind (older checks), or none. */
+    public const DUTY_ANSWERS = ['digital', 'transitional', 'yes', 'none'];
+    /**
+     * The one page's fields outside its line rows (docs/decisions.md GV7): csrf, version, page, line_count, lines_editable, from, page_count,
+     * stamp, bench_was, inv_was, header_present, the 9 header fields, paperwork_ok, bench_note, arrived_now, q, packs, price, action, fine, next,
+     * add_si / add_sku, file_role, photo_line, with room to spare.
+     */
+    public const ONE_FIXED_FIELDS = 40;
+    /** A line's fields of its keyer: packs, items a pack, price, order line, selling mode, note. */
+    public const ONE_DESK_FIELDS = 6;
+    /** A line's check fields: present, was, checked, fine, duty, code, short, over, over right, damaged, wrong, no stamp, what to do, proof. */
+    public const ONE_BENCH_FIELDS = 14;
 
-    /** Whether the one-form editor can carry $n lines (max_input_vars, I73). */
-    public static function editorFits(int $n): bool
+    /** Lines on one page of the delivery (all of them while they fit max_input_vars, I73): with its keyer's fields ($desk) or the check only. */
+    public static function pageSize(bool $desk): int
     {
-        return self::EDITOR_FIXED_FIELDS + $n * self::EDITOR_LINE_FIELDS < UiRequest::maxInputVars();
+        return max(1, intdiv(UiRequest::maxInputVars() - 1 - self::ONE_FIXED_FIELDS, self::ONE_BENCH_FIELDS + ($desk ? self::ONE_DESK_FIELDS : 0)));
     }
 
+    /** Whether the one page carries $n lines with their keyer's fields at once (else it shows them a page at a time). */
+    public static function editorFits(int $n): bool
+    {
+        return $n <= self::pageSize(true);
+    }
+
+    /** The most lines one page shows with their keyer's fields (the truncation refusal says it). */
     public static function editorMaxLines(): int
     {
-        return intdiv(UiRequest::maxInputVars() - 1 - self::EDITOR_FIXED_FIELDS, self::EDITOR_LINE_FIELDS);
+        return self::pageSize(true);
     }
 
     // ------------------------------------------------------------------------------------------
     // The list
     // ------------------------------------------------------------------------------------------
 
+    /**
+     * The Goods in board (the owner's approved design of 29 Oct 2026, GI_List; docs/decisions.md GV1): one search (a scanned delivery note,
+     * the supplier, the order, the number, the invoice), one Show menu (today and open, all, cancelled) and "+ New delivery" (the drawer
+     * #new) in the toolbar; then the groups, each a coloured heading with its count over a white card with its colour on the left edge:
+     * Arriving (the open orders that still expect goods and have no delivery being checked, each with "Receive"), Being checked (not started,
+     * part checked, paperwork not right), Ready to book in (checked at the bench), Booked in today (or Booked in, under Show "all"), and
+     * Cancelled only under Show. The old links' state and supplier filters (Home's cards) still narrow it.
+     */
     public function index(Context $ctx, int $status = 200, ?string $error = null): HtmlResponse
     {
         $f = self::filters($ctx->req);
         $me = $ctx->me();
         $canPost = Documents::mayPost($me->roles, 'GRN');
-        $states = [];
-        foreach (self::STATE_FILTERS as $code) {
-            $states[$code] = match ($code) {
-                'checked' => Words::RECEIVING['state_checked'],
-                'refused' => Words::RECEIVING['state_refused'],
-                default => Words::of('RECEIPT_STATE', $code),
-            };
-        }
+        $rows = array_map(self::screenRow(...), $this->rows($ctx, $f));
+        $arriving = $f['show'] === 'cancelled' || $f['state'] !== null ? [] : $this->arriving($ctx, $f, $canPost);
+        $typedPo = UiRequest::id($ctx->req->param('po'));
         return $ctx->page('receipts', [
-            'rows' => array_map(self::screenRow(...), $this->rows($ctx, $f)),
+            'rows' => $rows,
+            'groups' => self::boardGroups($rows, $arriving, $f['show']),
+            'arrivingCount' => count($arriving),
             'filters' => $f,
-            'filtered' => $f['state'] !== null || $f['supplier'] !== null || $f['q'] !== '',
-            'states' => $states,
-            'suppliers' => $ctx->db->all('SELECT id, code, name, status FROM supplier ORDER BY name, id'),
+            'filtered' => $f['state'] !== null || $f['supplier'] !== null || $f['q'] !== '' || $f['show'] !== '',
             'newSuppliers' => $canPost ? $ctx->db->all("SELECT id, code, name, status FROM supplier WHERE status <> 'inactive' ORDER BY name, id") : [],
             'orders' => $canPost ? $ctx->goodsReceipts()->receivableOrders() : [],
             'formKey' => $canPost ? ($ctx->req->field(FormOnce::FIELD) ?? FormOnce::newKey()) : null,
             // The order's page's "Receive" (docs/decisions.md PV) opens this form with its order chosen (?po=).
-            'typed' => $error === null ? (UiRequest::id($ctx->req->param('po')) === null ? [] : ['po_id' => (string) UiRequest::id($ctx->req->param('po'))]) : $ctx->req->post,
+            'typed' => $error === null ? ($typedPo === null ? [] : ['po_id' => (string) $typedPo]) : $ctx->req->post,
+            'openNew' => $error !== null || $typedPo !== null,
             'limit' => self::LIST_LIMIT,
             'error' => $error,
             'canPost' => $canPost,
+            'canSeeOrders' => $me->can('purchasing.view'),
             'lookOnly' => $canPost ? null : Words::whoCan('doc.GRN.post'),
         ], $status, ['title' => Words::MENU['receiving'], 'active' => 'receiving', 'notice' => self::NOTICES[$ctx->req->param('notice') ?? ''] ?? null]);
     }
 
     /**
-     * One delivery of the list as the screen shows it: the supplier's name first, a line with its number, invoice and order, its
-     * state, the bench's progress and the reviewer's check as chips, its size in words.
+     * One delivery of the board as the screen shows it: its name (the number once booked in, else "Delivery 12"), the order (or "no order")
+     * and the invoice under it, where it is on the board (BOARD_STATES) and that state's words and colour, the bench's progress, its size.
      *
      * @param array<string, mixed> $r a rows() row
      * @return array<string, mixed>
      */
     public static function screenRow(array $r): array
     {
-        $parts = [$r['number'] ?? Words::RECEIVING['no_number']];
-        $parts[] = $r['external_ref'] !== null && $r['external_ref'] !== '' ? Words::say('RECEIVING', 'invoice_no', (string) $r['external_ref']) : Words::RECEIVING['no_invoice'];
-        if ($r['po_number'] !== null) {
-            $parts[] = Words::say('RECEIVING', 'order_no', (string) $r['po_number']);
+        $sub = [$r['po_number'] !== null ? (string) $r['po_number'] : Words::GI['no_order']];
+        if ($r['external_ref'] !== null && $r['external_ref'] !== '') {
+            $sub[] = Words::say('GI', 'invoice_no', (string) $r['external_ref']);
         }
         $lines = (int) $r['lines'];
+        $bench = $r['status'] === 'draft' ? self::benchState($r) : null;
+        $state = match (true) {
+            $r['status'] === 'draft' => match ($bench) {
+                'done' => 'ready',
+                'refused' => 'refused',
+                'todo' => 'todo',
+                default => 'checking',
+            },
+            $r['status'] === 'reversed' => 'reversed',
+            $r['status'] === 'cancelled' => 'cancelled',
+            default => 'posted',
+        };
+        $problems = (int) ($r['problem_lines'] ?? 0);
         return $r + [
-            'number_line' => implode(' · ', $parts),
-            'state_tone' => Words::tone('RECEIPT_STATE', (string) $r['status']),
-            'state_word' => Words::of('RECEIPT_STATE', (string) $r['status']),
+            'name' => $r['number'] ?? Words::say('GI', 'draft_name', (int) $r['id']),
+            'sub_line' => implode(' · ', $sub),
+            'board_state' => $state,
+            'state_tone' => Words::tone('GI_STATE', $state),
+            'state_word' => Words::of('GI_STATE', $state),
+            'problems_line' => $state !== 'ready' || $problems === 0 ? null : ($problems === 1 ? Words::GI['problems_one'] : Words::say('GI', 'problems_many', $problems)),
+            'bench_state' => $bench,
             'size_line' => $lines === 1 ? Words::say('RECEIVING', 'size_one', (int) $r['units']) : Words::say('RECEIVING', 'size_many', $lines, (int) $r['units']),
-            'bench_state' => $r['status'] === 'draft' ? self::benchState($r) : null,
             'incidents_line' => (int) $r['open_incidents'] === 0 ? null : ((int) $r['open_incidents'] === 1 ? Words::RECEIVING['open_incidents_one']
                 : Words::say('RECEIVING', 'open_incidents', (int) $r['open_incidents'])),
         ];
@@ -147,6 +185,68 @@ final class ReceivingController
             return 'done';
         }
         return $r['checked_at'] === null && $checked === 0 ? 'todo' : 'part';
+    }
+
+    /**
+     * The board's groups (BOARD's order, only those with rows): Arriving (the orders), Being checked, Ready to book in, Booked in today (or
+     * Booked in under Show "all"), Cancelled.
+     *
+     * @param list<array<string, mixed>> $rows screenRow() rows
+     * @param list<array<string, mixed>> $arriving arriving() rows
+     * @return list<array{key: string, tone: string, name: string, rows: list<array<string, mixed>>}>
+     */
+    public static function boardGroups(array $rows, array $arriving, string $show): array
+    {
+        $by = $arriving === [] ? [] : ['arriving' => $arriving];
+        foreach ($rows as $r) {
+            $key = match ($r['board_state']) {
+                'ready' => 'ready',
+                'todo', 'checking', 'refused' => 'checking',
+                'cancelled' => 'cancelled',
+                default => $show === '' ? 'today' : 'booked',
+            };
+            $by[$key][] = $r;
+        }
+        $out = [];
+        foreach (self::BOARD as $key => $tone) {
+            if (isset($by[$key])) {
+                $out[] = ['key' => $key, 'tone' => $tone, 'name' => Words::GI['group_' . $key], 'rows' => $by[$key]];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The open orders that still expect goods (approved, sent, part received; GoodsReceipts::receivableOrders) and have no delivery being
+     * checked, as the board's Arriving rows: the order, its state, the supplier, expected (late when passed), the items still to come, and
+     * for someone who receives goods a "Receive" form (a delivery with the order's lines still to come, FormOnce).
+     *
+     * @param array{state: ?string, supplier: ?int, q: string, show: string} $f
+     * @return list<array<string, mixed>>
+     */
+    private function arriving(Context $ctx, array $f, bool $canPost): array
+    {
+        $busy = array_flip(array_map('intval', array_column($ctx->db->all("SELECT DISTINCT g.po_document_id FROM goods_receipt g JOIN document d ON d.id = g.document_id "
+            . "WHERE d.status = 'draft' AND g.po_document_id IS NOT NULL"), 'po_document_id')));
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d');
+        $q = mb_strtolower($f['q']);
+        $out = [];
+        foreach ($ctx->goodsReceipts()->receivableOrders($f['supplier']) as $o) {
+            if ((int) $o['outstanding'] <= 0 || isset($busy[(int) $o['id']])) {
+                continue;
+            }
+            if ($q !== '' && !str_contains(mb_strtolower((string) $o['number']), $q) && !str_contains(mb_strtolower((string) $o['supplier_name']), $q)) {
+                continue;
+            }
+            $out[] = $o + [
+                'state_tone' => Words::tone('PO_STATE', (string) $o['state']),
+                'state_word' => Words::of('PO_STATE', (string) $o['state']),
+                'late' => $o['expected_date'] !== null && (string) $o['expected_date'] <= $today,
+                'is_today' => $o['expected_date'] !== null && (string) $o['expected_date'] === $today,
+                'formKey' => $canPost ? FormOnce::newKey() : null,
+            ];
+        }
+        return $out;
     }
 
     /** POST /ui/receiving: a new draft receipt (FormOnce: one draft however often the form is sent). */
@@ -218,9 +318,10 @@ final class ReceivingController
             $packs = Words::say('RECEIPT_ADDED', 'packs_items', $packs, $units);
         }
         $item = "{$l['code']} " . mb_substr((string) $l['name'], 0, 60);
+        // Goods in never sees a price (docs/decisions.md GV6): the notice says the packs only to someone who does not read money.
         $text = $kind === 'added'
-            ? Words::say('RECEIPT_ADDED', 'added', $lineNo, $item, PoMath::e4((string) $l['pack_price']) > 0
-                ? Words::say('RECEIPT_ADDED', 'at_price', $packs, '£' . PoMath::price((string) $l['pack_price'])) : Words::say('RECEIPT_ADDED', 'no_price', $packs))
+            ? Words::say('RECEIPT_ADDED', 'added', $lineNo, $item, !$ctx->me()->can('invoices.view') ? $packs : (PoMath::e4((string) $l['pack_price']) > 0
+                ? Words::say('RECEIPT_ADDED', 'at_price', $packs, '£' . PoMath::price((string) $l['pack_price'])) : Words::say('RECEIPT_ADDED', 'no_price', $packs)))
             : Words::say('RECEIPT_ADDED', 'incremented', $lineNo, $item, $unitsAdded, $packs);
         if ($case) {
             $text .= ' ' . Words::say('RECEIPT_ADDED', 'case', (int) $l['units_per_pack']);
@@ -228,7 +329,16 @@ final class ReceivingController
         return $text . ' ' . Words::RECEIPT_ADDED['all_saved'];
     }
 
-    /** The editor's one form: saves every edit, then adds what was scanned / chosen, or posts ("Save and post"). */
+    /**
+     * POST /ui/receiving/{id}/lines: the delivery's one form (docs/decisions.md GV3, GV4). In ONE transaction: its keyer's save (the
+     * header and every line of the page as edited: GoodsReceipts::saveDraft, the creator's only), the supplier invoice of someone who did
+     * not key it (setInvoice, I172), the check of the lines this person touched (bench(): an answer changed, "All fine", the tick; the
+     * lines at their numbers after the save), the file, then what was scanned or chosen. "Book in" (action=post) books in after that
+     * commit, with the version the save left, in the posting's own transaction (GoodsReceipts::post: no outer transaction around it); a
+     * refused booking leaves everything saved and says why. A form drawn before someone else's save is saved on the current version while
+     * what it changes was not changed meanwhile (the keyer's stamp, I175; each touched line's stamp and the checklist's); otherwise it is
+     * drawn again with what was typed (409), except on lines whose product or quantity changed.
+     */
     public function lines(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
@@ -238,25 +348,41 @@ final class ReceivingController
             return $ctx->error(400, 'bad_version', 'this form has no version: reload the page');
         }
         $count = $req->field('line_count');
-        $editable = $req->field('lines_editable') === '1';
         if ($count === null || preg_match('/^(0|[1-9][0-9]{0,4})$/D', $count) !== 1) {
             return $ctx->error(400, 'form_truncated', Words::RECEIPT_ERROR['form_truncated']);
         }
         $count = (int) $count;
-        $rows = $req->fieldsMatching('/^line_[1-9][0-9]{0,4}_packs$/');
-        if ($editable && count($rows) < $count) {
-            return $ctx->error(400, 'form_truncated', Words::say('RECEIPT_ERROR', 'form_truncated_lines', $count, count($rows), self::editorMaxLines()));
+        $editable = $req->field('lines_editable') === '1';
+        $from = max(1, UiRequest::id($req->field('from')) ?? 1);
+        $pageCount = $req->field('page_count') === null ? $count : (UiRequest::id($req->field('page_count')) ?? 0);
+        $to = min($count, $from + $pageCount - 1);
+        if ($editable) {
+            $arrived = 0;
+            for ($n = $from; $n <= $to; $n++) {
+                $arrived += $req->field("line_{$n}_packs") === null ? 0 : 1;
+            }
+            if ($arrived < $to - $from + 1) {
+                return $ctx->error(400, 'form_truncated', Words::say('RECEIPT_ERROR', 'form_truncated_lines', $to - $from + 1, $arrived, self::editorMaxLines()));
+            }
         }
         $svc = $ctx->goodsReceipts();
         $typed = $req->post;
         $q = trim($req->field('q') ?? '');
-        $stamp = $req->field('stamp');
-        $retried = false;
-        retry:
-        try {
-            $current = $svc->lines($id);
-            $lines = $editable ? self::editedLines($req, $current, $count) : $current;
-            $header = [];
+        $packs = PoLinesFile::wholeNumber($req->field('packs') ?? '1') ?? 0;
+        $price = trim($req->field('price') ?? '');
+        $price = $price === '' ? null : $price;
+        $addSku = UiRequest::id($req->field('add_sku'));
+        $addSi = UiRequest::id($req->field('add_si'));
+        $posting = $req->field('action') === 'post' && $addSku === null && $addSi === null;
+        $back = ['typed' => $typed, 'q' => $q, 'from' => $from];
+        if ($posting && $q !== '') {
+            return $this->page($ctx, $id, 422, new CwException('scan_pending', Words::say('RECEIPT_ERROR', 'scan_pending', $q), 422), null, $back);
+        }
+        $adding = $addSku !== null || $addSi !== null || ($req->field('action') === 'add' && $q !== '');
+        // The keyer's part: the header and the lines (a person who did not key it sends neither; sent anyway, the service refuses it).
+        $deskSave = $editable || $req->field('header_present') === '1';
+        $header = [];
+        if ($deskSave) {
             foreach (['invoice_number', 'invoice_date', 'delivery_note', 'received_at', 'backdate_reason', 'note', 'supplier_id', 'po_id'] as $k) {
                 $v = $req->field($k);
                 if ($v !== null) {
@@ -266,79 +392,416 @@ final class ReceivingController
             if ($req->field('header_present') === '1') {
                 $header['paper_sheet'] = $req->field('paper_sheet') === '1';
             }
-            $packs = PoLinesFile::wholeNumber($req->field('packs') ?? '1') ?? 0;
-            $price = trim($req->field('price') ?? '');
-            $price = $price === '' ? null : $price;
-            $addSku = UiRequest::id($req->field('add_sku'));
-            $addSi = UiRequest::id($req->field('add_si'));
-            $posting = $req->field('action') === 'post' && $addSku === null && $addSi === null;
-            if ($posting && $q !== '') {
-                return $this->page($ctx, $id, 422, new CwException('scan_pending', Words::say('RECEIPT_ERROR', 'scan_pending', $q), 422), null, ['typed' => $typed, 'q' => $q]);
-            }
-            $adding = $addSku !== null || $addSi !== null || ($req->field('action') === 'add' && $q !== '');
-            $result = $ctx->db->transaction(function () use ($ctx, $svc, $id, $version, $header, $lines, $adding, $posting, $addSku, $addSi, $q, $packs, $price): array {
-                $doc = $svc->saveDraft($ctx->caller(), $id, $version, $header, $lines);
-                if ($posting) {
-                    // "Save and post": what is posted is what the desk sees, typed edits included, in one transaction.
-                    return ['status' => 'posted', 'document' => $svc->post($ctx->caller(), $id, $doc->version)];
-                }
-                if (!$adding) {
-                    return ['status' => 'saved', 'document' => $doc];
-                }
-                if ($addSi !== null || $addSku !== null) {
-                    return $svc->addChoice($ctx->caller(), $id, $doc->version, $addSi, $addSi === null ? $addSku : null, max(1, $packs), $price);
-                }
-                return $svc->addLine($ctx->caller(), $id, $doc->version, $q, max(1, $packs), $price);
-            });
+        }
+        try {
+            $file = $req->file('file') === null ? null : self::upload($ctx) + ['role' => self::fileRole($req->field('file_role')), 'note' => self::photoNote($req)];
+            $answers = self::answers($req);
+            $checklist = self::checklist($req);
+            $invoice = $deskSave ? null : self::invoiceSent($req);
         } catch (CwException $e) {
-            if ($e->errorCode === 'version_conflict') {
-                // Changed meanwhile by the bench only (its findings, which this form never sends): save again on the current version
-                // (I175). Changed by the desk (another tab): redraw with what was typed, nothing saved.
-                $now = $ctx->documents()->find($id);
-                if (!$retried && $stamp !== null && $now !== null && $now->status === 'draft' && hash_equals($svc->deskStamp($id), $stamp)) {
-                    $retried = true;
-                    $version = $now->version;
-                    goto retry;
-                }
-                return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::RECEIPT_ERROR['version_conflict'], 409), null, ['typed' => count($svc->lines($id)) === $count ? $typed : array_filter($typed, static fn ($k): bool =>
-                    !str_starts_with((string) $k, 'line_'), ARRAY_FILTER_USE_KEY), 'q' => $q]);
+            return $this->page($ctx, $id, $e->httpStatus, $e, null, $back + ['open' => (int) ($e->detail['line'] ?? 0)]);
+        }
+        $tries = 0;
+        while (true) {
+            $now = $ctx->documents()->find($id);
+            if ($now === null || $now->docType !== 'GRN' || $now->reversesId !== null) {
+                return $ctx->error(404, 'unknown_receipt', Words::RECEIPT_ERROR['unknown_receipt']);
             }
-            return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typed' => $typed, 'q' => $q]);
+            $use = $version;
+            if ($now->version !== $version && $now->status === 'draft') {
+                $stale = $this->stale($ctx, $id, $now, $deskSave, $answers, $checklist, $invoice, $count, $back);
+                if ($stale !== null) {
+                    return $stale;
+                }
+                $use = $now->version;
+            }
+            try {
+                $result = $ctx->db->transaction(fn (): array => $this->saveAll($ctx, $id, $use, $deskSave, $header, $editable, $count, $from, $to, $answers, $checklist,
+                    $invoice, $file, $adding, $addSi, $addSku, $q, $packs, $price));
+                break;
+            } catch (CwException $e) {
+                if ($e->errorCode === 'version_conflict' && ++$tries < 3) {
+                    continue; // changed between the look and the save: look again
+                }
+                if ($e->errorCode === 'version_conflict') {
+                    return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::RECEIPT_ERROR['version_conflict'], 409), null, $back);
+                }
+                return $this->page($ctx, $id, $e->httpStatus, $e, null, $back + ['open' => (int) ($e->detail['line'] ?? 0)]);
+            }
         }
         if ($result['status'] === 'choices') {
             // The note names the product by its name (U86): the choices carry it, also when it is not on the delivery yet.
             $named = array_column($result['choices'], 'name', 'sku_code');
-            return $this->page($ctx, $id, 200, null, isset($result['choice_note']) ? ReceiptWords::one((string) $result['choice_note'], $named) : null, ['choices' => $result['choices'], 'q' => $q, 'packs' => max(1, $packs),
-                'price' => $price ?? '']);
+            return $this->page($ctx, $id, 200, null, isset($result['choice_note']) ? ReceiptWords::one((string) $result['choice_note'], $named) : null, ['choices' => $result['choices'],
+                'q' => $q, 'packs' => max(1, $packs), 'price' => $price ?? '', 'from' => $from]);
         }
         if ($result['status'] === 'not_found') {
-            return $this->page($ctx, $id, 422, new CwException('not_found', Words::say('RECEIPT_ERROR', 'not_found', $q), 422), null, ['q' => $q]);
+            return $this->page($ctx, $id, 422, new CwException('not_found', Words::say('RECEIPT_ERROR', 'not_found', $q), 422), null, ['q' => $q, 'from' => $from]);
         }
-        if ($result['status'] === 'posted') {
-            return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id, ['notice' => 'posted']));
+        if ($posting && $use !== $version) {
+            // Saved on a version the page was not drawn with (someone else's save meanwhile, which this form did not change): what would be
+            // booked in is not what this person saw, so the booking waits for them to look again (the save stays).
+            return $this->page($ctx, $id, 409, new CwException('not_booked', Words::RECEIPT_ERROR['saved_not_booked_changed'], 409), null, ['from' => $from, 'ready' => true]);
         }
-        // The lines whose bench check this save cleared (their quantity or item changed, I168): said in the notice.
-        $before = [];
-        foreach ($current as $l) {
-            if ($l['checked_at'] !== null) {
-                $before[$l['line_no']] = true;
-            }
-        }
-        $cleared = [];
-        foreach ($svc->lines($id) as $i => $l) {
-            $from = $lines[$i]['line_no'] ?? null;
-            if ($l['checked_at'] === null && $from !== null && isset($before[$from])) {
-                $cleared[] = $l['line_no'];
-            }
+        if ($posting) {
+            return $this->bookIn($ctx, $id, (int) $result['version'], $from);
         }
         $query = ['notice' => $result['status']];
         if (isset($result['line_no'])) {
             $query += ['line' => $result['line_no'], 'u' => $result['units_added'] ?? null, 'x' => ($result['note'] ?? null) !== null ? 'case' : null];
         }
-        if ($cleared !== []) {
-            $query['rc'] = implode(',', array_slice($cleared, 0, 200));
+        if ($result['cleared'] !== []) {
+            $query['rc'] = implode(',', array_slice($result['cleared'], 0, 200));
         }
-        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id, $query) . (isset($result['line_no']) ? '#line-' . $result['line_no'] : '#scan'));
+        $next = $req->field('next') === '1' ? $from + max(1, $pageCount) : $from;
+        if ($next > 1) {
+            $query['from'] = $next;
+        }
+        $anchor = match (true) {
+            isset($result['line_no']) => '#line-' . $result['line_no'],
+            $req->field('next') === '1' => '#lines',
+            $result['checked'] !== [] => '#line-' . max($result['checked']),
+            default => '#scan',
+        };
+        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id, $query) . $anchor);
+    }
+
+    /**
+     * The one form's save, inside its transaction (lines()): the keyer's save, the invoice of someone else, the check of the touched lines
+     * at their numbers after the save, the file, then the scan or the choice. Each service checks the version it is given and moves it.
+     *
+     * @param array<string, mixed> $header
+     * @param array<int, array<string, mixed>> $answers answers()
+     * @param array{stamp: string, header: array<string, mixed>} $checklist
+     * @param array{fields: array<string, string>, touched: bool}|null $invoice
+     * @param array{path: string, name: string, role: string, note: ?string}|null $file
+     * @return array<string, mixed> status (saved, added, incremented, choices, not_found), version, checked (the lines whose check was written),
+     *   cleared (the lines whose check this save took back), and an add's line_no, units_added, note, choices
+     */
+    private function saveAll(Context $ctx, int $id, int $version, bool $deskSave, array $header, bool $editable, int $count, int $from, int $to, array $answers,
+        array $checklist, ?array $invoice, ?array $file, bool $adding, ?int $addSi, ?int $addSku, string $q, int $packs, ?string $price): array
+    {
+        $svc = $ctx->goodsReceipts();
+        $caller = $ctx->caller();
+        $current = $svc->lines($id);
+        $before = [];
+        $map = [];
+        foreach ($current as $l) {
+            $map[$l['line_no']] = $l['line_no'];
+            if ($l['checked_at'] !== null) {
+                $before[$l['line_no']] = true;
+            }
+        }
+        $v = $version;
+        if ($deskSave) {
+            $lines = $editable ? self::editedLines($ctx->req, $current, $count, $from, $to) : $current;
+            $v = $svc->saveDraft($caller, $id, $v, $header, $lines)->version;
+            $map = [];
+            foreach ($lines as $i => $l) {
+                $map[(int) $l['line_no']] = $i + 1;
+            }
+        }
+        if ($invoice !== null && $invoice['touched'] && $invoice['fields'] !== []) {
+            $v = $svc->setInvoice($caller, $id, $v, $invoice['fields'])->version;
+        }
+        // The check: only the lines this person touched (an untouched line is never written back as their page showed it), at their
+        // numbers after the save; a line counted when ticked or an answer changed, uncounted when its tick was taken off (I168).
+        $stored = [];
+        foreach ($svc->lines($id) as $l) {
+            $stored[$l['line_no']] = $l;
+        }
+        $bench = [];
+        foreach ($answers as $old => $a) {
+            $no = $map[$old] ?? null;
+            if ($no === null || !isset($stored[$no])) {
+                continue; // removed by this save
+            }
+            $f = self::benchOf($a);
+            if ($a['sent']['ok'] === '1' || self::benchChanged($f, $stored[$no])) {
+                $bench[$no] = $f + ['over_confirmed' => $a['overok']];
+            } elseif ($stored[$no]['checked_at'] !== null) {
+                $bench[$no] = $f + ['checked' => false];
+            }
+        }
+        ksort($bench);
+        if ($bench !== [] || $checklist['header'] !== []) {
+            $v = $svc->bench($caller, $id, $v, $checklist['header'], $bench)->version;
+        }
+        if ($file !== null) {
+            $svc->attach($caller, $id, $file['path'], $file['name'], $file['role'], $file['note']);
+        }
+        $result = ['status' => 'saved'];
+        if ($adding) {
+            $result = $addSi !== null || $addSku !== null ? $svc->addChoice($caller, $id, $v, $addSi, $addSi === null ? $addSku : null, max(1, $packs), $price)
+                : $svc->addLine($caller, $id, $v, $q, max(1, $packs), $price);
+            $v = $result['document']->version;
+        }
+        // The lines whose check this save took back (their quantity or product changed, I168): said in the notice.
+        $cleared = [];
+        $back = array_flip($map);
+        foreach ($svc->lines($id) as $l) {
+            $was = $back[$l['line_no']] ?? null;
+            if ($l['checked_at'] === null && $was !== null && isset($before[$was])) {
+                $cleared[] = $l['line_no'];
+            }
+        }
+        return $result + ['version' => $v, 'checked' => array_keys(array_filter($bench, static fn (array $b): bool => ($b['checked'] ?? true) !== false)),
+            'cleared' => $cleared];
+    }
+
+    /**
+     * "Book in" after its save committed (docs/decisions.md GV3): GoodsReceipts::post with the version the save left. Refused: the delivery
+     * stays a draft with everything saved and the page says why ("Saved. Not booked in yet: …", the problems under "Before it can be booked
+     * in"); the same form sent twice lands on the delivery the other one booked in.
+     */
+    private function bookIn(Context $ctx, int $id, int $version, int $from): HtmlResponse
+    {
+        try {
+            $ctx->goodsReceipts()->post($ctx->caller(), $id, $version);
+        } catch (CwException $e) {
+            $now = $ctx->documents()->find($id);
+            if ($now !== null && $now->status !== 'draft') {
+                return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id, ['notice' => $now->status === 'posted' ? 'posted' : null]));
+            }
+            $problems = is_array($e->detail['problems'] ?? null) ? count($e->detail['problems']) : 0;
+            $message = match (true) {
+                $problems === 1 => Words::RECEIPT_ERROR['saved_not_booked_one'],
+                $problems > 1 => Words::say('RECEIPT_ERROR', 'saved_not_booked', $problems),
+                $e->errorCode === 'version_conflict' => Words::RECEIPT_ERROR['saved_not_booked_changed'],
+                default => Words::RECEIPT_ERROR['saved_not_booked_lead'] . ' ' . self::plain($e),
+            };
+            return $this->page($ctx, $id, $e->httpStatus, new CwException('not_booked', $message, $e->httpStatus, $e->detail), null, ['from' => $from, 'ready' => true]);
+        }
+        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id, ['notice' => 'posted']));
+    }
+
+    /**
+     * A form drawn before someone else's save: null when what it changes was not changed meanwhile (it is saved on the current version),
+     * else the page again (409) with what was typed: the keyer's part (the desk stamp, I175: drawn again without the line rows when the
+     * lines were added or removed), the supplier invoice of someone else, or the check (the checklist's stamp and each touched line's;
+     * what was typed stays, except on lines whose product or quantity changed).
+     *
+     * @param array<int, array<string, mixed>> $answers
+     * @param array{stamp: string, header: array<string, mixed>} $checklist
+     * @param array{fields: array<string, string>, touched: bool}|null $invoice
+     * @param array<string, mixed> $back typed, q, from
+     */
+    private function stale(Context $ctx, int $id, Document $now, bool $deskSave, array $answers, array $checklist, ?array $invoice, int $count, array $back): ?HtmlResponse
+    {
+        $svc = $ctx->goodsReceipts();
+        $req = $ctx->req;
+        $typed = $back['typed'];
+        if ($deskSave && !hash_equals($svc->deskStamp($id), (string) ($req->field('stamp') ?? ''))) {
+            return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::RECEIPT_ERROR['version_conflict'], 409), null, ['typed' => count($svc->lines($id)) === $count
+                ? $typed : array_filter($typed, static fn ($k): bool => !str_starts_with((string) $k, 'line_') && !str_starts_with((string) $k, 'b_'), ARRAY_FILTER_USE_KEY)] + $back);
+        }
+        if ($invoice !== null && $invoice['touched']) {
+            $g = $svc->header($id) ?? [];
+            $drawn = (string) ($req->field('inv_was') ?? '');
+            if (!hash_equals(self::answersFp(self::invoiceAnswers(['invoice_number' => $now->externalRef, 'invoice_date' => $g['invoice_date'] ?? null,
+                'delivery_note' => $g['delivery_note'] ?? null])), $drawn)) {
+                return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::RECEIPT_ERROR['version_conflict'], 409), null, $back);
+            }
+        }
+        $stamps = $svc->benchStamps($id);
+        $same = $checklist['header'] === [] || hash_equals($stamps['checklist'], $checklist['stamp']);
+        $moved = [];
+        foreach ($answers as $no => $a) {
+            if (($stamps['lines'][$no] ?? '') !== $a['was']) {
+                $same = false;
+                if (($stamps['identity'][$no] ?? '') !== $a['identity']) {
+                    $moved[] = $no;
+                }
+            }
+        }
+        if ($same) {
+            return null;
+        }
+        // What was typed stays, except on lines whose item or quantity changed (their answers are for other figures).
+        $typed = array_filter($typed, static function ($k) use ($moved): bool {
+            return preg_match('/^b_([0-9]+)_/', (string) $k, $m) !== 1 || !in_array((int) $m[1], $moved, true);
+        }, ARRAY_FILTER_USE_KEY);
+        return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::say('RECEIPT_ERROR', 'version_conflict_bench',
+            $moved === [] ? Words::RECEIPT_ERROR['bench_the_delivery'] : ReceiptPlan::lineList($moved),
+            $moved === [] ? '' : Words::say('RECEIPT_ERROR', 'bench_except', ReceiptPlan::lineList($moved))), 409), null, ['typed' => $typed] + $back);
+    }
+
+    /**
+     * The check of each line drawn on the page that this person touched (docs/decisions.md GV4): its answers as sent (sentAnswers), the
+     * stamp of the line as drawn (`b_<n>_was`: the bench stamp, then the fingerprint of the answers drawn) and its identity. A line whose
+     * answers came back as drawn is left out (never written back as the page showed it). "All fine" (`fine` = the line's number, or the
+     * script's `b_<n>_fine`) is the counted tick with no problem: a duty line needs its stamp answer first, and "No stamp" is not all fine.
+     *
+     * @return array<int, array{identity: string, was: string, sent: array<string, string>, stampReq: bool, fine: bool, overok: ?string}>
+     */
+    private static function answers(UiRequest $req): array
+    {
+        $fine = UiRequest::id($req->field('fine'));
+        $out = [];
+        foreach ($req->fieldsMatching('/^b_[1-9][0-9]{0,4}_present$/') as $name => $identity) {
+            $no = (int) substr($name, 2, -8);
+            [$was, $fp] = array_pad(explode('.', (string) ($req->field("b_{$no}_was") ?? ''), 2), 2, '');
+            $stampReq = $req->field("b_{$no}_duty") !== null;
+            $sent = self::sentAnswers($req, $no, $stampReq);
+            $isFine = $fine === $no || $req->field("b_{$no}_fine") === '1';
+            if ($isFine) {
+                if ($stampReq && $sent['duty'] === '') {
+                    throw new CwException('fine_needs_stamp', Words::say('RECEIPT_ERROR', 'fine_needs_stamp', $no), 422, ['line' => $no, 'field' => 'stamp_on_pack']);
+                }
+                if ($stampReq && $sent['duty'] === 'none') {
+                    throw new CwException('fine_no_stamp', Words::say('RECEIPT_ERROR', 'fine_no_stamp', $no), 422, ['line' => $no, 'field' => 'unstamped_units']);
+                }
+                $sent = array_replace($sent, ['ok' => '1', 'short' => '0', 'over' => '0', 'damaged' => '0', 'wrong' => '0']
+                    + ($stampReq ? ['unstamped' => '0', 'action' => '', 'evidence' => ''] : []));
+            } elseif (hash_equals(self::answersFp($sent), $fp)) {
+                continue; // not touched
+            }
+            $out[$no] = ['identity' => (string) $identity, 'was' => $was, 'sent' => $sent, 'stampReq' => $stampReq, 'fine' => $isFine,
+                'overok' => $req->field("b_{$no}_overok")];
+        }
+        ksort($out);
+        return $out;
+    }
+
+    /**
+     * A line's answers as its row draws them (drawnAnswers) or as they came back (sentAnswers), in the same keys and the same plain strings:
+     * checked, the problems (empty = 0), and for a duty line its stamp answer, code, items without a stamp, what to do and the proof.
+     *
+     * @param array<string, mixed> $l a lines() row
+     * @return array<string, string>
+     */
+    public static function drawnAnswers(array $l, bool $stampReq): array
+    {
+        $a = ['ok' => $l['checked_at'] !== null ? '1' : '', 'short' => (string) (int) $l['short_units'], 'over' => (string) (int) $l['over_units'],
+            'damaged' => (string) (int) $l['damaged_units'], 'wrong' => (string) (int) $l['wrong_item_units']];
+        if ($stampReq) {
+            $a += ['duty' => self::dutyAnswer($l) === 'unchecked' ? '' : self::dutyAnswer($l), 'code' => trim((string) ($l['stamp_code'] ?? '')), 'unstamped' => (string) (int) $l['unstamped_units'],
+                'action' => (string) ($l['unstamped_action'] ?? ''), 'evidence' => trim((string) ($l['pre_october_evidence'] ?? ''))];
+        }
+        return $a;
+    }
+
+    /** @return array<string, string> */
+    private static function sentAnswers(UiRequest $req, int $no, bool $stampReq): array
+    {
+        $num = static function (?string $v): string {
+            $t = trim((string) ($v ?? ''));
+            return $t === '' ? '0' : (string) (PoLinesFile::wholeNumber($t) ?? $t);
+        };
+        $a = ['ok' => $req->field("b_{$no}_ok") === '1' ? '1' : '', 'short' => $num($req->field("b_{$no}_short")), 'over' => $num($req->field("b_{$no}_over")),
+            'damaged' => $num($req->field("b_{$no}_damaged")), 'wrong' => $num($req->field("b_{$no}_wrong"))];
+        if ($stampReq) {
+            $a += ['duty' => (string) $req->field("b_{$no}_duty"), 'code' => trim((string) ($req->field("b_{$no}_code") ?? '')),
+                'unstamped' => $num($req->field("b_{$no}_unstamped")), 'action' => trim((string) ($req->field("b_{$no}_action") ?? '')),
+                'evidence' => trim((string) ($req->field("b_{$no}_evidence") ?? ''))];
+        }
+        return $a;
+    }
+
+    /** A duty line's stamp answer from what is stored (DUTY_ANSWERS, or 'unchecked'). @param array<string, mixed> $l */
+    public static function dutyAnswer(array $l): string
+    {
+        if (($l['stamp_on_pack'] ?? null) === null) {
+            return 'unchecked';
+        }
+        if ((int) $l['stamp_on_pack'] === 0) {
+            return 'none';
+        }
+        return in_array($l['stamp_type'] ?? null, ['digital', 'transitional'], true) ? (string) $l['stamp_type'] : 'yes';
+    }
+
+    /** Answers in one short fingerprint (the drawn and the sent compare by it). @param array<int|string, mixed> $answers */
+    public static function answersFp(array $answers): string
+    {
+        return substr(sha1(json_encode(array_values($answers), JSON_THROW_ON_ERROR)), 0, 12);
+    }
+
+    /** The bench fields (GoodsReceipts::bench) of a touched line's answers: the stamp answer as stamp_on_pack and stamp_type (GV5). @param array<string, mixed> $a @return array<string, mixed> */
+    private static function benchOf(array $a): array
+    {
+        $s = $a['sent'];
+        $f = ['stamp_on_pack' => null, 'stamp_type' => null, 'stamp_code' => null, 'short_units' => $s['short'], 'over_units' => $s['over'], 'damaged_units' => $s['damaged'],
+            'wrong_item_units' => $s['wrong'], 'unstamped_units' => null, 'unstamped_action' => null, 'pre_october_evidence' => null];
+        if ($a['stampReq']) {
+            [$on, $type] = match ($s['duty']) {
+                'digital', 'transitional' => ['1', $s['duty']],
+                'yes' => ['1', ''],
+                'none' => ['0', ''],
+                'unchecked', '' => ['', ''],
+                default => [$s['duty'], ''], // not an answer: the service refuses it in words
+            };
+            $f = ['stamp_on_pack' => $on, 'stamp_type' => $type, 'stamp_code' => $s['code'], 'unstamped_units' => $s['unstamped'], 'unstamped_action' => $s['action'],
+                'pre_october_evidence' => $s['evidence']] + $f;
+        }
+        return $f;
+    }
+
+    /**
+     * The delivery's checklist as this person changed it (`bench_was`: its stamp as drawn, the paperwork answer drawn, the note's
+     * fingerprint): only the answers changed are written (the paperwork answer names its checker, I133).
+     *
+     * @return array{stamp: string, header: array<string, mixed>}
+     */
+    private static function checklist(UiRequest $req): array
+    {
+        [$stamp, $paper, $noteFp] = array_pad(explode('.', (string) ($req->field('bench_was') ?? ''), 3), 3, '');
+        $h = [];
+        $p = $req->field('paperwork_ok');
+        if ($p !== null && $p !== $paper) {
+            $h['paperwork_ok'] = $p;
+        }
+        $n = $req->field('bench_note');
+        if ($n !== null && !hash_equals(self::answersFp([trim($n)]), $noteFp)) {
+            $h['bench_note'] = $n;
+        }
+        if ($req->field('arrived_now') === '1') {
+            $h['arrived_now'] = true;
+        }
+        return ['stamp' => $stamp, 'header' => $h];
+    }
+
+    /**
+     * The supplier invoice fields of someone who did not key the delivery (`inv_was`: the fingerprint of what was drawn): set through
+     * GoodsReceipts::setInvoice only when changed (setting it keeps that person out of the delivery's review, I172).
+     *
+     * @return array{fields: array<string, string>, touched: bool}|null
+     */
+    private static function invoiceSent(UiRequest $req): ?array
+    {
+        $drawn = $req->field('inv_was');
+        if ($drawn === null) {
+            return null;
+        }
+        $fields = [];
+        foreach (['invoice_number', 'invoice_date', 'delivery_note'] as $k) {
+            if ($req->field($k) !== null) {
+                $fields[$k] = (string) $req->field($k);
+            }
+        }
+        return ['fields' => $fields, 'touched' => !hash_equals(self::answersFp(self::invoiceAnswers($fields)), $drawn)];
+    }
+
+    /** @param array<string, mixed> $v invoice_number, invoice_date, delivery_note @return list<string> */
+    public static function invoiceAnswers(array $v): array
+    {
+        return [trim((string) ($v['invoice_number'] ?? '')), trim((string) ($v['invoice_date'] ?? '')), trim((string) ($v['delivery_note'] ?? ''))];
+    }
+
+    /** What a file of the one form is (GoodsReceipts::FILE_ROLES; a photo when the form says nothing). */
+    private static function fileRole(?string $role): string
+    {
+        return isset(GoodsReceipts::FILE_ROLES[$role ?? '']) ? (string) $role : 'photo';
+    }
+
+    /** A photo taken from a line's panel names its line ("Line 3"), with the line's note when typed. */
+    private static function photoNote(UiRequest $req): ?string
+    {
+        $no = UiRequest::id($req->field('photo_line'));
+        if ($no === null) {
+            return null;
+        }
+        $note = trim((string) ($req->field("line_{$no}_note") ?? ''));
+        return mb_substr($note === '' ? Words::say('GI', 'photo_of', $no) : Words::say('GI', 'found', $no, $note), 0, 255);
     }
 
     /** POST copy: "receive all as ordered" (the PO's outstanding lines not on the receipt yet). */
@@ -373,14 +836,13 @@ final class ReceivingController
     public function files(Context $ctx): HtmlResponse
     {
         $id = $ctx->id();
-        $back = $ctx->req->field('back') === 'bench' ? '/bench' : '';
         try {
             $file = self::upload($ctx);
             $ctx->goodsReceipts()->attach($ctx->caller(), $id, $file['path'], $file['name'], $ctx->req->field('role') ?? '', $ctx->req->field('note'));
         } catch (CwException $e) {
-            return $back === '' ? $this->page($ctx, $id, $e->httpStatus, $e) : $this->benchPage($ctx, $id, $e->httpStatus, $e);
+            return $this->page($ctx, $id, $e->httpStatus, $e);
         }
-        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id . $back, ['notice' => 'attached']));
+        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id, ['notice' => 'attached']));
     }
 
     public function post(Context $ctx): HtmlResponse
@@ -440,13 +902,20 @@ final class ReceivingController
         return $ctx->page('bench_list', ['rows' => $rows], 200, ['title' => Words::MENU['bench'], 'active' => 'bench']);
     }
 
+    /** GET /ui/receiving/{id}/bench (an old link): the check is part of the delivery's one page (docs/decisions.md GV2). */
     public function benchForm(Context $ctx): HtmlResponse
     {
-        return $this->benchPage($ctx, $ctx->id(), 200, null, self::NOTICES[$ctx->req->param('notice') ?? ''] ?? null);
+        $doc = $ctx->documents()->find($ctx->id());
+        if ($doc === null || $doc->docType !== 'GRN' || $doc->reversesId !== null) {
+            return $ctx->error(404, 'unknown_receipt', Words::RECEIPT_ERROR['unknown_receipt']);
+        }
+        $from = UiRequest::id($ctx->req->param('from'));
+        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $doc->id, ['from' => $from !== null && $from > 1 ? $from : null]) . '#lines');
     }
 
     /**
-     * POST the bench check of one page of lines (b_<line>_<field>) and the delivery's checklist. A line is counted when its
+     * POST /ui/receiving/{id}/bench: the older bench page's form (a page left open across the change to the one page, GV9), as before;
+     * it lands on the delivery's one page. The bench check of one page of lines (b_<line>_<field>) and the delivery's checklist. A line is counted when its
      * "counted" box is ticked or one of its findings changed; unticking a counted line takes its count back (I168). The page
      * carries a stamp of each line and of the checklist as drawn: a save refused only because the desk changed something the
      * bench does not see (a price, a note) is saved again on the current version; otherwise the page is redrawn with what was
@@ -510,7 +979,7 @@ final class ReceivingController
                 break;
             } catch (CwException $e) {
                 if ($e->errorCode !== 'version_conflict') {
-                    return $this->benchPage($ctx, $id, $e->httpStatus, $e, null, ['typed' => $req->post]);
+                    return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typed' => $req->post, 'from' => $from]);
                 }
                 $now = $ctx->documents()->find($id);
                 $stamps = $svc->benchStamps($id);
@@ -533,14 +1002,13 @@ final class ReceivingController
                 $typed = array_filter($req->post, static function ($k) use ($moved): bool {
                     return preg_match('/^b_([0-9]+)_/', (string) $k, $m) !== 1 || !in_array((int) $m[1], $moved, true);
                 }, ARRAY_FILTER_USE_KEY);
-                return $this->benchPage($ctx, $id, 409, new CwException('version_conflict', Words::say('RECEIPT_ERROR', 'version_conflict_bench',
+                return $this->page($ctx, $id, 409, new CwException('version_conflict', Words::say('RECEIPT_ERROR', 'version_conflict_bench',
                     $moved === [] ? Words::RECEIPT_ERROR['bench_the_delivery'] : ReceiptPlan::lineList($moved),
-                    $moved === [] ? '' : Words::say('RECEIPT_ERROR', 'bench_except', ReceiptPlan::lineList($moved))), 409), null, ['typed' => $typed]);
+                    $moved === [] ? '' : Words::say('RECEIPT_ERROR', 'bench_except', ReceiptPlan::lineList($moved))), 409), null, ['typed' => $typed, 'from' => $from]);
             }
         }
-        $next = $req->field('next') === '1' ? ['from' => $from + self::BENCH_PAGE] : ($from > 1 ? ['from' => $from] : []);
-        $anchor = $req->field('next') === '1' || $lines === [] ? '' : '#line-' . array_key_last($lines);
-        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id . '/bench', $next + ['notice' => 'checked']) . $anchor);
+        $anchor = $lines === [] ? '' : '#line-' . array_key_last($lines);
+        return HtmlResponse::redirect(Html::url('/ui/receiving/' . $id, ($from > 1 ? ['from' => $from] : []) + ['notice' => 'checked']) . $anchor);
     }
 
     /** POST invoice: the supplier invoice of a draft set by someone who did not key it (GoodsReceipts::setInvoice, I172). */
@@ -589,8 +1057,9 @@ final class ReceivingController
     // ------------------------------------------------------------------------------------------
 
     /**
-     * The receipt's page: the editor for its creator while it is a draft, else the read-only view; also after a refused form (the
-     * error shown, answered under its status). $extra: typed, q, choices, packs, importErrors, skipped.
+     * The delivery's page: the one page (onePage()) for someone who receives goods while it is a draft, else the read-only view; also after a
+     * refused form (the error shown, answered under its status). $extra: typed, q, choices, packs, price, importErrors, skipped, from, open,
+     * ready.
      *
      * @param array<string, mixed> $extra
      */
@@ -609,7 +1078,9 @@ final class ReceivingController
         $me = $ctx->me();
         $gr = $svc->header($doc->id) ?? [];
         $canPost = Documents::mayPost($me->roles, 'GRN');
-        $editor = $doc->status === 'draft' && $canPost && $doc->createdBy === $me->id;
+        // Goods in on one page (docs/decisions.md GV2): a delivery not booked in yet is the one page for everyone who receives goods (its
+        // keyer changes everything; the others check it, set its supplier invoice and book it in); the others look at its read-only page.
+        $onePage = $doc->status === 'draft' && $canPost;
         $plan = $doc->status === 'draft' ? $svc->plan($doc->id) : null;
         $supplier = $db->one('SELECT id, code, name, status FROM supplier WHERE id = ?', [(int) ($gr['supplier_id'] ?? 0)]) ?? [];
         $supplierName = (string) ($supplier['name'] ?? '');
@@ -670,43 +1141,8 @@ final class ReceivingController
             'invoicePart' => (int) ($gr['invoice_part'] ?? 1),
             // --- end of pack PO
         ];
-        if ($editor) {
-            $poLines = [];
-            if ($data['po'] !== null) {
-                foreach ($db->all("SELECT pl.line_no, dl.qty, pl.received_units, s.code, s.name FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id "
-                    . "AND dl.line_no = pl.line_no LEFT JOIN sku s ON s.id = dl.sku_id WHERE pl.document_id = ? AND pl.kind = 'item' ORDER BY pl.line_no", [(int) $data['po']['id']]) as $p) {
-                    $poLines[(int) $p['line_no']] = Words::say('RECEIPT', 'po_line_option', (int) $p['line_no'], (string) ($p['name'] ?? $p['code']),
-                        max(0, (int) $p['qty'] - (int) $p['received_units']));
-                }
-            }
-            $noLines = $lines === [];
-            $linked = false;
-            foreach ($lines as $l) {
-                $linked = $linked || $l['po_line_no'] !== null;
-            }
-            $orders = $linked ? [] : $svc->receivableOrders((int) ($gr['supplier_id'] ?? 0));
-            if ($data['po'] !== null && !$linked && !in_array((int) $data['po']['id'], array_map(static fn (array $o): int => (int) $o['id'], $orders), true)) {
-                // The order it names, even when it expects nothing any more (closed, received): the select must not drop it unseen.
-                array_unshift($orders, ['id' => (int) $data['po']['id'], 'number' => $data['po']['number'], 'outstanding' => 0]);
-            }
-            $data += [
-                'editable' => self::editorFits(count($lines)),
-                'maxLines' => self::editorMaxLines(),
-                'typed' => $extra['typed'] ?? [],
-                'choices' => $extra['choices'] ?? null,
-                'q' => $extra['q'] ?? '',
-                'packs' => (int) ($extra['packs'] ?? 1),
-                'price' => (string) ($extra['price'] ?? ''),
-                'stamp' => $svc->deskStamp($doc->id),
-                'refusedPost' => $error !== null && is_array($error->detail['problems'] ?? null),
-                'reaches' => self::reaches($this->receiptSites($ctx)),
-                'poLines' => $poLines,
-                'suppliers' => $noLines ? $db->all("SELECT id, code, name, status FROM supplier WHERE status <> 'inactive' ORDER BY name, id") : [],
-                'orders' => $orders,
-                'linked' => $linked,
-                'modeChoices' => GoodsReceipts::MODE_CHOICES,
-            ];
-            return $ctx->page('receipt_edit', $data, $status, ['title' => $data['title'], 'active' => 'receiving', 'notice' => $notice]);
+        if ($onePage) {
+            return $this->onePage($ctx, $doc, $data, $status, $error, $notice, $extra);
         }
         $data['canSetInvoice'] = $canPost && $doc->status === 'draft' && $doc->createdBy !== $me->id;
         // --- Pack C: the invoices that bill this delivery, and "Book its invoice" (the quick way) while units are left to invoice.
@@ -714,6 +1150,178 @@ final class ReceivingController
         // --- Pack J (docs/decisions.md PJ14): a receipt made from an invoice names it, says what it did not bring, and claims it.
         $data['arrivalBox'] = ArrivalsController::receiptBox($ctx, $doc->id, $doc->status);
         return $ctx->page('receipt', $data + $this->viewData($ctx, $doc), $status, ['title' => $data['title'], 'active' => 'receiving', 'notice' => $notice]);
+    }
+
+    /**
+     * The delivery on ONE page (the owner's approved design of 29 Oct 2026, Main and GI_Phone; docs/decisions.md GV2-GV7): its board state
+     * in the head with "More" (copy the order, import the supplier's sheet, cancel: the keyer's), the progress strip (lines, checked, problems,
+     * items in), the details (the keyer's fields, or the supplier invoice and the paperwork for someone else), the scan box, the lines as a
+     * board (packs in, items, the check and the duty stamp as solid cells, "All fine" / "Problem" / "Open", the problem panel on the row), the
+     * prices fold for the buying desk (invoices.view), photos and papers, the note, "Before it can be booked in" and the sticky bar. Lines are
+     * shown a page at a time when they do not fit max_input_vars (GV7).
+     *
+     * @param array<string, mixed> $data page()'s
+     * @param array<string, mixed> $extra
+     */
+    private function onePage(Context $ctx, Document $doc, array $data, int $status, ?CwException $error, ?string $notice, array $extra): HtmlResponse
+    {
+        $svc = $ctx->goodsReceipts();
+        $db = $ctx->db;
+        $me = $ctx->me();
+        $gr = $data['gr'];
+        $plan = $data['plan'];
+        $all = $data['lines'];
+        $keyer = $doc->createdBy === $me->id;
+        $prices = $me->can('invoices.view');
+        if (!$prices && $plan !== null) {
+            // Goods in never sees a price (GV6): the warnings about one (a line at £0) are the buying desk's.
+            $plan['warnings'] = array_values(array_filter($plan['warnings'], static fn (string $w): bool => !str_contains($w, '£')));
+            $data['plan'] = $plan;
+        }
+        $count = count($all);
+        $size = self::pageSize($keyer);
+        $from = $count <= $size ? 1 : max(1, min($count, (int) ($extra['from'] ?? UiRequest::id($ctx->req->param('from') ?? '') ?? 1)));
+        $page = array_slice($all, $from - 1, $size, true);
+        $stamps = $svc->benchStamps($doc->id);
+        $typed = $extra['typed'] ?? [];
+        $open = (int) ($extra['open'] ?? 0);
+        // Each line's codes (the scan box finds its line by them), its check, its duty answer, what was ordered, its stamps.
+        $codes = [];
+        $skus = array_values(array_unique(array_map(static fn (array $l): int => (int) $l['sku_id'], $page)));
+        if ($skus !== []) {
+            foreach ($db->all('SELECT sku_id, barcode FROM sku_barcode WHERE is_usable = 1 AND sku_id IN (' . implode(', ', array_fill(0, count($skus), '?')) . ') ORDER BY sku_id, barcode',
+                $skus) as $b) {
+                $codes[(int) $b['sku_id']][] = (string) $b['barcode'];
+            }
+        }
+        $rows = [];
+        foreach ($page as $no => $l) {
+            $stampReq = (bool) $l['stamp_req'];
+            $rows[$no] = $l + [
+                'check' => self::lineCheck($l, $stampReq),
+                'duty' => $stampReq ? self::dutyAnswer($l) : 'not_needed',
+                'ordered' => self::ordered($l, $plan['lines'][$no]['po_line'] ?? null),
+                'accepted' => (int) ($l['split']['accepted'] ?? 0),
+                'identity' => $stamps['identity'][$no] ?? '',
+                'was' => ($stamps['lines'][$no] ?? '') . '.' . self::answersFp(self::drawnAnswers($l, $stampReq)),
+                'codes' => implode(' ', array_filter([(string) $l['sku_code'], (string) ($l['supplier_code'] ?? ''), ...($codes[(int) $l['sku_id']] ?? [])])),
+                // The panel opens on the line a refusal names, a line with something to settle, and a line typed in before a refusal.
+                'open' => $open === $no || $l['problems'] !== [] || self::typedProblem($typed, $no),
+            ];
+        }
+        $checked = count(array_filter($all, static fn (array $l): bool => $l['checked_at'] !== null));
+        $problemLines = count(array_filter($all, static fn (array $l): bool => $l['checked_at'] !== null && self::lineCheck($l, (bool) $l['stamp_req']) === 'problem'));
+        $linked = false;
+        foreach ($all as $l) {
+            $linked = $linked || $l['po_line_no'] !== null;
+        }
+        $orders = [];
+        if ($keyer && !$linked) {
+            $orders = $svc->receivableOrders((int) ($gr['supplier_id'] ?? 0));
+            if ($data['po'] !== null && !in_array((int) $data['po']['id'], array_map(static fn (array $o): int => (int) $o['id'], $orders), true)) {
+                // The order it names, even when it expects nothing any more (closed, received): the select must not drop it unseen.
+                array_unshift($orders, ['id' => (int) $data['po']['id'], 'number' => $data['po']['number'], 'outstanding' => 0]);
+            }
+        }
+        $poLines = [];
+        if ($keyer && $prices && $data['po'] !== null) {
+            foreach ($db->all("SELECT pl.line_no, dl.qty, pl.received_units, s.code, s.name FROM po_line pl JOIN document_line dl ON dl.document_id = pl.document_id "
+                . "AND dl.line_no = pl.line_no LEFT JOIN sku s ON s.id = dl.sku_id WHERE pl.document_id = ? AND pl.kind = 'item' ORDER BY pl.line_no", [(int) $data['po']['id']]) as $p) {
+                $poLines[(int) $p['line_no']] = Words::say('RECEIPT', 'po_line_option', (int) $p['line_no'], (string) ($p['name'] ?? $p['code']),
+                    max(0, (int) $p['qty'] - (int) $p['received_units']));
+            }
+        }
+        $todayUk = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d');
+        $hasInvoice = (bool) ($plan['header']['has_invoice_file'] ?? false);
+        $benchState = (string) $data['benchState'];
+        $state = match ($benchState) {
+            'done' => 'ready',
+            'refused' => 'refused',
+            'todo' => 'todo',
+            default => 'checking',
+        };
+        $arrival = ArrivalsController::receiptBox($ctx, $doc->id, $doc->status);
+        return $ctx->page('receipt_edit', $data + [
+            'keyer' => $keyer,
+            'prices' => $prices,
+            'rows' => $rows,
+            'count' => $count,
+            'from' => $from,
+            'pageSize' => $size,
+            'paged' => $count > $size,
+            'state' => $state,
+            'progress' => ['lines' => $count, 'checked' => $checked, 'problems' => $problemLines, 'in' => (int) ($plan['totals']['accepted'] ?? 0),
+                'of' => (int) ($plan['totals']['units'] ?? 0)],
+            'left' => $count - $checked,
+            'typed' => $typed,
+            'choices' => $extra['choices'] ?? null,
+            'q' => $extra['q'] ?? '',
+            'packs' => (int) ($extra['packs'] ?? 1),
+            'price' => (string) ($extra['price'] ?? ''),
+            'stamp' => $svc->deskStamp($doc->id),
+            'benchWas' => $stamps['checklist'] . '.' . (($gr['paperwork_ok'] ?? null) === null ? '' : (string) (int) $gr['paperwork_ok']) . '.'
+                . self::answersFp([trim((string) ($gr['bench_note'] ?? ''))]),
+            'invWas' => $keyer ? null : self::answersFp(self::invoiceAnswers(['invoice_number' => $doc->externalRef, 'invoice_date' => $gr['invoice_date'] ?? null,
+                'delivery_note' => $gr['delivery_note'] ?? null])),
+            'refusedPost' => ($extra['ready'] ?? false) || ($error !== null && is_array($error->detail['problems'] ?? null)),
+            'reaches' => $prices ? self::reaches($this->receiptSites($ctx)) : '',
+            'poLines' => $poLines,
+            'suppliers' => $keyer && $all === [] ? $db->all("SELECT id, code, name, status FROM supplier WHERE status <> 'inactive' ORDER BY name, id") : [],
+            'orders' => $orders,
+            'linked' => $linked,
+            'modeChoices' => GoodsReceipts::MODE_CHOICES,
+            'refusal' => (bool) ($plan['header']['refusal_regime'] ?? true),
+            'receivedToday' => ($plan['header']['received_uk'] ?? $todayUk) === $todayUk,
+            'receivedDay' => (string) ($plan['header']['received_day'] ?? ''),
+            'backdated' => (bool) ($plan['header']['backdated'] ?? false),
+            'actions' => Words::UNSTAMPED_ACTION,
+            'duties' => self::DUTY_ANSWERS,
+            'fileRole' => $hasInvoice ? 'photo' : 'supplier_invoice',
+            'maxBytes' => UiRequest::MAX_UPLOAD_BYTES,
+            'arrival' => $arrival,
+            'canCopy' => $keyer && $data['po'] !== null,
+        ], $status, ['title' => $data['title'], 'active' => 'receiving', 'notice' => $notice]);
+    }
+
+    /** A line's check on the page: not checked, checked, or checked with a problem (something short, over, damaged, wrong or without a stamp). @param array<string, mixed> $l */
+    public static function lineCheck(array $l, bool $stampReq): string
+    {
+        if ($l['checked_at'] === null) {
+            return 'todo';
+        }
+        $problem = (int) $l['short_units'] + (int) $l['over_units'] + (int) $l['damaged_units'] + (int) $l['wrong_item_units'] + (int) $l['unstamped_units'] > 0
+            || ($stampReq && ($l['stamp_on_pack'] ?? null) !== null && (int) $l['stamp_on_pack'] === 0);
+        return $problem ? 'problem' : 'done';
+    }
+
+    /**
+     * What the order's line asked for, in this line's packs when it is the same pack (else in items): ['packs' => n] or ['items' => n], or
+     * null for a line not against the order.
+     *
+     * @param array<string, mixed> $l
+     * @param array<string, mixed>|null $po the plan's po_line
+     * @return array{packs?: int, items?: int}|null
+     */
+    private static function ordered(array $l, ?array $po): ?array
+    {
+        if ($po === null || ($po['kind'] ?? 'item') !== 'item') {
+            return null;
+        }
+        $upp = (int) $po['units_per_pack'];
+        $qty = (int) $po['qty'];
+        return $upp === (int) $l['units_per_pack'] && $upp > 0 && $qty % $upp === 0 ? ['packs' => intdiv($qty, $upp)] : ['items' => $qty];
+    }
+
+    /** Whether a refused form typed a problem on line $no (its panel opens again). @param array<string, mixed> $typed */
+    private static function typedProblem(array $typed, int $no): bool
+    {
+        foreach (['short', 'over', 'damaged', 'wrong', 'unstamped'] as $k) {
+            $v = trim((string) ($typed["b_{$no}_{$k}"] ?? ''));
+            if ($v !== '' && $v !== '0') {
+                return true;
+            }
+        }
+        return ($typed["b_{$no}_duty"] ?? null) === 'none';
     }
 
     /**
@@ -811,77 +1419,6 @@ final class ReceivingController
             $ctx->db->all('SELECT code, name, mode, site_writer FROM channel WHERE id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') ORDER BY id', $ids));
     }
 
-    /**
-     * The bench check of one receipt: a page of BENCH_PAGE lines (`?from=`), each a card with the duty stamp check and the
-     * exceptions, and the delivery's checklist; the photo upload. Drafts only.
-     *
-     * @param array<string, mixed> $extra typed
-     */
-    public function benchPage(Context $ctx, int $id, int $status, ?CwException $error, ?string $notice = null, array $extra = []): HtmlResponse
-    {
-        $doc = $ctx->documents()->find($id);
-        if ($doc === null || $doc->docType !== 'GRN' || $doc->reversesId !== null) {
-            return $ctx->error(404, 'unknown_receipt', Words::RECEIPT_ERROR['unknown_receipt']);
-        }
-        if ($doc->status !== 'draft') {
-            return HtmlResponse::redirect('/ui/receiving/' . $doc->id);
-        }
-        $svc = $ctx->goodsReceipts();
-        $gr = $svc->header($doc->id) ?? [];
-        $plan = $svc->plan($doc->id);
-        $all = $this->lineRows($ctx, $doc->id, $plan);
-        $supplier = $ctx->db->one('SELECT id, code, name, status FROM supplier WHERE id = ?', [(int) ($gr['supplier_id'] ?? 0)]) ?? [];
-        $products = self::products($all);
-        $from = max(1, UiRequest::id($ctx->req->param('from') ?? $ctx->req->field('from')) ?? 1);
-        $page = array_slice($all, $from - 1, self::BENCH_PAGE, true);
-        foreach ($page as &$l) {
-            $l['problems'] = ReceiptWords::plain(array_map('strval', $l['problems']), $products, (string) ($supplier['name'] ?? ''));
-        }
-        unset($l);
-        $barcodes = [];
-        $skus = array_values(array_unique(array_map(static fn (array $l): int => (int) $l['sku_id'], $page)));
-        if ($skus !== []) {
-            foreach ($ctx->db->all('SELECT sku_id, barcode, units_per_scan FROM sku_barcode WHERE is_usable = 1 AND sku_id IN (' . implode(', ', array_fill(0, count($skus), '?')) . ') '
-                . 'ORDER BY sku_id, units_per_scan, barcode', $skus) as $b) {
-                $barcodes[(int) $b['sku_id']]['labels'][] = (int) $b['units_per_scan'] > 1
-                    ? Words::say('BENCH', 'barcode_case', (string) $b['barcode'], (int) $b['units_per_scan']) : (string) $b['barcode'];
-                $barcodes[(int) $b['sku_id']]['codes'][] = (string) $b['barcode'];
-            }
-        }
-        $stamps = $svc->benchStamps($doc->id);
-        $todayUk = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d');
-        $cutoff = $plan['header']['cutoff'];
-        return $ctx->page('receipt_bench', [
-            'doc' => $doc,
-            'gr' => $gr,
-            'stamps' => $stamps,
-            'title' => Words::say('BENCH', 'title', (string) ($supplier['name'] ?? '')),
-            'arrivedWhen' => Html::when((string) $gr['received_at']),
-            'receivedDay' => $plan['header']['received_day'],
-            'receivedToday' => $plan['header']['received_uk'] === $todayUk,
-            'cutoffDay' => $cutoff === null ? null : ReceiptPlan::day((string) $cutoff),
-            'lastDay' => $cutoff === null ? null : ReceiptPlan::day((new \DateTimeImmutable((string) $cutoff))->modify('-1 day')->format('Y-m-d')),
-            'supplier' => $supplier,
-            'lines' => $page,
-            'count' => count($all),
-            'from' => $from,
-            'pageSize' => self::BENCH_PAGE,
-            'barcodes' => $barcodes,
-            'plan' => $plan,
-            'typed' => $extra['typed'] ?? [],
-            'error' => $error === null ? null : self::plain($error),
-            'refusal' => $plan['header']['refusal_regime'],
-            'cutoff' => $cutoff,
-            'actions' => Words::UNSTAMPED_ACTION,
-            'stampTypes' => Words::STAMP_TYPE,
-            'photoRoles' => ['photo' => Words::RECEIPT_FILE['photo'], 'evidence' => Words::RECEIPT_FILE['evidence'], 'delivery_note' => Words::RECEIPT_FILE['delivery_note']],
-            'photos' => self::fileRows($ctx->db->all("SELECT f.id, f.original_name, f.mime, f.size_bytes, df.role, df.attached_at FROM document_file df JOIN stored_file f ON f.id = df.file_id "
-                . "WHERE df.document_id = ? AND df.role IN ('photo', 'evidence', 'delivery_note') ORDER BY df.attached_at, f.id", [$doc->id])),
-            'checkedBy' => ($gr['checked_by'] ?? null) === null ? null : $ctx->db->value('SELECT display_name FROM staff_user WHERE id = ?', [(int) $gr['checked_by']]),
-            'maxMb' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
-        ], $status, ['title' => Words::say('BENCH', 'title', (string) ($supplier['name'] ?? '')), 'active' => 'bench', 'notice' => $notice]);
-    }
-
     /** What each file of a delivery is (the upload's choice; the words of GoodsReceipts::FILE_ROLES). */
     public const FILE_ROLE_LABELS = Words::RECEIPT_FILE;
     /** Why a line gives its product that selling mode (the words of SellingModes' sources). */
@@ -900,7 +1437,8 @@ final class ReceivingController
         $x = [];
         return match (true) {
             // The page's own refusals are made in words already.
-            in_array($code, ['scan_pending', 'not_found', 'import_refused', 'choose_supplier', 'reason_required'], true) => $e->getMessage(),
+            in_array($code, ['scan_pending', 'not_found', 'import_refused', 'choose_supplier', 'reason_required', 'fine_needs_stamp', 'fine_no_stamp', 'not_booked'], true)
+                => $e->getMessage(),
             $code === 'version_conflict' && (in_array($e->getMessage(), [Words::RECEIPT_ERROR['version_conflict'], Words::RECEIPT_ERROR['version_conflict_choice']], true)
                 || str_starts_with($e->getMessage(), (string) strstr(Words::RECEIPT_ERROR['version_conflict_bench'], '(', true))) => $e->getMessage(),
             $code === 'version_conflict' => Words::RECEIPT_ERROR['version_conflict_choice'],
@@ -1149,20 +1687,26 @@ final class ReceivingController
     }
 
     /**
-     * The editor's lines with the table's edits applied (rows 1..$count): packs (0 removes the line), pack price, units per pack (a
-     * line without a supplier item), PO line, selling mode, note.
+     * The delivery's lines with the edits of the page's rows applied (rows $from..$to; the other pages' lines as they are, GV7): packs (0
+     * removes the line), pack price, units per pack (a line without a supplier item), PO line, selling mode, note. A field the page did
+     * not draw (the prices, for someone who does not see them) keeps the line's value.
      *
      * @param list<array<string, mixed>> $current
      * @return list<array<string, mixed>>
      */
-    private static function editedLines(UiRequest $req, array $current, int $count): array
+    private static function editedLines(UiRequest $req, array $current, int $count, int $from = 1, ?int $to = null): array
     {
         if ($count !== count($current)) {
             throw new CwException('version_conflict', 'the lines changed since this page was drawn', 409);
         }
+        $to ??= $count;
         $out = [];
         foreach ($current as $i => $l) {
             $n = $i + 1;
+            if ($n < $from || $n > $to) {
+                $out[] = $l;
+                continue;
+            }
             $p = PoLinesFile::wholeNumber(trim($req->field("line_{$n}_packs") ?? ''));
             if ($p === null) {
                 throw new CwException('bad_line', "line {$n}, packs: a whole number (0 removes the line)", 422, ['line' => $n]);
@@ -1224,24 +1768,38 @@ final class ReceivingController
         return \CW\Clock::fromDb($dbTime)->setTimezone(new \DateTimeZone('Europe/London'))->format('Y-m-d\TH:i');
     }
 
-    /** @return array{state: ?string, supplier: ?int, q: string} */
+    /** @return array{state: ?string, supplier: ?int, q: string, show: string} */
     private static function filters(UiRequest $req): array
     {
+        $state = in_array($req->param('state'), self::STATE_FILTERS, true) ? $req->param('state') : null;
+        $show = in_array($req->param('show'), self::SHOWS, true) ? (string) $req->param('show') : '';
         return [
-            'state' => in_array($req->param('state'), self::STATE_FILTERS, true) ? $req->param('state') : null,
+            'state' => $state,
             'supplier' => UiRequest::id($req->param('supplier')),
             'q' => mb_substr(trim($req->param('q') ?? ''), 0, 100),
+            // An old link's state (Home's cards: checked, refused, posted ...) looks at every delivery of that state, not only today's.
+            'show' => $show === '' && $state !== null ? 'all' : $show,
         ];
     }
 
     /**
-     * @param array{state: ?string, supplier: ?int, q: string} $f
+     * The deliveries of the board, newest first (LIST_LIMIT): today and open = every draft and what was booked in today (UK day); all;
+     * the cancelled ones. The search finds the number, the supplier invoice, the order, the supplier and a scanned delivery note.
+     *
+     * @param array{state: ?string, supplier: ?int, q: string, show: string} $f
      * @return list<array<string, mixed>>
      */
     private function rows(Context $ctx, array $f): array
     {
         $where = ["d.doc_type = 'GRN'", 'd.reverses_id IS NULL'];
         $params = [];
+        if ($f['show'] === '') {
+            $midnight = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->setTime(0, 0);
+            $where[] = "(d.status = 'draft' OR (d.status IN ('posted', 'awaiting_approval') AND d.posted_at >= ?))";
+            $params[] = \CW\Clock::db($midnight);
+        } elseif ($f['show'] === 'cancelled') {
+            $where[] = "d.status = 'cancelled'";
+        }
         if ($f['state'] === 'checked') {
             // Checked at the bench, not booked in yet: the paperwork looks right and every line is checked (Home's "to book in").
             $where[] = "d.status = 'draft' AND g.paperwork_ok = 1 AND EXISTS (SELECT 1 FROM grn_line l WHERE l.document_id = d.id) "
@@ -1259,19 +1817,21 @@ final class ReceivingController
         }
         if ($f['q'] !== '') {
             $like = '%' . addcslashes($f['q'], '%_\\') . '%';
-            $where[] = '(d.number LIKE ? OR d.external_ref LIKE ? OR p.number LIKE ?)';
-            array_push($params, $like, $like, $like);
+            $where[] = '(d.number LIKE ? OR d.external_ref LIKE ? OR p.number LIKE ? OR s.name LIKE ? OR g.delivery_note LIKE ?)';
+            array_push($params, $like, $like, $like, $like, $like);
         }
-        $rows = $ctx->db->all(
-            'SELECT d.id, d.number, d.status, d.review_state, d.external_ref, g.received_at, g.paper_sheet, g.checked_at, g.paperwork_ok, s.code AS supplier_code, '
-            . 's.name AS supplier_name, (SELECT COUNT(*) FROM grn_line l WHERE l.document_id = d.id AND l.checked_at IS NOT NULL) AS checked_lines, '
-            . 'p.number AS po_number, u.display_name AS created_by_name, (SELECT COUNT(*) FROM document_line l WHERE l.document_id = d.id) AS `lines`, '
-            . '(SELECT COALESCE(SUM(l.qty), 0) FROM document_line l WHERE l.document_id = d.id) AS units, '
+        return $ctx->db->all(
+            'SELECT d.id, d.number, d.status, d.review_state, d.external_ref, d.posted_at, g.received_at, g.paper_sheet, g.checked_at, g.paperwork_ok, g.delivery_note, '
+            . 's.code AS supplier_code, s.name AS supplier_name, (SELECT COUNT(*) FROM grn_line l WHERE l.document_id = d.id AND l.checked_at IS NOT NULL) AS checked_lines, '
+            . '(SELECT COUNT(*) FROM grn_line l WHERE l.document_id = d.id AND l.checked_at IS NOT NULL AND (l.short_units + l.over_units + l.damaged_units '
+            . '+ l.wrong_item_units + l.unstamped_units > 0 OR l.stamp_on_pack = 0)) AS problem_lines, '
+            . 'p.number AS po_number, u.display_name AS created_by_name, pb.display_name AS posted_by_name, '
+            . '(SELECT COUNT(*) FROM document_line l WHERE l.document_id = d.id) AS `lines`, (SELECT COALESCE(SUM(l.qty), 0) FROM document_line l WHERE l.document_id = d.id) AS units, '
             . "(SELECT COUNT(*) FROM incident i WHERE i.document_id = d.id AND i.status = 'open') AS open_incidents "
             . 'FROM document d JOIN goods_receipt g ON g.document_id = d.id JOIN supplier s ON s.id = g.supplier_id LEFT JOIN document p ON p.id = g.po_document_id '
-            . 'LEFT JOIN staff_user u ON u.id = d.created_by WHERE ' . implode(' AND ', $where) . ' ORDER BY d.id DESC LIMIT ' . self::LIST_LIMIT,
+            . 'LEFT JOIN staff_user u ON u.id = d.created_by LEFT JOIN staff_user pb ON pb.id = d.posted_by WHERE ' . implode(' AND ', $where)
+            . ' ORDER BY d.id DESC LIMIT ' . self::LIST_LIMIT,
             $params,
         );
-        return $rows;
     }
 }

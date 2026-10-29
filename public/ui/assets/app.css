@@ -2368,3 +2368,114 @@ details.lq-menu > summary::before { content: "\22EF"; content: "\22EF" / ""; }
 details.lq-menu > summary:hover { background: var(--page-alt); color: var(--ink); }
 details.lq-menu[open] { display: block; margin: 8px 0 0; }
 details.lq-menu form.record { margin-top: 8px; max-width: 22rem; }
+
+/* ==== gi-one-page (Goods in on ONE page: the owner's approved design of 29 Oct 2026, GI_List / Main / GI_Phone; docs/decisions.md GV) ====
+   The board is the shared one of pi-design (.doc-group, .doc-board's coloured edge, td.doc-st, .doc-meter); the delivery's head, strip and
+   bar are .doc-head, .doc-progress and .doc-bar. Here only what Goods in adds: the purple "being checked" bar, the details in three columns
+   (two on a tablet, one on a phone), the big scan box, the lines' solid check and duty-stamp cells (the duty answer a select inside its
+   cell), the row's buttons, the problem panel on its own row (closed until asked: with the script .open, without it :target), the prices
+   fold, the photo tiles and the note; on a phone each line is a card with its check's colour on a 6 px left edge, 48 px "All fine" and
+   "Problem", the problem fields two a row. CW tokens only. */
+.doc-meter progress.review::-webkit-progress-value { background: var(--st-purple); }
+.doc-meter progress.review::-moz-progress-bar { background: var(--st-purple); }
+.gi-progress .gi-warn { color: var(--sf-amber-ink); }
+.gi-progress .doc-step-big .muted { font: 400 13px/20px var(--font); }
+/* The details */
+.gi-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 24px; align-items: start; margin: 0; padding: 20px 24px; }
+@media (max-width: 899.98px) { .gi-details { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 639.98px) { .gi-details { grid-template-columns: minmax(0, 1fr); padding: 16px; } }
+.gi-details > label, .gi-details > .doc-field { margin: 0; min-width: 0; }
+.gi-details .gi-label { color: var(--ink); font: 500 13px/20px var(--font); }
+.gi-details .gi-fixed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 44px; color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+.gi-details label.choice { font-weight: 400; }
+.gi-details details.gi-more-details { grid-column: 1 / -1; margin: 0; padding: 0; border: 0; border-top: 1px solid var(--divider); border-radius: 0; background: none; }
+.gi-details details.gi-more-details > summary { min-height: 44px; color: var(--accent-hover); }
+.gi-more-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 12px 24px; padding: 0 0 8px; }
+.gi-more-grid .gi-wide { grid-column: 1 / -1; margin: 0; }
+/* The scan box over the lines */
+.gi-lines-card { padding: 0; overflow: hidden; }
+.gi-scan { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: flex-end; padding: 16px 20px; background: var(--page-alt); border-bottom: 1px solid var(--hairline); }
+.gi-scan .gi-scan-box { flex: 1 1 20rem; min-width: 0; }
+.gi-scan input[type="search"] { width: 100%; min-height: 48px; font-size: 16px; }
+.gi-scan .gi-scan-packs, .gi-scan .gi-scan-price { flex: 0 1 8rem; }
+.gi-scan input[type="number"], .gi-scan input[type="text"] { min-height: 48px; text-align: right; }
+.gi-scan .btn { min-height: 48px; }
+.gi-scan .gi-said { flex: 1 1 100%; margin: 0; }
+.gi-scan .gi-said:empty { display: none; }
+.gi-lines-card > .choices, .gi-lines-card > .gi-page, .gi-lines-card > .hint { margin: 16px 20px; }
+.gi-lines-card > .table-wrap { margin: 16px; }
+/* The lines */
+table.gi-lines th, table.gi-lines td { vertical-align: middle; }
+table.gi-lines td.doc-st { padding: 6px 8px; }
+table.gi-lines tbody tr:hover > td.doc-st { background: var(--t-fill, var(--st-grey)); }
+table.gi-lines td.gi-duty select {
+  width: 100%; min-height: 34px; padding: 4px 8px; border: 1px solid rgba(255, 255, 255, .6); border-radius: var(--r-8);
+  background-color: transparent; color: inherit; font: 600 13px/18px var(--font);
+}
+table.gi-lines td.gi-duty select option { color: var(--ink); background: var(--card); }
+table.gi-lines td.num input.short { width: 5.5rem; }
+table.gi-lines .gi-upp { display: grid; gap: 2px; margin: 4px 0 0; color: var(--ink-muted); font: 400 12px/16px var(--font); justify-items: end; }
+table.gi-lines .gi-findings { color: var(--sf-amber-ink); }
+table.gi-lines .gi-acts { white-space: nowrap; text-align: right; }
+table.gi-lines tr.gi-row.found > * { background: var(--accent-soft); }
+table.gi-lines tr.gi-row:has(+ tr.gi-panel.open) > *, table.gi-lines tr.gi-row:has(+ tr.gi-panel:target) > :not(.doc-st) { background: var(--warn-row); }
+/* The problem panel: its own row under its line, closed until asked */
+tr.gi-panel { display: none; }
+tr.gi-panel:target, tr.gi-panel.open { display: table-row; }
+tr.gi-panel > td { height: auto; padding: 4px 16px 18px; background: var(--warn-row); font-weight: 400; }
+tbody tr.gi-panel:hover > * { background: var(--warn-row); }
+.gi-mini { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.gi-mini input { text-align: right; }
+.gi-panel-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 12px 0 0; }
+.gi-panel-row > label, .gi-panel-row > .gi-what { flex: 1 1 14rem; margin: 0; }
+.gi-panel-row .gi-what { display: flex; gap: 6px; align-items: flex-end; }
+.gi-panel-row .gi-what > label { flex: 1 1 auto; }
+.gi-panel-row .gi-proof { flex: 2 1 20rem; }
+.gi-panel-row .gi-note { flex: 2 1 18rem; margin: 0; }
+.gi-panel-row > label.btn { flex: none; }
+.gi-panel-row > label.gi-ok { flex: none; min-height: 44px; }
+.gi-panel [hidden] { display: none; }
+.gi-overok { margin: 10px 0 0; }
+/* Prices and selling (the buying desk), the photos and papers, the note, before it can be booked in */
+details.gi-prices { margin: 0 16px 16px; }
+details.gi-prices > .muted { margin: 0 0 12px; }
+details.gi-prices .table-wrap { margin: 0 0 12px; }
+.gi-foot { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 20px; align-items: start; }
+.gi-foot > .card { display: grid; gap: 12px; margin: 0; }
+.gi-foot h2 { margin: 0; font: 600 16px/24px var(--font); color: var(--ink); }
+.gi-foot h2 label { font: inherit; }
+.gi-thumbs { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.gi-thumb {
+  display: grid; align-content: center; gap: 2px; width: 104px; min-height: 72px; padding: 8px; border: 1px solid var(--hairline); border-radius: var(--r-10);
+  background: var(--page-alt); color: var(--ink-muted); font: 400 11px/14px var(--font); text-align: center; text-decoration: none; overflow-wrap: anywhere;
+}
+.gi-thumb .gi-thumb-what { color: var(--ink); font-weight: 600; }
+.gi-add { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.gi-add > label { flex: 1 1 12rem; min-width: 0; }
+.gi-note-card textarea { width: 100%; min-height: 72px; }
+details.gi-ready { margin: 0; }
+.doc-bar-note { color: var(--ink-muted); font: 400 13px/20px var(--font); }
+@media (max-width: 699.98px) { .doc-bar > .doc-bar-note { flex: 1 1 100%; order: -1; text-align: center; } }
+/* A phone: each line a card with its check's colour on the left edge, the check beside the name, big buttons, the panel under it */
+@container (max-width: 640px) {
+  table.stack.gi-lines tr.gi-row { grid-template-columns: minmax(0, 1fr) auto; border-left: 6px solid var(--t-fill, var(--st-grey)); }
+  table.stack.doc-lines.gi-lines tr.gi-row > th.c-head { grid-column: 1; }
+  table.stack.doc-lines.gi-lines tr.gi-row > td.gi-check { grid-column: 2; grid-row: 1; justify-self: end; align-self: start; }
+  table.stack.doc-lines.gi-lines tr.gi-row > td.num[data-label] { grid-column: 1 / -1; grid-template-columns: minmax(6.5rem, 38%) minmax(0, 1fr); text-align: left; }
+  table.stack.doc-lines.gi-lines tr.gi-row > td.num[data-label] > * { grid-column: 2; }
+  table.stack.gi-lines td.num input.short { width: 100%; min-height: 48px; font-size: 16px; }
+  table.stack.gi-lines tr.gi-row > td.gi-duty { grid-column: 1 / -1; grid-row: auto; justify-self: stretch; display: grid; grid-template-columns: minmax(6.5rem, 38%) minmax(0, 1fr);
+    gap: 12px; align-items: center; margin: 4px 0; }
+  table.stack.gi-lines tr.gi-row > td.gi-duty::before { color: inherit; }
+  table.stack.gi-lines tr.gi-row > td.gi-duty select { min-height: 44px; }
+  table.stack.gi-lines .gi-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; grid-column: 1 / -1; }
+  table.stack.gi-lines .gi-acts .btn { width: 100%; min-height: 48px; font-size: 15px; }
+  table.stack.gi-lines .gi-acts .btn:only-child { grid-column: 1 / -1; }
+  table.stack.gi-lines tr.gi-panel { display: none; }
+  table.stack.gi-lines tr.gi-panel:target, table.stack.gi-lines tr.gi-panel.open { display: grid; }
+  table.stack.gi-lines tr.gi-panel { margin-top: -10px; border-top: 0; border-radius: 0 0 var(--r-12) var(--r-12); border-left: 6px solid var(--st-amber); background: var(--warn-row); }
+  table.stack.gi-lines .gi-mini { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  table.stack.gi-lines .gi-mini input, table.stack.gi-lines .gi-panel-row input, table.stack.gi-lines .gi-panel-row select { min-height: 48px; font-size: 16px; }
+  table.stack.gi-lines .gi-panel-row > label.btn { flex: 1 1 100%; min-height: 48px; }
+}
+/* ==== end gi-one-page ================================================================================================================ */

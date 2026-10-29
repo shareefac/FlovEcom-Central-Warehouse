@@ -42,7 +42,7 @@ final class Words
         'CARD_FIELD', 'CARDS', 'CARD_STATE', 'CARD', 'CARD_ERROR', 'CARD_NOTICE', 'CARD_IMPORT', 'BARCODE', 'BARCODE_SOURCE', 'BARCODE_REASON', 'BARCODE_DECISION',
         'SELLING', 'SELLING_NOTICE', 'SITE_SYNC', 'SELLING_ERROR', 'MODE_MEANING', 'RECEIPT_STATE', 'BENCH_STATE', 'INCIDENT_WHERE',
         'INCIDENT_KIND', 'INCIDENT_STATE', 'RECEIPT_FILE', 'STAMP_TYPE', 'UNSTAMPED_ACTION', 'MODE_SOURCE', 'RECEIVING', 'RECEIPT', 'BENCH', 'INCIDENTS',
-        'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN', 'CONFIG', 'CONFIG_ACTION', 'CONFIG_ERROR', 'SETTING_EDIT', 'SETTING_NOTICE',
+        'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN', 'GI', 'GI_STATE', 'GI_CHECK', 'GI_DUTY', 'CONFIG', 'CONFIG_ACTION', 'CONFIG_ERROR', 'SETTING_EDIT', 'SETTING_NOTICE',
         'APPROVALS', 'REASONS_EDIT', 'REASON_NOTICE', 'WAREHOUSES', 'WHY_NOT_EMPTY', 'WAREHOUSE_NOTICE', 'MODE', 'SITES', 'SITE_COMMAND', 'INTEGRITY', 'AUDIT',
         'AUDIT_RECORD', 'AUDIT_FAMILY', 'AUDIT_ACTION', 'PERMISSION', 'ACCESS', 'ENROL', 'SHEET', 'STAFF_REQUESTS', 'RULE', 'NEW_CODE', 'RESET_KIND',
         'COUNTS', 'COUNT_GROUP', 'COUNT_SHEET_GROUP', 'COUNT_KIND', 'COUNT_REVIEW', 'COUNT_REVIEW_HELP', 'COUNT_SHOW', 'COUNT_LINE', 'COUNT_CHECK', 'COUNT_BAD',
@@ -342,7 +342,7 @@ final class Words
     /** A page's create button (Sections::MAP `new`): a verb that names the result. */
     public const NEW = [
         'orders' => 'New purchase order',
-        'receiving' => 'Receive delivery',
+        'receiving' => 'New delivery',
         'suppliers' => 'New supplier',
         'people' => 'New user',
         'warehouses' => 'New warehouse',
@@ -619,7 +619,7 @@ final class Words
         'series' => ['Each kind of record has its own numbers (PO-000001, PO-000002 …), with no gaps.', ''],
         'people' => ['Everyone who can use this system and what they may do.', 'Tap a name to change their access.'],
         'person' => ['What this person may do, and their history.', 'Tick their jobs and press Save, or stop them signing in.'],
-        'receiving' => ['Each delivery from a supplier, booked in against its supplier invoice.', 'Start a new delivery below, or open one to see where it is.'],
+        'receiving' => ['Each delivery from a supplier, booked in against its supplier invoice.', 'Receive an order when it arrives, or open a delivery to check it.'],
         'receipt_draft' => ['A delivery being keyed: what the supplier invoice says arrived.',
             'Add the products, attach the invoice, and book it in once the goods-in bench has checked it.'],
         'receipt_other' => ['A delivery someone else is keying.', 'You can check it at the goods-in bench, set its supplier invoice, and book it in.'],
@@ -8093,6 +8093,178 @@ final class Words
         'attach' => 'Attach',
     ];
 
+    /**
+     * Goods in on ONE page (the owner's approved design of 29 Oct 2026; docs/decisions.md GV): the board of deliveries (receipts.php) and one
+     * delivery with its check on one page (receipt_edit.php). Short words; a delivery's numbers are "items" (U85).
+     */
+    public const GI = [
+        // The board.
+        'search' => 'Scan a delivery note, or search supplier or order',
+        'show' => 'Show',
+        'show_open' => 'Today and open',
+        'show_all' => 'All deliveries',
+        'show_cancelled' => 'Cancelled',
+        'show_button' => 'Show',
+        'clear' => 'Clear',
+        'group_arriving' => 'Arriving',
+        'group_checking' => 'Being checked',
+        'group_ready' => 'Ready to book in',
+        'group_today' => 'Booked in today',
+        'group_booked' => 'Booked in',
+        'group_cancelled' => 'Cancelled',
+        'orders_one' => '1 order expected',
+        'orders_many' => '%s orders expected',
+        'deliveries_one' => '1 delivery',
+        'deliveries_many' => '%s deliveries',
+        'col_order' => 'Order',
+        'col_delivery' => 'Delivery',
+        'col_status' => 'Status',
+        'col_supplier' => 'Supplier',
+        'col_expected' => 'Expected',
+        'col_arrived' => 'Arrived',
+        'col_checked' => 'Checked',
+        'col_booked_by' => 'Booked in by',
+        'col_items' => 'Items',
+        'col_action' => 'Action',
+        'to_come' => '%s still to come',
+        'no_order' => 'no order',
+        'invoice_no' => 'invoice %s',
+        'draft_name' => 'Delivery %s',
+        'lines_of' => '%s / %s lines',
+        'problems_one' => '1 problem',
+        'problems_many' => '%s problems',
+        'receive' => 'Receive',
+        'today' => 'today',
+        'none' => 'Nothing arriving or being checked',
+        'none_text' => 'Orders on their way show here, then each delivery while it is checked and booked in.',
+        'none_filter' => 'No delivery matches',
+        'none_filter_text' => 'Change the search or Show, or clear them.',
+        'limit' => 'Only the newest %s are shown: search to narrow them.',
+        // One delivery: the head and the progress strip.
+        'from_po' => 'from %s',
+        'strip' => 'How far it got',
+        'strip_lines' => 'Lines',
+        'strip_checked' => 'Checked',
+        'strip_of' => 'of %s',
+        'strip_problems' => 'Problems',
+        'strip_in' => 'Items in',
+        // The details.
+        'details' => 'The delivery',
+        'supplier' => 'Supplier',
+        'from_order' => 'From order',
+        'no_order_choice' => 'No order',
+        'order_option' => '%s · %s still to come',
+        'arrived' => 'Arrived',
+        'delivery_note' => 'Delivery note number',
+        'invoice' => 'Supplier\'s invoice number',
+        'invoice_hint' => 'If it came in the box',
+        'paperwork' => 'Paperwork',
+        'paperwork_unchecked' => 'Not checked yet',
+        'paperwork_yes' => 'Matches the boxes',
+        'paperwork_no' => 'Does not match: do not book it in',
+        'against_invoice' => 'Against the arriving invoice',
+        'more_details' => 'More details',
+        // The scan box.
+        'scan' => 'Scan a barcode or type a name',
+        'scan_find' => 'Scan a box',
+        'scan_placeholder' => 'Scan here to add or find a line',
+        'find_placeholder' => 'Scan the barcode to jump to its line',
+        'packs' => 'Packs',
+        'price' => 'Price a pack (£, optional)',
+        'add' => 'Add',
+        'found' => 'Line %s: %s',
+        'not_here' => 'Not on this delivery: %s',
+        // The lines.
+        'lines' => 'Products on this delivery',
+        'col_item' => 'Item',
+        'col_ordered' => 'Ordered',
+        'col_packs' => 'Packs in',
+        'col_check' => 'Check',
+        'col_duty' => 'Duty stamp',
+        'line_n' => 'line %s',
+        'ordered_items' => '%s items',
+        'of_items' => 'of %s',
+        'upp' => 'Items a pack',
+        'all_fine' => 'All fine',
+        'problem' => 'Problem',
+        'open' => 'Open',
+        'fine_label' => 'Line %s: all fine',
+        'problem_label' => 'Line %s: a problem',
+        'open_label' => 'Line %s: open',
+        'needs_stamp' => 'Choose the duty stamp first.',
+        // The problem panel.
+        'checked_box' => 'Checked',
+        'short' => 'Short',
+        'over' => 'Over',
+        'damaged' => 'Damaged',
+        'wrong' => 'Wrong item',
+        'unstamped' => 'No duty stamp',
+        'what' => 'What to do with the items without a stamp',
+        'what_choose' => 'Choose',
+        'code' => 'Stamp code (scan it)',
+        'note' => 'Note',
+        'photo' => 'Take a photo',
+        'photo_of' => 'Line %s',
+        'evidence' => 'The supplier\'s proof they were made or imported before 1 Oct 2026',
+        'over_ok' => 'The extra number is right (more than the whole line)',
+        // Prices and selling (the buying desk only).
+        'prices' => 'Prices and selling (buying desk)',
+        'prices_value' => 'Value of this delivery: %s.',
+        'col_price' => 'Price a pack (£)',
+        'col_value' => 'Value',
+        'col_order_line' => 'Order line',
+        'col_selling' => 'Selling mode when booked in',
+        'col_stock' => 'In stock now',
+        // Photos, papers and the note.
+        'files' => 'Photos and papers',
+        'files_none' => 'No photos or papers yet.',
+        'file_add' => 'Add a photo or a paper (PDF, JPEG or PNG, at most %s MB)',
+        'file_what' => 'What it is',
+        'note_title' => 'Note',
+        'note_hint' => 'Anything the team should know',
+        // The bar.
+        'left_one' => '1 line still to check',
+        'left_many' => '%s lines still to check',
+        'left_none' => 'Every line is checked',
+        'save' => 'Save',
+        'book' => 'Book in %s items',
+        'book_one' => 'Book in 1 item',
+        'next' => 'Save and show the next %s lines',
+        'page_n' => 'Lines %s to %s of %s',
+        // More.
+        'more_copy' => 'Copy the order\'s lines still to come',
+        'more_import' => 'Import the supplier\'s sheet',
+        'more_cancel' => 'Cancel this delivery',
+    ];
+
+    /** Where a delivery is on the Goods in board (ReceivingController::BOARD_STATES). */
+    public const GI_STATE = [
+        'todo' => 'Not started',
+        'checking' => 'Being checked',
+        'refused' => 'Paperwork not right',
+        'ready' => 'Ready to book in',
+        'posted' => 'Booked in',
+        'reversed' => 'Taken back',
+        'cancelled' => 'Cancelled',
+    ];
+
+    /** A line's check on the delivery's page. */
+    public const GI_CHECK = [
+        'todo' => 'Not checked',
+        'done' => 'Checked',
+        'problem' => 'Problem',
+    ];
+
+    /** A line's duty stamp answer (ReceivingController::DUTY_ANSWERS), and the line that needs none. */
+    public const GI_DUTY = [
+        'unchecked' => 'Not checked',
+        'digital' => 'Digital stamp',
+        'transitional' => 'Transitional stamp',
+        'yes' => 'On the pack (kind not said)',
+        'none' => 'No stamp',
+        'not_needed' => 'Not needed',
+    ];
+
     /** The incident register (incidents.php). */
     public const INCIDENTS = [
         'show' => 'Show',
@@ -8179,11 +8351,17 @@ final class Words
         'bench_the_delivery' => 'the delivery',
         'bench_except' => ', except on %s, whose product or quantity changed',
         'form_truncated' => 'The form arrived incomplete, so nothing was saved. Reload the page and try again.',
-        'form_truncated_lines' => 'The form arrived incomplete (%s lines sent, %s arrived), so nothing was saved. A delivery of more than about %s lines is changed '
-            . 'with the sheet import.',
+        'form_truncated_lines' => 'The form arrived incomplete (%s lines sent, %s arrived), so nothing was saved. Reload the page: it shows at most %s lines at a time.',
         'not_ready_one' => 'Not booked in: 1 thing must be settled first. It is listed under "Before it can be booked in".',
+        // Goods in on one page (docs/decisions.md GV3, GV4): "Book in" is the save, then the booking; "All fine" needs the duty answer.
+        'saved_not_booked_one' => 'Saved. Not booked in yet: 1 thing must be settled first. It is listed under "Before it can be booked in".',
+        'saved_not_booked' => 'Saved. Not booked in yet: %s things must be settled first. They are listed under "Before it can be booked in".',
+        'saved_not_booked_lead' => 'Saved. Not booked in yet:',
+        'saved_not_booked_changed' => 'Saved. Not booked in: someone changed this delivery a moment ago. Check it and book it in again.',
+        'fine_needs_stamp' => 'Line %s: choose which duty stamp is on the pack, then press All fine. Nothing was saved.',
+        'fine_no_stamp' => 'Line %s has no duty stamp, so it is not all fine: press Problem and write how many items have none. Nothing was saved.',
         'not_ready' => 'Not booked in: %s things must be settled first. They are listed under "Before it can be booked in".',
-        'not_creator' => 'Only the person who keyed this delivery changes its products. The goods-in bench writes what it finds on the bench check page. Nothing '
+        'not_creator' => 'Only the person who keyed this delivery changes its products and its details. Anyone who receives goods checks it on its page. Nothing '
             . 'was changed.',
         'not_draft' => 'Nothing was changed: this delivery is not being keyed any more (it was booked in or cancelled meanwhile).',
         'receipt_has_lines' => 'Not saved: the supplier changes only while the delivery has no products, and the purchase order only while no line is against it. '
@@ -11047,6 +11225,10 @@ final class Words
         'CARD_STATE' => ['none' => 'waiting', 'unconfirmed' => 'needs', 'changed' => 'needs', 'confirmed' => 'done', 'warned' => 'needs', 'blocked' => 'blocked'],
         'RECEIPT_STATE' => ['draft' => 'needs', 'awaiting_approval' => 'review', 'posted' => 'done', 'reversed' => 'off', 'cancelled' => 'off'],
         'BENCH_STATE' => ['todo' => 'needs', 'part' => 'needs', 'done' => 'done', 'refused' => 'blocked'],
+        // Goods in on one page (docs/decisions.md GV1): the board's colours of the approved canvas.
+        'GI_STATE' => ['todo' => 'waiting', 'checking' => 'review', 'refused' => 'blocked', 'ready' => 'needs', 'posted' => 'done', 'reversed' => 'off', 'cancelled' => 'off'],
+        'GI_CHECK' => ['todo' => 'waiting', 'done' => 'done', 'problem' => 'needs'],
+        'GI_DUTY' => ['unchecked' => 'waiting', 'digital' => 'done', 'transitional' => 'done', 'yes' => 'done', 'none' => 'blocked', 'not_needed' => 'off'],
         'INCIDENT_STATE' => ['open' => 'needs', 'resolved' => 'done', 'dismissed' => 'off'],
         'MODE' => ['off' => 'off', 'shadow' => 'waiting', 'live' => 'done'],
         // The lists of matches as v4 colours them: strong green, likely orange, new product blue, not sure purple, clues disagree red.

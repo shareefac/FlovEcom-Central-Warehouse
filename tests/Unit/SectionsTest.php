@@ -322,7 +322,7 @@ final class SectionsTest extends TestCase
         // PO on one page (docs/decisions.md PX1): "New purchase order" opens the page itself, not a fold of the list.
         self::assertSame([['label' => 'New purchase order', 'href' => '/ui/purchasing/orders/new'], ['label' => 'New supplier', 'href' => '/ui/purchasing/suppliers/new']],
             Sections::frame(['buyer'], [], '/ui/purchasing/orders')['actions'], 'the page\'s own first, then the section\'s others (the split button\'s menu)');
-        self::assertSame(['New purchase order', 'Receive delivery', 'New supplier invoice', 'New credit note', 'New return to a supplier', 'New supplier'],
+        self::assertSame(['New purchase order', 'New delivery', 'New supplier invoice', 'New credit note', 'New return to a supplier', 'New supplier'],
             array_column(Sections::frame(['purchasing_manager'], [], '/ui/purchasing/orders')['actions'], 'label'), 'pack C\'s papers among them');
         self::assertSame([], Sections::frame(['buyer'], [], '/ui/purchasing/reorder')['actions'], 'no create action of its own: no toolbar button');
         self::assertSame([], Sections::frame(['buyer'], [], '/ui/purchasing/orders/12')['actions']);
@@ -335,7 +335,7 @@ final class SectionsTest extends TestCase
         self::assertSame(['invoices', 'invoices'], [Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['here']['tab'] ?? null,
             Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['here']['page'] ?? null], 'it keeps Invoices marked');
         self::assertTrue(Sections::frame(['buyer'], [], '/ui/purchasing/orders')['pagebar']['flow'], 'the buying flow on Purchasing');
-        self::assertSame([['label' => 'Receive delivery', 'href' => '/ui/receiving#new']], Sections::frame(['goods_in'], [], '/ui/receiving')['actions']);
+        self::assertSame([['label' => 'New delivery', 'href' => '/ui/receiving#new']], Sections::frame(['goods_in'], [], '/ui/receiving')['actions']);
         self::assertSame(['/ui/people#new', '/ui/reference/warehouses#new', '/ui/reference/reasons#new'], array_column(Sections::frame(['admin'], [], '/ui/people')['actions'], 'href'));
         self::assertSame([], Sections::frame(['auditor'], [], '/ui/people')['actions']);
         self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register', 'Arriving'], array_column(Sections::frame(['goods_in'], ['incidents_open' => 1], '/ui/receiving/12/bench')['segments'], 'label')); // Pack J: Arriving

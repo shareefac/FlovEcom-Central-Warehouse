@@ -703,7 +703,7 @@ Document and file tests notes:
 | Lines table | `table.stack.list.board.doc-lines` | headings in `thead`; numbers `.num`; `.o-sub` the line under a cell; the last row `tr.grp-add` adds a line |
 | Under the lines | `.doc-foot` | notes/files left (`.doc-notes`), totals right |
 | Totals block | partial `doc_totals` (`label`, `rows`: label + value, `grand`, or `input` name/id/value) → `section.doc-totals` | right-aligned, `max-width` 24rem; inside the order's summary it is a `div.doc-totals` |
-| Action bar (bottom) | partial `doc_bar` (`back`, `buttons`: value, label, primary) → `div.doc-bar` | sticky at the bottom of its form; on a phone it replaces the tab bar; "Leave without saving" first, the primary button last |
+| Action bar (bottom) | partial `doc_bar` (`back`, `buttons`: value, label, primary, optional `name`; optional `note` + `noteData`: a short line of what is left, GV2) → `div.doc-bar` | sticky at the bottom of its form; on a phone it replaces the tab bar; "Leave without saving" first, the primary button last |
 | Status pill | `.chip` via `$chip` / `$stateChip` | the one status-to-colour mapping (`Ui\Html::chip`) |
 | Clean list | `table.stack.list.doc-list` with `a.row-link` in the number's cell | the whole row opens the document; in a card the number and pill come first |
 | Document view | `article.doc-view` + partial `doc_party` (`party`: label, name, href, lines; `facts`: label, value, href) → `.doc-meta` | the other party's block beside the facts |
@@ -789,6 +789,25 @@ The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shar
 - Tests: `tests/Integration/UiKernel/CountsScreensTest.php`, `OpFinalScreensTest::testTheCountReviewButtonSavesTheQuantitiesTypedFirst`,
   `UiUnitTest::testTheCountPagesFollowTheApprovedDesign`, `CountWordsTest`. The board's open form is `$r->form('/ui/stock/counts')` (`csrf`,
   `form_key`, `warehouse`, `q`, `n`, `mode`); the sheet's `$r->form('<sheet>/lines')`; "Save and next item" posts `next=<line>`.
+
+### Goods in on one page (`docs/decisions.md` GV1-GV10)
+
+| Path | What |
+|---|---|
+| `src/Ui/Controller/ReceivingController.php` | `index()` the board (`boardGroups()`, `arriving()`, `screenRow()`'s `board_state`; `SHOWS`, `BOARD`, `BOARD_STATES`); `page()` hands a draft to `onePage()` for every holder of `doc.GRN.post`; `lines()` the one form (`saveAll()` in one transaction: `saveDraft`, `setInvoice`, `bench`, `attach`, add; `bookIn()` after the commit; `stale()`; `answers()` / `drawnAnswers()` / `answersFp()`: a line written only when touched); `pageSize()` (`ONE_FIXED_FIELDS`, `ONE_DESK_FIELDS`, `ONE_BENCH_FIELDS`, from `max_input_vars`); `DUTY_ANSWERS`, `dutyAnswer()`, `lineCheck()` |
+| views `receipts` (the board), `receipt_edit` (the one page), `gi_more` (its More), `doc_bar` (`note`, `noteData`), `bench_list` (opens the page) | `receipt_bench` is gone |
+| `src/Ui/Words.php` | `GI` (the board and the page), `GI_STATE`, `GI_CHECK`, `GI_DUTY` (+ their `TONE`), `RECEIPT_ERROR` `saved_not_booked*`, `fine_needs_stamp`, `fine_no_stamp`; `NEW receiving` "New delivery" |
+| `public/ui/assets/app.css` | block "gi-one-page": `.gi-details` (3 / 2 / 1 columns), `.gi-scan`, `table.gi-lines` (`td.gi-check`, `td.gi-duty` with its select, `.gi-acts`), `tr.gi-panel` (closed; `:target` / `.open`), `.gi-mini`, `.gi-panel-row`, `.gi-prices`, `.gi-foot`, `.gi-thumbs`, `.doc-meter progress.review`, `.doc-bar-note`; phone: `table.stack.gi-lines tr.gi-row` cards with the 6 px edge |
+| `public/ui/assets/app.js` | the Goods in block: `a[data-gi-panel]`, `button[data-gi-fine]` (+ `b_<n>_fine`), `select[data-gi-duty]`, `[data-gi-left]`, `#gi-scan`, `label[data-gi-photo]`, `[data-unstamped-only]` in a panel |
+
+- The one form's fields: `csrf`, `version`, `page=one`, `line_count`, `lines_editable`, `from`, `page_count`, `stamp` (desk stamp),
+  `bench_was` (checklist stamp . drawn paperwork . note fingerprint), `inv_was` (someone else's invoice fingerprint), `header_present` (the
+  keyer); per line `line_<n>_packs|upp|price|po|mode|note` (the keyer's; price, po and mode only with `invoices.view`) and
+  `b_<n>_present|was|fine|ok|duty|code|short|over|overok|damaged|wrong|unstamped|action|evidence`; `fine=<n>` (the row's button), `next=1`,
+  `action` (`add`, `save`, `post`), `file` + `file_role` + `photo_line`. In a kernel test: `$page->form("/ui/receiving/{$id}/lines", true)`.
+- Tests: `tests/Integration/UiKernel/GoodsInOnePageScreensTest.php`, `ReceivingScreensTest`, `UiUnitTest::testTheGoodsInPagesFollowTheApprovedDesign`,
+  `ReceivingWordsTest`. The script in node: `/root/cw_work/runs/gione_js_harness/` (outside the repo; copy into `tools/gione_js/` for a
+  run through the slot runner with `/root/poone_js/node`, and remove it).
 
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 

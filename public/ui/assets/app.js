@@ -1446,76 +1446,190 @@
     });
   });
 
-  // The bench: find a line by scanning its barcode (or typing a code): it is highlighted and its "checked" box focused. "Not on this
-  // page" comes from the field's data-not-here (Words::BENCH, %s = what was scanned).
-  var find = document.getElementById('bench-find');
-  if (find) {
-    var result = document.getElementById('bench-find-result');
-    var norm = function (v) { v = String(v || '').trim().toLowerCase(); return /^[0-9]+$/.test(v) ? v.replace(/^0+/, '') : v; };
-    find.addEventListener('keydown', function (ev) {
+  // Goods in on one page (docs/decisions.md GV): the script only fills the page's one form and shows what it did; every press works
+  // without it (the row's "All fine" sends the form, "Problem" is a link to its panel row, opened by CSS :target).
+  var giTones = ['waiting', 'done', 'needs', 'blocked', 'review', 'info', 'off'];
+  var giTone = function (el, tone) {
+    if (!el) { return; }
+    giTones.forEach(function (t) { el.classList.remove(t); });
+    el.classList.add(tone);
+  };
+  var giPanel = function (no) { return document.getElementById('gi-p-' + no); };
+  var giOpen = function (no, open) {
+    var panel = giPanel(no);
+    if (!panel) { return; }
+    panel.classList.toggle('open', open);
+    each(document.querySelectorAll('a[data-gi-panel][aria-controls="gi-p-' + no + '"]'), function (a) { a.setAttribute('aria-expanded', open ? 'true' : 'false'); });
+  };
+  // What to do with the items without a stamp (and the supplier's proof) is asked only when some have none, or the pack has no stamp.
+  var giStampOnly = function (no) {
+    var panel = giPanel(no);
+    var row = document.getElementById('line-' + no);
+    if (!panel) { return; }
+    var count = panel.querySelector('input[data-unstamped]');
+    var duty = row ? row.querySelector('select[data-gi-duty]') : null;
+    var some = (count && parseInt(count.value, 10) > 0) || (duty && duty.value === 'none');
+    each(panel.querySelectorAll('[data-unstamped-only]'), function (el) { el.hidden = !some; });
+  };
+  // "N lines still to check" in the bar follows the ticks of this page (the server's figure counts every page).
+  var giLeft = document.querySelector('[data-gi-left]');
+  var giStart = {};
+  each(document.querySelectorAll('tr.gi-row[data-gi-line]'), function (row) {
+    var no = row.getAttribute('data-gi-line');
+    var box = document.querySelector('input[name="b_' + no + '_ok"]');
+    giStart[no] = !!(box && box.checked);
+    giStampOnly(no);
+  });
+  var giCount = function () {
+    if (!giLeft) { return; }
+    var left = parseInt(giLeft.getAttribute('data-gi-left'), 10) || 0;
+    Object.keys(giStart).forEach(function (no) {
+      var box = document.querySelector('input[name="b_' + no + '_ok"]');
+      var now = !!(box && box.checked);
+      if (now && !giStart[no]) { left--; }
+      if (!now && giStart[no]) { left++; }
+    });
+    left = Math.max(0, left);
+    giLeft.textContent = left === 0 ? (giLeft.getAttribute('data-none') || '') : left === 1 ? (giLeft.getAttribute('data-one') || '')
+      : (giLeft.getAttribute('data-many') || '%s').replace('%s', String(left));
+  };
+  each(document.querySelectorAll('tr.gi-panel input[type="checkbox"]'), function (box) {
+    if (/^b_[0-9]+_ok$/.test(box.name)) { box.addEventListener('change', giCount); }
+  });
+  // "Problem" / "Open": the panel opens on its row (the address does not change).
+  each(document.querySelectorAll('a[data-gi-panel]'), function (a) {
+    a.addEventListener('click', function (ev) {
+      var no = (a.getAttribute('aria-controls') || '').replace('gi-p-', '');
+      var panel = giPanel(no);
+      if (!panel) { return; }
+      ev.preventDefault();
+      var open = !panel.classList.contains('open');
+      giOpen(no, open);
+      if (open) {
+        var first = panel.querySelector('input:not([type="hidden"]), select, textarea');
+        if (first) { first.focus(); }
+      }
+    });
+  });
+  // "All fine": the line ticked with no problem, in the page (nothing is sent until Save or Book in). A duty line needs its stamp
+  // answer first; "No stamp" is a problem, so its panel opens instead.
+  each(document.querySelectorAll('button[data-gi-fine]'), function (b) {
+    b.addEventListener('click', function (ev) {
+      var no = b.getAttribute('data-gi-fine');
+      var row = document.getElementById('line-' + no);
+      var box = document.querySelector('input[name="b_' + no + '_ok"]');
+      var mark = document.querySelector('input[name="b_' + no + '_fine"]');
+      if (!row || !box || !mark) { return; }
+      ev.preventDefault();
+      var duty = row.querySelector('select[data-gi-duty]');
+      if (duty && duty.value === '') {
+        duty.focus();
+        window.alert(b.getAttribute('data-needs-stamp') || 'Choose the duty stamp first.');
+        return;
+      }
+      if (duty && duty.value === 'none') {
+        giOpen(no, true);
+        var count = giPanel(no) && giPanel(no).querySelector('input[data-unstamped]');
+        if (count) { count.focus(); }
+        return;
+      }
+      ['short', 'over', 'damaged', 'wrong', 'unstamped'].forEach(function (k) {
+        var f = document.querySelector('input[name="b_' + no + '_' + k + '"]');
+        if (f) { f.value = '0'; }
+      });
+      mark.value = '1';
+      box.checked = true;
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+      var cell = row.querySelector('td.gi-check');
+      giTone(cell, 'done');
+      giTone(row, 'done');
+      if (cell) { cell.textContent = cell.getAttribute('data-words') || cell.textContent; }
+      giOpen(no, false);
+      giStampOnly(no);
+    });
+  });
+  // The duty stamp answer colours its cell; "No stamp" opens the panel (count the items without one).
+  each(document.querySelectorAll('select[data-gi-duty]'), function (s) {
+    s.addEventListener('change', function () {
+      var row = s.closest ? s.closest('tr.gi-row') : null;
+      var no = row ? row.getAttribute('data-gi-line') : null;
+      giTone(s.parentNode, s.value === '' ? 'waiting' : s.value === 'none' ? 'blocked' : 'done');
+      if (no && s.value === 'none') { giOpen(no, true); }
+      if (no) { giStampOnly(no); }
+    });
+  });
+  // A problem typed in a panel after "All fine" (or its tick taken off) is what is sent: the line is not "all fine" any more.
+  each(document.querySelectorAll('tr.gi-panel'), function (panel) {
+    var no = panel.id.replace('gi-p-', '');
+    var unmark = function (ev) {
+      var mark = document.querySelector('input[name="b_' + no + '_fine"]');
+      var t = ev.target;
+      if (!mark || !t || !t.name || (t.name === 'b_' + no + '_ok' && t.checked)) { return; }
+      if (t.name.indexOf('b_' + no + '_') === 0) { mark.value = ''; }
+    };
+    panel.addEventListener('input', unmark);
+    panel.addEventListener('change', unmark);
+  });
+  each(document.querySelectorAll('tr.gi-panel input[data-unstamped]'), function (count) {
+    count.addEventListener('input', function () {
+      var panel = count.closest ? count.closest('tr.gi-panel') : null;
+      if (panel) { giStampOnly(panel.id.replace('gi-p-', '')); }
+    });
+  });
+  // "Take a photo" in a line's panel opens the form's file field (the label does that without the script); the photo is then a photo,
+  // and its note names the line.
+  each(document.querySelectorAll('label[data-gi-photo]'), function (l) {
+    l.addEventListener('click', function () {
+      var role = document.querySelector('form.gi-form select[name="file_role"]');
+      var line = document.querySelector('form.gi-form input[data-gi-photo-line]');
+      if (role) { role.value = 'photo'; }
+      if (line) { line.value = l.getAttribute('data-gi-photo') || ''; }
+    });
+  });
+  // The scan box: Enter on a code of a line of this page finds it (highlighted, its "All fine" or "Open" focused); another code is added
+  // by the keyer (the form's first button, Add), or said not to be on this delivery.
+  var giScan = document.getElementById('gi-scan');
+  if (giScan) {
+    var giSaid = document.getElementById('gi-scan-said');
+    var giNorm = function (v) { v = String(v || '').trim().toLowerCase(); return /^[0-9]+$/.test(v) ? v.replace(/^0+/, '') : v; };
+    giScan.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Enter') {
         return;
       }
-      ev.preventDefault();
-      var want = norm(find.value);
+      var want = giNorm(giScan.value);
       if (want === '') {
+        if (!giScan.hasAttribute('data-adds')) { ev.preventDefault(); }
         return;
       }
       var hit = null;
-      each(document.querySelectorAll(find.getAttribute('data-find-in') || '.bench-line'), function (card) {
-        card.classList.remove('found');
-        if (!hit && (card.getAttribute('data-codes') || '').split(/\s+/).map(norm).indexOf(want) >= 0) {
-          hit = card;
+      each(document.querySelectorAll('tr.gi-row[data-codes]'), function (row) {
+        row.classList.remove('found');
+        if (!hit && (row.getAttribute('data-codes') || '').split(/\s+/).map(giNorm).indexOf(want) >= 0) {
+          hit = row;
         }
       });
       if (hit) {
+        ev.preventDefault();
         hit.classList.add('found');
         hit.scrollIntoView({ block: 'center' });
-        var box = hit.querySelector('input[type="checkbox"]');
-        if (box) { box.focus(); }
-        if (result) { result.textContent = (hit.querySelector('h2') || hit).textContent.trim(); }
-      } else if (result) {
-        result.textContent = (find.getAttribute('data-not-here') || 'Not on this page: %s').replace('%s', find.value.trim());
+        var go = hit.querySelector('button[data-gi-fine], a[data-gi-panel]');
+        if (go) { go.focus(); }
+        var name = hit.querySelector('.o-name');
+        if (giSaid) {
+          giSaid.textContent = (giScan.getAttribute('data-found') || '%s: %s').replace('%s', hit.getAttribute('data-gi-line') || '')
+            .replace('%s', name ? name.textContent.trim() : '');
+        }
+        giScan.value = '';
+        return;
       }
-      find.value = '';
+      if (giScan.hasAttribute('data-adds')) {
+        return; // the keyer: Enter sends the form with its first button, Add
+      }
+      ev.preventDefault();
+      if (giSaid) { giSaid.textContent = (giScan.getAttribute('data-not-here') || '%s').replace('%s', giScan.value.trim()); }
+      giScan.value = '';
     });
   }
-
-  // The bench's fill buttons (they only fill the form; nothing is saved until "Save the check").
-  each(document.querySelectorAll('[data-fill-stamps]'), function (b) {
-    b.addEventListener('click', function () {
-      each(document.querySelectorAll('select[data-stamp]'), function (s) {
-        if (s.value === '') { s.value = '1'; s.dispatchEvent(new Event('change', { bubbles: true })); }
-      });
-      each(document.querySelectorAll('select[data-stamp-type]'), function (s) {
-        if (s.value === '') { s.value = 'digital'; s.dispatchEvent(new Event('change', { bubbles: true })); }
-      });
-    });
-  });
-  each(document.querySelectorAll('[data-tick-all]'), function (b) {
-    b.addEventListener('click', function () {
-      each(document.querySelectorAll('article.bench-line input[type="checkbox"][name$="_ok"]'), function (c) {
-        if (!c.checked) { c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); }
-      });
-    });
-  });
-
-  // The bench: what happens to unstamped units is asked only when some are unstamped.
-  each(document.querySelectorAll('article.bench-line'), function (card) {
-    var count = card.querySelector('input[data-unstamped]');
-    var more = card.querySelector('[data-unstamped-only]');
-    if (!count || !more) {
-      return;
-    }
-    var show = function () {
-      var v = parseInt(count.value, 10);
-      var stamp = card.querySelector('select[data-stamp]');
-      more.hidden = !(v > 0) && !(stamp && stamp.value === '0');
-    };
-    count.addEventListener('input', show);
-    card.addEventListener('change', show);
-    show();
-  });
 
   // A count sheet's lines (form[data-mark], Stock > Counts): a quantity is saved when Enter is pressed in its box (the form's own
   // button; the server keeps only the lines changed on this page). The script marks a box typed in and not saved yet, with the

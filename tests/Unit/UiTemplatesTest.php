@@ -40,7 +40,7 @@ final class UiTemplatesTest extends TestCase
             'home', 'people', 'person', 'documents', 'document', 'reviews', 'reasons', 'series', 'settings', 'suppliers', 'supplier', 'supplier_form',
             'supplier_items', 'supplier_item', 'supplier_item_form', 'purchase_orders', 'purchase_order', 'purchase_order_edit', 'reorder', 'reorder_item',
             'reorder_brands', 'reorder_anomalies', 'sales_history', 'company', 'company_form', 'duplicates', 'duplicate_group', 'item_cards', 'item_card_form',
-            'item_cards_import', 'barcode_reviews', 'cards', 'receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents',
+            'item_cards_import', 'barcode_reviews', 'cards', 'receipts', 'receipt', 'receipt_edit', 'receipt_files', 'bench_list', 'incidents',
             'setting', 'config_history', 'approvals', 'reason', 'warehouses', 'warehouse', 'sites', 'integrity', 'audit', 'access', 'staff_sheet', 'enrol',
             'staff_requests', 'new_code', 'stock', 'stock_movements', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result',
             'stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box', 'stock_reservations', 'stock_reservation', 'by_product', 'by_product_map',
@@ -262,7 +262,7 @@ final class UiTemplatesTest extends TestCase
     public function testTheDeliveryPagesTurnIntoCardsAndTakeEveryWordFromWords(): void
     {
         $templates = self::templates();
-        foreach (['receipts', 'receipt', 'receipt_edit', 'receipt_bench', 'receipt_files', 'bench_list', 'incidents', 'receipt_split'] as $name) { // receipt_split: pack PO
+        foreach (['receipts', 'receipt', 'receipt_edit', 'receipt_files', 'bench_list', 'incidents', 'receipt_split'] as $name) { // receipt_split: pack PO; receipt_edit: the one page (GV)
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {
@@ -280,8 +280,8 @@ final class UiTemplatesTest extends TestCase
         }
         // The browser's prompts of these pages come from Words too (app.js reads them from data- attributes).
         self::assertStringContainsString('data-unsaved-text=', $templates['receipt_edit.php']);
-        self::assertStringContainsString('data-unsaved-text=', $templates['receipt_bench.php']);
-        self::assertStringContainsString('data-not-here=', $templates['receipt_bench.php']);
+        self::assertStringContainsString('data-not-here=', $templates['receipt_edit.php']);
+        self::assertArrayNotHasKey('receipt_bench.php', $templates, 'the bench check is part of the one delivery page (docs/decisions.md GV2)');
         self::assertStringContainsString('data-too-big=', $templates['receipt_files.php']);
     }
 
@@ -477,7 +477,7 @@ final class UiTemplatesTest extends TestCase
         $f = Sections::frame(['goods_in'], [], '/ui/receiving');
         $one = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
             'segments' => $f['segments'], 'actions' => $f['actions'], 'flow' => null, 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringContainsString('<a class="btn primary" href="/ui/receiving#new"><span class="ico ico-plus" aria-hidden="true"></span><span>Receive delivery</span></a>', $one,
+        self::assertStringContainsString('<a class="btn primary" href="/ui/receiving#new"><span class="ico ico-plus" aria-hidden="true"></span><span>New delivery</span></a>', $one,
             'one action: the main button alone');
         self::assertStringNotContainsString('<details class="more">', $one);
         self::assertStringContainsString('<ol class="flow" aria-label="' . Words::FLOW['label'] . '">', $html);

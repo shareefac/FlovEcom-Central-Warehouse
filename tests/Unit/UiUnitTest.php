@@ -1179,6 +1179,39 @@ final class UiUnitTest extends TestCase
     }
 
     /**
+     * Goods in on one page (the owner's approved design of 29 Oct 2026, GI_List / Main / GI_Phone; docs/decisions.md GV): the board's purple
+     * checked bar, the delivery's details in three columns (one on a phone), the big scan box, the problem panel that opens on its row with
+     * the script (.open) and without it (:target), and on a phone the lines as cards with their check's colour on a 6 px left edge, 48 px
+     * "All fine" and "Problem", the problem fields two a row. The script's hooks are the page's data- attributes (it only fills the form).
+     */
+    public function testTheGoodsInPagesFollowTheApprovedDesign(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        foreach (['/^\.doc-meter progress\.review::-webkit-progress-value \{[^}]*var\(--st-purple\)/m' => 'the board\'s checked bar in purple',
+            '/^\.gi-details \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/m' => 'the details: three columns',
+            '/@media \(max-width: 639\.98px\) \{ \.gi-details \{ grid-template-columns: minmax\(0, 1fr\);/' => 'phone: one column',
+            '/^\.gi-scan input\[type="search"\] \{[^}]*min-height: 48px/m' => 'the big scan box',
+            '/^tr\.gi-panel \{ display: none; \}/m' => 'the problem panel is closed until asked',
+            '/^tr\.gi-panel:target, tr\.gi-panel\.open \{ display: table-row; \}/m' => 'Problem opens it without the script (:target) and with it (.open)',
+            '/table\.stack\.gi-lines tr\.gi-row \{[^}]*border-left: 6px solid var\(--t-fill/' => 'phone: a card with its check\'s colour on the left edge',
+            '/table\.stack\.gi-lines \.gi-acts \.btn \{[^}]*min-height: 48px/' => 'phone: big All fine and Problem',
+            '/table\.stack\.gi-lines \.gi-mini \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/' => 'phone: the problem fields two a row',
+            '/table\.stack\.gi-lines tr\.gi-panel:target, table\.stack\.gi-lines tr\.gi-panel\.open \{ display: grid; \}/' => 'phone: the open panel a card'] as $rule => $why) {
+            self::assertSame(1, preg_match($rule, $css), $why);
+        }
+        foreach (["document.querySelectorAll('button[data-gi-fine]')", "document.querySelectorAll('a[data-gi-panel]')", "document.getElementById('gi-scan')",
+            "document.querySelector('[data-gi-left]')", "document.querySelectorAll('label[data-gi-photo]')"] as $hook) {
+            self::assertStringContainsString($hook, $js, $hook);
+        }
+        // The page's own pieces close what they open (the bar, the panel row, More).
+        $src = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/receipt_edit.php');
+        foreach (['div', 'details', 'form', 'section', 'table', 'tr', 'fieldset', 'p'] as $tag) {
+            self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "receipt_edit: every <{$tag}> closed");
+        }
+    }
+
+    /**
      * One set of tabs, buttons and status parts for every page (the owner, 29 Oct 2026, looking at the item page's design: "tab change follow
      * this design pattern and button all design follow this"; the parts board TP_Parts and IT_Item; docs/decisions.md DS1-DS6), as CSS:
      * the tabs underline with a 3 px accent bar on the open tab and a count bubble that turns accent on it, 44 px to tap, one row that

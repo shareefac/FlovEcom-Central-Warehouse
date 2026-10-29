@@ -109,7 +109,8 @@ final class ReceivingScreensTest extends KernelUiTestCase
             ['Duty register', '/ui/receiving/duty', false], ['Arriving', '/ui/receiving/arriving', false]], // Pack J: Arriving
             array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($list)));
         self::assertSame(['Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($list), 'the desk has no Reorder');
-        self::assertStringContainsString(Words::RECEIVING['none'], $list->text());
+        self::assertStringContainsString(Words::GI['group_arriving'], $list->text(), 'the approved order waits in Arriving (docs/decisions.md GV1)');
+        self::assertStringContainsString((string) $po->number, $list->text());
         $form = ['po_id' => (string) $po->id, 'invoice_number' => 'SCR-001', 'copy' => '1'] + $list->form('/ui/receiving');
         $r = $desk->post('/ui/receiving', $form);
         self::assertSame(303, $r->status, $r->describe());
@@ -121,7 +122,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame(200, $ed->status, $ed->describe());
         self::assertStringContainsString(Words::RECEIPT_NOTICE['copied'], $ed->text());
         $f = $ed->form('/lines');
-        self::assertSame(['csrf', 'version', 'line_count', 'lines_editable'], array_slice(array_keys($f), 0, 4), 'version and line_count come first');
+        self::assertSame(['csrf', 'version', 'page', 'line_count', 'lines_editable'], array_slice(array_keys($f), 0, 5), 'version and line_count come first');
         self::assertSame(['1', '3', 'default', '1'], [$f['line_count'], $f['line_1_packs'], $f['line_1_mode'], $f['line_1_po']]);
         // The box's own barcode: one more box of 5 (Enter in the scan box adds and saves the table).
         $r = $desk->post("/ui/receiving/{$id}/lines", ['q' => '5012345678917', 'action' => 'add'] + $f);
@@ -141,28 +142,31 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $f = $desk->get("/ui/receiving/{$id}")->form('/lines');
         $desk->post("/ui/receiving/{$id}/lines", ['line_1_packs' => '3', 'action' => 'save'] + $f);
         $page = $desk->get("/ui/receiving/{$id}");
-        $up = $desk->postMultipart("/ui/receiving/{$id}/files", ['role' => 'supplier_invoice'] + $page->form('/files'), ['file' => ['path' => $this->pdf(), 'name' => 'SCR-001.pdf']]);
-        self::assertSame("/ui/receiving/{$id}?notice=attached", $up->location(), $up->describe());
+        // The invoice copy is a file of the one form (docs/decisions.md GV3).
+        $up = $desk->postMultipart("/ui/receiving/{$id}/lines", ['file_role' => 'supplier_invoice', 'action' => 'save'] + $page->form('/lines'),
+            ['file' => ['path' => $this->pdf(), 'name' => 'SCR-001.pdf']]);
+        self::assertStringStartsWith("/ui/receiving/{$id}?notice=saved", (string) $up->location(), $up->describe());
+        $page = $desk->get("/ui/receiving/{$id}");
 
-        // The bench, on its own screen (another person: never the reviewer of this receipt).
+        // The bench: the same page for another person (never the reviewer of this delivery).
         $bench = $this->signIn($benchUser);
         $bl = $bench->get('/ui/receiving/bench');
         self::assertSame(200, $bl->status, $bl->describe());
-        self::assertContains("/ui/receiving/{$id}/bench", $bl->hrefs());
-        $bv = $bench->get("/ui/receiving/{$id}/bench");
+        self::assertContains("/ui/receiving/{$id}", $bl->hrefs());
+        $bv = $bench->get("/ui/receiving/{$id}");
         self::assertSame(200, $bv->status, $bv->describe());
-        self::assertStringContainsString('= 15 items ' . Words::BENCH['on_paperwork'], $bv->text());
-        $bf = $bv->form("/ui/receiving/{$id}/bench", true);
-        self::assertArrayHasKey('b_1_stamp', $bf);
+        self::assertSame('15', trim((string) (new \DOMXPath($bv->dom()))->evaluate('string(//tr[@id="line-1"]/td[contains(@class, "gi-items")]/text()[1])')), '3 boxes of 5');
+        $bf = $bv->form("/ui/receiving/{$id}/lines", true);
+        self::assertArrayHasKey('b_1_duty', $bf);
         $notMine = $bench->post("/ui/receiving/{$id}/lines", ['csrf' => $this->token($bench), 'action' => 'save'] + $page->form('/lines'));
         self::assertSame(403, $notMine->status, 'only the desk person who keyed it changes its lines');
         self::assertStringContainsString(Words::RECEIPT_ERROR['not_creator'], $notMine->text());
-        $saved = $bench->post("/ui/receiving/{$id}/bench", ['paperwork_ok' => '1', 'b_1_stamp' => '1', 'b_1_type' => 'digital', 'b_1_damaged' => '2'] + $bf);
-        self::assertSame("/ui/receiving/{$id}/bench?notice=checked#line-1", $saved->location(), $saved->describe());
-        $stale = $bench->post("/ui/receiving/{$id}/bench", ['paperwork_ok' => '0', 'b_1_damaged' => '3'] + $bf);
+        $saved = $bench->post("/ui/receiving/{$id}/lines", ['paperwork_ok' => '1', 'b_1_duty' => 'digital', 'b_1_damaged' => '2', 'action' => 'save'] + $bf);
+        self::assertSame("/ui/receiving/{$id}?notice=saved#line-1", $saved->location(), $saved->describe());
+        $stale = $bench->post("/ui/receiving/{$id}/lines", ['paperwork_ok' => '0', 'b_1_damaged' => '3', 'action' => 'save'] + $bf);
         self::assertSame(409, $stale->status, 'a check drawn before the other bench save is redrawn, with what was typed');
         self::assertStringContainsString('someone saved this delivery since you opened this page', $stale->text());
-        self::assertSame(['0', '3'], [$stale->form("/ui/receiving/{$id}/bench", true)['paperwork_ok'], $stale->form("/ui/receiving/{$id}/bench", true)['b_1_damaged']]);
+        self::assertSame(['0', '3'], [$stale->form("/ui/receiving/{$id}/lines", true)['paperwork_ok'], $stale->form("/ui/receiving/{$id}/lines", true)['b_1_damaged']]);
 
         // Posted from the editor: 13 into MAIN, 2 into VERIFY, an incident; the PO part-received.
         $f = $desk->get("/ui/receiving/{$id}")->form('/lines');
@@ -242,8 +246,8 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame('2.4000', self::$db->value('SELECT pack_price FROM grn_line WHERE document_id = ?', [$id]), 'the price typed with the scan');
 
         $bench = $this->signIn($this->uiUser('goods_in'));
-        $bf = $bench->get("/ui/receiving/{$id}/bench")->form("/ui/receiving/{$id}/bench", true);
-        $b = $bench->post("/ui/receiving/{$id}/bench", ['b_1_stamp' => '1', 'b_1_type' => 'digital'] + $bf);
+        $bf = $bench->get("/ui/receiving/{$id}")->form("/ui/receiving/{$id}/lines", true);
+        $b = $bench->post("/ui/receiving/{$id}/lines", ['b_1_duty' => 'digital', 'action' => 'save'] + $bf);
         self::assertSame(303, $b->status, $b->describe());
         // The desk's form was drawn before the bench saved: saved all the same, the bench's findings kept.
         $saved = $desk->post("/ui/receiving/{$id}/lines", ['line_1_price' => '2.55', 'line_1_note' => 'per invoice', 'action' => 'save'] + $f);
@@ -253,22 +257,23 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertNotNull($row['checked_at']);
 
         // The bench draws the page; the desk then changes the quantity: the line's check is cleared, and the desk is told.
-        $bf = $bench->get("/ui/receiving/{$id}/bench")->form("/ui/receiving/{$id}/bench", true);
+        $bf = $bench->get("/ui/receiving/{$id}")->form("/ui/receiving/{$id}/lines", true);
         $q = $desk->post("/ui/receiving/{$id}/lines", ['line_1_packs' => '2', 'action' => 'save'] + $desk->get("/ui/receiving/{$id}")->form('/lines'));
         self::assertSame("/ui/receiving/{$id}?notice=saved&rc=1#scan", $q->location(), $q->describe());
         self::assertStringContainsString(Words::say('RECEIPT_ADDED', 'cleared_one', 'line 1'), $desk->follow($q)->text());
-        $stale = $bench->post("/ui/receiving/{$id}/bench", ['bench_note' => 'pallet wrapped', 'b_1_damaged' => '1'] + $bf);
+        $stale = $bench->post("/ui/receiving/{$id}/lines", ['bench_note' => 'pallet wrapped', 'b_1_damaged' => '1', 'action' => 'save'] + $bf);
         self::assertSame(409, $stale->status, $stale->describe());
         self::assertStringContainsString(Words::say('RECEIPT_ERROR', 'bench_except', 'line 1'), $stale->text());
-        $again = $stale->form("/ui/receiving/{$id}/bench", true);
+        $again = $stale->form("/ui/receiving/{$id}/lines", true);
         self::assertSame(['pallet wrapped', '0'], [$again['bench_note'], $again['b_1_damaged']], 'what was typed stays, but not on the changed line');
 
-        // The invoice set by the bench person, who did not key the receipt (its read-only page has the form).
+        // The invoice set by the bench person, who did not key the delivery: a field of their one page (GoodsReceipts::setInvoice, I172).
         $page = $bench->get("/ui/receiving/{$id}");
-        self::assertTrue($page->hasForm("/ui/receiving/{$id}/invoice"));
-        $inv = $bench->post("/ui/receiving/{$id}/invoice", ['invoice_number' => 'TOG-9'] + $page->form("/ui/receiving/{$id}/invoice"));
-        self::assertSame("/ui/receiving/{$id}?notice=invoice_set", $inv->location(), $inv->describe());
+        self::assertFalse($page->hasForm("/ui/receiving/{$id}/invoice"));
+        $inv = $bench->post("/ui/receiving/{$id}/lines", ['invoice_number' => 'TOG-9', 'action' => 'save'] + $page->form("/ui/receiving/{$id}/lines", true));
+        self::assertStringStartsWith("/ui/receiving/{$id}?notice=saved", (string) $inv->location(), $inv->describe());
         self::assertSame('TOG-9', self::$db->value('SELECT external_ref FROM document WHERE id = ?', [$id]));
+        self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM audit_log WHERE action = 'grn.invoice' AND entity_id = ?", [(string) $id]));
         self::assertFalse($desk->get("/ui/receiving/{$id}")->hasForm("/ui/receiving/{$id}/invoice"), 'the keyer sets it in the editor');
     }
 
@@ -298,10 +303,9 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame(1, (int) self::$db->value('SELECT COUNT(*) FROM grn_line WHERE document_id = ?', [$id]), 'nothing replaced');
 
         // Post it (invoice, bench by the same person: allowed, it is the review that needs another), then reverse it.
-        $up = $desk->postMultipart("/ui/receiving/{$id}/files", ['role' => 'supplier_invoice'] + $bad->form('/files'), ['file' => ['path' => $this->pdf(), 'name' => 'inv.pdf']]);
+        $up = $desk->postMultipart("/ui/receiving/{$id}/lines", ['file_role' => 'supplier_invoice', 'paperwork_ok' => '1', 'fine' => '1'] + $bad->form('/lines'),
+            ['file' => ['path' => $this->pdf(), 'name' => 'inv.pdf']]);
         self::assertSame(303, $up->status, $up->describe());
-        $bv = $desk->get("/ui/receiving/{$id}/bench");
-        $desk->post("/ui/receiving/{$id}/bench", ['paperwork_ok' => '1', 'b_1_ok' => '1'] + $bv->form("/ui/receiving/{$id}/bench"));
         $r = $desk->post("/ui/receiving/{$id}/lines", ['action' => 'post'] + $desk->get("/ui/receiving/{$id}")->form('/lines'));
         self::assertSame("/ui/receiving/{$id}?notice=posted", $r->location(), $r->describe());
         $view = $desk->follow($r);
@@ -401,7 +405,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $accountant = $this->signIn($accountantUser, $this->browser('198.51.100.76'));
         $r = $desk->post('/ui/receiving', ['po_id' => (string) $po->id, 'invoice_number' => 'PLAIN-1', 'copy' => '1'] + $desk->get('/ui/receiving')->form('/ui/receiving'));
         $id = self::receiptId($r->location());
-        $desk->postMultipart("/ui/receiving/{$id}/files", ['role' => 'supplier_invoice'] + $desk->get("/ui/receiving/{$id}")->form('/files'),
+        $desk->postMultipart("/ui/receiving/{$id}/lines", ['file_role' => 'supplier_invoice', 'action' => 'save'] + $desk->get("/ui/receiving/{$id}")->form('/lines'),
             ['file' => ['path' => $this->pdf(), 'name' => 'PLAIN-1.pdf']]);
         $draftTitle = Words::say('RECEIPT', 'title_draft', 'Plain Delivery Supplies');
         $card = static fn (UiResponse $home, string $key): ?int => ($c = (new \DOMXPath($home->dom()))->query("//*[@data-card='{$key}']")) !== false && $c->length > 0
@@ -412,7 +416,6 @@ final class ReceivingScreensTest extends KernelUiTestCase
             [$desk, '/ui/receiving', Words::MENU['receiving'], 'receiving', false],
             [$desk, "/ui/receiving/{$id}", $draftTitle, 'receipt_draft', false],
             [$bench, '/ui/receiving/bench', Words::MENU['bench'], 'bench', false],
-            [$bench, "/ui/receiving/{$id}/bench", Words::say('BENCH', 'title', 'Plain Delivery Supplies'), 'receipt_bench', false],
             [$bench, "/ui/receiving/{$id}", $draftTitle, 'receipt_other', false],
             [$reviewer, '/ui/receiving', Words::MENU['receiving'], 'receiving', true],
             [$controller, "/ui/receiving/{$id}", $draftTitle, 'receipt_other', true],
@@ -426,15 +429,15 @@ final class ReceivingScreensTest extends KernelUiTestCase
 
         // The bench first says the paperwork is not right: the desk's Home asks it to cancel the delivery (the list's "refused" filter),
         // and the bench's card stops counting it. The bench then says it was wrong and checks it again (below).
-        $refused = $bench->post("/ui/receiving/{$id}/bench", ['paperwork_ok' => '0'] + $bench->get("/ui/receiving/{$id}/bench")->form("/ui/receiving/{$id}/bench"));
+        $refused = $bench->post("/ui/receiving/{$id}/lines", ['paperwork_ok' => '0', 'action' => 'save'] + $bench->get("/ui/receiving/{$id}")->form("/ui/receiving/{$id}/lines", true));
         self::assertSame(303, $refused->status, $refused->describe());
         self::assertSame([null, 1, null], [$card($desk->get('/ui/'), 'bench'), $card($desk->get('/ui/'), 'bench_refused'), $card($desk->get('/ui/'), 'to_post')]);
         self::assertContains("/ui/receiving/{$id}", $desk->get('/ui/receiving', ['state' => 'refused'])->hrefs());
         self::assertNotContains("/ui/receiving/{$id}", $desk->get('/ui/receiving', ['state' => 'checked'])->hrefs());
 
         // The bench checks it (2 damaged): the desk has a delivery to book in, and the list's "checked" filter shows it.
-        $bf = $bench->get("/ui/receiving/{$id}/bench")->form("/ui/receiving/{$id}/bench");
-        $saved = $bench->post("/ui/receiving/{$id}/bench", ['paperwork_ok' => '1', 'b_1_ok' => '1', 'b_1_stamp' => '1', 'b_1_type' => 'digital', 'b_1_damaged' => '2'] + $bf);
+        $bf = $bench->get("/ui/receiving/{$id}")->form("/ui/receiving/{$id}/lines", true);
+        $saved = $bench->post("/ui/receiving/{$id}/lines", ['paperwork_ok' => '1', 'b_1_ok' => '1', 'b_1_duty' => 'digital', 'b_1_damaged' => '2', 'action' => 'save'] + $bf);
         self::assertSame(303, $saved->status, $saved->describe());
         self::assertSame([null, null, 1], [$card($desk->get('/ui/'), 'bench'), $card($desk->get('/ui/'), 'bench_refused'), $card($desk->get('/ui/'), 'to_post')]);
         self::assertContains("/ui/receiving/{$id}", $desk->get('/ui/receiving', ['state' => 'checked'])->hrefs());
@@ -510,16 +513,15 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving')->form('/ui/receiving'));
         $id = self::receiptId($r->location());
         $desk->post("/ui/receiving/{$id}/lines", ['q' => 'CW-' . sprintf('%06d', $sku), 'action' => 'add'] + $desk->follow($r)->form('/lines'));
-        self::assertStringContainsString('<table class="stack list receipts board">', $desk->get('/ui/receiving')->body, 'B\'s list cards on a phone, a board on a laptop (v4)');
-        $bv = $desk->get("/ui/receiving/{$id}/bench");
-        self::assertStringContainsString('<article class="bench-line card unchecked" id="line-1" data-codes="', $bv->body);
+        self::assertStringContainsString('<table class="stack list board doc-list receipts">', $desk->get('/ui/receiving')->body, 'cards on a phone, a board on a laptop (GV1)');
+        $bv = $desk->get("/ui/receiving/{$id}");
+        self::assertStringContainsString('<tr class="gi-row waiting" id="line-1" data-codes="', $bv->body);
         self::assertStringContainsString('inputmode="numeric"', $bv->body, 'the count fields open the number keypad');
-        self::assertDoesNotMatchRegularExpression('/id="bench-find"[^>]*inputmode=/', $bv->body, '"Find a line" takes letters too (CW numbers, supplier codes)');
-        self::assertStringContainsString('capture="environment"', $bv->body);
+        self::assertDoesNotMatchRegularExpression('/id="gi-scan"[^>]*inputmode=/', $bv->body, 'the scan box takes letters too (CW numbers, supplier codes)');
         self::assertStringContainsString('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">', $bv->body, 'design A\'s frame');
-        self::assertStringContainsString(Words::BENCH['stamp_needed'], $bv->text());
-        self::assertStringContainsString('data-not-here="', $bv->body, 'the bench\'s "not on this page" in words, for app.js');
-        self::assertStringContainsString('<div class="actions sticky">', $desk->get("/ui/receiving/{$id}")->body, 'the editor\'s save bar stays in reach');
+        self::assertStringContainsString('<select name="b_1_duty"', $bv->body, 'a duty line asks for its stamp');
+        self::assertStringContainsString('data-not-here="', $bv->body, 'the scan box\'s "not on this delivery" in words, for app.js');
+        self::assertStringContainsString('<div class="doc-bar">', $bv->body, 'the save bar stays in reach');
     }
 
     /** One bottle scanned from a supplier of boxes: the question names the product by its name (U86), though it is not on the delivery yet. */

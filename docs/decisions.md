@@ -12778,3 +12778,133 @@ switched-off button, a blind count never shows the figure, the preview opens Mor
 hidden Save, no stock column on a blind count), `UiUnitTest::testTheCountPagesFollowTheApprovedDesign` (CSS and JS pins; the three count
 templates close every tag they open), `CountWordsTest` (`COUNT_HOW` gone, the group order). app.js checked with `node --check` on cw-test;
 not seen in a real browser.
+
+## Goods in on one page (branch `gi-one-page`, 29 Oct 2026; GV1-GV10)
+
+The owner's request of 29 Oct 2026, approved design (the canvas "CW Daily Screens": `GI_List` the Goods in board, `Main` one delivery on one
+page, `GI_Phone` checking at the bench on a phone): Goods in on ONE page, monday.com board style, like the purchase order and supplier
+invoice one-page work (PX, PV). Built from main `24b474a` in `/root/cw-gione`. Code: `ReceivingController` (the board, the one page, its one
+form), views `receipts` (the board), `receipt_edit` (the one page), `gi_more` (new: its More), `doc_bar` (an optional note), `bench_list` (its
+links); `receipt_bench` removed; `Words` `GI`, `GI_STATE`, `GI_CHECK`, `GI_DUTY`, `RECEIPT_ERROR`'s `saved_not_booked*` and `fine_*`, `NEW
+receiving` ("New delivery"); `app.css`'s block "gi-one-page"; `app.js`'s Goods in block (the old bench page's find, fill and tick code gone
+with it). No migration, no permission, no service change: `GoodsReceipts`, `ReceiptPlan`, `GoodsReceiptHandler` and their tests
+(`tests/Integration/Receiving`) are unchanged; every route stays.
+
+Before: Goods in, Start, the editor (save), attach the invoice (its own form), the bench page (save), the delivery's page, Book in: 7
+presses, 4 forms sent, 7 pages. Now: "Receive" on the board's order (or "+ New delivery"), then on one page "All fine" per line (with the
+script nothing is sent; without it each press saves) and "Book in N items", which sends the paperwork answer, the invoice number and its
+copy with it: 2 forms sent, 3 pages.
+
+**GV1. The board.** `GET /ui/receiving` is a board (PV18's shared pieces: `.doc-group` headings with their count, `.doc-board` cards with a
+6 px coloured edge, `td.doc-st` solid status cells): Arriving (blue: the open orders, approved, sent or part received, that still expect
+items and have no delivery being checked; the order's number and "N still to come", its state's own colour, the supplier, Expected (red
+when today or passed), the items to come, and for someone who receives goods a plain small "Receive": the new-delivery form's own POST with
+the order and "copy its lines", FormOnce), Being checked (purple: not started (grey cell), part checked, paperwork not right (red cell);
+"Checked" as a purple bar and "4 / 6 lines"), Ready to book in (amber: checked at the bench; "N problems" under the status when lines
+were found short, over, damaged, wrong or without a stamp), Booked in today (green; Booked in under Show "all", where a taken-back delivery
+is navy), Cancelled (navy) only under Show. One search (the number, the supplier invoice, the order, the supplier's name, a scanned
+delivery note), one Show menu (Today and open, All deliveries, Cancelled), "+ New delivery" at the toolbar's right (the section's create
+button, now worded "New delivery"; it opens the drawer `#new` with the old form: the order or the supplier, the invoice number, copy). Home's
+links (`?state=checked`, `?state=refused`) and `?supplier=` still narrow it (an old state link looks at every day, not only today). A
+group's rows are the deliveries of the board's query (300 newest, as before); the arriving orders are `receivableOrders()`'s.
+
+**GV2. One page for everyone who receives goods.** A delivery not booked in yet opens as the one page for every holder of `doc.GRN.post`
+(goods in, the purchasing desk and manager): its keyer (the creator) changes everything, as the editor let them; anyone else checks it,
+sets its supplier invoice number, delivery note and invoice date (`GoodsReceipts::setInvoice`, I172: only when changed, so only then is
+that person kept out of its review) and books it in, as the bench page and the read-only page let them; the lines' quantities, the order,
+the supplier and the arrival time are shown, not fields (sent anyway, `saveDraft` refuses them: 403 `not_creator`). Someone who only looks
+(a reviewer, the stock controller, the accountant) keeps the read-only page; so does a delivery booked in or cancelled. The old bench
+address (`GET /ui/receiving/{id}/bench`) leads to the page; the bench list (Checking) opens it. Its parts, top to bottom: the head (the
+title as before, its place on the board as a solid block, the supplier and the order, More: the keyer's "Copy the order's lines still to
+come", "Import the supplier's sheet" with the sample, "Cancel this delivery" in red last, each its own form after the page's); the progress
+strip (`.doc-progress`: Lines; Checked N of M with a purple bar; Problems, the lines checked with a problem; Items in, the items that go
+into stock of the items on the paperwork, from the plan); the details (three columns, two on a tablet, one on a phone: Supplier, From
+order, Arrived, Delivery note number, Supplier's invoice number, Paperwork (the bench's question: matches the boxes / does not match);
+"More details" folds the invoice date, the paper sheet, the reason it is keyed late (only when it arrived before the day it was started,
+or the sheet or a reason is there) and the note, open when one of them is needed); the scan box; the lines; the prices fold; photos and
+papers and the note (the bench's note, the delivery's own note being one of the rarely used fields); "Before it can be booked in" (the
+plan's problems and warnings, folded, open after a refused booking); the sticky bar (Leave without saving, "N lines still to check", Save,
+"Book in N items" the one main button; "Save and show the next N lines" when the lines are paged).
+
+**GV3. The one form, and "Book in".** One form (`POST /ui/receiving/{id}/lines`, multipart) carries everything. In ONE transaction, in this
+order: the keyer's save (`saveDraft`: the header and the lines of the page as edited), someone else's supplier invoice (`setInvoice`), the
+check (`bench()`: the lines this person touched, at their numbers after the save, and the checklist answers they changed), the file
+(`attach()`: the invoice copy, a photo, a delivery note or the duty proof; a photo taken from a line's panel names its line), then what
+was scanned or chosen (`addLine` / `addChoice`). Each service locks the delivery and checks the version the step before left; a refusal
+saves nothing and the page comes back with what was typed (the panel of the line it names open). "Book in" (`action=post`) is that save,
+committed, then `GoodsReceipts::post` with the version the save left, in the posting's own transaction: no transaction is opened around
+the posting, so its lock order (number series, the order, the stock) is the one it always had. Refused, the delivery stays a draft with
+everything saved and the page says so in plain words: "Saved. Not booked in yet: 1 thing must be settled first…" (the problems under
+"Before it can be booked in", open), "…someone changed this delivery a moment ago…" (409), else the refusal's own words; the same form sent
+twice lands on the delivery the first one booked in. A form saved on a version it was not drawn with (GV4: someone else saved meanwhile
+something this form did not change) is not booked in: the save stays and the page says "…someone changed this delivery a moment ago. Check
+it and book it in again." (409), so nothing is booked in that its person did not see (the read-only page's "Book in" sent its version too).
+Words left in the scan box refuse "Book in" before anything is saved (as before).
+(The editor's "Save and post" used to post inside the save's transaction: a refused posting threw the typed edits away.)
+
+**GV4. A line's check: touched, "All fine", stale.** A line's row carries its identity (`b_<n>_present`) and `b_<n>_was`: the bench
+stamp of the line as drawn (`benchStamps`, I175) and a fingerprint of the answers the row shows (checked, short, over, damaged, wrong, and
+for a duty line its stamp answer, code, items without a stamp, what to do, the proof). A line whose answers come back as drawn is not
+touched and never written: a save of the keyer's prices, or of another line, never writes back a line as an older page showed it, and
+never stamps a new check time on lines already checked (the bench page re-counted every ticked line on each save). A touched line is
+written as the bench page did (I168): counted when ticked or an answer changed, its count taken back when its tick is taken off. "All fine"
+is the bench's counted tick with no problem: the line ticked, short, over, damaged, wrong and without a stamp 0, what to do and the proof
+cleared, its stamp answer kept; a duty line needs that answer first (422 `fine_needs_stamp`, nothing saved) and "No stamp" is not all fine
+(422 `fine_no_stamp`: press Problem and count the items without one). Without the script it is a submit button (`fine=<n>`, the form
+saved); with it the row is ticked in the page (`b_<n>_fine`, which a problem typed in the panel afterwards takes off again). A form drawn
+before someone else's save is saved on the current version while what it changes was not changed meanwhile: the keyer's part by the desk
+stamp (I175, as the editor), someone else's supplier invoice by the fingerprint of what was drawn, the checklist by its stamp (only when
+this person changed an answer of it), each touched line by its own stamp. Otherwise it is drawn again (409) with what was typed, except on
+the lines whose product or quantity changed (the old bench's words, `version_conflict_bench` and `bench_except`); the keyer's conflict keeps
+the editor's words and drops the line rows when lines were added or removed. A line the same form changes the quantity of is counted
+again only when this person touched its check (pressed "All fine" or changed an answer) in that form; otherwise its check is cleared and
+said, as before (`rc`).
+
+**GV5. The duty stamp answer.** A duty line's Duty stamp cell is a select inside the solid cell: Not checked / Digital stamp / Transitional
+stamp / No stamp (and "On the pack (kind not said)" for a line an older check answered without the kind), sent as `stamp_on_pack` and
+`stamp_type` (`bench()` checks them as before: "No stamp" means every item that arrived is without a stamp). One choice gives both answers
+the plan asks for (`stamp_check_required`, `stamp_type_required`); the brief's "stamp type/code" panel keeps the code (scan it, Enter moves
+on). A line that needs no stamp says "Not needed" (navy). The cell's colour is the answer's (`GI_DUTY` tones; the script follows a change).
+The bench page's two fill buttons ("every duty line: digital", "tick every line") are not on the page: "All fine" is per line, the scan
+box finds the line.
+
+**GV6. Prices for the buying desk only.** "Prices and selling (buying desk)" (a fold under the lines: the price of a pack, the line's value,
+the order line, the selling mode when booked in and which websites it reaches, stock now) is drawn only for `invoices.view` (the money
+permission: the desk, buyers, managers, reviewers, the accountant and the auditor; not goods in), as fields for the keyer and as text for
+the others; its fields are sent only when drawn, and a line's field the page did not draw keeps the line's value (`editedLines`). The
+scan box's price, the added line's notice ("at £… a pack") and the plan's warnings that name a price are left out for goods in too.
+
+**GV7. The field budget.** The one page sends at most `ONE_FIXED_FIELDS` (40) plus, per line, `ONE_BENCH_FIELDS` (14) and for its keyer
+`ONE_DESK_FIELDS` (6); `pageSize()` reads `max_input_vars` on the server (`UiRequest::maxInputVars()`) and the page shows that many lines
+at once (47 at PHP's default 1000 for the keyer, 68 for someone else), a page at a time beyond (`from`, `page_count`: the keyer's line rows
+of the page must all arrive, else 400 `form_truncated`, said in words), with "Save and show the next N lines" in the bar and the pager. A
+keyer's save of one page keeps every other page's lines as they are (their bench findings with them, I168). (The editor showed a long
+delivery read-only beyond 6 fields a line; the bench paged 40 lines, a fixed number.)
+
+**GV8. Without the script, and on a phone.** Without the script every part works: Enter in the scan box adds (the form's first button,
+hidden, is Add for the keyer and Save for anyone else), "All fine" sends the form, "Problem" and "Open" are links to the panel row
+(`#gi-p-<n>`) that CSS opens (`tr.gi-panel:target`), the duty answer is a plain select, "Take a photo" is a label of the form's file field.
+The script adds: the panel opens on its row (`.open`), "All fine" in the page, the bar's count, the duty cell's colour, what to do with
+items without a stamp shown only when some have none, the scan box finding a line by its CW number, supplier code or barcode (else the
+keyer's Enter adds it; someone else is told it is not on this delivery). Under 640 px the lines are cards with their check's colour on a 6
+px left edge, the check beside the name, "Packs in" a full-width number field, the duty answer full width, "All fine" and "Problem" 48 px
+side by side, the open panel a card under its line with its fields two a row; the bar's Save and "Book in" are equal and take the tab
+bar's place (PV10), with the count above them.
+
+**GV9. What stayed.** Every route stays: `/ui/receiving/{id}/bench` (GET leads to the page; the POST of a bench page left open across the
+change is saved as before and lands on the page), `/invoice` (the split invoice's second step), `/files` (a booked-in delivery's
+attach), `/copy`, `/import`, `/cancel`, `/post`, `/reverse`. Cancel stays the keyer's (as the editor; the service lets anyone who receives
+goods cancel, the screens never offered it to the others). The read-only page, the review, the reversal, the incidents and the duty register
+are unchanged. Not built: a "tick every line" button (the brief and the design have "All fine" per line; the owner may want it back for
+a big delivery).
+
+**GV10. Tests.** Red first: `runs/gione_red.log` (on `24b474a` with the new and changed tests: 7 errors and 16 failures of 88). New:
+`tests/Integration/UiKernel/GoodsInOnePageScreensTest.php` (12 tests: the owner's flow from the board's "Receive" to "Book in 15 items";
+with the script, All fine and Book in in one press; All fine needs the duty answer and clears the problems; the problem panel's answers;
+a stale check refused and an untouched line kept, the desk's price after two checks, a quantity change clearing a line; booking in refused
+until every line is checked with the draft keeping the edits and the file; prices hidden from goods in; someone who did not key it; without
+the script; the phone markup; a big delivery paged within the field budget; the board's groups, search, Show and old links),
+`UiUnitTest::testTheGoodsInPagesFollowTheApprovedDesign` (the CSS and the script's hooks), `ReceivingWordsTest` (the new groups, the board's
+row). Changed for the one page: `ReceivingScreensTest` (the bench page's forms are the one form's; the invoice copy a file of it; the
+markup pins), `UiTemplatesTest` (the views; "New delivery"), `SectionsTest` ("New delivery"). The script driven in node with a minimal DOM:
+`runs/gione_js_harness/` (outside the repo) and `runs/gione_js.log`.

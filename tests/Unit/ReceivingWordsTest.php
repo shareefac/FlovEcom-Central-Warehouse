@@ -94,6 +94,10 @@ final class ReceivingWordsTest extends TestCase
             'MODE_SOURCE' => $enum('mode_source'),
             'MODE_MEANING' => SellingModes::MODES,
             'BENCH_STATE' => ['todo', 'part', 'done', 'refused'],
+            // Goods in on one page (docs/decisions.md GV): a delivery's place on the board, a line's check, its duty stamp answer.
+            'GI_STATE' => ReceivingController::BOARD_STATES,
+            'GI_CHECK' => ['todo', 'done', 'problem'],
+            'GI_DUTY' => [...ReceivingController::DUTY_ANSWERS, 'unchecked', 'not_needed'],
             'SELLING_ERROR' => ['bad_mode', 'bad_reason', 'bad_threshold', 'no_sites', 'unknown_site', 'protected_item', 'selling_mode_changed'],
             'PAGE_INTRO' => ['receiving', 'receipt_draft', 'receipt_other', 'receipt', 'bench', 'receipt_bench', 'incidents'],
             'HELP' => ['duty_stamp', 'unstamped_rule', 'where_units_go', 'posting', 'selling_mode'],
@@ -127,7 +131,8 @@ final class ReceivingWordsTest extends TestCase
             }
         }
         $groups = ['RECEIVING', 'RECEIPT', 'BENCH', 'INCIDENTS', 'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN', 'RECEIPT_STATE', 'BENCH_STATE',
-            'INCIDENT_KIND', 'INCIDENT_WHERE', 'INCIDENT_STATE', 'RECEIPT_FILE', 'STAMP_TYPE', 'UNSTAMPED_ACTION', 'MODE_SOURCE', 'MODE_MEANING', 'SELLING_ERROR'];
+            'INCIDENT_KIND', 'INCIDENT_WHERE', 'INCIDENT_STATE', 'RECEIPT_FILE', 'STAMP_TYPE', 'UNSTAMPED_ACTION', 'MODE_SOURCE', 'MODE_MEANING', 'SELLING_ERROR',
+            'GI', 'GI_STATE', 'GI_CHECK', 'GI_DUTY']; // Goods in on one page (docs/decisions.md GV)
         $help = array_intersect_key(Words::HELP, array_flip(['duty_stamp', 'unstamped_rule', 'where_units_go', 'posting', 'selling_mode']));
         foreach ([...array_map(static fn (string $g): array => Words::group($g), $groups), $help, Words::PAGE_INTRO] as $texts) {
             array_walk_recursive($texts, static function (mixed $text, mixed $code): void {
@@ -190,11 +195,19 @@ final class ReceivingWordsTest extends TestCase
         // The list's rows, the bench's progress, where the items went, the packs, the title, which websites the mode reaches.
         $row = ['id' => 1, 'number' => null, 'status' => 'draft', 'review_state' => null, 'external_ref' => null, 'po_number' => 'PO-000004', 'lines' => 1, 'units' => 20,
             'checked_at' => null, 'paperwork_ok' => null, 'checked_lines' => 0, 'open_incidents' => 2];
+        // The Goods in board's row (docs/decisions.md GV1): its name (the number once booked in), the order under it, its place on the board.
         $r = ReceivingController::screenRow($row);
-        self::assertSame(Words::RECEIVING['no_number'] . ' · ' . Words::RECEIVING['no_invoice'] . ' · ' . Words::say('RECEIVING', 'order_no', 'PO-000004'), $r['number_line']);
-        self::assertSame(['needs', Words::RECEIPT_STATE['draft'], '1 line, 20 items', 'todo', '2 incidents open'],
-            [$r['state_tone'], $r['state_word'], $r['size_line'], $r['bench_state'], $r['incidents_line']]);
-        self::assertNull(ReceivingController::screenRow(['status' => 'posted', 'number' => 'GRN-000001'] + $row)['bench_state'], 'the bench is done with a booked-in delivery');
+        self::assertSame([Words::say('GI', 'draft_name', 1), 'PO-000004', 'todo', 'waiting', Words::GI_STATE['todo'], '1 line, 20 items', 'todo', '2 incidents open'],
+            [$r['name'], $r['sub_line'], $r['board_state'], $r['state_tone'], $r['state_word'], $r['size_line'], $r['bench_state'], $r['incidents_line']]);
+        $posted = ReceivingController::screenRow(['status' => 'posted', 'number' => 'GRN-000001', 'external_ref' => 'INV-9', 'po_number' => null] + $row);
+        self::assertNull($posted['bench_state'], 'the bench is done with a booked-in delivery');
+        self::assertSame(['GRN-000001', Words::GI['no_order'] . ' · ' . Words::say('GI', 'invoice_no', 'INV-9'), 'posted', 'done'],
+            [$posted['name'], $posted['sub_line'], $posted['board_state'], $posted['state_tone']]);
+        $ready = ReceivingController::screenRow(['checked_at' => '2026-10-07 09:00:00', 'paperwork_ok' => 1, 'checked_lines' => 1, 'problem_lines' => 1] + $row);
+        self::assertSame(['ready', 'needs', Words::GI['problems_one']], [$ready['board_state'], $ready['state_tone'], $ready['problems_line']]);
+        self::assertSame('checking', ReceivingController::screenRow(['checked_lines' => 1, 'lines' => 2] + $row)['board_state']);
+        self::assertSame(['refused', 'blocked'], array_values(array_intersect_key(ReceivingController::screenRow(['checked_at' => '2026-10-07 09:00:00', 'paperwork_ok' => 0] + $row),
+            ['board_state' => 1, 'state_tone' => 1])));
         self::assertSame('part', ReceivingController::benchState(['checked_at' => null, 'paperwork_ok' => null, 'lines' => 2, 'checked_lines' => 1]));
         self::assertSame('part', ReceivingController::benchState(['checked_at' => '2026-10-07 09:00:00', 'paperwork_ok' => 1, 'lines' => 2, 'checked_lines' => 1]));
         self::assertSame('done', ReceivingController::benchState(['checked_at' => '2026-10-07 09:00:00', 'paperwork_ok' => 1, 'lines' => 2, 'checked_lines' => 2]));
