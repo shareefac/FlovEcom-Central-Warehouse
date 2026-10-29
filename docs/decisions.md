@@ -12515,6 +12515,14 @@ the node harness (words with Enter not chosen; a scan chosen).
 books into the row's store's warehouse. Each row's first cell says it again, escaped. `testEveryRowSaysWhichStoreItCameFrom` (two stores,
 one named with markup).
 
+**LQ11. The digits of an unusable barcode never fall back to a CW number (the Codex review of c38293c, `runs/opfinal_codex_review3.txt`:
+one MEDIUM).** LQ9 still let one case through: barcode 12345670 not usable on item A, and item B's number 12345670. `StockOps::resolve`
+found no usable barcode and fell back to B's number, the items route called it exact, and Enter chose B. Now, when a scan (6 to 64 digits)
+names a barcode that is not usable, only a usable barcode of those digits is an exact match: the CW-number fallback is dropped (nothing
+offered, nothing chosen by Enter), as are the items holding it unusable. "CW-12345670" is not a scan and still names B exactly; digits that
+are no barcode still name the item with that number. `StockOps::resolve` is not changed (a stock record's Add shows its result as choices
+to press, never chosen for the person). `testTheDigitsOfAnUnusableBarcodeNeverFallBackToACwNumber` (red first: `runs/opfinal_codex3_red.log`).
+
 ## The supplier invoice and the orders: the Chrome check of 8f6fbb7 on staging and its Codex review (branch `pi-one-page`, fourth commit, 29 Oct 2026; PV27-PV32)
 
 The coordinator's Chrome check of 8f6fbb7 on staging (29 Oct 2026, nine items) and the Codex review of 8f6fbb7 (`runs/pione_codex_review4.txt`).

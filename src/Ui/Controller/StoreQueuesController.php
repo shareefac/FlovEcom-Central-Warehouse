@@ -99,12 +99,18 @@ final class StoreQueuesController
             $r = $ctx->stockOps()->resolve($q);
             // Exact: a usable barcode or a CW number (StockOps::resolve `found`); only that is chosen by Enter (app.js). A barcode that is on
             // an item but not usable (shared with another item) offers nothing: the word search reads every barcode (the Codex review of
-            // 7fa7fd3, finding 5).
+            // 7fa7fd3, finding 5). Nor do its digits fall back to the item whose CW number they are (the Codex review of c38293c, LQ11):
+            // only a usable barcode of those digits is exact; "CW-" with the number is not a scan and still names that item.
+            $scan = preg_match('/^[0-9]{6,64}$/D', $q) === 1;
+            $unusable = $scan ? array_map('intval', $ctx->db->column('SELECT sku_id FROM sku_barcode WHERE barcode IN (?, ?) AND is_usable = 0', [$q, Gtin::key($q) ?? $q])) : [];
+            if ($unusable !== [] && $r['status'] === 'found' && $ctx->db->value('SELECT 1 FROM sku_barcode WHERE barcode IN (?, ?) AND is_usable = 1 AND sku_id = ?',
+                [$q, Gtin::key($q) ?? $q, (int) $r['sku_id']]) === null) {
+                $r = ['status' => 'not_found'];
+            }
             $exact = $r['status'] === 'found';
             $rows = $r['status'] === 'choices' ? $r['choices']
                 : ($exact ? $ctx->db->all('SELECT id AS sku_id, code, name, brand FROM sku WHERE id = ?', [(int) $r['sku_id']]) : []);
-            if (!$exact && preg_match('/^[0-9]{6,64}$/D', $q) === 1) {
-                $unusable = array_map('intval', $ctx->db->column('SELECT sku_id FROM sku_barcode WHERE barcode IN (?, ?) AND is_usable = 0', [$q, Gtin::key($q) ?? $q]));
+            if (!$exact && $unusable !== []) {
                 $rows = array_values(array_filter($rows, static fn (array $c): bool => !in_array((int) $c['sku_id'], $unusable, true)));
             }
             $ids = array_map(static fn (array $c): int => (int) $c['sku_id'], $rows);

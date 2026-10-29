@@ -254,4 +254,28 @@ final class LinesToPlaceBoardTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::say('QUEUES', 'from', 'Vape <Big>'), $row($vpgRow));
         self::assertStringNotContainsString('<Big>', $page->body, 'escaped');
     }
+
+    public function testTheDigitsOfAnUnusableBarcodeNeverFallBackToACwNumber(): void
+    {
+        // The Codex review of c38293c: the digits of a barcode that is not usable on item A are also item B's number. resolve() fell back
+        // to B's number, the answer said "exact", and Enter chose B. Now digits that name an unusable barcode never fall back to a CW number;
+        // "CW-" with the number still names B exactly, and digits that are no barcode still name the item with that number.
+        $this->fill();
+        $a = self::makeSku('Unusable holder');
+        $b = self::makeSku('Bee by number');
+        $codeB = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$b]);
+        $digits = sprintf('%08d', $b);
+        self::$db->exec('INSERT INTO sku_barcode (barcode, sku_id, is_usable, units_per_scan) VALUES (?, ?, 0, 1)', [$digits, $a]);
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $choices = static fn (UiResponse $r): array => array_map(static fn (\DOMNode $li): string => (string) $li->attributes?->getNamedItem('data-code')?->nodeValue,
+            iterator_to_array(self::xp($r)->query('//ul[@data-lq-choices]/li') ?: []));
+        $exact = static fn (UiResponse $r): string => (string) self::xp($r)->evaluate('string(/html/body/*[@data-lq-fragment]/@data-exact)');
+        $r = $web->get(self::PATH . '/items', ['q' => $digits]);
+        self::assertSame(200, $r->status, $r->describe());
+        self::assertSame([[], ''], [$choices($r), $exact($r)], 'the scan of an unusable barcode names nothing, and nothing is chosen by Enter');
+        $r = $web->get(self::PATH . '/items', ['q' => 'CW-' . $digits]);
+        self::assertSame([[$codeB], '1'], [$choices($r), $exact($r)], 'written as a CW number it names B exactly');
+        $r = $web->get(self::PATH . '/items', ['q' => sprintf('%07d', $b)]);
+        self::assertSame([[$codeB], '1'], [$choices($r), $exact($r)], 'digits that are no barcode still name the item of that number');
+    }
 }
