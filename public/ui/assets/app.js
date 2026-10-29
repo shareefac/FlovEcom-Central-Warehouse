@@ -24,6 +24,9 @@
       }
     });
   });
+  // A group the page draws to start folded (Stock > Counts: inside the plan, the lines the same as the system; docs/decisions.md CV1, CV10)
+  // is folded here, by the toggle's own code: without the script it stays open, so nothing is out of reach.
+  each(document.querySelectorAll('button.grp-toggle[data-folded]'), function (b) { b.click(); });
 
   // A section's tabs scroll sideways inside their strip when they do not fit (a phone, a narrow window). The open tab is scrolled
   // into sight (the strip only: the page itself never moves), and the strip is marked with the side it can still scroll to
@@ -1541,7 +1544,9 @@
           at.value = String(drawn + Math.max(0, Date.now() - loaded));
         }
       }
-      var state = input.parentNode ? input.parentNode.querySelector('.save-state') : null;
+      // The line's "Saved" mark is in its row (its own cell since docs/decisions.md CV6), else beside the box.
+      var row = input.closest ? input.closest('tr') : null;
+      var state = (row || input.parentNode) ? (row || input.parentNode).querySelector('.save-state') : null;
       input.classList.toggle('unsaved', changed);
       if (state) {
         if (!state.hasAttribute('data-was')) {
@@ -1551,6 +1556,28 @@
         state.classList.toggle('unsaved', changed);
       }
     });
+  });
+
+  // Stock > Counts > Next to count (docs/decisions.md CV2): the bar's "N ticked" follows the tick boxes of its form (the page's words,
+  // data-words: "%s ticked"); a ticked row takes the ticked tint. Without the script the words stay hidden (nothing would keep them true).
+  each(document.querySelectorAll('[data-ticked]'), function (out) {
+    var form = out.closest ? out.closest('form') : null;
+    if (!form) {
+      return;
+    }
+    var boxes = form.querySelectorAll('input[type="checkbox"][data-tick]');
+    var update = function () {
+      var n = 0;
+      each(boxes, function (b) {
+        var tr = b.closest ? b.closest('tr') : null;
+        if (tr) { tr.classList.toggle('picked', b.checked); }
+        if (b.checked) { n++; }
+      });
+      out.textContent = (out.getAttribute('data-words') || '%s').replace('%s', String(n));
+    };
+    each(boxes, function (b) { b.addEventListener('change', update); });
+    update();
+    out.hidden = false;
   });
 
   // A link to a folded form (the toolbar's "New user", "New warehouse", "New reason" lead to #new): the fold opens.

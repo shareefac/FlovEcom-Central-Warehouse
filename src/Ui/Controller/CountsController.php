@@ -27,17 +27,21 @@ use CW\Ui\UiRequest;
 use CW\Ui\Words;
 
 /**
- * Stock > Counts (pack A2a; docs/decisions.md CT14): three segments and a sheet's two pages.
+ * Stock > Counts (pack A2a; docs/decisions.md CT14; the approved design of 29 Oct 2026: CV1-CV12): three segments and a sheet's two pages.
  *
- *   Next to count   the count plan's figures for one warehouse and what to count next (CountPlan); tick items, take the next N, take
- *                   a search's result, or start empty, and a count sheet is opened (FormOnce: one sheet however often the form is sent)
+ *   Next to count   what to count next at one warehouse (CountPlan) as a board: overdue, never counted, inside the plan (folded), each
+ *                   heading with the plan's figure; tick items, then the bar's one Count menu (the ticked items, the next N due, a
+ *                   search's result, or an empty sheet) and its one button open a count sheet (FormOnce: one sheet however often the
+ *                   form is sent)
  *   Count sheets    every count record, newest first, as a board by status, with Search, Filter and Export
  *   Differences     the count differences to check (CountReviews): accept one with a note, or reject it, which puts that count back
  *   a sheet         while it is open: the scan box, its lines 50 a page (a quantity is saved when Enter is pressed in its box: the
- *                   page goes, only its changed lines are kept), the download and the upload with its preview, stop it; once
- *                   posted: what was booked per line, cancel it as a whole
- *   Before you post every counted line with its difference, the lines whose stock moved after they were counted with the two
- *                   choices (count it again, post it as counted), and the Post button
+ *                   page goes, only its changed lines are kept), each with its "Saved" time; the bar: More (the download and the
+ *                   upload with its preview, stop it), Save, "Save and review"; on a phone the line to count now as one card with
+ *                   "Save and next item"; once posted: what was booked per line, cancel it as a whole
+ *   Before you post the strip (counted, the same, different, a reviewer checks), the lines that differ or need an answer as a board
+ *                   with what making it final does to each (count it again, keep my count), the same ones folded, and the bar's one
+ *                   "Make the count final"
  *
  * Who: documents.view looks (every GET); doc.CNT.post opens, enters, posts and clears (every POST; checked again by CountSheets,
  * CountReviews and the document base, never admin). Every refusal comes back on the page in words (COUNT_ERROR by code), saying
@@ -48,6 +52,9 @@ final class CountsController
     public const PATH = CountSheets::PATH;
     /** The board's groups of the list of sheets, in order. */
     public const GROUPS = ['draft', 'posted', 'reversed', 'put_back', 'cancelled'];
+    /** The groups of "Next to count", in the approved design's order, and their colours (docs/decisions.md CV1). */
+    public const PLAN_GROUPS = ['overdue', 'never', 'inside'];
+    private const PLAN_TONES = ['overdue' => 'blocked', 'never' => 'review', 'inside' => 'done'];
     /** Lines a sheet's page shows. */
     public const LINES = 50;
 
@@ -76,7 +83,7 @@ final class CountsController
     // Next to count
     // ------------------------------------------------------------------------------------------
 
-    /** @param array<string, string>|null $typed what a refused "open a sheet" form sent */
+    /** @param array<string, mixed>|null $typed what a refused "open a sheet" form sent (picked: the ticked items) */
     public function index(Context $ctx, int $status = 200, ?CwException $error = null, ?array $typed = null): HtmlResponse
     {
         $me = $ctx->me();
@@ -87,31 +94,65 @@ final class CountsController
         $days = max(1, Settings::number($ctx->db, 'counts.plan_days', 120));
         $now = Clock::now();
         $tiles = $f['warehouse'] === null ? ['items' => 0, 'inside' => 0, 'overdue' => 0, 'never' => 0] : $plan->tiles($f['warehouse'], $days, $now);
-        $rows = $f['warehouse'] === null ? [] : ($f['q'] !== '' ? $plan->search($f['warehouse'], $f['q'], $f['show']) : $plan->next($f['warehouse'], $f['show']));
+        $filtered = $f['q'] !== '';
+        $rows = $f['warehouse'] === null ? [] : ($filtered ? $plan->search($f['warehouse'], $f['q'], $f['show']) : $plan->next($f['warehouse'], $f['show']));
         $cutoff = Clock::db($now->modify("-{$days} days"));
-        $groups = [];
+        $picked = array_map('intval', (array) ($typed['picked'] ?? []));
+        $listed = [];
         foreach ($rows as $r) {
             $state = $r['counted_at'] === null ? 'never' : ($r['counted_at'] < $cutoff ? 'overdue' : 'inside');
-            $groups[$state][] = $r + ['state' => $state, 'sells' => $r['rate'] === null ? null : Html::dec($r['rate'])];
+            $listed[$state][] = $r + ['state' => $state, 'sells' => $r['rate'] === null ? null : Html::dec($r['rate']), 'ticked' => in_array($r['sku_id'], $picked, true)];
         }
+        // Each group's heading says the plan's figure for the warehouse (the plan's "overdue" counts the never counted too: here they are
+        // apart), and how many of them the list shows when that is fewer; a search counts what it found (CV1). A group with nothing on the
+        // list is a heading only (the inside one: the list holds the overdue and never counted first).
+        $figures = ['overdue' => $tiles['overdue'] - $tiles['never'], 'never' => $tiles['never'], 'inside' => $tiles['inside']];
+        $groups = [];
+        foreach (self::PLAN_GROUPS as $g) {
+            $list = $listed[$g] ?? [];
+            $n = $filtered ? count($list) : $figures[$g];
+            if ($list === [] && ($filtered || $n === 0)) {
+                continue;
+            }
+            $words = $n === 1 ? Words::COUNTS['group_item'] : Words::say('COUNTS', 'group_items', $n);
+            $groups[] = ['key' => $g, 'tone' => self::PLAN_TONES[$g], 'rows' => $list, 'folded' => $g === 'inside',
+                'count' => count($list) < $n ? $words . ' · ' . Words::say('COUNTS', 'group_listed', count($list)) : $words];
+        }
+        // The bar's one Count menu (CV2): what the four buttons were. "The next N due" takes N from the Show choice (the list is the next
+        // ones); a search offers everything it found instead.
+        $modes = [];
+        if ($rows !== []) {
+            $modes['ticked'] = Words::COUNTS['count_ticked'];
+            if ($filtered) {
+                $modes['found'] = Words::say('COUNTS', 'count_found', count($rows));
+            } else {
+                $modes['next'] = Words::say('COUNTS', 'count_next', $f['show']);
+            }
+        }
+        $modes['empty'] = Words::COUNTS['count_empty'];
+        $mode = (string) ($typed['mode'] ?? '');
         $places = $f['warehouse'] === null ? [] : $ctx->db->all('SELECT id, name FROM warehouse_location WHERE warehouse_id = ? AND is_active = 1 ORDER BY code', [$f['warehouse']]);
+        // The open sheets of this warehouse: drafts are sheets (the record index (doc_type, status, id): CT13).
+        $openSheets = $f['warehouse'] === null ? 0 : (int) $ctx->db->value("SELECT COUNT(*) FROM document WHERE doc_type = ? AND status = 'draft' AND warehouse_id = ?",
+            [CountSheets::TYPE, $f['warehouse']]);
         return $ctx->page('stock_counts', [
             'f' => $f,
             'warehouses' => array_map(static fn (array $w): array => ['id' => (int) $w['id'], 'name' => (string) $w['name']], $warehouses),
-            'warehouseName' => (string) (array_column($warehouses, 'name', 'id')[$f['warehouse']] ?? ''),
-            'filtered' => $f['q'] !== '',
+            'filtered' => $filtered,
             'shows' => CountPlan::SHOW,
             'days' => $days,
-            'tiles' => $tiles,
-            'groups' => array_filter(['never' => $groups['never'] ?? [], 'overdue' => $groups['overdue'] ?? [], 'inside' => $groups['inside'] ?? []]),
-            'tones' => ['never' => 'needs', 'overdue' => 'blocked', 'inside' => 'done'],
+            'groups' => $groups,
             'rows_n' => count($rows),
             'places' => array_map(static fn (array $p): array => ['id' => (int) $p['id'], 'name' => (string) $p['name']], $places),
-            'typed' => ['location' => (string) ($typed['location'] ?? ''), 'note' => (string) ($typed['note'] ?? ''), 'n' => (string) ($typed['n'] ?? (string) CountPlan::SHOW[0])],
+            'modes' => $modes,
+            'mode' => isset($modes[$mode]) ? $mode : (string) array_key_first($modes),
+            'typed' => ['location' => (string) ($typed['location'] ?? ''), 'note' => (string) ($typed['note'] ?? '')],
+            'ticked_n' => count(array_filter($rows, static fn (array $r): bool => in_array($r['sku_id'], $picked, true))),
+            'openSheets' => $openSheets,
+            'openSheetsHref' => Html::url(self::PATH . '/sheets', ['state' => 'draft', 'warehouse' => $f['warehouse']]),
             'canCount' => $canCount,
             'formKey' => $canCount ? FormOnce::newKey() : null,
             'lookOnly' => $canCount ? null : Words::whoCan('doc.' . CountSheets::TYPE . '.post'),
-            'maxLines' => CountSheets::MAX_LINES,
             'settingHref' => Html::url('/ui/reference/settings/setting', ['key' => 'counts.plan_days']),
             'clear' => Html::url(self::PATH, ['warehouse' => $f['warehouse']]),
             'error' => $error === null ? null : self::plain($error),
@@ -143,7 +184,7 @@ final class CountsController
                 return OpResult::of(303, ['result' => 'opened', 'document_id' => $d->id, 'redirect' => Html::url(self::PATH . '/' . $d->id, ['notice' => 'opened'])]);
             });
         } catch (CwException $e) {
-            return $this->index($ctx, $e->httpStatus, $e, $typed);
+            return $this->index($ctx, $e->httpStatus, $e, $typed + ['picked' => $picked]);
         }
         return FormOnce::redirect($r);
     }
@@ -320,8 +361,10 @@ final class CountsController
      * may also bring the moment it was filled in (`at_<line>`, milliseconds since 1970 UTC, written by app.js from the moment the page
      * was drawn: review M-7, 14 Oct 2026); CountSheets refuses one after now or before the line was on the sheet, and without one the
      * moment it is saved counts. A quantity that is a barcode CW knows, or 9 digits or more, is refused as a barcode (review M-5). A
-     * refusal saves nothing of the page and shows it again with what was typed. Sent by "Before you make it final" (`then` = review, a
-     * button of the same form: docs/decisions.md OV6), the review page opens after the save instead of the sheet.
+     * refusal saves nothing of the page and shows it again with what was typed. Sent by "Save and review" (`then` = review, a button of
+     * the same form: docs/decisions.md OV6, CV7), the review page opens after the save instead of the sheet. Sent by "Save and next item"
+     * (`next` = the line it sits on: CV6), the sheet opens at the next line not counted after that one (else the first one before it),
+     * marked and its box ready; when none is left, the sheet as after Save.
      */
     public function lines(Context $ctx): HtmlResponse
     {
@@ -367,8 +410,19 @@ final class CountsController
             return $this->page($ctx, $id, $e->httpStatus, $e, null, ['typedQ' => $typed, 'typedAt' => $e->errorCode === 'bad_count_time' ? [] : $typedAt]);
         }
         if ($ctx->req->field('then') === 'review') {
-            // "Before you make it final" is a button of this form (OV6): the quantities typed are saved first, then the review page opens.
+            // "Save and review" is a button of this form (OV6): the quantities typed are saved first, then the review page opens.
             return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id . '/differences', ['notice' => $changed === 0 ? 'lines_same' : 'lines', 'n' => $changed]));
+        }
+        $after = UiRequest::id($ctx->req->field('next'));
+        if ($after !== null) {
+            // "Save and next item" (CV6): read after the save, by the line key (the sheet's lines: at most CountSheets::MAX_LINES).
+            $next = $ctx->db->value('SELECT line_no FROM count_sheet_line WHERE document_id = ? AND counted_qty IS NULL AND line_no > ? ORDER BY line_no LIMIT 1', [$id, $after])
+                ?? $ctx->db->value('SELECT line_no FROM count_sheet_line WHERE document_id = ? AND counted_qty IS NULL ORDER BY line_no LIMIT 1', [$id]);
+            if ($next !== null) {
+                $before = (int) $ctx->db->value('SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ? AND line_no < ?', [$id, (int) $next]);
+                return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $changed === 0 ? 'lines_same' : 'lines', 'n' => $changed,
+                    'page' => intdiv($before, self::LINES) + 1, 'line' => (int) $next]) . '#line-' . (int) $next);
+            }
         }
         return HtmlResponse::redirect(Html::url(self::PATH . '/' . $id, ['notice' => $changed === 0 ? 'lines_same' : 'lines', 'n' => $changed, 'page' => self::pageNo($ctx->req, 'field'),
             'show' => self::showOf($ctx->req, 'field')]));
@@ -446,7 +500,12 @@ final class CountsController
         return $this->page($ctx, $id, 200, null, null, ['report' => $report + ['file' => mb_substr((string) $file['name'], 0, 120)], 'typedWhen' => $when]);
     }
 
-    /** GET {id}/differences: "Before you post". */
+    /**
+     * GET {id}/differences: "Before you post" (CV9, CV10): the strip (counted, the same as the system, different, a reviewer checks), the
+     * lines that differ or need an answer as a board with what making it final does to each, the same ones folded at first, and the bar.
+     * A line's status: count again (too many count times, or counted too long ago) and "stock moved: choose" stop the making final
+     * (red); left out (a later count, navy); a reviewer checks it (above the limits, amber); else booked as counted (green).
+     */
     public function before(Context $ctx, int $status = 200, ?CwException $error = null): HtmlResponse
     {
         $id = $ctx->id();
@@ -470,12 +529,31 @@ final class CountsController
             foreach ($l['moved']['rows'] as $m) {
                 $moved[] = Words::say('COUNTS', 'moved_row', Words::of('MOVEMENT', $m['movement_type']), ($m['qty_delta'] > 0 ? '+' : '') . number_format($m['qty_delta']), Html::when($m['at']));
             }
+            [$tone, $state] = match (true) {
+                $l['retime'] => ['blocked', Words::COUNTS['retime_chip']],
+                $l['too_old'] => ['blocked', Words::COUNTS['too_old_chip']],
+                $l['needs_choice'] => ['blocked', Words::COUNTS['st_choose']],
+                $l['stale'] => ['off', Words::COUNTS['st_left_out']],
+                $l['over'] !== [] => ['needs', Words::COUNTS['st_reviewer']],
+                default => ['done', Words::COUNTS['st_booked']],
+            };
             $lines[] = $l + ['why' => self::overWords($l['over'], $diff['units_limit'], $diff['percent_limit']), 'movedWords' => $moved,
                 'movedMore' => max(0, $l['moved']['n'] - count($moved)),
                 'does' => $l['stale'] ? Words::say('COUNTS', 'does_stale', Html::when((string) $l['last_counted_at']))
                     : ($l['moved']['n'] === 0 ? null : Words::say('COUNTS', $l['moved']['others'] !== 0 || $l['moved']['ships'] === 0 ? 'does_overwrite' : 'does_ships',
                         $l['counted'] + $l['moved']['ships'], -$l['moved']['ships'], $l['moved']['others'])),
+                'st_tone' => $tone, 'st_word' => $state,
+                // On the board of the lines that differ: a difference (or left out), or anything to look at or answer.
+                'differs' => $l['delta'] !== 0 || $l['needs_choice'] || $l['acked'] || $l['too_old'] || $l['retime'] || $l['moved']['n'] > 0 || $l['over'] !== [],
             ];
+        }
+        $groups = [];
+        foreach (['differ' => 'needs', 'same' => 'done'] as $g => $tone) {
+            $list = array_values(array_filter($lines, static fn (array $l): bool => $l['differs'] === ($g === 'differ')));
+            if ($list !== []) {
+                $groups[] = ['key' => $g, 'tone' => $tone, 'rows' => $list, 'folded' => $g === 'same',
+                    'count' => count($list) === 1 ? Words::COUNTS['group_item'] : Words::say('COUNTS', 'group_items', count($list))];
+            }
         }
         $blocked = $diff['needs_choice'] > 0 || $diff['too_old'] > 0 || $diff['too_many_times'];
         $retime = $diff['too_many_times'] ? Words::say('COUNTS', 'too_many_times', Movements::MAX_DOCUMENT_MOVEMENTS, $diff['limit_minutes'], $diff['retime']) : null;
@@ -484,6 +562,9 @@ final class CountsController
             'title' => Words::say('COUNTS', 'before_title', Words::docTitle(CountSheets::TYPE, $doc->number)),
             'base' => self::PATH . '/' . $id,
             'lines' => $lines,
+            'groups' => $groups,
+            'steps' => ['same' => count(array_filter($lines, static fn (array $l): bool => !$l['differs'])), 'different' => count(array_filter($lines, static fn (array $l): bool => $l['differs'])),
+                'reviewer' => count(array_filter($lines, static fn (array $l): bool => $l['over'] !== []))],
             'diff' => $diff,
             'counted_n' => count($lines),
             'lines_n' => (int) $sheet['lines_n'],
@@ -619,16 +700,28 @@ final class CountsController
         $modes = $page['rows'] === [] ? [] : (new SellingModes($ctx->db))->current(array_column($page['rows'], 'sku_id'));
         $marked = UiRequest::id($ctx->req->param('line'));
         $showsStock = Settings::flag($ctx->db, 'counts.sheet_shows_stock', true);
+        // The line to count now (CV6; on a phone the one big card): the line a scan or "Save and next item" marked, else the first one on
+        // this page not counted yet.
+        $now = null;
+        if ($editable) {
+            $onPage = array_column($page['rows'], 'line_no');
+            $todo = array_values(array_filter($page['rows'], static fn (array $l): bool => $l['counted_qty'] === null));
+            $now = $marked !== null && in_array($marked, $onPage, true) ? $marked : ($todo[0]['line_no'] ?? null);
+        }
         $lines = [];
         foreach ($page['rows'] as $l) {
             $mode = $modes[$l['sku_id']]['mode'] ?? null;
-            $lines[] = $l + ['mode' => $mode, 'mode_meaning' => $mode === null ? null : (Words::has('MODE_MEANING', $mode) ? Words::of('MODE_MEANING', $mode) : null),
+            $lines[] = $l + ['mode' => $mode,
                 'marked' => $marked === $l['line_no'],
+                'now' => $now === $l['line_no'],
+                'row_class' => trim(($marked === $l['line_no'] ? 'marked ' : '') . ($now === $l['line_no'] ? 'now' : '')),
+                // Its own count time, kept per line (CT2: the moment its box was filled in), as the "Saved" mark says it.
+                'saved' => $l['counted_at'] === null ? null : Html::clock((string) $l['counted_at']),
                 // After a refused page: what was typed in each box (nothing of that page was saved), and when it was filled in.
                 'typed' => isset($extra['typedQ'][$l['line_no']]) ? (string) $extra['typedQ'][$l['line_no']] : null,
                 'typedAt' => isset($extra['typedAt'][$l['line_no']]) ? (string) $extra['typedAt'][$l['line_no']] : '',
-                // A blind count: the system's figure is shown only once the line holds a quantity.
-                'shows_stock' => $showsStock || $l['counted_qty'] !== null,
+                // A blind count never shows the system's figure on the sheet, not even once the line is counted (CV8).
+                'shows_stock' => $showsStock,
                 'state' => $l['outcome'] === null ? null : ($l['outcome'] === 'stale' ? 'stale' : ($l['reversal_document_id'] !== null ? 'put_back' : 'booked')),
                 'reversal_href' => $l['reversal_document_id'] === null ? null : self::PATH . '/' . $l['reversal_document_id']];
         }
@@ -647,6 +740,9 @@ final class CountsController
             'listHref' => self::PATH . '/sheets',
             'title' => self::title($sheet, $doc),
             'facts' => self::facts($sheet, $doc),
+            // The open sheet's head (CV5): where it is counted and who opened it when, on one line; "N of M counted" with its bar.
+            'meta' => $editable ? self::metaLine($sheet, $doc) : '',
+            'blind' => !$showsStock,
             'aboutHref' => $sheet['reverses_document_id'] !== null ? self::PATH . '/' . (int) $sheet['reverses_document_id']
                 : ($doc->reversesId !== null ? self::PATH . '/' . $doc->reversesId : null),
             'aboutWords' => $sheet['reverses_document_id'] !== null ? Words::say('COUNTS', 'puts_back', (int) $sheet['reverses_line_no'], (string) $sheet['line_of_number'])
@@ -674,6 +770,8 @@ final class CountsController
             'report' => $extra['report'] ?? null,
             'shown' => CountSheets::UPLOAD_SHOWN,
             'typedWhen' => (string) ($extra['typedWhen'] ?? ''),
+            // More opens on what it holds when the server sent that back (a preview, an upload refused, a stop refused: PV26's rule).
+            'paperOpen' => ($extra['report'] ?? null) !== null || in_array($error?->errorCode, ['bad_file', 'no_file', 'too_large', 'upload_failed', 'bad_counted_at', 'too_many_rows'], true),
             'typedStop' => (string) ($extra['stop'] ?? ''),
             'typedCancel' => $extra['typedCancel'] ?? ['code' => '', 'note' => ''],
             'maxMb' => intdiv(UiRequest::MAX_UPLOAD_BYTES, 1_048_576),
@@ -789,6 +887,23 @@ final class CountsController
     }
 
     /**
+     * An open sheet's facts on one line, under its heading (CV5): where it is counted (the warehouse, its shelf), who opened it and when,
+     * and its note.
+     *
+     * @param array<string, mixed> $sheet
+     */
+    private static function metaLine(array $sheet, Document $doc): string
+    {
+        $parts = [
+            $sheet['location_name'] === null ? (string) ($sheet['warehouse_name'] ?? '')
+                : Words::say('STOCK_OPS', 'in_place', (string) $sheet['warehouse_name'], (string) $sheet['location_name']),
+            Words::say('COUNTS', 'meta_opened', Words::say('STOCK_OPS', 'by', Html::when($doc->createdAt), (string) ($sheet['created_by_name'] ?? Words::RECORD['by_cw']))),
+            (string) $doc->note,
+        ];
+        return implode(' · ', array_filter($parts, static fn (string $p): bool => $p !== ''));
+    }
+
+    /**
      * The header facts of a sheet's page (label => value, only those it has).
      *
      * @param array<string, mixed> $sheet
@@ -841,7 +956,9 @@ final class CountsController
             'number_line' => $r['number'] === null ? Words::COUNTS['no_number'] : (string) $r['number'],
             'date_line' => $r['number'] === null ? Words::say('COUNTS', 'opened_on', Html::day((string) $r['created_at'])) : Words::say('COUNTS', 'posted_on', Html::day((string) $r['posted_at'])),
             'where' => $r['location'] === null ? (string) ($r['warehouse'] ?? '') : Words::say('STOCK_OPS', 'in_place', (string) $r['warehouse'], (string) $r['location']),
-            'tone' => $group === 'put_back' ? 'off' : Words::tone('DOC_STATUS', $status), 'state_word' => Words::of('DOC_STATUS', $status),
+            // An open sheet is "Counting" (blue), as its own page says it (CV5).
+            'tone' => $group === 'put_back' ? 'off' : ($group === 'draft' ? 'info' : Words::tone('DOC_STATUS', $status)),
+            'state_word' => $group === 'draft' ? Words::COUNTS['counting'] : Words::of('DOC_STATUS', $status),
             'kind_word' => Words::of('COUNT_KIND', $kind), 'lines' => (int) $r['lines_n'], 'counted' => (int) $r['counted_n'], 'changed' => (int) $r['units_changed'],
             'open' => (int) $r['open_n'], 'made_by' => (string) ($r['created_by_name'] ?? ''), 'next' => $next, 'isSheet' => $kind === 'sheet',
         ];
@@ -849,7 +966,7 @@ final class CountsController
 
     /**
      * @param list<array<string, mixed>> $warehouses the switched-on warehouses
-     * @param array<string, string>|null $typed
+     * @param array<string, mixed>|null $typed
      * @return array{q: string, warehouse: ?int, show: int}
      */
     private static function planFilters(UiRequest $req, array $warehouses, ?array $typed): array
@@ -858,7 +975,8 @@ final class CountsController
         $sellable = array_values(array_filter($warehouses, static fn (array $w): bool => (int) $w['is_sellable'] === 1));
         $default = $sellable !== [] ? (int) $sellable[0]['id'] : ($ids[0] ?? null);
         $wh = UiRequest::id($typed['warehouse'] ?? $req->param('warehouse'));
-        $show = (int) ($req->param('show') ?? CountPlan::SHOW[0]);
+        // A refused open: the Show choice is the N its bar sent (the next N due), when it is one of the choices.
+        $show = (int) ($typed !== null ? ($typed['n'] ?? '') : ($req->param('show') ?? CountPlan::SHOW[0]));
         return ['q' => mb_substr(trim((string) ($typed['q'] ?? $req->param('q'))), 0, 100), 'warehouse' => $wh !== null && in_array($wh, $ids, true) ? $wh : $default,
             'show' => in_array($show, CountPlan::SHOW, true) ? $show : CountPlan::SHOW[0]];
     }

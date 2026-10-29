@@ -65,6 +65,20 @@ final class Html
         return $d === null ? '' : $d->format('j M Y, H:i');
     }
 
+    /**
+     * The time of a UTC DATETIME(6) as a count sheet's "Saved" mark says it (docs/decisions.md CV6), in UK time: "10:15" on today's UK date,
+     * else "7 Oct, 10:15"; '' for null.
+     */
+    public static function clock(?string $v, ?\DateTimeImmutable $now = null): string
+    {
+        $d = self::london($v);
+        if ($d === null) {
+            return '';
+        }
+        $today = ($now ?? new \DateTimeImmutable('now'))->setTimezone(new \DateTimeZone('Europe/London'))->format('Y-m-d');
+        return $d->format('Y-m-d') === $today ? $d->format('H:i') : $d->format('j M, H:i');
+    }
+
     /** Money: "£10,500.00", "-£5.00"; '' for null, '' or a non-number. */
     public static function money(mixed $v): string
     {

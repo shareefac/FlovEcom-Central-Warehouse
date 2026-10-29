@@ -1,62 +1,49 @@
 <?php
-// Stock › Counts › Next to count (docs/decisions.md CT10-CT14): the toolbar (Search, Filter: warehouse and how many rows), the count
-// plan's four figures for the warehouse, then what to count next as a board (never counted, overdue, inside the plan). For the people
-// who count the board sits inside the "open a count sheet" form: its tick boxes, the place and note, and the four ways to open one.
-$newActions = $newActions ?? [];
+// Stock › Counts › Next to count (docs/decisions.md CT10-CT14; the approved design CT_Board of 29 Oct 2026: CV1-CV4). One search, the
+// warehouse and the Show choice; then what to count next as a board (the shared one: .doc-group, .doc-board, td.doc-st): overdue (red),
+// never counted (purple), inside the plan (green; app.js folds it at first, without the script it is open), each heading with the plan's
+// figure for the warehouse. A row: its tick box, the item, its status filled solid, when it was last counted, what it sells. For the people
+// who count the board sits inside the "open a count sheet" form, whose bar at the bottom (.doc-bar) holds "N ticked" (app.js), the one
+// Count menu (the ticked items, the next N due, everything found, an empty sheet), the shelf, a note and the one button. The head's right
+// links the warehouse's open sheets.
 ?>
-<?= $head(\CW\Ui\Words::MENU['counts'], intro: 'counts', look: $lookOnly) ?>
+<?= $head(\CW\Ui\Words::MENU['counts'], intro: 'counts', look: $lookOnly,
+    side: $openSheets > 0 ? '<a class="btn" href="' . $e($openSheetsHref) . '">' . $say('COUNTS', 'open_sheets', $openSheets) . '</a>' : '') ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
-  <?= $partial('split', ['actions' => $newActions]) ?>
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('COUNTS', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>" title="<?= $word('COUNTS', 'find') ?>"></div>
-  <details class="tb-pop">
-    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span></summary>
-    <div class="pop pop-form">
-      <label><?= $word('COUNTS', 'warehouse') ?>
-        <select name="warehouse">
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('COUNTS', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('COUNTS', 'find') ?>"></div>
+  <div class="tb-state">
+    <label for="tb-warehouse"><?= $word('COUNTS', 'warehouse') ?></label>
+    <select id="tb-warehouse" name="warehouse">
 <?php foreach ($warehouses as $w): ?>
-          <option value="<?= $e($w['id']) ?>"<?php if ($f['warehouse'] === $w['id']): ?> selected<?php endif; ?>><?= $e($w['name']) ?></option>
+      <option value="<?= $e($w['id']) ?>"<?php if ($f['warehouse'] === $w['id']): ?> selected<?php endif; ?>><?= $e($w['name']) ?></option>
 <?php endforeach; ?>
-        </select>
-      </label>
-      <label><?= $word('COUNTS', 'show') ?>
-        <select name="show">
+    </select>
+  </div>
+  <div class="tb-state">
+    <label for="tb-show"><?= $word('COUNTS', 'show') ?></label>
+    <select id="tb-show" name="show">
 <?php foreach ($shows as $size): ?>
-          <option value="<?= $e($size) ?>"<?php if ($f['show'] === $size): ?> selected<?php endif; ?>><?= $say('COUNTS', 'show_n', $size) ?></option>
+      <option value="<?= $e($size) ?>"<?php if ($f['show'] === $size): ?> selected<?php endif; ?>><?= $say('COUNTS', 'show_n', $size) ?></option>
 <?php endforeach; ?>
-        </select>
-      </label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="<?= $e($clear) ?>"><?= $word('COUNTS', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
-    </div>
-  </details>
+    </select>
+    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
+  </div>
+<?php if ($filtered): ?>
+  <div class="tb-end"><a class="btn ghost sm" href="<?= $e($clear) ?>"><?= $word('COUNTS', 'clear') ?></a></div>
+<?php endif; ?>
 </form>
-
-<section class="home-tiles" aria-label="<?= $word('COUNTS', 'figures') ?>">
-  <div class="kpis-wrap"><ul class="kpis four">
-    <li class="kpi"><p class="kpi-label"><?= $word('COUNTS', 'tile_items') ?></p><p class="kpi-value"><?= $n($tiles['items']) ?></p><p class="kpi-sub"><?= $say('COUNTS', 'tile_items_sub', $warehouseName) ?></p></li>
-    <li class="kpi"><p class="kpi-label"><?= $word('COUNTS', 'tile_inside') ?></p><p class="kpi-value"><?= $n($tiles['inside']) ?></p><p class="kpi-sub"><?= $say('COUNTS', 'tile_inside_sub', $days) ?></p></li>
-    <li class="kpi"><p class="kpi-label"><?= $word('COUNTS', 'tile_overdue') ?></p><p class="kpi-value"><?= $n($tiles['overdue']) ?></p><p class="kpi-sub"><?= $say('COUNTS', 'tile_overdue_sub', $days) ?></p></li>
-    <li class="kpi"><p class="kpi-label"><?= $word('COUNTS', 'tile_never') ?></p><p class="kpi-value"><?= $n($tiles['never']) ?></p><p class="kpi-sub"><?= $word('COUNTS', 'tile_never_sub') ?></p></li>
-  </ul></div>
-</section>
-<p class="note"><?= $say('COUNTS', 'plan', $days) ?> <a href="<?= $e($settingHref) ?>"><?= $word('COUNTS', 'plan_link') ?></a></p>
+<p class="muted count-plan"><?= $say('COUNTS', 'plan', $days) ?> <a href="<?= $e($settingHref) ?>"><?= $word('COUNTS', 'plan_link') ?></a></p>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
-<details class="fold how">
-  <summary><?= $word('COUNTS', 'how') ?></summary>
-  <ol>
-<?php foreach (\CW\Ui\Words::COUNT_HOW as $step): ?>
-    <li><?= $e($step) ?></li>
-<?php endforeach; ?>
-  </ol>
-</details>
 
 <?php if ($canCount): ?>
-<form class="record count-open" id="new" method="post" action="/ui/stock/counts">
+<form class="count-open" id="new" method="post" action="/ui/stock/counts">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
   <input type="hidden" name="warehouse" value="<?= $e($f['warehouse']) ?>">
   <input type="hidden" name="q" value="<?= $e($f['q']) ?>">
+  <input type="hidden" name="n" value="<?= $e($f['show']) ?>">
 <?php endif; ?>
 <?php if ($groups === []): ?>
 <?php if ($filtered): ?>
@@ -65,33 +52,34 @@ $newActions = $newActions ?? [];
 <?= $empty(\CW\Ui\Words::COUNTS['none'], \CW\Ui\Words::COUNTS['none_text']) ?>
 <?php endif; ?>
 <?php else: ?>
-<div class="board-head"><h2 class="board-title"><?php if ($filtered): ?><?= $say('COUNTS', 'board_found', $f['q']) ?><?php else: ?><?= $word('COUNTS', 'board') ?><?php endif; ?></h2><p class="board-note"><?php if ($filtered): ?><?= $say('COUNTS', 'board_found_note', $rows_n) ?><?php else: ?><?= $say('COUNTS', 'board_note', $rows_n) ?><?php endif; ?></p></div>
-<?php foreach ($groups as $g => $list): ?>
-<div class="grp-block">
-  <h3 class="grp-title <?= $e($tones[$g]) ?>"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g) ?>"><?= $word('COUNT_GROUP', $g) ?></button><span class="grp-count"><?php if (count($list) === 1): ?><?= $word('COUNTS', 'group_one') ?><?php else: ?><?= $say('COUNTS', 'group_many', count($list)) ?><?php endif; ?></span></h3>
-  <div class="table-wrap" id="g-<?= $e($g) ?>">
-  <table class="stack list board count-next <?= $e($tones[$g]) ?>">
+<?php if ($filtered): ?>
+<div class="board-head"><h2 class="board-sub"><?= $say('COUNTS', 'board_found', $f['q']) ?></h2><p class="board-note"><?= $say('COUNTS', 'board_found_note', $rows_n) ?></p></div>
+<?php endif; ?>
+<?php foreach ($groups as $g): ?>
+<div class="grp-block doc-group <?= $e($g['tone']) ?>" data-group="<?= $e($g['key']) ?>">
+  <h3 class="grp-title"><?php if ($g['rows'] !== []): ?><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($g['key']) ?>"<?php if ($g['folded']): ?> data-folded="1"<?php endif; ?>><?= $word('COUNT_GROUP', $g['key']) ?></button><?php else: ?><span class="grp-name"><?= $word('COUNT_GROUP', $g['key']) ?></span><?php endif; ?> <span class="grp-count"><?= $e($g['count']) ?></span></h3>
+<?php if ($g['rows'] !== []): ?>
+  <div class="table-wrap doc-board" id="g-<?= $e($g['key']) ?>">
+  <table class="stack list board doc-list picks count-next">
     <thead>
       <tr>
 <?php if ($canCount): ?>
-        <th scope="col" class="c-status"><span class="visually-hidden"><?= $word('COUNTS', 'tick') ?></span></th>
+        <th scope="col" class="c-pick"><span class="visually-hidden"><?= $word('COUNTS', 'tick') ?></span></th>
 <?php endif; ?>
         <th scope="col" class="c-item"><?= $word('COUNTS', 'item') ?></th>
         <th scope="col" class="c-status"><?= $word('COUNTS', 'status') ?></th>
-        <th scope="col" class="num"><?= $word('COUNTS', 'stock_now') ?></th>
         <th scope="col"><?= $word('COUNTS', 'last_counted') ?></th>
         <th scope="col" class="num"><?= $word('COUNTS', 'sells') ?></th>
       </tr>
     </thead>
     <tbody>
-<?php foreach ($list as $r): ?>
-      <tr>
+<?php foreach ($g['rows'] as $r): ?>
+      <tr<?php if ($r['ticked']): ?> class="picked"<?php endif; ?>>
 <?php if ($canCount): ?>
-        <td class="c-status"><label class="choice"><input type="checkbox" name="pick_<?= $e($r['sku_id']) ?>" value="1"><span class="visually-hidden"><?= $say('COUNTS', 'tick_one', $r['name']) ?></span></label></td>
+        <td class="c-pick" data-label=""><label class="pick"><input type="checkbox" name="pick_<?= $e($r['sku_id']) ?>" value="1" data-tick<?php if ($r['ticked']): ?> checked<?php endif; ?>><span class="visually-hidden"><?= $say('COUNTS', 'tick_one', $r['name']) ?></span></label></td>
 <?php endif; ?>
         <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $e($r['code']) ?><?php if ($r['brand'] !== null): ?> · <?= $e($r['brand']) ?><?php endif; ?></span></th>
-        <td class="c-status"><?= $chip($tones[$g], \CW\Ui\Words::COUNT_GROUP[$g]) ?></td>
-        <td class="num" data-label="<?= $word('COUNTS', 'stock_now') ?>"><?= $n($r['on_hand']) ?></td>
+        <td class="c-status doc-st <?= $e($g['tone']) ?>"><?= $word('COUNT_GROUP', $r['state']) ?></td>
         <td data-label="<?= $word('COUNTS', 'last_counted') ?>"><?php if ($r['counted_at'] === null): ?><span class="muted"><?= $word('COUNTS', 'never') ?></span><?php else: ?><?= $day($r['counted_at']) ?><?php endif; ?></td>
         <td class="num" data-label="<?= $word('COUNTS', 'sells') ?>"><?php if ($r['sells'] === null): ?><span class="muted"><?= $word('COUNTS', 'no_sales') ?></span><?php else: ?><?= $e($r['sells']) ?><?php endif; ?></td>
       </tr>
@@ -99,16 +87,22 @@ $newActions = $newActions ?? [];
     </tbody>
   </table>
   </div>
+<?php endif; ?>
 </div>
 <?php endforeach; ?>
-<p class="foot"><?= $say('COUNTS', 'foot', $f['show']) ?></p>
 <?php endif; ?>
 <?php if ($canCount): ?>
-  <fieldset class="count-open-how">
-    <legend><?= $word('COUNTS', 'open_title') ?></legend>
-    <p class="hint"><?= $say('COUNTS', 'open_text', $warehouseName, $maxLines) ?></p>
+  <div class="doc-bar count-bar">
+    <span class="count-ticked" data-ticked data-words="<?= $word('COUNTS', 'ticked') ?>" hidden><?= $say('COUNTS', 'ticked', $ticked_n) ?></span>
+    <label class="count-field"><span><?= $word('COUNTS', 'count_menu') ?></span>
+      <select name="mode">
+<?php foreach ($modes as $value => $words): ?>
+        <option value="<?= $e($value) ?>"<?php if ($value === $mode): ?> selected<?php endif; ?>><?= $e($words) ?></option>
+<?php endforeach; ?>
+      </select>
+    </label>
 <?php if ($places !== []): ?>
-    <label><?= $word('COUNTS', 'place') ?>
+    <label class="count-field"><span><?= $word('COUNTS', 'shelf') ?></span>
       <select name="location">
         <option value=""><?= $word('COUNTS', 'no_place') ?></option>
 <?php foreach ($places as $p): ?>
@@ -117,19 +111,8 @@ $newActions = $newActions ?? [];
       </select>
     </label>
 <?php endif; ?>
-    <label><?= $word('COUNTS', 'note') ?> <input type="text" name="note" value="<?= $e($typed['note']) ?>" maxlength="200"></label>
-    <p class="actions">
-<?php if ($groups !== []): ?>
-      <button type="submit" name="mode" value="ticked" class="btn primary"><?= $word('COUNTS', 'open_ticked') ?></button>
-<?php if ($filtered): ?>
-      <button class="btn" type="submit" name="mode" value="found"><?= $say('COUNTS', 'open_found', $rows_n) ?></button>
-<?php else: ?>
-      <label class="inline-field"><?= $word('COUNTS', 'open_next_n') ?> <input type="text" name="n" value="<?= $e($typed['n']) ?>" inputmode="numeric" maxlength="3" size="4"></label>
-      <button class="btn" type="submit" name="mode" value="next"><?= $word('COUNTS', 'open_next') ?></button>
-<?php endif; ?>
-<?php endif; ?>
-      <button class="btn" type="submit" name="mode" value="empty"><?= $word('COUNTS', 'open_empty') ?></button>
-    </p>
-  </fieldset>
+    <label class="count-field count-note"><span><?= $word('COUNTS', 'note') ?></span><input type="text" name="note" value="<?= $e($typed['note']) ?>" maxlength="200"></label>
+    <button type="submit" class="btn primary"><?= $word('COUNTS', 'open_button') ?></button>
+  </div>
 </form>
 <?php endif; ?>

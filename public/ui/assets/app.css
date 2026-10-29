@@ -1852,14 +1852,62 @@ table.store-new-preview dl.new-card.muted dd { color: var(--ink-2); }
 table.store-new-preview td.c-wide { text-align: left; }
 
 
-/* Stock > Counts (pack A2a): the sheet's scanned line, a quantity typed and not saved yet, the "open a sheet" box, the line filters. */
-table.count-sheet tr.marked > *, table.count-before tr.needs > * { background: var(--needs-bg, #fff7e6); }
-table.count-sheet input[type="text"] { width: 7rem; max-width: 100%; text-align: right; }
+/* Stock > Counts, one way in and one way out (the approved design CT_Board, CT_Sheet, CT_Final and CT_Phone of 29 Oct 2026; docs/decisions.md
+   CV1-CV12). The board, its solid status cell, the strip and the bar at the bottom are the shared ones (pi-design, pi-one-page, section 9's
+   More); here only what counting adds. A final sheet keeps its table (a line put back, its check). */
+/* The bars at the bottom: each label beside its field; More opens upwards (the bar is at the bottom of the screen), a tall step scrolls in it */
+.count-bar .count-field { display: inline-flex; align-items: center; gap: 8px; margin: 0; font: 500 13px/20px var(--font); color: var(--ink-muted); }
+.count-bar .count-field select { width: auto; max-width: 18rem; }
+.count-bar .count-note input { width: 12rem; }
+.count-bar > .count-ticked { margin-right: auto; color: var(--ink); font-weight: 600; }
+.count-bar > details.more { margin-right: auto; }
+.doc-bar details.more > .more-menu { top: auto; bottom: calc(100% + 6px); left: 0; right: auto; max-height: min(70vh, 40rem); overflow-y: auto; }
+table.count-next tbody tr.picked > td.doc-st { background: var(--t-fill, var(--st-grey)); }
+.count-plan { margin: 0 0 16px; }
+/* The sheet's head: "N of M counted" with its bar; the big scan box */
+.count-progress { display: grid; gap: 6px; min-width: 12rem; text-align: right; }
+.count-progress p { margin: 0; color: var(--ink); font: 700 18px/1.3 var(--font); }
+.count-progress progress { width: 100%; }
+.count-scan { margin: 0 0 20px; padding: 16px 20px; }
+.count-scan form { display: grid; gap: 6px; margin: 0; }
+.count-scan-row { display: flex; gap: 8px; align-items: stretch; }
+.count-scan input[type="search"] { flex: 1 1 auto; min-width: 0; min-height: 48px; font-size: 16px; }
+/* The lines: the big number box, "Saved hh:mm" (green, with its tick) or "Not yet", a box typed in and not saved yet (red), the line to
+   count now (the accent's tint) */
+table.count-sheet input.count-box { width: 7.5rem; max-width: 100%; min-height: 46px; text-align: right; font-size: 18px; font-weight: 600; }
 table.count-sheet input.unsaved { border: 2px solid var(--block-icon); }
+.save-state { color: var(--ink-muted); font-size: 13px; }
+.save-state.saved { color: var(--sf-green-ink); font-weight: 600; }
+.save-state.saved::before { content: "\2713\00a0"; content: "\2713\00a0" / ""; }
 .save-state.unsaved { color: var(--block-icon); font-weight: 600; }
-fieldset.count-open-how { margin-top: 12px; }
-fieldset.count-open-how .inline-field { display: inline-flex; align-items: center; gap: 6px; }
-fieldset.count-open-how .inline-field input { width: 5rem; }
+.save-state.unsaved::before { content: none; }
+table.count-sheet tr.now > * { background: var(--accent-soft); }
+button.save-next { display: none; }
+/* Before it is final: the strip's figures in their colour; a line's two answers side by side */
+.count-steps .doc-step-big:is(.done, .needs) { color: var(--t-ink); }
+.count-steps p.muted { margin: 0; font-size: 12px; }
+table.count-before td.c-next { white-space: nowrap; text-align: right; }
+table.count-before td.c-next form.inline { display: inline-flex; margin: 0 0 0 6px; }
+/* A phone: the sheet's line to count now is one big card, first, with its 64 px box and "Save and next item"; the others are small cards
+   (the name and its Saved mark, then the box); the bars' fields take a row each */
+@container (max-width: 640px) {
+  table.stack.count-sheet tr.now { order: -1; border: 2px solid var(--accent); background: var(--card); padding: 18px 16px; }
+  table.stack.count-sheet tr.now > * { background: none; }
+  table.stack.count-sheet tr.now .c-head { font-size: 17px; }
+  table.stack.count-sheet td.count-saved { grid-column: 2; grid-row: 1; justify-self: end; padding: 0 0 6px; }
+  table.stack.count-sheet tr.now td.count-q { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  table.stack.count-sheet tr.now td.count-q::before { color: var(--ink); font: 500 13px/20px var(--font); }
+  table.stack.count-sheet tr.now td.count-q > * { grid-column: 1; }
+  table.stack.count-sheet tr.now input.count-box { width: 100%; min-height: 64px; font-size: 28px; font-weight: 700; text-align: center; }
+  table.stack.count-sheet tr.now button.save-next { display: flex; width: 100%; min-height: 52px; }
+  table.count-before td.c-next { text-align: left; white-space: normal; }
+  table.count-before td.c-next form.inline { display: block; margin: 0 0 8px; }
+}
+@media (max-width: 639.98px) {
+  .count-bar > .count-ticked, .count-bar .count-field { flex: 1 1 100%; }
+  .count-bar .count-field select, .count-bar .count-note input { flex: 1 1 auto; width: auto; max-width: none; }
+  .count-progress { text-align: left; min-width: 0; }
+}
 
 form.count-answer { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-end; }
 
@@ -2094,7 +2142,7 @@ table.simple-match details.sm-more[open] > summary { margin-bottom: 6px; }
    whom to ask (not a choice); the board of products with a remove on each row and "+ Add product" (the scan box) as its last row; the two
    small "+ Add new" forms; one summary card. The form's first button (Add: what Enter presses) is in the form but not on the screen.
    Layout only: no new colours or type. 44 px to tap, 16 px in a box. */
-form.po-editor > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+form.po-editor > button.po-default, form.count-lines > button.po-default { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
 form.po-editor .po-box-field { display: grid; gap: 4px; flex: 1 1 18rem; min-width: 0; }
 form.po-editor .po-box-field select, form.po-editor .po-box-field input[type="search"], form.po-editor input.po-box { width: 100%; min-height: 44px; font-size: 16px; }
 .sm-list > li.sm-add { color: var(--accent-hover); font-weight: 600; }

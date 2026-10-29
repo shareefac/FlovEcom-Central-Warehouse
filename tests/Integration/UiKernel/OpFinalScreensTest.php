@@ -339,19 +339,19 @@ final class OpFinalScreensTest extends KernelUiTestCase
 
         $page = $web->get($sheet);
         $xp = self::xp($page);
-        // A blind count stays blind.
-        self::assertStringContainsString(Words::COUNTS['blind'], $page->text());
-        self::assertStringNotContainsString('10', (string) $xp->evaluate('string(//table[contains(@class, "count-sheet")]//td[@data-label="' . Words::COUNTS['stock_now'] . '"])'));
-        // "Before you make it final" is a button of the quantity form (not a link that leaves what was typed behind); Enter still saves.
+        // A blind count stays blind (docs/decisions.md CV8: no stock column at all).
+        self::assertSame(0, $xp->query('//table[contains(@class, "count-sheet")]//td[@data-label="' . Words::COUNTS['stock_now'] . '"]')->length);
+        // "Save and review" is a button of the quantity form (not a link that leaves what was typed behind); Enter still saves.
         $formId = (string) $xp->evaluate('string(//form[contains(@action, "' . $sheet . '/lines")]/@id)');
         self::assertNotSame('', $formId, 'the quantity form has an id its buttons name');
         $review = $xp->query('//button[@type="submit" and @name="then" and @value="review"]');
         self::assertSame(1, $review->length);
         self::assertSame($formId, $review->item(0)?->getAttribute('form'));
-        self::assertSame(Words::COUNTS['final_link'], trim((string) $review->item(0)?->textContent));
+        self::assertSame(Words::COUNTS['save_review'], trim((string) $review->item(0)?->textContent));
         self::assertSame(0, $xp->query('//main//a[contains(@href, "' . $sheet . '/differences")]')->length, 'no link that leaves typed quantities behind');
         $first = $xp->query('//form[contains(@action, "' . $sheet . '/lines")]//button[@type="submit"]');
-        self::assertSame(Words::COUNTS['save_page'], trim((string) $first->item(0)?->textContent), 'the first button of the form (Enter) saves the page');
+        self::assertSame(Words::COUNTS['save'], trim((string) $first->item(0)?->textContent), 'the first button of the form (Enter) saves the page');
+        self::assertSame('', $first->item(0)?->getAttribute('name'), 'it sends no "then": Enter never opens the review');
 
         // Line 2 was counted in another tab after this page was drawn: the review button saves line 1 typed here, and never empties line 2.
         $drawn = $page->form($sheet . '/lines');

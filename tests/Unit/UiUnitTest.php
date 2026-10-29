@@ -1144,6 +1144,41 @@ final class UiUnitTest extends TestCase
     }
 
     /**
+     * Stock counts, one way in and one way out (the owner's approved design of 29 Oct 2026, CT_Board / CT_Sheet / CT_Final / CT_Phone;
+     * docs/decisions.md CV1-CV12): the shared board, status cell and bottom bar, with only what counting adds: More opens upwards from a
+     * bar at the bottom of the screen, the big number box, on a phone the line to count now as one big card (a 64 px box) first and the
+     * others as small cards; a group that starts folded is folded by the script only (without it every group is open); "N ticked" is the
+     * script's; the "Saved" mark is found in the line's row, wherever its cell is. The count pages close every tag they open.
+     */
+    public function testTheCountPagesFollowTheApprovedDesign(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        foreach (['/^\.doc-bar details\.more > \.more-menu \{[^}]*top: auto;[^}]*bottom: calc\(100% \+ 6px\)/m' => 'More opens upwards from the bottom bar',
+            '/^\.doc-bar details\.more > \.more-menu \{[^}]*max-height:[^}]*overflow-y: auto/m' => 'a tall step scrolls inside the menu',
+            '/^table\.count-sheet input\.count-box \{[^}]*font-size: 18px/m' => 'the big number box',
+            '/^\.count-scan input\[type="search"\] \{[^}]*min-height: 48px[^}]*font-size: 16px/m' => 'the big scan box',
+            '/^table\.count-sheet tr\.now > \* \{[^}]*background: var\(--accent-soft\)/m' => 'the line to count now',
+            '/table\.stack\.count-sheet tr\.now \{[^}]*order: -1;[^}]*border: 2px solid var\(--accent\)/' => 'phone: the line to count now first, one big card',
+            '/table\.stack\.count-sheet tr\.now input\.count-box \{[^}]*min-height: 64px[^}]*font-size: 28px/' => 'phone: the 64 px box',
+            '/^button\.save-next \{ display: none; \}/m' => 'Save and next item: the phone\'s',
+            '/table\.stack\.count-sheet tr\.now button\.save-next \{[^}]*display: flex;[^}]*width: 100%/' => 'phone: Save and next item across the card',
+            '/form\.count-lines > button\.po-default/' => 'the hidden first button: Enter saves'] as $rule => $why) {
+            self::assertSame(1, preg_match($rule, $css), $why);
+        }
+        self::assertStringContainsString("each(document.querySelectorAll('button.grp-toggle[data-folded]'), function (b) { b.click(); });", $js,
+            'a group drawn to start folded is folded by the script (the toggle\'s own code), never by the page');
+        self::assertStringContainsString("each(document.querySelectorAll('[data-ticked]'), function (out) {", $js);
+        self::assertStringContainsString("var row = input.closest ? input.closest('tr') : null;", $js, 'the Saved mark of the box\'s row');
+        foreach (['stock_counts', 'stock_count', 'stock_count_before'] as $name) {
+            $src = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/' . $name . '.php');
+            foreach (['div', 'details', 'form', 'section', 'table', 'p'] as $tag) {
+                self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
+            }
+        }
+    }
+
+    /**
      * One set of tabs, buttons and status parts for every page (the owner, 29 Oct 2026, looking at the item page's design: "tab change follow
      * this design pattern and button all design follow this"; the parts board TP_Parts and IT_Item; docs/decisions.md DS1-DS6), as CSS:
      * the tabs underline with a 3 px accent bar on the open tab and a count bubble that turns accent on it, 44 px to tap, one row that

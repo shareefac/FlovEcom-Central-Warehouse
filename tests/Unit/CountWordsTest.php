@@ -75,8 +75,12 @@ final class CountWordsTest extends TestCase
         }
         self::assertSame(array_keys(Words::COUNT_REVIEW), array_keys(Words::COUNT_REVIEW_HELP));
         self::assertSame(CountsController::GROUPS, array_keys(Words::COUNT_SHEET_GROUP));
-        self::assertSame(['never', 'overdue', 'inside'], array_keys(Words::COUNT_GROUP));
+        self::assertSame(['overdue', 'never', 'inside'], array_keys(Words::COUNT_GROUP));
         self::assertSame(['all', 'todo', 'done'], array_keys(Words::COUNT_SHOW));
+        // The approved design's words (docs/decisions.md CV11): no "How counting works" fold (no help paragraphs); the board's groups in
+        // the design's order.
+        self::assertFalse(defined(Words::class . '::COUNT_HOW'));
+        self::assertSame(['overdue', 'never', 'inside'], CountsController::PLAN_GROUPS);
         self::assertSame(['no_code', 'not_whole', 'negative', 'too_large', 'twice'], array_keys(Words::COUNT_BAD));
         self::assertSame([50, 100, 200], CountPlan::SHOW);
         // The menu: Counts is a tab with three segments, each with its name; the tab has its line on the Dashboard, its create button
@@ -102,7 +106,7 @@ final class CountWordsTest extends TestCase
 
     public function testTheCountingWordsKeepTheWritingRules(): void
     {
-        foreach ([Words::COUNT_NOTICE, Words::COUNT_ERROR, Words::COUNT_REVIEW_HELP, Words::COUNT_HOW] as $texts) {
+        foreach ([Words::COUNT_NOTICE, Words::COUNT_ERROR, Words::COUNT_REVIEW_HELP] as $texts) {
             foreach ($texts as $code => $text) {
                 self::assertMatchesRegularExpression('/^[A-Z"].*[.:]$/s', $text, "{$code}: a full sentence (writing rule 7)");
             }

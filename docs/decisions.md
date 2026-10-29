@@ -12677,3 +12677,104 @@ a loop as many) and the main links and fold buttons outside them, at most one ea
 left to `tests/Support/MainButtons`, which `KernelBrowser` runs on every HTML page a kernel test opens (a failure names the page and the
 buttons). The pins that named the old classes follow (`KernelUiTestCase::segments`, the pill and legend helpers of the matching tests, the
 reports' Show, the More xpaths of the invoice tests, the item cards' filter chips).
+
+## Stock counts, one way in and one way out (branch `counts-one-page`, 29 Oct 2026; CV1-CV12)
+
+The owner approved the count screens of the canvas "CW Daily Screens" on 29 Oct 2026 (relayed by the coordinator with the static mockups
+`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`): one way in (the board's bar) and one way out (the sheet's "Save and review", the final page's
+"Make the count final"), monday.com's board look, one main action a page, no help paragraphs. Built from main `24b474a` (OV, the order and
+invoice boards, DS1-DS6) in `/root/cw-ctone`. Layout and navigation only: no migration, no new route, no new permission, no service rule
+changed (`Counts\*` untouched). Code: `src/Ui/Controller/CountsController.php`, views `stock_counts`, `stock_count`, `stock_count_before`,
+`src/Ui/Words.php` (`COUNTS`, `COUNT_GROUP`; `COUNT_HOW` removed), `src/Ui/Html.php` (`clock()`), `public/ui/assets/app.{js,css}`.
+
+**CV1. The board's groups.** Overdue (red, `blocked`: counted, but longer ago than the plan), Never counted (purple, `review`), Inside the
+plan (green, `done`), in the design's order; the list under them is `CountPlan::next` as before (the first N, never counted first). The four
+figure tiles went into the headings: each heading carries the plan's figure for the warehouse (the plan's own "overdue" counts the never
+counted too; on the board they are apart, so Overdue's figure is overdue minus never; "items in the plan" is the sum), and "· k on this
+list" when the list shows fewer. A group with nothing on the list is a heading only (no fold); a search counts what it found. Inside the plan
+starts folded: the page draws its toggle with `data-folded` and app.js folds it with the toggle's own code, so without the script every group
+is open. A row: the tick box (section 21's `td.c-pick` + `label.pick`), the item, its status as the solid cell (`td.doc-st`), last counted,
+sold a day. The shared board classes (`.doc-group`, `.doc-board`, `.doc-list`); a ticked row keeps its cell solid.
+
+**CV2. One way in: the bar.** The board sits inside the "open a count sheet" form, and its bar is the shared `.doc-bar` (sticky in its
+form): "N ticked" (app.js, from `data-words`; hidden without the script, where nothing would keep it true), ONE "Count" menu
+(`select name=mode`: The ticked items / The next N due / Everything found (k) / An empty sheet: scan as you go), the shelf menu (the
+warehouse's places, when it has any), the note, and ONE "Open count sheet" (primary). The four open buttons and the "how many" box went.
+"The next N due" sends a hidden `n` = the board's Show choice (50, 100, 200; the brief's "existing setting": no new setting): the list on
+the board is exactly the next N, so what is opened is what is seen. With a search the menu offers everything found instead of the next N
+(as the buttons did). The route, its four modes and checks (`bad_next` 1 to 200, `nothing_ticked`, `bad_mode`), FormOnce, CSRF and the
+500-line limit are unchanged. A refused open now comes back with the ticked boxes (they were lost), the menu's choice, the shelf, the note.
+
+**CV3. The board's head and toolbar.** The Filter pop-over went: one search, the warehouse and the Show choice side by side, and a plain
+Show button (a GET form is never the main action, DS5). The head's right holds "Open sheets (N)", a plain link to Count sheets
+(`state=draft`, the warehouse; N read by the record index (doc_type, status, id): drafts are sheets), instead of the create button, which
+pointed at this same form; nothing when no sheet is open. The "How counting works" fold, the board's notes and its foot line went; the plan's
+one line with its setting link stays.
+
+**CV4. No stock figure on the board.** The board showed "Stock now" on every row: with a blind count (`counts.sheet_shows_stock` off) that
+told the counter the figure before the count. The design has no such column; it went.
+
+**CV5. The sheet's head.** The status block in the heading (`div.doc-head`): an open sheet is "Counting" (blue `info`, as the design
+draws it; the Count sheets list's rows and their "Open sheets" heading say it too); the other states as before. Under it one line: where
+(the warehouse, its shelf), "opened <when> by <who>", the note; a blind count adds the tag "Blind count". At the head's right "N of M
+counted" with its bar (a `progress`, section 13), instead of the create button. Every other view (a final sheet, a record that puts a count
+back, someone else's open sheet) keeps its facts list.
+
+**CV6. The sheet's lines and the line to count now.** The scan box is a card of its own, 48 px with 16 px words ("Scan a barcode or type a
+CW number"; Find it); what it finds is CT4's (a barcode or a CW number; a name is not looked up). The lines are a board in a card with the
+blue edge: the item (line, CW number, brand, selling mode; its barcodes), Stock now (only when the setting shows it: CV8), Counted (the big
+box, 18 px), Saved ("✓ Saved 10:15": the line's own count time, CT2's moment per line, in UK time with the day when it is not today:
+`Html::clock`; else "Not yet"). app.js's "not saved yet" mark finds the Saved mark in the box's row. The line to count now (`tr.now`: the
+line a scan or "Save and next item" marked, else the first one on the page not counted) has the accent's tint. On a phone (CT_Phone) it is
+the one big card, first (`order: -1` in the cards' grid), with "How many did you count?", a 64 px box and "Save and next item"; the other
+lines are small cards (the name and its Saved mark, then the box: the design's done cards have no box, but a wrong figure must stay
+correctable on a phone). "Save and next item" (`next` = its line) is a soft button of the quantity form (the main button stays "Save and
+review"); wider than a phone it is not shown. It saves exactly as Save, then opens the next line not counted after it (else the first one
+before it), marked and its box ready, read after the save by the line key; with none left, the sheet as after Save. Enter in any box still
+saves only: the form's first button is a hidden Save (`button.po-default`, the order editor's), so Enter never reviews and never moves on.
+
+**CV7. The sheet's bar.** The shared `.doc-bar` at the bottom, after the quantity form, its buttons naming it (`form="count-lines"`): More
+(DS4's one More; in a bar at the bottom its menu opens upwards and scrolls when tall) with two folds (`details.doc-act`): "Count on paper:
+download and upload" (the download link, the upload form) and "Stop this sheet" (the reason, the button); then Save, and "Save and review"
+(primary, `then=review`: OV6's button, renamed). The "When you have counted" card and the folds under the page went. After an upload's
+preview, a refused upload or a refused stop, More comes back open with that fold open (PV26's rule); the preview is a card in the page above
+the bar. With no line on the page (a filter, an empty sheet) the bar's main action is the link "Review the differences" (OV6 kept a link).
+
+**CV8. A blind count never shows the stock figure on the sheet.** CT4 showed it once a line held a quantity, so a counter could read it and
+type it again to make the line agree. With `counts.sheet_shows_stock` off the sheet now has no Stock now column at all (the brief: "blind
+counts never show the stock figure"); the download leaves it out as before. "Before it is final" still shows what CW holds (that is where the
+differences are decided), and a final sheet what it booked; someone else's open blind sheet says "not shown: a blind count".
+
+**CV9. Before it is final: the strip and the two boards.** The four tiles became the shared strip (`section.doc-progress`): Counted (of M on
+the sheet), Same as the system (green), Different (amber), A reviewer checks (the lines above the limits: they wait on Differences once the
+count is final, CT6). Then the board "Different from the system" (amber): every line with a difference, left out by a later count, whose stock
+moved after the count, kept, counted too long ago, marked by too many count times, or above the limits; the biggest difference first as before.
+Then "Same as the system" (green), folded at first by the script. A line: the item, with what moved, what keeping the count does and the
+limits it is above under its name (as before); Counted; System (what CW holds now); Difference; What happens (the solid cell: Booked as
+counted, green; A reviewer checks it, amber; Left out, navy; red where it stops the making final: Count again: too many count times, Counted
+too long ago, Stock moved: choose); and the answers: "Count again" (plain, small) on every line (`/recount` empties any counted line:
+`CountSheets::recount`), "Keep my count" (quiet, small) where stock moved, as before. The too-many-times message and its one button stay above.
+
+**CV10. Before it is final: the bar.** Back to the sheet (quiet, left), and ONE "Make the count final" (the post form: csrf and version,
+unchanged). While a marked line waits for its answer the button is drawn switched off with the reason beside it (`.btn-why`, DS1) and there
+is no post form, as before; the service's own refusal (409 `moved_since`) is unchanged. The help paragraph about making it final went.
+
+**CV11. Words.** New (`Words::COUNTS`): the group headings' figures, "Open sheets (%s)", "%s ticked", the Count menu and its four choices,
+Shelf, "Open count sheet", Counting, Blind count, the head's line, the scan box's hint, Saved / "Saved %s" / "Not yet", "How many did you
+count?", Save, "Save and next item", "Save and review", "Review the differences", the strip's four labels, the two groups, System, the four
+line states. Changed: the scan box's label, `blind`, `recount` ("Count again", as the too-many-times words already said), the open sheet's
+intro. Removed (no page uses them any more; the owner's "no help paragraphs"): `COUNT_HOW`, the tiles' words, the four open buttons', the
+board notes and foot, `save_page`, `save_hint`, `final_*`, `paper_text`, `stop_text`, `holds_now`, `over_chip`, `make_final_title`,
+`make_final_text`, `retime_all_text`, `mode`, `no_mode`. `COUNT_GROUP` is in the design's order.
+
+**CV12. Kept, and the tests.** Every rule: blind counts (stricter, CV8), later-count protection (a line left out says so; Differences'
+"counted again since"), the changed-stock choices (warn first: both answers, no post form until answered, the 409), the warehouse scope
+(the board, the open sheets' figure and link are the chosen warehouse's), the sheet limits (500 lines, the next 1 to 200, refused in
+words), duplicate-open protection (FormOnce), CSRF on every POST, the opener alone, versions, the count time per line (`at_<line>`) and the
+changed boxes only (`was_<line>`). Tests (red first: `runs/ctone_red.log`, 9 failures on `24b474a`): `CountsScreensTest` (new: the one Count
+menu opens each kind of sheet and a refused open keeps the choice; "Save and next item"; changed to the new pages: the groups with their
+figures and folds, the solid cells, the bar's one button, the head, the Saved mark, the bar's More and buttons, the strip and boards, the
+switched-off button, a blind count never shows the figure, the preview opens More), `OpFinalScreensTest` (the review button's words, Enter's
+hidden Save, no stock column on a blind count), `UiUnitTest::testTheCountPagesFollowTheApprovedDesign` (CSS and JS pins; the three count
+templates close every tag they open), `CountWordsTest` (`COUNT_HOW` gone, the group order). app.js checked with `node --check` on cw-test;
+not seen in a real browser.

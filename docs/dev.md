@@ -771,6 +771,25 @@ The parts board (`TP_Parts`) as shared classes in `public/ui/assets/app.css` (se
   `tests/Support/MainButtons` (every page a kernel test opens, run by `KernelBrowser`: a second main button in one form, or a second main
   link or fold button on a page, fails the test that opened it).
 
+### Stock counts, one way in and one way out (`docs/decisions.md` CV1-CV12)
+
+The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shared pieces above; only what counting adds is new (CSS: the
+"Stock > Counts, one way in and one way out" block of `app.css`).
+
+| Path | What |
+|---|---|
+| `src/Ui/Controller/CountsController.php` | `index` (the board's groups in `PLAN_GROUPS` order with the plan's figures, the Count menu's `modes`, the open sheets' figure; a refused `open` brings back the ticked items), `lines` (`then=review`, and `next` = "Save and next item"), `page` (the line to count now, the Saved mark by `Html::clock`, `metaLine`, `blind`, `paperOpen`), `before` (each line's state and tone, the `differ` / `same` groups, the strip's `steps`) |
+| views `stock_counts` (the board, its `.doc-bar`), `stock_count` (the sheet: `div.doc-head`, `.count-progress`, `.count-scan`, the lines board, `tr.now` + `button.save-next`, the bar with More), `stock_count_before` (`section.doc-progress.count-steps`, the two boards, `form.doc-bar`) | |
+| `public/ui/assets/app.js` | `button.grp-toggle[data-folded]` (a group that starts folded: the script folds it), `[data-ticked]` ("N ticked"), the Saved mark found in the box's row |
+| `src/Ui/Words.php` | `COUNTS` (the board's bar, the sheet's head, lines and bar, the strip, the groups, the line states), `COUNT_GROUP` (the design's order) |
+
+- Classes: `.count-bar` (a `.doc-bar` holding fields: `.count-field`, `.count-ticked`, More opening upwards: `.doc-bar details.more >
+  .more-menu`), `table.count-next` (the board: `.doc-list.picks`), `table.count-sheet` (`input.count-box`, `.save-state.saved`, `tr.now`),
+  `table.count-before`; the hidden first button of the quantity form is `button.po-default` (Enter saves).
+- Tests: `tests/Integration/UiKernel/CountsScreensTest.php`, `OpFinalScreensTest::testTheCountReviewButtonSavesTheQuantitiesTypedFirst`,
+  `UiUnitTest::testTheCountPagesFollowTheApprovedDesign`, `CountWordsTest`. The board's open form is `$r->form('/ui/stock/counts')` (`csrf`,
+  `form_key`, `warehouse`, `q`, `n`, `mode`); the sheet's `$r->form('<sheet>/lines')`; "Save and next item" posts `next=<line>`.
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

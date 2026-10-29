@@ -89,12 +89,54 @@ final class CountsScreensTest extends KernelUiTestCase
         return $out;
     }
 
-    /** @return list<string> the big figures of the page's tiles */
-    private static function tiles(UiResponse $page): array
+    /** @return list<string> the big figures of the page's strip (docs/decisions.md CV9) */
+    private static function steps(UiResponse $page): array
     {
         $out = [];
-        foreach ((new \DOMXPath($page->dom()))->query('//main//p[@class="kpi-value"]') ?: [] as $p) {
+        foreach ((new \DOMXPath($page->dom()))->query('//main//section[contains(@class, "doc-progress")]//p[contains(@class, "doc-step-big")]') ?: [] as $p) {
             $out[] = trim((string) $p->textContent);
+        }
+        return $out;
+    }
+
+    /**
+     * The board's groups in page order (docs/decisions.md CV1, CV10): each its key, its tone, its name, its count words, and whether its
+     * fold starts closed.
+     *
+     * @return list<array{0: string, 1: string, 2: string, 3: string, 4: bool}>
+     */
+    private static function boardGroups(UiResponse $page): array
+    {
+        $xp = new \DOMXPath($page->dom());
+        $out = [];
+        foreach ($xp->query('//main//div[contains(@class, "doc-group")]') ?: [] as $g) {
+            /** @var \DOMElement $g */
+            $classes = preg_split('/\s+/', trim($g->getAttribute('class'))) ?: [];
+            $tone = array_values(array_intersect($classes, Words::TONES))[0] ?? '';
+            $name = $xp->query('.//*[contains(@class, "grp-toggle") or contains(@class, "grp-name")]', $g)->item(0);
+            $out[] = [$g->getAttribute('data-group'), $tone, trim((string) $name?->textContent), trim((string) $xp->evaluate('string(.//span[contains(@class, "grp-count")])', $g)),
+                $xp->query('.//button[contains(@class, "grp-toggle") and @data-folded]', $g)->length === 1];
+        }
+        return $out;
+    }
+
+    /** @return array<string, string> a select's options (value => words) */
+    private static function options(UiResponse $page, string $name): array
+    {
+        $out = [];
+        foreach ((new \DOMXPath($page->dom()))->query('//select[@name="' . $name . '"]/option') ?: [] as $o) {
+            /** @var \DOMElement $o */
+            $out[$o->getAttribute('value')] = trim((string) $o->textContent);
+        }
+        return $out;
+    }
+
+    /** @return list<string> the words of the solid status cells of the page's boards, in page order */
+    private static function cells(UiResponse $page): array
+    {
+        $out = [];
+        foreach ((new \DOMXPath($page->dom()))->query('//main//td[contains(@class, "doc-st")]') ?: [] as $td) {
+            $out[] = trim((string) preg_replace('/\s+/u', ' ', (string) $td->firstChild?->textContent));
         }
         return $out;
     }
@@ -119,19 +161,43 @@ final class CountsScreensTest extends KernelUiTestCase
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['counts'], trim((string) $xp->evaluate('string(//main//h1)')));
         self::assertStringStartsWith(Words::PAGE_INTRO['counts'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));
-        self::assertSame(['3', '0', '3', '2'], self::tiles($page), 'in the plan, inside it, overdue, never counted');
+        // The board (docs/decisions.md CV1): Overdue (red), Never counted (purple), Inside the plan (green, folded at first); each heading
+        // with the plan's figure for the warehouse (overdue here: counted, but longer ago than the plan); each row's status a solid cell.
+        self::assertSame([['overdue', 'blocked', 'Overdue', '1 item', false], ['never', 'review', 'Never counted', '2 items', false]], self::boardGroups($page));
         self::assertStringContainsString(Words::say('COUNTS', 'plan', 120), $page->text());
-        self::assertSame(['Best seller pod', 'Slow liquid', 'Counted last year'], self::names($page), 'never counted first (best sellers first), then the longest ago');
-        self::assertStringContainsString(Words::COUNT_GROUP['never'], $page->text());
-        self::assertStringContainsString(Words::COUNT_GROUP['overdue'], $page->text());
-        self::assertArrayHasKey('form_key', $page->form(self::PATH));
-        // The setting moves the figures: with two years of days the old count is inside the plan.
+        self::assertSame(['Counted last year', 'Best seller pod', 'Slow liquid'], self::names($page), 'overdue first, then never counted (best sellers first)');
+        self::assertSame(['Overdue', 'Never counted', 'Never counted'], self::cells($page));
+        self::assertSame(3, $xp->query('//table[contains(@class, "count-next")]//td[contains(@class, "c-pick")]//input[@type="checkbox"]')->length,
+            'a tick box a row');
+        self::assertSame(0, $xp->query('//table[contains(@class, "count-next")]//th[normalize-space() = "' . Words::COUNTS['stock_now'] . '"]')->length,
+            'no stock figure on the board: a blind count would show it before the count (CV4)');
+        // The bar (CV2): "N ticked", ONE Count menu, the shelf, ONE button. The four open buttons went; the next N is the Show choice.
+        $form = $page->form(self::PATH);
+        self::assertArrayHasKey('form_key', $form);
+        self::assertSame(['ticked' => Words::COUNTS['count_ticked'], 'next' => Words::say('COUNTS', 'count_next', 50), 'empty' => Words::COUNTS['count_empty']],
+            self::options($page, 'mode'));
+        self::assertSame(['ticked', '50'], [$form['mode'] ?? null, $form['n'] ?? null]);
+        $bar = '//form[@action="' . self::PATH . '"]//div[contains(@class, "doc-bar")]';
+        self::assertSame(1, $xp->query('//form[@action="' . self::PATH . '"]//button[@type="submit"]')->length, 'one button opens the sheet');
+        self::assertSame(Words::COUNTS['open_button'], trim((string) $xp->evaluate('string(' . $bar . '//button[@type="submit" and contains(@class, "primary")])')));
+        self::assertSame(1, $xp->query($bar . '//select[@name="mode"]')->length);
+        self::assertSame(1, $xp->query($bar . '//*[@data-ticked and @hidden]')->length, '"N ticked" is the script\'s: without it nothing says 0');
+        self::assertNotContains('/ui/stock/counts/sheets?state=draft&warehouse=1', $page->hrefs(), 'no open sheet yet');
+        // The setting moves the figures: with two years of days the old count is inside the plan, folded at first.
         $this->setting('counts.plan_days', '730');
-        self::assertSame(['3', '1', '2', '2'], self::tiles($web->get(self::PATH)));
-        // A search shows what it finds, whatever its turn.
+        $wide = $web->get(self::PATH);
+        self::assertSame([['never', 'review', 'Never counted', '2 items', false], ['inside', 'done', 'Inside the plan', '1 item', true]], self::boardGroups($wide));
+        self::assertSame(['Best seller pod', 'Slow liquid', 'Counted last year'], self::names($wide), 'without the script every group is open');
+        // The Show choice is the N of "the next N due".
+        $more = $web->get(self::PATH, ['show' => '100']);
+        self::assertSame(Words::say('COUNTS', 'count_next', 100), self::options($more, 'mode')['next'] ?? null);
+        self::assertSame('100', $more->form(self::PATH)['n'] ?? null);
+        // A search shows what it finds, whatever its turn: the menu offers everything found instead of the next ones.
         $found = $web->get(self::PATH, ['q' => 'liquid']);
         self::assertSame(['Slow liquid'], self::names($found));
-        self::assertStringContainsString(Words::say('COUNTS', 'open_found', 1), $found->text());
+        self::assertSame(['ticked' => Words::COUNTS['count_ticked'], 'found' => Words::say('COUNTS', 'count_found', 1), 'empty' => Words::COUNTS['count_empty']],
+            self::options($found, 'mode'));
+        self::assertSame([['never', 'review', 'Never counted', '1 item', false]], self::boardGroups($found), 'a search counts what it found');
         self::assertStringContainsString(Words::COUNTS['none_found'], $web->get(self::PATH, ['q' => 'no such thing'])->text());
         // The two other segments, empty.
         $sheets = $web->get(self::PATH . '/sheets');
@@ -147,11 +213,57 @@ final class CountsScreensTest extends KernelUiTestCase
         $look = $buyer->get(self::PATH);
         self::assertSame(200, $look->status);
         self::assertFalse($look->hasForm(self::PATH), 'no form for someone who does not count');
+        self::assertSame(0, (new \DOMXPath($look->dom()))->query('//div[contains(@class, "doc-bar")] | //input[@type="checkbox"]')->length, 'no bar, no tick boxes');
         self::assertStringContainsString(Words::intro('counts', Words::whoCan('doc.CNT.post')), $look->text());
         self::assertSame(['Best seller pod', 'Slow liquid', 'Counted last year'], self::names($look));
         self::assertSame(403, $this->signIn($this->uiUser('viewer'))->get(self::PATH)->status);
         // The Dashboard lists the tab.
         self::assertStringContainsString(Words::MENU_HELP['counts'], $web->get('/ui/')->text());
+    }
+
+    public function testTheBoardsOneCountMenuOpensEachKindOfSheetAndARefusalKeepsTheChoice(): void
+    {
+        // docs/decisions.md CV2: the bar's one Count menu and its one button do what the four buttons did (the same mode, n and q the
+        // route always took; FormOnce: one sheet however often it is sent); a refused open comes back with what was chosen.
+        $a = $this->item('strict', 10, 'Alpha pod 2ml');
+        $b = $this->item('strict', 5, 'Beta liquid');
+        $c = $this->item('strict', 3, 'Gamma kit');
+        $place = (int) self::$db->insert("INSERT INTO warehouse_location (warehouse_id, code, name, is_active) VALUES (1, 'A1', 'Aisle A', 1)");
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $lines = static fn (string $path): array => array_map('intval', self::$db->column('SELECT sku_id FROM count_sheet_line WHERE document_id = ? ORDER BY line_no', [(int) basename($path)]));
+        $open = function (array $fields, array $query = []) use ($web): string {
+            $r = $web->post(self::PATH, $fields + $web->get(self::PATH, $query)->form(self::PATH));
+            self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
+            return (string) parse_url((string) $r->location(), PHP_URL_PATH);
+        };
+        $page = $web->get(self::PATH);
+        self::assertSame(['' => Words::COUNTS['no_place'], (string) $place => 'Aisle A'], self::options($page, 'location'), 'the shelf menu');
+        // The next N due: N is the Show choice (50), the plan's own order (never counted: by CW number without a sales figure).
+        $next = $open(['mode' => 'next']);
+        self::assertSame([$a, $b, $c], $lines($next));
+        // Everything found by a search.
+        $found = $open(['mode' => 'found'], ['q' => 'liquid']);
+        self::assertSame([$b], $lines($found));
+        // An empty sheet, on a shelf, with a note.
+        $empty = $open(['mode' => 'empty', 'location' => (string) $place, 'note' => 'top shelf']);
+        self::assertSame([], $lines($empty));
+        self::assertSame([(string) $place, 'top shelf'], array_map('strval', array_values(self::$db->one('SELECT cs.location_id, d.note FROM count_sheet cs JOIN document d ON d.id = cs.document_id WHERE cs.document_id = ?',
+            [(int) basename($empty)]) ?? [])));
+        // The ticked items.
+        $ticked = $open(['mode' => 'ticked', 'pick_' . $c => '1']);
+        self::assertSame([$c], $lines($ticked));
+        // A refused open (a hand-made N) keeps the ticked boxes, the menu's choice, the shelf and the note.
+        $r = $web->post(self::PATH, ['mode' => 'next', 'n' => '0', 'pick_' . $a => '1', 'location' => (string) $place, 'note' => 'aisle 3'] + $web->get(self::PATH)->form(self::PATH));
+        self::assertSame(422, $r->status);
+        self::assertStringContainsString(Words::say('COUNT_ERROR', 'bad_next', 200), $r->text());
+        $again = $r->form(self::PATH);
+        self::assertSame(['next', '1', (string) $place, 'aisle 3', '50'], [$again['mode'] ?? null, $again['pick_' . $a] ?? null, $again['location'] ?? null, $again['note'] ?? null, $again['n'] ?? null]);
+        self::assertArrayNotHasKey('pick_' . $b, $again);
+        // The open sheets of the warehouse: a plain link in the head to the list of them (the four above).
+        $list = $web->get(self::PATH);
+        self::assertContains('/ui/stock/counts/sheets?state=draft&warehouse=1', $list->hrefs());
+        self::assertStringContainsString(Words::say('COUNTS', 'open_sheets', 4), $list->text());
+        self::assertSame(0, (new \DOMXPath($list->dom()))->query('//header//a[contains(@class, "primary")]')->length, 'the bar holds the one main action');
     }
 
     public function testASheetIsOpenedCountedCheckedAndMadeFinalAndItsDifferenceAnswered(): void
@@ -180,6 +292,27 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertSame(['10', '5'], array_map(static fn (\DOMNode $n): string => trim((string) $n->firstChild?->textContent),
             iterator_to_array($xp->query('//table[contains(@class, "count-sheet")]//td[@data-label="' . Words::COUNTS['stock_now'] . '"]'))), 'stock now beside each item (the setting)');
         self::assertSame(1, $xp->query('//form[contains(@action, "/scan")]//input[@name="code" and @autofocus]')->length, 'the scan box waits for the scanner');
+        // The head (docs/decisions.md CV5): the status block in the heading, where and who on one line, "N of M counted" with its bar.
+        self::assertSame([Words::COUNTS['counting'], 'chip info'], [trim((string) $xp->evaluate('string(//main//h1/span[contains(@class, "chip")])')),
+            (string) $xp->evaluate('string(//main//h1/span[contains(@class, "chip")]/@class)')]);
+        self::assertStringContainsString('Main', (string) $xp->evaluate('string(//main//header//p[contains(@class, "ph-meta")])'));
+        self::assertSame([Words::say('COUNTS', 'lines_counted', 0, 2), '2', '0'], [trim((string) $xp->evaluate('string(//main//header//div[contains(@class, "count-progress")]/p)')),
+            (string) $xp->evaluate('string(//main//header//div[contains(@class, "count-progress")]/progress/@max)'), (string) $xp->evaluate('string(//main//header//div[contains(@class, "count-progress")]/progress/@value)')]);
+        // The lines (CV6): the big number box, then "Saved hh:mm" or "Not yet"; the line to count now is marked.
+        self::assertSame([Words::COUNTS['not_yet'], Words::COUNTS['not_yet']], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
+            iterator_to_array($xp->query('//table[contains(@class, "count-sheet")]//*[contains(@class, "save-state")]'))));
+        self::assertSame(['line-1'], array_map(static fn (\DOMElement $tr): string => $tr->getAttribute('id'), iterator_to_array($xp->query('//tr[contains(@class, "now")]'))));
+        // The bar (CV7): More (count on paper, stop the sheet), Save, and the one main button "Save and review"; Enter saves (the form's
+        // first button is the hidden Save).
+        $bar = '//main//div[contains(@class, "doc-bar")]';
+        self::assertSame(1, $xp->query($bar . '/details[contains(@class, "more")]//details[@id="paper"]//form[contains(@action, "/upload")]')->length);
+        self::assertSame(1, $xp->query($bar . '/details[contains(@class, "more")]//details[@id="paper"]//a[contains(@href, "/sheet.csv")]')->length);
+        self::assertSame(1, $xp->query($bar . '/details[contains(@class, "more")]//details[@id="stop"]//form[contains(@action, "/cancel")]')->length);
+        self::assertSame([[Words::COUNTS['save'], 'count-lines', '', 'btn'], [Words::COUNTS['save_review'], 'count-lines', 'review', 'btn primary']],
+            array_map(static fn (\DOMElement $b): array => [trim((string) $b->textContent), $b->getAttribute('form'), $b->getAttribute('value'), $b->getAttribute('class')],
+                iterator_to_array($xp->query($bar . '/button[@type="submit"]'))));
+        $first = $xp->query('//form[@id="count-lines"]//button[@type="submit"]')->item(0);
+        self::assertSame([Words::COUNTS['save'], 'po-default'], [trim((string) $first?->textContent), $first?->getAttribute('class')], 'Enter saves, never reviews');
 
         // The scan box: on the sheet (its line, marked and ready for the quantity), not on it (an offer), on no item, on two items.
         $r = $this->submit($web, $sheet, $sheet . '/scan', ['code' => '5060000000017']);
@@ -215,6 +348,11 @@ final class CountsScreensTest extends KernelUiTestCase
         self::assertSame(1, (new \DOMXPath($saved->dom()))->query('//form[contains(@action, "/scan")]//input[@name="code" and @autofocus]')->length,
             'then the scan box waits for the next item');
         self::assertSame(8, (int) self::$db->value('SELECT counted_qty FROM count_sheet_line WHERE document_id = ? AND line_no = 1', [$id]));
+        $sxp = new \DOMXPath($saved->dom());
+        self::assertSame(Words::say('COUNTS', 'saved_at', Html::clock((string) self::$db->value('SELECT counted_at FROM count_sheet_line WHERE document_id = ? AND line_no = 1', [$id]))),
+            trim((string) $sxp->evaluate('string(//tr[@id="line-1"]//*[contains(@class, "save-state")])')), 'the moment the line was counted, kept per line');
+        self::assertSame([Words::say('COUNTS', 'lines_counted', 1, 3), '1'], [trim((string) $sxp->evaluate('string(//main//header//div[contains(@class, "count-progress")]/p)')),
+            (string) $sxp->evaluate('string(//main//header//div[contains(@class, "count-progress")]/progress/@value)')]);
         // A refused page saves nothing and keeps what was typed; a barcode in a quantity box is said as such.
         $r = $web->post($sheet . '/lines', ['q_2' => 'five'] + $drawn);
         self::assertSame(422, $r->status);
@@ -250,10 +388,19 @@ final class CountsScreensTest extends KernelUiTestCase
         $before = $web->get($sheet . '/differences');
         self::assertSame(200, $before->status, $before->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame(['Alpha pod 2ml', 'Beta liquid'], self::names($before));
-        self::assertSame(['2', '0', '1', '0'], self::tiles($before), 'counted, need an answer, above the limits, left out');
+        // The strip (CV9): counted, the same as the system, different, a reviewer checks; then the board of the lines that differ, and the
+        // ones that are the same folded at first; each line's status a solid cell; "Count again" on every line.
+        self::assertSame(['2', '1', '1', '1'], self::steps($before));
+        self::assertSame([['differ', 'needs', Words::COUNTS['group_differ'], '1 item', false], ['same', 'done', Words::COUNTS['group_same'], '1 item', true]], self::boardGroups($before));
+        self::assertSame([Words::COUNTS['st_reviewer'], Words::COUNTS['st_booked']], self::cells($before));
         self::assertStringContainsString(Words::say('COUNTS', 'minus', 2), $before->text());
-        self::assertStringContainsString(Words::COUNTS['over_chip'], $before->text());
         self::assertStringContainsString(Words::say('COUNTS', 'over_percent', 10), $before->text());
+        $bxp = new \DOMXPath($before->dom());
+        self::assertSame(2, $bxp->query('//main//table[contains(@class, "count-before")]//form[contains(@action, "/recount")]')->length, 'Count again on every line');
+        self::assertSame(0, $bxp->query('//form[contains(@action, "/as-counted")]')->length, 'Keep my count only where stock moved');
+        // The bar (CV10): back to the sheet, and ONE "Make the count final".
+        self::assertSame([$sheet, Words::COUNTS['make_final_button']], [(string) $bxp->evaluate('string(//main//form[contains(@class, "doc-bar")]/a/@href)'),
+            trim((string) $bxp->evaluate('string(//main//form[contains(@class, "doc-bar") and contains(@action, "/post")]/button[contains(@class, "primary")])'))]);
         // A quantity entered after the page was drawn: the old page cannot make the sheet final.
         $stale = $before->form($sheet . '/post');
         $web->post($sheet . '/lines', ['csrf' => $token, 'q_2' => '4']);
@@ -330,11 +477,16 @@ final class CountsScreensTest extends KernelUiTestCase
         $this->book('goods_in', $a, 4);
         $this->book('goods_in', $b, 1);
         $before = $web->get($sheet . '/differences');
-        self::assertSame(['2', '2', '1', '0'], self::tiles($before));
+        self::assertSame([Words::COUNTS['st_choose'], Words::COUNTS['st_choose']], self::cells($before), 'both lines wait for an answer (CV9)');
+        self::assertSame(['c-status doc-st blocked', 'c-status doc-st blocked'], array_map(static fn (\DOMElement $td): string => $td->getAttribute('class'),
+            iterator_to_array((new \DOMXPath($before->dom()))->query('//main//td[contains(@class, "doc-st")]'))), 'red: they stop the count from being made final');
+        self::assertSame(2, (new \DOMXPath($before->dom()))->query('//form[contains(@action, "/as-counted")]')->length, 'Keep my count where stock moved');
         self::assertStringContainsString(Words::COUNTS['moved_title'], $before->text());
         self::assertStringContainsString(Words::of('MOVEMENT', 'goods_in'), $before->text(), 'it says what moved');
         self::assertStringContainsString(Words::COUNTS['make_final_blocked'], $before->text());
         self::assertFalse($before->hasForm($sheet . '/post'), 'no button until each such line has its answer');
+        self::assertSame(1, (new \DOMXPath($before->dom()))->query('//main//div[contains(@class, "doc-bar")]/button[@disabled and contains(@class, "primary")]')->length,
+            'the bar shows the main button switched off, with the reason beside it');
         // A hand-made form does not get past it either.
         $version = (string) self::$db->value('SELECT version FROM document WHERE id = ?', [(int) basename($sheet)]);
         $r = $web->post($sheet . '/post', ['csrf' => $token, 'version' => $version]);
@@ -434,6 +586,45 @@ final class CountsScreensTest extends KernelUiTestCase
         $r = $web->post($sheet . '/lines', ['q_2' => '4', 'at_2' => 'soon'] + $drawn);
         self::assertSame(303, $r->status, $r->describe());
         self::assertGreaterThan(Clock::db($filled->modify('+2 minutes')), (string) self::$db->value('SELECT counted_at FROM count_sheet_line WHERE document_id = ? AND line_no = 2', [$id]));
+    }
+
+    public function testSaveAndNextItemSavesThenOpensTheNextLineNotCounted(): void
+    {
+        // docs/decisions.md CV6 (the phone's one card): the line to count now carries "Save and next item", a button of the quantity form
+        // (soft: "Save and review" stays the one main button). It saves the page exactly as Save does, then opens the next line not counted
+        // after it (else the first one before it), marked, its box ready; when every line is counted, the sheet as after Save.
+        $a = $this->item('strict', 10, 'Alpha pod 2ml');
+        $b = $this->item('strict', 5, 'Beta liquid');
+        $c = $this->item('strict', 3, 'Gamma kit');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $sheet = $this->start($web, [$a, $b, $c]);
+        $id = (int) basename($sheet);
+        $page = $web->get($sheet);
+        $xp = new \DOMXPath($page->dom());
+        self::assertSame(1, $xp->query('//tr[contains(@class, "now")]')->length, 'one line to count now');
+        $next = $xp->query('//tr[@id="line-1" and contains(@class, "now")]//button[@type="submit" and @name="next" and @value="1"]')->item(0);
+        self::assertNotNull($next);
+        self::assertSame([Words::COUNTS['save_next'], 'btn soft lg save-next'], [trim((string) $next->textContent), $next->getAttribute('class')]);
+        self::assertSame(Words::COUNTS['how_many'], (string) $xp->evaluate('string(//tr[@id="line-1"]//td[input[@name="q_1"]]/@data-label)'), 'the card asks the question');
+
+        $r = $web->post($sheet . '/lines', ['q_1' => '9', 'next' => '1'] + $page->form($sheet . '/lines'));
+        self::assertSame([303, $sheet . '?notice=lines&n=1&page=1&line=2#line-2'], [$r->status, $r->location()]);
+        $then = $web->follow($r);
+        $txp = new \DOMXPath($then->dom());
+        self::assertSame(1, $txp->query('//tr[@id="line-2" and contains(@class, "now") and contains(@class, "marked")]//input[@name="q_2" and @autofocus]')->length);
+        self::assertSame(0, $txp->query('//input[@name="code" and @autofocus]')->length);
+        // Line 3 counted with its own button: none after it is left, so the first one before it.
+        $r = $web->post($sheet . '/lines', ['q_3' => '2', 'next' => '3'] + $then->form($sheet . '/lines'));
+        self::assertSame([303, $sheet . '?notice=lines&n=1&page=1&line=2#line-2'], [$r->status, $r->location()]);
+        // A refused quantity: nothing saved, the sheet again with what was typed (as Save).
+        $r = $web->post($sheet . '/lines', ['q_2' => 'four', 'next' => '2'] + $web->get($sheet)->form($sheet . '/lines'));
+        self::assertSame(422, $r->status);
+        self::assertSame('four', $r->form($sheet . '/lines')['q_2'] ?? null);
+        // The last line: every line is counted, so the sheet as after Save (the scan box waits).
+        $r = $web->post($sheet . '/lines', ['q_2' => '4', 'next' => '2'] + $web->get($sheet)->form($sheet . '/lines'));
+        self::assertSame([303, $sheet . '?notice=lines&n=1&page=1&show=all'], [$r->status, $r->location()]);
+        self::assertSame([9, 4, 2], array_map('intval', self::$db->column('SELECT counted_qty FROM count_sheet_line WHERE document_id = ? ORDER BY line_no', [$id])));
+        self::assertSame(0, (new \DOMXPath($web->follow($r)->dom()))->query('//tr[contains(@class, "now")]')->length, 'nothing left to count now');
     }
 
     public function testADifferenceCountedAgainSinceIsForAcceptingOnlyAsIsAFlagAboutACountsTime(): void
@@ -554,6 +745,8 @@ final class CountsScreensTest extends KernelUiTestCase
             self::assertStringContainsString(Words::say('COUNTS', 'report_fill_new', 1, sprintf('CW-%06d', $a), 'Alpha pod 2ml', 9), $check->text());
             self::assertStringContainsString(Words::say('COUNTS', 'report_bad_row', 2, sprintf('CW-%06d', $b), Words::COUNT_BAD['not_whole'], 'x'), $check->text());
             self::assertSame(0, (int) self::$db->value('SELECT COUNT(*) FROM count_sheet_line WHERE document_id = ? AND counted_qty IS NOT NULL', [$id]), 'the preview wrote nothing');
+            // The preview sits in the page; More and its paper fold come back open, so the file is sent again at once (CV7).
+            self::assertSame(1, (new \DOMXPath($check->dom()))->query('//main//div[contains(@class, "doc-bar")]/details[contains(@class, "more") and @open]//details[@id="paper" and @open]')->length);
             $apply = $web->postMultipart($sheet . '/upload', ['mode' => 'apply', 'counted_at' => ''] + $form, ['file' => ['path' => $file, 'name' => 'counted.csv']]);
             self::assertSame(303, $apply->status, $apply->describe() . ' ' . implode(' | ', self::$log));
             self::assertStringContainsString(Words::say('COUNT_NOTICE', 'uploaded', 1), $web->follow($apply)->text());
@@ -586,11 +779,15 @@ final class CountsScreensTest extends KernelUiTestCase
         $c = $this->item('strict', 77, 'Gamma kit');
         $blind = $this->start($web, [$c]);
         $page = $web->get($blind);
-        self::assertStringContainsString(Words::COUNTS['blind'], $page->text());
-        self::assertStringNotContainsString('77', (string) (new \DOMXPath($page->dom()))->evaluate('string(//table[contains(@class, "count-sheet")])'));
+        $bx = new \DOMXPath($page->dom());
+        self::assertSame(Words::COUNTS['blind_tag'], trim((string) $bx->evaluate('string(//main//header//span[contains(@class, "tag")])')), 'the head says it is a blind count');
+        self::assertSame(0, $bx->query('//table[contains(@class, "count-sheet")]//th[normalize-space() = "' . Words::COUNTS['stock_now'] . '"]')->length, 'no stock column');
+        self::assertStringNotContainsString('77', (string) $bx->evaluate('string(//table[contains(@class, "count-sheet")])'));
         self::assertStringNotContainsString('stock_now', $web->get($blind . '/sheet.csv')->body);
         $web->post($blind . '/lines', ['csrf' => $this->token($web), 'q_1' => '70']);
-        self::assertStringContainsString('77', (string) (new \DOMXPath($web->get($blind)->dom()))->evaluate('string(//table[contains(@class, "count-sheet")])'), 'shown once it is counted');
+        $after = new \DOMXPath($web->get($blind)->dom());
+        self::assertSame('70', (string) $after->evaluate('string(//input[@name="q_1"]/@value)'));
+        self::assertStringNotContainsString('77', (string) $after->evaluate('string(//table[contains(@class, "count-sheet")])'), 'never on the sheet, also once counted (CV8)');
     }
 
     public function testACancellationThatWaitsForAReviewerKeepsThePersonOnTheSheet(): void
