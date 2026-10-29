@@ -19,7 +19,7 @@ if ($paged && $from + $pageSize <= $count) {
 }
 $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 ?>
-<p class="crumbs"><a href="/ui/receiving"><?= $word('MENU', 'receiving') ?></a></p>
+<p class="crumbs"><a href="/ui/receiving"><?= $word('MENU', 'receiving') ?></a> <a class="gi-leave" href="/ui/receiving" data-leave><?= $word('DOC', 'leave') ?></a></p>
 <div class="doc-head">
 <?= $head($title, intro: $keyer ? 'receipt_draft' : 'receipt_other', side: $bar, meta: $stateChip('GI_STATE', $state) . ' <span class="muted">' . $e($who) . '</span>') ?>
 </div>

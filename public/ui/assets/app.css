@@ -484,7 +484,8 @@ a.tab[aria-current]:not([href]):hover { color: var(--accent-hover); }
 .flow-t { display: block; font: 600 14px/20px var(--font); color: var(--ink); }
 .flow-off .flow-t { color: var(--ink-muted); }
 .flow-c { display: block; color: var(--ink-muted); font: 400 12px/16px var(--font); }
-@media (max-width: 639.98px) { .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } }
+/* A phone: the page's own work comes first; the strip's four cards (two rows) pushed it down a screen (the coordinator's phone check, GV25) */
+@media (max-width: 699.98px) { .flow { display: none; } }
 
 /* The page under the head */
 .content { padding: 0; }
@@ -2459,21 +2460,33 @@ details.gi-prices .table-wrap { margin: 0 0 12px; }
 details.gi-ready { margin: 0; }
 .doc-bar-note { color: var(--ink-muted); font: 400 13px/20px var(--font); }
 @media (max-width: 699.98px) { .doc-bar > .doc-bar-note { flex: 1 1 100%; order: -1; text-align: center; } }
+/* A phone: the delivery's bar two rows at most (the coordinator's phone check of 349dc13, GV24): what is left in small words over the
+   buttons; "Leave without saving" is in the page head there (.gi-leave beside the crumb), not on a row of its own. */
+.crumbs .gi-leave { display: none; }
+@media (max-width: 699.98px) { .gi-form .doc-bar > a[data-leave] { display: none; } .crumbs .gi-leave { display: inline-flex; } }
+@media (max-width: 699.98px) { .gi-form .doc-bar { row-gap: 4px; padding-top: 8px; } .gi-form .doc-bar > .doc-bar-note { font: 400 12px/16px var(--font); } }
 /* A phone: each line a card with its check's colour on the left edge, the check beside the name, big buttons, the panel under it */
 @container (max-width: 640px) {
   table.stack.gi-lines tr.gi-row { grid-template-columns: minmax(0, 1fr) auto; border-left: 6px solid var(--t-fill, var(--st-grey)); }
   table.stack.doc-lines.gi-lines tr.gi-row > th.c-head { grid-column: 1; }
-  table.stack.doc-lines.gi-lines tr.gi-row > td.gi-check { grid-column: 2; grid-row: 1; justify-self: end; align-self: start; }
+  /* The check: a chip in its colour at the top right (the stacked cell has no background of its own: its white words were lost, GV23) */
+  table.stack.doc-lines.gi-lines tr.gi-row > td.gi-check { display: inline-flex; align-items: center; justify-content: center; grid-column: 2; grid-row: 1; justify-self: end;
+    align-self: start; width: auto; min-width: 0; min-height: 26px; padding: 4px 12px; border-radius: var(--r-8); background: var(--t-fill, var(--st-grey)); color: var(--on-fill);
+    font: 600 12px/18px var(--font); white-space: nowrap; }
+  table.stack.gi-lines tr.gi-row > td.gi-check::before { content: none; }
   table.stack.doc-lines.gi-lines tr.gi-row > td.num[data-label] { grid-column: 1 / -1; grid-template-columns: minmax(6.5rem, 38%) minmax(0, 1fr); text-align: left; }
   table.stack.doc-lines.gi-lines tr.gi-row > td.num[data-label] > * { grid-column: 2; }
   table.stack.gi-lines td.num input.short { width: 100%; min-height: 48px; font-size: 16px; }
+  /* The duty stamp: its label and its value visible, the answer's colour on the field's left edge (GV23) */
   table.stack.gi-lines tr.gi-row > td.gi-duty { grid-column: 1 / -1; grid-row: auto; justify-self: stretch; display: grid; grid-template-columns: minmax(6.5rem, 38%) minmax(0, 1fr);
-    gap: 12px; align-items: center; margin: 4px 0; }
-  table.stack.gi-lines tr.gi-row > td.gi-duty::before { color: inherit; }
-  table.stack.gi-lines tr.gi-row > td.gi-duty select { min-height: 44px; }
+    gap: 12px; align-items: center; margin: 4px 0; padding: 0; color: var(--ink-body); font: 400 15px/22px var(--font); text-align: left; }
+  table.stack.gi-lines tr.gi-row > td.gi-duty::before { color: var(--ink-muted); }
+  table.stack.gi-lines tr.gi-row > td.gi-duty select { min-height: 48px; padding: 8px 12px; border: 1px solid var(--hairline); border-left: 6px solid var(--t-fill, var(--st-grey));
+    border-radius: var(--r-8); background-color: var(--card); color: var(--ink); font: 500 16px/22px var(--font); }
   table.stack.gi-lines .gi-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; grid-column: 1 / -1; }
-  table.stack.gi-lines .gi-acts .btn { width: 100%; min-height: 48px; font-size: 15px; }
-  table.stack.gi-lines .gi-acts .btn:only-child { grid-column: 1 / -1; }
+  table.stack.gi-lines .gi-acts .btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 0 12px;
+    font: 600 15px/20px var(--font); }
+  table.stack.gi-lines .gi-acts .btn:only-child, table.stack.gi-lines .gi-acts > .gi-why + .btn:last-child { grid-column: 1 / -1; }
   table.stack.gi-lines tr.gi-panel { display: none; }
   table.stack.gi-lines tr.gi-panel:target, table.stack.gi-lines tr.gi-panel.open { display: grid; }
   table.stack.gi-lines tr.gi-panel { margin-top: -10px; border-top: 0; border-radius: 0 0 var(--r-12) var(--r-12); border-left: 6px solid var(--st-amber); background: var(--warn-row); }

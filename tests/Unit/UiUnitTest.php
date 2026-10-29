@@ -1208,7 +1208,19 @@ final class UiUnitTest extends TestCase
             '/table\.stack\.gi-lines tr\.gi-row \{[^}]*border-left: 6px solid var\(--t-fill/' => 'phone: a card with its check\'s colour on the left edge',
             '/table\.stack\.gi-lines \.gi-acts \.btn \{[^}]*min-height: 48px/' => 'phone: big All fine and Problem',
             '/table\.stack\.gi-lines \.gi-mini \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/' => 'phone: the problem fields two a row',
-            '/table\.stack\.gi-lines tr\.gi-panel:target, table\.stack\.gi-lines tr\.gi-panel\.open \{ display: grid; \}/' => 'phone: the open panel a card'] as $rule => $why) {
+            '/table\.stack\.gi-lines tr\.gi-panel:target, table\.stack\.gi-lines tr\.gi-panel\.open \{ display: grid; \}/' => 'phone: the open panel a card',
+            // The coordinator's phone check of 349dc13 (GV23-GV25): the stacked cell has no background of its own, so the card says it itself.
+            '/table\.stack\.doc-lines\.gi-lines tr\.gi-row > td\.gi-check \{[^}]*background: var\(--t-fill, var\(--st-grey\)\);[^}]*color: var\(--on-fill\);/'
+                => 'phone: the check a chip in its colour at the top right',
+            '/table\.stack\.gi-lines tr\.gi-row > td\.gi-check::before \{ content: none; \}/' => 'phone: the chip without the column\'s name',
+            '/table\.stack\.gi-lines tr\.gi-row > td\.gi-duty::before \{ color: var\(--ink-muted\); \}/' => 'phone: the duty stamp\'s label visible',
+            '/table\.stack\.gi-lines tr\.gi-row > td\.gi-duty select \{[^}]*background-color: var\(--card\);[^}]*color: var\(--ink\);/' => 'phone: the duty stamp\'s value visible',
+            '/table\.stack\.gi-lines \.gi-acts \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/' => 'phone: All fine and Problem side by side',
+            '/^\.crumbs \.gi-leave \{ display: none; \}/m' => 'Leave without saving in the head: a phone\'s only',
+            '/@media \(max-width: 699\.98px\) \{ \.gi-form \.doc-bar > a\[data-leave\] \{ display: none; \} \.crumbs \.gi-leave \{ display: inline-flex; \} \}/'
+                => 'phone: the bar without its Leave row (two rows at most)',
+            '/\.gi-form \.doc-bar > \.doc-bar-note \{ font: 400 12px\/16px var\(--font\); \}/' => 'phone: what is left in small words over the buttons',
+            '/@media \(max-width: 699\.98px\) \{ \.flow \{ display: none; \} \}/' => 'phone: no buying flow strip on any page'] as $rule => $why) {
             self::assertSame(1, preg_match($rule, $css), $why);
         }
         foreach (["document.querySelectorAll('button[data-gi-fine]')", "document.querySelectorAll('a[data-gi-panel]')", "document.getElementById('gi-scan')",

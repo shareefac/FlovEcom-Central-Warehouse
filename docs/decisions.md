@@ -13028,6 +13028,28 @@ receive, the purchasing manager is refused like anyone else (403 `not_keyer_canc
 Cancel under More to them only then (`GoodsReceipts::mayCancel()`, the same rule; copy and import stay the keyer's).
 `testAKeyerWhoCanNoLongerReceiveLeavesTheDraftToThePurchasingManager`.
 
+### The coordinator's phone check of 349dc13 (Chrome, 400 px wide; branch `gi-fixes2`, its next commit, GV23-GV25)
+
+Shown failing first: `runs/gione_phone_red.log` (the new kernel test and the design test's new rules on 349dc13).
+
+**GV23. A line on a phone is the GI_Phone card.** The stacked list's generic rule (`table.stack td { background: none }`) outranks the solid
+status cell's colour, so on a phone the Check cell's white words sat on the white card (only its "Check" label showed) and the duty stamp
+select (transparent, white words) showed only its caret. On a phone (the lines' container 640 px or narrower) the check is now a chip in
+its colour at the top right of the card ("Not checked", "Checked", "Problem": `td.gi-check`, no column name); the duty stamp has its visible
+label "Duty stamp" and its value in dark words on a white field, the answer's colour on the field's left edge; "All fine" and "Problem"
+are two 48 px buttons side by side on a line not checked yet ("Open" alone takes the whole row); the card keeps its coloured left edge.
+CSS only: the markup and the script are unchanged (the script still colours `td.gi-check` and the duty cell).
+
+**GV24. The delivery's bar on a phone is two rows at most.** It was three (what is left, Save + Book in, then "Leave without saving" on a
+row of its own: about a quarter of the screen). Below 700 px the words of what is left are small (12 px) over the buttons and the bar's
+"Leave without saving" is hidden; the same link (`a.gi-leave[data-leave]`, `DOC leave`) is in the page head beside the "Goods In" crumb,
+shown only below 700 px. On a wider screen nothing changed. Other pages' bars are unchanged.
+
+**GV25. No buying-flow strip on a phone.** The strip (Reorder, Purchase Order, Goods In, Stock updated: four cards in two rows on a phone)
+pushed the delivery about a screen down. It is a shared part of the page frame, so it is hidden below 700 px on every page (it was two
+columns below 640 px); the section's tab row (which scrolls) stays.
+`testOnAPhoneLeaveIsInTheHeadAndTheLineCardKeepsItsWords`; the rules in `UiUnitTest::testTheGoodsInPagesFollowTheApprovedDesign`.
+
 ## Approvals › Waiting for you: one inbox, one record at a time (branch `approvals-inbox`, 29 Oct 2026; AV1-AV14)
 
 The owner approved the Approvals screens of the canvas "CW Daily Screens" on 29 Oct 2026 (relayed by the coordinator with the static mockups

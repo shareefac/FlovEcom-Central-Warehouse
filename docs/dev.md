@@ -795,7 +795,7 @@ The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shar
   `UiUnitTest::testTheCountPagesFollowTheApprovedDesign`, `CountWordsTest`. The board's open form is `$r->form('/ui/stock/counts')` (`csrf`,
   `form_key`, `warehouse`, `q`, `n`, `mode`); the sheet's `$r->form('<sheet>/lines')`; "Save and next item" posts `next=<line>`.
 
-### Goods in on one page (`docs/decisions.md` GV1-GV22)
+### Goods in on one page (`docs/decisions.md` GV1-GV25)
 
 | Path | What |
 |---|---|
@@ -822,6 +822,10 @@ The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shar
   wherever a file is linked to someone without `invoices.view`.
 - Cancel: the keyer, or, once the keyer cannot receive goods, the holder of `doc.GRN.post` + `doc.PO.post` (`GoodsReceipts::mayCancel()`,
   GV22; the audit's `for_keyer`). A line not on this page is linked `?from=<n>#line-<n>` (GV21).
+- A phone (GV23-GV25): the stacked list's `table.stack td { background: none }` wins over a solid status cell, so a card that shows a
+  state says it itself (`td.gi-check` is a chip there; the duty select a white field with the answer's colour on its left edge). The
+  delivery's "Leave without saving" is in the page head below 700 px (`.crumbs .gi-leave`) and hidden in the bar; `.flow` is hidden below
+  700 px on every page.
 - Tests: `tests/Integration/UiKernel/GoodsInOnePageScreensTest.php`, `ReceivingScreensTest`, `UiUnitTest::testTheGoodsInPagesFollowTheApprovedDesign`,
   `ReceivingWordsTest`. The script in node: `/root/cw_work/runs/gione_js_harness/` (outside the repo; copy into `tools/gione_js/` for a
   run through the slot runner with `/root/poone_js/node`, and remove it).

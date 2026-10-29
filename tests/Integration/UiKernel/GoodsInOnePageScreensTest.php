@@ -708,6 +708,32 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertSame(['keyer moved to stock control', $deskUser['id']], [$audit['reason'] ?? null, $audit['for_keyer'] ?? null], 'recorded for the keyer');
     }
 
+    /**
+     * The coordinator's phone check of 349dc13 (Chrome, 400 px wide; GV23-GV24): on a phone "Leave without saving" is in the page head, so the
+     * bar holds only the words of what is left and its buttons (two rows at most); the line card keeps its check's words, the duty stamp
+     * its label, and All fine and Problem side by side.
+     */
+    public function testOnAPhoneLeaveIsInTheHeadAndTheLineCardKeepsItsWords(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Phone Card Ltd');
+        $juice = self::makeSku('Phone card juice');
+        $this->card($juice, true);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $juice, 'packs' => 1]]);
+        $page = $this->signIn($this->uiUser('goods_in'))->get("/ui/receiving/{$id}");
+        $xp = new \DOMXPath($page->dom());
+        $head = $xp->query('//p[@class="crumbs"]/a[contains(@class, "gi-leave") and @data-leave]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $head, 'Leave without saving in the page head (shown on a phone)');
+        self::assertSame(['/ui/receiving', Words::DOC['leave']], [$head->getAttribute('href'), trim($head->textContent)]);
+        self::assertSame(1, $xp->query('//div[contains(@class, "doc-bar")]/a[@data-leave]')->length, 'and in the bar (shown on a wider screen)');
+        self::assertSame(Words::GI['col_duty'], (string) $xp->evaluate('string(//tr[@id="line-1"]/td[contains(@class, "gi-duty")]/@data-label)'), 'the duty stamp\'s label');
+        self::assertSame(1, $xp->query('//tr[@id="line-1"]/td[contains(@class, "gi-duty")]/select[@name="b_1_duty"]')->length);
+        self::assertSame(Words::GI_CHECK['todo'], self::textOf($page, '//tr[@id="line-1"]/td[contains(@class, "gi-check")]'), 'the check\'s words');
+        self::assertSame([Words::GI['all_fine'], Words::GI['problem']], array_map(static fn (\DOMNode $b): string => trim($b->textContent),
+            iterator_to_array($xp->query('//tr[@id="line-1"]/td[contains(@class, "gi-acts")]/*[contains(@class, "btn")]'))), 'All fine and Problem');
+    }
+
     /** The Codex review of d18e699, finding 5 (GV16): "Save and show the next lines" after a line was removed shows the line that came next. */
     public function testSaveAndNextAfterARemovedLineSkipsNothing(): void
     {
