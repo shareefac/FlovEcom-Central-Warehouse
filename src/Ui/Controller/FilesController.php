@@ -33,8 +33,9 @@ final class FilesController
         if ($kind === 'supplier_check' && !$me->can('suppliers.view')) {
             return $ctx->error(403, 'role_not_allowed', Words::say('ERROR', 'file_suppliers', Words::whoCan('suppliers.view')));
         }
-        // A supplier's invoice shows its prices: the money permission's (invoices.view, not goods in; the Codex review of d18e699, GV16).
-        if ($kind === 'supplier_invoice' && !$me->can('invoices.view')) {
+        // A supplier's invoice shows its prices: the money permission's (invoices.view, not goods in; the Codex review of d18e699, GV16),
+        // also when the same bytes were kept first as something else (one stored row, its first kind: GV18).
+        if (!$me->can('invoices.view') && self::isInvoiceCopy($ctx->db, $id, $kind === null ? null : (string) $kind)) {
             return $ctx->error(403, 'role_not_allowed', Words::say('ERROR', 'file_invoices', Words::whoCan('invoices.view')));
         }
         if (!$me->can('purchasing.view') && $ctx->db->value("SELECT 1 FROM document_file df JOIN document d ON d.id = df.document_id WHERE df.file_id = ? AND d.doc_type = 'PO' LIMIT 1", [$id]) !== null
@@ -44,6 +45,16 @@ final class FilesController
         $file = $ctx->files()->read($id);
         $mime = (string) $file['meta']['mime'];
         return self::download($file['bytes'], $mime, FileStore::downloadName((string) $file['meta']['original_name'], $mime));
+    }
+
+    /**
+     * Whether a stored file is a supplier's invoice copy: kept as one, or attached as one to any record (the same bytes kept first as a
+     * photo stay one row of kind photo, GV18). The download and every list that links a file use this one rule.
+     */
+    public static function isInvoiceCopy(\CW\Db $db, int $fileId, ?string $kind): bool
+    {
+        return $kind === 'supplier_invoice'
+            || $db->value("SELECT 1 FROM document_file WHERE file_id = ? AND role = 'supplier_invoice' LIMIT 1", [$fileId]) !== null;
     }
 
     /** A hardened download (class docblock). */

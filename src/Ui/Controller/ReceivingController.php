@@ -410,6 +410,11 @@ final class ReceivingController
             }
         }
         try {
+            // PHP drops the files past max_file_uploads without a word: a request at that many may have lost one, so none is kept (GV19).
+            $sentFiles = count(array_filter($req->files, static fn (mixed $f): bool => is_array($f) && ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE));
+            if ($sentFiles >= UiRequest::maxFileUploads()) {
+                throw new CwException('too_many_files', Words::say('RECEIPT_ERROR', 'too_many_files', UiRequest::maxFileUploads() - 1), 422);
+            }
             $files = $req->file('file') === null ? [] : [self::upload($ctx) + ['role' => self::fileRole($req->field('file_role')), 'note' => null]];
             // A photo taken from a line's panel is that line's photo, with or without the script (the Codex review of d18e699, finding 4).
             foreach (array_keys($req->files) as $k) {
@@ -493,7 +498,8 @@ final class ReceivingController
             $query['rc'] = implode(',', array_slice($result['cleared'], 0, 200));
         }
         // The next page starts after this page's lines that are still there (a line removed here moved the later ones up: finding 5).
-        $next = $req->field('next') === '1' ? $from + max(1, $pageCount - (int) $result['removed']) : $from;
+        // (None of them left: the next lines start where this page did; GV20.)
+        $next = $req->field('next') === '1' ? $from + max(0, $pageCount - (int) $result['removed']) : $from;
         if ($next > 1) {
             $query['from'] = $next;
         }
@@ -598,6 +604,16 @@ final class ReceivingController
         }
         return $result + ['version' => $v, 'checked' => array_keys(array_filter($bench, static fn (array $b): bool => ($b['checked'] ?? true) !== false)),
             'cleared' => $cleared, 'removed' => $removed];
+    }
+
+    /**
+     * The delivery's form arrived empty because its files were too big together (more than PHP's post_max_size; the kernel sends it here,
+     * GV19): the page again, saying so and what to do. Nothing was saved: no field of the form came.
+     */
+    public function droppedBody(Context $ctx, int $id): HtmlResponse
+    {
+        return $this->page($ctx, $id, 413, new CwException('files_too_big', Words::say('RECEIPT_ERROR', 'files_too_big',
+            intdiv(UiRequest::postMaxBytes(), 1_048_576)), 413));
     }
 
     /**
@@ -1174,7 +1190,8 @@ final class ReceivingController
             'totals' => self::totals($lines, $plan),
             'receivedLocal' => ($gr['received_at'] ?? null) === null ? '' : self::local((string) $gr['received_at']),
             // A supplier invoice's copy is shown as there, not as a link, to someone who does not read money (GV16; FilesController refuses it).
-            'files' => array_map(static fn (array $f): array => $f + ['locked' => $f['kind_code'] === 'supplier_invoice' && !$me->can('invoices.view')],
+            'files' => array_map(static fn (array $f): array => $f + ['locked' => !$me->can('invoices.view') && FilesController::isInvoiceCopy($db, (int) $f['id'],
+                (string) $f['kind_code'])],
                 self::fileRows($db->all('SELECT f.id, f.original_name, f.mime, f.size_bytes, f.kind AS kind_code, df.role, df.attached_at FROM document_file df '
                 . 'JOIN stored_file f ON f.id = df.file_id WHERE df.document_id = ? ORDER BY df.attached_at, f.id', [$doc->id]))),
             'incidents' => (new Incidents($db))->list(null, null, $doc->id),
@@ -1343,7 +1360,7 @@ final class ReceivingController
         $refusedPost = ($extra['ready'] ?? false) || ($error !== null && is_array($error->detail['problems'] ?? null));
         $backdateField = (bool) ($plan['header']['backdated'] ?? false) || (int) ($gr['paper_sheet'] ?? 0) === 1 || ($gr['backdate_reason'] ?? null) !== null;
         return $ctx->page('receipt_edit', $data + [
-            'fixes' => $refusedPost && $plan !== null ? self::fixes($plan, $rows, $backdateField) : [],
+            'fixes' => $refusedPost && $plan !== null ? self::fixes($plan, $rows, $backdateField, $doc->id) : [],
             'keyer' => $keyer,
             'prices' => $prices,
             'rows' => $rows,
@@ -1378,6 +1395,11 @@ final class ReceivingController
             'duties' => self::DUTY_ANSWERS,
             'fileRole' => $hasInvoice ? 'photo' : 'supplier_invoice',
             'maxBytes' => UiRequest::MAX_UPLOAD_BYTES,
+            // One save's limits, PHP's own (GV19): its whole size and its number of files (one kept back: a request at the limit may have lost one).
+            'postMax' => UiRequest::postMaxBytes(),
+            'postMaxMb' => intdiv(UiRequest::postMaxBytes(), 1_048_576),
+            'maxFiles' => UiRequest::maxFileUploads(),
+            'canCancel' => $keyer || $svc->mayCancel($me->id, $me->roles, $doc->id),
             'arrival' => $arrival,
             'canCopy' => $keyer && $data['po'] !== null,
         ], $status, ['title' => $data['title'], 'active' => 'receiving', 'notice' => $notice]);
@@ -1389,15 +1411,18 @@ final class ReceivingController
      * checked yet and a line's duty stamp (to its row, or its select when drawn), the reason it is keyed late; any other problem in the
      * plan's own words, to its line when it names one.
      *
+     * A line of another page is linked to that page (`?from=` the line, then the line: the Codex review of 5c070f8, GV21).
+     *
      * @param array<string, mixed> $plan page()'s plan (problems in the screens' words)
      * @param array<int, array<string, mixed>> $rows the lines drawn on this page
      * @return list<array{text: string, for: ?string, href: ?string}>
      */
-    public static function fixes(array $plan, array $rows, bool $backdateField): array
+    public static function fixes(array $plan, array $rows, bool $backdateField, int $docId = 0): array
     {
         $out = [];
         $unchecked = array_map('intval', (array) ($plan['header']['unchecked'] ?? []));
-        $lines = static fn (): array => ['text' => Words::say('GI', 'fix_lines', ReceiptPlan::lineList($unchecked)), 'for' => null, 'href' => '#line-' . $unchecked[0]];
+        $to = static fn (int $n): string => isset($rows[$n]) ? '#line-' . $n : Html::url('/ui/receiving/' . $docId, ['from' => $n > 1 ? $n : null]) . '#line-' . $n;
+        $lines = static fn (): array => ['text' => Words::say('GI', 'fix_lines', ReceiptPlan::lineList($unchecked)), 'for' => null, 'href' => $to($unchecked[0])];
         $seen = [];
         foreach ($plan['problems'] as $p) {
             $code = (string) ($p['code'] ?? '');
@@ -1409,9 +1434,9 @@ final class ReceivingController
                 'paperwork_not_credible' => [['text' => Words::GI['fix_paperwork_no'], 'for' => 'gi-paperwork', 'href' => null]],
                 'line_not_checked' => $unchecked === [] ? [] : [$lines()],
                 'stamp_check_required', 'stamp_type_required' => [['text' => Words::say('GI', 'fix_duty', (int) $line), 'for' => isset($rows[$line]) ? 'gi-duty-' . $line : null,
-                    'href' => isset($rows[$line]) ? null : '#line-' . $line]],
+                    'href' => isset($rows[$line]) ? null : $to((int) $line)]],
                 'backdate_reason_required' => [['text' => Words::GI['fix_backdate'], 'for' => $backdateField ? 'gi-backdate' : null, 'href' => $backdateField ? null : '#gi-more']],
-                default => [['text' => (string) $p['message'], 'for' => null, 'href' => $line === null ? null : '#line-' . $line]],
+                default => [['text' => (string) $p['message'], 'for' => null, 'href' => $line === null ? null : $to($line)]],
             };
             foreach ($fix as $f) {
                 if (!isset($seen[$f['text']])) {
@@ -1577,7 +1602,8 @@ final class ReceivingController
         $x = [];
         return match (true) {
             // The page's own refusals are made in words already.
-            in_array($code, ['scan_pending', 'not_found', 'import_refused', 'choose_supplier', 'reason_required', 'fine_needs_stamp', 'fine_no_stamp', 'not_booked'], true)
+            in_array($code, ['scan_pending', 'not_found', 'import_refused', 'choose_supplier', 'reason_required', 'fine_needs_stamp', 'fine_no_stamp', 'not_booked',
+                'too_many_files', 'files_too_big'], true)
                 => $e->getMessage(),
             $code === 'version_conflict' && (in_array($e->getMessage(), [Words::RECEIPT_ERROR['version_conflict'], Words::RECEIPT_ERROR['version_conflict_choice']], true)
                 || str_starts_with($e->getMessage(), (string) strstr(Words::RECEIPT_ERROR['version_conflict_bench'], '(', true))) => $e->getMessage(),

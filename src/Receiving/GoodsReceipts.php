@@ -648,21 +648,55 @@ final class GoodsReceipts
     /**
      * Cancels a draft receipt (never numbered, nothing booked); its supplier invoice number is free again. Reason 3-500 characters. Only
      * the person who keyed it cancels it (403 not_keyer_cancel; the owner's word of 29 Oct 2026, docs/decisions.md GV17: the screens offered
-     * it to them only).
+     * it to them only), except once that person can no longer receive goods (another job, switched off): then someone who receives goods
+     * and approves purchase orders (the purchasing manager's permissions) cancels it, recorded for the keyer (GV22).
      */
     public function cancel(Caller $caller, int $id, int $version, string $reason): Document
     {
         return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $reason): Document {
             $me = $this->poster($caller);
             $row = $this->lockGrn($id);
+            $forKeyer = null;
             if ($row['status'] === 'draft' && (int) ($row['created_by'] ?? 0) !== $me['id']) {
-                throw new CwException('not_keyer_cancel', 'only the person who keyed a receipt cancels it', 403);
+                if (!$this->keyerLeft((int) ($row['created_by'] ?? 0), $me['roles'])) {
+                    throw new CwException('not_keyer_cancel', 'only the person who keyed a receipt cancels it (or, once they can no longer receive goods, '
+                        . 'the purchasing manager)', 403);
+                }
+                $forKeyer = (int) $row['created_by'];
             }
             $doc = $this->docs->cancelDraft($caller, $id, $version, $reason);
             $db->exec('UPDATE goods_receipt SET invoice_key = NULL, updated_at = ? WHERE document_id = ?', [Clock::db($this->now()), $id]);
-            Audit::write($db, $caller, 'grn.cancel', 'document', (string) $id, null, ['reason' => trim($reason)]);
+            Audit::write($db, $caller, 'grn.cancel', 'document', (string) $id, null, ['reason' => trim($reason)] + ($forKeyer === null ? [] : ['for_keyer' => $forKeyer]));
             return $doc;
         });
+    }
+
+    /** Whether $staffUserId (holding $roles) may cancel draft $id (cancel()'s rule, for the screens). @param list<string> $roles */
+    public function mayCancel(int $staffUserId, array $roles, int $id): bool
+    {
+        $row = $this->db->one('SELECT status, created_by, doc_type FROM document WHERE id = ?', [$id]);
+        if ($row === null || $row['doc_type'] !== 'GRN' || $row['status'] !== 'draft' || !Permissions::can($roles, 'doc.GRN.post') || in_array('admin', $roles, true)) {
+            return false;
+        }
+        return (int) ($row['created_by'] ?? 0) === $staffUserId || $this->keyerLeft((int) ($row['created_by'] ?? 0), $roles);
+    }
+
+    /**
+     * Whether a draft's keyer can no longer receive goods (no doc.GRN.post now, or switched off) and $roles may cancel for them: someone who
+     * receives goods and approves purchase orders (doc.GRN.post and doc.PO.post: the purchasing manager's permissions, never a role name).
+     *
+     * @param list<string> $roles
+     */
+    private function keyerLeft(int $keyer, array $roles): bool
+    {
+        if (!Permissions::can($roles, 'doc.GRN.post') || !Permissions::can($roles, 'doc.PO.post')) {
+            return false;
+        }
+        try {
+            return !Permissions::can(StaffRoles::active($this->db, $keyer), 'doc.GRN.post');
+        } catch (CwException) {
+            return true; // switched off, or gone
+        }
     }
 
     // ------------------------------------------------------------------------------------------

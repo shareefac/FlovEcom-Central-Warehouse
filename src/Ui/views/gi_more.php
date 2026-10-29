@@ -1,20 +1,22 @@
 <?php
-// A delivery's other steps on its one page (docs/decisions.md GV2): under More (the one More, DS4), its keyer's only: copy the order's lines
-// still to come, import the supplier's sheet (with a sample sheet), cancel the delivery (last, in red). Each is its own form after the
-// page's one form leaves it (data-leaves: the page asks first when something typed is not saved); none needs the script.
+// A delivery's other steps on its one page (docs/decisions.md GV2): under More (the one More, DS4), its keyer's: copy the order's lines
+// still to come, import the supplier's sheet (with a sample sheet), cancel the delivery (last, in red); Cancel also for the purchasing
+// manager once the keyer no longer receives goods (GV22). Each is its own form after the page's one form leaves it (data-leaves: the page
+// asks first when something typed is not saved); none needs the script.
 ?>
-<?php if ($keyer): ?>
+<?php if ($keyer || $canCancel): ?>
 <div class="doc-actions">
 <details class="more"<?php if ($importErrors !== []): ?> open<?php endif; ?>>
   <summary class="btn"><?= $word('UI', 'more') ?></summary>
   <div class="more-menu">
-<?php if ($canCopy): ?>
+<?php if ($keyer && $canCopy): ?>
     <form method="post" action="<?= $u('/ui/receiving/' . $doc->id . '/copy') ?>" data-leaves="1">
       <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
       <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
       <button class="btn" type="submit"><?= $word('GI', 'more_copy') ?></button>
     </form>
 <?php endif; ?>
+<?php if ($keyer): ?>
     <details class="doc-act"<?php if ($importErrors !== []): ?> open<?php endif; ?>>
       <summary class="btn"><?= $word('GI', 'more_import') ?></summary>
       <div class="doc-act-panel">
@@ -33,6 +35,8 @@
         <p class="hint"><a href="/ui/receiving/template.csv" download><?= $word('RECEIVING', 'sample') ?></a></p>
       </div>
     </details>
+<?php endif; ?>
+<?php if ($canCancel): ?>
     <details class="doc-act">
       <summary class="btn risky"><?= $word('GI', 'more_cancel') ?></summary>
       <div class="doc-act-panel">
@@ -44,6 +48,7 @@
         </form>
       </div>
     </details>
+<?php endif; ?>
   </div>
 </details>
 </div>

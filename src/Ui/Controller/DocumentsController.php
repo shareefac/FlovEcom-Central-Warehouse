@@ -429,11 +429,13 @@ final class DocumentsController
             // the live reversal (posted, or a request waiting for approval: I32); cancelled requests are in the list
             'reversedBy' => $db->one("SELECT id, number, status FROM document WHERE reverses_id = ? AND status <> 'cancelled'", [$id]),
             'lines' => $lines,
-            'files' => $db->all(
-                'SELECT f.id, f.original_name, f.mime, f.size_bytes, f.sha256, df.role, df.attached_at FROM document_file df JOIN stored_file f ON f.id = df.file_id '
+            // A supplier's invoice copy is the money permission's (GV16, GV18): named here without its link for anyone else.
+            'files' => array_map(static fn (array $f): array => $f + ['locked' => !$ctx->me()->can('invoices.view') && FilesController::isInvoiceCopy($db, (int) $f['id'],
+                (string) $f['kind'])], $db->all(
+                'SELECT f.id, f.original_name, f.mime, f.size_bytes, f.sha256, f.kind, df.role, df.attached_at FROM document_file df JOIN stored_file f ON f.id = df.file_id '
                 . 'WHERE df.document_id = ? ORDER BY df.attached_at, f.id',
                 [$id],
-            ),
+            )),
             'tasks' => $tasks,
         ];
     }

@@ -557,6 +557,157 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertStringNotContainsString(Words::RECEIPT['per_pack'], $look->text());
     }
 
+    /**
+     * The Codex review of 5c070f8, finding 1 (GV18): a file kept first as a photo and then attached as a supplier's invoice (the same bytes:
+     * the store keeps one row, its first kind) is still the supplier invoice copy: no link and no download for goods in, on either delivery.
+     */
+    public function testAnInvoiceCopyKeptFirstAsAPhotoIsStillTheBuyingDesks(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Photo First Ltd');
+        $coil = self::makeSku('Photo first coil');
+        $this->card($coil, false);
+        $a = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 1]], 'PF-1');
+        $b = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 1]], 'PF-2');
+        $scan = $this->pdf();
+        $desk = $this->signIn($deskUser);
+        $r = $desk->postMultipart("/ui/receiving/{$a}/lines", ['action' => 'save'] + self::onePage($desk->get("/ui/receiving/{$a}"), $a), ['photo_1' => ['path' => $scan, 'name' => 'scan.pdf']]);
+        self::assertSame(303, $r->status, $r->describe());
+        $r = $desk->postMultipart("/ui/receiving/{$b}/lines", ['file_role' => 'supplier_invoice', 'action' => 'save'] + self::onePage($desk->get("/ui/receiving/{$b}"), $b),
+            ['file' => ['path' => $scan, 'name' => 'PF-2.pdf']]);
+        self::assertSame(303, $r->status, $r->describe());
+        $file = (int) self::$db->value("SELECT file_id FROM document_file WHERE document_id = ? AND role = 'supplier_invoice'", [$b]);
+        self::assertSame('photo', self::$db->value('SELECT kind FROM stored_file WHERE id = ?', [$file]), 'one stored row, kept as a photo first');
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        foreach ([$a, $b] as $id) {
+            self::assertNotContains('/ui/files/' . $file, $gi->get("/ui/receiving/{$id}")->hrefs(), "delivery {$id}: not a link");
+            $record = $gi->get("/ui/documents/{$id}");
+            self::assertSame(200, $record->status, $record->describe());
+            self::assertNotContains('/ui/files/' . $file, $record->hrefs(), "delivery {$id}'s record page: not a link either");
+            self::assertStringContainsString('scan.pdf', $record->text(), 'named, without its link');
+        }
+        self::assertContains('/ui/files/' . $file, $desk->get("/ui/documents/{$b}")->hrefs(), 'the buying desk: a link');
+        self::assertSame(403, $gi->get('/ui/files/' . $file)->status);
+        self::assertSame(200, $desk->get('/ui/files/' . $file)->status);
+    }
+
+    /**
+     * The Codex review of 5c070f8, findings 3 and 4 (GV19): files too big together reach PHP as an empty POST (post_max_size): the delivery's
+     * page comes back saying what to do, not a bare error; more files than one request takes (max_file_uploads) are refused, never half
+     * saved. Both limits are read from PHP's settings.
+     */
+    public function testFilesTooBigTogetherOrTooManyNeverSaveHalf(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Too Many Files Ltd');
+        $coil = self::makeSku('Too many files coil');
+        $this->card($coil, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 1]]);
+        $desk = $this->signIn($deskUser);
+        $page = $desk->get("/ui/receiving/{$id}");
+        $xp = new \DOMXPath($page->dom());
+        self::assertSame([(string) \CW\Ui\UiRequest::postMaxBytes(), (string) \CW\Ui\UiRequest::maxFileUploads()],
+            [(string) $xp->evaluate('string(//form[contains(@class, "gi-form")]/@data-max-total)'), (string) $xp->evaluate('string(//form[contains(@class, "gi-form")]/@data-max-files)')],
+            'the page knows PHP\'s own limits');
+        $dropped = $desk->send('POST', "/ui/receiving/{$id}/lines", [], [], ['content-type' => 'multipart/form-data; boundary=x',
+            'content-length' => (string) (\CW\Ui\UiRequest::postMaxBytes() + 1)]);
+        self::assertSame(413, $dropped->status, $dropped->describe());
+        self::assertTrue($dropped->hasForm("/ui/receiving/{$id}/lines"), 'the delivery\'s page again, not a bare error');
+        self::assertStringContainsString(Words::say('RECEIPT_ERROR', 'files_too_big', intdiv(\CW\Ui\UiRequest::postMaxBytes(), 1_048_576)), $dropped->text());
+        $files = [];
+        for ($i = 1; $i <= \CW\Ui\UiRequest::maxFileUploads(); $i++) {
+            $files['photo_' . $i] = ['path' => $this->pdf(), 'name' => "p{$i}.pdf"];
+        }
+        $v = self::docVersion($id);
+        $many = $desk->postMultipart("/ui/receiving/{$id}/lines", ['action' => 'save'] + self::onePage($page, $id), $files);
+        self::assertSame(422, $many->status, $many->describe());
+        self::assertStringContainsString(Words::say('RECEIPT_ERROR', 'too_many_files', \CW\Ui\UiRequest::maxFileUploads() - 1), $many->text());
+        self::assertSame([0, $v], [(int) self::$db->value('SELECT COUNT(*) FROM document_file WHERE document_id = ?', [$id]), self::docVersion($id)], 'nothing saved');
+    }
+
+    /** The Codex review of 5c070f8, finding 5 (GV20): every line of a page removed, then "Save and show the next lines": nothing skipped. */
+    public function testRemovingAWholePageThenNextSkipsNothing(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Whole Page Ltd');
+        $size = ReceivingController::pageSize(true);
+        $lines = [];
+        for ($i = 1; $i <= $size + 2; $i++) {
+            $lines[] = ['sku_id' => self::makeSku("Whole page coil {$i}"), 'packs' => 1];
+        }
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], $lines);
+        $firstOfNext = (int) self::$db->value('SELECT sku_id FROM document_line WHERE document_id = ? AND line_no = ?', [$id, $size + 1]);
+        $desk = $this->signIn($deskUser);
+        $gone = ['next' => '1'];
+        for ($n = 1; $n <= $size; $n++) {
+            $gone["line_{$n}_packs"] = '0';
+        }
+        $r = $desk->post("/ui/receiving/{$id}/lines", $gone + self::onePage($desk->get("/ui/receiving/{$id}"), $id));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertStringNotContainsString('from=', (string) $r->location(), 'the next lines are the first ones now');
+        self::assertStringContainsString('/ui/items/' . $firstOfNext, (string) (new \DOMXPath($desk->follow($r)->dom()))->evaluate('string(//tr[contains(@class, "gi-row")][1]//a/@href)'));
+    }
+
+    /** The Codex review of 5c070f8, finding 6 (GV21): a refusal's line on another page links to that page, with the line. */
+    public function testARefusalLinksALineOfAnotherPageToItsPage(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Other Page Ltd');
+        $coil = self::makeSku('Other page coil');
+        $this->card($coil, false);
+        $size = ReceivingController::pageSize(true);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], array_fill(0, $size + 2, ['sku_id' => $coil, 'packs' => 1]), 'OP-1');
+        $checked = [];
+        for ($n = 1; $n <= $size; $n++) {
+            $checked[$n] = [];
+        }
+        $this->receipts()->bench(Caller::staff($this->uiUser('goods_in')['id']), $id, self::docVersion($id), ['paperwork_ok' => '1'], $checked);
+        $desk = $this->signIn($deskUser);
+        $r = $desk->post("/ui/receiving/{$id}/lines", ['action' => 'post'] + self::onePage($desk->get("/ui/receiving/{$id}"), $id));
+        self::assertSame(422, $r->status, $r->describe());
+        $link = (new \DOMXPath($r->dom()))->query('//div[contains(@class, "gi-refused")]//ul[@class="gi-fixes"]/li/a[contains(@href, "#line-' . ($size + 1) . '")]')->item(0);
+        self::assertInstanceOf(\DOMElement::class, $link, 'a link to the first line not checked');
+        self::assertSame("/ui/receiving/{$id}?from=" . ($size + 1) . '#line-' . ($size + 1), $link->getAttribute('href'), 'on its own page');
+    }
+
+    /**
+     * The Codex review of 5c070f8, finding 7 (GV22): a draft whose keyer can no longer receive goods is not stuck: the purchasing manager (who
+     * receives goods and approves orders) cancels it with a reason, recorded for the keyer; anyone else is still refused, and so is the
+     * purchasing manager while the keyer can still receive.
+     */
+    public function testAKeyerWhoCanNoLongerReceiveLeavesTheDraftToThePurchasingManager(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Left Draft Ltd');
+        $coil = self::makeSku('Left draft coil');
+        $this->card($coil, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 1]], 'LD-1');
+        $managerUser = $this->uiUser('purchasing_manager');
+        $manager = $this->signIn($managerUser);
+        self::assertFalse($manager->get("/ui/receiving/{$id}")->hasForm("/ui/receiving/{$id}/cancel"), 'the keyer still receives goods: theirs to cancel');
+        $early = $manager->post("/ui/receiving/{$id}/cancel", ['csrf' => $this->token($manager), 'version' => (string) self::docVersion($id), 'reason' => 'keyer away']);
+        self::assertSame(403, $early->status, $early->describe());
+        // The keyer moves to another job (no receiving).
+        self::$db->exec("UPDATE staff_role SET revoked_at = UTC_TIMESTAMP(6) WHERE staff_user_id = ? AND role = 'purchasing_desk'", [$deskUser['id']]);
+        self::$db->exec("INSERT INTO staff_role (staff_user_id, role) VALUES (?, 'stock_controller')", [$deskUser['id']]);
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        $other = $gi->post("/ui/receiving/{$id}/cancel", ['csrf' => $this->token($gi), 'version' => (string) self::docVersion($id), 'reason' => 'not ours']);
+        self::assertSame(403, $other->status, $other->describe());
+        $page = $manager->get("/ui/receiving/{$id}");
+        self::assertTrue($page->hasForm("/ui/receiving/{$id}/cancel"), 'Cancel under More for the purchasing manager now');
+        $none = $manager->post("/ui/receiving/{$id}/cancel", ['reason' => ''] + $page->form("/ui/receiving/{$id}/cancel"));
+        self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]), 'a reason is needed');
+        $ok = $manager->post("/ui/receiving/{$id}/cancel", ['reason' => 'keyer moved to stock control'] + $page->form("/ui/receiving/{$id}/cancel"));
+        self::assertSame("/ui/receiving/{$id}?notice=cancelled", $ok->location(), $ok->describe());
+        $audit = json_decode((string) self::$db->value("SELECT detail FROM audit_log WHERE action = 'grn.cancel' AND entity_id = ? ORDER BY id DESC LIMIT 1", [(string) $id]), true);
+        self::assertSame(['keyer moved to stock control', $deskUser['id']], [$audit['reason'] ?? null, $audit['for_keyer'] ?? null], 'recorded for the keyer');
+    }
+
     /** The Codex review of d18e699, finding 5 (GV16): "Save and show the next lines" after a line was removed shows the line that came next. */
     public function testSaveAndNextAfterARemovedLineSkipsNothing(): void
     {

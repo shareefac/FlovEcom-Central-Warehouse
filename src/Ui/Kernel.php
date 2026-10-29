@@ -261,6 +261,13 @@ final class Kernel
             }
         }
         if ($req->method === 'POST') {
+            // Goods in on one page (docs/decisions.md GV19): a delivery's form whose photos and papers were too big together (PHP's
+            // post_max_size) arrived empty: its page again, saying what to do, instead of a bare error. Nothing is changed (no form came).
+            if ($req->post === [] && $req->files === [] && (int) ($req->header('content-length') ?? '0') > UiRequest::postMaxBytes()
+                && preg_match('#^/ui/receiving/([1-9][0-9]{0,17})/lines$#D', $req->path, $m) === 1) {
+                $this->checkOrigin($req);
+                return (new \CW\Ui\Controller\ReceivingController())->droppedBody($ctx, (int) $m[1]);
+            }
             // A body over the UI pool's post_max_size (2M) reaches PHP with no fields and no files at all: say so (413)
             // rather than "this form has expired" (the CSRF field was dropped with the rest).
             if ($req->post === [] && $req->files === [] && (int) ($req->header('content-length') ?? '0') > UiRequest::MAX_UPLOAD_BYTES) {

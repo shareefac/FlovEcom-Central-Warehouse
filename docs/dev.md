@@ -795,7 +795,7 @@ The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shar
   `UiUnitTest::testTheCountPagesFollowTheApprovedDesign`, `CountWordsTest`. The board's open form is `$r->form('/ui/stock/counts')` (`csrf`,
   `form_key`, `warehouse`, `q`, `n`, `mode`); the sheet's `$r->form('<sheet>/lines')`; "Save and next item" posts `next=<line>`.
 
-### Goods in on one page (`docs/decisions.md` GV1-GV10)
+### Goods in on one page (`docs/decisions.md` GV1-GV22)
 
 | Path | What |
 |---|---|
@@ -813,6 +813,15 @@ The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shar
   `$page->form("/ui/receiving/{$id}/lines", true)`; a refused "Book in" lists `ReceivingController::fixes()` in `div.gi-refused ul.gi-fixes`.
 - The script says things in the page, never in a browser dialog (GV11): `tell(box, text)` in app.js (a `span.inline-alert[role=alert]`);
   `UiUnitTest::testTheScriptNeverOpensABrowserDialog` fails on any `alert(`, `confirm(` or `prompt(`.
+- One save's limits are PHP's own (GV19): `UiRequest::postMaxBytes()` (`post_max_size`), `UiRequest::maxFileUploads()`
+  (`max_file_uploads`), `UiRequest::iniBytes()`; never a number in the code. The page's form carries `data-max-total` and `data-max-files`;
+  a POST whose body PHP dropped comes back as the page (`ReceivingController::droppedBody()`, sent there by `Kernel::guarded()`), a save at
+  `max_file_uploads` files is refused (`too_many_files`). A submit listener that refuses a send calls `ev.preventDefault()`: `sendOnce`
+  then leaves the buttons alone.
+- A file is a supplier's invoice copy by `FilesController::isInvoiceCopy()` (its kind or any `supplier_invoice` attachment, GV18): use it
+  wherever a file is linked to someone without `invoices.view`.
+- Cancel: the keyer, or, once the keyer cannot receive goods, the holder of `doc.GRN.post` + `doc.PO.post` (`GoodsReceipts::mayCancel()`,
+  GV22; the audit's `for_keyer`). A line not on this page is linked `?from=<n>#line-<n>` (GV21).
 - Tests: `tests/Integration/UiKernel/GoodsInOnePageScreensTest.php`, `ReceivingScreensTest`, `UiUnitTest::testTheGoodsInPagesFollowTheApprovedDesign`,
   `ReceivingWordsTest`. The script in node: `/root/cw_work/runs/gione_js_harness/` (outside the repo; copy into `tools/gione_js/` for a
   run through the slot runner with `/root/poone_js/node`, and remove it).

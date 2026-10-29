@@ -8321,7 +8321,8 @@ final class Words
         'note' => 'Note',
         'photo' => 'Take a photo',
         'photo_of' => 'Line %s',
-        'files_too_big' => 'Photos and papers of at most %s MB go in one save: save, then add the next one.',
+        'files_too_big' => 'Too big together for one save (at most %s MB): attach them one or two at a time.',
+        'files_too_many' => 'At most %s photos and papers in one save: attach the others after saving.',
         'evidence' => 'The supplier\'s proof they were made or imported before 1 Oct 2026',
         'over_ok' => 'The extra number is right (more than the whole line)',
         // Prices and selling (the buying desk only).
@@ -8478,7 +8479,11 @@ final class Words
         'fine_needs_stamp' => 'Line %s: choose which duty stamp is on the pack, then press All fine. Nothing was saved.',
         'fine_no_stamp' => 'Line %s has no duty stamp, so it is not all fine: press Problem and write how many items have none. Nothing was saved.',
         'not_ready' => 'Not booked in: %s things must be settled first. They are listed under "Before it can be booked in".',
-        'not_keyer_cancel' => 'Only the person who keyed this delivery cancels it. Nothing was changed.',
+        'not_keyer_cancel' => 'Only the person who keyed this delivery cancels it (once they no longer receive goods, the purchasing manager can). Nothing was '
+            . 'changed.',
+        // The Codex review of 5c070f8 (GV19): one save's files too big together, or too many.
+        'files_too_big' => 'Not saved: the photos and papers were too big together (at most %s MB in one save). Attach them one or two at a time.',
+        'too_many_files' => 'Not saved: at most %s photos and papers go in one save. Attach the others after saving.',
         'not_creator' => 'Only the person who keyed this delivery changes its products and its details. Anyone who receives goods checks it on its page. Nothing '
             . 'was changed.',
         'not_draft' => 'Nothing was changed: this delivery is not being keyed any more (it was booked in or cancelled meanwhile).',

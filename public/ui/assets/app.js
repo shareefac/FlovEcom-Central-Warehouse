@@ -273,7 +273,12 @@
       var buttons = Array.prototype.filter.call(form.elements, function (el) {
         return el.tagName === 'BUTTON' && el.getAttribute('type') === 'submit';
       });
+      // Looked at again once every listener of this send has run: one that stopped it (a size or count refused in the page) leaves the
+      // buttons as they were (the Codex review of 5c070f8, GV19).
       window.setTimeout(function () {
+        if (ev.defaultPrevented) {
+          return;
+        }
         each(buttons, function (b) { b.disabled = true; });
       }, 0);
     });
@@ -1642,18 +1647,37 @@
       if (panel) { giStampOnly(panel.id.replace('gi-p-', '')); }
     });
   });
-  // The files of one save go in one request, which the server takes up to its size (data-max-total): more is said in the bar and not sent,
-  // so what was typed is not lost (each line's photo is its own field: the Codex review of d18e699, finding 4).
+  // One save is one request: PHP takes at most data-max-total bytes of it (post_max_size; past it every field is lost) and data-max-files
+  // files (max_file_uploads; past it the later ones are dropped, so one is kept back). Counted as the browser sends it (each field a
+  // part with its boundary and header, each file its name and bytes); too much is said in the bar and not sent, so nothing typed is lost
+  // (the Codex review of 5c070f8, GV19).
+  var giPart = function (name, value) { return 100 + String(name).length + String(value).length; };
   each(document.querySelectorAll('form.gi-form[data-max-total]'), function (form) {
     form.addEventListener('submit', function (ev) {
       var max = parseInt(form.getAttribute('data-max-total'), 10) || 0;
+      var maxFiles = parseInt(form.getAttribute('data-max-files'), 10) || 0;
       var total = 0;
-      each(form.querySelectorAll('input[type="file"]'), function (f) {
-        if (f.files && f.files[0]) { total += f.files[0].size; }
+      var files = 0;
+      each(form.querySelectorAll('input, select, textarea'), function (f) {
+        if (!f.name || f.disabled || f.type === 'submit' || f.type === 'button') { return; }
+        if (f.type === 'file') {
+          if (f.files && f.files[0]) {
+            files++;
+            total += giPart(f.name, f.files[0].name || '') + 80 + f.files[0].size;
+          }
+          return;
+        }
+        if ((f.type === 'checkbox' || f.type === 'radio') && !f.checked) { return; }
+        total += giPart(f.name, f.value || '');
       });
-      if (max > 0 && total > max) {
+      if (ev.submitter && ev.submitter.name) { total += giPart(ev.submitter.name, ev.submitter.value || ''); }
+      var bar = form.querySelector('.doc-bar') || form;
+      if (maxFiles > 0 && files > maxFiles - 1) {
         ev.preventDefault();
-        tell(form.querySelector('.doc-bar') || form, form.getAttribute('data-total-words') || 'Too many files for one save: save, then add the next one.');
+        tell(bar, form.getAttribute('data-files-words') || 'Too many files for one save: attach the others after saving.');
+      } else if (max > 0 && total > max) {
+        ev.preventDefault();
+        tell(bar, form.getAttribute('data-total-words') || 'Too big together for one save: attach them one or two at a time.');
       }
     });
   });

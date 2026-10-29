@@ -9,7 +9,7 @@
 // CSS :target without the script), "Open" once checked; the panel holds the problems, what to do with items without a stamp, the stamp code,
 // the proof, the note, the photo and the tick. The prices fold for the buying desk only (invoices.view). Photos and papers (a file of the
 // same form) and the note. "Before it can be booked in". The sticky bar: leave, what is left to check, Save, "Book in N items".
-$bar = $partial('gi_more', ['keyer' => $keyer, 'doc' => $doc, 'canCopy' => $canCopy, 'importErrors' => $importErrors, 'maxMb' => $maxMb]);
+$bar = $partial('gi_more', ['keyer' => $keyer, 'canCancel' => $canCancel, 'doc' => $doc, 'canCopy' => $canCopy, 'importErrors' => $importErrors, 'maxMb' => $maxMb]);
 $who = (string) ($supplier['name'] ?? '') . ($po !== null ? ' · ' . \CW\Ui\Words::say('GI', 'from_po', (string) $po['number']) : '');
 $left = $left === 0 ? \CW\Ui\Words::GI['left_none'] : ($left === 1 ? \CW\Ui\Words::GI['left_one'] : \CW\Ui\Words::say('GI', 'left_many', $left));
 $book = $progress['in'] === 1 ? \CW\Ui\Words::GI['book_one'] : \CW\Ui\Words::say('GI', 'book', $progress['in']);
@@ -76,7 +76,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
   <div class="doc-step"><p class="doc-step-label"><?= $word('GI', 'strip_in') ?></p><p class="doc-step-big"><?= $n($progress['in']) ?> <span class="muted"><?= $say('GI', 'strip_of', $progress['of']) ?></span></p></div>
 </section>
 
-<form class="po-editor gi-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/receiving/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('RECEIPT', 'unsaved') ?>" data-max-total="<?= $e($maxBytes) ?>" data-total-words="<?= $say('GI', 'files_too_big', $maxMb) ?>">
+<form class="po-editor gi-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/receiving/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('RECEIPT', 'unsaved') ?>" data-max-total="<?= $e($postMax) ?>" data-max-files="<?= $e($maxFiles) ?>" data-total-words="<?= $say('GI', 'files_too_big', $postMaxMb) ?>" data-files-words="<?= $say('GI', 'files_too_many', $maxFiles - 1) ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
   <input type="hidden" name="page" value="one">

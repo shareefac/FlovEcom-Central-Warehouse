@@ -12982,6 +12982,52 @@ prices hidden from goods-in"):
 
 The Checking list's intro and Home's goods-in cards no longer name the bench either (GV14).
 
+### The Codex review of 5c070f8 (`runs/gione_codex_review2.txt`): seven MEDIUM, all real (branch `gi-fixes2`, GV18-GV22)
+
+Each shown failing first: `runs/gione_codex2_red.log` (the five new kernel tests and the script's pin on main `b3c7829`: 1 error, 5 failures
+of 6); the node harness's new checks failed 4 of 4 on main's app.js (a refused send left both buttons disabled).
+
+**GV18. A supplier's invoice copy is decided by what it is attached as, not only by how it was first kept.** The file store keeps the same
+bytes once, with the kind they were first kept as: a scan attached first as a line's photo and then as a delivery's supplier invoice stayed
+`kind = photo`, so goods in still got its link and its download. Now a file is the invoice copy when it is kept as one or attached to any
+record with the role `supplier_invoice` (`FilesController::isInvoiceCopy()`); the download (`/ui/files/{id}`, 403 `file_invoices` without
+`invoices.view`), the one page's and the read-only page's file lists and the record page (`/ui/documents/{id}`) all use that one rule (the
+name without its link). `testAnInvoiceCopyKeptFirstAsAPhotoIsStillTheBuyingDesks`.
+
+**GV19. One save is never half kept: its size and its number of files come from PHP's own settings.**
+- The script counted only the files' bytes; the request also carries every field as a part (its boundary and header), and past
+  `post_max_size` PHP drops the whole body, so everything typed was lost. The page now carries `data-max-total` = `post_max_size`
+  (`UiRequest::postMaxBytes()`, read with `ini_get`, never a number in the code) and the script counts each field's part as the browser sends
+  it (about 100 bytes of boundary and header, its name and value; a file its name, its type line and its bytes): too much is said in the bar
+  ("Too big together for one save (at most N MB): attach them one or two at a time.") and not sent.
+- Without the script (or past the estimate) the body arrives empty: the kernel sends a POST to `/ui/receiving/{id}/lines` with no field, no
+  file and a `Content-Length` over `post_max_size` to `ReceivingController::droppedBody()`: the delivery's page again (413) with "Not saved:
+  the photos and papers were too big together (at most N MB in one save). Attach them one or two at a time." (after the origin check;
+  nothing is written, no form came). Any other page keeps the plain 413 `too_large`.
+- Past `max_file_uploads` PHP drops the later files without a word. `UiRequest::maxFileUploads()` (from `ini_get`): a save carrying that
+  many files may have lost one, so the server refuses it (422 `too_many_files`, "Not saved: at most N photos and papers go in one save.
+  Attach the others after saving.", N = the limit less one) and saves nothing; the page carries `data-max-files` and the script says the
+  same before sending (`data-files-words`). Empty file fields do not count (PHP does not count them either).
+- A send the page refuses left every submit button disabled: `sendOnce` had already scheduled the disable. It now looks at
+  `ev.defaultPrevented` inside its timer, once every listener of that send has run (all forms, not only this page).
+`testFilesTooBigTogetherOrTooManyNeverSaveHalf`; the pins in `UiUnitTest::testTheScriptNeverOpensABrowserDialog`; the node harness.
+
+**GV20. Every line of a page removed, then "Save and show the next lines", skips nothing.** The next page started at least one line on
+(GV16 5 kept a minimum of one): with none of the page's lines left, the next lines start where this page did.
+`testRemovingAWholePageThenNextSkipsNothing`.
+
+**GV21. A refusal's link to a line of another page goes to that page.** "Check line 48" linked `#line-48`, which is not on a page of lines
+1-47. `ReceivingController::fixes()` now links a line not drawn to `/ui/receiving/{id}?from=<line>#line-<line>` (the duty stamp and any
+plan problem naming a line alike); a line on this page keeps its `#line-N` (or its field). `testARefusalLinksALineOfAnotherPageToItsPage`.
+
+**GV22. A draft is not stuck when its keyer can no longer receive goods.** Creator-only cancel stays the rule (GV17). The one way round it:
+once the keyer no longer holds `doc.GRN.post` (another job) or is switched off, someone who holds both `doc.GRN.post` and `doc.PO.post`
+(the purchasing manager's permissions; no role name in the code, and never admin, who never drafts or posts) cancels the draft, with the
+required reason as always; the audit row `grn.cancel` records `for_keyer` (the keyer's staff id) beside the reason. While the keyer can still
+receive, the purchasing manager is refused like anyone else (403 `not_keyer_cancel`, whose words now say who else can). The page shows
+Cancel under More to them only then (`GoodsReceipts::mayCancel()`, the same rule; copy and import stay the keyer's).
+`testAKeyerWhoCanNoLongerReceiveLeavesTheDraftToThePurchasingManager`.
+
 ## Approvals › Waiting for you: one inbox, one record at a time (branch `approvals-inbox`, 29 Oct 2026; AV1-AV14)
 
 The owner approved the Approvals screens of the canvas "CW Daily Screens" on 29 Oct 2026 (relayed by the coordinator with the static mockups

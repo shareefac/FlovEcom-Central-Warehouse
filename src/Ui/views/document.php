@@ -165,7 +165,7 @@
     <tbody>
 <?php foreach ($files as $f): ?>
       <tr>
-        <th scope="row" class="c-head"><a href="<?= $u('/ui/files/' . $f['id']) ?>"><?= $e($f['original_name']) ?></a></th>
+        <th scope="row" class="c-head"><?php if ($f['locked'] ?? false): ?><?= $e($f['original_name']) ?><?php else: ?><a href="<?= $u('/ui/files/' . $f['id']) ?>"><?= $e($f['original_name']) ?></a><?php endif; ?></th>
         <td data-label="<?= $word('RECORD', 'file_role') ?>"><?= $e(ucfirst(str_replace('_', ' ', (string) $f['role']))) ?></td>
         <td data-label="<?= $word('RECORD', 'size') ?>" class="num"><?= $e(\CW\Ui\Html::size((int) $f['size_bytes'])) ?></td>
         <td data-label="<?= $word('RECORD', 'added') ?>"><?= $when($f['attached_at']) ?></td>

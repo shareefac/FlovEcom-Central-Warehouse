@@ -20,6 +20,38 @@ final class UiRequest
     public const MAX_UPLOAD_BYTES = 2_097_152;
 
     /**
+     * PHP's post_max_size in bytes: the largest request body PHP takes; a larger one reaches the kernel with no field and no file at all
+     * (read from PHP's settings, docs/decisions.md GV19; 0 there means no limit).
+     */
+    public static function postMaxBytes(): int
+    {
+        $v = self::iniBytes((string) ini_get('post_max_size'));
+        return $v > 0 ? $v : PHP_INT_MAX;
+    }
+
+    /** PHP's max_file_uploads: the most files one request carries; PHP drops any more without a word (GV19). */
+    public static function maxFileUploads(): int
+    {
+        $v = (int) ini_get('max_file_uploads');
+        return $v > 0 ? $v : PHP_INT_MAX;
+    }
+
+    /** A php.ini size ("2M", "512K", "1G", "2097152") in bytes. */
+    public static function iniBytes(string $v): int
+    {
+        $v = trim($v);
+        if (preg_match('/^([0-9]+)\s*([KMG]?)$/iD', $v, $m) !== 1) {
+            return 0;
+        }
+        return (int) $m[1] * match (strtoupper($m[2])) {
+            'K' => 1024,
+            'M' => 1_048_576,
+            'G' => 1_073_741_824,
+            default => 1,
+        };
+    }
+
+    /**
      * PHP's max_input_vars (1000 unless the pool raises it). PHP silently DROPS the fields of a POST past it, so Kernel
      * refuses a POST that arrives with this many fields (400 form_truncated, I73) and big forms size themselves below it.
      */

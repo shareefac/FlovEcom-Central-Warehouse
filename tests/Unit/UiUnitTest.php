@@ -1234,6 +1234,12 @@ final class UiUnitTest extends TestCase
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         $code = (string) preg_replace(['#/\*.*?\*/#s', '#//[^\n]*#'], '', $js);
         self::assertSame(0, preg_match_all('/\b(alert|confirm|prompt)\s*\(/', $code), 'no alert(, confirm( or prompt(');
+        // The Codex review of 5c070f8 (GV19): a send stopped by any listener leaves the buttons as they were; the size of one save counts its
+        // fields' parts too, and the number of files is PHP's max_file_uploads.
+        self::assertStringContainsString("window.setTimeout(function () {\n        if (ev.defaultPrevented) {\n          return;\n        }\n        each(buttons, function (b) { b.disabled = true; });", $js,
+            'sendOnce looks again after every listener ran');
+        self::assertStringContainsString("form.getAttribute('data-max-files')", $js);
+        self::assertStringContainsString('var giPart = ', $js, 'each part of the request counted');
         self::assertStringContainsString("setAttribute('role', 'alert')", $js, 'the line says it to a screen reader too');
         self::assertSame(1, preg_match('/^\.inline-alert \{[^}]*color: var\(--sf-red-ink\)/m', $css), 'the line\'s look');
         self::assertStringContainsString("form.setAttribute('data-go', '1')", $js, 'unsaved changes: the second press goes on');
