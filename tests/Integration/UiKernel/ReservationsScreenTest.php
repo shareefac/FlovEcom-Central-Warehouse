@@ -120,7 +120,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
     private static function figures(UiResponse $r): array
     {
         return array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
-            iterator_to_array((new \DOMXPath($r->dom()))->query('//main//li[@class="kpi"]/p[@class="kpi-value"]')));
+            iterator_to_array((new \DOMXPath($r->dom()))->query('//main//section[contains(@class, "rp-figs")]/div/p[@class="doc-step-big"]')));
     }
 
     /** The text of one order's row, white space collapsed. */
@@ -197,18 +197,19 @@ final class ReservationsScreenTest extends KernelUiTestCase
             self::groupTitles($page), 'the engine\'s states; a paid order waits to ship until none of its items does');
         self::assertSame(['=SUM(A1)', 'A2001', 'V1002', 'V1001', 'V1003', 'ghost', 'V1004', 'V1005'], self::refs($page), 'newest first inside each group');
 
-        // One row: the store, the label, products and units (a ten-pack keeps 10 warehouse units), and what became of it.
+        // One row: the label (the board's status cell, right after the order: docs/decisions.md W8), the store, products and units (a ten-pack
+        // keeps 10 warehouse units), and what became of it.
         $row = self::rowOf($page, 'V1001');
-        self::assertStringContainsString('VPG test site ' . Words::RESV_CHIP['to_ship'] . ' 2 12 ', $row);
+        self::assertStringContainsString(Words::RESV_CHIP['to_ship'] . ' VPG test site 2 12 ', $row);
         self::assertStringContainsString(Words::say('RESV', 'out_part_allocated', 2) . ' · ' . Words::say('RESV', 'out_part_shipped', 1), $row);
         self::assertStringContainsString(Words::RESV['out_all_shipped'], self::rowOf($page, 'V1003'));
         self::assertStringContainsString(Words::RESV['out_held'], self::rowOf($page, 'V1002'));
         self::assertStringContainsString(Words::RESV['out_released'], self::rowOf($page, 'V1004'));
         self::assertStringContainsString(Words::RESV['out_tombstone'], self::rowOf($page, 'ghost'));
         self::assertStringContainsString(Words::RESV['out_expired'], self::rowOf($page, 'V1005'));
-        self::assertStringContainsString('ALT test site ' . Words::RESV_CHIP['held'] . ' 1 3 ', self::rowOf($page, 'A2001'));
+        self::assertStringContainsString(Words::RESV_CHIP['held'] . ' ALT test site 1 3 ', self::rowOf($page, 'A2001'));
         // A product that is not linked keeps no stock: 0 units, and the row says why.
-        self::assertStringContainsString(Words::RESV_CHIP['held'] . ' 1 0 ', self::rowOf($page, '=SUM(A1)'));
+        self::assertStringContainsString(Words::RESV_CHIP['held'] . ' VPG test site 1 0 ', self::rowOf($page, '=SUM(A1)'));
         self::assertStringEndsWith(Words::RESV['out_held'] . Words::RESV['unlinked_one'], self::rowOf($page, '=SUM(A1)'));
         $xp = new \DOMXPath($page->dom());
         self::assertGreaterThan(0, $xp->query('//table[contains(@class, "reservations") and contains(@class, "stack")]//td[@data-label="' . Words::RESV['units'] . '"]')->length,

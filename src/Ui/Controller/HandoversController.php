@@ -363,6 +363,7 @@ final class HandoversController
                 $net = bcadd($net, $l['amount'], 2);
             }
         }
+        $units = array_sum(array_map(static fn (array $l): int => abs((int) $l['qty']), $lines));
         $missing = array_values(array_filter($lines, static fn (array $l): bool => $l['unit_cost'] === null));
         $oneForm = $editable && $lines !== [] && self::oneFormFits(count($lines));
         $page = StockOpsController::linesPage($ctx->req, $lines, $oneForm, self::linesPerPage());
@@ -379,12 +380,26 @@ final class HandoversController
             'doc' => $doc,
             'rec' => $rec,
             'title' => Words::docTitle($doc->docType, $doc->number, null, $doc->isReversal() ? (string) ($rec['reverses_number'] ?? '#' . $doc->reversesId) : null),
-            'facts' => self::facts($rec, $doc),
+            'party' => ['label' => Words::HANDOVER['customer'], 'name' => (string) $rec['customer_name'], 'href' => self::CUSTOMERS . '/' . (int) $rec['counterparty_id'],
+                'lines' => [Words::of('CUSTOMER_KIND', (string) $rec['customer_kind'])]],
+            'docFacts' => self::facts($rec, $doc, $reversedBy),
             'lines' => $lines,
-            'units' => array_sum(array_map(static fn (array $l): int => abs((int) $l['qty']), $lines)),
+            'units' => $units,
+            'products' => count(array_unique(array_map(static fn (array $l): int => (int) $l['sku_id'], $lines))),
             'posted' => $posted,
             'sums' => $posted ? ['net' => (string) $rec['net_amount'], 'vat' => (string) $rec['vat_amount'], 'gross' => (string) $rec['gross_amount'],
                 'vat_code' => $rec['vat_code'], 'vat_rate' => $rec['vat_rate']] : ['net' => $net],
+            // The totals on the right under the items (docs/decisions.md W8): before VAT, the VAT and the total once final; the units and the
+            // amount before VAT so far on a draft.
+            'totalRows' => $posted ? [
+                ['label' => Words::HANDOVER['net'], 'value' => Html::money((string) $rec['net_amount'])],
+                ['label' => $rec['vat_code'] === null ? Words::HANDOVER['no_vat'] : Words::say('HANDOVER', 'vat_at', (string) $rec['vat_code'], Html::dec($rec['vat_rate'])),
+                    'value' => Html::money((string) $rec['vat_amount'])],
+                ['label' => Words::HANDOVER['gross'], 'value' => Html::money((string) $rec['gross_amount']), 'grand' => true],
+            ] : [
+                ['label' => Words::HANDOVER['units'], 'value' => number_format($units)],
+                ['label' => Words::HANDOVER['net_draft'], 'value' => Html::money($net), 'grand' => true],
+            ],
             'missingPrices' => count($missing),
             'editable' => $editable,
             'notCreator' => $doc->status === 'draft' && $canPost && $doc->createdBy !== $me->id,
@@ -402,8 +417,6 @@ final class HandoversController
             'pdf' => $doc->isReversal() ? null : Handovers::PATH . '/' . $id . '/pdf',
             'pdfBlocked' => $pdfBlocked,
             'companyHref' => '/ui/reference/company',
-            'customerHref' => self::CUSTOMERS . '/' . (int) $rec['counterparty_id'],
-            'balanceHref' => self::BALANCES . '#customer-' . (int) $rec['counterparty_id'],
             'choices' => $extra['choices'] ?? null,
             'typedAdd' => $extra['typedAdd'] ?? $extra['add'] ?? ['q' => '', 'qty' => '1', 'price' => ''],
             'typedCancel' => $extra['typedCancel'] ?? ['code' => '', 'note' => ''],
@@ -439,8 +452,12 @@ final class HandoversController
             'off' => $ctx->req->param('off') === '1'];
         $canManage = Counterparties::mayManage($me->roles);
         $n = $ctx->req->param('notice');
+        $rows = $svc->list($f);
         return $ctx->page('handover_customers', [
-            'rows' => $svc->list($f),
+            'rows' => $rows,
+            // The board's groups (docs/decisions.md W8): in use, then switched off (shown when asked for).
+            'groups' => array_filter(['on' => array_values(array_filter($rows, static fn (array $r): bool => (int) $r['is_active'] === 1)),
+                'off' => array_values(array_filter($rows, static fn (array $r): bool => (int) $r['is_active'] !== 1))], static fn (array $g): bool => $g !== []),
             'f' => $f,
             'filtered' => $f['q'] !== '' || $f['kind'] !== null || $f['off'],
             'kinds' => Counterparties::KINDS,
@@ -506,15 +523,34 @@ final class HandoversController
         $canManage = Counterparties::mayManage($me->roles);
         $n = $ctx->req->param('notice');
         $accounts = new CounterpartyAccounts($ctx->db);
+        $balance = $accounts->balance($id);
+        $handovers = self::service($ctx)->list(['counterparty' => $id, 'cancelled' => false]);
+        $given = static fn (mixed $v): string => (string) $v === '' ? Words::CUSTOMER['not_given'] : (string) $v;
         return $ctx->page('handover_customer', [
             'c' => $c,
+            // The paper card (docs/decisions.md W8): the customer as printed on its invoices beside its facts.
+            'party' => ['label' => Words::of('CUSTOMER_KIND', (string) $c['kind']), 'name' => (string) $c['name'], 'href' => null,
+                'lines' => array_values(array_filter(array_map('trim', explode("\n", (string) $c['address'])), static fn (string $l): bool => $l !== ''))],
+            'docFacts' => array_merge([
+                ['label' => Words::CUSTOMER['f_company_number'], 'value' => $given($c['company_number'])],
+                ['label' => Words::CUSTOMER['f_vat_number'], 'value' => (string) $c['vat_number'] === '' ? Words::CUSTOMER['not_given']
+                    : \CW\Company\CompanyDetails::formatVat((string) $c['vat_number'])],
+                ['label' => Words::CUSTOMER['vat_code'], 'value' => $c['vat_code'] === null ? Words::CUSTOMER['vat_company'] : (string) $c['vat_code']],
+                ['label' => Words::CUSTOMER['f_email'], 'value' => $given($c['email'])],
+                ['label' => Words::CUSTOMER['f_phone'], 'value' => $given($c['phone'])],
+            ], $c['note'] === null ? [] : [['label' => Words::CUSTOMER['f_note'], 'value' => (string) $c['note']]], [
+                ['label' => Words::CUSTOMER['balance'], 'value' => Html::money($balance), 'href' => self::BALANCES . '#customer-' . $id],
+                ['label' => Words::CUSTOMER['changed'], 'value' => Words::say('CUSTOMER', 'by', Html::when((string) $c['updated_at']),
+                    (string) ($c['updated_by_name'] ?? $c['created_by_name'] ?? ''))],
+            ]),
+            'lastHandover' => $handovers === [] ? null : (string) ($handovers[0]['doc_date'] ?? $handovers[0]['created_at']),
             'v' => self::customerValues($typed ?? $c),
             'version' => $error?->errorCode === 'customer_changed' ? (int) ($error->detail['version'] ?? $c['version']) : (int) $c['version'],
             'vatCodes' => $svc->vatCodes(),
             'kinds' => Counterparties::KINDS,
             'prices' => $svc->prices($id),
-            'balance' => $accounts->balance($id),
-            'handovers' => self::service($ctx)->list(['counterparty' => $id, 'cancelled' => false]),
+            'balance' => $balance,
+            'handovers' => array_map(static fn (array $r): array => self::listRow($r), $handovers),
             'canManage' => $canManage,
             'errors' => self::fieldErrors($error),
             'error' => $error === null ? null : self::plainCustomer($error),
@@ -574,8 +610,16 @@ final class HandoversController
             $rows[] = $b;
         }
         $n = $ctx->req->param('notice');
+        $owed = '0.00';
+        $month = '0.00';
+        foreach ($rows as $b) {
+            $owed = bcadd($owed, (string) $b['balance'], 2);
+            $month = bcadd($month, (string) $b['month_amount'], 2);
+        }
         return $ctx->page('handover_balances', [
             'rows' => $rows,
+            // The report's figures strip (docs/decisions.md W8): every customer added up.
+            'figures' => ['owed' => $owed, 'month' => $month, 'owing' => count(array_filter($rows, static fn (array $b): bool => bccomp((string) $b['balance'], '0', 2) > 0))],
             'canPay' => CounterpartyAccounts::mayPay($me->roles),
             'today' => (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d'),
             'typed' => $typed,
@@ -778,12 +822,15 @@ final class HandoversController
     }
 
     /**
-     * The header facts of a hand-over's page (label => value, only those it has).
+     * The facts beside the customer on a hand-over's paper card (label => value, only those it has; docs/decisions.md W8): the warehouse,
+     * the VAT code, their reference, the date, the note, who started it, asked for an OK, made it final or stopped it, what the customer owes
+     * (a link to Balances), and the record it cancels or that cancelled it (a link).
      *
      * @param array<string, mixed> $rec Handovers::record()
-     * @return list<array{label: string, value: string}>
+     * @param array{id: int, number: mixed, status: string}|null $reversedBy
+     * @return list<array{label: string, value: string, href?: string}>
      */
-    private static function facts(array $rec, Document $doc): array
+    private static function facts(array $rec, Document $doc, ?array $reversedBy): array
     {
         $by = static fn (?string $at, ?string $who): ?string => $at === null ? null : Words::say('HANDOVER', 'by', Html::when($at), (string) ($who ?? Words::RECORD['by_cw']));
         $vat = match (true) {
@@ -792,7 +839,6 @@ final class HandoversController
             default => Words::HANDOVER['vat_default'],
         };
         $rows = [
-            [Words::HANDOVER['customer'], (string) $rec['customer_name'] . ' (' . Words::of('CUSTOMER_KIND', (string) $rec['customer_kind']) . ')'],
             [Words::HANDOVER['warehouse'], $rec['warehouse_name'] === null ? null : (string) $rec['warehouse_name']],
             [Words::HANDOVER['vat_code'], $vat],
             [Words::HANDOVER['their_ref'], $doc->externalRef],
@@ -809,6 +855,14 @@ final class HandoversController
             if ($value !== null && $value !== '') {
                 $out[] = ['label' => $label, 'value' => $value];
             }
+        }
+        $out[] = ['label' => Words::CUSTOMER['balance'], 'value' => Words::HANDOVER['balance_link'], 'href' => self::BALANCES . '#customer-' . (int) $rec['counterparty_id']];
+        if ($doc->isReversal()) {
+            $out[] = ['label' => Words::RECORD['cancels'], 'value' => (string) ($rec['reverses_number'] ?? ''), 'href' => Handovers::PATH . '/' . $doc->reversesId];
+        }
+        if ($reversedBy !== null) {
+            $out[] = ['label' => Words::HANDOVER['cancelled_by'], 'value' => $reversedBy['number'] === null ? Words::HANDOVER['cancel_waiting'] : (string) $reversedBy['number'],
+                'href' => Handovers::PATH . '/' . $reversedBy['id']];
         }
         return $out;
     }

@@ -13474,3 +13474,93 @@ pages that moved (`SalesScreensTest`, `CountsScreensTest`, `ReceivingScreensTest
 *Tests* (29 Oct 2026, on the tree rebased on `67ba18e`): `tests/Unit` and `tests/Integration/UiKernel`: OK (1014 tests, 120214 assertions);
 the rest of the suite (`runs/smlabel_partc.cmd`): OK, 1098 tests, 82 skipped (the HTTP tests of slot `ui`); slot `ui` (`UiAuthTest`,
 `UiSecurityTest`, `UiReviewFlowTest`): OK (44 tests). Logs: `runs/hmone_full.log`, `runs/hmone_ui.log`.
+
+## Stock moves and hand-overs on the approved patterns (wave `w8`, branch `wave-w8`, 29 Oct 2026; W8.1-W8.12)
+
+The owner's word of 29 Oct 2026 ("all design convert our new claude suggested design"), relayed by the coordinator as wave w8: the stock
+records (Stock In, Stock Out, Adjustments, Transfers, Releases), Repack, the hand-overs with their customers and balances, Reservations,
+Movements, the Overview and the balance owed to another account, each on the pattern the approved canvases show (`Main.dc.html`, `GI_List`,
+`CT_Board`, `PO_View`, `PI_View`, `PI_New`, `TP_Report`). Built from main `67ba18e` (OV, DS1-DS6, CV13-CV14, GV11, IV) in `/root/cw-w8`.
+Layout and words only: no migration, no route, no permission, no service rule changed; every page keeps its address and every form posts
+what and where it did. The receiving pages, `Sections`, the home page and the layout (the menu build's) are not touched.
+
+**W8.1. The lists are boards (pattern 1).** Stock In/Out, Adjustments, Transfers, Releases (`stock_ops`), Hand-overs (`handovers`), the
+hand-over customers (`handover_customers`), Repack (`repacks`) and Reservations (`stock_reservations`): one search and one Show row
+(`.tb-state`), Clear and Export at the right; each group a coloured heading with its count (`div.grp-block.doc-group.<tone>`) over a white card
+with the group's colour on its 6 px left edge (`div.table-wrap.doc-board`), the status cell filled with it (`td.c-status.doc-st`), the
+number a `row-link` (the row opens the record); "+ New …" stays the head's create button (Sections, unchanged) and is also the last row of
+the Draft group (In use for the customers), both opening the page's new form (`#new`). The Filter pop-over, the "How it works" folds, the
+"Next step" column (the status cell says it) and the group total rows went.
+
+**W8.2. The Show menu is the filter the list already read.** No controller reads a new parameter: the stock records', hand-overs',
+repack's and reservations' Show menu is their `state` select ("Every record not stopped" first, then every state, "Stopped before it was final"
+among them); the stock records keep their warehouse beside it in the same row (their search does not find a warehouse); the customers'
+Show row is the kind of customer and the tick "Show switched-off customers too" (as the orders' Show row holds "drafts"). What an old link
+carries that the row does not show (`cancelled=1`, a customer's `counterparty=`) is kept by a hidden field, so a search keeps it.
+
+**W8.3. The new forms (pattern 3's fields).** The create form stays the list page's drawer (`details.drawer#new`: no new route), its fields
+in two columns (`fieldset.doc-grid`; `form.record fieldset.doc-grid` is two columns too, one on a phone). The hand-over's, customer's and
+repack's fields, which drew a label and its control side by side, are each a `div.field` (one grid cell, its error under it); the stock
+record's note spans both columns (`.doc-wide`). The drawers' forms guard typed values (`data-unsaved`, CV14).
+
+**W8.4. A draft is the one-page form (pattern 3, PI_New), the one form of OV kept as it is.** Its creator's draft of a stock record or a
+hand-over: the head (`div.doc-head`, the status block in the heading, More at the right with "Stop this draft" and a draft's PDF); its
+details in two columns, still their own form (`POST …/details`, the same fields, data-unsaved); the add box over the products board
+(`table.doc-lines`); then, inside the lines form, what making it final does and the totals on the right (`div.doc-foot`, `doc_totals`), and
+the bar at the bottom: "Leave without saving" (`data-leave`, to the list), what it holds (`span.doc-bar-note`: units, amount), Save, the
+record's final button. The OV form is unchanged: the same fields, the same two buttons in that order (Save first, so Enter saves), the final
+one the main one, in `.actions.sticky` (now `div.actions.sticky.doc-bar`: the document bar's look); the add box and the files stay outside
+it (the field budget of OV4 counts the lines form's fields), and a record too big for one form still saves page by page, then the final box.
+The add box's "Add" is plain: one main button on the page.
+
+**W8.5. A saved record is the record page (pattern 2, PO_View).** Any stock record or hand-over that is not its creator's draft: the head with
+the status block and the action bar at its right (`stock_op_bar`, `handover_bar`): the one main action is the transfer note or release
+invoice of a final record, a final hand-over's invoice once it prints (PH8; else it says why beside the company details' link); under More
+the PDF of a record not final, "Take it back", "Cancel this record" (its reason opens under the bar), "Copy into a new draft"; then the
+figures strip (products, units, value or total, date), the paper card (`article.doc-view`: the party beside the facts, the products, the
+files on the left and the totals on the right), the history. The party: where the stock is ("Warehouse", a transfer's "From"), for a release
+the account it is owed to (its link: that account on Balance owed, the room under it), for a hand-over the customer (its link, its kind
+under it). The facts link what they name: the record it cancels or that cancelled it, what the customer owes. The "Kind" fact went (the
+title names it), and so did the explaining paragraphs of "Take it back" and "Make it again" (one line in More each).
+
+**W8.6. A hand-over customer is a record page too.** Its name with its status block; at the right "Change the details" (the main action: its
+form opens under the bar, open again with what was typed when refused, data-unsaved) and More with "Switch this customer off" (or on); the
+figures strip (owes us, hand-overs, the last one, the prices kept); the paper card (its kind, its name and address as its invoices print
+them, beside its company and VAT numbers, VAT code, e-mail, phone, note, what it owes with its link, the last change); then its related
+records as boards (`section.doc-related`): the prices it paid last and its latest hand-overs, their status cells filled.
+
+**W8.7. The overview, the movements, the balances and the balance owed are reports (pattern 5, TP_Report).** The figures strip
+(`section.doc-progress.rp-figs`, any number of figures in a row, two a row on a phone, a line under one) replaces the figure tiles (`.kpis`):
+the overview's four; the movements' changes shown, units added, units taken away (the page's rows); the balances' "Owed to us in all",
+handed over this month, customers who owe us; the balance owed's units held, released this month, the balance owed (every account added up).
+The overview's toolbar holds the search, the warehouse and Show; the movements' the search, the warehouse, the kind and the figure. Their
+boards keep their groups (out of stock / in stock; a day) as `doc-group` cards. The balances and the balance owed have one board of every
+customer or account (its name leads to its part below; the customers' total under it), then each part at its own address (`#customer-<id>`,
+`#account-<id>`, where a payment lands: unchanged) with its payment fold (its fields in two columns, data-unsaved) and its entries as a
+board. The help footnotes went (no help paragraphs); the accountant's line stays under the balances' heading.
+
+**W8.8. Repack.** A board by status like the others; a draft left by its maker is made final or stopped, one waiting taken back, from its
+row's own small forms (`td.c-next`, which stays above the row's link: `table.doc-list td.c-next` has `z-index: 2`); the cancelling hint went
+(a row opens its record, where it is cancelled).
+
+**W8.9. Shared classes added (docs/dev.md).** `.rp-figs` (the figures strip of a report or a record), `.doc-related` (a record's or report's
+related part), `.actions.sticky.doc-bar` (OV's bar in the document bar's look), `form.doc-details`, `.doc-lines-box`, `.doc-files`; the
+Show row wraps (`.toolbar .tb-state`). The partials `stock_op_bar`, `handover_bar`, `customer_bar` (a record's action bar, as `po_bar`) and
+`stock_op_files` (a stock record's files and their form).
+
+**W8.10. Words.** New: `HANDOVER add_row`, `CUSTOMER group_one / group_many / add_row / prices_kept`, `BALANCE figures / fig_owed / fig_owing
+/ customer / last_col / total`, `ACCOUNTS figures / units_word / account_col`, `STOCK_VIEW fig_moves / fig_in / fig_out`, `REPACK actions /
+add_row`. Changed: `STOCK_OPS limit` and `HANDOVER limit` ("use Search or Show"), `HANDOVER any_state` ("Every hand-over not stopped": what the
+list shows without a choice).
+
+**W8.11. Controllers hand the templates what the patterns show, nothing more.** `StockOpsController::page()` the party and facts (`party()`,
+`facts()` with links), the products, the totals' rows; `HandoversController::page()` the same, `customers()` the groups, `customer()` the paper
+card and the last hand-over, `balances()` the figures; `OtherAccountsController::index()` the figures; `StockController::movements()` the
+figures; `RepackController::index()` the groups. No query, rule or check changed.
+
+**W8.12. Tests.** `UiTemplatesTest::testTheStockPagesFollowTheApprovedPatterns` pins each page's pattern in its template (the board's
+toolbar, groups, cards, status cells and row link; the record's head, bar, strip, card; the document's foot, totals, history and files; the
+form's grid, lines board, guard, bar with Leave first and Save before the final button; the report's strip and board; none of the old
+pop-over, folds, tiles or facts list; every tag the new pieces open closed). `tests/Integration/UiKernel/StockPatternsScreensTest.php` checks
+the served pages (a stock in and a transfer from the board to the draft to the record page, a hand-over and its customer and balances, the
+reports). `StockScreensTest` and `ReservationsScreenTest` read the figures from the strip. Red first: `runs/w8_red.log` (5 failures on main).

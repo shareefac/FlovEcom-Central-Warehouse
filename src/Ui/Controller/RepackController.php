@@ -56,8 +56,15 @@ final class RepackController
             }
         }
         $packId = \CW\Ui\UiRequest::id($req->param('pack'));
+        $groups = [];
+        foreach ($rows as $r) {
+            $groups[$r['status']][] = $r;
+        }
         return $ctx->page('repacks', [
             'rows' => $rows,
+            // The board's groups (docs/decisions.md W8), in the statuses' order.
+            'groups' => array_filter(array_map(static fn (string $st): array => $groups[$st] ?? [], array_combine(Document::STATUSES, Document::STATUSES)),
+                static fn (array $g): bool => $g !== []),
             'rows_n' => count($rows),
             'limit' => Repacks::LIST_LIMIT,
             'f' => ['state' => $state, 'q' => $q],

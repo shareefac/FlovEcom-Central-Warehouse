@@ -2691,3 +2691,51 @@ table.gi-lines .gi-why:empty { display: none; }
   html:has(.item-bar) { scroll-padding-bottom: 96px; }
 }
 /* ==== end item-stock-first ================================================================================================================ */
+/* ==== w8: stock moves and hand-overs on the approved patterns (wave w8, docs/decisions.md W8; the canvas's TP_Report, PO_View, PI_New) =====
+   The stock records, the hand-overs and their customers, repack and reservations are boards, a draft is the one-page form, a saved record the
+   record page, and the overview, movements, balances and balance owed are reports, all on the shared pieces above (.doc-group, .doc-board,
+   td.doc-st, .doc-head, .doc-actions, .doc-progress, .doc-view, .doc-foot, .doc-totals, .doc-bar, .doc-grid). Here only what they add. */
+/* The figures strip of a report or a record (.doc-progress.rp-figs): any number of figures in one row, two a row on a phone; a line under one */
+@media (min-width: 640px) { .rp-figs { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); } }
+.rp-figs > .doc-step { border-left: 1px solid var(--divider); border-top: 0; }
+.rp-figs > .doc-step:first-of-type { border-left: 0; }
+.rp-figs .step-sub { margin: 0; color: var(--ink-muted); font: 400 13px/18px var(--font); overflow-wrap: anywhere; }
+@media (max-width: 639.98px) {
+  .rp-figs > .doc-step:nth-of-type(odd) { border-left: 0; }
+  .rp-figs > .doc-step:nth-of-type(n + 3) { border-top: 1px solid var(--divider); }
+  .rp-figs > .doc-step:last-of-type:nth-of-type(odd) { grid-column: 1 / -1; }
+}
+/* The Show row holds more than one choice on a report (the warehouse, the kind, the figure): it wraps rather than push the page sideways */
+.toolbar .tb-state { flex-wrap: wrap; }
+/* A board row's own small forms stay above the link that opens the row (a.row-link covers the row) */
+table.doc-list td.c-next { position: relative; z-index: 2; }
+/* A record page's related records (a customer's prices and latest hand-overs, each account's or customer's part of a report): a board under
+   its title, the title's link at its right */
+.doc-related { margin: 0 0 24px; scroll-margin-top: 16px; }
+.doc-related > .board-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.doc-related > .board-head > a, .doc-related > .board-head > .btn { margin-left: auto; }
+.doc-related > .board-head a:not(.btn) { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+.doc-related > details.fold { margin: 0 0 12px; }
+/* The fields of a create or details form in two columns (one on a phone), also inside a form.record (whose fieldsets otherwise fill) */
+form.record fieldset.doc-grid, form.doc-details fieldset.doc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; }
+@media (max-width: 639.98px) { form.record fieldset.doc-grid, form.doc-details fieldset.doc-grid { grid-template-columns: minmax(0, 1fr); padding: 16px; } }
+.doc-grid > .field { margin: 0; min-width: 0; }
+.doc-grid > fieldset.doc-wide { margin: 0; padding: 12px 16px; }
+.doc-grid > .actions { margin: 0; }
+form.doc-details { margin: 0 0 20px; }
+.doc-act-panel fieldset.doc-grid { padding: 0; border: 0; background: none; }
+/* The draft's products: the add box over the board (the lines form as wide as the page), the files after it */
+.doc-lines-box { margin: 0 0 20px; }
+.doc-lines-box > form.record.stock-lines { max-width: none; }
+.doc-lines-box > form.stock-add { margin: 0 0 12px; }
+.doc-lines-box .doc-foot { margin: 16px 0 0; }
+.doc-files { margin: 0 0 24px; }
+.doc-notes form.doc-drop, .doc-files form.doc-drop { max-width: none; }
+/* The stock records' and hand-overs' one form (OV): its bar at the bottom is the document bar (Leave first, the note, Save, the main action) */
+.actions.sticky.doc-bar {
+  z-index: 20; justify-content: flex-end; gap: 8px 12px; margin: 8px calc(-1 * var(--gutter)) 0; border-radius: 0;
+  padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--hairline);
+}
+@media (max-width: 699.98px) { body:has(.tabbar) .actions.sticky.doc-bar { bottom: 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); } }
+@container (max-width: 640px) { .actions.sticky.doc-bar .btn { width: auto; } }
+/* ==== end w8 ================================================================================================================================ */

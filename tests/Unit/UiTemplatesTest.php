@@ -327,7 +327,7 @@ final class UiTemplatesTest extends TestCase
     {
         $templates = self::templates();
         // The counting pages of pack A2a (Stock > Counts) are held to the same rules.
-        foreach (['stock_ops', 'stock_op', 'stock_op_fields', 'stock_accounts', 'decide_box',
+        foreach (['stock_ops', 'stock_op', 'stock_op_fields', 'stock_op_bar', 'stock_op_files', 'stock_accounts', 'decide_box',
             'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before'] as $name) {
             $src = $templates[$name . '.php'];
             preg_match_all('/<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
@@ -344,7 +344,8 @@ final class UiTemplatesTest extends TestCase
             $text = (string) preg_replace(['/<\?.*?\?>/s', '/<[^>]*>/', '/&[a-z]+;/'], ' ', $src);
             self::assertSame([], preg_match_all('/[A-Za-z]{2,}/', $text, $m) > 0 ? $m[0] : [], "{$name}: a word typed in the template instead of taken from Words");
         }
-        self::assertStringContainsString('enctype="multipart/form-data"', $templates['stock_op.php'], 'a record\'s files are uploaded');
+        self::assertStringContainsString('enctype="multipart/form-data"', $templates['stock_op_files.php'], 'a record\'s files are uploaded');
+        self::assertStringContainsString("\$partial('stock_op_files'", $templates['stock_op.php'], 'on its page');
     }
 
     public function testEveryPostFormCarriesTheCsrfToken(): void
@@ -1418,6 +1419,74 @@ final class UiTemplatesTest extends TestCase
             . '<form method="post" action="/ui/queues/suspense/2/pick"><button class="btn primary">Place</button></form>'), 'Lines to place\'s Place (LP_Queue)');
         self::assertSame([], \CW\Tests\Support\MainButtons::problems('<form method="post" action="/ui/review/listing/7/decide"><button class="btn primary">Yes</button></form>'
             . '<form method="post" action="/ui/review/listing/7/decide"><button class="btn primary">Save</button></form>'), 'one record\'s two forms (a quick Yes beside the full form): one per form');
+    }
+
+    /**
+     * Stock moves and hand-overs on the approved patterns (wave w8, docs/decisions.md W8; the shared parts docs/dev.md lists): each page's
+     * template carries its pattern's parts, and none carries the old toolbar's Filter pop-over, the "How it works" fold, the old figure tiles
+     * or the old facts list.
+     *   1 board: one search and one Show menu (`.tb-state`), each group a coloured heading with its count over a card with the 6 px edge, the
+     *     status cell filled with its colour, "+ New …" at the end of the open group where a new one starts here;
+     *   2 record: the status block in the head with its action bar at the right, the figures strip, the paper card (the party and its facts);
+     *     a document's card also has its lines, its files on the left and its totals on the right, then its history;
+     *   3 one-page form: the fields in two columns, the lines board, the totals, the bar at the bottom (Leave, Save, the main action), typed
+     *     values guarded (the stock records' and hand-overs' one form of OV, kept as it is);
+     *   5 report: the figures strip and the board(s) with the coloured edge; a long list has the toolbar (one search, the Show row).
+     */
+    public function testTheStockPagesFollowTheApprovedPatterns(): void
+    {
+        $t = self::templates();
+        $toolbar = ['<form class="toolbar" method="get"', '<div class="tb-search">', '<div class="tb-state">'];
+        $pins = [
+            'board' => [...$toolbar, '<div class="grp-block doc-group ', '<div class="table-wrap doc-board" id="g-', '<td class="c-status doc-st ',
+                '<th scope="row" class="c-head c-item"><a class="o-name row-link"'],
+            'new' => ['<fieldset class="doc-grid">', '<details class="fold new-order drawer" id="new"'],
+            'record' => ['<div class="doc-head">', 'side: $bar', '<section class="doc-progress rp-figs"', '<article class="doc-view"', "\$partial('doc_party'"],
+            'document' => ['<div class="doc-foot">', "\$partial('doc_totals'", 'checks-history"', '<table class="stack list board doc-lines'],
+            'files' => ['id="files"', "\$partial('stock_op_files'"],
+            'form' => ['<fieldset class="doc-grid">', '<table class="stack list board doc-lines', 'data-unsaved="1"', '<div class="actions sticky doc-bar">',
+                'data-leave>', '<span class="doc-bar-note">'],
+            'report' => ['<section class="doc-progress rp-figs"', 'class="table-wrap doc-board'],
+            'toolbar' => $toolbar,
+        ];
+        $pages = [
+            'stock_ops' => ['board', 'new'], 'repacks' => ['board', 'new'], 'handovers' => ['board', 'new'], 'handover_customers' => ['board', 'new'],
+            'stock_reservations' => ['board'], 'stock_op' => ['record', 'document', 'files', 'form'], 'handover' => ['record', 'document', 'form'],
+            'handover_customer' => ['record'], 'handover_balances' => ['report'], 'stock_accounts' => ['report'], 'stock_movements' => ['report', 'toolbar'],
+            'stock' => ['report', 'toolbar'],
+        ];
+        foreach ($pages as $name => $patterns) {
+            $src = $t[$name . '.php'] ?? '';
+            foreach ($patterns as $p) {
+                foreach ($pins[$p] as $part) {
+                    self::assertStringContainsString($part, $src, "{$name}: the {$p} pattern's {$part}");
+                }
+            }
+            foreach (['class="tb-pop"', 'class="fold how"', 'class="kpis', '<dl class="wide', 'ico-filter'] as $old) {
+                self::assertStringNotContainsString($old, $src, "{$name}: {$old} is the old layout");
+            }
+            if (in_array('board', $patterns, true)) {
+                self::assertSame(1, substr_count($src, '<div class="tb-state">'), "{$name}: one Show row");
+                self::assertSame(1, preg_match_all('/<input id="tb-q" type="search"/', $src), "{$name}: one search box");
+            }
+        }
+        // The create form's fields are grid cells: a label holds its own control, or sits with it (and its error) in a div.field.
+        foreach (['stock_op_fields', 'handover_fields', 'handover_customer_fields', 'repacks'] as $name) {
+            $src = $t[$name . '.php'];
+            self::assertSame(preg_match_all('#<label for="(?!tb-)#', $src), preg_match_all('#<div class="field[^"]*">\s*<label for=#', $src), "{$name}: a control outside its label's cell");
+        }
+        // The new pieces close what they open (a stray </div> in a bar pushes the next step out of the head).
+        foreach (['stock_op_bar', 'handover_bar', 'customer_bar', 'stock_op_files', 'stock_op', 'handover', 'handover_customer', 'handover_balances', 'stock_accounts'] as $name) {
+            foreach (['div', 'details', 'form', 'section', 'table', 'article', 'fieldset'] as $tag) {
+                self::assertSame(preg_match_all('/<' . $tag . '\b/', $t[$name . '.php']), substr_count($t[$name . '.php'], '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
+            }
+        }
+        // The stock records' and hand-overs' one form (OV): Save first, the final button the main one, both in the bar at the bottom of the form.
+        foreach (['stock_op', 'handover'] as $name) {
+            self::assertMatchesRegularExpression('#<div class="actions sticky doc-bar">\s*<a class="btn ghost" href="[^"]*" data-leave>.*?</a>\s*<span class="doc-bar-note">.*?</span>\s*'
+                . '<button class="btn" type="submit" name="action" value="save">.*?</button>\s*<button type="submit" name="action" value="post" class="btn primary">#s',
+                $t[$name . '.php'], "{$name}: Leave, the note, Save, then the final button");
+        }
     }
 
     public function testTheLintItselfCatchesWhatItIsFor(): void

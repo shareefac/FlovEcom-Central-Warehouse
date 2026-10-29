@@ -465,6 +465,7 @@ final class StockOpsController
                 $total = bcadd($total, $l['amount'], 2);
             }
         }
+        $units = array_sum(array_map(static fn (array $l): int => abs($l['qty']), $lines));
         $ruleWaits = $doc->status === 'draft' && ($type['approval_rule'] !== 'none' || (int) ($type['size_approval'] ?? 0) === 1);
         $shown = array_map(static fn (array $l): array => $l + ['reason_text' => $l['reason_label'] ?? null], $lines);
         $oneForm = $editable && $lines !== [] && self::oneFormFits($kind, count($lines));
@@ -477,11 +478,15 @@ final class StockOpsController
             'doc' => $doc,
             'rec' => $rec,
             'title' => Words::docTitle($doc->docType, $doc->number, null, $doc->isReversal() ? (string) ($rec['reverses_number'] ?? '#' . $doc->reversesId) : null),
-            'facts' => self::facts($rec, $doc),
+            'party' => self::party($rec),
+            'docFacts' => self::facts($rec, $doc, $reversedBy),
             'lines' => $shown,
             'priced' => $priced,
             'total' => $total,
-            'units' => array_sum(array_map(static fn (array $l): int => abs($l['qty']), $lines)),
+            'units' => $units,
+            'products' => count(array_unique(array_map(static fn (array $l): int => (int) $l['sku_id'], $lines))),
+            'totalRows' => array_merge([['label' => Words::STOCK_OPS['units'], 'value' => number_format($units)]],
+                $priced ? [['label' => Words::STOCK_OPS['total'], 'value' => Html::money($total), 'grand' => true]] : []),
             'editable' => $editable,
             'notCreator' => $doc->status === 'draft' && $canPost && $doc->createdBy !== $me->id,
             'form' => self::form($kind, $choices, $extra['header'] ?? null, $rec),
@@ -518,7 +523,6 @@ final class StockOpsController
             'lookOnly' => $canPost ? null : Words::whoCan('doc.' . $doc->docType . '.post'),
             'error' => $error === null ? null : (($extra['notFinal'] ?? false) === true ? Words::notFinal(self::plain($error)) : self::plain($error)),
             'errorCode' => $error?->errorCode,
-            'balanceHref' => $kind === 'release' ? Html::url('/ui/stock/accounts') . '#account-' . (int) $doc->warehouseId : null,
         ], $status, ['title' => Words::docTitle($doc->docType, $doc->number), 'notice' => $notice]);
     }
 
@@ -639,23 +643,42 @@ final class StockOpsController
     }
 
     /**
-     * The header facts of a record's page (label => value, only those it has).
+     * The party of a record's paper card (docs/decisions.md W8): where the stock is (a transfer's and a release's "From"), or for a release
+     * the account it is owed to (its link: that account on Balance owed), its room under it.
      *
      * @param array<string, mixed> $rec StockOps::record()
-     * @return list<array{label: string, value: string}>
+     * @return array{label: string, name: string, href: ?string, lines: list<string>}
      */
-    private static function facts(array $rec, Document $doc): array
+    private static function party(array $rec): array
+    {
+        $kind = (string) $rec['kind'];
+        $from = $rec['warehouse_name'] === null ? '' : ($rec['location_name'] === null ? (string) $rec['warehouse_name']
+            : Words::say('STOCK_OPS', 'in_place', (string) $rec['warehouse_name'], (string) $rec['location_name']));
+        if ($kind === 'release') {
+            return ['label' => Words::STOCK_OPS['account'], 'name' => (string) ($rec['account_name'] ?? $rec['warehouse_entity'] ?? ''),
+                'href' => Html::url('/ui/stock/accounts') . '#account-' . (int) $rec['warehouse_id'], 'lines' => $from === '' ? [] : [$from]];
+        }
+        return ['label' => $kind === 'transfer' ? Words::STOCK_OPS['from'] : Words::STOCK_OPS['warehouse'], 'name' => $from, 'href' => null, 'lines' => []];
+    }
+
+    /**
+     * The facts beside the party on a record's paper card (label => value, only those it has; docs/decisions.md W8): where it goes, why, who
+     * it was given to, the reference, the date, the note, who made it, asked for an OK, made it final or stopped it, and the record it
+     * cancels or that cancelled it (a link).
+     *
+     * @param array<string, mixed> $rec StockOps::record()
+     * @param array{id: int, number: mixed, status: string}|null $reversedBy
+     * @return list<array{label: string, value: string, href?: string}>
+     */
+    private static function facts(array $rec, Document $doc, ?array $reversedBy): array
     {
         $place = static fn (?string $w, ?string $l): ?string => $w === null ? null : ($l === null ? $w : Words::say('STOCK_OPS', 'in_place', $w, $l));
         $by = static fn (?string $at, ?string $who): ?string => $at === null ? null : Words::say('STOCK_OPS', 'by', Html::when($at), (string) ($who ?? Words::RECORD['by_cw']));
         $kind = (string) $rec['kind'];
+        $base = StockOps::PATHS[$kind];
         $rows = [
-            [Words::STOCK_OPS['kind'], Words::STOCK_KIND[$kind]['one']],
-            [in_array($kind, ['transfer', 'release'], true) ? Words::STOCK_OPS['from'] : Words::STOCK_OPS['warehouse'],
-                $place($rec['warehouse_name'] === null ? null : (string) $rec['warehouse_name'], $rec['location_name'] === null ? null : (string) $rec['location_name'])],
             [Words::STOCK_OPS['warehouse_to'], $place($rec['to_warehouse_name'] === null ? null : (string) $rec['to_warehouse_name'],
                 $rec['to_location_name'] === null ? null : (string) $rec['to_location_name'])],
-            [Words::STOCK_OPS['account'], $kind === 'release' ? (string) ($rec['account_name'] ?? $rec['warehouse_entity'] ?? '') : null],
             [Words::STOCK_OPS['reason'], $rec['reason_label'] === null ? null : (string) $rec['reason_label']],
             [Words::STOCK_OPS['given_to'], $rec['given_to'] === null ? null : (string) $rec['given_to']],
             [$kind === 'release' ? Words::STOCK_OPS['ref_release'] : Words::STOCK_OPS['ref'], $doc->externalRef],
@@ -672,6 +695,13 @@ final class StockOpsController
             if ($value !== null && $value !== '') {
                 $out[] = ['label' => $label, 'value' => $value];
             }
+        }
+        if ($doc->isReversal()) {
+            $out[] = ['label' => Words::RECORD['cancels'], 'value' => (string) ($rec['reverses_number'] ?? ''), 'href' => $base . '/' . $doc->reversesId];
+        }
+        if ($reversedBy !== null) {
+            $out[] = ['label' => Words::STOCK_OPS['cancelled_by'], 'value' => $reversedBy['number'] === null ? Words::STOCK_OPS['cancel_waiting'] : (string) $reversedBy['number'],
+                'href' => $base . '/' . $reversedBy['id']];
         }
         return $out;
     }

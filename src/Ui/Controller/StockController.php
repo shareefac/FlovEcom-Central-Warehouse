@@ -73,8 +73,12 @@ final class StockController
         $result = $views->movements($f);
         $who = $views->actors(array_values(array_unique(array_map(static fn (array $r): string => (string) $r['actor'], $result['rows']))));
         $query = ['warehouse' => $f['warehouse'], 'q' => $f['q'], 'type' => $f['type'], 'figure' => $f['figure'] === 'on_hand' ? null : $f['figure']];
+        $deltas = array_map(static fn (array $r): int => (int) $r['qty_delta'], $result['rows']);
         return $ctx->page('stock_movements', [
             'f' => $f,
+            // The report's figures strip (docs/decisions.md W8): the changes this page shows, the units they added and took away.
+            'figures' => ['moves' => count($deltas), 'in' => array_sum(array_filter($deltas, static fn (int $d): bool => $d > 0)),
+                'out' => -array_sum(array_filter($deltas, static fn (int $d): bool => $d < 0))],
             'warehouses' => $warehouses,
             'types' => Words::MOVEMENT,
             'rows' => array_map(static function (array $r) use ($who): array {

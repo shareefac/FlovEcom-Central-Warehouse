@@ -57,6 +57,6 @@
 <label><?= $word('STOCK_OPS', 'date') ?>
   <input type="date" name="doc_date" value="<?= $e($form['doc_date']) ?>">
 </label>
-<label><?= $word('STOCK_OPS', 'note') ?>
+<label class="doc-wide"><?= $word('STOCK_OPS', 'note') ?>
   <textarea name="note" rows="2" maxlength="1000"><?= $e($form['note']) ?></textarea>
 </label>

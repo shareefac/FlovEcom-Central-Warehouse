@@ -1,38 +1,41 @@
+<?php
+// Stock › Overview, a report (the approved design of 29 Oct 2026, pattern 5, TP_Report; docs/decisions.md W8): the toolbar (one search for
+// a product, then the warehouse and what to show), the figures strip (products, in stock, units, with no stock), then the products as a
+// board in two groups (out of stock, in stock), each a coloured heading with its count over a card with its colour on the left edge: one
+// row per product with its stock in each warehouse, reserved and what the websites can sell; the pager under it. Read only.
+?>
 <?= $head(\CW\Ui\Words::MENU['stock'], intro: 'stock', aside: $explain('stock', \CW\Ui\Words::ITEM['stock'])) ?>
 <form class="toolbar" method="get" aria-label="<?= $word('UI', 'filter') ?>">
-  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('STOCK_VIEW', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('UI', 'search') ?>"></div>
-  <details class="tb-pop">
-    <summary class="btn ghost sm"><span class="ico ico-filter" aria-hidden="true"></span><span><?= $word('UI', 'filter') ?></span><?php if ($filtered): ?> <span class="count">&#10003;</span><?php endif; ?></summary>
-    <div class="pop pop-form">
-      <label><?= $word('STOCK_VIEW', 'warehouse') ?>
-        <select name="warehouse">
-          <option value=""><?= $word('STOCK_VIEW', 'all_warehouses') ?></option>
+  <div class="tb-search"><span class="ico ico-search" aria-hidden="true"></span><label class="visually-hidden" for="tb-q"><?= $word('STOCK_VIEW', 'find') ?></label><input id="tb-q" type="search" name="q" value="<?= $e($f['q']) ?>" maxlength="100" placeholder="<?= $word('STOCK_VIEW', 'find_hint') ?>"></div>
+  <div class="tb-state">
+    <label for="tb-wh"><?= $word('STOCK_VIEW', 'warehouse') ?></label>
+    <select id="tb-wh" name="warehouse">
+      <option value=""><?= $word('STOCK_VIEW', 'all_warehouses') ?></option>
 <?php foreach ($warehouses as $w): ?>
-          <option value="<?= $e($w['id']) ?>"<?php if ($f['warehouse'] === $w['id']): ?> selected<?php endif; ?>><?= $e($w['name']) ?></option>
+      <option value="<?= $e($w['id']) ?>"<?php if ($f['warehouse'] === $w['id']): ?> selected<?php endif; ?>><?= $e($w['name']) ?></option>
 <?php endforeach; ?>
-        </select>
-      </label>
-      <label><?= $word('STOCK_VIEW', 'show') ?>
-        <select name="show">
-          <option value="stock"<?php if ($f['show'] === 'stock'): ?> selected<?php endif; ?>><?= $word('STOCK_VIEW', 'show_stock') ?></option>
-          <option value="all"<?php if ($f['show'] === 'all'): ?> selected<?php endif; ?>><?= $word('STOCK_VIEW', 'show_all') ?></option>
-          <option value="negative"<?php if ($f['show'] === 'negative'): ?> selected<?php endif; ?>><?= $word('STOCK_VIEW', 'show_negative') ?></option>
-        </select>
-      </label>
-      <div class="pop-actions"><?php if ($filtered): ?><a class="btn ghost sm" href="/ui/stock"><?= $word('STOCK_VIEW', 'clear') ?></a><?php endif; ?><button type="submit" class="btn sm"><?= $word('UI', 'apply') ?></button></div>
-    </div>
-  </details>
+    </select>
+    <label for="tb-show"><?= $word('STOCK_VIEW', 'show') ?></label>
+    <select id="tb-show" name="show">
+      <option value="stock"<?php if ($f['show'] === 'stock'): ?> selected<?php endif; ?>><?= $word('STOCK_VIEW', 'show_stock') ?></option>
+      <option value="all"<?php if ($f['show'] === 'all'): ?> selected<?php endif; ?>><?= $word('STOCK_VIEW', 'show_all') ?></option>
+      <option value="negative"<?php if ($f['show'] === 'negative'): ?> selected<?php endif; ?>><?= $word('STOCK_VIEW', 'show_negative') ?></option>
+    </select>
+    <button type="submit" class="btn sm"><?= $word('DOC_LIST', 'show') ?></button>
+  </div>
+  <div class="tb-end">
+<?php if ($filtered): ?>
+    <a class="btn ghost sm" href="/ui/stock"><?= $word('STOCK_VIEW', 'clear') ?></a>
+<?php endif; ?>
+  </div>
 </form>
 
-<section class="home-tiles" aria-label="<?= $word('STOCK_VIEW', 'figures') ?>">
-  <div class="kpis-wrap"><ul class="kpis four">
-    <li class="kpi"><p class="kpi-label"><?= $word('STOCK_VIEW', 'tile_products') ?></p><p class="kpi-value"><?= $n($figures['products']) ?></p><p class="kpi-sub"><?= $word('STOCK_VIEW', 'tile_products_sub') ?></p></li>
-    <li class="kpi"><p class="kpi-label"><?= $word('STOCK_VIEW', 'tile_in_stock') ?></p><p class="kpi-value"><?= $n($figures['in_stock']) ?></p><p class="kpi-sub"><?= $word('STOCK_VIEW', 'tile_in_stock_sub') ?></p></li>
-    <li class="kpi"><p class="kpi-label"><?= $word('STOCK_VIEW', 'tile_units') ?></p><p class="kpi-value"><?= $n($figures['units']) ?></p><p class="kpi-sub"><?= $word('STOCK_VIEW', 'tile_units_sub') ?></p></li>
-    <li class="kpi"><p class="kpi-label"><?= $word('STOCK_VIEW', 'tile_none') ?></p><p class="kpi-value"><?= $n(max(0, $figures['products'] - $figures['in_stock'])) ?></p><p class="kpi-sub"><?= $word('STOCK_VIEW', 'tile_none_sub') ?></p></li>
-  </ul></div>
+<section class="doc-progress rp-figs" aria-label="<?= $word('STOCK_VIEW', 'figures') ?>">
+  <div class="doc-step"><p class="doc-step-label"><?= $word('STOCK_VIEW', 'tile_products') ?></p><p class="doc-step-big"><?= $n($figures['products']) ?></p><p class="step-sub"><?= $word('STOCK_VIEW', 'tile_products_sub') ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('STOCK_VIEW', 'tile_in_stock') ?></p><p class="doc-step-big"><?= $n($figures['in_stock']) ?></p><p class="step-sub"><?= $word('STOCK_VIEW', 'tile_in_stock_sub') ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('STOCK_VIEW', 'tile_units') ?></p><p class="doc-step-big"><?= $n($figures['units']) ?></p><p class="step-sub"><?= $word('STOCK_VIEW', 'tile_units_sub') ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('STOCK_VIEW', 'tile_none') ?></p><p class="doc-step-big"><?= $n(max(0, $figures['products'] - $figures['in_stock'])) ?></p><p class="step-sub"><?= $word('STOCK_VIEW', 'tile_none_sub') ?></p></div>
 </section>
-<p class="note"><?= $word('STOCK_VIEW', 'later') ?></p>
 
 <?php if ($groups === []): ?>
 <?php if ($filtered): ?>
@@ -41,13 +44,12 @@
 <?= $empty(\CW\Ui\Words::STOCK_VIEW['none'], \CW\Ui\Words::STOCK_VIEW['none_text']) ?>
 <?php endif; ?>
 <?php else: ?>
-<div class="board-head"><h2 class="board-title"><?= $word('STOCK_VIEW', 'board') ?></h2><p class="board-note"><?= $word('STOCK_VIEW', 'board_note') ?><?php if ($pages > 1): ?> <?= $say('STOCK_VIEW', 'page', $page_no, $pages) ?><?php endif; ?></p></div>
 <?php foreach ($groups as $key => $list): ?>
 <?php $tone = $key === 'in' ? 'done' : 'blocked'; ?>
-<div class="grp-block">
-  <h3 class="grp-title <?= $e($tone) ?>"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($key) ?>"><?= $word('STOCK_VIEW', 'group_' . $key) ?></button><span class="grp-count"><?= $say('STOCK_VIEW', 'shown', count($list), $counts[$key]) ?></span></h3>
-  <div class="table-wrap" id="g-<?= $e($key) ?>">
-  <table class="stack list stock-lines board <?= $e($tone) ?>">
+<div class="grp-block doc-group <?= $e($tone) ?>">
+  <h3 class="grp-title"><button class="grp-toggle" type="button" aria-expanded="true" aria-controls="g-<?= $e($key) ?>"><?= $word('STOCK_VIEW', 'group_' . $key) ?></button> <span class="grp-count"><?= $say('STOCK_VIEW', 'shown', count($list), $counts[$key]) ?></span></h3>
+  <div class="table-wrap doc-board" id="g-<?= $e($key) ?>">
+  <table class="stack list board doc-list stock-lines">
     <thead>
       <tr>
         <th scope="col" class="c-item"><?= $word('STOCK_VIEW', 'product') ?></th>
@@ -62,8 +64,8 @@
     <tbody>
 <?php foreach ($list as $r): ?>
       <tr>
-        <th scope="row" class="c-head c-item"><a class="o-name" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $e($r['code']) ?><?php if ($r['brand'] !== null): ?> · <?= $e($r['brand']) ?><?php endif; ?></span></th>
-        <td class="c-status"><?= $chip($tone, \CW\Ui\Words::STOCK_VIEW['group_' . $key]) ?></td>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u('/ui/items/' . $r['sku_id']) ?>"><?= $e($r['name']) ?></a><span class="o-sub"><?= $e($r['code']) ?><?php if ($r['brand'] !== null): ?> · <?= $e($r['brand']) ?><?php endif; ?></span></th>
+        <td class="c-status doc-st <?= $e($tone) ?>"><?= $word('STOCK_VIEW', 'group_' . $key) ?></td>
 <?php foreach ($warehouses as $i => $w): ?>
         <td class="num" data-label="<?= $e($w['name']) ?>"><?= $n($r['by_warehouse'][$i]) ?></td>
 <?php endforeach; ?>
@@ -76,7 +78,6 @@
   </div>
 </div>
 <?php endforeach; ?>
-<p class="foot"><?= $word('STOCK_VIEW', 'foot') ?></p>
 <?php if ($prev_link !== null || $next_link !== null): ?>
 <p class="pager"><span><?= $say('STOCK_VIEW', 'showing', $rows_n, $total) ?></span><?php if ($prev_link !== null): ?><a href="<?= $e($prev_link) ?>"><?= $word('STOCK_VIEW', 'prev') ?></a><?php endif; ?><?php if ($next_link !== null): ?><a href="<?= $e($next_link) ?>"><?= $word('STOCK_VIEW', 'next') ?></a><?php endif; ?></p>
 <?php endif; ?>

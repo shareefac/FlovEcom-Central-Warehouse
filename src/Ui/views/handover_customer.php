@@ -1,64 +1,41 @@
+<?php
+// One hand-over customer, a record page (the approved design of 29 Oct 2026, pattern 2; docs/decisions.md W8): its name with its status
+// block, the actions at the head's right (customer_bar: Change the details, More: switch it off or on), the figures strip (what it owes,
+// its hand-overs, the last one, the prices kept), the paper card (the customer as its invoices show it beside its facts), then its related
+// records: the prices it paid last and its latest hand-overs, each a board.
+$bar = $partial('customer_bar', ['c' => $c, 'v' => $v, 'version' => $version, 'errors' => $errors, 'kinds' => $kinds, 'vatCodes' => $vatCodes, 'canManage' => $canManage,
+    'error' => $error]);
+?>
 <p class="crumbs"><a href="/ui/stock/handovers/customers"><?= $word('SEGMENT', 'handover_customers') ?></a></p>
+<div class="doc-head">
 <?= $head((string) $c['name'], intro: 'handover_customer', look: $lookOnly,
-    chips: (int) $c['is_active'] === 1 ? $chip('done', \CW\Ui\Words::CUSTOMER['on']) : $chip('off', \CW\Ui\Words::CUSTOMER['off'])) ?>
+    chips: (int) $c['is_active'] === 1 ? $chip('done', \CW\Ui\Words::CUSTOMER['on']) : $chip('off', \CW\Ui\Words::CUSTOMER['off']), side: $bar) ?>
+</div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
 
-<section aria-labelledby="facts-h">
-  <h2 id="facts-h" class="visually-hidden"><?= $word('CUSTOMER', 'details') ?></h2>
-  <dl class="wide">
-    <dt><?= $word('CUSTOMER', 'kind') ?></dt><dd><?= $word('CUSTOMER_KIND', (string) $c['kind']) ?></dd>
-    <dt><?= $word('CUSTOMER', 'f_address') ?></dt><dd class="pre"><?php if ((string) $c['address'] === ''): ?><span class="muted"><?= $word('CUSTOMER', 'not_given') ?></span><?php else: ?><?= $e($c['address']) ?><?php endif; ?></dd>
-    <dt><?= $word('CUSTOMER', 'f_company_number') ?></dt><dd><?php if ((string) $c['company_number'] === ''): ?><span class="muted"><?= $word('CUSTOMER', 'not_given') ?></span><?php else: ?><?= $e($c['company_number']) ?><?php endif; ?></dd>
-    <dt><?= $word('CUSTOMER', 'f_vat_number') ?></dt><dd><?php if ((string) $c['vat_number'] === ''): ?><span class="muted"><?= $word('CUSTOMER', 'not_given') ?></span><?php else: ?><?= $e(\CW\Company\CompanyDetails::formatVat((string) $c['vat_number'])) ?><?php endif; ?></dd>
-    <dt><?= $word('CUSTOMER', 'vat_code') ?></dt><dd><?php if ($c['vat_code'] === null): ?><?= $word('CUSTOMER', 'vat_company') ?><?php else: ?><?= $e($c['vat_code']) ?><?php endif; ?></dd>
-    <dt><?= $word('CUSTOMER', 'f_email') ?></dt><dd><?= $e($c['email']) ?></dd>
-    <dt><?= $word('CUSTOMER', 'f_phone') ?></dt><dd><?= $e($c['phone']) ?></dd>
-<?php if ($c['note'] !== null): ?>
-    <dt><?= $word('CUSTOMER', 'f_note') ?></dt><dd><?= $e($c['note']) ?></dd>
-<?php endif; ?>
-    <dt><?= $word('CUSTOMER', 'balance') ?></dt><dd><?= $money($balance) ?> &middot; <a href="<?= $u($balanceHref) ?>"><?= $word('CUSTOMER', 'balance_link') ?></a></dd>
-    <dt><?= $word('CUSTOMER', 'changed') ?></dt><dd><?= $say('CUSTOMER', 'by', \CW\Ui\Html::when((string) $c['updated_at']), (string) ($c['updated_by_name'] ?? $c['created_by_name'] ?? '')) ?></dd>
-  </dl>
-  <p><a href="<?= $e($listHref) ?>"><?= $word('CUSTOMER', 'its_handovers') ?></a></p>
+<section class="doc-progress rp-figs" aria-label="<?= $word('CUSTOMER', 'details') ?>">
+  <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'balance') ?></p><p class="doc-step-big"><?= $money($balance) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'handovers') ?></p><p class="doc-step-big"><?= $n(count($handovers)) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'last') ?></p><p class="doc-step-big"><?php if ($lastHandover !== null): ?><?= $day($lastHandover) ?><?php endif; ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('CUSTOMER', 'prices_kept') ?></p><p class="doc-step-big"><?= $n(count($prices)) ?></p></div>
 </section>
 
-<?php if ($canManage): ?>
-<details class="fold"<?php if ($error !== null): ?> open<?php endif; ?>>
-  <summary><?= $word('CUSTOMER', 'change') ?></summary>
-  <form class="record customer" method="post" action="<?= $u('/ui/stock/handovers/customers/' . $c['id']) ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="version" value="<?= $e($version) ?>">
-<?= $partial('handover_customer_fields', ['v' => $v, 'errors' => $errors, 'kinds' => $kinds, 'vatCodes' => $vatCodes]) ?>
-    <p class="actions"><button type="submit" class="btn primary"><?= $word('CUSTOMER', 'save') ?></button></p>
-  </form>
-</details>
-<form class="inline" method="post" action="<?= $u('/ui/stock/handovers/customers/' . $c['id'] . '/active') ?>">
-  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-  <input type="hidden" name="version" value="<?= $e($version) ?>">
-<?php if ((int) $c['is_active'] === 1): ?>
-  <input type="hidden" name="on" value="0">
-  <p class="muted"><?= $word('CUSTOMER', 'switch_off_text') ?></p>
-  <button type="submit" class="btn risky"><?= $word('CUSTOMER', 'switch_off') ?></button>
-<?php else: ?>
-  <input type="hidden" name="on" value="1">
-  <button class="btn" type="submit"><?= $word('CUSTOMER', 'switch_on') ?></button>
-<?php endif; ?>
-</form>
-<?php endif; ?>
+<article class="doc-view" aria-label="<?= $word('CUSTOMER', 'details') ?>">
+<?= $partial('doc_party', ['party' => $party, 'facts' => $docFacts]) ?>
+</article>
 
-<section aria-labelledby="prices-h">
-  <h2 id="prices-h"><?= $word('CUSTOMER', 'prices') ?></h2>
-  <p class="muted"><?= $word('CUSTOMER', 'prices_text') ?></p>
+<section class="doc-related" aria-labelledby="prices-h">
+  <div class="board-head"><h2 id="prices-h" class="board-sub"><?= $word('CUSTOMER', 'prices') ?></h2></div>
 <?php if ($prices === []): ?>
   <p class="muted"><?= $word('CUSTOMER', 'no_prices') ?></p>
 <?php else: ?>
-  <div class="table-wrap">
-  <table class="stack list prices">
+  <div class="table-wrap doc-board info">
+  <table class="stack list board doc-list prices">
     <thead>
       <tr>
-        <th scope="col"><?= $word('CUSTOMER', 'price_item') ?></th>
+        <th scope="col" class="c-item"><?= $word('CUSTOMER', 'price_item') ?></th>
         <th scope="col" class="num"><?= $word('CUSTOMER', 'price') ?></th>
         <th scope="col"><?= $word('CUSTOMER', 'price_day') ?></th>
         <th scope="col"><?= $word('CUSTOMER', 'price_from') ?></th>
@@ -67,7 +44,7 @@
     <tbody>
 <?php foreach ($prices as $p): ?>
       <tr>
-        <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $p['sku_id']) ?>"><?= $e($p['name']) ?></a><span class="o-sub"><?= $e($p['code']) ?></span></th>
+        <th scope="row" class="c-head c-item"><a href="<?= $u('/ui/items/' . $p['sku_id']) ?>"><?= $e($p['name']) ?></a><span class="o-sub"><?= $e($p['code']) ?></span></th>
         <td class="num" data-label="<?= $word('CUSTOMER', 'price') ?>"><?= $money($p['unit_price']) ?></td>
         <td data-label="<?= $word('CUSTOMER', 'price_day') ?>"><?= $day($p['priced_on']) ?></td>
         <td data-label="<?= $word('CUSTOMER', 'price_from') ?>"><?php if ($p['source'] === 'handover' && $p['document_id'] !== null): ?><a href="<?= $u('/ui/stock/handovers/' . $p['document_id']) ?>"><?= $e($p['number']) ?></a><?php else: ?><?= $say('CUSTOMER', 'price_imported', (string) ($p['source_ref'] ?? '')) ?><?php endif; ?></td>
@@ -79,15 +56,32 @@
 <?php endif; ?>
 </section>
 
-<section aria-labelledby="recent-h">
-  <h2 id="recent-h"><?= $word('CUSTOMER', 'recent') ?></h2>
+<section class="doc-related" aria-labelledby="recent-h">
+  <div class="board-head"><h2 id="recent-h" class="board-sub"><?= $word('CUSTOMER', 'recent') ?></h2><a href="<?= $e($listHref) ?>"><?= $word('CUSTOMER', 'its_handovers') ?></a></div>
 <?php if ($handovers === []): ?>
   <p class="muted"><?= $word('CUSTOMER', 'no_handovers') ?></p>
 <?php else: ?>
-  <ul class="plain">
+  <div class="table-wrap doc-board info">
+  <table class="stack list board doc-list handover-records">
+    <thead>
+      <tr>
+        <th scope="col" class="c-item"><?= $word('HANDOVER', 'record') ?></th>
+        <th scope="col" class="c-status"><?= $word('HANDOVER', 'status') ?></th>
+        <th scope="col" class="num"><?= $word('HANDOVER', 'units') ?></th>
+        <th scope="col" class="num"><?= $word('HANDOVER', 'value') ?></th>
+      </tr>
+    </thead>
+    <tbody>
 <?php foreach (array_slice($handovers, 0, 10) as $h): ?>
-    <li><a href="<?= $u('/ui/stock/handovers/' . $h['id']) ?>"><?php if ($h['number'] === null): ?><?= $word('HANDOVER', 'no_number') ?><?php else: ?><?= $e($h['number']) ?><?php endif; ?></a> &middot; <?= $word('DOC_STATUS', (string) $h['status']) ?><?php if ($h['gross_amount'] !== null): ?> &middot; <?= $money($h['gross_amount']) ?><?php endif; ?></li>
+      <tr>
+        <th scope="row" class="c-head c-item"><a class="o-name row-link" href="<?= $u($h['href']) ?>"><?= $e($h['number_line']) ?></a><span class="o-sub"><?= $e($h['date_line']) ?></span></th>
+        <td class="c-status doc-st <?= $e($h['tone']) ?>"><?= $e($h['state_word']) ?></td>
+        <td class="num" data-label="<?= $word('HANDOVER', 'units') ?>"><?= $n($h['units']) ?></td>
+        <td class="num" data-label="<?= $word('HANDOVER', 'value') ?>"><?php if ($h['value'] !== null): ?><?= $money($h['value']) ?><?php if (!$h['final']): ?><span class="o-sub"><?= $word('HANDOVER', 'before_vat') ?></span><?php endif; ?><?php endif; ?></td>
+      </tr>
 <?php endforeach; ?>
-  </ul>
+    </tbody>
+  </table>
+  </div>
 <?php endif; ?>
 </section>

@@ -1,5 +1,18 @@
+<?php
+// One stock record (pack A1) on the approved patterns (docs/decisions.md W8). Its creator's draft is the one-page form (pattern 3, PI_New):
+// the details in two columns (their own form, as before), the products as a board under the add box, the totals on the right under them,
+// and the bar at the bottom of the lines form: Leave without saving, what it holds, Save, then the record's final button (the one form of
+// OV1-OV12, kept as it is: Save and the final button send the lines on the screen); its files after. Any other record is the record page
+// (pattern 2, PO_View): the status block in the head with the actions at its right (stock_op_bar), the figures strip, the paper card (where
+// the stock is, or the account a release owes, beside the facts; the products; the files on the left and the totals on the right), then
+// the history. The reviewer's box comes first when a rule asks for an OK.
+$bar = $partial('stock_op_bar', ['doc' => $doc, 'base' => $base, 'k' => $k, 'version' => $version, 'pdf' => $pdf, 'canWithdraw' => $canWithdraw,
+    'reverse' => $reverse, 'editable' => $editable, 'typedCancel' => $typedCancel, 'typedStop' => $typedStop]);
+?>
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $e($listName) ?></a></p>
-<?= $head((string) $title, intro: 'stock_op', look: $lookOnly, chips: $stateChip('DOC_STATUS', $doc->status)) ?>
+<div class="doc-head">
+<?= $head((string) $title, intro: 'stock_op', look: $lookOnly, chips: $stateChip('DOC_STATUS', $doc->status), side: $bar) ?>
+</div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -12,30 +25,19 @@
 <p class="note read-only"><?= $word('STOCK_OPS', 'not_creator') ?></p>
 <?php endif; ?>
 
-<section aria-labelledby="facts-h">
-  <h2 id="facts-h" class="visually-hidden"><?= $word('STOCK_OPS', 'facts') ?></h2>
-  <dl class="wide">
-<?php foreach ($facts as $fact): ?>
-    <dt><?= $e($fact['label']) ?></dt><dd><?= $e($fact['value']) ?></dd>
-<?php endforeach; ?>
-<?php if ($doc->isReversal()): ?>
-    <dt><?= $word('RECORD', 'cancels') ?></dt><dd><a href="<?= $u($base . '/' . $doc->reversesId) ?>"><?= $e($rec['reverses_number']) ?></a></dd>
-<?php endif; ?>
-<?php if ($reversedBy !== null): ?>
-    <dt><?= $word('STOCK_OPS', 'cancelled_by') ?></dt><dd><a href="<?= $u($base . '/' . $reversedBy['id']) ?>"><?php if ($reversedBy['number'] === null): ?><?= $word('STOCK_OPS', 'cancel_waiting') ?><?php else: ?><?= $e($reversedBy['number']) ?><?php endif; ?></a></dd>
-<?php endif; ?>
-  </dl>
-<?php if ($balanceHref !== null): ?>
-  <p><a href="<?= $e($balanceHref) ?>"><?= $word('ACCOUNTS', 'title') ?></a></p>
-<?php endif; ?>
-<?php if ($pdf !== null): ?>
-  <p><a href="<?= $u($pdf) ?>"><?= $e($k['pdf']) ?></a></p>
-<?php endif; ?>
-</section>
-
-<section aria-labelledby="lines-h">
-  <h2 id="lines-h"><?= $word('STOCK_OPS', 'lines') ?></h2>
 <?php if ($editable): ?>
+<form class="doc-details" method="post" action="<?= $u($base . '/' . $doc->id . '/details') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1"<?php if ($headerTyped): ?> data-dirty="1"<?php endif; ?>>
+  <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+  <input type="hidden" name="version" value="<?= $e($version) ?>">
+  <fieldset class="doc-grid">
+    <legend class="visually-hidden"><?= $word('STOCK_OPS', 'facts') ?></legend>
+<?= $partial('stock_op_fields', ['form' => $form, 'kind' => $kind]) ?>
+    <p class="actions doc-wide"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
+  </fieldset>
+</form>
+
+<section class="doc-lines-box" id="lines" aria-labelledby="lines-h">
+  <div class="board-head"><h2 id="lines-h" class="board-sub"><?= $word('STOCK_OPS', 'lines') ?></h2></div>
   <form class="inline stock-add" method="post" data-leaves="1" action="<?= $u($base . '/' . $doc->id . '/add') ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
@@ -54,7 +56,7 @@
       </select>
     </label>
 <?php endif; ?>
-    <button type="submit" class="btn primary"><?= $word('STOCK_OPS', 'add_button') ?></button>
+    <button type="submit" class="btn"><?= $word('STOCK_OPS', 'add_button') ?></button>
   </form>
 <?php if ($kind === 'release'): ?>
   <p class="hint"><?= $word('STOCK_OPS', 'add_price_hint') ?></p>
@@ -86,11 +88,10 @@
     </div>
   </div>
 <?php endif; ?>
-<?php endif; ?>
 
 <?php if ($lines === []): ?>
   <p class="muted"><?= $word('STOCK_OPS', 'no_lines') ?></p>
-<?php elseif ($editable): ?>
+<?php else: ?>
   <form class="record stock-lines" method="post" action="<?= $u($base . '/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1"<?php if ($typedLines !== []): ?> data-dirty="1"<?php endif; ?>>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
@@ -99,10 +100,10 @@
     <input type="hidden" name="lines_page" value="<?= $e($linesPager['no']) ?>">
 <?php endif; ?>
     <div class="table-wrap">
-    <table class="stack lines">
+    <table class="stack list board doc-lines">
       <thead>
         <tr>
-          <th scope="col"><?= $word('STOCK_OPS', 'line_product') ?></th>
+          <th scope="col" class="c-item"><?= $word('STOCK_OPS', 'line_product') ?></th>
           <th scope="col" class="num"><?= $word('STOCK_OPS', 'line_units') ?></th>
 <?php if ($priced): ?>
           <th scope="col" class="num"><?php if ($kind === 'release'): ?><?= $word('STOCK_OPS', 'line_price') ?><?php else: ?><?= $word('STOCK_OPS', 'line_cost') ?><?php endif; ?></th>
@@ -118,7 +119,7 @@
       <tbody>
 <?php foreach ($editLines as $l): ?>
         <tr>
-          <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name']) ?></a><span class="o-sub"><?= $e($l['code']) ?></span></th>
+          <th scope="row" class="c-head c-item"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name']) ?></a><span class="o-sub"><?= $e($l['code']) ?></span></th>
           <td data-label="<?= $word('STOCK_OPS', 'line_units') ?>" class="num"><input type="text" name="u_<?= $e($l['line_no']) ?>" value="<?= $e($typedLines[$l['line_no']]['u'] ?? $l['qty']) ?>" inputmode="numeric" maxlength="9" aria-label="<?= $word('STOCK_OPS', 'line_units') ?>"></td>
 <?php if ($priced): ?>
           <td data-label="<?php if ($kind === 'release'): ?><?= $word('STOCK_OPS', 'line_price') ?><?php else: ?><?= $word('STOCK_OPS', 'line_cost') ?><?php endif; ?>" class="num"><input type="text" name="c_<?= $e($l['line_no']) ?>" value="<?php if (isset($typedLines[$l['line_no']]['c'])): ?><?= $e($typedLines[$l['line_no']]['c']) ?><?php else: ?><?= $dec($l['unit_cost']) ?><?php endif; ?>" inputmode="decimal" maxlength="16" aria-label="<?= $word('STOCK_OPS', 'line_cost') ?>"><?php if ($l['average'] !== null): ?><span class="o-sub"><?= $say('STOCK_OPS', 'line_average', \CW\Ui\Html::money($l['average'])) ?></span><?php endif; ?></td>
@@ -142,14 +143,20 @@
     </table>
     </div>
 <?php if ($oneForm): ?>
-    <p class="hint"><?= $e($k['final_does']) ?></p>
+    <div class="doc-foot">
+      <div class="doc-notes">
+        <p class="hint"><?= $e($k['final_does']) ?></p>
 <?php if ($ruleWaits): ?>
-    <p class="muted"><?= $word('STOCK_OPS', 'final_waits') ?></p>
+        <p class="muted"><?= $word('STOCK_OPS', 'final_waits') ?></p>
 <?php endif; ?>
-    <div class="actions sticky">
+      </div>
+<?= $partial('doc_totals', ['label' => \CW\Ui\Words::DOC['totals'], 'rows' => $totalRows]) ?>
+    </div>
+    <div class="actions sticky doc-bar">
+      <a class="btn ghost" href="<?= $u($base) ?>" data-leave><?= $word('DOC', 'leave') ?></a>
+      <span class="doc-bar-note"><?= $say('STOCK_OPS', 'total_units', number_format($units)) ?><?php if ($priced): ?> · <?= $money($total) ?><?php endif; ?></span>
       <button class="btn" type="submit" name="action" value="save"><?= $word('OP_FINAL', 'save') ?></button>
       <button type="submit" name="action" value="post" class="btn primary"><?= $e($k['final_button']) ?></button>
-      <span class="muted"><?= $say('STOCK_OPS', 'total_units', number_format($units)) ?><?php if ($priced): ?> · <?= $money($total) ?><?php endif; ?></span>
     </div>
 <?php else: ?>
     <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'save_lines') ?></button> <span class="muted"><?= $say('STOCK_OPS', 'total_units', number_format($units)) ?><?php if ($priced): ?> · <?= $money($total) ?><?php endif; ?></span></p>
@@ -166,63 +173,9 @@
 <?php endif; ?>
   </form>
 <?php endif; ?>
-<?php else: ?>
-  <div class="table-wrap">
-  <table class="stack lines">
-    <thead>
-      <tr>
-        <th scope="col"><?= $word('STOCK_OPS', 'line_product') ?></th>
-        <th scope="col" class="num"><?= $word('STOCK_OPS', 'line_units') ?></th>
-<?php if ($priced): ?>
-        <th scope="col" class="num"><?php if ($kind === 'release'): ?><?= $word('STOCK_OPS', 'line_price') ?><?php else: ?><?= $word('STOCK_OPS', 'line_cost') ?><?php endif; ?></th>
-        <th scope="col" class="num"><?= $word('STOCK_OPS', 'line_amount') ?></th>
-<?php endif; ?>
-<?php if ($kind === 'adjust'): ?>
-        <th scope="col"><?= $word('STOCK_OPS', 'line_reason') ?></th>
-<?php endif; ?>
-      </tr>
-    </thead>
-    <tbody>
-<?php foreach ($lines as $l): ?>
-      <tr>
-        <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name']) ?></a><span class="o-sub"><?= $e($l['code']) ?></span></th>
-        <td data-label="<?= $word('STOCK_OPS', 'line_units') ?>" class="num"><?= $n($l['qty']) ?></td>
-<?php if ($priced): ?>
-        <td data-label="<?= $word('STOCK_OPS', 'line_cost') ?>" class="num"><?php if ($l['unit_cost'] !== null): ?><?= $money($l['unit_cost']) ?><?php endif; ?></td>
-        <td data-label="<?= $word('STOCK_OPS', 'line_amount') ?>" class="num"><?php if ($l['amount'] !== null): ?><?= $money($l['amount']) ?><?php endif; ?></td>
-<?php endif; ?>
-<?php if ($kind === 'adjust'): ?>
-        <td data-label="<?= $word('STOCK_OPS', 'line_reason') ?>"><?= $e($l['reason_text']) ?></td>
-<?php endif; ?>
-      </tr>
-<?php endforeach; ?>
-      <tr class="total">
-        <th scope="row" class="c-head"><?= $word('STOCK_OPS', 'total') ?></th>
-        <td data-label="<?= $word('STOCK_OPS', 'line_units') ?>" class="num"><?= $n($units) ?></td>
-<?php if ($priced): ?>
-        <td data-label=""></td>
-        <td data-label="<?= $word('STOCK_OPS', 'line_amount') ?>" class="num"><?= $money($total) ?></td>
-<?php endif; ?>
-<?php if ($kind === 'adjust'): ?>
-        <td data-label=""></td>
-<?php endif; ?>
-      </tr>
-    </tbody>
-  </table>
-  </div>
 <?php endif; ?>
 </section>
 
-<?php if ($editable): ?>
-<details class="fold"<?php if (in_array($errorCode, ['warehouse_required', 'warehouse_inactive', 'location_mismatch', 'location_inactive', 'not_own_stock', 'owner_differs', 'release_from_own', 'release_to_other', 'reason_not_applicable', 'reason_inactive', 'bad_field'], true)): ?> open<?php endif; ?>>
-  <summary><?= $word('STOCK_OPS', 'details') ?></summary>
-  <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/details') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1"<?php if ($headerTyped): ?> data-dirty="1"<?php endif; ?>>
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="version" value="<?= $e($version) ?>">
-<?= $partial('stock_op_fields', ['form' => $form, 'kind' => $kind]) ?>
-    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'save_details') ?></button></p>
-  </form>
-</details>
 <?php if (!$oneForm): ?>
 <section class="card final-box" aria-labelledby="final-h">
   <h2 id="final-h"><?= $word('STOCK_OPS', 'final_title') ?></h2>
@@ -240,75 +193,69 @@
   </form>
 </section>
 <?php endif; ?>
-<details class="fold">
-  <summary><?= $word('STOCK_OPS', 'stop_title') ?></summary>
-  <p class="muted"><?= $word('STOCK_OPS', 'stop_text') ?></p>
-  <form class="record" method="post" data-leaves="1" action="<?= $u($base . '/' . $doc->id . '/cancel') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="version" value="<?= $e($version) ?>">
-    <label><?= $word('STOCK_OPS', 'stop_why') ?> <input type="text" name="reason" value="<?= $e($typedStop) ?>" minlength="3" maxlength="500" required></label>
-    <p class="actions"><button type="submit" class="btn risky"><?= $word('STOCK_OPS', 'stop_button') ?></button></p>
-  </form>
-</details>
-<?php endif; ?>
 
-<?php if ($canWithdraw): ?>
-<section aria-labelledby="withdraw-h">
-  <h2 id="withdraw-h"><?= $word('STOCK_OPS', 'withdraw_title') ?></h2>
-  <p class="muted"><?= $word('STOCK_OPS', 'withdraw_text') ?></p>
-  <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/withdraw') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button class="btn" type="submit"><?= $word('STOCK_OPS', 'withdraw_button') ?></button>
-  </form>
-</section>
-<?php endif; ?>
-
-<?php if ($reverse !== null): ?>
-<details class="fold"<?php if ($typedCancel['code'] !== ''): ?> open<?php endif; ?>>
-  <summary><?= $word('STOCK_OPS', 'cancel_title') ?></summary>
-  <p class="muted"><?= $word('STOCK_OPS', 'cancel_text') ?></p>
-  <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/reverse') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <label><?= $word('STOCK_OPS', 'cancel_why') ?>
-      <select name="reason_code" required>
-        <option value=""><?= $word('STOCK_OPS', 'choose') ?></option>
-<?php foreach ($reverse['reasons'] as $r): ?>
-        <option value="<?= $e($r['code']) ?>"<?php if ($typedCancel['code'] === $r['code']): ?> selected<?php endif; ?>><?= $e($r['label']) ?></option>
-<?php endforeach; ?>
-      </select>
-    </label>
-    <label><?= $word('STOCK_OPS', 'cancel_note') ?> <input type="text" name="note" value="<?= $e($typedCancel['note']) ?>" maxlength="1000"></label>
-    <p class="actions"><button type="submit" class="btn risky"><?= $word('STOCK_OPS', 'cancel_button') ?></button></p>
-  </form>
-</details>
-<?php endif; ?>
-
-<section aria-labelledby="files-h" id="files">
+<section class="doc-files" aria-labelledby="files-h" id="files">
   <h2 id="files-h"><?= $word('STOCK_OPS', 'files') ?></h2>
-<?php if ($files === []): ?>
-  <p class="muted"><?= $word('STOCK_OPS', 'no_files') ?></p>
-<?php else: ?>
-  <ul class="files">
-<?php foreach ($files as $file): ?>
-    <li><a href="<?= $u('/ui/files/' . $file['id']) ?>"><?= $e($file['original_name']) ?></a> <span class="muted"><?= $e($file['what']) ?> · <?= $e($file['kind']) ?> · <?= $e($file['size']) ?></span></li>
-<?php endforeach; ?>
-  </ul>
-<?php endif; ?>
-<?php if ($canFile): ?>
-  <form class="record" method="post" enctype="multipart/form-data" data-leaves="1" action="<?= $u($base . '/' . $doc->id . '/files') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <label><?= $word('STOCK_OPS', 'file_role') ?>
-      <select name="role">
-<?php foreach ($fileRoles as $code => $label): ?>
-        <option value="<?= $e($code) ?>"><?= $e($label) ?></option>
-<?php endforeach; ?>
-      </select>
-    </label>
-    <label><?= $word('STOCK_OPS', 'file') ?> <span class="hint"><?= $say('STOCK_OPS', 'file_hint', $maxMb) ?></span><input type="file" name="file" accept="application/pdf,image/jpeg,image/png" required></label>
-    <p class="actions"><button class="btn" type="submit"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
-  </form>
-<?php endif; ?>
+<?= $partial('stock_op_files', ['files' => $files, 'canFile' => $canFile, 'fileRoles' => $fileRoles, 'maxMb' => $maxMb, 'action' => $base . '/' . $doc->id . '/files']) ?>
 </section>
+<?php else: ?>
+<section class="doc-progress rp-figs" aria-label="<?= $word('STOCK_OPS', 'facts') ?>">
+  <div class="doc-step"><p class="doc-step-label"><?= $word('STOCK_OPS', 'products') ?></p><p class="doc-step-big"><?= $n($products) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('STOCK_OPS', 'units') ?></p><p class="doc-step-big"><?= $n($units) ?></p></div>
+<?php if ($priced): ?>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('STOCK_OPS', 'value') ?></p><p class="doc-step-big"><?= $money($total) ?></p></div>
+<?php endif; ?>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('STOCK_OPS', 'date') ?></p><p class="doc-step-big"><?= $day($doc->docDate) ?></p></div>
+</section>
+
+<article class="doc-view" aria-labelledby="lines-h">
+<?= $partial('doc_party', ['party' => $party, 'facts' => $docFacts]) ?>
+  <h2 id="lines-h" class="doc-label"><?= $word('STOCK_OPS', 'lines') ?></h2>
+<?php if ($lines === []): ?>
+  <p class="muted"><?= $word('STOCK_OPS', 'no_lines') ?></p>
+<?php else: ?>
+  <div class="table-wrap">
+  <table class="stack list board doc-lines">
+    <thead>
+      <tr>
+        <th scope="col" class="c-item"><?= $word('STOCK_OPS', 'line_product') ?></th>
+        <th scope="col" class="num"><?= $word('STOCK_OPS', 'line_units') ?></th>
+<?php if ($priced): ?>
+        <th scope="col" class="num"><?php if ($kind === 'release'): ?><?= $word('STOCK_OPS', 'line_price') ?><?php else: ?><?= $word('STOCK_OPS', 'line_cost') ?><?php endif; ?></th>
+        <th scope="col" class="num"><?= $word('STOCK_OPS', 'line_amount') ?></th>
+<?php endif; ?>
+<?php if ($kind === 'adjust'): ?>
+        <th scope="col"><?= $word('STOCK_OPS', 'line_reason') ?></th>
+<?php endif; ?>
+      </tr>
+    </thead>
+    <tbody>
+<?php foreach ($lines as $l): ?>
+      <tr>
+        <th scope="row" class="c-head c-item"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name']) ?></a><span class="o-sub"><?= $e($l['code']) ?></span></th>
+        <td data-label="<?= $word('STOCK_OPS', 'line_units') ?>" class="num"><?= $n($l['qty']) ?></td>
+<?php if ($priced): ?>
+        <td data-label="<?php if ($kind === 'release'): ?><?= $word('STOCK_OPS', 'line_price') ?><?php else: ?><?= $word('STOCK_OPS', 'line_cost') ?><?php endif; ?>" class="num"><?php if ($l['unit_cost'] !== null): ?><?= $money($l['unit_cost']) ?><?php endif; ?></td>
+        <td data-label="<?= $word('STOCK_OPS', 'line_amount') ?>" class="num"><?php if ($l['amount'] !== null): ?><?= $money($l['amount']) ?><?php endif; ?></td>
+<?php endif; ?>
+<?php if ($kind === 'adjust'): ?>
+        <td data-label="<?= $word('STOCK_OPS', 'line_reason') ?>"><?= $e($l['reason_text']) ?></td>
+<?php endif; ?>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+<?php endif; ?>
+  <div class="doc-foot">
+    <div class="doc-notes" id="files">
+      <p class="doc-label"><?= $word('STOCK_OPS', 'files') ?></p>
+<?= $partial('stock_op_files', ['files' => $files, 'canFile' => $canFile, 'fileRoles' => $fileRoles, 'maxMb' => $maxMb, 'action' => $base . '/' . $doc->id . '/files']) ?>
+    </div>
+<?= $partial('doc_totals', ['label' => \CW\Ui\Words::DOC['totals'], 'rows' => $totalRows]) ?>
+  </div>
+</article>
+<?php endif; ?>
 
 <?php if ($history !== []): ?>
 <section aria-labelledby="history-h">

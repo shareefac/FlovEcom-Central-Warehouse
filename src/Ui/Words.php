@@ -1041,6 +1041,10 @@ final class Words
         'moves_none' => 'No stock changes to show.',
         'moves_none_text' => 'Stock changes appear here once stock is booked.',
         'moves_shown' => 'Newest first, %s at a time.',
+        // The movements report's figures strip (docs/decisions.md W8): what this page of changes holds.
+        'fig_moves' => 'Changes shown',
+        'fig_in' => 'Units added',
+        'fig_out' => 'Units taken away',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -1911,7 +1915,7 @@ final class Words
         'board' => 'Records by status',
         'total_one' => '1 record, newest first.',
         'total_many' => '%s records, newest first.',
-        'limit' => 'Only the newest %s are shown: use Search or Filter to find older ones.',
+        'limit' => 'Only the newest %s are shown: use Search or Show to find older ones.',
         'group_one' => '1 record',
         'group_many' => '%s records',
         'group_total' => 'Total for %s',
@@ -2169,6 +2173,10 @@ final class Words
         'units_sub' => '%s products',
         'month_sub' => '%s units',
         'balance_sub' => 'releases less payments',
+        // The report (docs/decisions.md W8): its figures strip and its board of every account.
+        'figures' => 'Main figures',
+        'units_word' => 'units',
+        'account_col' => 'Account',
     ];
 
     /** The balance owed's refusals, by the service's code. */
@@ -9969,6 +9977,9 @@ final class Words
         'stop' => 'Stop it',
         'stop_reason' => 'Why (a few words)',
         'take_back' => 'Take the OK request back',
+        // The board (docs/decisions.md W8): the column of a row's own steps, and the last row of the Draft group.
+        'actions' => 'What you can do',
+        'add_row' => '+ Book a repack',
         'cancel_how' => 'To cancel a final repack, open it and use the cancel box: a new record puts everything back.',
         'limit' => 'The newest %s are shown: search to find older ones.',
         'cancels' => 'Cancels %s',
@@ -10782,7 +10793,7 @@ final class Words
         'how' => 'How a hand-over works',
         'search' => 'Find a hand-over by its number, the customer, their reference or a note',
         'state' => 'Status',
-        'any_state' => 'Any status',
+        'any_state' => 'Every hand-over not stopped',
         'customer' => 'Customer',
         'any_customer' => 'Any customer',
         'stopped' => 'Show stopped drafts too',
@@ -10817,7 +10828,9 @@ final class Words
         'no_number' => 'Draft',
         'started' => 'Started %s',
         'dated' => 'Dated %s',
-        'limit' => 'Only the newest %s are shown: use the filter to find older ones.',
+        'limit' => 'Only the newest %s are shown: use Search or Show to find older ones.',
+        // The board's last row in the Draft group (docs/decisions.md W8): it opens the new form, as the head's create button does.
+        'add_row' => '+ Start a hand-over',
         'f_customer' => 'Customer',
         'f_warehouse' => 'Stock leaves from',
         'f_vat_code' => 'VAT code',
@@ -11011,6 +11024,11 @@ final class Words
         'state' => 'Status',
         'on' => 'In use',
         'off' => 'Switched off',
+        // The board (docs/decisions.md W8): its groups' counts and the last row of In use; the record page's figures strip.
+        'group_one' => '1 customer',
+        'group_many' => '%s customers',
+        'add_row' => '+ Add a customer',
+        'prices_kept' => 'Prices kept',
         'details' => 'Details',
         'not_given' => 'Not given',
         'changed' => 'Last changed',
@@ -11122,6 +11140,13 @@ final class Words
     /** Stock > Hand-overs > Balances (view handover_balances). */
     public const BALANCE = [
         'accountant' => 'The accountant keeps the real accounts. This page is the warehouse\'s own record of hand-overs and the payments you tell it about.',
+        // The report (docs/decisions.md W8): its figures strip and its board of every customer.
+        'figures' => 'Main figures',
+        'fig_owed' => 'Owed to us in all',
+        'fig_owing' => 'Customers who owe us',
+        'customer' => 'Customer',
+        'last_col' => 'Last payment',
+        'total' => 'Total',
         'none' => 'No customers yet',
         'none_text' => 'A customer appears here once it is added.',
         'none_link' => 'Add a customer',

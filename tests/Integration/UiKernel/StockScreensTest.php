@@ -53,7 +53,7 @@ final class StockScreensTest extends KernelUiTestCase
         self::assertStringStartsWith(Words::PAGE_INTRO['stock'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));
         // The four figures: products, in stock (a sellable warehouse), units everywhere, with no stock.
         self::assertSame(['4', '2', '23', '2'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent),
-            iterator_to_array($xp->query('//main//li[@class="kpi"]/p[@class="kpi-value"]'))));
+            iterator_to_array($xp->query('//main//section[contains(@class, "rp-figs")]/div/p[@class="doc-step-big"]'))));
         // One row per product; nothing to sell first (Delta: only in a warehouse the websites do not sell from), then by name.
         self::assertSame([Words::STOCK_VIEW['group_out'], Words::STOCK_VIEW['group_in']], self::groupTitles($page));
         self::assertSame(['Delta coil', 'Alpha liquid 10ml', 'Beta pod 2ml'], self::names($page, 'stock-lines'), 'Gamma (nothing left anywhere) is left out');

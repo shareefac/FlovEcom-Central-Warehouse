@@ -905,6 +905,42 @@ section's set-up, import and specialist pages are under its tab row's More.
   (label => href, count), the current entry `self::currentSection()`, a row's More `self::moreTabs()`, a Home row `//*[@data-card="<key>"]` (its
   number `span.hm-n`, its count with the unit `span.hm-said`).
 
+### Stock moves and hand-overs on the approved patterns (`docs/decisions.md` W8)
+
+Every page keeps its address and its forms; only the layout follows the pattern (1 board, 2 record, 3 one-page form, 5 report).
+
+| Page | Template | Pattern |
+|---|---|---|
+| `/ui/stock/in`, `/out`, `/adjustments`, `/transfers`, `/releases` | `stock_ops` (+ `stock_op_fields` in the `#new` drawer) | 1 board; its new form's fields in two columns |
+| a stock record `/ui/stock/<kind>/{id}` | `stock_op` (+ `stock_op_bar`, `stock_op_files`) | 3 one-page form for its creator's draft (OV's one form kept); 2 record page otherwise |
+| `/ui/stock/repack` | `repacks` | 1 board; its booking form in two columns (a record opens on Approvals › History) |
+| `/ui/stock/handovers` | `handovers` (+ `handover_fields`) | 1 board; new form in two columns |
+| a hand-over `/ui/stock/handovers/{id}` | `handover` (+ `handover_bar`) | 3 for its creator's draft (OV kept); 2 otherwise |
+| `/ui/stock/handovers/customers` | `handover_customers` (+ `handover_customer_fields`) | 1 board (in use, switched off); add form in two columns |
+| a customer `/ui/stock/handovers/customers/{id}` | `handover_customer` (+ `customer_bar`) | 2 record page (its prices and hand-overs as related boards) |
+| `/ui/stock/handovers/balances` | `handover_balances` | 5 report (+ each customer's part at `#customer-<id>`) |
+| `/ui/stock/reservations` | `stock_reservations` | 1 board (the store selector kept) |
+| `/ui/stock/movements` | `stock_movements` | 5 report (a group a day) |
+| `/ui/stock` | `stock` | 5 report (out of stock / in stock groups) |
+| `/ui/stock/accounts` | `stock_accounts` | 5 report (+ each account's part at `#account-<id>`) |
+
+The classes it added (CSS: the "w8" block of `app.css`); a new page of these patterns uses them:
+
+| Piece | Class | Notes |
+|---|---|---|
+| Figures strip of a report or a record | `section.doc-progress.rp-figs` > `div.doc-step` (`p.doc-step-label`, `p.doc-step-big`, optional `p.step-sub`) | any number in one row, two a row on a phone; replaces `.kpis` tiles on these pages |
+| Related part of a record or a report | `section.doc-related` (> `.board-head` with its link or button at the right, then a `.doc-board` card) | a customer's prices and hand-overs; each customer's or account's part of a report |
+| OV's bar at the bottom of a lines form | `div.actions.sticky.doc-bar`: `a.btn.ghost[data-leave]`, `span.doc-bar-note`, Save, the final button | keeps OV's `.actions.sticky` pins; looks like `doc_bar` |
+| A draft's details form | `form.doc-details` > `fieldset.doc-grid` | its own route, as before; `form.record fieldset.doc-grid` is two columns too |
+| A field and its error in the grid | `div.field` > `label[for]` + control (+ `p.field-error`) | where a label does not hold its control |
+| A draft's products, its files | `section.doc-lines-box`, `section.doc-files` | the add box over the board; the files after it |
+| A row's own small forms on a board | `td.c-next` | above the row's `a.row-link` (`z-index: 2`) |
+
+- Tests: `UiTemplatesTest::testTheStockPagesFollowTheApprovedPatterns` (the templates), `tests/Integration/UiKernel/StockPatternsScreensTest.php` (the
+  pages as served). A record's bar is a partial (`stock_op_bar`, `handover_bar`, `customer_bar`) passed to `$head(..., side: $bar)` inside
+  `div.doc-head`, as `po_bar`.
+
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

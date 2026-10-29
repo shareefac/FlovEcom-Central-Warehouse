@@ -54,8 +54,19 @@ final class OtherAccountsController
             'reversed' => Words::say('ACCOUNTS', 'reversed', Html::money((string) ($ctx->req->param('balance') ?? '0'))),
             default => null,
         };
+        $units = 0;
+        $month = '0.00';
+        $owed = '0.00';
+        foreach ($rows as $a) {
+            $units += (int) $a['holds_units'];
+            $month = bcadd($month, (string) $a['month_amount'], 2);
+            $owed = bcadd($owed, (string) $a['balance'], 2);
+        }
         return $ctx->page('stock_accounts', [
             'accounts' => $rows,
+            // The report's figures strip (docs/decisions.md W8): every account added up.
+            'figures' => ['units' => $units, 'month' => $month,
+                'owed' => bccomp($owed, '0', 2) < 0 ? Words::say('ACCOUNTS', 'credit', Html::money(bcsub('0', $owed, 2))) : Html::money($owed)],
             'canPay' => $canPay,
             'canRelease' => OtherAccounts::mayRelease($me->roles),
             'canWarehouses' => $me->can('reference.view'),
