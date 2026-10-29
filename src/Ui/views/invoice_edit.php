@@ -73,7 +73,7 @@
     </div>
 <?php endif; ?>
     <label><?= $word('PI_ONE', 'number') ?> <input type="text" name="invoice_number" maxlength="64" autocomplete="off" value="<?= $e($form['invoice_number']) ?>"></label>
-    <div class="doc-field">
+    <div class="doc-field doc-wide">
       <label for="pi-from"><?= $word('PI_ONE', 'from') ?></label>
       <div class="doc-pair">
         <select id="pi-from" name="from" data-pi-from>
@@ -93,11 +93,12 @@
           </optgroup>
 <?php endif; ?>
         </select>
-        <button type="submit" name="action" value="from" class="btn secondary"><?= $word('PI_ONE', 'fill') ?></button>
+        <button type="submit" name="action" value="from" class="btn soft"><?= $word('PI_ONE', 'fill') ?></button>
       </div>
     </div>
     <label><?= $word('PI_ONE', 'date') ?> <input type="date" name="invoice_date" value="<?= $e($form['invoice_date']) ?>"></label>
-    <label><?= $word('PI_ONE', 'due') ?> <input type="date" name="due_date" value="<?= $e($form['due_date']) ?>" data-pi-due<?php if ($terms !== null): ?> data-terms="<?= $e($terms) ?>"<?php endif; ?><?php if ($dueAuto): ?> data-auto="1"<?php endif; ?>></label>
+    <label><?= $word('PI_ONE', 'due') ?> <input type="date" name="due_date" value="<?= $e($form['due_date']) ?>" data-pi-due<?php if ($terms !== null): ?> data-terms="<?= $e($terms) ?>"<?php endif; ?><?php if ($dueAuto): ?> data-auto="1"<?php endif; ?>>
+      <span class="hint" data-pi-due-hint data-words="<?= $word('PI_ONE', 'terms_hint') ?>"<?php if ($terms === null): ?> hidden<?php endif; ?>><?php if ($terms !== null): ?><?= $say('PI_ONE', 'terms_hint', $terms) ?><?php endif; ?></span></label>
 <?php if ($isNew): ?>
     <input type="hidden" name="due_shown" value="<?= $e($form['due_date']) ?>">
 <?php endif; ?>
@@ -232,7 +233,7 @@
   <div class="doc-foot">
     <div class="doc-notes">
       <label><?= $word('PI_ONE', 'notes') ?> <textarea name="note" maxlength="1000" rows="3"><?= $e($form['note']) ?></textarea></label>
-      <div class="doc-pair">
+      <div class="doc-pair doc-drop">
         <label><?= $word('PI_ONE', 'file') ?> <input type="file" name="file" accept="application/pdf,image/jpeg,image/png"></label>
         <label><?= $word('PI_ONE', 'file_kind') ?>
           <select name="file_role">

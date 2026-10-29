@@ -504,8 +504,11 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         };
         $f = $hidden($web->get('/ui/purchasing/invoices', ['supplier' => '7', 'match' => 'needs_review', 'cancelled' => '1', 'q' => 'x']));
         self::assertSame(['7', 'needs_review', '1'], [$f['supplier'] ?? null, $f['match'] ?? null, $f['cancelled'] ?? null]);
-        $f = $hidden($web->get('/ui/purchasing/orders', ['supplier' => '7', 'rejected' => '1', 'show' => 'all']));
-        self::assertSame(['7', '1', 'all'], [$f['supplier'] ?? null, $f['rejected'] ?? null, $f['show'] ?? null]);
+        $orders = $web->get('/ui/purchasing/orders', ['supplier' => '7', 'rejected' => '1', 'show' => 'all']);
+        $f = $hidden($orders);
+        self::assertSame(['7', '1'], [$f['supplier'] ?? null, $f['rejected'] ?? null]);
+        // The approved design (PV18): which orders show is the toolbar's own Show menu, so it goes with the search as it is.
+        self::assertSame(['all'], self::texts($orders, '//form[@class="toolbar"]//select[@name="show"]/option[@selected]/@value'));
     }
 
     public function testFromADeliveryOrAnOrderFillsTheLinesAndAnotherSuppliersIsRefused(): void
@@ -681,10 +684,27 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::MATCH_WHY['price_over'], $view->text());
         // The saved invoice reads like a document: its actions in one bar at the top, the supplier's block, the lines, the totals.
         self::assertFalse($view->hasForm("/ui/purchasing/invoices/{$id}/lines"), 'no editor once final');
+        // The approved design: what differs first (the three ways, the cells that differ tinted), the next step in the accent (accept the
+        // differences), the rest under More, the balance large by the supplier's block.
+        self::assertSame([Words::DOC['diff_one']], self::texts($view, '//section[contains(@class, "doc-diff")]//h2'));
+        self::assertSame([Words::DOC['item'], Words::DOC['ordered'], Words::DOC['received'], Words::DOC['invoiced'], Words::DOC['price_order'], Words::DOC['price_invoice'],
+            Words::DOC['difference']], self::texts($view, '//section[contains(@class, "doc-diff")]//thead/tr/th'));
+        self::assertGreaterThanOrEqual(2, self::nodes($view, '//section[contains(@class, "doc-diff")]//td[contains(@class, "diff")]'), 'the prices and the difference tinted');
+        self::assertSame([Words::INVOICES['accept_title']], self::texts($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-act")]/summary[contains(@class, "primary")]'));
+        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-more")]'));
+        self::assertStringContainsString('£48.00', implode(' ', self::texts($view, '//*[contains(@class, "doc-big")]')));
+        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-head")]//h1//span[contains(@class, "chip")]'));
         self::assertSame(1, self::nodes($view, '//main//div[contains(@class, "doc-actions")]'));
         self::assertStringContainsString('Match Invoices Ltd', implode(' ', self::texts($view, '//*[contains(@class, "doc-party")]')));
         self::assertSame(1, self::nodes($view, '//table[contains(@class, "doc-lines")]'));
         self::assertStringContainsString('£48.00', implode(' ', self::texts($view, '//section[contains(@class, "doc-totals")]')));
+        // On the board it needs a look: the group, its status cell, the match as a soft tag.
+        $look = $web->get('/ui/purchasing/invoices');
+        self::assertSame([Words::INVOICES['group_look'] . ' ' . Words::INVOICE_KIND['invoice']['group_one'], Words::INVOICES['group_draft'] . ' '
+            . Words::INVOICE_KIND['invoice']['group_one']], self::texts($look, '//div[contains(@class, "doc-group")]/h3[contains(@class, "grp-title")]'));
+        self::assertSame([Words::INVOICES['needs_look']], self::texts($look, '//div[contains(@class, "doc-group")][contains(@class, "needs")]//td[contains(@class, "doc-st")]'));
+        self::assertSame([Words::say('INVOICES', 'tag_diff_one', 1)], self::texts($look, '//div[contains(@class, "doc-group")][contains(@class, "needs")]//span[contains(@class, "tag")]'));
+        self::assertSame([Words::INVOICES['tag_unchecked']], self::texts($look, '//div[contains(@class, "doc-group")][contains(@class, "waiting")]//span[contains(@class, "tag")]'));
         // The differences go to the people who accept them (invoices.accept), on the same page.
         $acceptPath = "/ui/purchasing/invoices/{$id}/accept";
         $a = $web->post($acceptPath, ['note' => 'Price rise agreed by phone'] + $view->form($acceptPath));
@@ -693,15 +713,22 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         $accountant = $this->signIn($this->uiUser('accountant'));
         self::assertSame(403, $accountant->post($acceptPath, ['csrf' => $this->token($accountant), 'note' => 'Not mine'])->status);
 
-        // The list: a clean table, one search, a status filter; the row opens the invoice; due date and balance.
+        // The list: a board grouped by status (needs a look, draft, final), one search, one Show menu; the row opens the invoice; the match as
+        // a soft tag, the due date, the balance.
+        self::$db->exec('UPDATE supplier_invoice SET due_date = ? WHERE document_id = ?', [gmdate('Y-m-d', time() - 2 * 86400), $id]); // a due date passed
         $list = $web->get('/ui/purchasing/invoices');
-        self::assertSame([Words::DOC_LIST['date'], Words::DOC_LIST['number'], Words::DOC_LIST['supplier'], Words::DOC_LIST['status'], Words::DOC_LIST['total'],
-            Words::DOC_LIST['due'], Words::DOC_LIST['balance']], self::texts($list, '//table[contains(@class, "doc-list")]/thead/tr/th'));
+        self::assertSame([Words::INVOICES['group_draft'] . ' ' . Words::INVOICE_KIND['invoice']['group_one'], Words::INVOICES['group_final'] . ' '
+            . Words::INVOICE_KIND['invoice']['group_one']], self::texts($list, '//div[contains(@class, "doc-group")]/h3[contains(@class, "grp-title")]'), 'accepted: final');
+        self::assertSame([Words::DOC_LIST['invoice'], Words::DOC_LIST['status'], Words::DOC_LIST['supplier'], Words::DOC_LIST['match'], Words::DOC_LIST['due'],
+            Words::DOC_LIST['total'], Words::DOC_LIST['balance']], self::texts($list, '(//table[contains(@class, "doc-list")])[1]/thead/tr/th'));
+        self::assertSame([Words::DOC_STATUS['posted']], self::texts($list, '//div[contains(@class, "doc-group")][contains(@class, "done")]//td[contains(@class, "doc-st")]'));
+        self::assertSame([Words::INVOICES['tag_accepted']], self::texts($list, '//div[contains(@class, "doc-group")][contains(@class, "done")]//span[contains(@class, "tag")]'));
+        self::assertSame(1, self::nodes($list, '//div[contains(@class, "doc-group")][contains(@class, "done")]//td[contains(@class, "late")]'), 'a due date passed, money owed: red');
         self::assertSame(1, self::nodes($list, '//form[@class="toolbar"]//input[@type="search"][@name="q"]'));
-        self::assertSame(1, self::nodes($list, '//form[@class="toolbar"]//select[@name="state"]'));
+        self::assertSame(1, self::nodes($list, '//form[@class="toolbar"]//select[@name="show"]'));
+        self::assertSame(0, self::nodes($list, '//form[@class="toolbar"]//select[@name="state"]'));
         self::assertContains("/ui/purchasing/invoices/{$id}", self::hrefsIn($list, '//table[contains(@class, "doc-list")]//a[contains(@class, "row-link")]'));
         self::assertStringContainsString('£48.00', $list->text());
-        self::assertStringContainsString(\CW\Ui\Html::day((new \DateTimeImmutable($date))->modify('+30 days')->format('Y-m-d')), $list->text());
         self::assertStringContainsString('MATCH-1', $web->get('/ui/purchasing/invoices', ['q' => 'Match Invoices'])->text(), 'one search: the supplier too');
     }
 
@@ -766,6 +793,12 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
             }
         }
         self::assertSame(1, self::nodes($page, $one . '//details[contains(@class, "pi-charge")][not(@open)]//button[@name="action"][@value="add_charge"]'));
+        // The approved design: "From" on a row of its own with a soft "Fill the lines"; the file in a dashed drop area; the due date says
+        // where it comes from when the supplier's terms are known.
+        self::assertSame(1, self::nodes($page, $one . '//fieldset[contains(@class, "doc-grid")]/div[contains(@class, "doc-wide")]//button[@value="from"][contains(@class, "soft")]'));
+        self::assertSame(1, self::nodes($page, $one . '//div[contains(@class, "doc-drop")]//input[@type="file"][@name="file"]'));
+        $withTerms = $web->get('/ui/purchasing/invoices/new', ['supplier' => $s['id']]);
+        self::assertSame([Words::say('PI_ONE', 'terms_hint', 14)], self::texts($withTerms, '//span[@data-pi-due-hint][not(@hidden)]'));
         self::assertStringNotContainsString('<datalist', $page->body);
         // The supplier chosen and the date known: the due date is filled by the page itself.
         $form = self::newForm($web->get('/ui/purchasing/invoices/new', ['supplier' => $s['id']]));
@@ -817,19 +850,59 @@ final class InvoiceOnePageScreensTest extends KernelUiTestCase
         self::assertContains('/ui/purchasing/orders', self::hrefsIn($page, $one . '//div[contains(@class, "doc-bar")]//a'));
 
         $o = $this->order((int) $s['id'], 3);
+        $old = $this->order((int) $s['id'], 1);
+        $done = $this->order((int) $s['id'], 2);
+        self::$db->exec("UPDATE purchase_order SET state = 'received', updated_at = UTC_TIMESTAMP(6) WHERE document_id = ?", [$done['po']]);
+        self::$db->exec("UPDATE purchase_order SET state = 'received', updated_at = UTC_TIMESTAMP(6) - INTERVAL 400 DAY WHERE document_id = ?", [$old['po']]);
+        $r = $web->post('/ui/purchasing/orders', ['supplier_id' => (string) $s['id'], 'action' => 'save'] + $web->get('/ui/purchasing/orders/new')->form('/ui/purchasing/orders'));
+        self::assertSame(303, $r->status, $r->describe());
+
+        // The approved design (the owner's "yes", 29 Oct 2026: monday.com's style): the list is a board, its rows grouped by status, each
+        // group a coloured heading with its count over a white card with its colour on the left edge, each status a solid coloured cell.
         $list = $web->get('/ui/purchasing/orders');
-        self::assertSame([Words::DOC_LIST['date'], Words::DOC_LIST['number'], Words::DOC_LIST['supplier'], Words::DOC_LIST['status'], Words::DOC_LIST['total'],
-            Words::DOC_LIST['expected']], self::texts($list, '//table[contains(@class, "doc-list")]/thead/tr/th'));
+        $heads = '//div[contains(@class, "grp-block")][contains(@class, "doc-group")]/h3[contains(@class, "grp-title")]';
+        self::assertSame([Words::ORDERS['group_on_way'] . ' ' . Words::ORDERS['group_one'], Words::ORDERS['group_draft'] . ' ' . Words::ORDERS['group_one'],
+            Words::ORDERS['group_done'] . ' ' . Words::ORDERS['group_one']], self::texts($list, $heads), 'the order: waiting, on the way, draft, received or closed lately');
+        self::assertSame(['info', 'waiting', 'done'], array_map(static fn (\DOMElement $g): string => (string) preg_replace('/^.*\bdoc-group\s+(\w+).*$/', '$1', $g->getAttribute('class')),
+            iterator_to_array((new \DOMXPath($list->dom()))->query('//div[contains(@class, "doc-group")]'))));
+        self::assertSame(3, self::nodes($list, '//div[contains(@class, "doc-group")]/div[contains(@class, "doc-board")]/table'));
+        self::assertSame([Words::DOC_LIST['order'], Words::DOC_LIST['status'], Words::DOC_LIST['supplier'], Words::DOC_LIST['expected'], Words::DOC_LIST['received'],
+            Words::DOC_LIST['total']], self::texts($list, '(//table[contains(@class, "doc-list")])[1]/thead/tr/th'));
+        self::assertSame([Words::PO_STATE['approved']], self::texts($list, '//div[contains(@class, "doc-group")][contains(@class, "info")]//td[contains(@class, "doc-st")]'));
+        self::assertSame(1, self::nodes($list, '//div[contains(@class, "doc-group")][contains(@class, "info")]//td[contains(@class, "doc-st")][contains(@class, "needs")]'),
+            'the status cell keeps its own colour in the group');
+        self::assertSame(1, self::nodes($list, '//div[contains(@class, "doc-group")][contains(@class, "info")]//progress[@max="3"][@value="0"]'), 'received of ordered');
+        self::assertSame(['/ui/purchasing/orders/new'], self::hrefsIn($list, '//div[contains(@class, "doc-group")][contains(@class, "waiting")]//tr[contains(@class, "grp-add")]//a'));
         self::assertContains('/ui/purchasing/orders/' . $o['po'], self::hrefsIn($list, '//table[contains(@class, "doc-list")]//a[contains(@class, "row-link")]'));
-        self::assertSame(1, self::nodes($list, '//form[@class="toolbar"]//select[@name="state"]'));
+        self::assertNotContains('/ui/purchasing/orders/' . $old['po'], $list->hrefs(), 'received long ago: under All orders');
+        self::assertSame(['', 'all', 'closed'], array_map(static fn (\DOMElement $o): string => $o->getAttribute('value'),
+            iterator_to_array((new \DOMXPath($list->dom()))->query('//form[@class="toolbar"]//select[@name="show"]/option'))), 'one Show menu');
+        self::assertSame(0, self::nodes($list, '//form[@class="toolbar"]//select[@name="state"]'));
+        self::assertContains('/ui/purchasing/orders/' . $old['po'], $web->get('/ui/purchasing/orders', ['show' => 'all'])->hrefs());
+        $closed = $web->get('/ui/purchasing/orders', ['show' => 'closed']);
+        self::assertContains('/ui/purchasing/orders/' . $old['po'], $closed->hrefs());
+        self::assertNotContains('/ui/purchasing/orders/' . $o['po'], $closed->hrefs());
         self::assertStringContainsString('Look Orders', $web->get('/ui/purchasing/orders', ['q' => 'Look Orders'])->text(), 'one search: the supplier too');
 
+        // The saved order: its status a solid block by the title, one action bar (the next step in the accent, the rest under More), the
+        // progress strip (ordered, received, invoiced, expected and what is still to come), then the paper.
         $view = $web->get('/ui/purchasing/orders/' . $o['po']);
+        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-head")]//p[contains(@class, "ph-meta")]/span[contains(@class, "chip")]'), 'beside the title (the h1 stays the order\'s name)');
         self::assertSame(1, self::nodes($view, '//main//div[contains(@class, "doc-actions")]'));
+        self::assertSame([Words::ORDER['send']], self::texts($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-act")][@open]/summary[contains(@class, "primary")]'),
+            'confirmed, not sent: Send is the next step');
         self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]//form[contains(@action, "/send")]'), 'send, in the bar');
+        self::assertSame(1, self::nodes($view, '//div[contains(@class, "doc-actions")]/details[contains(@class, "doc-more")]//form[contains(@action, "/copy")]'), 'the rest under More');
         self::assertContains('/ui/purchasing/orders/' . $o['po'] . '/pdf', self::hrefsIn($view, '//div[contains(@class, "doc-actions")]//a'));
+        self::assertSame([Words::DOC['ordered'], Words::DOC['received'], Words::DOC['invoiced'], Words::DOC['expected']],
+            self::texts($view, '//section[contains(@class, "doc-progress")]//*[contains(@class, "doc-step-label")]'));
+        self::assertStringContainsString(Words::say('DOC', 'of', 0, 3), implode(' ', self::texts($view, '//section[contains(@class, "doc-progress")]')));
+        self::assertStringContainsString(Words::say('DOC', 'to_come', 3), implode(' ', self::texts($view, '//section[contains(@class, "doc-progress")]')));
+        self::assertSame(2, self::nodes($view, '//section[contains(@class, "doc-progress")]//progress'));
         self::assertStringContainsString('Look Orders Ltd', implode(' ', self::texts($view, '//*[contains(@class, "doc-party")]')));
         self::assertSame(1, self::nodes($view, '//table[contains(@class, "doc-lines")]'));
         self::assertSame(1, self::nodes($view, '//section[contains(@class, "doc-totals")]'));
+        // The two orders marked received above (by hand, with nothing received) go back, for the stock checks after the test.
+        self::$db->exec("UPDATE purchase_order SET state = 'approved' WHERE document_id IN (?, ?)", [$done['po'], $old['po']]);
     }
 }

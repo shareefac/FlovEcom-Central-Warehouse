@@ -2456,6 +2456,7 @@ final class Words
         'mapping.arrival_state_max_days' => 'How old the website\'s state may be',
         'mapping.landing_rule_on_arrival' => 'Find landing pages by the rule when they arrive', // 0050 (LP4)
         'mapping.hide_unsold_days' => 'Hide website products not sold in a year', // 0051 (HU1, hide-unsold)
+        'po.board_recent_days' => 'Days a delivered or closed order stays on the open orders board', // 0053 (PV18)
         // ---- Pack E
         'reports.low_stock_default' => 'Low stock: units left',
         'reports.slow_after_days' => 'Slow stock: days without a sale',
@@ -3760,6 +3761,9 @@ final class Words
             . 'or was first seen more than 365 days ago. A product added after that load is shown until it is a year old. Its exact ID or '
             . 'barcode still finds it, its first sale brings it back, and Store Products says how many are hidden, with a link to show them. '
             . '0 (off): every product is listed. Only these two: the websites send the units of the last year, not of any number of days.',
+        // 0053 (PV18): the open orders board's "Received or closed" group.
+        'po.board_recent_days' => 'How many days a delivered or closed order still shows on the purchase orders board (its "Received or closed" '
+            . 'group). Older ones are under "All orders" and "Closed and cancelled".',
         'staff.setup_hours' => 'How long a new person, or one told to choose a new password, has to set up their sign-in (at most a week).',
         'staff.min_reviewers' => 'Users and the Dashboard warn when fewer people than this can approve work.',
         // How long a person stays signed in (0047, docs/decisions.md SL4): the words never repeat the value (rule 20).
@@ -5780,6 +5784,15 @@ final class Words
         'col_expected' => 'Expected',
         'col_next' => 'Next step',
         'add_row' => '+ New purchase order',
+        // The board (the owner's approved design, 29 Oct 2026; docs/decisions.md PV18): the groups, in their order, and the Show menu
+        'group_waiting' => 'Waiting for approval',
+        'group_on_way' => 'On the way',
+        'group_draft' => 'Draft',
+        'group_done' => 'Received or closed',
+        'group_cancelled' => 'Cancelled',
+        'show_open' => 'Open orders',
+        'show_all' => 'All orders',
+        'show_closed' => 'Closed and cancelled',
         'search_hint' => 'Number or supplier\'s reference',
     ];
 
@@ -6250,6 +6263,8 @@ final class Words
         'choose_this' => 'Add this one',
         // The Codex review of 6418b15 (findings 1 and 3)
         'not_final' => 'Saved as a draft, not made final: %s',
+        'terms_hint' => 'From the supplier\'s terms: %s days.',
+        'add_row' => '+ New supplier invoice',
         'too_many' => 'This invoice has too many lines to change them on this page: they are shown as they are. You can still add lines, type the totals and make it final.',
     ];
 
@@ -6268,6 +6283,26 @@ final class Words
         'credited' => 'Credited',
         'balance' => 'Balance',
         'more' => 'More',
+        // The saved order's progress strip and the invoice's differences panel (the approved design, docs/decisions.md PV19)
+        'ordered' => 'Ordered',
+        'received' => 'Received',
+        'invoiced' => 'Invoiced',
+        'expected' => 'Expected',
+        'of' => '%s of %s',
+        'to_come' => '%s still to come',
+        'all_in' => 'All in',
+        'diff_one' => '1 line differs from what was ordered and received',
+        'diff_many' => '%s lines differ from what was ordered and received',
+        'diff_total' => 'Difference %s',
+        'item' => 'Item',
+        'price_order' => 'Order price',
+        'price_invoice' => 'Invoice price',
+        'difference' => 'Difference',
+        'from_delivery' => 'from the delivery',
+        'for' => 'For',
+        'entered' => 'Entered by',
+        'no_credits' => 'No credit notes',
+        'progress' => 'Progress',
     ];
 
     /** The columns and the filter of a list of documents (orders, supplier invoices; later sales invoices; docs/decisions.md PV). */
@@ -6280,6 +6315,11 @@ final class Words
         'due' => 'Due date',
         'balance' => 'Balance',
         'expected' => 'Expected',
+        'order' => 'Order',
+        'invoice' => 'Invoice',
+        'received' => 'Received',
+        'match' => 'Match',
+        'received_of' => '%s / %s',
         'any_state' => 'Every status',
         'show' => 'Show',
         'state_label' => 'Status',
@@ -9762,6 +9802,21 @@ final class Words
         'claimed_part' => 'Claimed from the supplier on %s (%s): part of it credited so far.',
         'claimed_credited' => 'Claimed from the supplier on %s (%s): credited.',
         'receipt_left' => '%s items of it are still to invoice.',
+        // The board (the owner's approved design, 29 Oct 2026; docs/decisions.md PV18): the groups, the status, the match as a soft tag, Show
+        'group_look' => 'Needs a look',
+        'group_draft' => 'Draft',
+        'group_final' => 'Final',
+        'group_cancelled' => 'Cancelled',
+        'needs_look' => 'Needs a look',
+        'tag_matches' => 'Matches',
+        'tag_diff_one' => '%s difference',
+        'tag_diff_many' => '%s differences',
+        'tag_accepted' => 'Accepted',
+        'tag_unchecked' => 'Not checked yet',
+        'show_open' => 'Open',
+        'show_all' => 'All',
+        'show_cancelled' => 'Cancelled',
+        'no_number_yet' => 'No number yet',
     ];
 
     /** Words that differ between an invoice and a credit note (SupplierInvoices kinds). */
@@ -9786,6 +9841,9 @@ final class Words
             'post_does' => 'It is checked against the order and the delivery: if it does not match, it shows on "To match". It moves no stock.',
             'post_button' => 'Make the invoice final',
             'cancel_text' => 'A final invoice is never changed or deleted. Cancelling it makes a cancellation record; its number is free again. An invoice with a credit note is cancelled after its credit note.',
+            'group_one' => '1 invoice',
+            'group_many' => '%s invoices',
+            'col' => 'Invoice',
         ],
         'credit_note' => [
             'tab' => 'Credit notes',
@@ -9807,6 +9865,9 @@ final class Words
             'post_does' => 'It lowers what is owed on the invoice it reduces, and the invoice is checked again.',
             'post_button' => 'Make the credit note final',
             'cancel_text' => 'A final credit note is never changed or deleted. Cancelling it makes a cancellation record; what it took off the invoice comes back.',
+            'group_one' => '1 credit note',
+            'group_many' => '%s credit notes',
+            'col' => 'Credit note',
         ],
     ];
 

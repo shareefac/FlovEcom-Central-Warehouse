@@ -1171,6 +1171,15 @@
       var t = o ? o.getAttribute('data-terms') : due.getAttribute('data-terms');
       return t !== null && /^[0-9]{1,4}$/.test(t) ? parseInt(t, 10) : null;
     };
+    var hint = form ? form.querySelector('[data-pi-due-hint]') : null;
+    var say = function () {
+      // "From the supplier's terms: 30 days." (the words from the page), shown only while the supplier chosen has terms.
+      var days = terms();
+      if (hint) {
+        hint.hidden = days === null;
+        hint.textContent = (hint.getAttribute('data-words') || '').replace('%s', String(days));
+      }
+    };
     var fill = function () {
       var days = terms();
       var m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(date.value);
@@ -1189,6 +1198,7 @@
     date.addEventListener('change', fill);
     if (supplier) {
       supplier.addEventListener('change', fill);
+      supplier.addEventListener('change', say);
     }
   });
 

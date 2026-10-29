@@ -718,6 +718,35 @@ Document and file tests notes:
 - The page's JavaScript was driven in node with a minimal DOM (`/root/cw_work/runs/pione_js_harness/`, outside the repo: copy it into the
   worktree for a run through the slot runner, `/root/poone_js/node` on cw-test, and remove it); the repo pins it by strings in `UiUnitTest`.
 
+**The approved design's shared classes** (`docs/decisions.md` PV18-PV20; CSS in `app.css`'s "pi-design" block, CW tokens only; the sales
+invoice reuses them):
+
+| Piece | Class / partial | Notes |
+|---|---|---|
+| Board group | `div.grp-block.doc-group.<tone>` > `h3.grp-title` (`button.grp-toggle` + `span.grp-count`) | the tone class (`needs`, `waiting`, `done`, `info`, `review`, `off`) colours the heading; it folds by `aria-controls` (app.js) |
+| Board card | `div.table-wrap.doc-board` (id = the toggle's `aria-controls`) > `table.stack.list.board.doc-list` | white card, 6 px left edge in the group's `--t-fill`; last row `tr.grp-add` with `a.add-item` ("+ New ...") |
+| Status cell | `td.c-status.doc-st.<tone>` | filled with the status colour, white words, centred, about 160 px; a pill-like block on a phone |
+| Received meter | `span.doc-meter` > `progress` + the "160 / 240" words (`DOC_LIST received_of`) | green bar |
+| Soft tag | `span.tag.ok` or `span.tag.warn` (board) or `span.tag.band.<tone>` (beside a title) | the match, the reviewer check |
+| Passed date | `td.late` | red, semi-bold: due passed with a balance left |
+| Toolbar Show menu | `select[name=show]` in `.tb-state` | orders: '' / `all` / `closed`; invoices: '' / `all` / `cancelled` |
+| Status block | `div.doc-head` around `$head`; the chip in the `h1` (invoice) or `.ph-meta` (order) | 8 px corners, 32 px high |
+| Action bar | `div.doc-actions` > `details.doc-more` (`summary` "More", `div.doc-more-menu`) + the next step (`.primary`) | the order's `po_action`, the invoice's `si_action` partial draw one action in the bar or the menu; `PurchaseOrdersController::actions()` picks the order's next step |
+| Progress strip | `section.doc-progress` > `div.doc-step` (`p.doc-step-label`, `p.doc-step-big`, `progress.done` / `progress.review`) | four columns, two on a phone |
+| Differences panel | `section.doc-diff#match` > `div.doc-diff-head` (h2 + total) + `table.stack.doc-diff-lines` with `td.diff` | amber left edge; cells that differ tinted amber |
+| Large balance | `doc_party`'s `big` (label, value) → `div.doc-big` and `div.doc-meta.with-big` | right of the supplier's block; under it on a phone |
+| Links in the facts | `doc_party`'s fact `links` (list of label + href) | "For PO-12 · GRN-4" |
+| Soft button | `.btn.soft` | accent-soft fill ("Fill the lines") |
+| Drop area | `.doc-drop` on the attach form or field | dashed box; a plain file input |
+| Due hint | `span.hint[data-pi-due-hint][data-words]` in the due date's label | app.js fills `%s` with the chosen supplier's terms; hidden without terms |
+| Phone lines | `table.stack.doc-lines` under 640 px | Qty, Price, Amount side by side (3 columns); the bar's two buttons equal |
+
+- Words: `Words::ORDERS` (`group_*`, `show_*`, `add_row`), `Words::INVOICES` (`group_*`, `tag_*`, `show_*`, `needs_look`), `Words::DOC`
+  (the strip and the panel), `Words::DOC_LIST` (the board's columns), `INVOICE_KIND` (`group_one`, `group_many`, `col`), `PI_ONE terms_hint`.
+- Migration `0053_po_board_recent_days.sql`: the setting `po.board_recent_days` (14).
+- Tests: `UiUnitTest::testTheBoardsAndTheDocumentsFollowTheApprovedDesign` (CSS pins; the shared pieces close every tag), the three
+  `InvoiceOnePageScreensTest` screen tests named in PV20, `Migration0053Test`.
+
 
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 

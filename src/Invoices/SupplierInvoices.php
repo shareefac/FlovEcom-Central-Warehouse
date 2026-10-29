@@ -954,7 +954,9 @@ final class SupplierInvoices
      * The list of a kind (newest first, at most LIST_LIMIT): number, supplier, the supplier's number, date, totals, status, match,
      * credit note's invoice. Filters: q (our number, theirs, the supplier's name or code), state, supplier id, match state.
      *
-     * @param array{q?: string, state?: ?string, supplier?: ?int, match?: ?string, cancelled?: bool} $f
+     * `show` (the board's Show menu, PV18): open (drafts, waiting and final, no cancelled one), cancelled, all; none: as before.
+     *
+     * @param array{q?: string, state?: ?string, supplier?: ?int, match?: ?string, cancelled?: bool, show?: ?string} $f
      * @return list<array<string, mixed>>
      */
     public function list(string $kind, array $f): array
@@ -963,10 +965,16 @@ final class SupplierInvoices
         $where = ['d.doc_type = ?'];
         $params = [$type];
         $state = $f['state'] ?? null;
+        $show = $f['show'] ?? null;
         if ($state !== null && in_array($state, self::STATES, true)) {
             $where[] = 'd.status = ?';
             $params[] = $state;
-        } elseif (!($f['cancelled'] ?? false)) {
+        } elseif ($show === 'open') {
+            // The board's open view (PV18): drafts, waiting and final papers, no cancelled one and no cancellation record.
+            $where[] = "d.status IN ('draft', 'awaiting_approval', 'posted') AND d.reverses_id IS NULL";
+        } elseif ($show === 'cancelled') {
+            $where[] = "(d.status IN ('cancelled', 'reversed') OR d.reverses_id IS NOT NULL)";
+        } elseif ($show !== 'all' && !($f['cancelled'] ?? false)) {
             $where[] = "d.status <> 'cancelled'";
         }
         if (($f['supplier'] ?? null) !== null) {
@@ -1028,6 +1036,28 @@ final class SupplierInvoices
             $out[(int) $r['invoice_id']][] = ['id' => (int) $r['id'], 'number' => (string) $r['number'], 'claim_total' => (string) $r['claim_total'],
                 'credit_state' => SupplierReturns::creditState($r['claim_total'] === null ? null : InvoiceMath::e2((string) $r['claim_total']),
                     $credited[(int) $r['id']] ?? 0)];
+        }
+        return $out;
+    }
+
+    /**
+     * The order and the delivery each of these papers names on its lines, the first of each by number (PV18: the board's invoice cell), in one
+     * grouped read on sinv_line's key.
+     *
+     * @param list<int> $ids
+     * @return array<int, array{po: ?string, grn: ?string}>
+     */
+    public function refsOf(array $ids): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ($ids === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($this->db->all('SELECT sl.document_id AS id, MIN(p.number) AS po, MIN(g.number) AS grn FROM sinv_line sl LEFT JOIN document p ON p.id = sl.po_document_id '
+            . 'LEFT JOIN document g ON g.id = sl.grn_document_id WHERE sl.document_id IN (' . implode(', ', array_fill(0, count($ids), '?')) . ') GROUP BY sl.document_id',
+            $ids) as $r) {
+            $out[(int) $r['id']] = ['po' => $r['po'], 'grn' => $r['grn']];
         }
         return $out;
     }

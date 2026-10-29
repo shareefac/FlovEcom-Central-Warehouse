@@ -1,12 +1,17 @@
 <?php
-// A supplier's invoice or credit note (pack C, PC17), read like a document (docs/decisions.md PV, Zoho Inventory's bill as the layout):
-// its actions in one bar at the top (book its credit note, take it back, cancel it, accept its differences, attach a file; a step that
-// needs a reason opens under the bar), the supplier's block beside its facts, the lines, the totals on the right, then how it matches,
-// its goods on their way, its credit notes, what it records for the stock value, its files and its history. An invoice's draft is the
+// A supplier's invoice or credit note (pack C, PC17), read like a document (docs/decisions.md PV12, PV19: the owner's approved design): its
+// status a solid block beside the title, one action bar (the next step in the accent: accept the differences, take it back, book its credit
+// note or attach a file; the others under More; si_action), then what differs from the order and the delivery when its match is off (the
+// three ways side by side, the cells that differ tinted), then the paper: the supplier's block, its facts (dates, what it is for, who did
+// what), its balance large on the right, the lines, its files and its totals; then its goods on their way, its credit notes, what it records
+// for the stock value, and its history. An invoice's draft is the
 // one page for its creator (invoice_edit); a credit note's draft keeps its forms here (pack C), for its creator.
 ?>
 <p class="crumbs"><a href="<?= $e($base) ?>"><?= $e($k['tab']) ?></a></p>
-<?= $head((string) $title, intro: $introKey, look: $lookOnly, chips: ($doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status)) . ($storedMatch !== null ? ' ' . $stateChip('MATCH_STATE', $storedMatch) : '')) ?>
+<div class="doc-head">
+<?= $head((string) $title, intro: $introKey, look: $lookOnly, chips: $doc->isReversal() ? $chip('off', \CW\Ui\Words::INVOICES['reversal']) : $stateChip('DOC_STATUS', $doc->status),
+    meta: $storedMatch !== null ? '<span class="tag band ' . $e(\CW\Ui\Words::tone('MATCH_STATE', $storedMatch)) . '">' . $e(\CW\Ui\Words::of('MATCH_STATE', $storedMatch)) . '</span>' : '') ?>
+</div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?></p>
 <?php if (count($problemsOfError) > 1): ?>
@@ -360,65 +365,65 @@
   </form>
 </details>
 <?php else: ?>
-<?php if ($canCredit || $canWithdraw || $reverse !== null || ($canAccept && $match !== null) || $canFile): ?>
 <div class="doc-actions" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
-<?php if ($canAccept && $match !== null): ?>
-  <details class="doc-act"<?php if ($typedAccept !== ''): ?> open<?php endif; ?>>
-    <summary class="btn primary sm"><?= $word('INVOICES', 'accept_title') ?></summary>
-    <div class="doc-act-panel">
-      <p class="muted"><?= $word('INVOICES', 'accept_text') ?></p>
-      <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/accept') ?>">
-        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-        <input type="hidden" name="match_fingerprint" value="<?= $e($match['fingerprint']) ?>">
-        <label><?= $word('INVOICES', 'accept_why') ?> <input type="text" name="note" value="<?= $e($typedAccept) ?>" minlength="3" maxlength="500" required></label>
-        <p class="actions"><button type="submit" class="primary"><?= $word('INVOICES', 'accept_button') ?></button></p>
-      </form>
-    </div>
-  </details>
-<?php endif; ?>
-<?php if ($canCredit): ?>
-  <form class="inline" method="post" action="/ui/purchasing/credit-notes">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="form_key" value="<?= $e($creditKey) ?>">
-    <input type="hidden" name="supplier_id" value="<?= $e($rec['supplier_id']) ?>">
-    <input type="hidden" name="credits_id" value="<?= $e($doc->id) ?>">
-    <button type="submit" class="btn secondary sm"><?= $word('INVOICES', 'book_credit') ?></button>
-  </form>
-<?php endif; ?>
-<?php if ($canWithdraw): ?>
-  <form class="inline" method="post" action="<?= $u($base . '/' . $doc->id . '/withdraw') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <button type="submit" class="btn secondary sm"><?= $word('STOCK_OPS', 'withdraw_button') ?></button>
-  </form>
-<?php endif; ?>
-<?php if ($canFile): ?>
-  <a class="btn secondary sm" href="#files"><?= $word('STOCK_OPS', 'file_button') ?></a>
-<?php endif; ?>
-<?php if ($reverse !== null): ?>
-  <details class="doc-act"<?php if ($typedCancel['code'] !== ''): ?> open<?php endif; ?>>
-    <summary class="btn danger-outline sm"><?= $word('STOCK_OPS', 'cancel_title') ?></summary>
-    <div class="doc-act-panel">
-      <p class="muted"><?= $e($k['cancel_text']) ?></p>
-      <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/reverse') ?>">
-        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-        <label><?= $word('STOCK_OPS', 'cancel_why') ?>
-          <select name="reason_code" required>
-            <option value=""><?= $word('STOCK_OPS', 'choose') ?></option>
-<?php foreach ($reverse['reasons'] as $r): ?>
-            <option value="<?= $e($r['code']) ?>"<?php if ($typedCancel['code'] === $r['code']): ?> selected<?php endif; ?>><?= $e($r['label']) ?></option>
+<?php if ($moreActions !== []): ?>
+  <details class="doc-more">
+    <summary class="btn secondary sm"><?= $word('DOC', 'more') ?></summary>
+    <div class="doc-more-menu">
+<?php foreach ($moreActions as $a): ?>
+<?= $partial('si_action', ['a' => $a, 'primary' => false, 'doc' => $doc, 'base' => $base, 'rec' => $rec, 'k' => $k, 'match' => $match, 'typedAccept' => $typedAccept, 'typedCancel' => $typedCancel,
+    'creditKey' => $creditKey, 'reverse' => $reverse]) ?>
 <?php endforeach; ?>
-          </select>
-        </label>
-        <label><?= $word('STOCK_OPS', 'cancel_note') ?> <input type="text" name="note" value="<?= $e($typedCancel['note']) ?>" maxlength="1000"></label>
-        <p class="actions"><button type="submit" class="danger"><?= $word('STOCK_OPS', 'cancel_button') ?></button></p>
-      </form>
     </div>
   </details>
+<?php endif; ?>
+<?php if ($mainAction !== null): ?>
+<?= $partial('si_action', ['a' => $mainAction, 'primary' => true, 'doc' => $doc, 'base' => $base, 'rec' => $rec, 'k' => $k, 'match' => $match, 'typedAccept' => $typedAccept, 'typedCancel' => $typedCancel,
+    'creditKey' => $creditKey, 'reverse' => $reverse]) ?>
 <?php endif; ?>
 </div>
-<?php endif; ?>
 <?php if ($canWithdraw): ?>
 <p class="muted"><?= $word('STOCK_OPS', 'withdraw_text') ?></p>
+<?php endif; ?>
+
+<?php if ($diff !== null): ?>
+<section class="doc-diff" aria-labelledby="diff-h" id="match">
+  <div class="doc-diff-head">
+    <h2 id="diff-h"><?= $e($diff['title']) ?></h2>
+    <p class="muted"><?= $e($diff['total']) ?></p>
+  </div>
+<?php if ($rec['accepted_at'] !== null && $storedMatch === 'accepted'): ?>
+  <p class="note"><?= $say('INVOICES', 'accepted_line', (string) ($rec['accepted_by_name'] ?? ''), \CW\Ui\Html::when($rec['accepted_at']), (string) $rec['accept_note']) ?></p>
+<?php endif; ?>
+  <div class="table-wrap">
+  <table class="stack doc-diff-lines">
+    <thead>
+      <tr>
+        <th scope="col"><?= $word('DOC', 'item') ?></th>
+        <th scope="col" class="num"><?= $word('DOC', 'ordered') ?></th>
+        <th scope="col" class="num"><?= $word('DOC', 'received') ?></th>
+        <th scope="col" class="num"><?= $word('DOC', 'invoiced') ?></th>
+        <th scope="col" class="num"><?= $word('DOC', 'price_order') ?></th>
+        <th scope="col" class="num"><?= $word('DOC', 'price_invoice') ?></th>
+        <th scope="col" class="num"><?= $word('DOC', 'difference') ?></th>
+      </tr>
+    </thead>
+    <tbody>
+<?php foreach ($diff['rows'] as $d): ?>
+      <tr>
+        <th scope="row" class="c-head"><?= $e($d['name']) ?><span class="o-sub"><?= $e($d['code']) ?></span></th>
+        <td class="num" data-label="<?= $word('DOC', 'ordered') ?>"><?php if ($d['ordered'] !== null): ?><?= $n($d['ordered']) ?><?php endif; ?></td>
+        <td data-label="<?= $word('DOC', 'received') ?>" class="num<?php if ($d['qty_off']): ?> diff<?php endif; ?>"><?php if ($d['received'] !== null): ?><?= $n($d['received']) ?><?php endif; ?></td>
+        <td data-label="<?= $word('DOC', 'invoiced') ?>" class="num<?php if ($d['qty_off']): ?> diff<?php endif; ?>"><?= $n($d['invoiced']) ?></td>
+        <td data-label="<?= $word('DOC', 'price_order') ?>" class="num<?php if ($d['price_off']): ?> diff<?php endif; ?>"><?php if ($d['ref'] !== null): ?><?= $e($d['ref']) ?><?php if ($d['ref_delivery']): ?><span class="o-sub"><?= $word('DOC', 'from_delivery') ?></span><?php endif; ?><?php endif; ?></td>
+        <td data-label="<?= $word('DOC', 'price_invoice') ?>" class="num<?php if ($d['price_off']): ?> diff<?php endif; ?>"><?php if ($d['price'] !== null): ?><?= $e($d['price']) ?><?php endif; ?></td>
+        <td data-label="<?= $word('DOC', 'difference') ?>" class="num<?php if ($d['diff'] !== null): ?> diff<?php endif; ?>"><?php if ($d['diff'] !== null): ?><?= $e($d['diff']) ?><?php endif; ?></td>
+      </tr>
+<?php endforeach; ?>
+    </tbody>
+  </table>
+  </div>
+</section>
 <?php endif; ?>
 
 <article class="doc-view" aria-labelledby="lines-h">
@@ -459,25 +464,40 @@
   </div>
 <?php endif; ?>
   <div class="doc-foot">
-    <div class="doc-notes"><?php if ($doc->note !== null && $doc->note !== ''): ?><p class="doc-label"><?= $word('PI_ONE', 'notes') ?></p><p class="pre"><?= $e($doc->note) ?></p><?php endif; ?></div>
+    <div class="doc-notes" id="files">
+<?php if ($doc->note !== null && $doc->note !== ''): ?>
+      <p class="doc-label"><?= $word('PI_ONE', 'notes') ?></p><p class="pre"><?= $e($doc->note) ?></p>
+<?php endif; ?>
+      <p class="doc-label"><?= $word('STOCK_OPS', 'files') ?></p>
+<?php if ($files === []): ?>
+      <p class="muted"><?= $word('STOCK_OPS', 'no_files') ?></p>
+<?php else: ?>
+      <ul class="files">
+<?php foreach ($files as $file): ?>
+        <li><a href="<?= $u('/ui/files/' . $file['id']) ?>"><?= $e($file['original_name']) ?></a> <span class="muted"><?= $e($file['what']) ?> · <?= $e($file['size']) ?></span></li>
+<?php endforeach; ?>
+      </ul>
+<?php endif; ?>
+<?php if ($canFile): ?>
+      <form class="record doc-drop" method="post" enctype="multipart/form-data" action="<?= $u($base . '/' . $doc->id . '/files') ?>">
+        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
+        <label><?= $word('STOCK_OPS', 'file') ?> <input type="file" name="file" accept="application/pdf,image/jpeg,image/png" required></label>
+        <label><?= $word('STOCK_OPS', 'file_role') ?>
+          <select name="role">
+<?php foreach ($fileRoles as $code => $label): ?>
+            <option value="<?= $e($code) ?>"><?= $e($label) ?></option>
+<?php endforeach; ?>
+          </select>
+        </label>
+        <p class="actions"><button type="submit" class="btn secondary sm"><?= $word('STOCK_OPS', 'file_button') ?></button></p>
+      </form>
+<?php endif; ?>
+    </div>
 <?= $partial('doc_totals', ['label' => \CW\Ui\Words::DOC['totals'], 'rows' => $totalRows]) ?>
   </div>
 </article>
-
-<?php if ($match !== null): ?>
-<section aria-labelledby="match-h" id="match">
-  <h2 id="match-h"><?= $word('INVOICES', 'match_title') ?> <?= $chip($match['tone'], $match['word']) ?></h2>
-  <p class="muted"><?php if ($match['posted']): ?><?= $word('INVOICES', 'match_text') ?><?php else: ?><?= $word('INVOICES', 'match_preview') ?><?php endif; ?></p>
-<?php if ($match['off'] > 0): ?>
-  <p class="note"><?= $say('INVOICES', 'match_off', $match['off'], $match['difference']) ?></p>
-<?php endif; ?>
-<?php if ($match['total_diff'] !== null): ?>
-  <p class="muted"><?= $say('INVOICES', 'total_rounding', $match['total_diff']) ?></p>
-<?php endif; ?>
-<?php if ($rec['accepted_at'] !== null && $storedMatch === 'accepted'): ?>
-  <p class="note"><?= $say('INVOICES', 'accepted_line', (string) ($rec['accepted_by_name'] ?? ''), \CW\Ui\Html::when($rec['accepted_at']), (string) $rec['accept_note']) ?></p>
-<?php endif; ?>
-</section>
+<?php if ($match !== null && $match['total_diff'] !== null): ?>
+<p class="muted"><?= $say('INVOICES', 'total_rounding', $match['total_diff']) ?></p>
 <?php endif; ?>
 <?php endif; ?>
 
@@ -561,6 +581,7 @@
 </section>
 <?php endif; ?>
 
+<?php if ($editable): ?>
 <section aria-labelledby="files-h" id="files">
   <h2 id="files-h"><?= $word('STOCK_OPS', 'files') ?></h2>
 <?php if ($files === []): ?>
@@ -587,6 +608,7 @@
   </form>
 <?php endif; ?>
 </section>
+<?php endif; ?>
 
 <?php if ($history !== []): ?>
 <section aria-labelledby="history-h">

@@ -49,6 +49,7 @@ final class UiTemplatesTest extends TestCase
             'simple_match', 'simple_match_options', // Products › Simple matching and its cell's choices (docs/decisions.md SM1-SM9)
             'po_products', // the purchase order's product box: its choices (docs/decisions.md PX8)
             'invoice_edit', 'doc_totals', 'doc_party', 'doc_bar', // the supplier invoice on one page and the shared document pieces (docs/decisions.md PV)
+            'po_action', 'si_action', // the approved design: one action of a saved order or invoice, in its bar or under More (docs/decisions.md PV19)
             'store_new_preview', // Store Products' "Create new warehouse products for these" (docs/decisions.md NF7)
             'listing_check', 'check_fold', // the lists' Check & match fold and its fragment (docs/decisions.md CM1)
             'stock_counts', 'stock_count_sheets', 'stock_count_reviews', 'stock_count', 'stock_count_before',
@@ -234,7 +235,8 @@ final class UiTemplatesTest extends TestCase
             'barcode_reviews', 'stock', 'stock_movements', 'stock_reservations', 'stock_reservation',
             'sales_orders', 'sales_order', 'sales_dispatch', 'sales_returns', // pack D (docs/decisions.md PD13)
             'po_supplier_needs', 'po_products', // pack PO (PO3); PO on one page (PX8): the product box's choices
-            'invoice_edit', 'doc_totals', 'doc_party', 'doc_bar'] as $name) { // the supplier invoice on one page, the shared document pieces (PV)
+            'invoice_edit', 'doc_totals', 'doc_party', 'doc_bar', // the supplier invoice on one page, the shared document pieces (PV)
+            'po_action', 'si_action'] as $name) { // the approved design: a saved order's or invoice's actions (PV19)
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {

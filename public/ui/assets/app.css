@@ -2192,8 +2192,8 @@ section.po-summary .doc-totals .actions { margin: 0; }
 @media (max-width: 699.98px) {
   body:has(.doc-bar) .tabbar { display: none; }
   body:has(.doc-bar) { padding-bottom: 0; }
-  .doc-bar > button, .doc-bar > a.btn { flex: 1 1 auto; }
-  .doc-bar > a.btn { margin-right: 0; }
+  .doc-bar > button { flex: 1 1 0; min-width: 0; } /* the approved design: the bar's two buttons equal on a phone */
+  .doc-bar > a.btn { flex: 1 1 100%; order: 3; margin-right: 0; }
 }
 .doc-later { margin: 0; }
 .doc-later > summary { display: flex; align-items: center; min-height: 44px; color: var(--accent-hover); font-weight: 600; cursor: pointer; }
@@ -2209,7 +2209,7 @@ table.doc-list td.c-status { width: 1%; }
 .toolbar .tb-state select { width: auto; min-height: 36px; height: 36px; padding-top: 6px; padding-bottom: 6px; font-size: 13px; }
 @media (max-width: 639.98px) { .toolbar .tb-state { flex: 1 1 100%; } .toolbar .tb-state select { flex: 1 1 auto; height: 44px; min-height: 44px; } }
 /* The saved document: its actions in one bar at the top (a step that needs a reason opens under the bar), then the document itself */
-.doc-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin: 0 0 20px; }
+.doc-actions { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: 8px; margin: -8px 0 20px; }
 .doc-actions > form { margin: 0; }
 .doc-actions > details.doc-act { margin: 0; padding: 0; border: 0; background: none; }
 .doc-actions > details.doc-act > summary { list-style: none; }
@@ -2228,3 +2228,90 @@ table.doc-list td.c-status { width: 1%; }
 .doc-party .doc-party-name { font: 600 16px/24px var(--font); color: var(--ink); }
 .doc-facts { margin: 0; }
 /* ==== end pi-one-page =============================================================================================================== */
+/* ==== pi-design (the owner's "yes" to the design canvas, 29 Oct 2026: "monday.com design style and color follow"; docs/decisions.md
+   PV18-PV20) ======================================================================================================================
+   The canvas's layout as plain shared classes with CW's tokens (the --st-* status colours through the tone classes' --t-fill, the magenta
+   accent): a list is a board (each group a coloured heading with its count, then a white card with the group's colour on a 6 px left edge;
+   the status cell filled with its colour, white words, centred); a saved document's status is a solid block with 8 px corners beside its
+   title, its next step in the accent and the rest under More; the order's progress strip; the invoice's differences panel with the cells
+   that differ tinted; a soft button, the dashed drop area; on a phone the lines are cards with Qty, Price and Amount side by side and the
+   bar's two buttons equal. The sales invoice reuses them later (docs/dev.md). */
+/* The board */
+.doc-group { margin: 0 0 24px; }
+.doc-group > .grp-title { color: var(--t-fill, var(--st-grey)); margin: 0 0 8px; }
+.doc-group > .grp-title .grp-toggle { color: var(--t-fill, var(--st-grey)); }
+.doc-board { border-left: 6px solid var(--t-fill, var(--st-grey)); border-radius: var(--r-12); }
+td.doc-st { background: var(--t-fill, var(--st-grey)); color: var(--on-fill); font: 600 13px/18px var(--font); text-align: center; width: 160px; min-width: 150px; padding: 6px 10px; border-left: 2px solid var(--card); border-right: 2px solid var(--card); }
+td.doc-st .o-sub { display: block; color: inherit; opacity: .85; font-weight: 400; }
+table.doc-list tbody tr:hover > td.doc-st { background: var(--t-fill, var(--st-grey)); }
+.doc-meter { display: flex; align-items: center; gap: 8px; }
+.doc-meter progress { width: 110px; flex: none; }
+.doc-meter progress::-webkit-progress-value { background: var(--st-green); }
+.doc-meter progress::-moz-progress-bar { background: var(--st-green); }
+td.late { color: var(--st-red); font-weight: 600; }
+@container (max-width: 640px) {
+  table.stack td.doc-st { width: auto; min-width: 0; border: 0; border-radius: var(--r-8); padding: 4px 12px; }
+  .doc-meter progress { width: 80px; }
+}
+/* The saved document: the status block, the action bar with More, the progress strip, the differences panel, the balance */
+.doc-head .ph-title h1 .chip { border-radius: var(--r-8); min-height: 32px; padding: 6px 14px; font-size: 13px; vertical-align: 6px; }
+.doc-head .ph-meta .chip { border-radius: var(--r-8); min-height: 32px; padding: 6px 14px; font-size: 13px; }
+.doc-more { position: relative; margin: 0; padding: 0; border: 0; background: none; }
+.doc-more > summary { list-style: none; }
+.doc-more > summary::-webkit-details-marker { display: none; }
+.doc-more > summary::after { content: ""; width: 7px; height: 7px; margin: -4px 0 0 4px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
+.doc-more[open] > summary { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }
+.doc-more-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; display: grid; gap: 6px; width: max-content; min-width: 240px;
+  max-width: min(32rem, calc(100vw - 32px)); padding: 10px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-12);
+  box-shadow: var(--shadow-float);
+}
+.doc-more-menu > form, .doc-more-menu > a, .doc-more-menu > details { width: 100%; margin: 0; }
+.doc-more-menu .btn, .doc-more-menu > form > button, .doc-more-menu > details > summary { width: 100%; justify-content: flex-start; }
+.doc-more-menu > details.doc-act { padding: 0; border: 0; background: none; }
+.doc-more-menu > details.doc-act > summary { list-style: none; }
+.doc-more-menu > details.doc-act > summary::-webkit-details-marker { display: none; }
+.doc-more-menu .doc-act-panel { margin: 6px 0 0; max-width: none; }
+@media (max-width: 639.98px) { .doc-more { position: static; } .doc-more-menu { left: 0; right: 0; width: auto; min-width: 0; max-width: none; } }
+.doc-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 20px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--r-14); }
+.doc-step { display: grid; gap: 6px; align-content: start; padding: 16px 20px; border-left: 1px solid var(--divider); min-width: 0; }
+.doc-step:first-child { border-left: 0; }
+.doc-step p { margin: 0; }
+.doc-step-label { color: var(--ink-muted); font-size: 13px; }
+.doc-step-big { color: var(--ink); font: 700 20px/1.25 var(--font); font-variant-numeric: tabular-nums; }
+.doc-step progress::-webkit-progress-value { background: var(--st-blue); }
+.doc-step progress::-moz-progress-bar { background: var(--st-blue); }
+.doc-step progress.done::-webkit-progress-value { background: var(--st-green); }
+.doc-step progress.done::-moz-progress-bar { background: var(--st-green); }
+.doc-step progress.review::-webkit-progress-value { background: var(--st-purple); }
+.doc-step progress.review::-moz-progress-bar { background: var(--st-purple); }
+@media (max-width: 639.98px) { .doc-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); } .doc-step:nth-child(3) { border-left: 0; } .doc-step:nth-child(n + 3) { border-top: 1px solid var(--divider); } }
+.doc-diff { margin: 0 0 20px; background: var(--card); border: 1px solid var(--hairline); border-left: 6px solid var(--st-amber); border-radius: var(--r-14); overflow: hidden; }
+.doc-diff-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding: 16px 20px; }
+.doc-diff-head h2 { margin: 0; color: var(--sf-amber-ink); font: 600 16px/24px var(--font); }
+.doc-diff-head p { margin: 0; }
+.doc-diff > .note { margin: 0 20px 12px; }
+.doc-diff .table-wrap { margin: 0; border: 0; border-top: 1px solid var(--hairline); border-radius: 0; }
+.doc-diff td.diff { background: var(--sf-amber); color: var(--sf-amber-ink); font-weight: 600; }
+.doc-diff tbody tr:hover > td.diff { background: var(--sf-amber); }
+.doc-meta.with-big { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(10rem, auto); }
+.doc-big { text-align: right; }
+.doc-big p { margin: 0; }
+.doc-big-value { color: var(--ink); font: 700 26px/1.2 var(--font); font-variant-numeric: tabular-nums; }
+@media (max-width: 639.98px) { .doc-meta.with-big { grid-template-columns: minmax(0, 1fr); } .doc-big { text-align: left; } }
+/* The new pages: a soft button, the dashed drop area; on a phone the lines are cards with Qty, Price and Amount side by side */
+.btn.soft { background: var(--accent-soft); border-color: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
+.btn.soft:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-hover); }
+.doc-drop { padding: 16px; border: 2px dashed var(--hairline); border-radius: var(--r-12); background: var(--page-alt); }
+.doc-drop input[type="file"] { background: var(--card); }
+.doc-grid .hint { color: var(--ink-muted); font-weight: 400; font-size: 12px; }
+@container (max-width: 640px) {
+  table.stack.doc-lines tr { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 10px; }
+  table.stack.doc-lines tr > th.c-head { grid-column: 1 / 3; }
+  table.stack.doc-lines tr > td.c-status { grid-column: 3; grid-row: 1; justify-self: end; }
+  table.stack.doc-lines td.num[data-label] { grid-column: auto; grid-template-columns: minmax(0, 1fr); gap: 2px; text-align: right; }
+  table.stack.doc-lines td.num[data-label] > * { grid-column: 1; }
+  table.stack.doc-lines td.num input { width: 100%; max-width: none; }
+  table.stack.doc-lines tr.grp-add > td { grid-column: 1 / -1; }
+}
+/* ==== end pi-design ================================================================================================================ */

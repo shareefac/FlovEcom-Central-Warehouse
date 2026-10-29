@@ -41,6 +41,7 @@ final class Settings
         'suppliers.approval_due_days' => ['min' => 1, 'max' => 120],
         'po.default_vat_code' => ['vat_code' => true],
         'po.over_delivery_tolerance_pct' => ['min' => 0, 'max' => 200],
+        'po.board_recent_days' => ['min' => 1, 'max' => 365], // 0053 (PV18): the board's "Received or closed" group
         'reorder.short_weight' => ['min' => '0', 'max' => '1'],
         'reorder.promo_price_drop' => ['min' => '0', 'max' => '1'],
         'reorder.promo_units_uplift' => ['min' => '1', 'max' => '100'],

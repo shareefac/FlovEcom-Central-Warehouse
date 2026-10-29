@@ -1043,6 +1043,42 @@ final class UiUnitTest extends TestCase
         }
     }
 
+    /**
+     * The approved design (the owner's "yes" to the design canvas, 29 Oct 2026: "monday.com design style and color follow"), as plain shared
+     * classes with CW's tokens: a list is a board (a group's coloured heading, a white card with a 6 px edge in the group's colour, the
+     * status cell filled with its colour and centred white words, "+ New" at the end of the draft group), the saved document's status a solid
+     * block with 8 px corners, one action bar with More, the order's progress strip, the invoice's differences panel with its tinted cells,
+     * a soft button, the dashed drop area, a due date passed in red; on a phone the lines are cards with Qty, Price and Amount side by side and
+     * the bar's two buttons are equal.
+     */
+    public function testTheBoardsAndTheDocumentsFollowTheApprovedDesign(): void
+    {
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        foreach (['/^\.doc-board \{[^}]*border-left: 6px solid var\(--t-fill/m' => 'the group\'s edge',
+            '/^td\.doc-st \{[^}]*background: var\(--t-fill[^}]*color: var\(--on-fill\)[^}]*text-align: center/m' => 'the status cell',
+            '/^\.doc-group > \.grp-title \{[^}]*color: var\(--t-fill/m' => 'the coloured heading',
+            '/^\.doc-head \.ph-title h1 \.chip \{[^}]*border-radius: var\(--r-8\)/m' => 'the status block',
+            '/^\.doc-more \{/m' => 'More', '/^\.doc-progress \{/m' => 'the progress strip',
+            '/^\.doc-diff \{[^}]*border-left: 6px solid var\(--st-amber\)/m' => 'the differences panel',
+            '/^\.doc-diff td\.diff \{[^}]*background: var\(--sf-amber\)/m' => 'a cell that differs',
+            '/^\.btn\.soft \{/m' => 'the soft button', '/^\.doc-drop \{[^}]*dashed/m' => 'the drop area',
+            '/^td\.late \{[^}]*color: var\(--st-red\)/m' => 'a due date passed',
+            '/table\.stack\.doc-lines tr \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/' => 'phone: Qty, Price, Amount side by side',
+            '/\.doc-bar > button \{ flex: 1 1 0;/' => 'phone: the two buttons equal'] as $rule => $why) {
+            self::assertSame(1, preg_match($rule, $css), $why);
+        }
+        self::assertStringContainsString("hint.textContent = (hint.getAttribute('data-words') || '').replace('%s', String(days));", $js, 'the due date says where it comes from');
+        // The pieces drawn inside the action bar, its More menu and the paper close what they open (a stray </div> once closed the bar early
+        // and pushed the next step out of it).
+        foreach (['po_action', 'si_action', 'doc_party', 'doc_totals', 'doc_bar'] as $name) {
+            $src = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/' . $name . '.php');
+            foreach (['div', 'details', 'form', 'section', 'table', 'p'] as $tag) {
+                self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "{$name}: every <{$tag}> closed");
+            }
+        }
+    }
+
     public function testTheAssetsNeedNothingFromOutsideAndNoEval(): void
     {
         $css = (string) file_get_contents(Assets::dir() . '/app.css');

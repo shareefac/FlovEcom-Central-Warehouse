@@ -80,18 +80,23 @@ final class InvoicesController
         $canPost = Documents::mayPost($me->roles, $type);
         $f = self::filters($ctx->req);
         $listed = $ctx->supplierInvoices()->list($kind, $f);
+        $ids = array_map(static fn (array $r): int => (int) $r['id'], $listed);
         // PV: what is still owed on each final invoice (its total less its final credit notes), in one grouped read.
-        $credited = $kind === 'invoice' ? $ctx->supplierInvoices()->creditedOn(array_map(static fn (array $r): int => (int) $r['id'], $listed)) : [];
-        $rows = array_map(fn (array $r): array => $this->listRow($kind, $r, $credited[(int) $r['id']] ?? 0), $listed);
+        $credited = $kind === 'invoice' ? $ctx->supplierInvoices()->creditedOn($ids) : [];
+        $refs = $ctx->supplierInvoices()->refsOf($ids);
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Europe/London')))->format('Y-m-d');
+        $rows = array_map(fn (array $r): array => $this->listRow($kind, $r, $credited[(int) $r['id']] ?? 0, $refs[(int) $r['id']] ?? null, $today), $listed);
         $k = Words::INVOICE_KIND[$kind];
         return $ctx->page('invoices', [
             'kind' => $kind,
             'k' => $k,
             'base' => SupplierInvoices::PATHS[$kind],
             'rows' => $rows,
+            // The board (the owner's approved design, docs/decisions.md PV18): needs a look, draft, final; cancelled under Show.
+            'groups' => self::boardGroups($rows),
             'limit' => SupplierInvoices::LIST_LIMIT,
             'f' => $f,
-            'filtered' => $f['q'] !== '' || $f['state'] !== null || $f['supplier'] !== null || $f['match'] !== null || $f['cancelled'],
+            'filtered' => $f['q'] !== '' || $f['state'] !== null || $f['supplier'] !== null || $f['match'] !== null || $f['cancelled'] || $f['show'] !== 'open',
             'states' => array_intersect_key(Words::DOC_STATUS, array_flip(SupplierInvoices::STATES)),
             'matchStates' => Words::MATCH_STATE,
             'suppliers' => self::suppliers($ctx),
@@ -522,6 +527,9 @@ final class InvoicesController
         $isInvoice = $kind === 'invoice';
         $original = !$doc->isReversal();
         $match = $isInvoice && $original && in_array($doc->status, ['draft', 'awaiting_approval', 'posted'], true) && $lines !== [] ? $si->matchOf($id) : null;
+        if ($match !== null) {
+            $match['lines_off'] = (int) ($match['lines_off'] ?? 0);
+        }
         $sum = 0;
         foreach ($lines as $l) {
             $sum += $l['amount'] === null ? 0 : InvoiceMath::e2((string) $l['amount']);
@@ -539,8 +547,18 @@ final class InvoicesController
                 }
             }
         }
+        $canAcceptNow = $isInvoice && $doc->status === 'posted' && $original && $rec['match_state'] === 'needs_review' && $me->can('invoices.accept');
+        $canCreditNow = $isInvoice && $doc->status === 'posted' && $original && Documents::mayPost($me->roles, 'SCN');
+        $canWithdrawNow = $doc->status === 'awaiting_approval' && $doc->submittedBy === $me->id && $original;
+        $canReverseNow = $doc->status === 'posted' && $original && $reversedBy === null && $canPost;
+        $has = ['accept' => $canAcceptNow && $match !== null, 'withdraw' => $canWithdrawNow, 'credit' => $canCreditNow, 'file' => $canPost && $doc->status !== 'cancelled',
+            'reverse' => $canReverseNow];
+        $main = match (true) { $has['accept'] => 'accept', $has['withdraw'] => 'withdraw', $has['credit'] => 'credit', $has['file'] => 'file', default => null };
         return $ctx->page('supplier_invoice', [
             'kind' => $kind,
+            // The saved paper's action bar (PV19): the next step in the accent, the others under More (si_action).
+            'mainAction' => $main,
+            'moreActions' => array_values(array_filter(array_keys($has), static fn (string $a): bool => $has[$a] && $a !== $main)),
             // The final returns (debit notes) that claim against this invoice, each in words with its credit (the 6.3 browser test).
             'claims' => $kind === 'invoice' && !$doc->isReversal()
                 ? array_map(static fn (array $c): array => $c + ['text' => self::claimText($c)], $ctx->supplierInvoices()->claimsOn([$doc->id])[$doc->id] ?? []) : [],
@@ -553,9 +571,13 @@ final class InvoicesController
             'title' => Words::docTitle($doc->docType, $doc->number, (string) ($rec['supplier_name'] ?? ''), $original ? null : (string) ($rec['reverses_number'] ?? '#' . $doc->reversesId)),
             'facts' => self::facts($rec, $doc, $kind),
             // The saved document's head and totals (PV: the shared pieces doc_party and doc_totals).
-            'party' => self::party($ctx, $rec),
-            'docFacts' => self::docFacts($rec, $doc, $kind),
+            'party' => self::party($ctx, $rec) + ['big' => $isInvoice && $doc->status === 'posted' && $original && $rec['owed_e2'] !== null
+                ? ['label' => Words::DOC['balance'], 'value' => Html::money(InvoiceMath::fromE2((int) $rec['owed_e2'])),
+                    'note' => $rec['credit_notes'] === [] ? Words::DOC['no_credits'] : null] : null],
+            'docFacts' => self::docFacts($rec, $doc, $kind, $lines),
             'totalRows' => self::totalRows($rec, $doc, $kind, $sum),
+            // The approved design (PV19): what differs first, the three ways side by side, from the match as it stands.
+            'diff' => $match !== null && $doc->status === 'posted' && (int) $match['lines_off'] > 0 ? self::diffPanel($ctx, $lines, $match) : null,
             'lines' => array_map(static fn (array $l): array => $l + ['kind_word' => Words::of('INVOICE_LINE', (string) $l['kind']),
                 'packs_text' => $l['kind'] === 'goods' ? ReceivingController::packsText((int) $l['packs'], (string) ($l['purchase_unit'] ?? 'each'), (int) $l['units_per_pack']) : null,
                 'match' => $match['lines'][(int) $l['line_no']] ?? null], $lines),
@@ -709,12 +731,40 @@ final class InvoicesController
             $ctx->db->all("SELECT id, code, name FROM supplier WHERE status IN ('active', 'inactive') ORDER BY name, id"));
     }
 
-    /** @return array{q: string, state: ?string, supplier: ?int, match: ?string, cancelled: bool} */
+    /** The board's groups (PV18), in their order, with their tone: needs a look, draft (and waiting for an OK), final, cancelled. */
+    public const BOARD = ['look' => 'needs', 'draft' => 'waiting', 'final' => 'done', 'cancelled' => 'off'];
+
+    /**
+     * @param list<array<string, mixed>> $rows listRow() rows
+     * @return list<array{key: string, tone: string, name: string, rows: list<array<string, mixed>>}>
+     */
+    public static function boardGroups(array $rows): array
+    {
+        $by = [];
+        foreach ($rows as $r) {
+            $by[$r['group']][] = $r;
+        }
+        $out = [];
+        foreach (self::BOARD as $key => $tone) {
+            if (isset($by[$key])) {
+                $out[] = ['key' => $key, 'tone' => $tone, 'name' => Words::INVOICES['group_' . $key], 'rows' => $by[$key]];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * `show` (the board's one Show menu, PV18): open (the default), all, cancelled; an old `cancelled=1` link is "all".
+     *
+     * @return array{q: string, state: ?string, supplier: ?int, match: ?string, cancelled: bool, show: string}
+     */
     private static function filters(UiRequest $req): array
     {
         $state = $req->param('state');
         $match = $req->param('match');
+        $show = $req->param('show');
         return [
+            'show' => $show === 'all' || $show === 'cancelled' ? $show : ($req->param('cancelled') === '1' ? 'all' : 'open'),
             'q' => mb_substr(trim((string) $req->param('q')), 0, 100),
             'state' => $state !== null && in_array($state, SupplierInvoices::STATES, true) ? $state : null,
             'supplier' => UiRequest::id($req->param('supplier')),
@@ -727,13 +777,40 @@ final class InvoicesController
      * @param array<string, mixed> $r SupplierInvoices::list() row
      * @return array<string, mixed>
      */
-    private function listRow(string $kind, array $r, int $creditedE2 = 0): array
+    private function listRow(string $kind, array $r, int $creditedE2 = 0, ?array $refs = null, string $today = ''): array
     {
         $status = (string) $r['status'];
         $reversal = $r['reverses_id'] !== null;
-        $owed = $kind === 'invoice' && !$reversal && $status === 'posted' && $r['gross_total'] !== null
-            ? Html::money(InvoiceMath::fromE2(InvoiceMath::e2((string) $r['gross_total']) - $creditedE2)) : null;
+        $owedE2 = $kind === 'invoice' && !$reversal && $status === 'posted' && $r['gross_total'] !== null ? InvoiceMath::e2((string) $r['gross_total']) - $creditedE2 : null;
+        $owed = $owedE2 === null ? null : Html::money(InvoiceMath::fromE2($owedE2));
+        $look = !$reversal && $status === 'posted' && $r['match_state'] === 'needs_review';
+        // The board (PV18): its group, the status cell's words and colour, the match as a soft tag, a due date passed with money owed.
+        $group = match (true) {
+            $reversal || in_array($status, ['cancelled', 'reversed'], true) => 'cancelled',
+            $look => 'look',
+            $status === 'posted' => 'final',
+            default => 'draft',
+        };
+        $off = (int) ($r['match_lines_off'] ?? 0);
+        $tag = match (true) {
+            $kind !== 'invoice' || $group === 'cancelled' => null,
+            $status !== 'posted' => ['tone' => '', 'text' => Words::INVOICES['tag_unchecked']],
+            $r['match_state'] === 'needs_review' => ['tone' => 'warn', 'text' => Words::say('INVOICES', $off === 1 ? 'tag_diff_one' : 'tag_diff_many', max(1, $off))],
+            $r['match_state'] === 'accepted' => ['tone' => 'ok', 'text' => Words::INVOICES['tag_accepted']],
+            $r['match_state'] === null => null,
+            default => ['tone' => 'ok', 'text' => Words::INVOICES['tag_matches']],
+        };
+        $ref = $refs === null ? null : ($refs['po'] ?? $refs['grn']);
+        $due = ($r['due_date'] ?? null) === null || $reversal ? null : (string) $r['due_date'];
         return [
+            'group' => $group,
+            'cell_tone' => $look ? 'needs' : ($reversal ? 'off' : Words::tone('DOC_STATUS', $status)),
+            'cell_word' => $look ? Words::INVOICES['needs_look'] : ($reversal ? Words::INVOICES['reversal'] : Words::of('DOC_STATUS', $status)),
+            'tag' => $tag,
+            'title' => $r['external_ref'] !== null && $r['external_ref'] !== '' ? (string) $r['external_ref'] : ($r['number'] ?? Words::INVOICES['no_number_yet']),
+            'refs' => implode(' · ', array_values(array_filter([$ref, $r['external_ref'] !== null && $r['external_ref'] !== '' ? $r['number'] : null,
+                $reversal ? Words::say('STOCK_OPS', 'cancels', (string) ($r['reverses_number'] ?? '')) : null], static fn (?string $v): bool => $v !== null && $v !== ''))),
+            'late' => $due !== null && $today !== '' && $due < $today && $owedE2 !== null && $owedE2 > 0,
             'href' => SupplierInvoices::PATHS[$kind] . '/' . (int) $r['id'],
             'number' => $r['number'] === null ? Words::STOCK_OPS['no_number'] : (string) $r['number'],
             'sub' => $reversal ? Words::say('STOCK_OPS', 'cancels', (string) ($r['reverses_number'] ?? '')) : (string) ($r['external_ref'] ?? ''),
@@ -810,14 +887,25 @@ final class InvoicesController
      * @param array<string, mixed> $rec
      * @return list<array{label: string, value: string, href?: string}>
      */
-    private static function docFacts(array $rec, Document $doc, string $kind): array
+    private static function docFacts(array $rec, Document $doc, string $kind, array $lines = []): array
     {
+        // The order(s) and delivery(ies) it is for (PV19), each a link.
+        $for = [];
+        foreach ($lines as $l) {
+            if (($l['po_number'] ?? null) !== null) {
+                $for['po:' . $l['po_document_id']] = ['text' => (string) $l['po_number'], 'href' => '/ui/purchasing/orders/' . (int) $l['po_document_id']];
+            }
+            if (($l['grn_number'] ?? null) !== null) {
+                $for['grn:' . $l['grn_document_id']] = ['text' => (string) $l['grn_number'], 'href' => '/ui/receiving/' . (int) $l['grn_document_id']];
+            }
+        }
         $by = static fn (?string $at, ?string $who): ?string => $at === null ? null : Words::say('STOCK_OPS', 'by', Html::when($at), (string) ($who ?? Words::RECORD['by_cw']));
         $base = SupplierInvoices::PATHS[$kind];
         $rows = [
             ['label' => Words::INVOICE_KIND[$kind]['number'], 'value' => $doc->externalRef],
             ['label' => Words::INVOICE_KIND[$kind]['date'], 'value' => $doc->docDate === null ? null : Html::day($doc->docDate)],
             ['label' => Words::PI_ONE['due'], 'value' => $kind === 'invoice' && ($rec['due_date'] ?? null) !== null ? Html::day((string) $rec['due_date']) : null],
+            ['label' => Words::DOC['for'], 'value' => $for === [] ? null : implode(' · ', array_column($for, 'text')), 'links' => $for === [] ? null : array_values($for)],
             ['label' => Words::INVOICES['credits'], 'value' => $kind === 'credit_note' ? ($rec['credits_number'] === null ? Words::INVOICES['on_account'] : (string) $rec['credits_number']) : null,
                 'href' => $kind === 'credit_note' && $rec['credits_document_id'] !== null ? '/ui/purchasing/invoices/' . (int) $rec['credits_document_id'] : null],
             ['label' => Words::INVOICES['debit_note'], 'value' => $kind === 'credit_note' && $rec['debit_note_number'] !== null ? (string) $rec['debit_note_number'] : null,
@@ -834,6 +922,52 @@ final class InvoicesController
         ];
         return array_values(array_map(static fn (array $r): array => array_filter($r, static fn (mixed $v): bool => $v !== null),
             array_filter($rows, static fn (array $r): bool => $r['value'] !== null && $r['value'] !== '')));
+    }
+
+    /**
+     * The differences panel of an invoice whose match is off (PV19, the approved design), from the match as it stands (no new rule): per goods
+     * line the units ordered (its order line), received (its delivery line's accepted units), invoiced, the order's price a unit (else the
+     * delivery's), the invoice's, and the money charged over; the cells the match finds different are marked (`diff`).
+     *
+     * @param list<array<string, mixed>> $lines SupplierInvoices::lines()
+     * @param array<string, mixed> $match InvoiceMatch::compute()
+     * @return array{title: string, total: string, rows: list<array<string, mixed>>}
+     */
+    private static function diffPanel(Context $ctx, array $lines, array $match): array
+    {
+        $ordered = [];
+        $received = [];
+        foreach (array_unique(array_filter(array_map(static fn (array $l): ?int => $l['po_document_id'], $lines))) as $po) {
+            foreach ($ctx->db->all('SELECT line_no, qty, unit_cost FROM document_line WHERE document_id = ?', [$po]) as $r) {
+                $ordered[$po . ':' . $r['line_no']] = $r;
+            }
+        }
+        foreach (array_unique(array_filter(array_map(static fn (array $l): ?int => $l['grn_document_id'], $lines))) as $grn) {
+            foreach ($ctx->db->all('SELECT line_no, accepted_units FROM grn_line WHERE document_id = ?', [$grn]) as $r) {
+                $received[$grn . ':' . $r['line_no']] = (int) $r['accepted_units'];
+            }
+        }
+        $unit = static fn (?string $v): ?string => $v === null ? null : Html::money(rtrim(rtrim($v, '0'), '.'));
+        $rows = [];
+        foreach ($lines as $l) {
+            if ($l['kind'] !== 'goods') {
+                continue;
+            }
+            $m = $match['lines'][(int) $l['line_no']] ?? [];
+            $why = (array) ($m['why'] ?? []);
+            $o = $l['po_document_id'] === null ? null : ($ordered[$l['po_document_id'] . ':' . $l['po_line_no']] ?? null);
+            $ref = $o !== null ? $unit((string) $o['unit_cost']) : (($m['ref_unit_e6'] ?? null) === null ? null : $unit(\CW\PurchaseOrders\PoMath::fromE6((int) $m['ref_unit_e6'])));
+            $diff = (int) ($m['diff_e2'] ?? 0);
+            $qty = array_intersect($why, ['qty_over', 'no_delivery', 'delivery_reversed']) !== [];
+            $price = array_intersect($why, ['price_over', 'price_under']) !== [];
+            $rows[] = ['name' => (string) ($l['name'] ?? ''), 'code' => (string) ($l['code'] ?? ''),
+                'ordered' => $o === null ? null : (int) $o['qty'], 'received' => $l['grn_document_id'] === null ? null : ($received[$l['grn_document_id'] . ':' . $l['grn_line_no']] ?? 0),
+                'invoiced' => (int) $l['qty'], 'ref' => $ref, 'ref_delivery' => $o === null && $ref !== null, 'price' => $unit($l['unit_cost'] === null ? null : (string) $l['unit_cost']),
+                'diff' => $diff === 0 ? null : Html::money(InvoiceMath::fromE2($diff)), 'qty_off' => $qty, 'price_off' => $price];
+        }
+        $off = (int) $match['lines_off'];
+        return ['title' => $off === 1 ? Words::DOC['diff_one'] : Words::say('DOC', 'diff_many', $off),
+            'total' => Words::say('DOC', 'diff_total', Html::money(InvoiceMath::fromE2((int) $match['difference_e2']))), 'rows' => $rows];
     }
 
     /**

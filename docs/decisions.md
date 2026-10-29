@@ -12173,14 +12173,14 @@ Due date and Balance (the total less the final credit notes: `SupplierInvoices::
 orders Expected. One search box (orders: now the supplier's name too), a status select, "+ New …" at the right; a row opens its paper (a
 stretched link). The URL's other filters (supplier, match, stopped; sent back, with the cancellation records) ride as hidden fields, so a
 search keeps them (the Codex review of 6418b15, finding 7). The order list's grouping by state with group totals and its "how it works" fold are gone; drafts stay hidden for goods in
-and the desk (behaviour item 8); the URL's other filters still work.
+and the desk (behaviour item 8); the URL's other filters still work. (Amended by PV18: the lists are boards grouped by status.)
 
 **PV12. The saved document.** Its actions in one bar at the top (`.doc-actions`; a step that needs a reason or a choice is a fold that opens
 under the bar), the supplier's block beside the facts (`doc_party`), the lines, the totals on the right (`doc_totals`), then the rest as
 before. An invoice: accept the differences (`invoices.accept`), book its credit note, take it back, attach a file, cancel it. An order:
 Confirm, Take back, Send, the PDF, "Receive the goods" (Goods In's new delivery with the order chosen: `?po=`, `doc.GRN.post`), "Record its
 invoice" (PV1, `doc.SINV.post`), Copy, Correct, Close, Reopen, Cancel. The short help lines under the order's actions and the big buttons'
-second lines are left out (the owner's "no help paragraphs").
+second lines are left out (the owner's "no help paragraphs"). (Amended by PV19: the next step in the accent, the rest under More.)
 
 **PV13. The order's page in the same look, behaving as before.** The head fields in the shared grid, the board with its headings, the totals
 on the right, the bar at the bottom (`doc_bar` inside the summary section, which is `display: contents`, so the bar sticks for the whole
@@ -12237,3 +12237,63 @@ item chosen lost through "+ Add new supplier"), finding 7 (a search dropped the 
 `testFromADeliveryOrAnOrderFillsTheLinesAndAnotherSuppliersIsRefused`, `testTheItemChosenGoesThroughANewSupplier`,
 `testASearchKeepsTheOtherFilters`; the due date's script: `UiUnitTest::testTheInvoicePageUsesTheOrdersDropdownsAndTheSharedLayout` and the
 node harness (the old script filled a date the person had cleared again, and overwrote a saved date when the invoice date changed).
+
+## The approved design: boards, saved documents and the new pages (branch `pi-one-page`, second commit, 29 Oct 2026; PV18-PV20)
+
+The owner said "yes" to the Claude Design canvas on 29 Oct 2026 ("monday.com design style and color follow"; the canvas pages Main = the
+order list, PO_New, PO_View, PI_List, PI_New, PI_View, PI_New_Phone). Its layout is copied into plain shared classes in `app.css` (the block
+"pi-design"), with CW's own tokens (the `--st-*` status colours through the tone classes' `--t-fill`, the magenta accent) and no inline
+style (CSP); every word is in `Words`. No rule, route, permission or posting changed; the PO page's PX1-PX11 behaviour and words are as they
+were (only where things sit). The sales invoice pages (SI_*) are not built.
+
+**PV18. A list is a board grouped by status.** Each group is a coloured heading with its count (it folds: app.js's `.grp-toggle`), over a
+white card with the group's colour on a 6 px left edge; the status cell is filled with its colour, white words, centred (about 160 px); the
+last row of the Draft group is "+ New ...". The toolbar has one search and one Show menu (no chips, no state select); the URL's other filters
+(status, supplier, match, stopped, sent back) still work and ride with a search as hidden fields (PV11, finding 7).
+- Orders (`PurchaseOrdersController::BOARD`, `boardGroups()`): Waiting for approval (purple), On the way = confirmed, sent and part received
+  (blue; each status cell keeps its own colour), Draft (grey), Received or closed (green: delivered or closed within `po.board_recent_days`
+  days, read on `purchase_order.updated_at`). Show: Open orders (the default), All orders (every order and the cancellation records: the old
+  `show=all`), Closed and cancelled. Columns: Order (number and date), Status, Supplier, Expected, Received (a thin bar and "160 / 240"),
+  Total (with VAT). The CSV keeps its own default (every order but the cancellation records); Show's "all" and "closed" narrow it the same way.
+  Behaviour item 8 (goods in and the desk see no drafts unless they ask) holds.
+- **The setting `po.board_recent_days`** (migration 0053; 14, 1-365, provisional, decided here): how long a delivered or closed order stays on
+  the open board. The owner's rule (no hard-coded number): it is on the Settings page with a reason. The code reads it with a default of 14,
+  so the code may run a moment before the migration.
+- Supplier invoices (`InvoicesController::BOARD`, `boardGroups()`): Needs a look (amber: final, the 3-way match needs review), Draft (grey),
+  Final (green); cancelled and reversed ones and their records only under Show (Open / All / Cancelled; the old `cancelled=1` still means
+  All). No Overdue or Paid group and no money summary (payments are not in CW). Columns: Invoice (the supplier's number; under it the order or
+  delivery it is for, `SupplierInvoices::refsOf`, one read for the page), Status, Supplier, Match (a soft tag: Matches / N differences /
+  Accepted / Not checked yet, from the stored match), Due (red when passed and a balance is left: `td.late`), Total, Balance. Credit notes:
+  the same board with Credit note / Status / Supplier / Reduces / Total.
+
+**PV19. A saved order or invoice.** Its status is a solid block with 8 px corners beside the title (`.doc-head`); a second state (the order's
+reviewer check, the invoice's match) is a soft tag beside it. One action bar on the right: the next step in the accent, the rest under
+"More" (`details.doc-more`, a menu; a step that needs a reason or a choice still opens its fold). The choice is fixed in code and changes no
+permission: an order's next step is Confirm, else Send (confirmed, not sent), Receive the goods, Record its invoice, Take back, Send again,
+Copy (`PurchaseOrdersController::actions()`); an invoice's is Accept the differences (needs a look), else Take back, Book the credit note,
+Attach a file (`InvoicesController::page()`). The partials `po_action` and `si_action` draw one action either way, with the forms, fields and
+routes the pages had.
+- The order's progress strip (`.doc-progress`): Ordered; Received ("0 of 3" and a bar); Invoiced (the final invoices' goods units on this
+  order, net of their credit notes: one indexed read on `ix_sinv_line_po`; a bar); Expected and "N still to come". Not for a draft or a
+  cancelled order.
+- The invoice that needs a look starts with the differences panel (`.doc-diff`, amber left edge): "N lines differ from what was ordered and
+  received", the total difference, and a 3-way table (Item, Ordered, Received, Invoiced, Order price, Invoice price, Difference) with the
+  cells that differ tinted (`td.diff`). It shows the stored match (`InvoiceMatch`'s lines, the order's and delivery's figures): no new rule.
+  The old match section below the paper is folded into it.
+- Then the paper (`article.doc-view`): the supplier's block, the facts (dates, For the order / the delivery as links, Entered by), the
+  Balance large on the right (`doc_party`'s `big`), the lines, the notes and files with the dashed attach box, the totals; the history last.
+
+**PV20. The new pages.** "From" has its own full-width row with a soft "Fill the lines" button (`.btn.soft`); under the due date a hint
+says where it came from ("From the supplier's terms: 30 days.", app.js keeps it with the supplier chosen; hidden without terms); the attach
+box is a dashed drop area (`.doc-drop`; a plain file input, no drag script). On a phone the lines are stacked cards with Qty, Price and
+Amount side by side, and the bottom bar's two buttons are equal.
+
+Tests (red first: `runs/pione_design_red.log`, on the first commit): `InvoiceOnePageScreensTest::testThePurchaseOrderScreensShareTheLook`
+(the board's groups, colours, columns, the status cell, received of ordered, "+ New" in Draft, Show and what it shows, the saved order's
+status block, next step, More, PDF, progress strip), `testADuplicateNumberIsRefusedAndMakingItFinalKeepsTheMatch` (the invoice board before
+and after the differences are accepted, the match tag, a passed due date in red; the saved invoice's differences panel, its 3-way headings and
+tinted cells, Accept as the next step, More, the balance, the status block), `testWithoutTheScriptThePageIsPlainFormsAndTheBoxesAreReady` ("From"'s row, the
+drop area, the terms hint), `testASearchKeepsTheOtherFilters` (Show is the toolbar's own menu now), `Migration0053Test`,
+`UiUnitTest::testTheBoardsAndTheDocumentsFollowTheApprovedDesign` (the CSS pins, the hint's script, and the shared pieces close every tag
+they open: a stray `</div>` in `po_action` had pushed the next step out of the bar), `WordsTest`, `UiTemplatesTest` (the two new partials).
+The node harness (`runs/pione_js_harness/`) also checks the hint: 18/18 pass (`runs/pione_js_design.log`).

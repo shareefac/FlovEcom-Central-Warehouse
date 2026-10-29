@@ -1,11 +1,15 @@
 <?php
-// A purchase order, read like a document (docs/decisions.md PV, Zoho Inventory's purchase order as the layout; the order's rules and
-// actions as before): its actions in one bar at the top (confirm, take back, send, the PDF, receive, record its invoice, copy, correct,
-// close, reopen, cancel; a step that needs a reason or a choice opens under the bar), the supplier's block beside its facts, the lines,
-// the totals on the right with its files to download, then its files and the history of its checks.
+// A purchase order, read like a document (docs/decisions.md PV12, PV19: the owner's approved design; the order's rules and actions as
+// before): its status a solid block beside the title, one action bar (the next step in the accent: confirm, send, receive the goods, record
+// its invoice, take it back or copy; the others under More: the PDF, correct, close, reopen, cancel ...; a step that needs a reason or a
+// choice opens under the bar: po_action), the progress strip (ordered, received, invoiced, expected and what is still to come), the
+// supplier's block beside its facts, the lines, the totals on the right with its files to download, then its files and its history.
 ?>
 <p class="crumbs"><a href="/ui/purchasing/orders"><?= $word('MENU', 'orders') ?></a></p>
-<?= $head($title, intro: 'order', meta: $stateChip('PO_STATE', $state) . ($doc->reviewState !== null && $doc->reviewState !== 'not_required' ? ' ' . $stateChip('REVIEW_STATE', $doc->reviewState) : '')) ?>
+<div class="doc-head">
+<?= $head($title, intro: 'order', meta: $stateChip('PO_STATE', $state) . ($doc->reviewState !== null && $doc->reviewState !== 'not_required'
+    ? ' <span class="tag band ' . $e(\CW\Ui\Words::tone('REVIEW_STATE', $doc->reviewState)) . '">' . $e(\CW\Ui\Words::of('REVIEW_STATE', $doc->reviewState)) . '</span>' : '')) ?>
+</div>
 <?php if ($error !== null): ?>
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
@@ -70,138 +74,32 @@
 <?php endforeach; ?>
 
 <div class="doc-actions" role="group" aria-label="<?= $word('DOC', 'actions') ?>">
-<?php if ($can['approve']): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/approve') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
-    <button type="submit" class="btn primary sm"><?php if ($overLimit): ?><?= $word('PO', 'confirm_over_limit') ?><?php else: ?><?= $word('ORDER', 'confirm_draft') ?><?php endif; ?></button>
-  </form>
-<?php endif; ?>
-<?php if ($can['withdraw']): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/withdraw') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
-    <button type="submit" class="btn secondary sm"><?= $word('ORDER', 'withdraw') ?></button>
-  </form>
-<?php endif; ?>
-<?php if ($can['send']): ?>
-  <details class="doc-act"<?php if ($state === 'approved'): ?> open<?php endif; ?>>
-    <summary class="btn <?php if ($state === 'approved'): ?>primary<?php else: ?>secondary<?php endif; ?> sm"><?php if ($state === 'sent'): ?><?= $word('ORDER', 'send_again_open') ?><?php else: ?><?= $word('ORDER', 'send') ?><?php endif; ?></summary>
-    <div class="doc-act-panel">
-      <p class="hint"><?= $word('PO', 'no_email') ?></p>
-      <form class="record" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/send') ?>">
-        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-        <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
-        <label><?= $word('PO', 'send_how') ?>
-          <select name="via">
-<?php foreach ($sendVia as $code => $label): ?>
-            <option value="<?= $e($code) ?>"><?= $e($label) ?></option>
+<?php if ($moreActions !== []): ?>
+  <details class="doc-more">
+    <summary class="btn secondary sm"><?= $word('DOC', 'more') ?></summary>
+    <div class="doc-more-menu">
+<?php foreach ($moreActions as $a): ?>
+<?= $partial('po_action', ['a' => $a, 'primary' => false, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit, 'supplier' => $supplier, 'sendVia' => $sendVia,
+    'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey, 'cancelReasons' => $cancelReasons,
+    'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]) ?>
 <?php endforeach; ?>
-          </select>
-        </label>
-        <label><?= $word('ORDER', 'send_to') ?> <input type="text" name="to" maxlength="191" value="<?= $e($supplier['email'] ?? '') ?>"></label>
-<?php if ($sendWarnings !== []): ?>
-        <div class="note">
-          <p><strong><?= $word('ORDER', 'send_stop') ?></strong></p>
-          <p><span class="warnings"><?php foreach ($sendWarnings as $w): ?><?= $e($w) ?> <?php endforeach; ?><?php if ($sendCompany): ?><a href="/ui/reference/company"><?= $word('ORDER', 'company_see') ?></a><?php endif; ?></span></p>
-<?php if ($sendCompany): ?>
-          <p><?= $word('ORDER', 'send_better') ?></p>
-<?php endif; ?>
-        </div>
-        <label class="choice"><input type="checkbox" name="send_anyway" value="1" required> <?= $word('ORDER', 'send_anyway') ?></label>
-<?php endif; ?>
-        <p class="actions"><button type="submit" class="primary"><?php if ($state === 'sent'): ?><?= $word('PO', 'send_again') ?><?php else: ?><?= $word('PO', 'sent') ?><?php endif; ?></button></p>
-      </form>
     </div>
   </details>
 <?php endif; ?>
-  <a class="btn secondary sm" href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/pdf') ?>"><?php if ($doc->status === 'posted' && $companyNote !== null): ?><?= $word('ORDER', 'pdf_hold') ?><?php elseif ($doc->status === 'posted'): ?><?= $word('ORDER', 'pdf') ?><?php else: ?><?= $word('ORDER', 'pdf_draft') ?><?php endif; ?></a>
-<?php if ($canReceive): ?>
-  <a class="btn secondary sm" href="<?= $u('/ui/receiving', ['po' => $doc->id]) ?>#new"><?= $word('ORDER', 'receive') ?></a>
-<?php endif; ?>
-<?php if ($canInvoice): ?>
-  <a class="btn secondary sm" href="<?= $u('/ui/purchasing/invoices/new', ['supplier' => (int) ($supplier['id'] ?? 0), 'from' => 'po:' . $doc->id]) ?>"><?= $word('ORDER', 'record_invoice') ?></a>
-<?php endif; ?>
-<?php if ($can['copy']): ?>
-  <form class="inline" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/copy') ?>">
-    <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-    <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
-    <button type="submit" class="btn secondary sm"><?= $word('ORDER', 'copy') ?></button>
-  </form>
-<?php endif; ?>
-<?php if ($can['amend']): ?>
-  <details class="doc-act"<?php if ($reasonError === 'amend'): ?> open<?php endif; ?>>
-    <summary class="btn secondary sm"><?= $word('ORDER', 'correct') ?></summary>
-    <div class="doc-act-panel">
-      <p class="hint"><?= $word('ORDER', 'correct_does') ?></p>
-      <form class="record" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/amend') ?>">
-        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-        <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
-        <label><?= $word('ORDER', 'correct_why') ?>
-          <select name="reason_code" required<?php if (($reasonError ?? null) === 'amend'): ?> aria-invalid="true"<?php endif; ?>>
-            <option value=""><?= $word('ORDER', 'choose_reason') ?></option>
-<?php foreach ($amendReasons as $r): ?>
-            <option value="<?= $e($r['code']) ?>"><?= $e($r['label']) ?></option>
-<?php endforeach; ?>
-          </select>
-        </label>
-        <label><?= $word('ORDER', 'cancel_note') ?> <input type="text" name="note" maxlength="400"></label>
-        <p class="actions"><button type="submit"><?= $word('ORDER', 'correct_button') ?></button></p>
-      </form>
-    </div>
-  </details>
-<?php endif; ?>
-<?php if ($can['close']): ?>
-  <details class="doc-act">
-    <summary class="btn secondary sm"><?= $word('ORDER', 'close') ?></summary>
-    <div class="doc-act-panel">
-      <p class="hint"><?= $word('ORDER', 'close_does') ?></p>
-      <form class="record" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/close') ?>">
-        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-        <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
-        <label><?= $word('ORDER', 'close_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
-        <p class="actions"><button type="submit"><?= $word('ORDER', 'close_button') ?></button></p>
-      </form>
-    </div>
-  </details>
-<?php endif; ?>
-<?php if ($can['reopen']): ?>
-  <details class="doc-act"<?php if ($errorCode === 'reopen_reason_required'): ?> open<?php endif; ?>>
-    <summary class="btn secondary sm"><?= $word('ORDER', 'reopen') ?></summary>
-    <div class="doc-act-panel">
-      <p class="hint"><?= $word('ORDER', 'reopen_does') ?></p>
-      <form class="record" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/reopen') ?>">
-        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-        <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
-        <label><?= $word('ORDER', 'reopen_why') ?> <input type="text" name="reason" minlength="3" maxlength="500" required></label>
-        <p class="actions"><button type="submit"><?= $word('ORDER', 'reopen_button') ?></button></p>
-      </form>
-    </div>
-  </details>
-<?php endif; ?>
-<?php if ($can['cancel']): ?>
-  <details class="doc-act"<?php if ($reasonError === 'cancel'): ?> open<?php endif; ?>>
-    <summary class="btn danger-outline sm"><?= $word('ORDER', 'cancel') ?></summary>
-    <div class="doc-act-panel">
-      <p class="hint"><?php if ($doc->status === 'draft'): ?><?= $word('ORDER', 'cancel_draft_does') ?><?php elseif ($doc->status === 'awaiting_approval'): ?><?= $word('ORDER', 'cancel_request_does') ?><?php else: ?><?= $word('ORDER', 'cancel_does') ?><?php endif; ?></p>
-      <form class="record" method="post" action="<?= $u('/ui/purchasing/orders/' . $doc->id . '/cancel') ?>">
-        <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
-        <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
-        <label><?= $word('ORDER', 'cancel_why') ?>
-          <select name="reason_code" required<?php if (($reasonError ?? null) === 'cancel'): ?> aria-invalid="true"<?php endif; ?>>
-            <option value=""><?= $word('ORDER', 'choose_reason') ?></option>
-<?php foreach ($cancelReasons as $r): ?>
-            <option value="<?= $e($r['code']) ?>"><?= $e($r['label']) ?></option>
-<?php endforeach; ?>
-          </select>
-        </label>
-        <label><?= $word('ORDER', 'cancel_note') ?> <input type="text" name="note" maxlength="400"></label>
-        <p class="actions"><button type="submit" class="danger"><?= $word('ORDER', 'cancel_button') ?></button></p>
-      </form>
-    </div>
-  </details>
+<?php if ($mainAction !== null): ?>
+<?= $partial('po_action', ['a' => $mainAction, 'primary' => true, 'doc' => $doc, 'state' => $state, 'overLimit' => $overLimit, 'supplier' => $supplier, 'sendVia' => $sendVia,
+    'sendWarnings' => $sendWarnings, 'sendCompany' => $sendCompany, 'companyNote' => $companyNote, 'formKey' => $formKey, 'cancelReasons' => $cancelReasons,
+    'amendReasons' => $amendReasons, 'reasonError' => $reasonError, 'errorCode' => $errorCode]) ?>
 <?php endif; ?>
 </div>
+<?php if ($progress !== null): ?>
+<section class="doc-progress" aria-label="<?= $word('DOC', 'progress') ?>">
+  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'ordered') ?></p><p class="doc-step-big"><?= $n($progress['ordered']) ?></p></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'received') ?></p><p class="doc-step-big"><?= $say('DOC', 'of', $progress['received'], $progress['ordered']) ?></p><progress class="done" max="<?= $e(max(1, $progress['ordered'])) ?>" value="<?= $e(min($progress['received'], $progress['ordered'])) ?>"></progress></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'invoiced') ?></p><p class="doc-step-big"><?= $say('DOC', 'of', $progress['invoiced'], $progress['received']) ?></p><progress class="review" max="<?= $e(max(1, $progress['received'])) ?>" value="<?= $e(min($progress['invoiced'], max(1, $progress['received']))) ?>"></progress></div>
+  <div class="doc-step"><p class="doc-step-label"><?= $word('DOC', 'expected') ?></p><p class="doc-step-big"><?php if ($progress['expected'] !== null): ?><?= $day($progress['expected']) ?><?php endif; ?></p><?php if ($progress['to_come'] > 0): ?><p class="muted"><?= $say('DOC', 'to_come', $progress['to_come']) ?></p><?php endif; ?></div>
+</section>
+<?php endif; ?>
 
 <article class="doc-view" aria-labelledby="lines-h">
 <?= $partial('doc_party', ['party' => $party, 'facts' => $docFacts]) ?>

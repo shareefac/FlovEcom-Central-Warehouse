@@ -101,11 +101,14 @@ final class PurchaseOrdersController
         $draftsOff = self::draftsOffByDefault($me->roles);
         $f = self::filters($ctx->req, $draftsOff);
         $canPost = Documents::mayPost($me->roles, 'PO');
-        $rows = array_map(static fn (array $r): array => self::screenRow($r, $canPost), $this->rows($ctx, $f, self::LIST_LIMIT));
+        $recent = $ctx->settings()->has('po.board_recent_days') ? (int) $ctx->settings()->get('po.board_recent_days') : 14;
+        $rows = array_map(static fn (array $r): array => self::screenRow($r, $canPost), $this->rows($ctx, $f, self::LIST_LIMIT, $recent));
         return $ctx->page('purchase_orders', [
             'rows' => $rows,
+            // The board (the owner's approved design, docs/decisions.md PV18): the groups in their order, each with its colour.
+            'groups' => self::boardGroups($rows),
             'filters' => $f,
-            'filtered' => $f['state'] !== null || $f['supplier'] !== null || $f['q'] !== '' || $f['rejected'] || $f['all'],
+            'filtered' => $f['state'] !== null || $f['supplier'] !== null || $f['q'] !== '' || $f['rejected'] || $f['all'] || $f['view'] !== 'open',
             // Behaviour item 8 (F305, provisional): goods-in and the purchasing desk do not see drafts unless they ask for them.
             'draftsChoice' => $draftsOff,
             'draftsHidden' => !$f['drafts'] && $f['state'] === null,
@@ -159,10 +162,43 @@ final class PurchaseOrdersController
             'size_line' => $lines === 1 ? Words::ORDERS['products_one'] : Words::say('ORDERS', 'products_many', $lines),
             'items_line' => Words::say('ORDERS', 'items', (int) $r['units']),
             'total' => $cancellation ? null : Html::money($r['net_total']),
+            'gross' => $cancellation || ($r['gross_total'] ?? null) === null ? null : Html::money($r['gross_total']),
+            'received' => (int) ($r['received'] ?? 0),
             'check' => $r['review_state'] === null ? null : Words::of('CHECK_STATE', (string) $r['review_state']),
             'check_tone' => Words::tone('REVIEW_STATE', $r['review_state'] === null ? null : (string) $r['review_state']),
             'sent_line' => $r['sent_at'] === null ? null : Words::say('ORDERS', 'sent_on', Html::when((string) $r['sent_at']), lcfirst(Words::of('SEND_VIA', (string) $r['sent_via']))),
         ];
+    }
+
+    /** The board's groups (PV18), in their order, with their tone and words: waiting for approval, on the way, draft, received or closed, cancelled. */
+    public const BOARD = ['waiting' => 'review', 'on_way' => 'info', 'draft' => 'waiting', 'done' => 'done', 'cancelled' => 'off'];
+
+    /**
+     * The board's groups of these rows (PV18): each row to its group by its state, the groups in BOARD's order, only those with rows.
+     *
+     * @param list<array<string, mixed>> $rows screenRow() rows
+     * @return list<array{key: string, tone: string, name: string, rows: list<array<string, mixed>>}>
+     */
+    public static function boardGroups(array $rows): array
+    {
+        $by = [];
+        foreach ($rows as $r) {
+            $g = $r['reverses_id'] !== null ? 'cancelled' : match ((string) $r['state_code']) {
+                'awaiting_approval' => 'waiting',
+                'approved', 'sent', 'part_received' => 'on_way',
+                'draft' => 'draft',
+                'received', 'closed' => 'done',
+                default => 'cancelled',
+            };
+            $by[$g][] = $r;
+        }
+        $out = [];
+        foreach (self::BOARD as $key => $tone) {
+            if (isset($by[$key])) {
+                $out[] = ['key' => $key, 'tone' => $tone, 'name' => Words::ORDERS['group_' . $key], 'rows' => $by[$key]];
+            }
+        }
+        return $out;
     }
 
     /** The PO_STATE code of a list row: the document's status until it is posted, then the order's own state. @param array<string, mixed> $r */
@@ -180,7 +216,9 @@ final class PurchaseOrdersController
         $csv = new CsvWriter([['number', 'text'], ['document_id', 'number'], ['supplier_code', 'text'], ['supplier', 'text'], ['order_date', 'text'],
             ['expected_date', 'text'], ['state', 'text'], ['lines', 'number'], ['units', 'number'], ['net', 'number'], ['vat', 'number'], ['gross', 'number'],
             ['review', 'text'], ['sent_at', 'text'], ['sent_via', 'text'], ['external_ref', 'text'], ['source', 'text'], ['created_by', 'text']]);
-        foreach ($this->rows($ctx, self::filters($ctx->req), null) as $r) {
+        $f = self::filters($ctx->req);
+        // The CSV keeps its default (every order but the cancellation records); "closed" and "all" of the board's Show menu narrow it the same way.
+        foreach ($this->rows($ctx, $f, null, $f['view'] === 'open' ? null : 0) as $r) {
             $csv->add([$r['label'], (int) $r['id'], $r['supplier_code'], $r['supplier_name'], $r['doc_date'], $r['expected_date'], $r['state_label'], (int) $r['lines'],
                 (int) $r['units'], $r['net_total'], $r['vat_total'], $r['gross_total'], $r['review_state'], $r['sent_at'], $r['sent_via'], $r['external_ref'],
                 $r['source'], $r['created_by_name']]);
@@ -1087,10 +1125,60 @@ final class PurchaseOrdersController
         $data += $this->viewData($ctx, $doc, $po, $canPost, $supplierName);
         // The saved order read like a document (docs/decisions.md PV): the shared head and totals, and the next papers' ways in.
         $receivable = $doc->status === 'posted' && in_array($state, ['approved', 'sent', 'part_received'], true);
+        $canReceive = $receivable && Documents::mayPost($me->roles, 'GRN');
+        $canInvoice = $receivable && Documents::mayPost($me->roles, 'SINV');
+        [$main, $more] = self::actions($data['can'], $state, $canReceive, $canInvoice);
         return $ctx->page('purchase_order', $data + self::docView($data, $doc, $po, $supplier, $supplierName) + [
-            'canReceive' => $receivable && Documents::mayPost($me->roles, 'GRN'),
-            'canInvoice' => $receivable && Documents::mayPost($me->roles, 'SINV'),
+            'canReceive' => $canReceive,
+            'canInvoice' => $canInvoice,
+            'mainAction' => $main,
+            'moreActions' => $more,
+            'progress' => self::progress($ctx, $doc, $po, $state, (int) $data['units'], (int) $data['received']),
         ], $status, $layout);
+    }
+
+    /**
+     * The saved order's action bar (PV19, the approved design): the next step in the accent (confirm, send while not sent, receive the goods,
+     * record its invoice, take it back, copy), the others under More in a fixed order. The keys are po_action's.
+     *
+     * @param array<string, bool> $can viewData()'s
+     * @return array{0: ?string, 1: list<string>}
+     */
+    public static function actions(array $can, string $state, bool $canReceive, bool $canInvoice): array
+    {
+        $has = ['approve' => $can['approve'], 'withdraw' => $can['withdraw'], 'send' => $can['send'], 'receive' => $canReceive, 'invoice' => $canInvoice,
+            'pdf' => true, 'copy' => $can['copy'], 'amend' => $can['amend'], 'close' => $can['close'], 'reopen' => $can['reopen'], 'cancel' => $can['cancel']];
+        $main = match (true) {
+            $has['approve'] => 'approve',
+            $has['send'] && $state === 'approved' => 'send',
+            $has['receive'] => 'receive',
+            $has['invoice'] => 'invoice',
+            $has['withdraw'] => 'withdraw',
+            $has['send'] => 'send',
+            $has['copy'] => 'copy',
+            default => null,
+        };
+        $more = array_values(array_filter(array_keys($has), static fn (string $a): bool => $has[$a] && $a !== $main));
+        return [$main, $more];
+    }
+
+    /**
+     * The saved order's progress strip (PV19): units ordered, received, invoiced (the final invoices' goods lines on this order, net of their
+     * credit notes: one indexed read on ix_sinv_line_po), the expected date and what is still to come; none for a draft or a cancelled order.
+     *
+     * @param array<string, mixed> $po
+     * @return array{ordered: int, received: int, invoiced: int, expected: ?string, to_come: int}|null
+     */
+    private static function progress(Context $ctx, Document $doc, array $po, string $state, int $units, int $received): ?array
+    {
+        if ($doc->status !== 'posted' || $state === 'cancelled') {
+            return null;
+        }
+        $invoiced = (int) $ctx->db->value("SELECT COALESCE(SUM(IF(si.kind = 'invoice', dl.qty, -dl.qty)), 0) FROM sinv_line sl JOIN supplier_invoice si ON si.document_id = sl.document_id "
+            . "JOIN document d ON d.id = sl.document_id AND d.status = 'posted' JOIN document_line dl ON dl.document_id = sl.document_id AND dl.line_no = sl.line_no "
+            . "WHERE sl.po_document_id = ? AND sl.kind = 'goods'", [$doc->id]);
+        return ['ordered' => $units, 'received' => $received, 'invoiced' => max(0, $invoiced), 'expected' => ($po['expected_date'] ?? null) === null ? null : (string) $po['expected_date'],
+            'to_come' => in_array($state, ['approved', 'sent', 'part_received'], true) ? max(0, $units - $received) : 0];
     }
 
     /**
@@ -1547,12 +1635,17 @@ final class PurchaseOrdersController
      * The list's filters. `drafts`: whether drafts are listed (`?drafts=1` / `?drafts=0`); without either, every person sees them
      * except those $draftsOff names (draftsOffByDefault), and the CSV lists them unless `drafts=0` (the list's own link says so).
      *
-     * @return array{state: ?string, supplier: ?int, q: string, rejected: bool, all: bool, drafts: bool}
+     * `view` (the board's one Show menu, PV18; `show`): open (the default), all (every order, cancellation records too: the old `show=all`),
+     * closed (delivered, closed and cancelled). The CSV keeps its own default (every order but the cancellation records, as before).
+     *
+     * @return array{state: ?string, supplier: ?int, q: string, rejected: bool, all: bool, drafts: bool, view: string}
      */
     private static function filters(UiRequest $req, bool $draftsOff = false): array
     {
         $drafts = $req->param('drafts');
+        $show = $req->param('show');
         return [
+            'view' => $show === 'all' || $show === 'closed' ? $show : 'open',
             'state' => isset(self::STATE_FILTERS[$req->param('state') ?? '']) ? $req->param('state') : null,
             'supplier' => UiRequest::id($req->param('supplier')),
             'q' => mb_substr(trim($req->param('q') ?? ''), 0, 100),
@@ -1575,14 +1668,23 @@ final class PurchaseOrdersController
     }
 
     /**
-     * @param array{state: ?string, supplier: ?int, q: string, rejected: bool, all: bool, drafts: bool} $f
+     * @param array{state: ?string, supplier: ?int, q: string, rejected: bool, all: bool, drafts: bool, view: string} $f
+     * @param int|null $recent the board's days for "Received or closed" (PV18); null: the CSV, which keeps every order (no board view)
      * @return list<array<string, mixed>>
      */
-    private function rows(Context $ctx, array $f, ?int $limit): array
+    private function rows(Context $ctx, array $f, ?int $limit, ?int $recent = null): array
     {
         $where = ["d.doc_type = 'PO'"];
         $params = [];
-        if (!$f['all']) {
+        if ($recent !== null && $f['state'] === null && $f['view'] === 'open') {
+            // The open orders board: not finished, and delivered or closed within the setting's days; no cancelled order, no record of one.
+            $where[] = "(d.status IN ('draft', 'awaiting_approval') OR (d.status = 'posted' AND (po.state IN ('approved', 'sent', 'part_received') "
+                . "OR (po.state IN ('received', 'closed') AND po.updated_at >= UTC_TIMESTAMP(6) - INTERVAL ? DAY))))";
+            $params[] = max(1, $recent);
+        } elseif ($recent !== null && $f['state'] === null && $f['view'] === 'closed') {
+            $where[] = "(d.status IN ('cancelled', 'reversed') OR (d.status = 'posted' AND po.state IN ('received', 'closed', 'cancelled')))";
+        }
+        if (!$f['all'] && !($recent !== null && $f['view'] === 'all')) {
             $where[] = 'd.reverses_id IS NULL';
         }
         if (!$f['drafts'] && $f['state'] === null) {
@@ -1613,6 +1715,7 @@ final class PurchaseOrdersController
             . 'po.gross_total, po.sent_at, po.sent_via, po.source, s.id AS supplier_id, s.code AS supplier_code, s.name AS supplier_name, u.display_name AS created_by_name, '
             . 'o.number AS reverses_number, (SELECT COUNT(*) FROM document_line l WHERE l.document_id = d.id) AS `lines`, '
             . '(SELECT COALESCE(SUM(l.qty), 0) FROM document_line l WHERE l.document_id = d.id) AS units, '
+            . '(SELECT COALESCE(SUM(pl.received_units), 0) FROM po_line pl WHERE pl.document_id = d.id) AS received, '
             . "(SELECT r.number FROM document r WHERE r.reverses_id = d.id AND r.status = 'posted' LIMIT 1) AS cancelled_by, "
             . "(SELECT r.posted_at FROM document r WHERE r.reverses_id = d.id AND r.status = 'posted' LIMIT 1) AS cancelled_on "
             . 'FROM document d LEFT JOIN purchase_order po ON po.document_id = COALESCE(d.reverses_id, d.id) LEFT JOIN supplier s ON s.id = po.supplier_id '

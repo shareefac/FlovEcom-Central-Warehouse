@@ -49,7 +49,8 @@ final class Migration0010Test extends IntegrationTestCase
             array_map('strval', self::$db->column("SELECT code FROM reason_code WHERE FIND_IN_SET('reversal', applies_to) > 0 ORDER BY sort_order")));
         $s = array_column(self::$db->all("SELECT setting_key, value_type, CAST(value_json AS CHAR) AS v, provisional, decision FROM app_setting "
             . "WHERE setting_key LIKE 'po.%' ORDER BY setting_key"), null, 'setting_key');
-        self::assertSame(['po.default_vat_code', 'po.over_delivery_tolerance_pct', 'po.terms'], array_keys($s));
+        // 0053 (PV18) adds po.board_recent_days: how long a delivered or closed order stays on the open board (Migration0053Test).
+        self::assertSame(['po.board_recent_days', 'po.default_vat_code', 'po.over_delivery_tolerance_pct', 'po.terms'], array_keys($s));
         self::assertSame(['string', '"S"', 1, null], [$s['po.default_vat_code']['value_type'], $s['po.default_vat_code']['v'], (int) $s['po.default_vat_code']['provisional'],
             $s['po.default_vat_code']['decision']]);
         self::assertSame(['int', '10', 1, '11'], [$s['po.over_delivery_tolerance_pct']['value_type'], $s['po.over_delivery_tolerance_pct']['v'],

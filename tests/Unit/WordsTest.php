@@ -1015,6 +1015,17 @@ final class WordsTest extends TestCase
             self::assertArrayHasKey($k, Words::DOC_LIST, $k);
         }
         self::assertNotSame(Words::PO_ONE['save'], Words::PI_ONE['final'], 'the order\'s "Save" keeps a draft: the invoice\'s button that makes it final says so');
+        foreach (['group_waiting', 'group_on_way', 'group_draft', 'group_done', 'group_cancelled', 'show_open', 'show_all', 'show_closed'] as $k) {
+            self::assertArrayHasKey($k, Words::ORDERS, 'the order board: ' . $k);
+        }
+        foreach (['group_look', 'group_draft', 'group_final', 'group_cancelled', 'needs_look', 'tag_matches', 'tag_diff_one', 'tag_diff_many', 'tag_accepted',
+            'tag_unchecked', 'show_open', 'show_all', 'show_cancelled'] as $k) {
+            self::assertArrayHasKey($k, Words::INVOICES, 'the invoice board: ' . $k);
+        }
+        foreach (['ordered', 'received', 'invoiced', 'expected', 'of', 'to_come', 'diff_one', 'diff_many', 'item', 'price_order', 'price_invoice', 'difference'] as $k) {
+            self::assertArrayHasKey($k, Words::DOC, 'the saved document: ' . $k);
+        }
+        self::assertStringNotContainsString('aid', implode(' ', [Words::INVOICES['group_final'], Words::INVOICES['show_open']]), 'no "paid": CW does not know payments yet');
         foreach (['leave', 'sub_total', 'total', 'actions'] as $k) {
             self::assertArrayHasKey($k, Words::DOC, 'the shared document pieces\' words: ' . $k);
         }
