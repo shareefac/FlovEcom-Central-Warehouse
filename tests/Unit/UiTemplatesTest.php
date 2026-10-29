@@ -201,7 +201,7 @@ final class UiTemplatesTest extends TestCase
     {
         $templates = self::templates();
         foreach (['queue', 'listing', 'listing_form', 'listing_decide', 'pending', 'pending_actions', 'pending_decision', 'samples', 'sample', 'duplicates', 'duplicate_group',
-            'search', 'item', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result', 'by_product', 'by_product_map',
+            'search', 'item', 'item_bar', 'mapping_overview', 'store_products', 'store_seg', 'bulk_bar', 'bulk_confirm', 'bulk_result', 'by_product', 'by_product_map',
             'by_product_options', 'by_item_preview', 'new_variants', 'one_at_a_time', 'listing_check', 'check_fold', 'search_note', 'store_new_preview',
             'simple_match', 'simple_match_options'] as $name) {
             $src = $templates[$name . '.php'];

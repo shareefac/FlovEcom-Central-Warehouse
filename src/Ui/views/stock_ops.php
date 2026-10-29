@@ -47,7 +47,7 @@
 </details>
 
 <?php if ($formKey !== null): ?>
-<details class="fold new-order drawer" id="new"<?php if ($error !== null || $rows_n === 0): ?> open<?php endif; ?>>
+<details class="fold new-order drawer" id="new"<?php if ($error !== null || $rows_n === 0 || $item !== null): ?> open<?php endif; ?>>
   <summary><?= $e($k['start']) ?></summary>
 <?php if ($form['noOther']): ?>
   <?= $empty(\CW\Ui\Words::STOCK_OPS['no_other'], '', '/ui/reference/warehouses', \CW\Ui\Words::STOCK_OPS['no_other_link']) ?>
@@ -56,6 +56,10 @@
   <form class="record stock-new" method="post" action="<?= $e($base) ?>">
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="form_key" value="<?= $e($formKey) ?>">
+<?php if ($item !== null): ?>
+    <input type="hidden" name="item" value="<?= $e($item['id']) ?>">
+    <p class="note"><?= $say('STOCK_OPS', 'for_item', $item['code'], $item['name']) ?></p>
+<?php endif; ?>
 <?= $partial('stock_op_fields', ['form' => $form, 'kind' => $kind]) ?>
     <p class="actions"><button type="submit" class="btn primary"><?= $e($k['start_button']) ?></button></p>
   </form>

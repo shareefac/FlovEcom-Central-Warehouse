@@ -54,6 +54,8 @@ final class Words
         'STOCK_OPS', 'STOCK_FILE', 'STOCK_NOTICE', 'STOCK_ERROR', 'ACCOUNTS', 'ACCOUNT_ERROR', 'STOCK_PDF',
         // "Final uses what is on the screen" (docs/decisions.md OV)
         'OP_FINAL',
+        // The item page, stock first (docs/decisions.md IV)
+        'ITEM_SELLS', 'MOVE_KIND',
         // Lines to place as a board (docs/decisions.md LQ)
         'LQ',
         'RESV', 'RESV_STATE', 'RESV_GROUP', 'RESV_CHIP', 'RESV_UNIT', 'RESV_ORIGIN',
@@ -1505,6 +1507,10 @@ final class Words
 
     /** The pages' words. */
     public const COUNTS = [
+        // The item page (docs/decisions.md IV2, IV3): its "Count it" (a count sheet of the item) and when its shelf was last counted.
+        'item_count_it' => 'Count it',
+        'item_counted' => 'counted %s',
+        'item_never' => 'never counted',
         // Next to count
         'find' => 'A brand, a word of the name, or a CW number',
         'warehouse' => 'Warehouse',
@@ -1878,6 +1884,8 @@ final class Words
 
     /** The stock records' lists, pages and forms (StockOpsController). */
     public const STOCK_OPS = [
+        // The item page's Move stock and More (docs/decisions.md IV2): the new record is for this item; its add box holds it.
+        'for_item' => 'For %s %s: it is put in the add box after you start.',
         'search' => 'Number, reference, note or name',
         'state' => 'Show',
         'any_state' => 'Every record not stopped',
@@ -5679,7 +5687,7 @@ final class Words
         'not_sellable' => 'not for sale',
         'no_stock' => 'No stock has ever been recorded for this product.',
         'reserved_link' => 'See the orders that hold these units (Stock › Reservations)',
-        'movements' => 'Recent stock changes',
+        'movements' => 'Recent movements',
         'no_movements' => 'No stock changes yet.',
         'when' => 'When',
         'which' => 'Stock',
@@ -5692,6 +5700,92 @@ final class Words
         'by_cw' => 'set up by CW',
         'by_site' => 'the website',
         'minted_from' => 'the website product it was made from',
+        // The item page, stock first (docs/decisions.md IV1-IV12; the owner's approved design IT_Item, IT_Phone of 29 Oct 2026).
+        'st_selling' => 'Selling',
+        'st_not_selling' => 'Not on sale yet',
+        'st_merged' => 'Joined into another product',
+        'pack_from' => '%s from %s',
+        'move_stock' => 'Move stock',
+        'order_more' => 'Order more',
+        'more_in' => 'Book stock in',
+        'more_out' => 'Take stock out',
+        'more_adjust' => 'Correct the stock',
+        'more_reorder' => 'Reorder settings',
+        'on_shelf' => 'On the shelf',
+        'held_orders' => 'Held for orders',
+        'free' => 'Free to sell',
+        'coming' => 'Coming in',
+        'weekly' => 'Sells a week',
+        'held_paid' => '%s sold, waiting to ship',
+        'held_unpaid' => '%s reserved, not paid',
+        'free_incoming' => 'includes %s on its way',
+        'coming_due' => 'due %s',
+        'weekly_less' => 'under 1',
+        'lasts_less' => 'lasts under a week',
+        'lasts_one' => 'lasts about 1 week',
+        'lasts_many' => 'lasts about %s weeks',
+        'lasts_year' => 'lasts over a year',
+        'each_warehouse' => 'Each warehouse',
+        'all_moves' => 'All movements',
+        'm_when' => 'When',
+        'm_what' => 'What',
+        'm_doc' => 'Document',
+        'm_units' => 'Units',
+        'm_after' => 'After',
+        'sells' => 'Where it sells',
+        'sells_chip' => '%s · %s',
+        'sells_none' => 'No store is set up yet.',
+        'tabs' => 'About this product',
+        'tab_details' => 'Details',
+        'tab_barcodes' => 'Barcodes',
+        'tab_packs' => 'Suppliers and packs',
+        'tab_stores' => 'Store matching',
+        'tab_history' => 'History',
+        'edit_details' => 'Edit details',
+        'history_none' => 'No change to the product card yet.',
+    ];
+
+    /** Where it sells (the item page, docs/decisions.md IV5): one store's state of the item, after the store's name. */
+    public const ITEM_SELLS = [
+        'on_sale' => 'on sale',
+        'matched' => 'matched',
+        'not_on_sale' => 'matched, %s',
+        'on_hold' => 'on hold',
+        'waiting' => 'waiting for a second OK',
+        'suggested' => 'suggested',
+        'not_linked' => 'not linked',
+    ];
+
+    /** A stock movement in the item page's solid cell (docs/decisions.md IV4): short words by kind; MOVEMENT says it in full. */
+    public const MOVE_KIND = [
+        'reserve' => 'Reserved',
+        'release' => 'Freed',
+        'expire' => 'Ran out',
+        'commit' => 'Sold',
+        'commit_release' => 'Sold',
+        'adopt' => 'Sold',
+        'uncancel' => 'Brought back',
+        'cancel' => 'Cancelled',
+        'ship' => 'Sent',
+        'unship' => 'Sending undone',
+        'return' => 'Returned',
+        'goods_in' => 'Goods in',
+        'supplier_return' => 'To supplier',
+        'erp_sale' => 'Sold in ERPNext',
+        'adjustment' => 'Correction',
+        'count' => 'Count',
+        'write_off' => 'Write-off',
+        'transfer_out' => 'Moved out',
+        'transfer_in' => 'Moved in',
+        'trade_sale' => 'Trade sale',
+        'stock_out' => 'Stock out',
+        'opening' => 'Opening',
+        'merge_in' => 'Joined in',
+        'merge_out' => 'Joined away',
+        'split_in' => 'Came back',
+        'split_out' => 'Moved back',
+        'incoming' => 'On its way',
+        'arrive' => 'Arrived',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -7314,7 +7408,6 @@ final class Words
         'warning' => 'Warning: if these details are right, confirming them blocks the product.',
         'not_known' => 'not known',
         'from_file' => 'from a file, not confirmed',
-        'change' => 'Change the product card',
         'fill_in' => 'Fill in the product card',
         'missing' => 'Before the card can be confirmed, fill in: %s.',
         'acknowledge' => 'I checked the packaging: these details are right, and the product breaks the rules above, so it will be blocked.',
@@ -11364,6 +11457,15 @@ final class Words
         // Pack F (PF5): waiting orange, done green, closed grey.
         'QUEUE_STATE' => ['open' => 'needs', 'resolved' => 'done', 'dismissed' => 'off'],
         // Pack H (0038): a line of the duty register.
+        // The item page (docs/decisions.md IV4, IV5): a movement's cell by kind (in green, a sale blue, a count or correction purple, out amber,
+        // a loss red, a reservation's own steps grey, a join navy); a store's state of the item.
+        'MOVE_KIND' => ['goods_in' => 'done', 'arrive' => 'done', 'return' => 'done', 'opening' => 'done', 'transfer_in' => 'done', 'merge_in' => 'done',
+            'split_in' => 'done', 'unship' => 'done', 'commit' => 'info', 'commit_release' => 'info', 'adopt' => 'info', 'ship' => 'info', 'erp_sale' => 'info',
+            'trade_sale' => 'info', 'incoming' => 'info', 'uncancel' => 'info', 'count' => 'review', 'adjustment' => 'review', 'stock_out' => 'needs',
+            'supplier_return' => 'needs', 'transfer_out' => 'needs', 'write_off' => 'blocked', 'reserve' => 'waiting', 'release' => 'waiting',
+            'expire' => 'waiting', 'cancel' => 'waiting', 'merge_out' => 'off', 'split_out' => 'off'],
+        'ITEM_SELLS' => ['on_sale' => 'done', 'matched' => 'done', 'not_on_sale' => 'needs', 'on_hold' => 'blocked', 'waiting' => 'review', 'suggested' => 'needs',
+            'not_linked' => 'waiting'],
         'DUTY_STAMP' => ['stamped' => 'done', 'unstamped' => 'blocked', 'declaration' => 'needs', 'not_checked' => 'review', 'not_needed' => 'off'],
     ];
 

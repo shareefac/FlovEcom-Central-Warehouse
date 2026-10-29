@@ -81,6 +81,8 @@ final class StockOpsController
         $choices = $ctx->stockOps()->formChoices($kind);
         $k = Words::STOCK_KIND[$kind];
         $page = self::PAGES[$kind];
+        // The item page's Move stock and More (docs/decisions.md IV2): the new form names the item, which goes into the draft's add box.
+        $item = self::itemOf($ctx, UiRequest::id($typed['item'] ?? $ctx->req->param('item')));
         return $ctx->page('stock_ops', [
             'kind' => $kind,
             'k' => $k,
@@ -97,6 +99,7 @@ final class StockOpsController
             'form' => self::form($kind, $choices, $typed),
             'canPost' => $canPost,
             'formKey' => $canPost ? FormOnce::newKey() : null,
+            'item' => $item,
             'lookOnly' => $canPost ? null : Words::whoCan('doc.' . $type . '.post'),
             'csv' => Html::url(StockOps::PATHS[$kind] . '.csv', ['q' => $f['q'] === '' ? null : $f['q'], 'state' => $f['state'], 'warehouse' => $f['warehouse'],
                 'cancelled' => $f['cancelled'] ? '1' : null]),
@@ -126,16 +129,31 @@ final class StockOpsController
     public function create(Context $ctx, string $kind): HtmlResponse
     {
         $typed = self::typedHeader($ctx->req);
+        // The item the item page started it for (IV2): its CW number goes into the draft's add box (`add`); nothing else is added.
+        $item = self::itemOf($ctx, UiRequest::id($ctx->req->field('item')));
         try {
-            $r = FormOnce::run($ctx, 'ui.stockop.create', ['kind' => $kind] + $typed, function (Db $db) use ($ctx, $kind, $typed): OpResult {
-                $d = $ctx->stockOps()->createDraft($ctx->caller(), $kind, $typed);
-                return OpResult::of(303, ['result' => 'created', 'document_id' => $d->id,
-                    'redirect' => Html::url(StockOps::PATHS[$kind] . '/' . $d->id, ['notice' => 'created'])]);
-            });
+            $r = FormOnce::run($ctx, 'ui.stockop.create', ['kind' => $kind] + $typed + ($item === null ? [] : ['item' => $item['id']]),
+                function (Db $db) use ($ctx, $kind, $typed, $item): OpResult {
+                    $d = $ctx->stockOps()->createDraft($ctx->caller(), $kind, $typed);
+                    return OpResult::of(303, ['result' => 'created', 'document_id' => $d->id,
+                        'redirect' => Html::url(StockOps::PATHS[$kind] . '/' . $d->id, ['notice' => 'created'] + ($item === null ? [] : ['add' => $item['code']]))]);
+                });
         } catch (CwException $e) {
-            return $this->index($ctx, $kind, $e->httpStatus, $e, $typed);
+            return $this->index($ctx, $kind, $e->httpStatus, $e, $typed + ($item === null ? [] : ['item' => (string) $item['id']]));
         }
         return FormOnce::redirect($r);
+    }
+
+    /**
+     * An item the item page names for a new record (docs/decisions.md IV2): its id, CW number and name, when it is an item that is not joined
+     * into another; else null (nothing is carried).
+     *
+     * @return array{id: int, code: string, name: string}|null
+     */
+    private static function itemOf(Context $ctx, ?int $id): ?array
+    {
+        $r = $id === null ? null : $ctx->db->one('SELECT id, code, name FROM sku WHERE id = ? AND merged_into_sku_id IS NULL', [$id]);
+        return $r === null ? null : ['id' => (int) $r['id'], 'code' => (string) $r['code'], 'name' => (string) $r['name']];
     }
 
     // ------------------------------------------------------------------------------------------
@@ -155,7 +173,10 @@ final class StockOpsController
                 default => null,
             };
         }
-        return $this->page($ctx, $kind, $ctx->id(), 200, null, $notice);
+        // A record started from the item page (IV2): its add box holds the item's CW number (only a CW number is put there).
+        $add = $ctx->req->param('add');
+        $extra = $add !== null && preg_match('/^CW-[0-9]{1,10}$/D', $add) === 1 ? ['typedAdd' => ['q' => $add, 'qty' => '1', 'cost' => '', 'reason' => '']] : [];
+        return $this->page($ctx, $kind, $ctx->id(), 200, null, $notice, $extra);
     }
 
     /** POST {id}/details: the draft's details (warehouse, places, reason, given to, reference, date, note). */

@@ -2548,3 +2548,59 @@ table.gi-lines .gi-why:empty { display: none; }
   .ap-actions > details.more[open] { flex: 1 1 100%; }
   .ap-next { flex: 1 1 100%; text-align: left; }
 }
+/* ==== item-stock-first (branch item-stock-first, docs/decisions.md IV1-IV12; the approved design IT_Item and IT_Phone of 29 Oct 2026) ======
+   The item page on the shared pieces: the head is .doc-head (the status block and a short identity line in .ph-meta, the actions at the head's
+   right in .doc-actions with More), the stock strip is .doc-progress, the recent movements a board (.doc-board, td.doc-st by kind), where it
+   sells solid chips, the parts under the ONE tabs component. Here only what the item page adds. */
+.item-head .ph-meta .item-id { color: var(--ink-muted); font: 500 13px/20px var(--font); overflow-wrap: anywhere; }
+.item-bar > form { display: inline-flex; margin: 0; }
+/* The strip: five figures in one row (four when no sales rate is known), two a row on a phone; the line under a figure */
+.item-strip > .doc-step { border-left: 1px solid var(--divider); border-top: 0; }
+.item-strip > .doc-step:first-of-type { border-left: 0; }
+.item-strip .doc-step-big { font-size: 26px; line-height: 1.2; }
+.item-strip .doc-step-big.free { color: var(--sf-green-ink); }
+.item-strip .step-sub { color: var(--ink-muted); font: 400 13px/18px var(--font); overflow-wrap: anywhere; }
+.item-strip .step-sub:empty { display: none; }
+@media (min-width: 640px) { .item-strip { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); } }
+@media (max-width: 639.98px) {
+  .item-strip > .doc-step:nth-of-type(odd) { border-left: 0; }
+  .item-strip > .doc-step:nth-of-type(n + 3) { border-top: 1px solid var(--divider); }
+  .item-strip > .doc-step:last-of-type:nth-of-type(odd) { grid-column: 1 / -1; }
+  .item-strip .doc-step-big { font-size: 22px; }
+}
+.item-wh { margin: 0 0 24px; }
+/* The recent movements: the board's title with "All movements" at its right */
+.item-moves .board-head > a { margin-left: auto; display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+.item-moves { margin: 0 0 24px; }
+/* Where it sells: one solid chip a store, wrapping */
+.item-sells { margin: 0 0 24px; }
+.item-sells > h2 { margin: 0 0 12px; }
+.item-chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; }
+.item-chips .chip { min-height: 30px; font-size: 13px; white-space: normal; text-align: left; }
+/* The parts under their tabs: plain links (?tab=) open one part; a #fragment inside a closed part opens that one instead (no script) */
+.item-parts { scroll-margin-top: 16px; }
+.item-parts > .item-tabs { margin: 0 0 16px; }
+.it-panel { display: none; }
+.it-panel.open, .it-panel:target, .it-panel:has(:target) { display: block; }
+.it-panels:has(:target) > .it-panel.open:not(:target):not(:has(:target)) { display: none; }
+.it-panel > section, .it-panel > .card { margin: 0 0 16px; }
+.it-panel > section.item-card { margin-top: 0; }
+/* A phone (IT_Phone): the actions are a bar at the bottom of the screen in the tab bar's place, their buttons side by side; More opens upwards */
+@media (max-width: 699.98px) {
+  .item-head .ph-actions > .item-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px;
+    margin: 0; padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--hairline);
+    box-shadow: var(--shadow-up);
+  }
+  .item-bar > form, .item-bar > form > .btn, .item-bar > a.btn, .item-bar > details.more, .item-bar > details.more > summary { width: 100%; min-width: 0; }
+  .item-bar .btn { padding-left: 8px; padding-right: 8px; white-space: normal; }
+  .item-bar > details.more { position: static; }
+  .item-bar > details.more > .more-menu {
+    position: absolute; top: auto; bottom: calc(100% + 6px); left: var(--gutter); right: var(--gutter); width: auto; min-width: 0; max-width: none; margin: 0;
+    max-height: 60vh; overflow-y: auto; box-shadow: var(--shadow-float);
+  }
+  body:has(.item-bar) .tabbar { display: none; }
+  body:has(.item-bar) { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  html:has(.item-bar) { scroll-padding-bottom: 96px; }
+}
+/* ==== end item-stock-first ================================================================================================================ */

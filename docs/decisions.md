@@ -13150,3 +13150,97 @@ which GV11 removed from app.js; this one says it in the page. Tests:
 `UnsavedTabsScreensTest::testTheOrderAndInvoicePagesAskBeforeALinkLeavesWithTypedValues`, the template lint above (the six editors carry
 `data-unsaved`, their `.csv`/`.xlsx` links `download`, the leave link `data-leave`), `UiUnitTest::testTheCountPagesFollowTheApprovedDesign`
 (the JS and CSS pins; main's pin that app.js has no alert, confirm or prompt holds). Not seen in a real browser; app.js checked with `node --check`.
+
+## The item page, stock first (branch `item-stock-first`, 29 Oct 2026; IV1-IV12)
+
+The owner approved the item screens of the canvas "CW Daily Screens" on 29 Oct 2026 (relayed by the coordinator with the static mockups
+`IT_Item` and `IT_Phone`): the stock first, the editing below, monday.com's board look, one main action, no help paragraphs. Built from main
+`5c070f8` (OV, LQ, DS1-DS6, CV, GV, AV) in `/root/cw-itone`, rebased onto `b3c7829` (CV13-CV14). Layout and navigation: no
+migration, no new route, no new permission, no service rule changed. Code: `src/Ui/Controller/ItemController.php` (`top()`, `weekly()`,
+`mainSupply()`, `countWarehouse()`, `sells()`, `openTab()`, `TABS`, `NOTICE_TABS`), `src/Ui/Queries.php` (`comingIn()`), views `item` and `item_bar` (new), `src/Ui/Controller/StockOpsController.php` and
+view `stock_ops` (the item carried into a new record), `src/Ui/Controller/PurchaseOrdersController.php` (`newPage` reads `pick_si`),
+`src/Ui/Words.php` (`ITEM`, `COUNTS item_*`, `STOCK_OPS for_item`, the new groups `ITEM_SELLS` and `MOVE_KIND` with their tones; `CARD change`
+removed), `public/ui/assets/app.css` (the "item-stock-first" block).
+
+**IV1. The head.** `div.doc-head` around the statement: the name as the heading, the status block (a 32 px solid chip in `.ph-meta`) and one
+identity line after it: the CW number, the brand, the kind of nicotine, and for the people who may see suppliers (`suppliers.view`) the main
+supply ("box of 10 from Prime Vape Supply": the preferred supplier item in use, from a supplier not switched off). The status: joined into
+another product (navy), not sold any more (its product card; navy), not for sale (the stock rule `stopped`; red), blocked (its product card;
+red), selling (matched on a store, on sale or its state not known; green), else not on sale yet (grey). The old "(CW-000123)" after the name
+went (the name alone is the heading; `MatchingWordsTest` and `BuyingWordsTest` expect it so now); the page's one sentence stays, as on the
+other redesigned pages.
+
+**IV2. The actions, in the head at its right (`item_bar`, the shared `.doc-actions` and More).** Only what the person may use, none on an
+item joined into another (its stock and orders moved there). **Count it** (`doc.CNT.post`): the count board's own form posted to the count
+route as it is (`POST /ui/stock/counts`: csrf, a FormOnce key, the board's first warehouse, `mode=ticked`, `pick_<item>`): a count sheet of
+this item, one however often it is pressed; every check of the route stays. **Move stock** (`doc.TRF.post`): `/ui/stock/transfers?item=<id>#new`,
+the transfer's new form open and naming the item (a hidden `item`); "Start" makes the draft as before and its page opens with the item's CW
+number in the add box (`add=CW-…`; only a CW number is put there; an item not there or joined away is not carried; the FormOnce request
+names the item). **Order more** (`doc.PO.post`): the new order's page with the main supplier chosen and its box in the product box
+(`/ui/purchasing/orders/new?supplier=&pick_si=&q=`: `newPage` now reads `pick_si` beside `pick_sku`, checked by `picked()`: this supplier's,
+in use, its item not joined away), so Add adds that box; nothing is written by opening it (PX1). With no main supply: the item alone
+(`pick_sku`), the supplier to choose. **More**: Book stock in, Take stock out, Correct the stock (each kind's new form with the item, as Move
+stock), Reorder settings (`reorder.view`). ONE main action (DS5): Order more, else Count it, else Move stock.
+
+**IV3. The stock strip (`section.doc-progress.item-strip`, the shared progress strip).** The sellable warehouses' sums, as the page added them
+before. On the shelf (`on_hand`; under it "counted <day>" or "never counted": the latest count of its stock). Held for orders (allocated +
+held; under it "N sold, waiting to ship" and "N reserved, not paid", each the link to Stock › Reservations the warehouse table's total row
+had, which now shows plain figures). Free to sell (`available` as everywhere: on_hand + incoming − allocated − held, PJ1; "includes N on its
+way" when units of a final supplier invoice are on their way). Coming in (the units still to come on the open confirmed orders,
+`Queries::comingIn`: PurchaseOrders::onOrder's sum, per order; under it the first one due, its number a link for `purchasing.view`, and
+"due <day>" when it has an expected date). Sells a week (only when the reorder engine has a sales rate for it, `reorder_demand.rate`, central
+units a day: × 7 rounded half up, "under 1" for less than half; "lasts about N weeks" in whole weeks of the free stock, "under a week",
+"about 1 week", "over a year" from 52 weeks, nothing when nothing sells or nothing is free; integer arithmetic as the engine's). The
+per-warehouse table (its "?" help and the totals) is kept in a fold under the strip, "Each warehouse".
+
+**IV4. Recent movements.** The same 30 rows (`Queries::ledgerOf`), as a board (`.doc-board`, `table.doc-list`): when; what, a solid cell
+(`td.doc-st`) in the colour of its kind (`Words::TONE['MOVE_KIND']`: in green, a sale blue, a count or correction purple, out amber, a write-off
+red, a reservation's own steps grey, a join's move navy) with a short word (`MOVE_KIND`; the bucket under it when it is not the shelf);
+the document (its record's link and reason, as before, or its reference with the full movement words); the warehouse only when the rows
+come from more than one; who; the units with their sign (+20, −4) in green or red; what the bucket held after. "All movements" leads to
+Stock › Movements for this item (`q=<CW number>`, `figure=all`: every bucket, as the page's rows).
+
+**IV5. Where it sells.** One solid chip per store, in the owner's order (`SimpleMatchController::stores`), from By Item's own read of the
+item's cells (`Queries::productCells`): on sale (matched there and its website state, as `SiteState` reads it and not too old, says
+Published), "matched, Draft" (the store's own word when it says it is not on sale), matched (its state not known), on hold (every matched
+variant there quarantined), waiting for a second OK, suggested, not linked. No store set up: one line says so.
+
+**IV6. The tabs.** Details (the product card with its rules, suggestions, confirmation and "Edit details", which was "Change the product
+card"; then what the matching knows), Barcodes (2), Suppliers and packs (the suppliers block for `suppliers.view`, the family and packs box),
+Store matching (the website products matched to it, the selling mode and its switch), History (the product card's changes, a list now, not a
+fold in the card). The ONE tabs component (DS2: `nav.tabs` > `a.tab[aria-current]`, a count as `span.count`), written in the view (`nav.tabs.
+item-tabs`: the section's tab bar keeps the plain `tabs`). The shared tab partial (`page_frame`, with main's CV13) is used as it is, not
+changed here: it draws the section's tabs (Products › All products) under the statement. Rebased onto main `b3c7829` (CV13-CV14): the open
+tab of the item's row has no link either (CV13; `tests/Support/CurrentTabs` and the template lint pass), so a click on it never reloads the
+page; the item page has no form that keeps typed values over a link (CV14's `data-unsaved` pages are the editors).
+
+**IV7. Which tab opens, without a script.** The tabs are plain links (`?tab=<key>#it-tabs`; the open one none, CV13). The page draws
+every part and opens one (`.it-panel.open`; the others `display: none`): the address's `tab`; else the tab of the change a redirect's
+notice names (`NOTICE_TABS`: a barcode's, the selling mode's, the family's), so every redirect of before still lands where the change was
+made, with no address changed; after a refused form (the page drawn again for its POST) the form's own tab, read from its address. A
+`#fragment` inside a closed part opens that part instead (CSS `:target` and `:has`), so the old anchors (`#selling-mode`, `#groups`,
+`#barcodes`, `#card`) still work.
+
+**IV8. Look-only staff see no edit control, as before.** Every form keeps its permission test; the panels hold the same forms; the actions bar
+shows nothing to someone who may use none of them.
+
+**IV9. Phone (`IT_Phone`).** The strip two figures a row (a fifth across the row); the movements' rows are cards with their solid cell; the
+chips wrap. The actions are a bar at the bottom of the screen in the tab bar's place (like `.doc-bar`), their buttons side by side, More
+opening upwards; the page keeps room for it. 44 px or more for every target; nothing scrolls sideways (the tab row scrolls inside itself).
+
+**IV10. Kept.** Every edit rule, permission, version check, FormOnce and CSRF of the card, barcodes, family, selling mode and the routes
+the actions use; the meaning of available, allocated and held; the merged-into, joined-here and duplicate notes and the error line at the top.
+`CountsScreensTest`'s "Stock last counted", `ReservationsScreenTest`'s two reservation links and `UiReviewFlowTest`'s "Stock" table read the
+same things where they are now.
+
+**IV11. Words.** New: `ITEM` (the head, the actions, the strip, the movements' board, where it sells, the tabs), `ITEM_SELLS`, `MOVE_KIND`
+(+ `TONE`), `COUNTS item_count_it`, `item_counted`, `item_never` (in COUNTS: "count" is only for shelf counts, correction b, and these are
+shelf counts), `STOCK_OPS for_item`. `ITEM movements` is "Recent movements". `CARD change` went (Details says "Edit details").
+
+**IV12. Tests.** Red first: `ItemPageScreensTest` (new) failed 7 of 7 on `5c070f8`. It covers the head and who sees which action (a viewer,
+a buyer, the stock controller), Count it through the count route (one sheet twice, no token refused), Move stock into the draft's add box (a
+missing or joined item not carried, only a CW number in the box), Order more into the new order's page and its Add, the status blocks, the
+strip's figures and links (three orders, the first due; a viewer sees no link), every "Sells a week" case, the movements' cells and the way
+to all of them, each store's chip, the tabs' links, counts, panels and forms, the tab after a change, a refusal and a notice, and the look-only
+page. `ItemPageUnitTest` (new): the weekly arithmetic, every movement's short word and colour, the stores' states, the tabs and notices, the
+CSS and markup of the design. `UiTemplatesTest` lints `item_bar` with the matching pages. Not seen in a real browser.

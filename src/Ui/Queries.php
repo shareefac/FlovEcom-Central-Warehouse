@@ -1903,6 +1903,28 @@ final class Queries
     }
 
     /**
+     * The confirmed orders still to come for an item (docs/decisions.md IV3): each open order (approved, sent, part received: PurchaseOrders::
+     * OPEN_STATES) with the central units it still brings (Σ max(0, ordered − received) of its item lines, PurchaseOrders::onOrder's sum per
+     * order), the first due first (its expected date; an order with none after the dated ones, then by its date and number). One read on the
+     * line index of the item (ix_document_line_sku).
+     *
+     * @return list<array{id: int, number: string, due: ?string, units: int}>
+     */
+    public function comingIn(int $skuId): array
+    {
+        $states = implode(', ', array_map(static fn (string $s): string => "'" . $s . "'", \CW\PurchaseOrders\PurchaseOrders::OPEN_STATES));
+        return array_map(static fn (array $r): array => ['id' => (int) $r['id'], 'number' => (string) $r['number'],
+            'due' => $r['expected_date'] === null ? null : (string) $r['expected_date'], 'units' => (int) $r['n']], $this->db->all(
+                'SELECT d.id, d.number, po.expected_date, SUM(GREATEST(0, dl.qty - pl.received_units)) AS n FROM document_line dl '
+                . 'JOIN document d ON d.id = dl.document_id JOIN po_line pl ON pl.document_id = dl.document_id AND pl.line_no = dl.line_no '
+                . "JOIN purchase_order po ON po.document_id = d.id WHERE dl.sku_id = ? AND d.doc_type = 'PO' AND d.status = 'posted' AND po.state IN ({$states}) "
+                . "AND pl.kind = 'item' GROUP BY d.id, d.number, po.expected_date, d.doc_date HAVING n > 0 "
+                . 'ORDER BY po.expected_date IS NULL, po.expected_date, d.doc_date, d.id',
+                [$skuId],
+            ));
+    }
+
+    /**
      * The newest ledger rows of an item across warehouses. stock_ledger is indexed by
      * (warehouse, sku, id), so each warehouse is read on its own index range, then merged.
      *

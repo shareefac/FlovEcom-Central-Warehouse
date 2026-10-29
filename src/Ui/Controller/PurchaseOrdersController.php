@@ -232,8 +232,9 @@ final class PurchaseOrdersController
 
     /**
      * GET /ui/purchasing/orders/new: the order's one page at once, with no draft (PX1, PX2): nothing is written by opening it, so a page left
-     * empty leaves nothing behind. The address may name the supplier (the supplier's card, "+ Add new supplier" coming back) and carry what
-     * was typed before a new supplier was added (carried()).
+     * empty leaves nothing behind. The address may name the supplier (the supplier's card, "+ Add new supplier" coming back, the item page's
+     * "Order more") and carry what was typed before a new supplier was added (carried()), or the product chosen in the box (`pick_sku`, or
+     * the item page's `pick_si`: IV2).
      */
     public function newPage(Context $ctx): HtmlResponse
     {
@@ -246,6 +247,9 @@ final class PurchaseOrdersController
         }
         $typed['supplier_id'] = (string) (UiRequest::id($ctx->req->param('supplier')) ?? '');
         $typed['pick_sku'] = (string) (UiRequest::id($ctx->req->param('pick_sku')) ?? ''); // the product chosen before a new supplier (checked by picked())
+        // The item page's "Order more" (docs/decisions.md IV2): the main supplier's box of the item, chosen in the product box (checked by
+        // picked(): this supplier's, in use, its item not joined into another; else the box keeps the words alone).
+        $typed['pick_si'] = (string) (UiRequest::id($ctx->req->param('pick_si')) ?? '');
         $notice = self::noticeKey($ctx);
         return $this->newOrderPage($ctx, 200, null, $notice === null ? null : Words::PO_NOTICE[$notice], ['typed' => $typed, 'q' => $typed['q'] ?? '',
             'packs' => $typed['packs'] ?? '1']);

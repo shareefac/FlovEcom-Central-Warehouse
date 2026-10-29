@@ -842,6 +842,29 @@ decision logic: each answer is a form of the kind's own route, which leads back 
 - The main-button checks (AV13): `tests/Support/MainButtons::ROW_ANSWERS` and `UiTemplatesTest::ROW_MAIN` list the routes whose forms may each
   hold a main button on one page; a GET form never holds one.
 
+### The item page, stock first (`docs/decisions.md` IV1-IV12)
+
+The approved design (`IT_Item`, `IT_Phone`) on the shared pieces: the head is `.doc-head` with the actions in `.doc-actions` + More, the
+strip is `.doc-progress`, the movements a board with `td.doc-st`, the parts under the ONE tabs component (CSS: the "item-stock-first" block).
+
+| Path | What |
+|---|---|
+| `src/Ui/Controller/ItemController.php` | `top()` (the status block, the identity line, the actions this person may use and the one main one, the strip, where it sells), `weekly()` (sells a week and how long the free stock lasts, from `reorder_demand.rate`), `mainSupply()`, `countWarehouse()`, `sells()` (By Item's cells and `SiteState`), `openTab()` + `TABS` + `NOTICE_TABS` (which tab opens), the ledger rows' `kind`, `tone`, `signed` |
+| `src/Ui/Queries.php` | `comingIn()`: the open confirmed orders still to come for an item, the first due first |
+| views `item` (the page), `item_bar` (its actions: Count it, Move stock, Order more, More) | every part of before in its tab panel (`div.it-panel#t-<key>`) |
+| `src/Ui/Controller/StockOpsController.php`, view `stock_ops` | `?item=<id>` opens a kind's new form naming the item (hidden `item`); the draft's page puts `add=CW-…` in its add box |
+| `src/Ui/Controller/PurchaseOrdersController.php` | `newPage` reads `pick_si` (the item page's Order more: the main supplier's box) |
+| `src/Ui/Words.php` | `ITEM` (head, actions, strip, movements, where it sells, tabs), `ITEM_SELLS`, `MOVE_KIND` (+ `TONE`), `COUNTS item_*`, `STOCK_OPS for_item` |
+
+- Classes: `.item-head` (`.item-id`), `.item-bar` (a fixed bar at the bottom of a phone in the tab bar's place), `.item-strip` (`.step-sub`,
+  `.doc-step-big.free`), `.item-wh` (the per-warehouse fold), `.item-moves`, `.item-sells` (`.item-chips`), `.item-parts` > `nav.tabs.item-tabs`
+  + `.it-panels` > `.it-panel` (`.open`; `:target` / `:has(:target)` open a part a #fragment points into).
+- The open tab has no href (CV13, `tests/Support/CurrentTabs`); the others link `?tab=<key>#it-tabs`.
+- A tab opens from `?tab=`, else from the redirect's notice (`NOTICE_TABS`), else (a refused POST) from the form's address; a new notice of
+  the page that belongs to another tab goes in `NOTICE_TABS`.
+- Tests: `tests/Integration/UiKernel/ItemPageScreensTest.php`, `tests/Unit/ItemPageUnitTest.php`. In a kernel test the actions are
+  `//div[contains(@class, "item-bar")]`, Count it's form is `$page->form('/ui/stock/counts')`, a tab's panel `//div[@id="t-<key>"]`.
+
 ### Pack RB: the rollback file (`docs/decisions.md` RB1-RB34; `docs/ops.md` "The way back to ERPNext")
 
 | Path | What |

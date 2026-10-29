@@ -67,7 +67,7 @@ final class MatchingWordsTest extends KernelUiTestCase
             [$mapper, '/ui/review?queue=pending', Words::PAGE_TITLE['pending'], 'pending'],
             [$mapper, '/ui/review/samples', Words::PAGE_TITLE['samples'], 'samples'],
             [$mapper, '/ui/search?q=Acme', Words::PAGE_TITLE['search'], 'search'],
-            [$mapper, '/ui/items/' . $a, 'Acme Cola 10ml 10mg (' . self::$db->value('SELECT code FROM sku WHERE id = ?', [$a]) . ')', 'item'],
+            [$mapper, '/ui/items/' . $a, 'Acme Cola 10ml 10mg', 'item'], // its CW number is on the identity line under the name (IV1)
             [$owner, '/ui/review/samples/' . $s['sample_id'], Words::say('SAMPLE', 'title', 'words-1'), 'sample'],
             [$owner, '/ui/review/listing/' . $member['listing_id'] . '?sample=' . $s['sample_id'], $title($member['listing_id']), 'listing'],
             [$owner, '/ui/review/duplicates', Words::MENU['duplicates'], 'duplicates'],

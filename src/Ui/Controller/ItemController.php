@@ -8,7 +8,13 @@ use CW\Catalogue\BarcodeReviews;
 use CW\Catalogue\CardProposals;
 use CW\Catalogue\ItemCards;
 use CW\Catalogue\ItemRules;
+use CW\Clock;
+use CW\Counts\CountSheets;
 use CW\CwException;
+use CW\Documents\Documents;
+use CW\Mapping\SiteState;
+use CW\Reorder\DemandMath;
+use CW\StockOps\StockOps;
 use CW\Ui\ByProductContext;
 use CW\Ui\Context;
 use CW\Ui\Duplicates;
@@ -22,12 +28,28 @@ use CW\Ui\Words;
  * the confirmation, the history), its barcodes (with the forms to add, remove and set units per scan for catalogue.edit),
  * every listing linked to it (now or before), the selling mode CW writes on each website with the switch (IM10, SellingModeController),
  * its stock and (suppliers.view) who supplies it. ItemCardsController's actions
- * redraw this page with their error (page()).
+ * redraw this page with their error (page()). Stock first (docs/decisions.md IV1-IV12): the head with the status block, the identity line
+ * and the actions this person may use (top()), the stock strip, the recent movements, where it sells, then the parts above under tabs
+ * (TABS; which one opens: openTab()).
  */
 final class ItemController
 {
     /** The notices named in a redirect (their words: Words::CARD_NOTICE). */
     public const NOTICES = Words::CARD_NOTICE;
+
+    /**
+     * The page's tabs, in order (docs/decisions.md IV6): Details (the product card and what the matching knows), Barcodes, Suppliers and
+     * packs (who supplies it, its family and packs), Store matching (its website products and the selling mode), History (the card's changes).
+     */
+    public const TABS = ['details', 'barcodes', 'packs', 'stores', 'history'];
+
+    /** The tab a redirect's notice opens (IV7): where the change was made. Any other notice opens Details. */
+    public const NOTICE_TABS = ['barcode_added' => 'barcodes', 'barcode_added_unusable' => 'barcodes', 'barcode_removed' => 'barcodes', 'units_saved' => 'barcodes',
+        'units_unchanged' => 'barcodes', 'selling_mode_set' => 'stores', 'selling_mode_unchanged' => 'stores', 'family_set' => 'packs', 'family_out' => 'packs',
+        'unchanged' => 'packs'];
+
+    /** The weeks after which "lasts about N weeks" says "over a year" (a year's weeks: a fact of the calendar, not a setting). */
+    private const YEAR_WEEKS = 52;
 
     public function show(Context $ctx): HtmlResponse
     {
@@ -120,6 +142,9 @@ final class ItemController
                 'id' => (int) $r['id'], 'warehouse' => self::s($r['warehouse']), 'bucket' => self::s($r['bucket']), 'delta' => $r['qty_delta'],
                 'after' => $r['balance_after'], 'type' => self::s($r['movement_type']), 'ref' => self::s($r['order_ref'] ?? $r['doc_ref']),
                 'actor' => $who(self::s($r['actor'])), 'note' => $note !== null && preg_match('/^#\d+$/D', $note) === 1 ? null : $note, 'at' => self::s($r['effective_at']),
+                // The solid cell by kind (IV4) and the change with its sign ("+20", "−4").
+                'kind' => Words::of('MOVE_KIND', self::s($r['movement_type'])), 'tone' => Words::tone('MOVE_KIND', self::s($r['movement_type'])),
+                'signed' => self::signed((int) $r['qty_delta']), 'dir' => (int) $r['qty_delta'] > 0 ? 'up' : 'down',
             ];
             // A row a stock record booked (pack A1): the record, its reason and who it was given to, and a link to it.
             $kind = ($r['doc_type'] ?? null) === null ? null : \CW\StockOps\StockOps::kindOf((string) $r['doc_type']);
@@ -194,7 +219,12 @@ final class ItemController
             }
             ksort($dupGroups);
         }
-        return $ctx->page('item', self::cardVars($ctx, $id, $canEdit) + [
+        $cardVars = self::cardVars($ctx, $id, $canEdit);
+        $top = self::top($ctx, $id, $sku, $cardVars, $totals, $ledger);
+        $activeSupplies = $suppliers === null ? null : count(array_filter($suppliers, static fn (array $r): bool => $r['active']));
+        return $ctx->page('item', $cardVars + $top + [
+            'tab' => self::openTab($ctx),
+            'tabCounts' => ['barcodes' => count($barcodes), 'packs' => $activeSupplies, 'stores' => count(array_filter($rows, static fn (array $r): bool => $r['linked']))],
             // Pack B: the family and pack box, and its refusals in its words.
             'groups' => self::groupVars($ctx, $id, $sku),
             'error' => $error === null ? null : (isset(Words::ITEMS_ERROR[$error->errorCode]) ? FamiliesController::plain($error) : ItemCardsController::plain($error)),
@@ -311,7 +341,7 @@ final class ItemController
         }
         return [
             'card' => [
-                'exists' => $exists, 'version' => $card['version'], 'state' => $state, 'values' => $values,
+                'exists' => $exists, 'version' => $card['version'], 'state' => $state, 'values' => $values, 'discontinued' => (int) ($card['discontinued'] ?? 0) === 1,
                 'confirmed_by' => $card['confirmed_by_name'] ?? ($card['confirmed_actor'] ?? null), 'confirmed_at' => $card['confirmed_at'],
                 'first_confirmed_at' => $card['first_confirmed_at'], 'updated_by' => $card['updated_by_name'] ?? $card['updated_actor'], 'updated_at' => $card['updated_at'],
             ],
@@ -351,6 +381,208 @@ final class ItemController
                 return ['version' => $h['version'], 'what' => $what, 'who' => $h['who'], 'at' => $h['at']];
             }, $svc->history($id, 20)),
         ];
+    }
+
+    /**
+     * The page's top (docs/decisions.md IV1-IV5): the status block and the identity line of the head, the actions this person may use, the
+     * stock strip, the recent movements' warehouse column, where it sells.
+     *
+     * @param array<string, mixed> $sku Queries::sku()
+     * @param array<string, mixed> $cardVars cardVars()
+     * @param array<string, int|string> $totals the sellable warehouses' sums
+     * @param list<array<string, mixed>> $ledger the recent movements as the page draws them
+     * @return array<string, mixed>
+     */
+    private static function top(Context $ctx, int $id, array $sku, array $cardVars, array $totals, array $ledger): array
+    {
+        $me = $ctx->me();
+        $merged = $sku['merged_into_sku_id'] !== null;
+        $supply = self::mainSupply($ctx, $id);
+        $sells = self::sells($ctx, $id);
+        $selling = array_filter($sells, static fn (array $s): bool => in_array($s['state'], ['on_sale', 'matched'], true)) !== [];
+        [$tone, $status] = match (true) {
+            $merged => ['off', Words::ITEM['st_merged']],
+            $cardVars['card']['discontinued'] => ['off', Words::CARD_FIELD['discontinued']],
+            $sku['sell_policy'] === 'stopped' => [Words::tone('POLICY', 'stopped'), Words::POLICY['stopped']],
+            $cardVars['rules']['level'] === 'block' => ['blocked', Words::CARD_STATE['blocked']],
+            $selling => ['done', Words::ITEM['st_selling']],
+            default => ['waiting', Words::ITEM['st_not_selling']],
+        };
+        $identity = [(string) $sku['code']];
+        foreach ([self::s($sku['brand']), $sku['nic_type'] === null || $sku['nic_type'] === '' ? null : mb_strtolower(Words::of('NIC_TYPE', (string) $sku['nic_type']))] as $part) {
+            if ($part !== null) {
+                $identity[] = $part;
+            }
+        }
+        if ($supply !== null && $me->can('suppliers.view')) {
+            $identity[] = Words::say('ITEM', 'pack_from', PurchaseOrdersController::pack($supply['purchase_unit'], $supply['units_per_pack']), $supply['supplier_name']);
+        }
+        // The actions (IV2): only what this person may use; none on an item joined into another (its stock and orders moved there).
+        $roles = $me->roles;
+        $actions = ['count' => null, 'move' => null, 'order' => null, 'more' => []];
+        if (!$merged) {
+            $warehouse = self::countWarehouse($ctx);
+            if ($warehouse !== null && Documents::mayPost($roles, CountSheets::TYPE)) {
+                $actions['count'] = ['warehouse' => $warehouse, 'key' => FormOnce::newKey()];
+            }
+            if (Documents::mayPost($roles, StockOps::KINDS['transfer'])) {
+                $actions['move'] = Html::url(StockOps::PATHS['transfer'], ['item' => $id]) . '#new';
+            }
+            if (Documents::mayPost($roles, 'PO')) {
+                $actions['order'] = $supply !== null
+                    ? Html::url('/ui/purchasing/orders/new', ['supplier' => $supply['supplier_id'], 'pick_si' => $supply['id'], 'q' => PurchaseOrdersController::productChoice([
+                        'sku_id' => $id, 'sku_code' => (string) $sku['code'], 'name' => (string) $sku['name'], 'brand' => $sku['brand'], 'supplier_item_id' => $supply['id'],
+                        'units_per_pack' => $supply['units_per_pack'], 'supplier_code' => $supply['supplier_code'], 'purchase_unit' => $supply['purchase_unit']])['label']])
+                    : Html::url('/ui/purchasing/orders/new', ['pick_sku' => $id, 'q' => PurchaseOrdersController::productChoice(PurchaseOrdersController::itemChoiceRow($ctx, $id))['label']]);
+            }
+            foreach (['in' => 'more_in', 'out' => 'more_out', 'adjust' => 'more_adjust'] as $kind => $word) {
+                if (Documents::mayPost($roles, StockOps::KINDS[$kind])) {
+                    $actions['more'][] = ['label' => Words::ITEM[$word], 'href' => Html::url(StockOps::PATHS[$kind], ['item' => $id]) . '#new'];
+                }
+            }
+            if ($me->can('reorder.view')) {
+                $actions['more'][] = ['label' => Words::ITEM['more_reorder'], 'href' => '/ui/purchasing/reorder/items/' . $id];
+            }
+        }
+        // ONE main action (DS5): Order more, else Count it, else Move stock.
+        $actions['main'] = $actions['order'] !== null ? 'order' : ($actions['count'] !== null ? 'count' : ($actions['move'] !== null ? 'move' : null));
+        $coming = $ctx->queries()->comingIn($id);
+        $rate = $ctx->db->value('SELECT rate FROM reorder_demand WHERE sku_id = ?', [$id]);
+        return [
+            'top' => ['status' => $status, 'tone' => $tone, 'identity' => implode(' · ', $identity)],
+            'actions' => $actions,
+            'strip' => [
+                'shelf' => (int) $totals['on_hand'], 'allocated' => (int) $totals['allocated'], 'held' => (int) $totals['held'], 'free' => (int) $totals['available'],
+                'incoming' => (int) $totals['incoming'], 'coming' => array_sum(array_column($coming, 'units')), 'first' => $coming[0] ?? null,
+                'canOpenPo' => $me->can('purchasing.view'), 'weekly' => $rate === null ? null : self::weekly((string) $rate, (int) $totals['available']),
+            ],
+            'moveWarehouses' => count(array_unique(array_column($ledger, 'warehouse'))) > 1,
+            'allMoves' => Html::url('/ui/stock/movements', ['q' => (string) $sku['code'], 'figure' => 'all']),
+            'sells' => $sells,
+        ];
+    }
+
+    /**
+     * "Sells a week" and how long the stock free to sell lasts at that rate (docs/decisions.md IV3), from the reorder engine's sales rate
+     * (reorder_demand.rate: central units a day, its nightly job's): the week's units rounded half up ("under 1" when some sell but fewer
+     * than half a unit a week), and "lasts about N weeks" in whole weeks (under a week, about 1 week, about N weeks, over a year), left
+     * out when nothing sells or nothing is free. Integer arithmetic in ten-thousandths, as the engine's own (DemandMath).
+     *
+     * @return array{n: string, lasts: string}
+     */
+    public static function weekly(string $perDay, int $free): array
+    {
+        $weekE4 = DemandMath::toE4($perDay) * 7;
+        $n = $weekE4 <= 0 ? 0 : DemandMath::halfUpDiv($weekE4, 10_000);
+        $shown = $weekE4 > 0 && $n === 0 ? Words::ITEM['weekly_less'] : Html::int($n);
+        if ($weekE4 <= 0 || $free <= 0) {
+            return ['n' => $shown, 'lasts' => ''];
+        }
+        $weeks = intdiv($free * 10_000, $weekE4);
+        return ['n' => $shown, 'lasts' => match (true) {
+            $weeks < 1 => Words::ITEM['lasts_less'],
+            $weeks === 1 => Words::ITEM['lasts_one'],
+            $weeks >= self::YEAR_WEEKS => Words::ITEM['lasts_year'],
+            default => Words::say('ITEM', 'lasts_many', $weeks),
+        }];
+    }
+
+    /**
+     * The item's main supply (docs/decisions.md IV1, IV2): its preferred supplier item that is in use, from a supplier not switched off (the
+     * new order's supplier box offers every other), for the identity line and "Order more". Null: none.
+     *
+     * @return array{id: int, supplier_id: int, supplier_name: string, supplier_code: ?string, purchase_unit: string, units_per_pack: int}|null
+     */
+    private static function mainSupply(Context $ctx, int $id): ?array
+    {
+        $r = $ctx->db->one('SELECT i.id, i.supplier_id, s.name, i.supplier_code, i.purchase_unit, i.units_per_pack FROM supplier_item i JOIN supplier s ON s.id = i.supplier_id '
+            . "WHERE i.sku_id = ? AND i.is_preferred = 1 AND i.is_active = 1 AND s.status <> 'inactive' ORDER BY i.id LIMIT 1", [$id]);
+        return $r === null ? null : ['id' => (int) $r['id'], 'supplier_id' => (int) $r['supplier_id'], 'supplier_name' => (string) $r['name'],
+            'supplier_code' => self::s($r['supplier_code']), 'purchase_unit' => (string) $r['purchase_unit'], 'units_per_pack' => (int) $r['units_per_pack']];
+    }
+
+    /** The warehouse "Count it" counts in: the count board's own first choice (the first sellable warehouse in use, else the first in use). */
+    private static function countWarehouse(Context $ctx): ?int
+    {
+        $ws = $ctx->db->all('SELECT id, is_sellable FROM warehouse WHERE is_active = 1 ORDER BY sort_order, id');
+        $sellable = array_values(array_filter($ws, static fn (array $w): bool => (int) $w['is_sellable'] === 1));
+        return $sellable !== [] ? (int) $sellable[0]['id'] : ($ws === [] ? null : (int) $ws[0]['id']);
+    }
+
+    /**
+     * Where it sells (docs/decisions.md IV5): one state a store, every store in the owner's order (SimpleMatchController::stores): matched there
+     * and on sale (its website state as CW\Mapping\SiteState reads it, not too old), matched but not on sale (the store's word for it), matched
+     * with its state not known, on hold (every matched variant there quarantined), waiting for a second OK, suggested, not linked. By Item's
+     * own read of an item's cells (Queries::productCells).
+     *
+     * @return list<array{store: string, state: string, text: string, tone: string}>
+     */
+    private static function sells(Context $ctx, int $id): array
+    {
+        $q = $ctx->queries();
+        $cells = $q->productCells([$id]);
+        $now = Clock::now();
+        $days = null;
+        $out = [];
+        foreach (SimpleMatchController::stores($q->everyStore()) as $store) {
+            $cid = (int) $store['id'];
+            $mine = static fn (array $rows): array => array_values(array_filter($rows, static fn (array $r): bool => (int) $r['channel_id'] === $cid));
+            $matched = $mine($cells['matched']);
+            $arg = null;
+            if ($matched !== []) {
+                $live = array_values(array_filter($matched, static fn (array $r): bool => $r['status'] !== 'quarantined'));
+                $state = $live === [] ? 'on_hold' : 'matched';
+                foreach ($live as $r) {
+                    $s = SiteState::read($r, ['variant_status' => $r['features_status'] ?? null], ['variant_status' => $r['check_status'] ?? null]);
+                    if ($s['source'] === null || ($s['source'] === SiteState::STORED && SiteState::tooOld($s['as_of'], $days ??= SiteState::maxDays($ctx->db), $now))) {
+                        continue;
+                    }
+                    $not = SiteState::notOnSale($s);
+                    if ($not === null && SiteState::text($s['variant_status']) !== null) {
+                        $state = 'on_sale';
+                        $arg = null;
+                        break;
+                    }
+                    if ($not !== null && $state === 'matched') {
+                        [$state, $arg] = ['not_on_sale', $not];
+                    }
+                }
+            } else {
+                $state = $mine($cells['waiting']) !== [] ? 'waiting' : ($mine($cells['suggested']) !== [] ? 'suggested' : 'not_linked');
+            }
+            $out[] = ['store' => (string) $store['name'], 'state' => $state, 'tone' => Words::tone('ITEM_SELLS', $state),
+                'text' => Words::say('ITEM', 'sells_chip', (string) $store['name'], $arg === null ? Words::of('ITEM_SELLS', $state) : Words::say('ITEM_SELLS', $state, $arg))];
+        }
+        return $out;
+    }
+
+    /**
+     * The tab the page opens on (docs/decisions.md IV7): after a refused form, the form's own tab (the page is drawn again for its POST: its
+     * address says which form); else the address's `tab`; else the tab of the change a redirect's notice names; else Details.
+     */
+    private static function openTab(Context $ctx): string
+    {
+        $req = $ctx->req;
+        if ($req->method === 'POST') {
+            $rest = (string) preg_replace('#^/ui/items/[0-9]+#', '', $req->path);
+            return match (true) {
+                str_starts_with($rest, '/barcodes') => 'barcodes',
+                $rest === '/selling-mode' => 'stores',
+                $rest === '/family' => 'packs',
+                default => 'details',
+            };
+        }
+        $tab = $req->param('tab');
+        if ($tab !== null && in_array($tab, self::TABS, true)) {
+            return $tab;
+        }
+        return self::NOTICE_TABS[(string) $req->param('notice')] ?? 'details';
+    }
+
+    /** A change with its sign: "+20", "−4" (a true minus), "0". */
+    private static function signed(int $v): string
+    {
+        return $v > 0 ? '+' . Html::int($v) : ($v < 0 ? '−' . Html::int(-$v) : '0');
     }
 
     /** A card value as the accept form sends it (ItemCards::check reads it back to the same value). */

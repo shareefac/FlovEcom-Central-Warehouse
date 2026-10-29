@@ -101,7 +101,7 @@ final class BuyingWordsTest extends KernelUiTestCase
             [$reviewer, '/ui/purchasing/orders', Words::MENU['orders'], null],
             [$desk, '/ui/purchasing/suppliers', Words::MENU['suppliers'], null],
             [$desk, '/ui/purchasing/suppliers/' . $made['id'], 'Plain Supplies (' . $made['code'] . ')', 'supplier'],
-            [$stock, '/ui/items/' . $sku, 'Plain pod 2ml (' . $code($sku) . ')', 'item'],
+            [$stock, '/ui/items/' . $sku, 'Plain pod 2ml', 'item'], // its CW number is on the identity line under the name (IV1)
             [$stock, '/ui/items/' . $sku . '/card', Words::say('CARD', 'form_title', 'Plain pod 2ml') . ' (' . $code($sku) . ')', 'card_form'],
             [$stock, '/ui/items/barcodes', Words::MENU['barcodes'], 'barcodes'],
             [$auditor, '/ui/items/cards', Words::MENU['cards'], null],
