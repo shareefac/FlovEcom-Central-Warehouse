@@ -1223,7 +1223,8 @@
   // it is the text box for the item's CW code (the server reads `item` as it always did). Here: typing a name, a barcode or a CW number (2
   // characters or more, 300 ms after the last key; at once with Enter, so a scan is looked up when the scanner sends Enter) asks the items route
   // (the read-only fragment at data-options) for the items it names, each with its CW code and its stock; a choice puts its CW code in the box,
-  // which the row's form sends, and shows it as a green "picked" chip with "Change" (the box back, empty). One item found by Enter is chosen.
+  // which the row's form sends, and shows it as a green "picked" chip with "Change" (the box back, empty). The item a usable barcode or a CW
+  // number names exactly (the fragment's data-exact) is chosen by Enter; words never are.
   // The list ends with "+ Add new item" (the new item page, the line's name filled in) or the line naming whom to ask. Place with words that
   // are no choice and no CW code says the page's words (data-choose) and sends nothing. A refused answer's item comes back picked
   // (data-picked). Every word comes from the page.
@@ -1315,8 +1316,8 @@
           draw(found);
           var says = node.querySelector('[data-lq-says]');
           say(says ? says.textContent.trim() : '');
-          if (enter && found.length === 1) {
-            c.choose(options()[0]);
+          if (enter && found.length === 1 && node.getAttribute('data-exact') === '1') {
+            c.choose(options()[0]); // a usable barcode or a CW number names its item exactly (LQ9); words are never chosen for the person
             return;
           }
           c.open(); // (only while the box has the focus)

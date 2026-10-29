@@ -1010,6 +1010,8 @@ final class UiUnitTest extends TestCase
         self::assertStringContainsString("var c = combo(input, list, {\n      options: options,\n      choose: function (li) {\n        if (li.getAttribute('data-add') === '1') {\n          var href = input.getAttribute('data-add-href') || '';", $js);
         self::assertStringContainsString("        input.value = li.getAttribute('data-code') || '';", $js, 'a choice sends its CW code, as typing it does');
         self::assertStringContainsString("if (ev.target !== form || input.hidden || v === '' || /^cw-?[0-9]{1,10}$/i.test(v)) {", $js);
+        // Enter chooses only the item a usable barcode or a CW number names exactly (the Codex review of 7fa7fd3, finding 5; LQ9).
+        self::assertStringContainsString("if (enter && found.length === 1 && node.getAttribute('data-exact') === '1') {", $js);
         $css = (string) file_get_contents(Assets::dir() . '/app.css');
         // The board is the shared one (pi-design): the group, its card's coloured edge, the solid status cell; kept solid on hover here.
         $tpl = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/queue_suspense.php');

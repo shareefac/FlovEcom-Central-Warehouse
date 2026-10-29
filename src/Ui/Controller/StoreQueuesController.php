@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CW\Ui\Controller;
 
 use CW\CwException;
+use CW\Matching\Gtin;
 use CW\Queues\Corrections;
 use CW\Queues\LandingOrders;
 use CW\Queues\ModeChanges;
@@ -93,10 +94,19 @@ final class StoreQueuesController
     {
         $q = mb_substr(trim((string) ($ctx->req->param('q') ?? '')), 0, 100);
         $choices = [];
+        $exact = false;
         if (mb_strlen($q) >= 2) {
             $r = $ctx->stockOps()->resolve($q);
+            // Exact: a usable barcode or a CW number (StockOps::resolve `found`); only that is chosen by Enter (app.js). A barcode that is on
+            // an item but not usable (shared with another item) offers nothing: the word search reads every barcode (the Codex review of
+            // 7fa7fd3, finding 5).
+            $exact = $r['status'] === 'found';
             $rows = $r['status'] === 'choices' ? $r['choices']
-                : ($r['status'] === 'found' ? $ctx->db->all('SELECT id AS sku_id, code, name, brand FROM sku WHERE id = ?', [(int) $r['sku_id']]) : []);
+                : ($exact ? $ctx->db->all('SELECT id AS sku_id, code, name, brand FROM sku WHERE id = ?', [(int) $r['sku_id']]) : []);
+            if (!$exact && preg_match('/^[0-9]{6,64}$/D', $q) === 1) {
+                $unusable = array_map('intval', $ctx->db->column('SELECT sku_id FROM sku_barcode WHERE barcode IN (?, ?) AND is_usable = 0', [$q, Gtin::key($q) ?? $q]));
+                $rows = array_values(array_filter($rows, static fn (array $c): bool => !in_array((int) $c['sku_id'], $unusable, true)));
+            }
             $ids = array_map(static fn (array $c): int => (int) $c['sku_id'], $rows);
             $held = $ids === [] ? [] : array_column($ctx->db->all('SELECT b.sku_id, SUM(b.on_hand) AS units FROM stock_balance b JOIN warehouse w ON w.id = b.warehouse_id '
                 . "WHERE w.stock_owner = 'own' AND b.sku_id IN (" . implode(', ', array_fill(0, count($ids), '?')) . ') GROUP BY b.sku_id', $ids), 'units', 'sku_id');
@@ -107,7 +117,8 @@ final class StoreQueuesController
                         static fn (string $v): bool => $v !== ''))];
             }
         }
-        return $ctx->fragment('queue_items', ['choices' => $choices, 'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('LQ', 'none', $q) : '']);
+        return $ctx->fragment('queue_items', ['choices' => $choices, 'exact' => $exact && count($choices) === 1,
+            'says' => $choices === [] && mb_strlen($q) >= 2 ? Words::say('LQ', 'none', $q) : '']);
     }
 
     private static function oneLine(string $name): string
@@ -139,11 +150,20 @@ final class StoreQueuesController
         return $out;
     }
 
-    /** @return array{id: int, form: string, item: string, units: string, note: string} what an answer of a row sent (as typed, cut to its boxes' sizes) */
+    /**
+     * What an answer of a row sent, to draw again in its boxes exactly as typed (the Codex review of b6b6512, finding 4: "000012" cut to
+     * "00001" was booked as 1 by a second press). A value is never cut into another one: kept whole while it is of a sane length (so the
+     * same refusal comes again until it is put right), else left out (the box empty, to be typed again).
+     *
+     * @return array{id: int, form: string, item: string, units: string, note: string}
+     */
     private static function typedAnswer(Context $ctx, string $form): array
     {
-        $f = static fn (string $name, int $max): string => mb_substr((string) ($ctx->req->field($name) ?? ''), 0, $max);
-        return ['id' => $ctx->id(), 'form' => $form, 'item' => $f('item', 16), 'units' => $f('units', 5), 'note' => $f('note', QueueRules::NOTE_MAX)];
+        $f = static function (string $name, int $max) use ($ctx): string {
+            $v = (string) ($ctx->req->field($name) ?? '');
+            return mb_strlen($v) <= $max ? $v : '';
+        };
+        return ['id' => $ctx->id(), 'form' => $form, 'item' => $f('item', 64), 'units' => $f('units', 20), 'note' => $f('note', 2 * QueueRules::NOTE_MAX)];
     }
 
     public function suspensePick(Context $ctx): HtmlResponse

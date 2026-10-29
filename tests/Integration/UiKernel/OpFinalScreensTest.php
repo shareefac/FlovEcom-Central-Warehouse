@@ -418,4 +418,166 @@ final class OpFinalScreensTest extends KernelUiTestCase
         self::assertSame('x', $r->form($path . '/' . $ids[1] . '/dismiss')['note'] ?? null);
         self::assertSame(1, self::xp($r)->query('//details[@open]//form[contains(@action, "/suspense/' . $ids[1] . '/dismiss")]')->length);
     }
+
+    // ------------------------------------------------------------------------------------------
+    // The Codex review of b6b6512 (docs/decisions.md OV9-OV12)
+    // ------------------------------------------------------------------------------------------
+
+    public function testAStaleTabsRefusedEditIsNeverLaidOnAnotherProduct(): void
+    {
+        // Finding 1 (HIGH): tab 1 shows product A; tab 2 removes A and adds B (the same line count); tab 1 sends a bad quantity and A's
+        // price. Before: refused for the quantity (422), A's typed values drawn over B with the NEW version, so a retry made B final at
+        // A's price. Now: the form's version is checked first: 409, nothing typed drawn back.
+        $a = $this->item('strict', 0, 'Alef pod');
+        $b = $this->item('strict', 0, 'Bet pod');
+        $web = $this->signIn($this->uiUser(['stock_controller', 'purchasing_desk']));
+        $page = $this->start($web, 'in', ['reason_code' => 'found']);
+        $id = (int) basename($page);
+        self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $a, 'qty' => '5', 'cost' => '1.50'])->status);
+        $stale = $web->get($page)->form($page . '/lines', true);
+        self::assertSame(303, $this->submit($web, $page, $page . '/lines', ['x_1' => '1', 'action' => 'save'])->status);
+        self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $b, 'qty' => '2', 'cost' => '4.00'])->status);
+        $r = $web->post($page . '/lines', ['u_1' => 'three', 'c_1' => '9.99', 'action' => 'post'] + $stale);
+        self::assertSame(409, $r->status, $r->describe());
+        self::assertStringContainsString(Words::STOCK_ERROR['version_conflict'], $r->text());
+        $form = $r->form($page . '/lines', true);
+        self::assertSame(['2', 0], [$form['u_1'] ?? null, bccomp('4', (string) ($form['c_1'] ?? ''), 6)], 'B as stored, never A\'s typed values');
+        self::assertNull(self::xp($r)->query('//form[contains(@action, "/lines")]/@data-dirty')->item(0), 'nothing typed is drawn back, so nothing is unsaved');
+        // Sent again with a good quantity: still the old version, still refused; B is unchanged and not final.
+        $r = $web->post($page . '/lines', ['u_1' => '3', 'c_1' => '9.99', 'action' => 'post'] + $stale);
+        self::assertSame(409, $r->status);
+        self::assertSame(['draft', 2], [self::docStatus($id), self::lineQty($id)]);
+        self::assertSame(0, bccomp('4', (string) self::$db->value('SELECT unit_cost FROM document_line WHERE document_id = ? AND line_no = 1', [$id]), 6));
+
+        // The same on a hand-over.
+        $h = $this->startHandover($web);
+        $hid = (int) basename($h);
+        self::assertSame(303, $this->submit($web, $h, $h . '/add', ['q' => 'CW-' . $a, 'qty' => '1', 'price' => '1.50'])->status);
+        $staleH = $web->get($h)->form($h . '/lines', true);
+        self::assertSame(303, $this->submit($web, $h, $h . '/lines', ['x_1' => '1', 'action' => 'save'])->status);
+        self::assertSame(303, $this->submit($web, $h, $h . '/add', ['q' => 'CW-' . $b, 'qty' => '1', 'price' => '8.00'])->status);
+        $r = $web->post($h . '/lines', ['u_1' => 'x', 'p_1' => '1.50', 'action' => 'post'] + $staleH);
+        self::assertSame(409, $r->status, $r->describe());
+        $form = $r->form($h . '/lines', true);
+        self::assertSame(['1', 0], [$form['u_1'] ?? null, bccomp('8', (string) ($form['p_1'] ?? ''), 6)]);
+        self::assertSame('draft', self::docStatus($hid));
+    }
+
+    public function testTheSaveFormOfABigRecordComesInPagesPhpTakesWhole(): void
+    {
+        // Finding 2: a record too big for the one form kept ONE "Save the lines" form of every line: a 500-line stock in sent 1,003 fields
+        // (units and cost a line), over max_input_vars, so Kernel refused it (400) and the lines could not be saved. Now the lines come in
+        // pages that each fit, with the version and the line count checked as before.
+        $max = UiRequest::maxInputVars();
+        $n = StockOps::MAX_LINES;
+        if (3 + 2 * $n < $max) {
+            self::markTestSkipped("max_input_vars is {$max} here: a {$n}-line record's save form fits");
+        }
+        $sku = $this->item('strict', 0, 'Gimel refill');
+        $web = $this->signIn($this->uiUser(['stock_controller', 'purchasing_desk']));
+        $page = $this->start($web, 'in', ['reason_code' => 'found']);
+        $id = (int) basename($page);
+        $rows = [];
+        $params = [];
+        for ($i = 1; $i <= $n; $i++) {
+            $rows[] = '(?, ?, ?, 1, 1.00)';
+            array_push($params, $id, $i, $sku);
+        }
+        self::$db->exec('INSERT INTO document_line (document_id, line_no, sku_id, qty, unit_cost) VALUES ' . implode(', ', $rows), $params);
+        $first = $web->get($page);
+        $r = $web->post($page . '/lines', ['u_1' => '2'] + $first->form($page . '/lines', true));
+        self::assertSame(303, $r->status, $r->describe() . ' (the save form as drawn, line 1 changed)');
+        $per = StockOpsController::linesPerPage('in');
+        self::assertLessThan($max, StockOpsController::oneFormFields('in', $per), 'a page of the save form fits');
+        $named = self::xp($first)->query('//form[contains(@action, "' . $page . '/lines")]//*[(self::input or self::select) and @name]');
+        self::assertLessThan($max, $named->length, 'every field of the page\'s form, the remove boxes counted ticked');
+        self::assertSame(StockOpsController::oneFormFields('in', $per), $named->length, 'and the budget counts each of them');
+        self::assertSame($per, self::xp($first)->query('//form[contains(@action, "' . $page . '/lines")]//input[starts-with(@name, "u_")]')->length);
+        self::assertStringContainsString(Words::say('OP_FINAL', 'page', 1, $per, $n), $first->text());
+        parse_str((string) parse_url((string) $r->location(), PHP_URL_QUERY), $q);
+        self::assertSame(['lines', '1'], [$q['notice'] ?? null, $q['lines_page'] ?? null], 'saved, back on the same page of lines');
+        self::assertSame(2, self::lineQty($id, 1));
+        $second = $web->get($page, ['lines_page' => '2']);
+        self::assertSame($n - $per, self::xp($second)->query('//form[contains(@action, "' . $page . '/lines")]//input[starts-with(@name, "u_")]')->length);
+        $r = $web->post($page . '/lines', ['u_' . $n => '7'] + $second->form($page . '/lines', true));
+        self::assertSame(303, $r->status, $r->describe());
+        parse_str((string) parse_url((string) $r->location(), PHP_URL_QUERY), $q);
+        self::assertSame('2', $q['lines_page'] ?? null, 'back on the same page of lines');
+        self::assertSame([2, 7, 1], [self::lineQty($id, 1), self::lineQty($id, $n), self::lineQty($id, 2)], 'each page saves its own lines, the others as stored');
+        // Then the post-only form makes it final with what was saved.
+        $r = $web->post($page . '/post', $web->get($page)->form($page . '/post'));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame($n + 7, (int) self::$db->value('SELECT SUM(qty_delta) FROM stock_ledger WHERE document_id = ?', [$id]), 'every line as saved: 2 and 7 for 1');
+
+        // A hand-over of as many lines: its pages fit too.
+        $h = $this->startHandover($web);
+        $hid = (int) basename($h);
+        $rows = [];
+        $params = [];
+        for ($i = 1; $i <= $n; $i++) {
+            $rows[] = '(?, ?, ?, 1, 2.00)';
+            array_push($params, $hid, $i, $sku);
+        }
+        self::$db->exec('INSERT INTO document_line (document_id, line_no, sku_id, qty, unit_cost) VALUES ' . implode(', ', $rows), $params);
+        $hp = $web->get($h);
+        self::assertSame(HandoversController::linesPerPage(), self::xp($hp)->query('//form[contains(@action, "' . $h . '/lines")]//input[starts-with(@name, "u_")]')->length);
+        $r = $web->post($h . '/lines', ['p_1' => '2.50'] + $hp->form($h . '/lines', true));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame(0, bccomp('2.5', (string) self::$db->value('SELECT unit_cost FROM document_line WHERE document_id = ? AND line_no = 1', [$hid]), 6));
+    }
+
+    public function testValuesDrawnBackAfterARefusalCountAsUnsaved(): void
+    {
+        // Finding 3: a refused save draws back what was typed, but the form was not marked unsaved, so the next Add (a scan) left the page
+        // without asking and lost them. Now the form drawn with typed values carries the unsaved mark app.js asks about.
+        $sku = $this->item('strict', 0, 'Dalet pod');
+        $web = $this->signIn($this->uiUser(['stock_controller', 'purchasing_desk']));
+        $page = $this->start($web, 'in', ['reason_code' => 'found']);
+        self::assertSame(303, $this->submit($web, $page, $page . '/add', ['q' => 'CW-' . $sku, 'qty' => '5', 'cost' => '1.50'])->status);
+        self::assertNull(self::xp($web->get($page))->query('//form[contains(@action, "/lines")]/@data-dirty')->item(0), 'a page as stored: nothing unsaved');
+        $r = $this->submit($web, $page, $page . '/lines', ['u_1' => '7', 'c_1' => 'abc', 'action' => 'post']);
+        self::assertSame(400, $r->status, $r->describe());
+        self::assertStringContainsString(Words::STOCK_ERROR['bad_cost'], $r->text());
+        self::assertSame('1', (string) self::xp($r)->evaluate('string(//form[contains(@action, "/lines")]/@data-dirty)'), 'what was typed is drawn back unsaved');
+        self::assertSame(['7', 'abc'], [$r->form($page . '/lines', true)['u_1'] ?? null, $r->form($page . '/lines', true)['c_1'] ?? null]);
+        // A refused details form: the same.
+        $r = $this->submit($web, $page, $page . '/details', ['warehouse' => '999999']);
+        self::assertGreaterThanOrEqual(400, $r->status, $r->describe());
+        self::assertSame('1', (string) self::xp($r)->evaluate('string(//form[contains(@action, "/details")]/@data-dirty)'));
+        // A hand-over's lines.
+        $h = $this->startHandover($web);
+        self::assertSame(303, $this->submit($web, $h, $h . '/add', ['q' => 'CW-' . $sku, 'qty' => '1', 'price' => '1.00'])->status);
+        $r = $this->submit($web, $h, $h . '/lines', ['u_1' => 'two', 'action' => 'post']);
+        self::assertSame(422, $r->status);
+        self::assertSame('1', (string) self::xp($r)->evaluate('string(//form[contains(@action, "/lines")]/@data-dirty)'));
+    }
+
+    public function testARefusedLinesToPlaceAnswerIsKeptExactlyAsTyped(): void
+    {
+        // Finding 4: "000012" was refused, then cut to "00001", which a second press booked as 1 instead of 12. Now what was refused comes
+        // back exactly as typed (refused again until it is put right), and a note too long is never cut into one that passes.
+        $site = self::makeChannel('vpg', 'live');
+        self::$db->exec('INSERT INTO channel_warehouse (channel_id, warehouse_id, is_sellable) VALUES (?, ?, 1)', [$site, self::warehouseId('MAIN')]);
+        self::$db->exec('UPDATE channel SET movement_types = ? WHERE id = ?', [json_encode(['goods_in']), $site]);
+        (new Movements(self::$db))->record(Caller::channel($site, 'vpg'), ['type' => 'goods_in', 'doc_ref' => 'ACC-PINV-8', 'lines' => [['variant_id' => 'N8', 'qty' => 2,
+            'description' => 'Peach 10ml']]], 'relay-ov8');
+        $id = (int) self::$db->value('SELECT id FROM goods_in_suspense');
+        $sku = self::makeSku('Peach 10ml');
+        $code = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$sku]);
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $path = StoreQueuesController::PATH . '/suspense';
+        $pick = $path . '/' . $id . '/pick';
+        $r = $web->post($pick, ['item' => $code, 'units' => '000012', 'note' => 'twelve a line'] + $web->get($path)->form($pick));
+        self::assertSame(400, $r->status, $r->describe());
+        self::assertSame('000012', $r->form($pick)['units'] ?? null, 'never cut into another number');
+        $again = $web->post($pick, $r->form($pick));
+        self::assertSame(400, $again->status, 'refused again, nothing booked');
+        self::assertSame(0, (int) (self::$db->value('SELECT on_hand FROM stock_balance WHERE sku_id = ?', [$sku]) ?? 0));
+        $long = str_repeat('n', 501);
+        $r = $web->post($pick, ['item' => $code, 'units' => '1', 'note' => $long] + $web->get($path)->form($pick));
+        self::assertSame(400, $r->status);
+        self::assertSame($long, $r->form($pick)['note'] ?? null, 'a note too long is not cut into one that passes');
+        self::assertSame(400, $web->post($pick, $r->form($pick))->status);
+        self::assertSame('open', (string) self::$db->value('SELECT CAST(status AS CHAR) FROM goods_in_suspense WHERE id = ?', [$id]));
+    }
 }

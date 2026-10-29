@@ -2023,8 +2023,11 @@ final class Words
         'save' => 'Save',
         // A posting refused after its save (the draft keeps the saved lines). %s: the refusal in words, "Nothing was saved." left out.
         'not_final' => 'Saved as a draft, not made final: %s',
-        // A record with more lines than one form can carry (max_input_vars): %s is the lines' save button.
-        'too_many' => 'This record has too many lines to save and make final in one go. Press "%s" under the lines first, then make it final here.',
+        // A record with more lines than one form can carry (max_input_vars): %s is the lines' save button. Its lines come in pages (OV10).
+        'too_many' => 'This record has too many lines to save and make final in one go. Save the lines page by page with "%s", then make it final here.',
+        'page' => 'Lines %s to %s of %s',
+        'prev' => 'Lines before',
+        'next' => 'Next lines',
         'unsaved' => 'You have changes on this page that are not saved. They are lost if you go on. Press Cancel, then save them first. (OK goes on without them.)',
     ];
 

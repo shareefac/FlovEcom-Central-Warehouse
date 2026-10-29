@@ -91,10 +91,13 @@
 <?php if ($lines === []): ?>
   <p class="muted"><?= $word('STOCK_OPS', 'no_lines') ?></p>
 <?php elseif ($editable): ?>
-  <form class="record stock-lines" method="post" action="<?= $u($base . '/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
+  <form class="record stock-lines" method="post" action="<?= $u($base . '/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1"<?php if ($typedLines !== []): ?> data-dirty="1"<?php endif; ?>>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
     <input type="hidden" name="line_count" value="<?= $e(count($lines)) ?>">
+<?php if ($linesPager !== null): ?>
+    <input type="hidden" name="lines_page" value="<?= $e($linesPager['no']) ?>">
+<?php endif; ?>
     <div class="table-wrap">
     <table class="stack lines">
       <thead>
@@ -113,7 +116,7 @@
         </tr>
       </thead>
       <tbody>
-<?php foreach ($lines as $l): ?>
+<?php foreach ($editLines as $l): ?>
         <tr>
           <th scope="row" class="c-head"><a href="<?= $u('/ui/items/' . $l['sku_id']) ?>"><?= $e($l['name']) ?></a><span class="o-sub"><?= $e($l['code']) ?></span></th>
           <td data-label="<?= $word('STOCK_OPS', 'line_units') ?>" class="num"><input type="text" name="u_<?= $e($l['line_no']) ?>" value="<?= $e($typedLines[$l['line_no']]['u'] ?? $l['qty']) ?>" inputmode="numeric" maxlength="9" aria-label="<?= $word('STOCK_OPS', 'line_units') ?>"></td>
@@ -152,6 +155,17 @@
     <p class="actions"><button type="submit"><?= $word('STOCK_OPS', 'save_lines') ?></button> <span class="muted"><?= $say('STOCK_OPS', 'total_units', number_format($units)) ?><?php if ($priced): ?> · <?= $money($total) ?><?php endif; ?></span></p>
 <?php endif; ?>
   </form>
+<?php if ($linesPager !== null): ?>
+  <form class="pager" method="get" action="<?= $u($base . '/' . $doc->id) ?>" data-leaves="1">
+    <span><?= $say('OP_FINAL', 'page', $linesPager['from'], $linesPager['to'], $linesPager['n']) ?></span>
+<?php if ($linesPager['no'] > 1): ?>
+    <button type="submit" name="lines_page" value="<?= $e($linesPager['no'] - 1) ?>"><?= $word('OP_FINAL', 'prev') ?></button>
+<?php endif; ?>
+<?php if ($linesPager['no'] < $linesPager['pages']): ?>
+    <button type="submit" name="lines_page" value="<?= $e($linesPager['no'] + 1) ?>"><?= $word('OP_FINAL', 'next') ?></button>
+<?php endif; ?>
+  </form>
+<?php endif; ?>
 <?php else: ?>
   <div class="table-wrap">
   <table class="stack lines">
@@ -202,7 +216,7 @@
 <?php if ($editable): ?>
 <details class="fold"<?php if (in_array($errorCode, ['warehouse_required', 'warehouse_inactive', 'location_mismatch', 'location_inactive', 'not_own_stock', 'owner_differs', 'release_from_own', 'release_to_other', 'reason_not_applicable', 'reason_inactive', 'bad_field'], true)): ?> open<?php endif; ?>>
   <summary><?= $word('STOCK_OPS', 'details') ?></summary>
-  <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/details') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1">
+  <form class="record" method="post" action="<?= $u($base . '/' . $doc->id . '/details') ?>" data-unsaved="1" data-unsaved-text="<?= $word('OP_FINAL', 'unsaved') ?>" data-leaves="1"<?php if ($headerTyped): ?> data-dirty="1"<?php endif; ?>>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="version" value="<?= $e($version) ?>">
 <?= $partial('stock_op_fields', ['form' => $form, 'kind' => $kind]) ?>

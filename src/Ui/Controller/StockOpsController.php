@@ -190,17 +190,20 @@ final class StockOpsController
         $ops = $ctx->stockOps();
         $saved = false;
         try {
+            // The form's version first (the Codex review of b6b6512, finding 1): a table drawn before the record changed may name other
+            // products in the same rows now, so nothing of it is read, and nothing of it is typed back.
+            self::checkDrawn($ctx, $id, $version);
             $edit = self::editedLines($ctx, $kind, $id);
             if (!$final || $edit['changed']) {
                 $version = $ops->saveLines($ctx->caller(), $id, $version, $edit['lines'])->version;
                 $saved = true;
             }
         } catch (CwException $e) {
-            // A table drawn before the lines changed (409) is not typed back: its rows may name other products now.
-            return $this->page($ctx, $kind, $id, $e->httpStatus, $e, null, $e->errorCode === 'version_conflict' ? [] : ['typedLines' => self::typedLines($ctx->req)]);
+            return $this->page($ctx, $kind, $id, $e->httpStatus, $e, null, in_array($e->errorCode, ['version_conflict', 'not_draft'], true) ? []
+                : ['typedLines' => self::typedLines($ctx->req), 'typedVersion' => $version]);
         }
         if (!$final) {
-            return HtmlResponse::redirect(Html::url(StockOps::PATHS[$kind] . '/' . $id, ['notice' => 'lines']));
+            return HtmlResponse::redirect(Html::url(StockOps::PATHS[$kind] . '/' . $id, ['notice' => 'lines', 'lines_page' => UiRequest::id($ctx->req->field('lines_page'))]));
         }
         try {
             return $this->posted($ctx, $kind, $ops->post($ctx->caller(), $id, $version));
@@ -222,6 +225,49 @@ final class StockOpsController
     public static function oneFormFits(string $kind, int $lines): bool
     {
         return self::oneFormFields($kind, $lines) < UiRequest::maxInputVars();
+    }
+
+    /**
+     * The lines a page of the save form carries when the record is too big for the one form (OV10): its fields (csrf, version, line_count,
+     * lines_page, and each line's) stay below max_input_vars. The lines of the other pages keep what is stored (editedLines).
+     */
+    public static function linesPerPage(string $kind): int
+    {
+        return max(1, intdiv(UiRequest::maxInputVars() - 1 - self::oneFormFields($kind, 0), self::oneFormFields($kind, 1) - self::oneFormFields($kind, 0)));
+    }
+
+    /**
+     * The record as the form was drawn (OV9): still a draft (409 not_draft) at the form's version (409 version_conflict). Read before the
+     * form's lines; StockOps / Handovers check the version again under their lock.
+     */
+    public static function checkDrawn(Context $ctx, int $id, int $version): void
+    {
+        $row = $ctx->db->one('SELECT status, version FROM document WHERE id = ?', [$id]) ?? throw new CwException('not_found', 'there is no such record', 404);
+        if ((string) $row['status'] !== 'draft') {
+            throw new CwException('not_draft', 'only a draft is changed or posted', 409, ['status' => (string) $row['status']]);
+        }
+        if ((int) $row['version'] !== $version) {
+            throw new CwException('version_conflict', 'the record changed since this page was drawn', 409, ['version' => (int) $row['version'], 'expected_version' => $version]);
+        }
+    }
+
+    /**
+     * The page of lines the save form shows (OV10): all of them while the one form fits, else a page of linesPerPage(), the page asked for
+     * (`lines_page`, the URL's or the refused form's) kept within the record.
+     *
+     * @param list<array<string, mixed>> $lines
+     * @return array{lines: list<array<string, mixed>>, pager: ?array{no: int, pages: int, from: int, to: int, n: int}}
+     */
+    public static function linesPage(UiRequest $req, array $lines, bool $oneForm, int $per): array
+    {
+        $n = count($lines);
+        if ($oneForm || $n <= $per) {
+            return ['lines' => $lines, 'pager' => null];
+        }
+        $pages = intdiv($n + $per - 1, $per);
+        $no = min($pages, max(1, UiRequest::id($req->field('lines_page') ?? $req->param('lines_page')) ?? 1));
+        return ['lines' => array_slice($lines, ($no - 1) * $per, $per), 'pager' => ['no' => $no, 'pages' => $pages, 'from' => ($no - 1) * $per + 1,
+            'to' => min($n, $no * $per), 'n' => $n]];
     }
 
     /** POST {id}/add: a product by barcode, CW number or words (`choices` shown on the page), or one chosen from the choices. */
@@ -395,6 +441,9 @@ final class StockOpsController
             }
         }
         $ruleWaits = $doc->status === 'draft' && ($type['approval_rule'] !== 'none' || (int) ($type['size_approval'] ?? 0) === 1);
+        $shown = array_map(static fn (array $l): array => $l + ['reason_text' => $l['reason_label'] ?? null], $lines);
+        $oneForm = $editable && $lines !== [] && self::oneFormFits($kind, count($lines));
+        $page = self::linesPage($ctx->req, $shown, $oneForm, self::linesPerPage($kind));
         return $ctx->page('stock_op', [
             'kind' => $kind,
             'k' => Words::STOCK_KIND[$kind],
@@ -404,7 +453,7 @@ final class StockOpsController
             'rec' => $rec,
             'title' => Words::docTitle($doc->docType, $doc->number, null, $doc->isReversal() ? (string) ($rec['reverses_number'] ?? '#' . $doc->reversesId) : null),
             'facts' => self::facts($rec, $doc),
-            'lines' => array_map(static fn (array $l): array => $l + ['reason_text' => $l['reason_label'] ?? null], $lines),
+            'lines' => $shown,
             'priced' => $priced,
             'total' => $total,
             'units' => array_sum(array_map(static fn (array $l): int => abs($l['qty']), $lines)),
@@ -433,9 +482,14 @@ final class StockOpsController
             'typedAdd' => $extra['typedAdd'] ?? $extra['add'] ?? ['q' => '', 'qty' => '1', 'cost' => '', 'reason' => ''],
             'typedCancel' => $extra['typedCancel'] ?? ['code' => '', 'note' => ''],
             'typedStop' => (string) ($extra['stop'] ?? ''),
-            'typedLines' => $extra['typedLines'] ?? [],
-            // One form for the lines and the final button while PHP takes every field it can send (OV4); else save first, then the post-only form.
-            'oneForm' => $editable && $lines !== [] && self::oneFormFits($kind, count($lines)),
+            // What a refused form sent, drawn back only over the version it was drawn with (OV9), and marked unsaved (OV11).
+            'typedLines' => ($extra['typedVersion'] ?? null) === $doc->version ? ($extra['typedLines'] ?? []) : [],
+            'headerTyped' => isset($extra['header']),
+            // One form for the lines and the final button while PHP takes every field it can send (OV4); else save first, page by page (OV10),
+            // then the post-only form.
+            'oneForm' => $oneForm,
+            'editLines' => $page['lines'],
+            'linesPager' => $page['pager'],
             'lookOnly' => $canPost ? null : Words::whoCan('doc.' . $doc->docType . '.post'),
             'error' => $error === null ? null : (($extra['notFinal'] ?? false) === true ? Words::notFinal(self::plain($error)) : self::plain($error)),
             'errorCode' => $error?->errorCode,
@@ -707,7 +761,9 @@ final class StockOpsController
     }
 
     /**
-     * What a refused lines form sent, to draw again in its boxes (units, cost or price, reason, remove): line number => field => value.
+     * What a refused lines form sent, to draw again in its boxes (units, cost or price, reason, remove): line number => field => value. A
+     * value is kept whole, never cut into another (OV12, as Lines to place's); one longer than 64 characters is left out (the stored value
+     * shows).
      *
      * @return array<int, array<string, string>>
      */
@@ -715,7 +771,9 @@ final class StockOpsController
     {
         $out = [];
         foreach ($req->fieldsMatching('/^[ucprx]_[1-9][0-9]{0,4}$/D') as $name => $v) {
-            $out[(int) substr($name, 2)][$name[0]] = mb_substr($v, 0, 40);
+            if (mb_strlen($v) <= 64) {
+                $out[(int) substr($name, 2)][$name[0]] = $v;
+            }
         }
         return $out;
     }

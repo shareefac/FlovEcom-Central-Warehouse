@@ -36,7 +36,7 @@
     <tbody>
 <?php foreach ($g['rows'] as $r): ?>
       <tr id="suspense-<?= $e($r['id']) ?>">
-        <th scope="row" class="c-head"><?= $e($r['what']) ?><?php if ($r['names'] !== null): ?><span class="o-sub"><?= $e($r['names']) ?></span><?php endif; ?><span class="o-sub"><?= $e($r['where']) ?></span><span class="o-sub"><?= $e($r['why']) ?></span></th>
+        <th scope="row" class="c-head"><?= $e($r['what']) ?><span class="o-sub"><?= $e($r['from']) ?></span><?php if ($r['names'] !== null): ?><span class="o-sub"><?= $e($r['names']) ?></span><?php endif; ?><span class="o-sub"><?= $e($r['where']) ?></span><span class="o-sub"><?= $e($r['why']) ?></span></th>
         <td class="c-status doc-st <?= $e($r['st_tone']) ?>" data-label="<?= $word('LQ', 'col_status') ?>"><?= $e($r['st_word']) ?></td>
         <td class="num" data-label="<?= $e($g['units_col']) ?>"><?= $n($r['units']) ?></td>
 <?php if ($r['answer']): ?>

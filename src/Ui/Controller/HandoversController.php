@@ -195,16 +195,19 @@ final class HandoversController
         $final = $ctx->req->field('action') === 'post';
         $saved = false;
         try {
+            // The form's version first (OV9): a table drawn before the hand-over changed is neither read nor typed back.
+            StockOpsController::checkDrawn($ctx, $id, $version);
             $edit = self::editedLines($ctx, $id);
             if (!$final || $edit['changed']) {
                 $version = $svc->saveLines($ctx->caller(), $id, $version, $edit['lines'])->version;
                 $saved = true;
             }
         } catch (CwException $e) {
-            return $this->page($ctx, $id, $e->httpStatus, $e, null, $e->errorCode === 'version_conflict' ? [] : ['typedLines' => StockOpsController::typedLines($ctx->req)]);
+            return $this->page($ctx, $id, $e->httpStatus, $e, null, in_array($e->errorCode, ['version_conflict', 'not_draft'], true) ? []
+                : ['typedLines' => StockOpsController::typedLines($ctx->req), 'typedVersion' => $version]);
         }
         if (!$final) {
-            return HtmlResponse::redirect(Html::url(Handovers::PATH . '/' . $id, ['notice' => 'lines']));
+            return HtmlResponse::redirect(Html::url(Handovers::PATH . '/' . $id, ['notice' => 'lines', 'lines_page' => UiRequest::id($ctx->req->field('lines_page'))]));
         }
         try {
             $d = $svc->post($ctx->caller(), $id, $version);
@@ -224,6 +227,12 @@ final class HandoversController
     public static function oneFormFits(int $lines): bool
     {
         return self::oneFormFields($lines) < UiRequest::maxInputVars();
+    }
+
+    /** The lines a page of the save form carries when the hand-over is too big for the one form (OV10). */
+    public static function linesPerPage(): int
+    {
+        return max(1, intdiv(UiRequest::maxInputVars() - 1 - self::oneFormFields(0), self::oneFormFields(1) - self::oneFormFields(0)));
     }
 
     /** POST {id}/add: an item by barcode, CW number or words (`choices` shown on the page), or one chosen from the choices. */
@@ -355,6 +364,8 @@ final class HandoversController
             }
         }
         $missing = array_values(array_filter($lines, static fn (array $l): bool => $l['unit_cost'] === null));
+        $oneForm = $editable && $lines !== [] && self::oneFormFits(count($lines));
+        $page = StockOpsController::linesPage($ctx->req, $lines, $oneForm, self::linesPerPage());
         // Whether the invoice PDF prints now (the same rule as the download, PH8): said beside the link, so nobody meets a refusal.
         $pdfBlocked = null;
         if (!$doc->isReversal()) {
@@ -397,9 +408,14 @@ final class HandoversController
             'typedAdd' => $extra['typedAdd'] ?? $extra['add'] ?? ['q' => '', 'qty' => '1', 'price' => ''],
             'typedCancel' => $extra['typedCancel'] ?? ['code' => '', 'note' => ''],
             'typedStop' => (string) ($extra['stop'] ?? ''),
-            'typedLines' => $extra['typedLines'] ?? [],
-            // One form for the lines and the final button while PHP takes every field it can send (OV4); else save first, then the post-only form.
-            'oneForm' => $editable && $lines !== [] && self::oneFormFits(count($lines)),
+            // What a refused form sent, drawn back only over the version it was drawn with (OV9), and marked unsaved (OV11).
+            'typedLines' => ($extra['typedVersion'] ?? null) === $doc->version ? ($extra['typedLines'] ?? []) : [],
+            'headerTyped' => isset($extra['header']),
+            // One form for the lines and the final button while PHP takes every field it can send (OV4); else save first, page by page (OV10),
+            // then the post-only form.
+            'oneForm' => $oneForm,
+            'editLines' => $page['lines'],
+            'linesPager' => $page['pager'],
             'lookOnly' => $canPost ? null : Words::whoCan('doc.TRD.post'),
             'error' => $error === null ? null : (($extra['notFinal'] ?? false) === true ? Words::notFinal(self::plain($error)) : self::plain($error)),
             'errorCode' => $error?->errorCode,

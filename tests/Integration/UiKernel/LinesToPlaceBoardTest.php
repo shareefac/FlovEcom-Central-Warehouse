@@ -198,4 +198,60 @@ final class LinesToPlaceBoardTest extends KernelUiTestCase
         self::assertSame('x', $r->form($close)['note'] ?? null);
         self::assertSame(1, self::xp($r)->query('//details[contains(@class, "lq-menu") and @open]//form[contains(@action, "' . $close . '")]')->length);
     }
+
+    // ------------------------------------------------------------------------------------------
+    // The Codex review of 7fa7fd3 (docs/decisions.md LQ9-LQ10)
+    // ------------------------------------------------------------------------------------------
+
+    public function testAnUnusableBarcodeIsNeverOfferedAndOnlyAnExactMatchIsChosenByEnter(): void
+    {
+        // Finding 5: a barcode kept on item A but not usable (shared with another item) fell through to the word search, which reads
+        // every barcode, so A came back as the one choice and Enter chose it. Now an unusable barcode offers nothing, and only an exact
+        // match (a usable barcode, a CW number) says so to the script, which chooses only that by Enter.
+        $this->fill();
+        $a = self::makeSku('Shared code A');
+        $b = self::makeSku('Shared code B');
+        $codeA = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$a]);
+        $codeB = (string) self::$db->value('SELECT code FROM sku WHERE id = ?', [$b]);
+        self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id, is_usable, units_per_scan) VALUES ('5060000006660', ?, 0, 1), ('5060000007773', ?, 1, 1)", [$a, $b]);
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $choices = static function (UiResponse $r): array {
+            return array_map(static fn (\DOMNode $li): string => (string) $li->attributes?->getNamedItem('data-code')?->nodeValue,
+                iterator_to_array(self::xp($r)->query('//ul[@data-lq-choices]/li') ?: []));
+        };
+        $exact = static fn (UiResponse $r): string => (string) self::xp($r)->evaluate('string(/html/body/*[@data-lq-fragment]/@data-exact)');
+        $r = $web->get(self::PATH . '/items', ['q' => '5060000006660']);
+        self::assertSame(200, $r->status, $r->describe());
+        self::assertNotContains($codeA, $choices($r), 'an unusable barcode offers nothing');
+        self::assertSame('', $exact($r));
+        $r = $web->get(self::PATH . '/items', ['q' => '5060000007773']);
+        self::assertSame([[$codeB], '1'], [$choices($r), $exact($r)], 'a usable barcode: its item, exactly');
+        $r = $web->get(self::PATH . '/items', ['q' => $codeB]);
+        self::assertSame([[$codeB], '1'], [$choices($r), $exact($r)], 'a CW number: its item, exactly');
+        $r = $web->get(self::PATH . '/items', ['q' => 'Shared code B']);
+        self::assertSame([[$codeB], ''], [$choices($r), $exact($r)], 'words that name one item are a choice, never chosen by Enter');
+    }
+
+    public function testEveryRowSaysWhichStoreItCameFrom(): void
+    {
+        // Finding 6: the rows no longer said their store (only the group's heading listed the stores), though Place books into the row's
+        // store's warehouse. Every row says its store again, escaped.
+        $this->fill();
+        $big = self::makeChannel('vbig', 'live');
+        self::$db->exec("UPDATE channel SET name = 'Vape <Big>', movement_types = ? WHERE id = ?", [json_encode(['goods_in']), $big]);
+        self::$db->exec('INSERT INTO channel_warehouse (channel_id, warehouse_id, is_sellable) VALUES (?, ?, 1)', [$big, self::warehouseId('MAIN')]);
+        (new Movements(self::$db))->record(Caller::channel($big, 'vbig'), ['type' => 'goods_in', 'doc_ref' => 'BIG-PINV-1', 'lines' => [['variant_id' => 'B1', 'qty' => 1,
+            'description' => 'Mango 10ml']]], 'relay-big');
+        $bigRow = (int) self::$db->value('SELECT id FROM goods_in_suspense WHERE channel_id = ?', [$big]);
+        $vpgRow = (int) self::$db->value("SELECT id FROM goods_in_suspense WHERE channel_id <> ? AND movement_type = 'goods_in' ORDER BY id LIMIT 1", [$big]);
+        $vpgName = (string) self::$db->value('SELECT c.name FROM channel c JOIN goods_in_suspense g ON g.channel_id = c.id WHERE g.id = ?', [$vpgRow]);
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $page = $web->get(self::PATH);
+        self::assertSame(200, $page->status, $page->describe());
+        $row = static fn (int $id): string => (string) self::xp($page)->evaluate('string(//tr[@id="suspense-' . $id . '"]/th)');
+        self::assertStringContainsString(Words::say('QUEUES', 'from', 'Vape <Big>'), $row($bigRow));
+        self::assertStringContainsString(Words::say('QUEUES', 'from', $vpgName), $row($vpgRow));
+        self::assertStringNotContainsString(Words::say('QUEUES', 'from', 'Vape <Big>'), $row($vpgRow));
+        self::assertStringNotContainsString('<Big>', $page->body, 'escaped');
+    }
 }

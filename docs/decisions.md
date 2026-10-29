@@ -12469,3 +12469,48 @@ fills in the name (at most 120 characters); nothing is made until the form is se
 
 **LQ8. Words, and what was left out.** Every word in `Words::LQ`. Left out (the owner's "no help paragraphs"): the hints under the item code,
 the units and the buttons and the fieldset's legend (their words are removed from `Words::SUSPENSE`, with the old button words). The mockup's search box above the board is not built (the list is at most one page of waiting lines; the status filter stays).
+
+### The Codex reviews of b6b6512 and 7fa7fd3 (`runs/opfinal_codex_review1.txt`, `review2.txt`): one HIGH, five MEDIUM, all real, each shown failing first (OV9-OV12, LQ9-LQ10)
+
+Red on 7fa7fd3: `runs/opfinal_codex_red.log` and `runs/opfinal_codex_red2.log` (the six tests below, each failing on the fault); the
+JavaScript in node: `runs/opfinal_codex_js.log` (7fa7fd3's app.js fails the new Enter check, this one passes all, the guard too).
+
+**OV9. A stale form is refused before it is read (HIGH, finding 1).** Tab 1 showed product A; tab 2 removed A and added B, so the record
+had one line again; tab 1 sent a bad quantity and A's price. The quantity was refused before any version was checked, and the page drew A's
+typed values over B with the NEW version, so a corrected retry made B final at A's price. Now the lines handler reads the record first
+(`StockOpsController::checkDrawn`, for stock records and hand-overs): not a draft any more, 409 `not_draft`; another version than the form
+was drawn with, 409 `version_conflict`; in both nothing of the form is read or drawn back. The services check the version again under their
+lock, as before; and a refused form's values are drawn back only over the version they were typed on (`typedVersion`), so nothing typed can
+land on rows drawn after a change. `testAStaleTabsRefusedEditIsNeverLaidOnAnotherProduct` (a stock in and a hand-over).
+
+**OV10. A big record's save form comes in pages (finding 2).** The fallback of OV4 kept one "Save the lines" form of every line: a 500-line
+stock in sends 1,003 fields (units and cost a line, with csrf, version and line_count), over PHP's 1,000, so Kernel refused it (400) and
+the lines could not be saved at all. Now, when the one form does not fit, the save form shows a page of lines that fits
+(`linesPerPage`: every field it can send, the remove boxes counted ticked, plus `lines_page`, below `max_input_vars`: 331 lines of a stock
+in, adjustment, release or hand-over, 497 of a stock out or transfer at 1,000), "Lines 1 to 331 of 500" with "Lines before" / "Next lines"
+(a GET form that asks first when lines are unsaved, `data-leaves`). The page's form sends `line_count` (every line of the record) and the
+version as before; the lines of the other pages keep what is stored (`editedLines` takes a line not sent as stored); a save comes back to
+the same page. The final box's post-only form then makes final what was saved; its note now says to save page by page.
+`testTheSaveFormOfABigRecordComesInPagesPhpTakesWhole` (500 lines of a stock in: both pages saved, made final with them; a hand-over's page).
+
+**OV11. Values drawn back after a refusal count as unsaved (finding 3).** The form drawn with what a refused save sent had no unsaved mark
+until a key was pressed, so the next Add (a scan) left the page without asking. The lines form drawn with typed values, and the details
+form drawn with a refused header, carry `data-dirty="1"`, which app.js's guard reads (OV5). `testValuesDrawnBackAfterARefusalCountAsUnsaved`;
+the guard in node (a form drawn dirty: a scan asks first).
+
+**OV12. A refused value is kept whole, never cut into another (finding 4).** Lines to place cut what it drew back to its box's size:
+"000012" (refused: more than 5 digits) came back "00001", and a second press booked 1 a line instead of 12; a note of 501 characters came
+back cut to 500, which passes. Now the item, the units and the note come back exactly as typed while of a sane length (so the same refusal
+comes again until the person puts it right), else empty; a stock record's and a hand-over's typed boxes the same (whole, or the stored value
+when longer than 64 characters). `testARefusedLinesToPlaceAnswerIsKeptExactlyAsTyped`.
+
+**LQ9. An unusable barcode offers nothing; Enter chooses only an exact match (finding 5).** A barcode kept on item A but not usable (shared
+with another item) failed the usable lookup and fell through to the word search, which reads every barcode, so A came back as the one
+choice and Enter chose it. Now the items route leaves out the items that hold a barcode-shaped query as an unusable barcode, and its
+fragment says `data-exact="1"` only when the words were a usable barcode or a CW number naming one item; app.js chooses by Enter only then.
+Words that name one item are shown, never chosen for the person. `testAnUnusableBarcodeIsNeverOfferedAndOnlyAnExactMatchIsChosenByEnter`;
+the node harness (words with Enter not chosen; a scan chosen).
+
+**LQ10. Every row says its store (finding 6).** The rows had lost "From <store>" (only the group's heading listed the stores), though Place
+books into the row's store's warehouse. Each row's first cell says it again, escaped. `testEveryRowSaysWhichStoreItCameFrom` (two stores,
+one named with markup).
