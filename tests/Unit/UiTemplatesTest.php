@@ -432,12 +432,14 @@ final class UiTemplatesTest extends TestCase
         self::assertStringNotContainsString(Html::e(Words::SECTION_DESC['products']), $html, 'one sentence: the section\'s own line is gone');
         $bar = substr($head, (int) strpos($head, '<nav class="tabs" aria-label="Products">'));
         self::assertGreaterThan(0, strpos($head, '<nav class="tabs" aria-label="Products">'), 'the tabs come after the statement');
-        self::assertStringContainsString('<a class="tab" href="/ui/review" aria-current="page"><span>Mapping</span><span class="count" title="3 waiting for your second OK">3'
+        // The tab and the segment of the page shown have no link (docs/decisions.md CV13: a click never reloads the page; a filter of the
+        // page, here its queue, is still the page).
+        self::assertStringContainsString('<a class="tab" aria-current="page"><span>Mapping</span><span class="count" title="3 waiting for your second OK">3'
             . '<span class="visually-hidden"> waiting for your second OK</span></span></a>', $bar, 'the current tab, with its count');
         self::assertStringContainsString('<a class="tab" href="/ui/items/barcodes"><span>Barcodes</span></a>', $bar);
         // The tab's segments: a second row of the same tabs (docs/decisions.md DS2: the black pills are gone).
         self::assertStringContainsString('<nav class="tabs seg" aria-label="Mapping">', $html);
-        self::assertStringContainsString('<a class="tab" href="/ui/review?queue=pending" aria-current="page"><span>Second approval</span>', $html);
+        self::assertStringContainsString('<a class="tab" aria-current="page"><span>Second approval</span>', $html);
         self::assertStringContainsString('<a class="tab" href="/ui/review/samples"><span>Spot check</span></a>', $html);
         self::assertStringNotContainsString('seg-item', $html);
         self::assertStringNotContainsString('Phase', $html, 'no phase codes');
@@ -1300,6 +1302,48 @@ final class UiTemplatesTest extends TestCase
      * forms, a filter or search form holds none, and a main button is not repeated row by row (but the documented row answers). The rendered
      * pages are checked too (tests/Support/MainButtons, run by the kernel's browser on every page a test opens).
      */
+    /**
+     * The tab of the page shown never navigates (docs/decisions.md CV13; Codex's review of 7cfcc89: the count sheet's current "Every line"
+     * tab reloaded the sheet and lost a typed quantity). In every template a tab (`a.tab`) draws its link only when it is not the page shown:
+     * its one href comes right after the `else` (or the `if (!…)`) of that test, so the current one is the tab's look and nothing to click,
+     * with or without the script (tests/Support/CurrentTabs checks the pages as served). And the pages whose form keeps typed values ask
+     * before a link leaves (app.js, CV14): their forms carry data-unsaved, their downloads `download` (a download does not leave),
+     * "Leave without saving" data-leave (it says what it does).
+     */
+    public function testTheTabOfThePageShownHasNoLinkAndTheEditorsAskBeforeALinkLeaves(): void
+    {
+        $tabs = 0;
+        foreach (self::templates() as $name => $src) {
+            foreach (self::classed($src) as $el) {
+                if ($el['tag'] !== 'a' || !in_array('tab', $el['classes'], true)) {
+                    continue;
+                }
+                $tabs++;
+                $where = "{$name} line {$el['line']}";
+                self::assertSame(1, substr_count($el['attrs'], ' href='), "{$where}: one href");
+                self::assertMatchesRegularExpression('/<\?php (?:else|if \(![^?]*\)): \?> href=/', $el['attrs'], "{$where}: the href only when it is not the page shown");
+            }
+        }
+        self::assertGreaterThanOrEqual(20, $tabs, 'every tab row was read');
+        $templates = self::templates();
+        foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit'] as $name) {
+            $src = $templates[$name . '.php'];
+            self::assertStringContainsString('data-unsaved="1"', $src, "{$name}: its form keeps typed values, so a link asks first");
+            preg_match_all('/<a\b(?:<\?(?:php|=).*?\?>|[^>])*>/s', $src, $links);
+            $downloads = 0;
+            foreach ($links[0] as $a) {
+                if (preg_match('/href="[^"]*\.(?:csv|xlsx)\b/', $a) === 1) {
+                    $downloads++;
+                    self::assertStringContainsString(' download', $a, "{$name}: {$a} is a download: it does not leave the page");
+                }
+            }
+            if (in_array($name, ['stock_count', 'purchase_order_edit'], true)) {
+                self::assertSame(1, $downloads, "{$name}: its download was read");
+            }
+        }
+        self::assertMatchesRegularExpression('/<a class="btn ghost" href="[^"]*" data-leave>/', $templates['doc_bar.php'], '"Leave without saving" never asks');
+    }
+
     public function testEveryPageHasAtMostOneMainButtonPerForm(): void
     {
         $forms = 0;

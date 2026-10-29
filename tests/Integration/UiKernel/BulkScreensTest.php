@@ -382,8 +382,8 @@ final class BulkScreensTest extends KernelUiTestCase
         $one = $web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt']);
         self::assertSame(['Alt strong'], self::titles($one));
         self::assertSame([false, true, false], array_column(self::storeSeg($one), 'current'));
-        self::assertSame(['/ui/review?channel=alt', '/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_column(self::segments($one), 'href'),
-            'the store travels through the segments');
+        self::assertSame([null, '/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_column(self::segments($one), 'href'),
+            'the store travels through the segments (the one shown has no link: CV13)');
         $xp = new \DOMXPath($one->dom());
         self::assertSame('/ui/review?queue=Check&channel=alt', $xp->evaluate('string(//nav[contains(@class, "legend")]/a[2]/@href)'), 'and through the strength lists');
         self::assertSame('0', trim((string) $xp->evaluate('string(//nav[contains(@class, "legend")]/a[2]/span[@class="count"])')), 'whose counts are the store\'s');

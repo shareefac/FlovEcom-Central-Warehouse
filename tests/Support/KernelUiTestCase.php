@@ -194,8 +194,8 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * The tab bar of a page (the current section's tabs, under the page's statement): label, link (null for a tab not built yet), count
-     * and whether it is the current one.
+     * The tab bar of a page (the current section's tabs, under the page's statement): label, link (null for a tab not built yet, and for
+     * the tab of the page shown: docs/decisions.md CV13), count and whether it is the current one.
      *
      * @return list<array{label: string, href: ?string, count: int, current: bool}>
      */
@@ -205,7 +205,7 @@ abstract class KernelUiTestCase extends MappingTestCase
         $out = [];
         foreach ($xp->query('//main//nav[@class="tabs"]/*[contains(concat(" ", @class, " "), " tab ")]') ?: [] as $t) {
             /** @var \DOMElement $t */
-            $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $t)), 'href' => $t->nodeName === 'a' ? $t->getAttribute('href') : null,
+            $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $t)), 'href' => $t->hasAttribute('href') ? $t->getAttribute('href') : null,
                 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ") and not(contains(@class, "soon"))]', $t)->item(0)),
                 'current' => $t->getAttribute('aria-current') === 'page'];
         }
@@ -230,9 +230,9 @@ abstract class KernelUiTestCase extends MappingTestCase
     }
 
     /**
-     * The segmented filter of a page (inside a tab): label, link, count, current.
+     * The segmented filter of a page (inside a tab): label, link (null for the segment of the page shown: CV13), count, current.
      *
-     * @return list<array{label: string, href: string, count: int, current: bool}>
+     * @return list<array{label: string, href: ?string, count: int, current: bool}>
      */
     protected static function segments(UiResponse $r): array
     {
@@ -240,7 +240,7 @@ abstract class KernelUiTestCase extends MappingTestCase
         $out = [];
         foreach ($xp->query('//nav[@class="tabs seg"]/a[@class="tab"]') ?: [] as $a) {
             /** @var \DOMElement $a */
-            $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $a)), 'href' => $a->getAttribute('href'),
+            $out[] = ['label' => trim((string) $xp->evaluate('string(span[1])', $a)), 'href' => $a->hasAttribute('href') ? $a->getAttribute('href') : null,
                 'count' => (int) self::visibleText($xp, $xp->query('span[contains(concat(" ", @class, " "), " count ")]', $a)->item(0)),
                 'current' => $a->getAttribute('aria-current') === 'page'];
         }

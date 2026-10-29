@@ -125,8 +125,8 @@
   <h2 id="made-h"><?= $word('ITEM_NEW', 'made') ?></h2>
   <p class="hint"><?= $word('ITEM_NEW', 'made_text') ?> <?php if ($checkOn): ?><?= $word('ITEM_NEW', 'check_on') ?><?php else: ?><?= $word('ITEM_NEW', 'check_off') ?><?php endif; ?></p>
   <nav class="tabs show-tabs" aria-label="<?= $word('ITEM_NEW', 'made') ?>">
-    <a class="tab" href="/ui/items/new"<?php if (!$waiting): ?> aria-current="page"<?php endif; ?>><?= $word('ITEM_NEW', 'show_all') ?></a>
-    <a class="tab" href="<?= $u('/ui/items/new', ['show' => 'waiting']) ?>"<?php if ($waiting): ?> aria-current="page"<?php endif; ?>><?= $word('ITEM_NEW', 'show_waiting') ?></a>
+    <a class="tab"<?php if (!$waiting): ?> aria-current="page"<?php else: ?> href="/ui/items/new"<?php endif; ?>><?= $word('ITEM_NEW', 'show_all') ?></a>
+    <a class="tab"<?php if ($waiting): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/items/new', ['show' => 'waiting']) ?>"<?php endif; ?>><?= $word('ITEM_NEW', 'show_waiting') ?></a>
   </nav>
 <?php if ($rows === []): ?>
 <?php if ($waiting): ?>

@@ -58,7 +58,7 @@ final class StockOpsScreensTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('stock_controller'));
         $page = $web->get('/ui/stock/in');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Stock In', '/ui/stock/in'], ['Stock Out', '/ui/stock/out'],
+        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Stock In', null], ['Stock Out', '/ui/stock/out'],
             ['Hand-overs', '/ui/stock/handovers'], ['Transfers', '/ui/stock/transfers'], ['Adjustments', '/ui/stock/adjustments'], ['Counts', '/ui/stock/counts'], ['Reservations', '/ui/stock/reservations'],
             ['Sales', '/ui/stock/sales'], ['Quality', null], ['Repack', '/ui/stock/repack']],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)));

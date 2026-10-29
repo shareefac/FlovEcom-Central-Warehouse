@@ -20,7 +20,7 @@
 
 <nav class="tabs show-tabs" aria-label="<?= $word('DISPATCH', 'show') ?>">
 <?php foreach ($shows as $s): ?>
-  <a class="tab" href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?= $e($s['label']) ?></a>
+  <a class="tab"<?php if ($s['current']): ?> aria-current="page"<?php else: ?> href="<?= $e($s['href']) ?>"<?php endif; ?>><?= $e($s['label']) ?></a>
 <?php endforeach; ?>
 </nav>
 <?php if ($extra !== null): ?>

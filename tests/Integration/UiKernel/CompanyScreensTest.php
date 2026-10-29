@@ -61,7 +61,7 @@ final class CompanyScreensTest extends KernelUiTestCase
             $settings->text());
         $page = $owner->get('/ui/reference/company');
         self::assertSame(200, $page->status, $page->describe());
-        self::assertSame(['label' => 'Company', 'href' => '/ui/reference/company', 'count' => 0, 'current' => true], self::sectionTabs($page)[0], 'Settings › Company');
+        self::assertSame(['label' => 'Company', 'href' => null, 'count' => 0, 'current' => true], self::sectionTabs($page)[0], 'Settings › Company (the tab shown has no link: CV13)');
         self::assertSame('Settings', self::currentSection($page));
         self::assertStringContainsString('Not confirmed Every purchase order PDF says "COMPANY DETAILS NOT CONFIRMED — DO NOT SEND"', $page->text());
         self::assertStringContainsString(Words::intro('company'), $page->text(), 'the page intro');

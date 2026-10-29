@@ -97,7 +97,7 @@ final class PurchaseOrderScreensTest extends KernelUiTestCase
         // The list, and the order's one page (PO on one page, PX1): Save with the supplier chosen starts the draft; the same form twice: one draft.
         $list = $buyer->get('/ui/purchasing/orders');
         self::assertSame(200, $list->status, $list->describe());
-        self::assertSame(['label' => 'Purchase Orders', 'href' => '/ui/purchasing/orders', 'count' => 0, 'current' => true], self::sectionTabs($list)[1]);
+        self::assertSame(['label' => 'Purchase Orders', 'href' => null, 'count' => 0, 'current' => true], self::sectionTabs($list)[1], 'the tab shown: no link (CV13)');
         self::assertSame(['/ui/purchasing/orders/new', '/ui/purchasing/suppliers/new'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array((new \DOMXPath($list->dom()))->query('//form[@class="toolbar"]//a[contains(concat(" ", @class, " "), " primary ")] | //form[@class="toolbar"]//details[@class="more"]//a'))), 'the toolbar\'s "New purchase order" opens the order\'s page');
         self::assertStringContainsString(Words::ORDERS['none'], $list->text());

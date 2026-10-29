@@ -345,12 +345,21 @@ final class Sections
         return $out;
     }
 
+    /** Whether a link to $to leads to the page at $path (the same path, whatever the query: a filter of the page is still the page). */
+    private static function samePath(string $path, string $to): bool
+    {
+        return rtrim($path, '/') === rtrim($to, '/');
+    }
+
     /**
      * Everything the layout draws around a page for this person (Context::frame):
      *   nav       the sidebar: each section's label, link (its first tab's), count (the sum of its tabs' counts) and whether it is current
      *   pagebar   for the current section when the person has it (Dashboard has none: its page title is the page's own): its label,
      *             one-line description, the tabs (current one marked, counts, "Soon" ones without a link), whether it draws the buying flow
      *   segments  the current tab's segmented filter (two or more segments the person may open), or []
+     *             A tab or segment is `here` when it is the current one and leads to the page shown (the same path): it is drawn without a
+     *             link, so a click never reloads the page and loses what was typed (docs/decisions.md CV13); the current one of a record's
+     *             page leads back to its list and stays a link.
      *   actions   the current page's create button the person may use (only on the page itself, not its detail pages), then the
      *             section's other create actions they may use (under More beside the create button); on the Dashboard every create action they may use
      *   phone     the bottom bar: Dashboard, up to PHONE_MAX sections, "More" (#menu)
@@ -371,14 +380,16 @@ final class Sections
             $total = 0;
             foreach ($tabs as $t => $tab) {
                 if ($tab['soon']) {
-                    $list[] = ['key' => $t, 'label' => Words::MENU[$t], 'href' => null, 'query' => [], 'count' => 0, 'countWords' => '', 'current' => false, 'soon' => true];
+                    $list[] = ['key' => $t, 'label' => Words::MENU[$t], 'href' => null, 'query' => [], 'count' => 0, 'countWords' => '', 'current' => false, 'here' => false,
+                        'soon' => true];
                     continue;
                 }
                 [$count, $words] = self::count($tab['pages'], $badges);
                 $total += $count;
                 $first = $tab['pages'][0];
+                $current = $here !== null && $here['section'] === $s && $here['tab'] === $t;
                 $list[] = ['key' => $t, 'label' => Words::MENU[$t], 'href' => (string) $first['path'], 'query' => $first['query'] ?? [], 'count' => $count,
-                    'countWords' => $words, 'current' => $here !== null && $here['section'] === $s && $here['tab'] === $t, 'soon' => false];
+                    'countWords' => $words, 'current' => $current, 'here' => $current && self::samePath($path, (string) $first['path']), 'soon' => false];
             }
             $tabsOf[$s] = $list;
             // A section with an inbox counts the inbox only: its other tabs list the same records again (AV10).
@@ -411,7 +422,8 @@ final class Sections
                 foreach ($tab['pages'] as $page) {
                     [$count, $words] = self::count([$page], $badges);
                     $segments[] = ['key' => (string) $page['key'], 'label' => Words::SEGMENT[$page['key']], 'href' => (string) $page['path'],
-                        'query' => ($page['query'] ?? []) + $kept, 'count' => $count, 'countWords' => $words, 'current' => $here['page'] === $page['key']];
+                        'query' => ($page['query'] ?? []) + $kept, 'count' => $count, 'countWords' => $words, 'current' => $here['page'] === $page['key'],
+                        'here' => $here['page'] === $page['key'] && self::samePath($path, (string) $page['path'])];
                 }
             }
             foreach ($tab['pages'] ?? [] as $page) {

@@ -75,7 +75,7 @@
 <?php if ($editable): ?>
   <nav class="tabs show-tabs" aria-label="<?= $word('COUNTS', 'lines_title') ?>">
 <?php foreach ($showLinks as $s): ?>
-    <a class="tab" href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?= $word('COUNT_SHOW', $s['key']) ?></a>
+    <a class="tab"<?php if ($s['current']): ?> aria-current="page"<?php else: ?> href="<?= $e($s['href']) ?>"<?php endif; ?>><?= $word('COUNT_SHOW', $s['key']) ?></a>
 <?php endforeach; ?>
   </nav>
 <?php endif; ?>
@@ -190,7 +190,7 @@
       <details class="doc-act" id="paper"<?php if ($paperOpen): ?> open<?php endif; ?>>
         <summary class="btn"><?= $word('COUNTS', 'paper_title') ?></summary>
         <div class="doc-act-panel">
-          <p><a href="<?= $u($base . '/sheet.csv') ?>"><?= $word('COUNTS', 'download') ?></a></p>
+          <p><a href="<?= $u($base . '/sheet.csv') ?>" download><?= $word('COUNTS', 'download') ?></a></p>
           <form class="record import" method="post" enctype="multipart/form-data" data-leaves="1" action="<?= $u($base . '/upload') ?>">
             <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
             <label for="f-file"><?= $word('COUNTS', 'upload_file') ?> <span class="hint"><?= $say('COUNTS', 'upload_hint', $maxMb) ?></span></label>

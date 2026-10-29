@@ -5,6 +5,6 @@
 ?>
 <nav class="tabs store-seg" aria-label="<?= $word('BULK', 'stores') ?>">
 <?php foreach ($items as $it): ?>
-  <a class="tab" href="<?= $u($it['href'], $it['query']) ?>"<?php if ($it['current']): ?> aria-current="page"<?php endif; ?>><span><?= $e($it['label']) ?></span><span class="count" title="<?= $n($it['count']) ?> <?= $e($countWords) ?>"><?= $n($it['count']) ?><span class="visually-hidden"> <?= $e($countWords) ?></span></span></a>
+  <a class="tab"<?php if ($it['current']): ?> aria-current="page"<?php else: ?> href="<?= $u($it['href'], $it['query']) ?>"<?php endif; ?>><span><?= $e($it['label']) ?></span><span class="count" title="<?= $n($it['count']) ?> <?= $e($countWords) ?>"><?= $n($it['count']) ?><span class="visually-hidden"> <?= $e($countWords) ?></span></span></a>
 <?php endforeach; ?>
 </nav>

@@ -155,8 +155,10 @@ final class CountsScreensTest extends KernelUiTestCase
         $page = $web->get(self::PATH);
         self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
         self::assertSame(['Stock', 'Counts'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame(['/ui/stock/counts', null], [array_column(self::sectionTabs($page), 'href', 'label')['Counts'], array_column(self::sectionTabs($page), 'href', 'label')['Quality']],
-            'Counts is a real tab now; Quality stays "Soon"');
+        self::assertSame([[null, true], [null, false]], [[array_column(self::sectionTabs($page), 'href', 'label')['Counts'], array_column(self::sectionTabs($page), 'current', 'label')['Counts']],
+            [array_column(self::sectionTabs($page), 'href', 'label')['Quality'], array_column(self::sectionTabs($page), 'current', 'label')['Quality']]],
+            'Counts is a real tab now, the one shown (no link: CV13); Quality stays "Soon"');
+        self::assertSame('/ui/stock/counts', array_column(self::sectionTabs($web->get(self::PATH . '/sheets')), 'href', 'label')['Counts'], 'from its other pages a link');
         self::assertSame([['Next to count', true], ['Count sheets', false], ['Differences', false]], array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($page)));
         $xp = new \DOMXPath($page->dom());
         self::assertSame(Words::MENU['counts'], trim((string) $xp->evaluate('string(//main//h1)')));

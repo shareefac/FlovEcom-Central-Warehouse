@@ -23,7 +23,7 @@
 <p class="note"><?= $word('REPORTS', 'cost_note') ?> <?= $word('REPORTS', 'below_zero') ?> <?= $word('REPORTS', 'past_date') ?> <?= $e($asOf) ?></p>
 <nav class="tabs show-tabs" aria-label="<?= $word('REPORTS', 'show') ?>">
 <?php foreach ($tabs as $t): ?>
-  <a class="tab" href="<?= $e($t['href']) ?>"<?php if ($t['current']): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'by_' . $t['by']) ?></span></a>
+  <a class="tab"<?php if ($t['current']): ?> aria-current="page"<?php else: ?> href="<?= $e($t['href']) ?>"<?php endif; ?>><span><?= $word('REPORTS', 'by_' . $t['by']) ?></span></a>
 <?php endforeach; ?>
 </nav>
 

@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="<?= $e(\CW\Ui\Assets::url('app.css')) ?>">
 <script src="<?= $e(\CW\Ui\Assets::url('app.js')) ?>" defer></script>
 </head>
-<body>
+<body data-unsaved-link="<?= $word('UI', 'unsaved_link') ?>">
 <a class="skip" href="#main"><?= $word('UI', 'skip') ?></a>
 <?php if (($testSystem ?? false) === true): ?>
 <p class="strip test-system" role="note"><?= $word('UI', 'test_system') ?></p>

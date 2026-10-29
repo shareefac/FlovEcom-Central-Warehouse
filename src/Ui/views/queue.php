@@ -39,7 +39,7 @@
 <?php endif; ?>
   <nav class="tabs legend" aria-label="<?= $word('QUEUE', 'lists') ?>">
 <?php foreach ($bands as $b): ?>
-    <a class="tab <?= $e(\CW\Ui\Words::tone('BAND', $b['band'])) ?>" href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel, 'show' => $show]) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php endif; ?>><span class="key" aria-hidden="true"></span><?= $e($b['label']) ?> <span class="count"><?= $n($b['count']) ?></span></a>
+    <a class="tab <?= $e(\CW\Ui\Words::tone('BAND', $b['band'])) ?>"<?php if ($b['band'] === $qc->band): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/review', ['queue' => $b['band'], 'channel' => $qc->channel, 'show' => $show]) ?>"<?php endif; ?>><span class="key" aria-hidden="true"></span><?= $e($b['label']) ?> <span class="count"><?= $n($b['count']) ?></span></a>
 <?php endforeach; ?>
   </nav>
 </section>
@@ -52,7 +52,7 @@
 <?php if ($shows !== []): ?>
 <nav class="tabs show-tabs" aria-label="<?= $word('QUEUE', 'show') ?>">
 <?php foreach ($shows as $s): ?>
-  <a class="tab" href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?= $e($s['label']) ?> <span class="count"><?= $n($s['count']) ?></span></a>
+  <a class="tab"<?php if ($s['current']): ?> aria-current="page"<?php else: ?> href="<?= $e($s['href']) ?>"<?php endif; ?>><?= $e($s['label']) ?> <span class="count"><?= $n($s['count']) ?></span></a>
 <?php endforeach; ?>
 </nav>
 <?php endif; ?>

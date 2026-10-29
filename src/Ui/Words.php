@@ -2762,6 +2762,10 @@ final class Words
 
     /** The frame's own words. */
     public const UI = [
+        // Said at the bottom of the screen when a link would leave a page whose form holds typed values (docs/decisions.md CV14): the same link
+        // pressed again goes on.
+        'unsaved_link' => 'You have changes on this page that are not saved. They are lost if you leave: save them first, or press the same link again to go '
+            . 'on without them.',
         'brand' => 'Central Warehouse',
         'skip' => 'Skip to the page',
         'menu' => 'Menu',
@@ -6291,6 +6295,9 @@ final class Words
      */
     public const DOC = [
         'leave' => 'Leave without saving',
+        // Said before another form leaves an order's or an invoice's page while it holds typed values (docs/decisions.md CV14, GV11).
+        'unsaved' => 'You have changes on this page that are not saved. They are lost if you go on: save them first, or press the same button again to go on '
+            . 'without them.',
         'sub_total' => 'Sub total',
         'total' => 'Total',
         'actions' => 'What you can do',

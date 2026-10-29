@@ -40,12 +40,12 @@
 
 <nav class="tabs period-tabs" aria-label="<?= $word('NEW_VARIANTS', 'periods') ?>">
 <?php foreach ($periods as $p): ?>
-  <a class="tab" href="<?= $e($p['href']) ?>"<?php if ($p['current']): ?> aria-current="page"<?php endif; ?>><?= $e($p['label']) ?></a>
+  <a class="tab"<?php if ($p['current']): ?> aria-current="page"<?php else: ?> href="<?= $e($p['href']) ?>"<?php endif; ?>><?= $e($p['label']) ?></a>
 <?php endforeach; ?>
 </nav>
 <nav class="tabs state-tabs" aria-label="<?= $word('NEW_VARIANTS', 'states') ?>">
 <?php foreach ($states as $s): ?>
-  <a class="tab" href="<?= $e($s['href']) ?>"<?php if ($s['current']): ?> aria-current="page"<?php endif; ?>><?php if ($s['tone'] !== null): ?><span class="dot <?= $e($s['tone']) ?>" aria-hidden="true"></span><?php endif; ?><?= $e($s['label']) ?> <span class="count"><?= $n($s['count']) ?></span></a>
+  <a class="tab"<?php if ($s['current']): ?> aria-current="page"<?php else: ?> href="<?= $e($s['href']) ?>"<?php endif; ?>><?php if ($s['tone'] !== null): ?><span class="dot <?= $e($s['tone']) ?>" aria-hidden="true"></span><?php endif; ?><?= $e($s['label']) ?> <span class="count"><?= $n($s['count']) ?></span></a>
 <?php endforeach; ?>
 </nav>
 

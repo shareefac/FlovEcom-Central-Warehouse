@@ -297,10 +297,10 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
             self::assertSame(Words::QUEUE['show'], self::squash((new \DOMXPath($page->dom()))->evaluate('string(//nav[contains(@class, "show-tabs")]/@aria-label)')));
         }
         self::assertSame(12, count($parts['ready']) + count($parts['held']) + count($parts['spot']), 'All is the sum of the three');
-        self::assertSame(['/ui/review?queue=Key&channel=alt', '/ui/review?queue=Key&channel=alt&show=ready', '/ui/review?queue=Key&channel=alt&show=held',
+        self::assertSame(['/ui/review?queue=Key&channel=alt', '/ui/review?queue=Key&channel=alt&show=ready', '',
             '/ui/review?queue=Key&channel=alt&show=spot'], array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'),
             iterator_to_array((new \DOMXPath($web->get('/ui/review', $query + ['show' => 'held', 'page' => '1'])->dom()))->query('//nav[contains(@class, "show-tabs")]/a'))),
-            'a choice opens the list from its first page');
+            'a choice opens the list from its first page (the one shown has no link: CV13)');
 
         // The three parts are OneAtATime's own answer for each row: what the list shows and what a bulk action skips cannot disagree.
         $never = OneAtATime::of(self::$db, $f['all']);
@@ -388,13 +388,13 @@ final class OneAtATimeScreenTest extends KernelUiTestCase
         // The store selector, the strength tabs and the search box keep it.
         $stores = array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "store-seg")]/a')));
         self::assertContains('/ui/review?queue=Key&show=ready', $stores, 'All stores');
-        self::assertContains('/ui/review?queue=Key&show=ready&channel=alt', $stores);
-        self::assertSame(['/ui/review?queue=Key&channel=alt&show=ready', '/ui/review?queue=Check&channel=alt&show=ready'],
+        self::assertContains('', $stores, 'the store shown has no link (CV13)');
+        self::assertSame(['', '/ui/review?queue=Check&channel=alt&show=ready'],
             [$xp->evaluate('string(//nav[contains(@class, "legend")]/a[1]/@href)'), $xp->evaluate('string(//nav[contains(@class, "legend")]/a[2]/@href)')]);
         self::assertSame('ready', $xp->evaluate('string(//form[contains(@class, "toolbar")]/input[@name="show"]/@value)'));
         self::assertSame(0, (new \DOMXPath($web->get('/ui/review', ['queue' => 'Key', 'channel' => 'alt'])->dom()))->query('//form[contains(@class, "toolbar")]/input[@name="show"]')->length);
         // The pages around the lists do not take it: the segments of Mapping lead where they always led.
-        self::assertSame(['/ui/review?channel=alt', '/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_column(self::segments($p1), 'href'));
+        self::assertSame([null, '/ui/review/samples?channel=alt', '/ui/review?queue=pending&channel=alt'], array_column(self::segments($p1), 'href'));
 
         // A variant's page, the way back, and "the next one": the next READY one, where the whole list's next one is a held one.
         self::assertContains('/ui/review/listing/' . $first . '?queue=Key&channel=alt&show=ready', $p1->hrefs());

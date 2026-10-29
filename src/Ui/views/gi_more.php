@@ -30,7 +30,7 @@
           </label>
           <p class="actions"><button class="btn" type="submit"><?= $word('RECEIPT', 'sheet_button') ?></button></p>
         </form>
-        <p class="hint"><a href="/ui/receiving/template.csv"><?= $word('RECEIVING', 'sample') ?></a></p>
+        <p class="hint"><a href="/ui/receiving/template.csv" download><?= $word('RECEIVING', 'sample') ?></a></p>
       </div>
     </details>
     <details class="doc-act">

@@ -7,8 +7,8 @@
 </form>
 <p class="note"><?= $say('REPORTS', 'slow_says', $slowDays, $deadDays) ?> <?= $word('REPORTS', 'sale_means') ?> <?= $e($asOf) ?></p>
 <nav class="tabs show-tabs" aria-label="<?= $word('REPORTS', 'show') ?>">
-  <a class="tab" href="<?= $u('/ui/reports/slow-stock', ['q' => $f['q']]) ?>"<?php if ($f['show'] === 'slow'): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'show_slow') ?></span><span class="count"><?= $n($counts['slow']) ?></span></a>
-  <a class="tab" href="<?= $u('/ui/reports/slow-stock', ['q' => $f['q'], 'show' => 'dead']) ?>"<?php if ($f['show'] === 'dead'): ?> aria-current="page"<?php endif; ?>><span><?= $word('REPORTS', 'show_dead') ?></span><span class="count"><?= $n($counts['dead']) ?></span></a>
+  <a class="tab"<?php if ($f['show'] === 'slow'): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/reports/slow-stock', ['q' => $f['q']]) ?>"<?php endif; ?>><span><?= $word('REPORTS', 'show_slow') ?></span><span class="count"><?= $n($counts['slow']) ?></span></a>
+  <a class="tab"<?php if ($f['show'] === 'dead'): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/reports/slow-stock', ['q' => $f['q'], 'show' => 'dead']) ?>"<?php endif; ?>><span><?= $word('REPORTS', 'show_dead') ?></span><span class="count"><?= $n($counts['dead']) ?></span></a>
 </nav>
 
 <?php if ($rows === []): ?>

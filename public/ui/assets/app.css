@@ -450,6 +450,9 @@ details.user-menu[open] > summary { margin: 0; background: var(--page-alt); colo
 a.tab:hover { color: var(--ink); text-decoration: none; }
 @media (hover: hover) { a.tab:not([aria-current]):hover { border-bottom-color: var(--hairline); } }
 .tab[aria-current] { color: var(--accent-hover); border-bottom-color: var(--accent); }
+/* The tab of the page shown has no link (docs/decisions.md CV13): the open tab's look, nothing to click */
+.tab[aria-current]:not([href]) { cursor: default; }
+a.tab[aria-current]:not([href]):hover { color: var(--accent-hover); }
 .tab > .count {
   flex: none; display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-pill);
   background: var(--sf-grey); color: var(--ink-body); font: 700 11px/20px var(--font); font-variant-numeric: tabular-nums; white-space: nowrap;

@@ -3,8 +3,8 @@
 <p class="error" role="alert"><?= $e($error) ?></p>
 <?php endif; ?>
 <nav class="tabs show-tabs" aria-label="<?= $word('MENU', 'barcodes') ?>">
-  <a class="tab" href="/ui/items/barcodes"<?php if ($show === 'open'): ?> aria-current="page"<?php endif; ?>><?= $say('BARCODE', 'open', $open) ?></a>
-  <a class="tab" href="<?= $u('/ui/items/barcodes', ['show' => 'decided']) ?>"<?php if ($show === 'decided'): ?> aria-current="page"<?php endif; ?>><?= $word('BARCODE', 'decided') ?></a>
+  <a class="tab"<?php if ($show === 'open'): ?> aria-current="page"<?php else: ?> href="/ui/items/barcodes"<?php endif; ?>><?= $say('BARCODE', 'open', $open) ?></a>
+  <a class="tab"<?php if ($show === 'decided'): ?> aria-current="page"<?php else: ?> href="<?= $u('/ui/items/barcodes', ['show' => 'decided']) ?>"<?php endif; ?>><?= $word('BARCODE', 'decided') ?></a>
 </nav>
 <form class="filters" method="get" action="/ui/items/barcodes">
 <?php if ($show === 'decided'): ?>

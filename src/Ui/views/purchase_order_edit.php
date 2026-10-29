@@ -38,7 +38,7 @@
 <?= $partial('po_supplier_needs', ['needs' => $supplierNeeds]) ?>
 <?php endif; ?>
 
-<form class="po-editor" method="post" action="<?= $u($formAction) ?>" novalidate>
+<form class="po-editor" method="post" action="<?= $u($formAction) ?>" novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
 <?php if (!$isNew): ?>
   <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
@@ -237,7 +237,7 @@
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
   <input type="hidden" name="mode" value="replace">
-  <p><a href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines.xlsx') ?>"><?= $word('ORDER', 'download_xlsx') ?></a></p>
+  <p><a href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/lines.xlsx') ?>" download><?= $word('ORDER', 'download_xlsx') ?></a></p>
   <label><?= $say('ORDER', 'file_label', $maxMb, $maxRows) ?> <input type="file" name="file" required></label>
   <p class="actions"><button type="submit" class="btn"><?= $word('ORDER', 'import') ?></button></p>
 </form>

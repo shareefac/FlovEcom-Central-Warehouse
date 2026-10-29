@@ -1170,6 +1170,17 @@ final class UiUnitTest extends TestCase
             'a group drawn to start folded is folded by the script (the toggle\'s own code), never by the page');
         self::assertStringContainsString("each(document.querySelectorAll('[data-ticked]'), function (out) {", $js);
         self::assertStringContainsString("var row = input.closest ? input.closest('tr') : null;", $js, 'the Saved mark of the box\'s row');
+        // CV14: a link that leaves the page while a form holds typed values goes nowhere the first time and says why in the page (a red
+        // note at the bottom, role="alert": never a browser dialog, GV11); the same link again goes on, as a leaving form's second press.
+        // Registered on window, so a component's own handler (a dropdown's link) has had its say first. A link to a part of the page, a
+        // download, a new tab, a modified click and "Leave without saving" never stop. The current tab of the page shown is no link (CV13).
+        self::assertStringContainsString("window.addEventListener('click', function (ev) {", $js);
+        self::assertStringContainsString("if (!a || a.hasAttribute('download') || a.hasAttribute('data-leave') || (a.getAttribute('target') || '_self') !== '_self') {", $js);
+        self::assertStringContainsString("var dirty = document.querySelector('form[data-unsaved][data-dirty]');", $js);
+        self::assertStringContainsString("if (!dirty || a.getAttribute('data-go') === '1') {", $js);
+        self::assertStringContainsString("leaveNote.className = 'toast error';", $js);
+        self::assertStringContainsString("leaveNote.textContent = document.body.getAttribute('data-unsaved-link') ||", $js);
+        self::assertMatchesRegularExpression('/^\.tab\[aria-current\]:not\(\[href\]\) \{[^}]*cursor: default/m', $css, 'the current tab is nothing to click');
         foreach (['stock_counts', 'stock_count', 'stock_count_before'] as $name) {
             $src = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/' . $name . '.php');
             foreach (['div', 'details', 'form', 'section', 'table', 'p'] as $tag) {

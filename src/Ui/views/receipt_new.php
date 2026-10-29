@@ -35,5 +35,5 @@
   <label class="choice"><input type="checkbox" name="copy" value="1" id="copy"<?php if (($typed['copy'] ?? (($typed['po_id'] ?? '') !== '' ? '1' : '')) === '1'): ?> checked<?php endif; ?>> <?= $word('RECEIVING', 'copy') ?></label>
   <p class="actions"><button type="submit" class="btn primary"><?= $word('RECEIVING', 'start') ?></button></p>
 </form>
-<p class="hint"><a href="/ui/receiving/template.csv"><?= $word('RECEIVING', 'sample') ?></a></p>
+<p class="hint"><a href="/ui/receiving/template.csv" download><?= $word('RECEIVING', 'sample') ?></a></p>
 <?php endif; ?>

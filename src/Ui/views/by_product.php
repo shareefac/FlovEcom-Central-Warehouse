@@ -30,7 +30,7 @@
 
 <nav class="tabs state-tabs" aria-label="<?= $word('BY_PRODUCT', 'filters') ?>">
 <?php foreach ($pills as $p): ?>
-  <a class="tab" href="<?= $e($p['href']) ?>"<?php if ($p['current']): ?> aria-current="page"<?php endif; ?>><?php if ($p['tone'] !== null): ?><span class="dot <?= $e($p['tone']) ?>" aria-hidden="true"></span><?php endif; ?><?= $e($p['label']) ?> <span class="count"><?= $n($p['count']) ?></span></a>
+  <a class="tab"<?php if ($p['current']): ?> aria-current="page"<?php else: ?> href="<?= $e($p['href']) ?>"<?php endif; ?>><?php if ($p['tone'] !== null): ?><span class="dot <?= $e($p['tone']) ?>" aria-hidden="true"></span><?php endif; ?><?= $e($p['label']) ?> <span class="count"><?= $n($p['count']) ?></span></a>
 <?php endforeach; ?>
 </nav>
 

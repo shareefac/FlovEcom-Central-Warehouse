@@ -1,5 +1,6 @@
 <?php
-// Under a page's statement (View::head, design v5): the current section's tabs (a tab not built yet without a link), the buying flow
+// Under a page's statement (View::head, design v5): the current section's tabs (a tab not built yet without a link; the tab of the page
+// shown, `here`, without one too, so a click never reloads the page and loses what was typed: docs/decisions.md CV13), the buying flow
 // on Purchasing, the current tab's segments (a second row of the same tabs: docs/decisions.md DS2), and the strip that says which jobs
 // Admin switches off. The layout draws the same for a page whose template draws no statement.
 $pagebar = $pagebar ?? null; $flow = $flow ?? null; $segments = $segments ?? []; $switchedOff = $switchedOff ?? null;
@@ -10,7 +11,7 @@ $pagebar = $pagebar ?? null; $flow = $flow ?? null; $segments = $segments ?? [];
 <?php if ($tab['soon']): ?>
   <span class="tab soon" aria-disabled="true" title="<?= $word('UI', 'soon_title') ?>"><span><?= $e($tab['label']) ?></span><span class="count soon"><?= $word('UI', 'soon') ?></span></span>
 <?php else: ?>
-  <a class="tab" href="<?= $u($tab['href'], $tab['query']) ?>"<?php if ($tab['current']): ?> aria-current="page"<?php endif; ?>><span><?= $e($tab['label']) ?></span><?php if ($tab['count'] > 0): ?><span class="count" title="<?= $n($tab['count']) ?> <?= $e($tab['countWords']) ?>"><?= $n($tab['count']) ?><span class="visually-hidden"> <?= $e($tab['countWords']) ?></span></span><?php endif; ?></a>
+  <a class="tab"<?php if ($tab['current']): ?> aria-current="page"<?php endif; ?><?php if (!$tab['here']): ?> href="<?= $u($tab['href'], $tab['query']) ?>"<?php endif; ?>><span><?= $e($tab['label']) ?></span><?php if ($tab['count'] > 0): ?><span class="count" title="<?= $n($tab['count']) ?> <?= $e($tab['countWords']) ?>"><?= $n($tab['count']) ?><span class="visually-hidden"> <?= $e($tab['countWords']) ?></span></span><?php endif; ?></a>
 <?php endif; ?>
 <?php endforeach; ?>
 </nav>
@@ -25,7 +26,7 @@ $pagebar = $pagebar ?? null; $flow = $flow ?? null; $segments = $segments ?? [];
 <?php if ($segments !== [] && $pagebar !== null): ?>
 <nav class="tabs seg" aria-label="<?= $e($pagebar['tab']) ?>">
 <?php foreach ($segments as $seg): ?>
-  <a class="tab" href="<?= $u($seg['href'], $seg['query']) ?>"<?php if ($seg['current']): ?> aria-current="page"<?php endif; ?>><span><?= $e($seg['label']) ?></span><?php if ($seg['count'] > 0): ?><span class="count" title="<?= $n($seg['count']) ?> <?= $e($seg['countWords']) ?>"><?= $n($seg['count']) ?><span class="visually-hidden"> <?= $e($seg['countWords']) ?></span></span><?php endif; ?></a>
+  <a class="tab"<?php if ($seg['current']): ?> aria-current="page"<?php endif; ?><?php if (!$seg['here']): ?> href="<?= $u($seg['href'], $seg['query']) ?>"<?php endif; ?>><span><?= $e($seg['label']) ?></span><?php if ($seg['count'] > 0): ?><span class="count" title="<?= $n($seg['count']) ?> <?= $e($seg['countWords']) ?>"><?= $n($seg['count']) ?><span class="visually-hidden"> <?= $e($seg['countWords']) ?></span></span><?php endif; ?></a>
 <?php endforeach; ?>
 </nav>
 <?php endif; ?>

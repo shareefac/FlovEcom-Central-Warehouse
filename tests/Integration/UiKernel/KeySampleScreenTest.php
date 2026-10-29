@@ -45,7 +45,7 @@ final class KeySampleScreenTest extends KernelUiTestCase
         self::assertSame(['Products', 'Mapping'], [self::currentSection($list), self::currentTab($list)], 'Products › Mapping');
         self::assertSame([['To review', false], ['Spot check', true], ['Second approval', false]],
             array_map(static fn (array $s): array => [$s['label'], $s['current']], self::segments($list)), '... › Spot check');
-        self::assertSame('/ui/review/samples', self::segments($list)[1]['href']);
+        self::assertNull(self::segments($list)[1]['href'], 'the segment shown has no link (CV13)');
 
         $page = $web->get('/ui/review/samples/' . $sid);
         self::assertSame(200, $page->status, $page->describe());

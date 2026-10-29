@@ -786,6 +786,11 @@ The approved design (`CT_Board`, `CT_Sheet`, `CT_Final`, `CT_Phone`) on the shar
 - Classes: `.count-bar` (a `.doc-bar` holding fields: `.count-field`, `.count-ticked`, More opening upwards: `.doc-bar details.more >
   .more-menu`), `table.count-next` (the board: `.doc-list.picks`), `table.count-sheet` (`input.count-box`, `.save-state.saved`, `tr.now`),
   `table.count-before`; the hidden first button of the quantity form is `button.po-default` (Enter saves).
+- Tabs and unsaved values (CV13-CV14): a tab draws its href only when it is not the page shown (`page_frame` reads `Sections::frame`'s
+  `here`; a page's own rows their `current`); `tests/Support/CurrentTabs` (run by `KernelBrowser` on every page) fails a current tab that
+  links to its own page. A form that keeps typed values carries `data-unsaved` (+ `data-unsaved-text`): app.js then says so, in the page,
+  before another form (`data-leaves`) or a link leaves (the link's note: `body[data-unsaved-link]`, a `p.toast.error`), and the same press
+  again goes on; a download carries `download`, "Leave without saving" `data-leave` (neither stops).
 - Tests: `tests/Integration/UiKernel/CountsScreensTest.php`, `OpFinalScreensTest::testTheCountReviewButtonSavesTheQuantitiesTypedFirst`,
   `UiUnitTest::testTheCountPagesFollowTheApprovedDesign`, `CountWordsTest`. The board's open form is `$r->form('/ui/stock/counts')` (`csrf`,
   `form_key`, `warehouse`, `q`, `n`, `mode`); the sheet's `$r->form('<sheet>/lines')`; "Save and next item" posts `next=<line>`.

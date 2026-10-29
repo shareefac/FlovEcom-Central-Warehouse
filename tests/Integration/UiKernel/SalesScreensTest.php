@@ -228,7 +228,7 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertSame(['Stock', 'Sales'], [self::currentSection($page), self::currentTab($page)]);
         self::assertSame(['Overview', 'Movements', 'Stock In', 'Stock Out', 'Hand-overs', 'Transfers', 'Adjustments', 'Counts', 'Reservations', 'Sales', 'Quality',
             'Repack'], self::tabLabels($page), 'Sales sits after Reservations (Repack, pack B, last)');
-        self::assertSame([[Words::SEGMENT['sales_orders'], self::ORDERS, true], [Words::SEGMENT['sales_dispatch'], self::DISPATCH, false],
+        self::assertSame([[Words::SEGMENT['sales_orders'], null, true], [Words::SEGMENT['sales_dispatch'], self::DISPATCH, false],
             [Words::SEGMENT['sales_returns'], self::RETURNS, false]],
             array_map(static fn (array $s): array => [$s['label'], $s['href'], $s['current']], self::segments($page)));
         $xp = new \DOMXPath($page->dom());
@@ -236,7 +236,7 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertStringStartsWith(Words::PAGE_INTRO['sales_orders'][0], trim((string) $xp->evaluate('string(//main//p[@class="lede"])')));
         // The store chosen travels through the segments.
         $alt = $this->page($web, self::ORDERS, ['channel' => 'alt']);
-        self::assertSame([self::ORDERS . '?channel=alt', self::DISPATCH . '?channel=alt', self::RETURNS . '?channel=alt'], array_column(self::segments($alt), 'href'));
+        self::assertSame([null, self::DISPATCH . '?channel=alt', self::RETURNS . '?channel=alt'], array_column(self::segments($alt), 'href'), 'the one shown: no link (CV13)');
         foreach ([[self::DISPATCH, 'sales_dispatch'], [self::RETURNS, 'sales_returns'], [self::ORDERS . '/' . $ids['V2003'], 'sales_orders']] as [$path, $segment]) {
             $p = $this->page($web, $path);
             self::assertSame(['Stock', 'Sales'], [self::currentSection($p), self::currentTab($p)], $path);
@@ -299,7 +299,7 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::RESV['unlinked_one'], self::rowOf($all, 'sales-orders', '=SUM(A1)'));
         self::assertStringNotContainsString('UTC', $all->text(), 'UK time');
         // The store selector: All stores, then each store, with its paid orders waiting to ship (VPG: V2001, V2002, V2008, V2009).
-        self::assertSame([[Words::BULK['all_stores'], self::ORDERS, 5, true], ['ALT test site', self::ORDERS . '?channel=alt', 1, false],
+        self::assertSame([[Words::BULK['all_stores'], '', 5, true], ['ALT test site', self::ORDERS . '?channel=alt', 1, false],
             ['VPG test site', self::ORDERS . '?channel=vpg', 4, false]], self::storeSeg($all));
         self::assertSame(['A3001'], self::refs($this->page($web, self::ORDERS, ['channel' => 'alt']), 'sales-orders'));
         $vpg = $this->page($web, self::ORDERS, ['channel' => 'vpg']);
@@ -540,7 +540,7 @@ final class SalesScreensTest extends KernelUiTestCase
         self::assertStringContainsString(Words::DISPATCH['was_undone'], self::rowOf($page, 'dispatch-waiting', 'V2009'));
         self::assertStringContainsString(Words::DISPATCH_CHIP['on_time'] . ' 2', self::rowOf($page, 'dispatch-waiting', 'A3001'), 'two of its three units wait');
         self::assertContains(self::ORDERS . '/' . $ids['V2001'], $page->hrefs());
-        self::assertSame([[Words::BULK['all_stores'], self::DISPATCH, 5, true], ['ALT test site', self::DISPATCH . '?channel=alt', 1, false],
+        self::assertSame([[Words::BULK['all_stores'], '', 5, true], ['ALT test site', self::DISPATCH . '?channel=alt', 1, false],
             ['VPG test site', self::DISPATCH . '?channel=vpg', 4, false]], self::storeSeg($page));
         $alt = $this->page($web, self::DISPATCH, ['channel' => 'alt']);
         self::assertSame(['1', '0', '1', '1', '0'], self::figures($alt));
@@ -646,7 +646,7 @@ final class SalesScreensTest extends KernelUiTestCase
         // One figure: the cancelled units waiting in VERIFY for a recount; the store selector counts them per store.
         self::assertSame(['1'], self::figures($page));
         self::assertStringContainsString(Words::say('SALE_RETURNS', 'tile_verify_sub', $verify), $page->text());
-        self::assertSame([[Words::BULK['all_stores'], self::RETURNS, 1, true], ['ALT test site', self::RETURNS . '?channel=alt', 0, false],
+        self::assertSame([[Words::BULK['all_stores'], '', 1, true], ['ALT test site', self::RETURNS . '?channel=alt', 0, false],
             ['VPG test site', self::RETURNS . '?channel=vpg', 1, false]], self::storeSeg($page));
         // The kind filter, a store, and the empty states.
         self::assertSame(['V2003'], array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent), iterator_to_array((new \DOMXPath(

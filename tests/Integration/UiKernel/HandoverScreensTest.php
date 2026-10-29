@@ -51,7 +51,9 @@ final class HandoverScreensTest extends KernelUiTestCase
         $list = $desk->get('/ui/stock/handovers');
         self::assertSame(200, $list->status, $list->describe());
         self::assertSame(['Stock', 'Hand-overs'], [self::currentSection($list), self::currentTab($list)]);
-        self::assertContains(['Hand-overs', '/ui/stock/handovers'], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($list)));
+        self::assertContains(['Hand-overs', null], array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($list)), 'the tab shown: no link (CV13)');
+        self::assertSame('/ui/stock/handovers', array_column(self::sectionTabs($desk->get((string) array_column(self::segments($list), 'href', 'label')['Customers'])), 'href', 'label')['Hand-overs'],
+            'a link from its other pages');
         self::assertSame(['Hand-overs', 'Customers', 'Balances'], array_column(self::segments($list), 'label'));
         self::assertStringContainsString(Words::HANDOVER['no_customers'], $list->text(), 'no customer yet: the form says to add one first');
         foreach (['/ui/stock/handovers/customers', '/ui/stock/handovers/balances', '/ui/receiving/duty'] as $path) {

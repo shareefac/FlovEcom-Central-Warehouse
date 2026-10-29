@@ -358,8 +358,8 @@ final class NewVariantsScreenTest extends KernelUiTestCase
         // The default period's link carries no period, so it follows the setting; the others name theirs; the filter's pills keep the period.
         $xp = new \DOMXPath($any->dom());
         $hrefs = array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "period-tabs")]/a')));
-        self::assertSame([self::PATH . '?channel=alt&period=7', self::PATH . '?channel=alt', self::PATH . '?channel=alt&period=90', self::PATH . '?channel=alt&period=all'], $hrefs);
-        self::assertSame([self::PATH . '?channel=alt&period=all', self::PATH . '?channel=alt&period=all&state=new', self::PATH . '?channel=alt&period=all&state=suggested',
+        self::assertSame([self::PATH . '?channel=alt&period=7', self::PATH . '?channel=alt', self::PATH . '?channel=alt&period=90', ''], $hrefs, 'the period shown has no link (CV13)');
+        self::assertSame(['', self::PATH . '?channel=alt&period=all&state=new', self::PATH . '?channel=alt&period=all&state=suggested',
             self::PATH . '?channel=alt&period=all&state=not_checked', self::PATH . '?channel=alt&period=all&state=all'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//nav[contains(@class, "state-tabs")]/a'))));
         self::assertSame(['alt', 'all'], [$any->form(self::PATH)['channel'], $any->form(self::PATH)['period']], 'and so does the search');

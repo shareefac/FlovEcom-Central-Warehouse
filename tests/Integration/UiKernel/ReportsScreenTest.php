@@ -55,7 +55,9 @@ final class ReportsScreenTest extends KernelUiTestCase
         self::assertSame(['Reports', Words::MENU['stock_by_store']], [self::currentSection($page), self::currentTab($page)]);
         self::assertSame([Words::MENU['stock_by_store'], Words::MENU['sales_by_store'], Words::MENU['low_stock'], Words::MENU['stock_value'], Words::MENU['slow_stock'],
             Words::MENU['audit']], array_column(self::sectionTabs($page), 'label'));
-        self::assertNotContains(null, array_column(self::sectionTabs($page), 'href'), 'every report is a real tab now');
+        self::assertSame([null], array_values(array_filter(array_column(self::sectionTabs($page), 'href'), static fn (?string $h): bool => $h === null)),
+            'every report is a real tab now: only the one shown has no link (CV13)');
+        self::assertNull(self::sectionTabs($page)[0]['href'], 'the one shown');
 
         $buyer = $this->signIn($this->uiUser('buyer'));
         self::assertSame([Words::MENU['stock_by_store'], Words::MENU['sales_by_store'], Words::MENU['low_stock'], Words::MENU['slow_stock']],

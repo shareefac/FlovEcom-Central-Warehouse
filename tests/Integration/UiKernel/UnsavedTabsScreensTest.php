@@ -1,0 +1,90 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CW\Tests\Integration\UiKernel;
+
+use CW\Db;
+use CW\Documents\DocumentHandlers;
+use CW\Tests\Support\KernelUiTestCase;
+use CW\Tests\Support\UiResponse;
+use CW\Ui\Controller\CountsController;
+use CW\Ui\Words;
+
+/**
+ * Typed values are never lost through a tab or a filter link (docs/decisions.md CV13, CV14; Codex's review of 7cfcc89: on a count sheet
+ * showing "Every line", a quantity typed and not saved yet was lost by a click on the "Every line" tab, which reloaded the sheet with no
+ * save and no question). The tab of the page shown has no link (KernelBrowser checks it on every page, tests/Support/CurrentTabs); every
+ * other tab or link stays a link, and app.js says so in the page first (the same link again goes on) while a form marked data-unsaved holds
+ * typed values: the count sheet, a delivery, a stock record, a hand-over, and now the purchase order and supplier invoice pages too. A
+ * download does not leave the page; "Leave without saving" says what it does: neither stops.
+ */
+final class UnsavedTabsScreensTest extends KernelUiTestCase
+{
+    protected function handlers(Db $db): array
+    {
+        return DocumentHandlers::all($db);
+    }
+
+    /** @return list<array{0: string, 1: string, 2: bool}> each tab of the page's rows matching $nav: its words, its aria-current, whether it links */
+    private static function tabRow(UiResponse $page, string $nav): array
+    {
+        $xp = new \DOMXPath($page->dom());
+        $out = [];
+        foreach ($xp->query($nav . '/*[contains(concat(" ", @class, " "), " tab ")]') ?: [] as $t) {
+            /** @var \DOMElement $t */
+            $out[] = [trim((string) preg_replace('/\s+/u', ' ', $t->textContent)), $t->getAttribute('aria-current'), $t->hasAttribute('href')];
+        }
+        return $out;
+    }
+
+    public function testTheSheetsShownFilterTabHasNoLinkAndTheQuantityFormAsksBeforeALinkLeaves(): void
+    {
+        $a = $this->item('strict', 10, 'Alpha pod 2ml');
+        $web = $this->signIn($this->uiUser('stock_controller'));
+        $list = $web->get(CountsController::PATH);
+        $r = $web->post(CountsController::PATH, ['mode' => 'ticked', 'pick_' . $a => '1'] + $list->form(CountsController::PATH));
+        self::assertSame(303, $r->status, $r->describe());
+        $sheet = (string) parse_url((string) $r->location(), PHP_URL_PATH);
+        // Codex's case: "Every line" shown (also with a notice in the address, as after a save): its tab is the tab's look and nothing to click.
+        foreach ([[null, 0], ['todo', 1], ['done', 2]] as [$show, $at]) {
+            $page = $web->get($sheet, ['show' => $show, 'notice' => 'lines', 'n' => '1']);
+            $row = self::tabRow($page, '//nav[contains(@class, "show-tabs")]');
+            self::assertCount(3, $row);
+            foreach ($row as $i => [$words, $current, $links]) {
+                self::assertSame($i === $at ? ['page', false] : ['', true], [$current, $links], "show {$show}: {$words}");
+            }
+        }
+        $page = $web->get($sheet);
+        $xp = new \DOMXPath($page->dom());
+        // The section's tab and the segment lead back to the lists from this record: links, marked as where the person is.
+        self::assertSame([['Counts', 'page', true]], array_values(array_filter(self::tabRow($page, '//main//nav[@class="tabs"]'), static fn (array $t): bool => $t[1] === 'page')));
+        self::assertSame('/ui/stock/counts/sheets', (string) $xp->evaluate('string(//nav[contains(@class, "seg")]/a[@aria-current="page"]/@href)'), 'the sheet is one of Count sheets');
+        // The quantity form is guarded (app.js asks before a link or another form leaves while it holds typed values); the paper copy is a
+        // download, which does not leave the page.
+        self::assertSame(1, $xp->query('//form[@id="count-lines" and @data-unsaved="1" and @data-unsaved-text="' . Words::COUNTS['unsaved_leave'] . '"]')->length);
+        self::assertSame(1, $xp->query('//a[contains(@href, "/sheet.csv") and @download]')->length);
+        self::assertSame(1, $xp->query('//body[@data-unsaved-link="' . Words::UI['unsaved_link'] . '"]')->length, 'the words a link\'s note says');
+        // The board itself: its own tab and segment have no link.
+        $board = $web->get(CountsController::PATH);
+        self::assertSame([['Counts', 'page', false]], array_values(array_filter(self::tabRow($board, '//main//nav[@class="tabs"]'), static fn (array $t): bool => $t[1] === 'page')));
+        self::assertSame([[Words::SEGMENT['counts'], 'page', false]], array_values(array_filter(self::tabRow($board, '//nav[contains(@class, "seg")]'), static fn (array $t): bool => $t[1] === 'page')));
+    }
+
+    public function testTheOrderAndInvoicePagesAskBeforeALinkLeavesWithTypedValues(): void
+    {
+        $web = $this->signIn($this->uiUser(['buyer', 'purchasing_desk']));
+        foreach (['/ui/purchasing/orders/new', '/ui/purchasing/invoices/new'] as $path) {
+            $page = $web->get($path);
+            self::assertSame(200, $page->status, $page->describe());
+            $xp = new \DOMXPath($page->dom());
+            self::assertSame(1, $xp->query('//form[contains(@class, "po-editor") and @data-unsaved="1" and @data-unsaved-text="' . Words::DOC['unsaved'] . '"]')->length,
+                "{$path}: the page's form is guarded like a delivery's");
+            self::assertSame(1, $xp->query('//div[contains(@class, "doc-bar")]/a[@data-leave]')->length, "{$path}: \"Leave without saving\" never asks");
+            // The section's tab leads to the list (another page): a link, which asks first while the form holds typed values.
+            $current = array_values(array_filter(self::tabRow($page, '//main//nav[@class="tabs"]'), static fn (array $t): bool => $t[1] === 'page'));
+            self::assertCount(1, $current);
+            self::assertTrue($current[0][2], "{$path}: the list's tab is a link");
+        }
+    }
+}

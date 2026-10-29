@@ -13107,3 +13107,46 @@ route's permission and CSRF; an outside `inbox_next` dropped). `InboxUnitTest` (
 section's count, the kinds' words and colours, the CSS of the approved design, the templates. Changed: `SectionsTest`, `MenusTest`, `PeopleScreenTest`,
 `ReviewScreensTest`, `HomeScreenTest`, `StartSettingsWordsTest`, `WordsTest` (the inbox tab, the renamed tab, the menu's link), and the
 main-button checks (AV13). Not seen in a real browser.
+
+## Typed values are never lost through a tab or a filter link (branch `counts-tab-fix`, 29 Oct 2026; CV13-CV14)
+
+Codex's review of `7cfcc89` (`runs/ctone_codex_review.txt`, one MEDIUM, the same one the tabs and buttons review had found on the count
+sheet): on a sheet showing "Every line", type 7 into a box, then click the "Every line" tab, which is the one shown: its link reloads the
+sheet with no save and no question, and the quantity and its count time are lost. The unsaved-changes question only guarded forms. The
+coordinator asked for the fix in the shared tab markup, for every tab row beside a form that keeps typed values (the count sheet, a
+delivery, a stock record, a hand-over, the order and invoice pages). Built from main `d18e699` in `/root/cw-ctone`, rebased onto `5c070f8`
+(the approvals inbox, the goods-in fixes). No route, rule,
+permission, form field or service changed.
+
+**CV13. The tab of the page shown has no link.** Every tab (`a.tab`, DS2) draws its href only when it is not the page shown, so the open
+one is the tab's look (`aria-current="page"`, the accent bar) and nothing to click, with or without the script, and never reloads the page.
+Applied in every template that draws tabs: `page_frame` (the section's tabs and the segments) and the pages' own rows (the count sheet's
+Show, barcodes, By Item's states, new items, new variants, the match strengths and Show of To review, the low and slow stock reports, the
+stock value's grouping, dispatch, Store Products' states, the store choice). In `page_frame` the current tab or segment of a record's page
+leads back to its list (another page): it stays a link, which asks first while a form holds typed values (CV14); `Sections::frame` marks a
+tab or segment `here` when it is current and leads to the page's own path (whatever the query: a filter of the page is still the page).
+CSS: the open tab without a link keeps its colour on hover and shows no pointer. Tests: `tests/Support/CurrentTabs`, run by `KernelBrowser`
+on every HTML page a kernel test opens (a current tab linking to the page's own path fails the test that opened it);
+`UiTemplatesTest::testTheTabOfThePageShownHasNoLinkAndTheEditorsAskBeforeALinkLeaves` (every tab of every template: one href, drawn only in
+the branch where it is not the page shown); `UnsavedTabsScreensTest` (Codex's case on the sheet, with "Every line", "Not counted yet" and
+"Counted", a notice in the address too; the board's own tab and segment; the sheet's tab and segment back to the lists stay links). The
+kernel test helpers `sectionTabs()` and `segments()` give a link-less tab's href as null.
+
+**CV14. A link that leaves a page with typed values says so first.** app.js spoke only before another form left the page (OV5, GV11); now a
+click on a link that leaves the page while a form marked `data-unsaved` holds typed values (`data-dirty`) goes nowhere the first time, and a
+red note at the bottom of the screen (`p.toast.error`, `role="alert"`) says why: "You have changes on this page that are not saved. They are
+lost if you leave: save them first, or press the same link again to go on without them." (`Words::UI unsaved_link`, carried by the layout's
+`body[data-unsaved-link]`). The same link pressed again goes on, as a leaving form's second press does since GV11 (never a browser dialog:
+main's rule since GV11, pinned). A press on the note puts it away. A tab of another page, a filter, the pager, a crumb, the menu, an item's
+name. It never stops a link to a part of the page
+(`#…`), a download (`download`: the count sheet's paper copy, the order's lines file, the delivery's sample file), a link opened elsewhere
+or with a modifier key (a new tab), or "Leave without saving" (`data-leave` on `doc_bar`'s link: it says what it does). It listens on
+`window`, so a component's own link handler (the dropdowns' "+ Add new", the drawers) has had its say first. The order's and the
+supplier invoice's one-page forms (`purchase_order_edit`, `invoice_edit`) now carry `data-unsaved` (`Words::DOC unsaved`), as a delivery, a
+stock record, a hand-over and the count sheet already did, so their typed lines are guarded too (`DOC unsaved`, GV11's words: "press the
+same button again"); their other forms are unchanged (they are not `data-leaves`). Without the script nothing stops a link (nothing is marked
+unsaved either), and the open tab is still no link. Rebased onto main `5c070f8` (GV11-GV17): the first version asked with a browser dialog,
+which GV11 removed from app.js; this one says it in the page. Tests:
+`UnsavedTabsScreensTest::testTheOrderAndInvoicePagesAskBeforeALinkLeavesWithTypedValues`, the template lint above (the six editors carry
+`data-unsaved`, their `.csv`/`.xlsx` links `download`, the leave link `data-leave`), `UiUnitTest::testTheCountPagesFollowTheApprovedDesign`
+(the JS and CSS pins; main's pin that app.js has no alert, confirm or prompt holds). Not seen in a real browser; app.js checked with `node --check`.

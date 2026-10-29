@@ -33,7 +33,7 @@
 </section>
 <?php endif; ?>
 
-<form class="po-editor doc-form pi-editor" method="post" enctype="multipart/form-data" action="<?= $u($formAction) ?>" novalidate>
+<form class="po-editor doc-form pi-editor" method="post" enctype="multipart/form-data" action="<?= $u($formAction) ?>" novalidate data-unsaved="1" data-unsaved-text="<?= $word('DOC', 'unsaved') ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
 <?php if (!$isNew): ?>
   <input type="hidden" name="version" value="<?= $e($doc->version) ?>">

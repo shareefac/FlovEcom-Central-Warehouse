@@ -224,6 +224,44 @@
       }
     });
   });
+  // A link that leaves the page while a form holds typed values says so first too (docs/decisions.md CV14; Codex's review of 7cfcc89: a
+  // tab or a filter link lost a typed count), in the page and never in a browser dialog (GV11): the first press goes nowhere and a red
+  // note at the bottom of the screen says why (role="alert"; the words: the page's data-unsaved-link, Words::UI unsaved_link); the same
+  // link pressed again goes on without them, as a leaving form's second press does. A tab, a filter, the pager, a crumb, the menu.
+  // Registered on window, so a component's own handler (a dropdown's link, the drawer's "New …") has had its say first. A link to a part
+  // of this page, a download, one that opens elsewhere, a modified click (a new tab) and "Leave without saving" (data-leave: it says what
+  // it does) never stop. The tab of the page shown is no link at all (CV13).
+  var leaveNote = null;
+  window.addEventListener('click', function (ev) {
+    if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) {
+      return;
+    }
+    var a = ev.target && ev.target.closest ? ev.target.closest('a[href]') : null;
+    if (!a || a.hasAttribute('download') || a.hasAttribute('data-leave') || (a.getAttribute('target') || '_self') !== '_self') {
+      return;
+    }
+    if ((a.getAttribute('href') || '').charAt(0) === '#') {
+      return;
+    }
+    var dirty = document.querySelector('form[data-unsaved][data-dirty]');
+    if (!dirty || a.getAttribute('data-go') === '1') {
+      return;
+    }
+    ev.preventDefault();
+    each(document.querySelectorAll('a[data-go]'), function (x) { x.removeAttribute('data-go'); });
+    a.setAttribute('data-go', '1');
+    if (!leaveNote) {
+      leaveNote = document.createElement('p');
+      leaveNote.className = 'toast error';
+      leaveNote.setAttribute('role', 'alert');
+      // A press on it puts it away (p.toast's is-gone, as the layout's message); the person stays with what they typed.
+      leaveNote.addEventListener('click', function () { leaveNote.classList.add('is-gone'); });
+      document.body.appendChild(leaveNote);
+    }
+    leaveNote.textContent = document.body.getAttribute('data-unsaved-link') || 'You have changes on this page that are not saved. They are lost if you '
+      + 'leave: save them first, or press the same link again to go on without them.';
+    leaveNote.classList.remove('is-gone');
+  });
 
   // A form that changes something is sent once: the button is disabled on the first submit. Its buttons are those inside it and those
   // outside that name it (form="…": the count sheet's "Before you make it final", docs/decisions.md OV6).

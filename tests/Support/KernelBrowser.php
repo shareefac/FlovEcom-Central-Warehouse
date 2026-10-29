@@ -89,6 +89,11 @@ final class KernelBrowser
             if ($mains !== []) {
                 throw new \PHPUnit\Framework\AssertionFailedError("{$method} {$path}: more than one main button: " . implode('; ', $mains));
             }
+            // ... and the tab of the page being shown never navigates (docs/decisions.md CV13).
+            $tabs = CurrentTabs::problems($res->body, $path);
+            if ($tabs !== []) {
+                throw new \PHPUnit\Framework\AssertionFailedError("{$method} {$path}: " . implode('; ', $tabs));
+            }
         }
         foreach ($r->headerValues('set-cookie') as $line) {
             $parts = array_map('trim', explode(';', $line));

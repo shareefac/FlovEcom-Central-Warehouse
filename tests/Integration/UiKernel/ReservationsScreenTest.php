@@ -164,7 +164,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         $web = $this->signIn($this->uiUser('viewer'));
         $page = $this->page($web);
         self::assertSame(['Stock', 'Reservations'], [self::currentSection($page), self::currentTab($page)]);
-        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Reservations', self::PATH], ['Sales', '/ui/stock/sales'], ['Quality', null]],
+        self::assertSame([['Overview', '/ui/stock'], ['Movements', '/ui/stock/movements'], ['Reservations', null], ['Sales', '/ui/stock/sales'], ['Quality', null]],
             array_map(static fn (array $t): array => [$t['label'], $t['href']], self::sectionTabs($page)),
             'Reservations keeps its place before Quality (still "Soon"); a viewer reads no stock records and no counts');
         $xp = new \DOMXPath($page->dom());
@@ -177,7 +177,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertSame([], self::refs($page));
         self::assertNotContains(self::PATH . '.csv', $page->hrefs(), 'nothing to export');
         self::assertSame(0, $xp->query('//main//form[translate(@method, "POST", "post") = "post"]')->length, 'read only: no form posts');
-        self::assertSame([[Words::BULK['all_stores'], self::PATH, 0, true]], self::storeSeg($page), 'no store yet: only "All stores"');
+        self::assertSame([[Words::BULK['all_stores'], '', 0, true]], self::storeSeg($page), 'no store yet: only "All stores" (shown: no link, CV13)');
         // The Dashboard lists the tab with its line; the stock records' people see it between their tabs.
         $home = $web->get('/ui/');
         self::assertContains(self::PATH, $home->hrefs());
@@ -222,7 +222,7 @@ final class ReservationsScreenTest extends KernelUiTestCase
         self::assertSame(4, (int) self::$db->value('SELECT SUM(held) FROM stock_balance'), 'the same units the stock figures call reserved');
 
         // The store selector: All stores, then each store of the channel table by name, with its reservations held now.
-        self::assertSame([[Words::BULK['all_stores'], self::PATH, 3, true], ['ALT test site', self::PATH . '?channel=alt', 1, false],
+        self::assertSame([[Words::BULK['all_stores'], '', 3, true], ['ALT test site', self::PATH . '?channel=alt', 1, false],
             ['VPG test site', self::PATH . '?channel=vpg', 2, false]], self::storeSeg($page));
         $alt = $this->page($web, ['channel' => 'alt']);
         self::assertSame(['A2001', 'ghost'], self::refs($alt));
