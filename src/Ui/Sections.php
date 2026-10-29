@@ -139,7 +139,7 @@ final class Sections
                 'new' => ['perm' => 'doc.PO.post', 'href' => '/ui/purchasing/orders/new', 'label' => 'orders']]]],
             'goods_in' => ['segments' => true, 'pages' => [
                 ['key' => 'receiving', 'perm' => 'receiving.view', 'path' => '/ui/receiving', 'match' => ['/ui/receiving', '/ui/receiving/*'],
-                    'new' => ['perm' => 'doc.GRN.post', 'href' => '/ui/receiving#new', 'label' => 'receiving']],
+                    'new' => ['perm' => 'doc.GRN.post', 'href' => '/ui/receiving/new', 'label' => 'receiving']],
                 ['key' => 'bench', 'perm' => 'doc.GRN.post', 'path' => '/ui/receiving/bench', 'match' => ['/ui/receiving/bench', '/ui/receiving/{id}/bench']],
                 ['key' => 'incidents', 'perm' => 'incidents.view', 'path' => '/ui/receiving/incidents', 'match' => ['/ui/receiving/incidents*'],
                     'badge' => 'incidents_open'],

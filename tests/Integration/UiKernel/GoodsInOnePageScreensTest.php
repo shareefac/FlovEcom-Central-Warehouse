@@ -420,6 +420,164 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]));
     }
 
+    /**
+     * The Codex review of d18e699, finding 1 (HIGH; GV16): a refused form drawn again shows the lines this person did not touch as they are
+     * now (never their own page's older answers, which a later save would write back over someone else's check), and keeps, on a line they
+     * did change, what they typed with the stamps of the page they typed it on (so someone else's check since is still a conflict).
+     */
+    public function testARefusedFormDrawnAgainNeverWritesBackAnotherPersonsCheck(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Drawn Again Ltd');
+        $a = self::makeSku('Drawn again liquid A');
+        $b = self::makeSku('Drawn again liquid B');
+        $c = self::makeSku('Drawn again liquid C');
+        foreach ([$a, $b, $c] as $sku) {
+            $this->card($sku, true);
+        }
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $a, 'packs' => 2, 'units_per_pack' => 5], ['sku_id' => $b, 'packs' => 1, 'units_per_pack' => 5],
+            ['sku_id' => $c, 'packs' => 1, 'units_per_pack' => 5]]);
+        $other = $this->uiUser('goods_in');
+        $this->receipts()->bench(Caller::staff($other['id']), $id, self::docVersion($id), [], [1 => ['stamp_on_pack' => '1', 'stamp_type' => 'digital'],
+            3 => ['stamp_on_pack' => '1', 'stamp_type' => 'digital']]);
+        $web = $this->signIn($this->uiUser('goods_in'));
+        $f = self::onePage($web->get("/ui/receiving/{$id}"), $id);
+        // Someone else records 2 damaged on line 1 and 1 short on line 3 meanwhile.
+        $this->receipts()->bench(Caller::staff($other['id']), $id, self::docVersion($id), [], [1 => ['stamp_on_pack' => '1', 'stamp_type' => 'digital', 'damaged_units' => '2'],
+            3 => ['stamp_on_pack' => '1', 'stamp_type' => 'digital', 'short_units' => '1']]);
+        // This person typed 1 extra on line 3 and pressed All fine on line 2 without its stamp: refused, nothing saved.
+        $no = $web->post("/ui/receiving/{$id}/lines", ['b_3_over' => '1', 'fine' => '2'] + $f);
+        self::assertSame(422, $no->status, $no->describe());
+        $again = self::onePage($no, $id);
+        self::assertSame('2', $again['b_1_damaged'], 'a line not touched shows what is there now');
+        self::assertSame('1', $again['b_3_over'], 'a line touched keeps what was typed');
+        self::assertSame($f['b_3_was'], $again['b_3_was'], '... with the stamps of the page it was typed on');
+        $ok = $web->post("/ui/receiving/{$id}/lines", ['b_2_duty' => 'digital', 'fine' => '2', 'b_3_over' => '0', 'b_3_short' => '1'] + $again);
+        self::assertSame(409, $ok->status, 'line 3 was checked by someone else since: a conflict, as on the first page');
+        $ok = $web->post("/ui/receiving/{$id}/lines", ['b_2_duty' => 'digital', 'fine' => '2'] + self::onePage($web->get("/ui/receiving/{$id}"), $id));
+        self::assertSame(303, $ok->status, $ok->describe());
+        self::assertSame([2, 1], [(int) self::$db->value('SELECT damaged_units FROM grn_line WHERE document_id = ? AND line_no = 1', [$id]),
+            (int) self::$db->value('SELECT short_units FROM grn_line WHERE document_id = ? AND line_no = 3', [$id])], 'the other person\'s check stands');
+    }
+
+    /**
+     * The Codex review of d18e699, findings 3, 4 and 6 (GV16): "All fine" on a duty line needs its stamp answer whatever the form sends (the
+     * line's own facts, not the field's presence); a photo taken from a line's panel is a photo of that line, never the supplier invoice,
+     * without the script; a problem answer changed with the quantity in one form counts the line.
+     */
+    public function testAllFineAPanelPhotoAndAQuantityWithItsAnswer(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Codex Finds Ltd');
+        $liquid = self::makeSku('Codex liquid');
+        $this->card($liquid, true);
+        $coil = self::makeSku('Codex coil');
+        $this->card($coil, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $liquid, 'packs' => 1, 'units_per_pack' => 5], ['sku_id' => $coil, 'packs' => 2]]);
+        $this->receipts()->bench(Caller::staff($this->uiUser('goods_in')['id']), $id, self::docVersion($id), [], [2 => ['short_units' => '1', 'checked' => false]]);
+        $desk = $this->signIn($deskUser);
+        $f = self::onePage($desk->get("/ui/receiving/{$id}"), $id);
+        $v = self::docVersion($id);
+        unset($f['b_1_duty']);
+        $no = $desk->post("/ui/receiving/{$id}/lines", ['fine' => '1'] + $f);
+        self::assertSame(422, $no->status, 'the duty answer left out of the form: still refused');
+        self::assertStringContainsString(Words::say('RECEIPT_ERROR', 'fine_needs_stamp', 1), $no->text());
+        self::assertSame($v, self::docVersion($id), 'nothing saved');
+
+        $page = $desk->get("/ui/receiving/{$id}");
+        self::assertSame(1, (new \DOMXPath($page->dom()))->query('//tr[@id="gi-p-1"]//input[@type="file" and @name="photo_1"]')->length, 'the panel\'s own photo field');
+        self::assertSame('supplier_invoice', self::onePage($page, $id)['file_role'], 'the papers\' field still starts as the invoice');
+        $r = $desk->postMultipart("/ui/receiving/{$id}/lines", ['action' => 'save'] + self::onePage($page, $id), ['photo_1' => ['path' => $this->pdf(), 'name' => 'damage.pdf']]);
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertSame([['photo', 0]], array_map(static fn (array $x): array => [(string) $x['role'], (int) $x['n']],
+            self::$db->all("SELECT role, (role = 'supplier_invoice') AS n FROM document_file WHERE document_id = ?", [$id])), 'a photo, never the invoice copy');
+
+        // Line 2 (1 short, not counted): its quantity and its answer changed in one form: counted, at the new quantity, with no short.
+        $r = $desk->post("/ui/receiving/{$id}/lines", ['line_2_packs' => '3', 'b_2_short' => '0', 'action' => 'save'] + self::onePage($desk->follow($r), $id));
+        self::assertSame(303, $r->status, $r->describe());
+        $l = self::$db->one('SELECT packs, short_units, checked_at FROM grn_line WHERE document_id = ? AND line_no = 2', [$id]);
+        self::assertSame([3, 0], [(int) $l['packs'], (int) $l['short_units']]);
+        self::assertNotNull($l['checked_at'], 'an answer changed with the quantity counts the line');
+    }
+
+    /** The Codex review of d18e699, finding 2 (GV16): the supplier invoice copy shows its prices, so goods in has no link to it and cannot open it. */
+    public function testTheSupplierInvoiceCopyIsTheBuyingDesks(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Invoice Copy Ltd');
+        $coil = self::makeSku('Invoice copy coil');
+        $this->card($coil, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 1]], 'IC-1');
+        $desk = $this->signIn($deskUser);
+        $r = $desk->postMultipart("/ui/receiving/{$id}/lines", ['file_role' => 'supplier_invoice', 'action' => 'save'] + self::onePage($desk->get("/ui/receiving/{$id}"), $id),
+            ['file' => ['path' => $this->pdf(), 'name' => 'IC-1.pdf']]);
+        self::assertSame(303, $r->status, $r->describe());
+        $file = (int) self::$db->value("SELECT file_id FROM document_file WHERE document_id = ? AND role = 'supplier_invoice'", [$id]);
+        self::assertContains('/ui/files/' . $file, $desk->get("/ui/receiving/{$id}")->hrefs());
+        self::assertSame(200, $desk->get('/ui/files/' . $file)->status);
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        $page = $gi->get("/ui/receiving/{$id}");
+        self::assertNotContains('/ui/files/' . $file, $page->hrefs(), 'shown as there, not as a link');
+        self::assertStringContainsString('IC-1.pdf', $page->text());
+        self::assertSame(403, $gi->get('/ui/files/' . $file)->status);
+    }
+
+    /**
+     * Two older gaps the Codex review of d18e699 named, closed on the owner's word (GV17): only the person who keyed a delivery cancels it (the
+     * screens offered it to them only; the service now refuses anyone else), and a booked-in delivery's page shows no price or value to
+     * someone who does not read money (goods in).
+     */
+    public function testOnlyItsKeyerCancelsADeliveryAndABookedInOneShowsGoodsInNoPrice(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Keyer Cancels Ltd');
+        $coil = self::makeSku('Keyer cancels coil');
+        $this->card($coil, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 2, 'pack_price' => '3.40']], 'KC-1');
+        $gi = $this->signIn($this->uiUser('goods_in'));
+        $other = $gi->post("/ui/receiving/{$id}/cancel", ['csrf' => $this->token($gi), 'version' => (string) self::docVersion($id), 'reason' => 'not ours']);
+        self::assertSame(403, $other->status, $other->describe());
+        self::assertStringContainsString(Words::RECEIPT_ERROR['not_keyer_cancel'], $other->text());
+        self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]));
+        $desk = $this->signIn($deskUser);
+        $page = $desk->get("/ui/receiving/{$id}");
+        $r = $desk->postMultipart("/ui/receiving/{$id}/lines", ['paperwork_ok' => '1', 'fine' => '1', 'file_role' => 'supplier_invoice'] + self::onePage($page, $id),
+            ['file' => ['path' => $this->pdf(), 'name' => 'KC-1.pdf']]);
+        self::assertSame(303, $r->status, $r->describe());
+        $r = $desk->post("/ui/receiving/{$id}/lines", ['action' => 'post'] + self::onePage($desk->follow($r), $id));
+        self::assertSame("/ui/receiving/{$id}?notice=posted", $r->location(), $r->describe());
+        self::assertStringContainsString('£3.40', $desk->get("/ui/receiving/{$id}")->text(), 'the buying desk reads the prices');
+        $look = $gi->get("/ui/receiving/{$id}");
+        self::assertSame(200, $look->status, $look->describe());
+        self::assertStringNotContainsString('£', $look->text(), 'goods in reads no price or value');
+        self::assertStringNotContainsString(Words::RECEIPT['per_pack'], $look->text());
+    }
+
+    /** The Codex review of d18e699, finding 5 (GV16): "Save and show the next lines" after a line was removed shows the line that came next. */
+    public function testSaveAndNextAfterARemovedLineSkipsNothing(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Next After Ltd');
+        $size = ReceivingController::pageSize(true);
+        $lines = [];
+        for ($i = 1; $i <= $size + 2; $i++) {
+            $lines[] = ['sku_id' => self::makeSku("Next after coil {$i}"), 'packs' => 1];
+        }
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], $lines);
+        $firstOfNext = (int) self::$db->value('SELECT sku_id FROM document_line WHERE document_id = ? AND line_no = ?', [$id, $size + 1]);
+        $desk = $this->signIn($deskUser);
+        $r = $desk->post("/ui/receiving/{$id}/lines", ['line_1_packs' => '0', 'next' => '1'] + self::onePage($desk->get("/ui/receiving/{$id}"), $id));
+        self::assertSame(303, $r->status, $r->describe());
+        self::assertStringContainsString('from=' . $size, (string) $r->location(), 'line 1 gone: the next page starts one line earlier');
+        $next = $desk->follow($r);
+        self::assertStringContainsString('/ui/items/' . $firstOfNext, (string) (new \DOMXPath($next->dom()))->evaluate('string(//tr[contains(@class, "gi-row")][1]//a/@href)'));
+    }
+
     /** "Book in" before every line is checked: the save is kept (the draft has everything typed), the booking refused in plain words. */
     public function testBookingInIsRefusedUntilEveryLineIsCheckedAndTheDraftKeepsTheEdits(): void
     {
@@ -443,11 +601,46 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertNotNull(self::$db->value('SELECT checked_at FROM grn_line WHERE document_id = ? AND line_no = 1', [$id]));
         self::assertSame(1, (int) self::$db->value("SELECT COUNT(*) FROM document_file WHERE document_id = ? AND role = 'supplier_invoice'", [$id]), 'and the file');
         self::assertTrue((new \DOMXPath($r->dom()))->query('//details[@id="ready" and @open]')->length === 1, '"Before it can be booked in" is open');
+        // The refusal box lists what to settle, each a line to its field (GV14): here the line not checked yet.
+        self::assertSame(Words::say('GI', 'fix_lines', 'line 2'), self::textOf($r, '//div[contains(@class, "gi-refused")]//ul[@class="gi-fixes"]/li/a[@href="#line-2"]'));
         // The second line checked: booked in.
         $r = $desk->post("/ui/receiving/{$id}/lines", ['fine' => '2'] + self::onePage($r, $id));
         self::assertSame(303, $r->status, $r->describe());
         $r = $desk->post("/ui/receiving/{$id}/lines", ['action' => 'post'] + self::onePage($desk->follow($r), $id));
         self::assertSame("/ui/receiving/{$id}?notice=posted", $r->location(), $r->describe());
+    }
+
+    /**
+     * A refused "Book in" says what to settle in the refusal box itself, each a short line to its field (the coordinator's Chrome check of
+     * d18e699; GV14): the supplier's invoice number and Paperwork (a press focuses the field), the invoice copy (to the file field); the
+     * draft keeps what was saved and the head says it is being checked.
+     */
+    public function testARefusedBookingListsWhatToSettleWithLinksToTheFields(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $deskUser = $this->uiUser('purchasing_desk');
+        $s = $this->supplier($buyer['id'], 'Settle First Ltd');
+        $coil = self::makeSku('Settle first coil');
+        $this->card($coil, false);
+        $id = $this->delivery($deskUser['id'], (int) $s['id'], [['sku_id' => $coil, 'packs' => 2]]);
+        $desk = $this->signIn($deskUser);
+        $r = $desk->post("/ui/receiving/{$id}/lines", ['b_1_ok' => '1', 'b_1_fine' => '1', 'action' => 'post'] + self::onePage($desk->get("/ui/receiving/{$id}"), $id));
+        self::assertSame(422, $r->status, $r->describe());
+        $xp = new \DOMXPath($r->dom());
+        self::assertSame(Words::say('RECEIPT_ERROR', 'saved_not_booked', 3), self::textOf($r, '//div[contains(@class, "gi-refused")]/p'));
+        $items = [];
+        foreach ($xp->query('//div[contains(@class, "gi-refused")]//ul[@class="gi-fixes"]/li/*') ?: [] as $el) {
+            /** @var \DOMElement $el */
+            $items[] = [$el->nodeName, $el->getAttribute('for') . $el->getAttribute('href'), trim($el->textContent)];
+        }
+        self::assertSame([['label', 'gi-invoice', Words::GI['fix_invoice_number']], ['a', '#gi-file', Words::GI['fix_invoice_file']],
+            ['label', 'gi-paperwork', Words::GI['fix_paperwork']]], $items, 'the box lists them itself, each to its field');
+        self::assertSame(1, $xp->query('//input[@id="gi-invoice" and @name="invoice_number"]')->length);
+        self::assertSame(1, $xp->query('//input[@id="gi-file" and @type="file"]')->length);
+        self::assertSame(1, $xp->query('//select[@id="gi-paperwork" and @name="paperwork_ok"]')->length);
+        self::assertSame(Words::of('GI_STATE', 'checking'), self::textOf($r, '//div[contains(@class, "doc-head")]//span[contains(@class, "chip")]'));
+        self::assertNotNull(self::$db->value('SELECT checked_at FROM grn_line WHERE document_id = ?', [$id]), 'the save was kept');
+        self::assertStringNotContainsString('bench', strtolower($r->text()), 'no word names the bench');
     }
 
     /** Goods in never sees a price: no fold, no price field, no pound sign; the buying desk has the fold; a save by goods in keeps the prices. */
@@ -460,7 +653,7 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         (new SupplierItems(self::$db))->create(Caller::staff($buyer['id']), (int) $s['id'], $coil, ['units_per_pack' => '10', 'supplier_code' => 'HP10'], ['pack_price' => '7.25']);
         $goodsInUser = $this->uiUser('goods_in');
         $gi = $this->signIn($goodsInUser);
-        $r = $gi->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $gi->get('/ui/receiving')->form('/ui/receiving'));
+        $r = $gi->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $gi->get('/ui/receiving/new')->form('/ui/receiving'));
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(1, preg_match('#^/ui/receiving/(\d+)#', (string) $r->location(), $m));
         $id = (int) $m[1];
@@ -556,8 +749,10 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertSame(1, $xp->query('//tr[@id="line-1"]//button[@type="submit" and @name="fine" and @value="1" and contains(@class, "ok")]')->length);
         self::assertSame(1, $xp->query('//tr[@id="line-1"]//a[@href="#gi-p-1"]')->length, 'Problem opens the panel without the script');
         self::assertSame(1, $xp->query('//tr[@id="line-1"]//select[@name="b_1_duty"]')->length);
+        // The row's place for what "All fine" has to say (GV11: never a browser dialog), next to the duty stamp cell.
+        self::assertSame(1, $xp->query('//tr[@id="line-1"]/td[contains(@class, "gi-duty")]/following-sibling::td[1]//*[@data-gi-why and @role="alert"]')->length);
         self::assertSame(1, $xp->query('//form[contains(@class, "gi-form")]//input[@type="file" and @name="file" and @id="gi-file"]')->length);
-        self::assertSame(1, $xp->query('//tr[@id="gi-p-1"]//label[@for="gi-file"]')->length, '"Take a photo" opens the form\'s file field');
+        self::assertSame(1, $xp->query('//tr[@id="gi-p-1"]//input[@type="file" and @name="photo_1" and @capture="environment"]')->length, '"Take a photo": the line\'s own photo field (GV16)');
         self::assertStringNotContainsString('<script>', $body);
         self::assertStringNotContainsString(' style="', $body);
         $sku2 = self::makeSku('Plain forms second');
@@ -677,8 +872,22 @@ final class GoodsInOnePageScreensTest extends KernelUiTestCase
         self::assertSame(Words::say('GI', 'orders_one'), trim((string) $xp->evaluate('string(//div[contains(@class, "doc-group") and contains(@class, "info")]//span[contains(@class, "grp-count")])')));
         self::assertSame(1, $xp->query('//select[@name="show"]')->length, 'one Show menu');
         self::assertSame(1, $xp->query('//input[@type="search" and @name="q"]')->length, 'one search');
-        self::assertSame(1, $xp->query('//details[@id="new"]')->length, '"+ New delivery" opens the form');
-        self::assertSame(Words::NEW['receiving'], trim((string) $xp->evaluate('string(//a[contains(@class, "primary") and @href="/ui/receiving#new"])')));
+        // One way in (GV13): the "+ New delivery" button opens the start page; no fold of its own on the board.
+        self::assertSame(0, $xp->query('//details[@id="new"]')->length, 'no second way to start a delivery on the board');
+        self::assertSame(0, $xp->query('//form[@action="/ui/receiving"]//select[@name="supplier_id"]')->length);
+        self::assertSame(Words::NEW['receiving'], trim((string) $xp->evaluate('string(//a[contains(@class, "primary") and @href="/ui/receiving/new"])')));
+        $start = $desk->get('/ui/receiving/new', ['po' => (string) $o['po']]);
+        self::assertSame(200, $start->status, $start->describe());
+        self::assertSame(Words::NEW['receiving'], self::textOf($start, '//main//h1'));
+        $sf = $start->form('/ui/receiving');
+        self::assertSame([(string) $o['po'], '1'], [$sf['po_id'] ?? null, $sf['copy'] ?? null], 'the order\'s "Receive the goods" chooses it');
+        $old = $desk->get('/ui/receiving', ['po' => (string) $o['po']]);
+        self::assertSame('/ui/receiving/new?po=' . $o['po'], $old->location(), 'an older link to the board\'s form');
+        $none = $desk->post('/ui/receiving', ['po_id' => '', 'supplier_id' => ''] + $sf);
+        self::assertSame(400, $none->status, $none->describe());
+        self::assertStringContainsString(Words::RECEIPT_ERROR['choose_supplier'], $none->text());
+        self::assertTrue($none->hasForm('/ui/receiving'), 'refused: the start page again, with its form');
+        self::assertSame(Words::NEW['receiving'], self::textOf($none, '//main//h1'));
 
         $found = self::boardGroups($desk->get('/ui/receiving', ['q' => 'DN-SCAN-42']));
         self::assertSame([Words::GI['group_checking']], array_keys($found), 'a scanned delivery note finds its delivery');

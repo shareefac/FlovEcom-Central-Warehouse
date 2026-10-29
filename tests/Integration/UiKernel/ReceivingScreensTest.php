@@ -111,7 +111,13 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame(['Purchase Orders', 'Goods In', 'Invoices', 'Returns', 'Suppliers'], self::tabLabels($list), 'the desk has no Reorder');
         self::assertStringContainsString(Words::GI['group_arriving'], $list->text(), 'the approved order waits in Arriving (docs/decisions.md GV1)');
         self::assertStringContainsString((string) $po->number, $list->text());
-        $form = ['po_id' => (string) $po->id, 'invoice_number' => 'SCR-001', 'copy' => '1'] + $list->form('/ui/receiving');
+        // One way to start a delivery (GV13): "+ New delivery" is the start page; the board has no form of its own.
+        self::assertFalse($list->hasForm('/ui/receiving/new'));
+        self::assertContains('/ui/receiving/new', $list->hrefs());
+        $start = $desk->get('/ui/receiving/new');
+        self::assertSame(200, $start->status, $start->describe());
+        self::assertSame(['Purchasing', 'Goods In'], [self::currentSection($start), self::currentTab($start)], 'the start page keeps Goods In marked');
+        $form = ['po_id' => (string) $po->id, 'invoice_number' => 'SCR-001', 'copy' => '1'] + $start->form('/ui/receiving');
         $r = $desk->post('/ui/receiving', $form);
         self::assertSame(303, $r->status, $r->describe());
         $id = self::receiptId($r->location());
@@ -136,7 +142,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $post = $desk->post("/ui/receiving/{$id}/lines", ['line_1_packs' => '3', 'action' => 'post'] + $f);
         self::assertSame(422, $post->status, $post->describe());
         self::assertStringContainsString('Attach the supplier\'s invoice', $post->text());
-        self::assertStringContainsString('Waiting for the goods-in bench', $post->text());
+        self::assertStringContainsString(Words::GI['fix_paperwork'], $post->text(), 'what to set, by the field\'s name (GV14)');
         self::assertSame('3', $post->form('/lines')['line_1_packs'], 'what was typed is shown again');
         self::assertSame('draft', self::$db->value('SELECT status FROM document WHERE id = ?', [$id]));
         $f = $desk->get("/ui/receiving/{$id}")->form('/lines');
@@ -236,7 +242,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $sku = self::makeSku('Together liquid 10ml');
         $this->liquid($sku);
         $desk = $this->signIn($this->uiUser('purchasing_desk'));
-        $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving')->form('/ui/receiving'));
+        $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving/new')->form('/ui/receiving'));
         $id = self::receiptId($r->location());
         $ed = $desk->follow($r);
         self::assertStringNotContainsString(' required value=', (string) preg_replace('/\s+/', ' ', (string) strstr((string) strstr($ed->body, 'name="invoice_number"'), '>', true)),
@@ -286,7 +292,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         (new ItemCards(self::$db))->save(Caller::staff($this->uiUser('stock_controller')['id']), $coil, 0, ['product_type' => 'coil', 'duty_liable' => 'no']);
         (new SupplierItems(self::$db))->create(Caller::staff($buyer['id']), (int) $s['id'], $coil, ['units_per_pack' => '5', 'supplier_code' => 'CL-5'], ['pack_price' => '4.00']);
         $desk = $this->signIn($deskUser);
-        $list = $desk->get('/ui/receiving');
+        $list = $desk->get('/ui/receiving/new');
         $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'SHEET-1'] + $list->form('/ui/receiving'));
         $id = self::receiptId($r->location());
         $page = $desk->follow($r);
@@ -315,15 +321,15 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame(0, (int) self::$db->value('SELECT COALESCE(SUM(on_hand), 0) FROM stock_balance WHERE sku_id = ?', [$coil]));
 
         // A draft cancelled: its invoice number is free again.
-        $list = $desk->get('/ui/receiving');
+        $list = $desk->get('/ui/receiving/new');
         $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'SHEET-2'] + $list->form('/ui/receiving'));
         $id2 = self::receiptId($r->location());
         $c = $desk->post("/ui/receiving/{$id2}/cancel", ['reason' => 'keyed by mistake'] + $desk->follow($r)->form('/cancel'));
         self::assertSame("/ui/receiving/{$id2}?notice=cancelled", $c->location(), $c->describe());
         self::assertSame('cancelled', self::$db->value('SELECT status FROM document WHERE id = ?', [$id2]));
-        $dup = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'sheet-1'] + $desk->get('/ui/receiving')->form('/ui/receiving'));
+        $dup = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'sheet-1'] + $desk->get('/ui/receiving/new')->form('/ui/receiving'));
         self::assertSame(303, $dup->status, 'SHEET-1 was reversed: free again');
-        $dup2 = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'SHEET -1'] + $desk->get('/ui/receiving')->form('/ui/receiving'));
+        $dup2 = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id'], 'invoice_number' => 'SHEET -1'] + $desk->get('/ui/receiving/new')->form('/ui/receiving'));
         self::assertSame(409, $dup2->status);
         self::assertStringContainsString(' is already on delivery #', $dup2->text(), 'the other delivery, in words (U86)');
     }
@@ -341,6 +347,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::assertSame(200, $rl->status);
         self::assertFalse($rl->hasForm('/ui/receiving') && str_contains($rl->body, 'name="form_key"'), 'no new-delivery form for a reviewer');
         self::assertSame(403, $reviewer->post('/ui/receiving', ['csrf' => $this->token($reviewer), 'supplier_id' => (string) $s['id'], 'form_key' => str_repeat('a', 32)])->status);
+        self::assertSame(403, $reviewer->get('/ui/receiving/new')->status, 'the start page is for someone who receives goods');
         self::assertSame(403, $reviewer->get('/ui/receiving/bench')->status);
         self::assertSame(200, $reviewer->get('/ui/receiving/incidents')->status);
         $controller = $this->signIn($this->uiUser('stock_controller'));
@@ -351,7 +358,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $deskUser = $this->uiUser('purchasing_desk');
         $desk = $this->signIn($deskUser);
         self::assertSame(403, $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id'], 'form_key' => str_repeat('b', 32)])->status);
-        $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving')->form('/ui/receiving'));
+        $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving/new')->form('/ui/receiving'));
         $id = self::receiptId($r->location());
         self::assertSame(400, $desk->post("/ui/receiving/{$id}/post", ['csrf' => $this->token($desk)])->status);
         // The editor's truncation guard: fewer line rows than it said.
@@ -403,7 +410,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $controller = $this->signIn($controllerUser, $this->browser('198.51.100.74'));
         $auditor = $this->signIn($auditorUser, $this->browser('198.51.100.75'));
         $accountant = $this->signIn($accountantUser, $this->browser('198.51.100.76'));
-        $r = $desk->post('/ui/receiving', ['po_id' => (string) $po->id, 'invoice_number' => 'PLAIN-1', 'copy' => '1'] + $desk->get('/ui/receiving')->form('/ui/receiving'));
+        $r = $desk->post('/ui/receiving', ['po_id' => (string) $po->id, 'invoice_number' => 'PLAIN-1', 'copy' => '1'] + $desk->get('/ui/receiving/new')->form('/ui/receiving'));
         $id = self::receiptId($r->location());
         $desk->postMultipart("/ui/receiving/{$id}/lines", ['file_role' => 'supplier_invoice', 'action' => 'save'] + $desk->get("/ui/receiving/{$id}")->form('/lines'),
             ['file' => ['path' => $this->pdf(), 'name' => 'PLAIN-1.pdf']]);
@@ -510,7 +517,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         $sku = self::makeSku('Phone liquid');
         $this->liquid($sku);
         $desk = $this->signIn($this->uiUser('purchasing_desk'));
-        $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving')->form('/ui/receiving'));
+        $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving/new')->form('/ui/receiving'));
         $id = self::receiptId($r->location());
         $desk->post("/ui/receiving/{$id}/lines", ['q' => 'CW-' . sprintf('%06d', $sku), 'action' => 'add'] + $desk->follow($r)->form('/lines'));
         self::assertStringContainsString('<table class="stack list board doc-list receipts">', $desk->get('/ui/receiving')->body, 'cards on a phone, a board on a laptop (GV1)');
@@ -533,7 +540,7 @@ final class ReceivingScreensTest extends KernelUiTestCase
         self::$db->exec("INSERT INTO sku_barcode (barcode, sku_id, units_per_scan) VALUES ('5012345678948', ?, 1)", [$sku]);
         (new SupplierItems(self::$db))->create(Caller::staff($buyer['id']), (int) $s['id'], $sku, ['units_per_pack' => '10', 'supplier_code' => 'BOX10'], ['pack_price' => '18.00']);
         $desk = $this->signIn($this->uiUser('purchasing_desk'));
-        $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving')->form('/ui/receiving'));
+        $r = $desk->post('/ui/receiving', ['supplier_id' => (string) $s['id']] + $desk->get('/ui/receiving/new')->form('/ui/receiving'));
         $id = self::receiptId($r->location());
         $asked = $desk->post("/ui/receiving/{$id}/lines", ['q' => '5012345678948', 'action' => 'add'] + $desk->follow($r)->form('/lines'));
         self::assertSame(200, $asked->status, $asked->describe());

@@ -171,9 +171,23 @@
     }
   });
 
-  // Unsaved edits (the receive editor, the bench check): another form on the page (attach, import, copy, cancel) leaves the page,
-  // so it asks first instead of throwing the typed edits away. The words come from the page (data-unsaved-text on the edited form,
-  // data-busy-text on the leaving one: Words::RECEIPT), English if a page has none.
+  // What the script has to say about a field or a form, in the page and never in a browser dialog (an alert froze the tab until someone
+  // pressed OK: docs/decisions.md GV11): one line at the end of $box (made once, then reused), role="alert" so a screen reader says it too.
+  var tell = function (box, text) {
+    var line = box.querySelector('[data-said]');
+    if (!line) {
+      line = document.createElement('span');
+      line.className = 'inline-alert';
+      line.setAttribute('role', 'alert');
+      line.setAttribute('data-said', '1');
+      box.appendChild(line);
+    }
+    line.textContent = text;
+  };
+
+  // Unsaved edits (a delivery's page, a stock record's lines): another form on the page (import, copy, cancel) leaves the page, so it
+  // says so first in that form instead of throwing the typed edits away; pressing its button again goes on without them (GV11). The
+  // words come from the page (data-unsaved-text on the edited form, data-busy-text on the leaving one), English if a page has none.
   var guarded = document.querySelectorAll('form[data-unsaved]');
   each(guarded, function (form) {
     var mark = function () { form.setAttribute('data-dirty', '1'); };
@@ -199,12 +213,14 @@
       });
       if (form.getAttribute('data-busy') === '1') {
         ev.preventDefault();
-        window.alert(form.getAttribute('data-busy-text') || 'The photo is still being made smaller: wait a moment, then press the button again.');
+        tell(form, form.getAttribute('data-busy-text') || 'The photo is still being made smaller: wait a moment, then press the button again.');
         return;
       }
-      if (dirty && !window.confirm(dirty.getAttribute('data-unsaved-text') || 'You have changes on this page that are not saved. They are lost if you go on. '
-          + 'Press Cancel, then save them first. (OK goes on without them.)')) {
+      if (dirty && form.getAttribute('data-go') !== '1') {
         ev.preventDefault();
+        form.setAttribute('data-go', '1');
+        tell(form, dirty.getAttribute('data-unsaved-text') || 'You have changes on this page that are not saved. They are lost if you go on: save them first, '
+          + 'or press the same button again to go on without them.');
       }
     });
   });
@@ -1383,12 +1399,14 @@
   each(document.querySelectorAll('input[type="file"][data-max-bytes]'), function (input) {
     var max = parseInt(input.getAttribute('data-max-bytes'), 10) || 2097152;
     input.addEventListener('change', function () {
+      var said = input.parentNode ? input.parentNode.querySelector('[data-said]') : null;
+      if (said) { said.textContent = ''; }
       var file = input.files && input.files[0];
       if (!file || file.size <= max) {
         return;
       }
       var tooBig = function () {
-        window.alert(input.getAttribute('data-too-big') || ('This file is too big: at most ' + (max / 1048576).toFixed(0) + ' MB. Choose a smaller one.'));
+        tell(input.parentNode, input.getAttribute('data-too-big') || ('This file is too big: at most ' + (max / 1048576).toFixed(0) + ' MB. Choose a smaller one.'));
         input.value = '';
       };
       // createImageBitmap decodes the file without a blob: or data: URL (the CSP allows images from this site only).
@@ -1522,17 +1540,24 @@
       if (!row || !box || !mark) { return; }
       ev.preventDefault();
       var duty = row.querySelector('select[data-gi-duty]');
+      var why = row.querySelector('[data-gi-why]');
       if (duty && duty.value === '') {
-        duty.focus();
-        window.alert(b.getAttribute('data-needs-stamp') || 'Choose the duty stamp first.');
+        // Refused: said in the row, next to the duty stamp cell, never in a browser dialog (GV11); the duty answer is focused where it is
+        // (the page does not scroll, GV15).
+        if (why) { why.textContent = b.getAttribute('data-needs-stamp') || 'Choose the duty stamp first.'; }
+        duty.focus({ preventScroll: true });
         return;
       }
       if (duty && duty.value === 'none') {
+        // "No stamp" is a problem: its panel opens under the row and the row says why; nothing else moves.
+        if (why) { why.textContent = b.getAttribute('data-none-stamp') || 'No stamp: write below how many items have none.'; }
         giOpen(no, true);
-        var count = giPanel(no) && giPanel(no).querySelector('input[data-unstamped]');
-        if (count) { count.focus(); }
         return;
       }
+      if (why) { why.textContent = ''; }
+      // All fine: the line ticked where it is; the page keeps its scroll position (GV15) and the focus stays on the button.
+      var x = window.scrollX || window.pageXOffset || 0;
+      var y = window.scrollY || window.pageYOffset || 0;
       ['short', 'over', 'damaged', 'wrong', 'unstamped'].forEach(function (k) {
         var f = document.querySelector('input[name="b_' + no + '_' + k + '"]');
         if (f) { f.value = '0'; }
@@ -1546,6 +1571,7 @@
       if (cell) { cell.textContent = cell.getAttribute('data-words') || cell.textContent; }
       giOpen(no, false);
       giStampOnly(no);
+      if (typeof window.scrollTo === 'function') { window.scrollTo(x, y); }
     });
   });
   // The duty stamp answer colours its cell; "No stamp" opens the panel (count the items without one).
@@ -1554,6 +1580,8 @@
       var row = s.closest ? s.closest('tr.gi-row') : null;
       var no = row ? row.getAttribute('data-gi-line') : null;
       giTone(s.parentNode, s.value === '' ? 'waiting' : s.value === 'none' ? 'blocked' : 'done');
+      var why = row ? row.querySelector('[data-gi-why]') : null;
+      if (why && s.value !== '') { why.textContent = ''; }
       if (no && s.value === 'none') { giOpen(no, true); }
       if (no) { giStampOnly(no); }
     });
@@ -1576,14 +1604,19 @@
       if (panel) { giStampOnly(panel.id.replace('gi-p-', '')); }
     });
   });
-  // "Take a photo" in a line's panel opens the form's file field (the label does that without the script); the photo is then a photo,
-  // and its note names the line.
-  each(document.querySelectorAll('label[data-gi-photo]'), function (l) {
-    l.addEventListener('click', function () {
-      var role = document.querySelector('form.gi-form select[name="file_role"]');
-      var line = document.querySelector('form.gi-form input[data-gi-photo-line]');
-      if (role) { role.value = 'photo'; }
-      if (line) { line.value = l.getAttribute('data-gi-photo') || ''; }
+  // The files of one save go in one request, which the server takes up to its size (data-max-total): more is said in the bar and not sent,
+  // so what was typed is not lost (each line's photo is its own field: the Codex review of d18e699, finding 4).
+  each(document.querySelectorAll('form.gi-form[data-max-total]'), function (form) {
+    form.addEventListener('submit', function (ev) {
+      var max = parseInt(form.getAttribute('data-max-total'), 10) || 0;
+      var total = 0;
+      each(form.querySelectorAll('input[type="file"]'), function (f) {
+        if (f.files && f.files[0]) { total += f.files[0].size; }
+      });
+      if (max > 0 && total > max) {
+        ev.preventDefault();
+        tell(form.querySelector('.doc-bar') || form, form.getAttribute('data-total-words') || 'Too many files for one save: save, then add the next one.');
+      }
     });
   });
   // The scan box: Enter on a code of a line of this page finds it (highlighted, its "All fine" or "Open" focused); another code is added

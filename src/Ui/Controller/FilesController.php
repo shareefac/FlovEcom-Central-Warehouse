@@ -27,11 +27,15 @@ final class FilesController
     {
         $id = $ctx->id();
         $me = $ctx->me();
-        // Scoped like the pages that link them (I85): a supplier's evidence needs suppliers.view; a file attached only to
-        // purchase orders (the PDF as sent) needs purchasing.view.
+        // Scoped like the pages that link them (I85): a supplier's evidence needs suppliers.view; a supplier's invoice invoices.view; a file
+        // attached only to purchase orders (the PDF as sent) needs purchasing.view.
         $kind = $ctx->db->value('SELECT kind FROM stored_file WHERE id = ?', [$id]);
         if ($kind === 'supplier_check' && !$me->can('suppliers.view')) {
             return $ctx->error(403, 'role_not_allowed', Words::say('ERROR', 'file_suppliers', Words::whoCan('suppliers.view')));
+        }
+        // A supplier's invoice shows its prices: the money permission's (invoices.view, not goods in; the Codex review of d18e699, GV16).
+        if ($kind === 'supplier_invoice' && !$me->can('invoices.view')) {
+            return $ctx->error(403, 'role_not_allowed', Words::say('ERROR', 'file_invoices', Words::whoCan('invoices.view')));
         }
         if (!$me->can('purchasing.view') && $ctx->db->value("SELECT 1 FROM document_file df JOIN document d ON d.id = df.document_id WHERE df.file_id = ? AND d.doc_type = 'PO' LIMIT 1", [$id]) !== null
             && $ctx->db->value("SELECT 1 FROM document_file df JOIN document d ON d.id = df.document_id WHERE df.file_id = ? AND d.doc_type <> 'PO' LIMIT 1", [$id]) === null) {

@@ -262,7 +262,7 @@ final class UiTemplatesTest extends TestCase
     public function testTheDeliveryPagesTurnIntoCardsAndTakeEveryWordFromWords(): void
     {
         $templates = self::templates();
-        foreach (['receipts', 'receipt', 'receipt_edit', 'receipt_files', 'bench_list', 'incidents', 'receipt_split'] as $name) { // receipt_split: pack PO; receipt_edit: the one page (GV)
+        foreach (['receipts', 'receipt', 'receipt_edit', 'receipt_files', 'bench_list', 'incidents', 'receipt_split', 'receipt_new', 'gi_more'] as $name) { // receipt_split: pack PO; receipt_edit, receipt_new, gi_more: one page (GV)
             $src = $templates[$name . '.php'];
             preg_match_all('/(<div class="scroll">\s*)?<table\b([^>]*)>/i', $src, $tables, PREG_SET_ORDER);
             foreach ($tables as $t) {
@@ -477,7 +477,7 @@ final class UiTemplatesTest extends TestCase
         $f = Sections::frame(['goods_in'], [], '/ui/receiving');
         $one = $view->page('home', self::homeVars($who), ['title' => 'x', 'active' => '', 'notice' => null, 'nav' => $f['nav'], 'pagebar' => $f['pagebar'],
             'segments' => $f['segments'], 'actions' => $f['actions'], 'flow' => null, 'searchBox' => true, 'tabs' => $f['phone'], 'testSystem' => false, 'switchedOff' => null]);
-        self::assertStringContainsString('<a class="btn primary" href="/ui/receiving#new"><span class="ico ico-plus" aria-hidden="true"></span><span>New delivery</span></a>', $one,
+        self::assertStringContainsString('<a class="btn primary" href="/ui/receiving/new"><span class="ico ico-plus" aria-hidden="true"></span><span>New delivery</span></a>', $one,
             'one action: the main button alone');
         self::assertStringNotContainsString('<details class="more">', $one);
         self::assertStringContainsString('<ol class="flow" aria-label="' . Words::FLOW['label'] . '">', $html);
@@ -543,7 +543,7 @@ final class UiTemplatesTest extends TestCase
             . '<div class="ph-title"><h1><span class="stmt stop">PO-1 &lt;b&gt;</span> <span class="chip done">PO-1 &lt;b&gt;</span></h1><details class="help">', $html,
             'the eyebrow is the section, the heading and its chips escaped');
         self::assertStringContainsString('<p class="lede">' . Html::e(Words::PAGE_INTRO['orders'][0]) . ' <span class="lede-more">You can look; Buyers change this.</span></p></div>'
-            . '<div class="ph-actions"><a class="btn primary" href="/ui/receiving#new">', $html, 'one sentence, the muted line, the create button on the right');
+            . '<div class="ph-actions"><a class="btn primary" href="/ui/receiving/new">', $html, 'one sentence, the muted line, the create button on the right');
         self::assertGreaterThan(strpos($html, '<header class="page-head">'), strpos($html, '<nav class="tabs" aria-label="Purchasing">'), 'the tabs under the statement');
         self::assertSame(1, substr_count($html, '<h1'));
         self::assertStringNotContainsString('frame-only', $html);

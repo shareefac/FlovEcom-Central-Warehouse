@@ -1201,13 +1201,36 @@ final class UiUnitTest extends TestCase
             self::assertSame(1, preg_match($rule, $css), $why);
         }
         foreach (["document.querySelectorAll('button[data-gi-fine]')", "document.querySelectorAll('a[data-gi-panel]')", "document.getElementById('gi-scan')",
-            "document.querySelector('[data-gi-left]')", "document.querySelectorAll('label[data-gi-photo]')"] as $hook) {
+            "document.querySelector('[data-gi-left]')"] as $hook) {
             self::assertStringContainsString($hook, $js, $hook);
         }
         // The page's own pieces close what they open (the bar, the panel row, More).
         $src = (string) file_get_contents(\CW\Ui\View::defaultDir() . '/receipt_edit.php');
         foreach (['div', 'details', 'form', 'section', 'table', 'tr', 'fieldset', 'p'] as $tag) {
             self::assertSame(preg_match_all('/<' . $tag . '\b/', $src), substr_count($src, '</' . $tag . '>'), "receipt_edit: every <{$tag}> closed");
+        }
+    }
+
+    /**
+     * The script never opens a browser dialog (the coordinator's Chrome check of d18e699, 29 Oct 2026; docs/decisions.md GV11): a native
+     * alert froze the tab until someone pressed OK. What it has to say is said in the page, next to what it is about, in a role="alert"
+     * line: "All fine" without the duty stamp answer (in the line's row), a file too big (under its field), a photo still being made
+     * smaller and changes not saved yet when another form leaves the page (in that form: pressing its button again goes on).
+     */
+    public function testTheScriptNeverOpensABrowserDialog(): void
+    {
+        $js = (string) file_get_contents(Assets::dir() . '/app.js');
+        $css = (string) file_get_contents(Assets::dir() . '/app.css');
+        $code = (string) preg_replace(['#/\*.*?\*/#s', '#//[^\n]*#'], '', $js);
+        self::assertSame(0, preg_match_all('/\b(alert|confirm|prompt)\s*\(/', $code), 'no alert(, confirm( or prompt(');
+        self::assertStringContainsString("setAttribute('role', 'alert')", $js, 'the line says it to a screen reader too');
+        self::assertSame(1, preg_match('/^\.inline-alert \{[^}]*color: var\(--sf-red-ink\)/m', $css), 'the line\'s look');
+        self::assertStringContainsString("form.setAttribute('data-go', '1')", $js, 'unsaved changes: the second press goes on');
+        self::assertStringContainsString('data-gi-why', (string) file_get_contents(\CW\Ui\View::defaultDir() . '/receipt_edit.php'), 'the row\'s place for its reason');
+        foreach (['RECEIPT' => 'unsaved', 'OP_FINAL' => 'unsaved', 'COUNTS' => 'unsaved_leave'] as $group => $code) {
+            $text = \CW\Ui\Words::of($group, $code);
+            self::assertDoesNotMatchRegularExpression('/\b(Cancel|OK)\b/', $text, "{$group} {$code}: no dialog's buttons to press");
+            self::assertStringContainsString('again', $text, "{$group} {$code}: says the second press goes on");
         }
     }
 

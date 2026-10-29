@@ -5,7 +5,7 @@
 <?php else: ?>
   <ul class="plain files">
 <?php foreach ($files as $f): ?>
-    <li><a href="<?= $u('/ui/files/' . $f['id']) ?>"><?= $e($f['original_name']) ?></a> <?= $chip('info', (string) $f['role_word']) ?>
+    <li><?php if ($f['locked'] ?? false): ?><?= $e($f['original_name']) ?><?php else: ?><a href="<?= $u('/ui/files/' . $f['id']) ?>"><?= $e($f['original_name']) ?></a><?php endif; ?> <?= $chip('info', (string) $f['role_word']) ?>
       <span class="o-sub"><?= $say('RECEIPT', 'file_line', (string) $f['kind'], (string) $f['size'], \CW\Ui\Html::when((string) $f['attached_at'])) ?></span></li>
 <?php endforeach; ?>
   </ul>

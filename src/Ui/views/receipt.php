@@ -174,7 +174,7 @@
   <p class="muted"><?= $word('ARRIVALS', 'missing_text') ?></p>
   <ul>
 <?php foreach ($arrivalBox['missing'] as $m): ?>
-    <li><?= $say('ARRIVALS', 'missing_line', $m['units'], $m['code'], $m['name'], $m['line_no'], $m['amount_text']) ?></li>
+    <li><?php if ($prices): ?><?= $say('ARRIVALS', 'missing_line', $m['units'], $m['code'], $m['name'], $m['line_no'], $m['amount_text']) ?><?php else: ?><?= $say('ARRIVALS', 'missing_line_items', $m['units'], $m['code'], $m['name'], $m['line_no']) ?><?php endif; ?></li>
 <?php endforeach; ?>
   </ul>
 <?php if ($arrivalBox['claim'] !== null): ?>
@@ -201,7 +201,9 @@
     <div class="stat"><dt><?= $word('RECEIPT', 'quarantine') ?></dt><dd><?= $n($totals['quarantine']) ?></dd></div>
     <div class="stat"><dt><?= $word('RECEIPT', 'refused') ?></dt><dd><?= $n($totals['refused']) ?></dd></div>
     <div class="stat"><dt><?= $word('RECEIPT', 'short') ?></dt><dd><?= $n($totals['short']) ?></dd></div>
+<?php if ($prices): ?>
     <div class="stat"><dt><?= $word('RECEIPT', 'value') ?></dt><dd><?= $e($totals['net']) ?></dd></div>
+<?php endif; ?>
   </dl>
 </section>
 
@@ -215,7 +217,9 @@
         <th scope="col"><?= $word('RECEIPT', 'pack') ?></th>
         <th scope="col" class="num"><?= $word('RECEIPT', 'packs') ?></th>
         <th scope="col" class="num"><?= $word('RECEIPT', 'items') ?></th>
+<?php if ($prices): ?>
         <th scope="col" class="num"><?= $word('RECEIPT', 'per_pack') ?></th>
+<?php endif; ?>
         <th scope="col"><?= $word('RECEIPT', 'order_line') ?></th>
         <th scope="col"><?php if ($doc->status === 'draft'): ?><?= $word('RECEIPT', 'will_go') ?><?php else: ?><?= $word('RECEIPT', 'went') ?><?php endif; ?></th>
         <th scope="col"><?= $word('RECEIPT', 'duty_stamp') ?></th>
@@ -229,10 +233,12 @@
         <td data-label="<?= $word('RECEIPT', 'pack') ?>"><?= $e($l['pack_label']) ?></td>
         <td class="num" data-label="<?= $word('RECEIPT', 'packs') ?>"><?= $n($l['packs']) ?></td>
         <td class="num" data-label="<?= $word('RECEIPT', 'items') ?>"><?= $n($l['units']) ?></td>
+<?php if ($prices): ?>
         <td class="num" data-label="<?= $word('RECEIPT', 'per_pack') ?>">£<?= $e($l['price']) ?></td>
+<?php endif; ?>
         <td data-label="<?= $word('RECEIPT', 'order_line') ?>"><?php if ($l['po_line_no'] !== null): ?><?= $say('RECEIPT', 'order_line_no', (int) $l['po_line_no']) ?><?php endif; ?></td>
         <td data-label="<?php if ($doc->status === 'draft'): ?><?= $word('RECEIPT', 'will_go') ?><?php else: ?><?= $word('RECEIPT', 'went') ?><?php endif; ?>"><?= $e($l['went']) ?><?php if ($l['findings'] !== ''): ?> <span class="o-sub"><?= $e($l['findings']) ?></span><?php endif; ?></td>
-        <td data-label="<?= $word('RECEIPT', 'duty_stamp') ?>"><?php if ($l['stamp_req'] === false): ?><?= $chip('off', \CW\Ui\Words::RECEIPT['stamp_not_needed']) ?><?php elseif ($l['stamp_on_pack'] === null): ?><?= $chip('needs', \CW\Ui\Words::RECEIPT['stamp_not_checked']) ?><?php elseif ((int) $l['stamp_on_pack'] === 1): ?><?= $chip('done', \CW\Ui\Words::RECEIPT['stamp_on']) ?><?php if ($l['stamp_type'] !== null): ?> <span class="o-sub"><?= $word('STAMP_TYPE', $l['stamp_type']) ?></span><?php endif; ?><?php else: ?><?= $chip('blocked', \CW\Ui\Words::RECEIPT['stamp_off']) ?><?php endif; ?><?php if ($l['stamp_code'] !== null): ?> <code><?= $e($l['stamp_code']) ?></code><?php endif; ?><?php if ($l['duty_text'] !== null): ?> <span class="o-sub"><?= $say('RECEIPT', 'duty_about', (string) $l['duty_text']) ?></span><?php endif; ?></td>
+        <td data-label="<?= $word('RECEIPT', 'duty_stamp') ?>"><?php if ($l['stamp_req'] === false): ?><?= $chip('off', \CW\Ui\Words::RECEIPT['stamp_not_needed']) ?><?php elseif ($l['stamp_on_pack'] === null): ?><?= $chip('needs', \CW\Ui\Words::RECEIPT['stamp_not_checked']) ?><?php elseif ((int) $l['stamp_on_pack'] === 1): ?><?= $chip('done', \CW\Ui\Words::RECEIPT['stamp_on']) ?><?php if ($l['stamp_type'] !== null): ?> <span class="o-sub"><?= $word('STAMP_TYPE', $l['stamp_type']) ?></span><?php endif; ?><?php else: ?><?= $chip('blocked', \CW\Ui\Words::RECEIPT['stamp_off']) ?><?php endif; ?><?php if ($l['stamp_code'] !== null): ?> <code><?= $e($l['stamp_code']) ?></code><?php endif; ?><?php if ($l['duty_text'] !== null && $prices): ?> <span class="o-sub"><?= $say('RECEIPT', 'duty_about', (string) $l['duty_text']) ?></span><?php endif; ?></td>
         <td data-label="<?= $word('RECEIPT', 'selling') ?>"><?php if ($l['mode_resolved'] !== null): ?><?= $say('RECEIPT', 'mode_with', (string) $l['mode_resolved']['mode'], \CW\Ui\Words::of('MODE_SOURCE', (string) $l['mode_resolved']['source'])) ?><?php endif; ?></td>
       </tr>
 <?php endforeach; ?>

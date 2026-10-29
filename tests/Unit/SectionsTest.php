@@ -351,7 +351,10 @@ final class SectionsTest extends TestCase
         self::assertSame(['invoices', 'invoices'], [Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['here']['tab'] ?? null,
             Sections::frame(['purchasing_desk'], [], '/ui/purchasing/invoices/new')['here']['page'] ?? null], 'it keeps Invoices marked');
         self::assertTrue(Sections::frame(['buyer'], [], '/ui/purchasing/orders')['pagebar']['flow'], 'the buying flow on Purchasing');
-        self::assertSame([['label' => 'New delivery', 'href' => '/ui/receiving#new']], Sections::frame(['goods_in'], [], '/ui/receiving')['actions']);
+        self::assertSame([['label' => 'New delivery', 'href' => '/ui/receiving/new']], Sections::frame(['goods_in'], [], '/ui/receiving')['actions']);
+        self::assertSame([], Sections::frame(['goods_in'], [], '/ui/receiving/new')['actions'], 'the start page has no create button of its own (GV13)');
+        self::assertSame(Sections::frame(['goods_in'], [], '/ui/receiving')['here']['tab'] ?? null, Sections::frame(['goods_in'], [], '/ui/receiving/new')['here']['tab'] ?? null,
+            'it keeps Goods In marked');
         self::assertSame(['/ui/people#new', '/ui/reference/warehouses#new', '/ui/reference/reasons#new'], array_column(Sections::frame(['admin'], [], '/ui/people')['actions'], 'href'));
         self::assertSame([], Sections::frame(['auditor'], [], '/ui/people')['actions']);
         self::assertSame(['To receive', 'Checking', 'Issues', 'Duty register', 'Arriving'], array_column(Sections::frame(['goods_in'], ['incidents_open' => 1], '/ui/receiving/12/bench')['segments'], 'label')); // Pack J: Arriving

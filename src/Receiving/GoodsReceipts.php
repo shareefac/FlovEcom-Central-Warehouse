@@ -645,12 +645,19 @@ final class GoodsReceipts
         });
     }
 
-    /** Cancels a draft receipt (never numbered, nothing booked); its supplier invoice number is free again. Reason 3-500 characters. */
+    /**
+     * Cancels a draft receipt (never numbered, nothing booked); its supplier invoice number is free again. Reason 3-500 characters. Only
+     * the person who keyed it cancels it (403 not_keyer_cancel; the owner's word of 29 Oct 2026, docs/decisions.md GV17: the screens offered
+     * it to them only).
+     */
     public function cancel(Caller $caller, int $id, int $version, string $reason): Document
     {
         return $this->db->transaction(function (Db $db) use ($caller, $id, $version, $reason): Document {
-            $this->poster($caller);
-            $this->lockGrn($id);
+            $me = $this->poster($caller);
+            $row = $this->lockGrn($id);
+            if ($row['status'] === 'draft' && (int) ($row['created_by'] ?? 0) !== $me['id']) {
+                throw new CwException('not_keyer_cancel', 'only the person who keyed a receipt cancels it', 403);
+            }
             $doc = $this->docs->cancelDraft($caller, $id, $version, $reason);
             $db->exec('UPDATE goods_receipt SET invoice_key = NULL, updated_at = ? WHERE document_id = ?', [Clock::db($this->now()), $id]);
             Audit::write($db, $caller, 'grn.cancel', 'document', (string) $id, null, ['reason' => trim($reason)]);

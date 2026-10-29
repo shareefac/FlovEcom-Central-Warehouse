@@ -161,7 +161,7 @@ final class Words
         'admin' => 'Gives staff access. Cannot do or approve any other work.',
         'buyer' => 'Suppliers, purchase orders and what to buy.',
         'purchasing_manager' => 'What a Buyer does, plus deliveries. Supplier invoices are coming later.',
-        'goods_in' => 'Checks deliveries at the goods-in bench and books them in.',
+        'goods_in' => 'Checks deliveries when they arrive and books them in.',
         'purchasing_desk' => 'Books in deliveries with their invoices, and hands stock to sister shops and trade customers. Supplier invoices and returns are coming later.',
         'stock_controller' => 'Product cards and barcodes now. Stock counts and corrections later.',
         'reviewer' => 'Checks and approves other people\'s work. Never their own.',
@@ -624,12 +624,12 @@ final class Words
         'people' => ['Everyone who can use this system and what they may do.', 'Tap a name to change their access.'],
         'person' => ['What this person may do, and their history.', 'Tick their jobs and press Save, or stop them signing in.'],
         'receiving' => ['Each delivery from a supplier, booked in against its supplier invoice.', 'Receive an order when it arrives, or open a delivery to check it.'],
-        'receipt_draft' => ['A delivery being keyed: what the supplier invoice says arrived.',
-            'Add the products, attach the invoice, and book it in once the goods-in bench has checked it.'],
-        'receipt_other' => ['A delivery someone else is keying.', 'You can check it at the goods-in bench, set its supplier invoice, and book it in.'],
+        // Goods in on one page (GV12): one plain sentence each.
+        'receipt_draft' => ['One delivery: check each line, attach the supplier\'s invoice, then book it in.', ''],
+        'receipt_other' => ['A delivery someone else started: check each line, then book it in.', ''],
+        'receipt_new' => ['One delivery for each supplier invoice: choose its order, or only the supplier.', ''],
         'receipt' => ['One delivery: what arrived, where it went, and who checked it.', ''],
-        'bench' => ['Every delivery not booked in yet, the earliest first, with how far its check at the goods-in bench got.',
-            'Open one, check each product against the paperwork, then save the check.'],
+        'bench' => ['Every delivery not booked in yet, the earliest first, with how far its check got.', 'Open one and check each line.'],
         'receipt_bench' => ['Check this delivery against its paperwork, one product at a time.',
             'For each line: is the UK duty stamp on the pack, and did anything arrive short, extra, damaged, wrong or without a stamp? Then press "Save the check".'],
         'stock' => ['What is in each warehouse now, product by product.', 'Choose a warehouse or find a product. Open a product to see every change to its stock.'],
@@ -664,7 +664,7 @@ final class Words
         'sales_returns' => ['Units the customers sent back, and units cancelled before they were sent, newest order first.',
             'The store\'s own return page puts them back in stock. A cancel that could not go back on sale waits in a check room for a recount.'],
         // ---- end of pack D ----
-        'incidents' => ['Problems the goods-in bench found in deliveries that are booked in: short, extra, damaged, the wrong product, or no duty stamp.',
+        'incidents' => ['Problems found when deliveries were checked, once they are booked in: short, extra, damaged, the wrong product, or no duty stamp.',
             'Close each one with what was done, for example a credit asked for or the goods sent back.'],
         // Pack B
         'item_new' => ['Make a warehouse item that no store sells yet: stock that arrives before its web page, or trade-only or sister-only stock.',
@@ -685,7 +685,7 @@ final class Words
         'not_invoiced' => ['Deliveries booked in that wait for their supplier invoice, newest first.', 'Press "Book its invoice", type the totals from the paper, and make it final.'],
         // pack J (PJ10, PJ14)
         'timed' => ['Draft invoices waiting for the time a person set: each becomes final by itself then.', 'Those that could not be made final come first: open one, put it right, set its time again.'],
-        'arriving' => ['The goods of final supplier invoices that have not arrived yet, oldest first.', 'When a delivery comes, press "Receive" on its invoice: check it at the bench, then book it in.'],
+        'arriving' => ['The goods of final supplier invoices that have not arrived yet, oldest first.', 'When a delivery comes, press "Receive" on its invoice, check it, then book it in.'],
         'returns' => ['Goods sent back to suppliers. Each return takes the stock out and is our claim for a credit (a debit note).',
             'Start one from a delivery\'s damaged or unstamped goods, or by hand.'],
         'supplier_invoice' => ['A supplier\'s paper as it was booked: what it bills, and how it matches the order and the delivery.',
@@ -1630,8 +1630,8 @@ final class Words
         'save_next' => 'Save and next item',
         'counted_by_when' => 'Counted by %s, %s',
         'unsaved' => 'not saved yet: press Enter',
-        'unsaved_leave' => 'You typed quantities on this page that are not saved yet. They are lost if you go on. Press Cancel, then press Enter in a '
-            . 'quantity box to save them. (OK goes on without them.)',
+        'unsaved_leave' => 'You typed quantities on this page that are not saved yet. They are lost if you go on: press Enter in a quantity box to save '
+            . 'them, or press the same button again to go on without them.',
         // The sheet's bar (CV7): More, Save, and the one main button.
         'save' => 'Save',
         'save_review' => 'Save and review',
@@ -2018,7 +2018,8 @@ final class Words
         'page' => 'Lines %s to %s of %s',
         'prev' => 'Lines before',
         'next' => 'Next lines',
-        'unsaved' => 'You have changes on this page that are not saved. They are lost if you go on. Press Cancel, then save them first. (OK goes on without them.)',
+        'unsaved' => 'You have changes on this page that are not saved. They are lost if you go on: save them first, or press the same button again to go on '
+            . 'without them.',
     ];
 
     /** "Nothing was saved." as the refusals say it (left out of OP_FINAL not_final, where the lines were saved). */
@@ -2625,6 +2626,7 @@ final class Words
         // Downloads scoped like the pages that link them (FilesController).
         'file_suppliers' => 'This file is a supplier\'s proof. It is shown to %s only.',
         'file_orders' => 'This file belongs to a purchase order. It is shown to %s only.',
+        'file_invoices' => 'This file is a supplier\'s invoice, with its prices. It is shown to %s only.',
     ];
 
     // ------------------------------------------------------------------------------------------------------------------
@@ -2659,7 +2661,7 @@ final class Words
         'second_ok' => 'Some work needs two people, so one mistake cannot change stock or money on its own. **OK first:** nothing happens until a second person says yes '
             . '(for example a new supplier, or an order over the approval limit). '
             . '**Check after:** it happens at once, and a reviewer checks it later (for example every confirmed order and every delivery booked in). '
-            . '**Nobody approves or checks their own work.** If you made it, or checked the delivery at the goods-in bench, someone '
+            . '**Nobody approves or checks their own work.** If you made it, or checked the delivery when it arrived, someone '
             . 'else must. The Approval Rules page lists every rule, its limit and its days.',
         // Correction a (7 Oct): never suggest a second account (the spot check owner-1 belongs to this account).
         'admin_off' => 'Admin gives people access. To keep that safe, the person who gives access must not also approve work. '
@@ -2686,10 +2688,10 @@ final class Words
             . 'items; they are not sold until stock control has looked at them. **Unstamped quarantine:** duty items without a valid stamp; never sold, they go '
             . 'back to the supplier. **Refused at the door:** not taken in. **Short:** on the paperwork, but not delivered. (Older notes and the stock records '
             . 'call the two places VERIFY and UNSTAMPED.)',
-        'posting' => '**Booking in** adds the stock at once: the items that arrived right go into stock, the others where the goods-in bench put them. It also '
-            . 'marks what arrived on the purchase order, opens an incident for each problem the bench found, and sets the selling mode on the websites '
+        'posting' => '**Booking in** adds the stock at once: the items that arrived right go into stock, the others where their check put them. It also '
+            . 'marks what arrived on the purchase order, opens an incident for each problem found, and sets the selling mode on the websites '
             . 'deliveries reach. A reviewer checks every delivery within 3 days, and Not OK takes it back. Nobody checks a delivery they keyed, booked in, '
-            . 'checked at the bench, or set the supplier invoice of.',
+            . 'checked when it arrived, or set the supplier invoice of.',
         'stock_owner' => '**Ours:** the stock belongs to our company; it is sold once a website sells from the warehouse. **Another account\'s:** for example the '
             . 'VPG 2 room: the stock belongs to someone else, is never sold from, and moves into our stock only with a release invoice.',
         'places' => 'A **place** is a shelf or a room inside a warehouse, for example the overflow room. Places are optional: nothing asks for one, '
@@ -2978,31 +2980,31 @@ final class Words
             'button' => 'Start',
         ],
         'bench' => [
-            'title' => 'Deliveries waiting for the goods-in bench',
+            'title' => 'Deliveries waiting to be checked',
             'unit' => ['delivery', 'deliveries'],
             'text' => 'The goods are here, but nobody has checked them against the paperwork yet. They cannot be booked in before that.',
-            'what' => 'Open each one on the tablet, check the duty stamps and anything short, extra, damaged or wrong, then save the check.',
-            'button' => 'Open the bench',
+            'what' => 'Open each one, check each line (its duty stamp, and anything short, extra, damaged or wrong), then book it in.',
+            'button' => 'Open them',
         ],
         'bench_refused' => [
-            'title' => 'Deliveries refused at the goods-in bench',
+            'title' => 'Deliveries whose paperwork is not right',
             'unit' => ['delivery', 'deliveries'],
-            'text' => 'The goods-in bench said the supplier or the paperwork is not right, so they cannot be booked in.',
-            'what' => 'Open each one, sort it out with the supplier (or send the goods back), then cancel the delivery. If the bench was wrong, '
-                . 'it checks the delivery again.',
+            'text' => 'Whoever checked them said the paperwork does not match the boxes, so they cannot be booked in.',
+            'what' => 'Open each one, sort it out with the supplier (or send the goods back); whoever keyed it then cancels it. If the answer was '
+                . 'wrong, set Paperwork again.',
             'button' => 'Open the list',
         ],
         'to_post' => [
             'title' => 'Checked deliveries to book in',
             'unit' => ['delivery', 'deliveries'],
-            'text' => 'The goods-in bench has checked them. Until they are booked in, their stock cannot be sold.',
+            'text' => 'Every line is checked. Until they are booked in, their stock cannot be sold.',
             'what' => 'Open each one, settle what "Before it can be booked in" lists (the invoice number and its copy), then book it in.',
             'button' => 'Open the list',
         ],
         'deliveries_check' => [
             'title' => 'Deliveries booked in to check',
             'unit' => ['waits for you', 'wait for you'],
-            'text' => 'Their stock is added already. A reviewer checks each one within 3 days. You never check one you keyed, booked in, checked at the bench '
+            'text' => 'Their stock is added already. A reviewer checks each one within 3 days. You never check one you keyed, booked in, checked when it arrived '
                 . 'or set the supplier invoice of.',
             'what' => 'You look at what arrived and where it went, then say OK or Not OK. Not OK takes the delivery back.',
             'button' => 'Check them',
@@ -3017,7 +3019,7 @@ final class Words
         'incidents' => [
             'title' => 'Open incidents from deliveries',
             'unit' => ['incident', 'incidents'],
-            'text' => 'Problems the goods-in bench found: short, extra, damaged, the wrong product, or no duty stamp.',
+            'text' => 'Problems found when deliveries were checked: short, extra, damaged, the wrong product, or no duty stamp.',
             'what' => 'Deal with each one (ask for a credit, send the goods back), then close it with what was done.',
             'button' => 'Open the incidents',
         ],
@@ -3298,7 +3300,7 @@ final class Words
         'open_stock_note' => 'Its places, products, prices and files are on its own page in Stock.',
         'open_order_note' => 'Its own page under Purchasing: lines, sending, cancelling, and the PDF for the supplier.',
         'open_receipt' => 'Open the delivery',
-        'open_receipt_note' => 'Its own page under Goods In: lines, the goods-in bench check, problems found, and the files.',
+        'open_receipt_note' => 'Its own page under Goods In: lines, their check, problems found, and the files.',
         'status' => 'Status',
         'check' => 'Reviewer check',
         'not_final' => 'Not final yet',
@@ -7636,10 +7638,10 @@ final class Words
 
     /** How far the goods-in bench got with a delivery that is not booked in yet (bench list, editor, receipts list). */
     public const BENCH_STATE = [
-        'todo' => 'Waiting for the bench',
-        'part' => 'Bench check not finished',
-        'done' => 'Checked at the bench',
-        'refused' => 'Bench: paperwork not right',
+        'todo' => 'Not checked yet',
+        'part' => 'Being checked',
+        'done' => 'Checked',
+        'refused' => 'Paperwork not right',
     ];
 
     /** Where an incident's items went (Incidents::DISPOSITIONS keys). */
@@ -7707,9 +7709,9 @@ final class Words
     public const RECEIVING = [
         'how' => 'How a delivery goes',
         'how_1' => 'The purchasing desk starts a delivery for each supplier invoice: copy the purchase order, import the supplier\'s sheet, or scan the products.',
-        'how_2' => 'The goods-in bench checks the goods against the paperwork: the UK duty stamp, and anything short, extra, damaged or wrong.',
+        'how_2' => 'Goods in checks the goods against the paperwork: the UK duty stamp, and anything short, extra, damaged or wrong.',
         'how_3' => 'The desk attaches the invoice (a PDF or a photo) and books the delivery in. The stock is added at once.',
-        'how_4' => 'A reviewer checks it within 3 days. Each problem the bench found becomes an incident to close.',
+        'how_4' => 'A reviewer checks it within 3 days. Each problem found becomes an incident to close.',
         'posting_label' => 'book in',
         'new' => 'Start a new delivery',
         'new_text' => 'One delivery for each supplier invoice. Choose the purchase order it is against, or only the supplier.',
@@ -7732,8 +7734,8 @@ final class Words
         'sample' => 'A sample supplier sheet (CSV)',
         'total_one' => '1 delivery, newest first.',
         'total_many' => '%s deliveries, newest first.',
-        'state_checked' => 'Checked at the bench, not booked in yet',
-        'state_refused' => 'Refused at the bench, not cancelled yet',
+        'state_checked' => 'Checked, not booked in yet',
+        'state_refused' => 'Paperwork not right, not cancelled yet',
         'none' => 'No deliveries yet',
         'none_desk' => 'Start the first one above when goods arrive.',
         'none_text' => 'Deliveries appear here once the purchasing desk starts them.',
@@ -7744,7 +7746,7 @@ final class Words
         'status' => 'Status',
         'arrived' => 'Arrived',
         'size' => 'Size',
-        'bench' => 'Goods-in bench',
+        'bench' => 'Checked',
         'check' => 'Reviewer check',
         'problems' => 'Problems',
         'open' => 'Open',
@@ -7766,8 +7768,8 @@ final class Words
         'title_draft' => 'Delivery from %s (not booked in yet)',
         'draft_ref' => 'delivery #%s (not booked in yet)',
         'title_plain' => 'Delivery from %s',
-        'to_bench' => 'Check it at the goods-in bench',
-        'only_keyer' => 'Only %s, who keyed this delivery, changes its products. Anyone who receives goods can check it at the goods-in bench, set its supplier invoice and book it in.',
+        'to_bench' => 'Check it',
+        'only_keyer' => 'Only %s, who keyed this delivery, changes its products. Anyone who receives goods can check it, set its supplier invoice and book it in.',
         'only_keyer_look' => 'Only %s, who keyed this delivery, changes its products.',
         'reversed_by' => 'Taken back by %s: its stock, what it received against the order and its incidents were taken back.',
         'open_reversal' => 'Open its record',
@@ -7806,10 +7808,10 @@ final class Words
         'no_po' => 'None',
         'arrived' => 'The goods arrived',
         'paper' => 'Keyed from a paper receiving sheet',
-        'bench' => 'Goods-in bench check',
+        'bench' => 'Checked when it arrived',
         'bench_not_yet' => 'Not done yet',
-        'bench_ok' => 'Supplier and paperwork look right',
-        'bench_not_ok' => 'Supplier or paperwork NOT right',
+        'bench_ok' => 'Paperwork matches the boxes',
+        'bench_not_ok' => 'Paperwork does NOT match the boxes',
         'bench_when' => '%s, %s',
         'keyed_by' => 'Keyed by',
         'booked' => 'Booked in',
@@ -7862,7 +7864,7 @@ final class Words
         'reaches_none' => 'The selling mode chosen here reaches no website yet.',
         'stock_now' => 'In stock now',
         'stock_line' => '%s (%s free to sell)',
-        'bench_col' => 'Goods-in bench',
+        'bench_col' => 'Check',
         'note_col' => 'Note',
         'stamp_needed' => 'Duty stamp needed',
         'stamp_not_needed' => 'No stamp needed',
@@ -7877,7 +7879,7 @@ final class Words
         'mode_none' => 'no mode known yet',
         'mode_default' => 'Same as now: %s (%s)',
         'mode_choice' => '%s (%s)',
-        'waiting_bench' => 'Waiting for the bench',
+        'waiting_bench' => 'Not checked yet',
         'checked' => 'Checked',
         'finding' => '%s %s',
         'finding_short' => 'short',
@@ -7914,14 +7916,14 @@ final class Words
         'refused_see' => 'What stops it is listed under "Before it can be booked in".',
         'book_in' => 'Book this delivery in',
         'book_in_does' => 'The stock is added at once. A reviewer checks it within 3 days.',
-        'book_in_rule' => 'Only the person who keyed a delivery changes its products. Anyone who receives goods can check it at the goods-in bench, set its supplier invoice and book it in.',
+        'book_in_rule' => 'Only the person who keyed a delivery changes its products. Anyone who receives goods can check it, set its supplier invoice and book it in.',
         // The supplier invoice, set by someone who did not key the delivery.
         'set_invoice' => 'The supplier invoice',
         'invoice_number' => 'Supplier invoice number (needed before booking in)',
         'invoice_date' => 'Invoice date',
         'delivery_note_no' => 'Delivery note number',
         'set_invoice_button' => 'Save the supplier invoice',
-        'set_invoice_hint' => 'Anyone who receives goods can set the supplier invoice of a delivery someone else started (at the bench, from the delivery note). '
+        'set_invoice_hint' => 'Anyone who receives goods can set the supplier invoice of a delivery someone else started (from the delivery note). '
             . 'Attach the invoice copy under Files. The products stay with the person who keyed them. Whoever sets the invoice of a delivery they did not key '
             . 'does not check it as a reviewer.',
         // The editor.
@@ -7965,7 +7967,7 @@ final class Words
         'sheet_file' => 'Sheet (CSV or Excel XLSX, at most %s MB)',
         'sheet_mode' => 'What to do with it',
         'sheet_append' => 'Add to the lines (packs add up on the same product)',
-        'sheet_replace' => 'Replace every line (the bench\'s findings go with them)',
+        'sheet_replace' => 'Replace every line (their checks go with them)',
         'sheet_button' => 'Import',
         'sheet_hint' => 'The header row may sit below the supplier\'s letterhead. Columns read: a code (code, item code, SKU …), a barcode (EAN) or a CW number; the '
             . 'number of packs (qty, quantity); and if there, the pack size, the items, the price of a pack and a description. Rows without a code (totals, '
@@ -7993,20 +7995,21 @@ final class Words
         'kind_png' => 'Picture (PNG)',
         'kind_other' => 'File',
         // The browser's own prompts (app.js, through data- attributes).
-        'unsaved' => 'You have changes on this page that are not saved. They are lost if you go on. Press Cancel, then save them first. (OK goes on without them.)',
+        'unsaved' => 'You have changes on this page that are not saved. They are lost if you go on: save them first, or press the same button again to go on '
+            . 'without them.',
         'busy' => 'The photo is still being made smaller: wait a moment, then press the button again.',
         'too_big' => 'This file is too big: at most %s MB. Choose a smaller one.',
         // Refused by its creator's rule: who keyed it, booked it in.
         'refusal_posted' => 'You booked this delivery in, so another reviewer must check it.',
         'refusal_created' => 'You keyed this delivery, so another reviewer must check it.',
-        'refusal_bench' => 'You checked this delivery at the goods-in bench, so another reviewer must check it.',
+        'refusal_bench' => 'You checked this delivery when it arrived, so another reviewer must check it.',
         'refusal_invoice' => 'You saved this delivery\'s supplier invoice, so another reviewer must check it.',
     ];
 
     /** The goods-in bench: the list of deliveries to check (bench_list.php) and the check of one (receipt_bench.php). */
     public const BENCH = [
         'none' => 'Nothing to check',
-        'none_text' => 'No delivery is waiting for the bench. A delivery shows here once the purchasing desk starts it.',
+        'none_text' => 'No delivery is waiting to be checked. A delivery shows here once someone starts it.',
         'delivery' => 'Delivery',
         'status' => 'Status',
         'arrived' => 'Arrived',
@@ -8021,7 +8024,7 @@ final class Words
         'paperwork_ok' => 'paperwork looks right (%s)',
         'paperwork_not_ok' => 'paperwork NOT right (%s)',
         // One delivery at the bench.
-        'title' => 'Bench check: %s',
+        'title' => 'Check: %s',
         'eyebrow_invoice' => 'Invoice %s',
         'eyebrow_no_invoice' => 'No invoice number yet',
         'eyebrow_lines_one' => '1 line',
@@ -8196,6 +8199,15 @@ final class Words
         'problem_label' => 'Line %s: a problem',
         'open_label' => 'Line %s: open',
         'needs_stamp' => 'Choose the duty stamp first.',
+        'none_stamp' => 'No stamp: write below how many items have none.',
+        // What stops booking in, each a short line to its field (GV14).
+        'fix_invoice_number' => 'Type the supplier\'s invoice number',
+        'fix_invoice_file' => 'Attach the supplier\'s invoice',
+        'fix_paperwork' => 'Set Paperwork (does the paperwork match the boxes?)',
+        'fix_paperwork_no' => 'Paperwork says it does not match the boxes: do not book it in',
+        'fix_lines' => 'Check %s',
+        'fix_duty' => 'Line %s: choose its duty stamp',
+        'fix_backdate' => 'Say why it is keyed late',
         // The problem panel.
         'checked_box' => 'Checked',
         'short' => 'Short',
@@ -8209,6 +8221,7 @@ final class Words
         'note' => 'Note',
         'photo' => 'Take a photo',
         'photo_of' => 'Line %s',
+        'files_too_big' => 'Photos and papers of at most %s MB go in one save: save, then add the next one.',
         'evidence' => 'The supplier\'s proof they were made or imported before 1 Oct 2026',
         'over_ok' => 'The extra number is right (more than the whole line)',
         // Prices and selling (the buying desk only).
@@ -8277,7 +8290,7 @@ final class Words
         'any_kind' => 'Any kind',
         'filter' => 'Filter',
         'none_open' => 'No open incidents',
-        'none_open_text' => 'Every problem the goods-in bench found is dealt with.',
+        'none_open_text' => 'Every problem found when deliveries were checked is dealt with.',
         'none' => 'No incident matches',
         'none_text' => 'Change the filter to see others.',
         'show_open' => 'Show the open incidents',
@@ -8301,15 +8314,15 @@ final class Words
 
     /** Notices after a click on a delivery (ReceivingController::NOTICES, IncidentsController::NOTICES). */
     public const RECEIPT_NOTICE = [
-        'from_invoice' => 'Started from the supplier invoice: everything still on its way. Attach the invoice if it is not here, check the goods at the bench, then book them in.', // pack J
-        'created' => 'Delivery started. Now add its products (copy the order, import the supplier\'s sheet or scan them) and attach the invoice. The goods-in bench then checks it.',
+        'from_invoice' => 'Started from the supplier invoice: everything still on its way. Attach the invoice if it is not here, check the goods, then book them in.', // pack J
+        'created' => 'Delivery started. Now add its products (copy the order, import the supplier\'s sheet or scan them), check each line and attach the invoice.',
         'saved' => 'Saved.',
         'added' => 'Added (and every change in the table saved).',
         'incremented' => 'One more pack on the line that was there already (and every change in the table saved).',
         'copied' => 'The order\'s lines still to come were copied. Change what arrived differently.',
         'imported' => 'Lines imported from the supplier\'s sheet.',
         'attached' => 'File attached.',
-        'checked' => 'Bench check saved.',
+        'checked' => 'Check saved.',
         'invoice_set' => 'The supplier invoice is saved on this delivery.',
         'posted' => 'Booked in: the stock is added. A reviewer checks this delivery within 3 days.',
         'cancelled' => 'Delivery cancelled: nothing was booked in, and its invoice number can be used again.',
@@ -8332,8 +8345,8 @@ final class Words
         'no_price' => '%s (no price yet)',
         'case' => 'A case barcode that is not this supplier\'s pack: the line is in packs of %s. Check its price.',
         'all_saved' => 'Every change in the table was saved too.',
-        'cleared_one' => 'The bench check of %s was cleared (its quantity or product changed): the bench checks it again.',
-        'cleared_many' => 'The bench check of %s was cleared (their quantity or product changed): the bench checks them again.',
+        'cleared_one' => 'The check of %s was cleared (its quantity or product changed): check it again.',
+        'cleared_many' => 'The checks of %s were cleared (their quantity or product changed): check them again.',
         'skipped_one' => '1 row without a product code was skipped (listed below).',
         'skipped_many' => '%s rows without a product code were skipped (listed below).',
         'unit_one' => '%s item',
@@ -8350,7 +8363,7 @@ final class Words
         'version_conflict' => 'Not saved: this delivery was changed since you opened it (perhaps by you in another tab). Here it is as it is now, with what you '
             . 'typed: check the lines and save again.',
         'version_conflict_choice' => 'Nothing was changed: this delivery was changed since you opened it. Here it is as it is now: make your choice again.',
-        'version_conflict_bench' => 'Not saved: someone saved this delivery since you opened this page (another bench check, or the desk changed %s). What you '
+        'version_conflict_bench' => 'Not saved: someone saved this delivery since you opened this page (another check, or a change of %s). What you '
             . 'typed is still here%s. Check it and save again.',
         'bench_the_delivery' => 'the delivery',
         'bench_except' => ', except on %s, whose product or quantity changed',
@@ -8358,13 +8371,14 @@ final class Words
         'form_truncated_lines' => 'The form arrived incomplete (%s lines sent, %s arrived), so nothing was saved. Reload the page: it shows at most %s lines at a time.',
         'not_ready_one' => 'Not booked in: 1 thing must be settled first. It is listed under "Before it can be booked in".',
         // Goods in on one page (docs/decisions.md GV3, GV4): "Book in" is the save, then the booking; "All fine" needs the duty answer.
-        'saved_not_booked_one' => 'Saved. Not booked in yet: 1 thing must be settled first. It is listed under "Before it can be booked in".',
-        'saved_not_booked' => 'Saved. Not booked in yet: %s things must be settled first. They are listed under "Before it can be booked in".',
+        'saved_not_booked_one' => 'Saved. Not booked in yet: 1 thing to settle first:',
+        'saved_not_booked' => 'Saved. Not booked in yet: %s things to settle first:',
         'saved_not_booked_lead' => 'Saved. Not booked in yet:',
         'saved_not_booked_changed' => 'Saved. Not booked in: someone changed this delivery a moment ago. Check it and book it in again.',
         'fine_needs_stamp' => 'Line %s: choose which duty stamp is on the pack, then press All fine. Nothing was saved.',
         'fine_no_stamp' => 'Line %s has no duty stamp, so it is not all fine: press Problem and write how many items have none. Nothing was saved.',
         'not_ready' => 'Not booked in: %s things must be settled first. They are listed under "Before it can be booked in".',
+        'not_keyer_cancel' => 'Only the person who keyed this delivery cancels it. Nothing was changed.',
         'not_creator' => 'Only the person who keyed this delivery changes its products and its details. Anyone who receives goods checks it on its page. Nothing '
             . 'was changed.',
         'not_draft' => 'Nothing was changed: this delivery is not being keyed any more (it was booked in or cancelled meanwhile).',
@@ -8424,25 +8438,26 @@ final class Words
             . 'purchasing manager.',
         'backdate_reason_required' => 'The goods arrived on %s, before this delivery was started (%s). Say why it is keyed late (for example: it arrived yesterday, '
             . 'or a paper receiving sheet while CW was down).',
-        'bench_check_required' => 'Waiting for the goods-in bench: it has not said yet whether the supplier and the paperwork look right.',
-        'bench_check_required_lines' => 'Waiting for the goods-in bench: it has not said yet whether the supplier and the paperwork look right, nor checked %s.',
-        'paperwork_not_credible' => 'The goods-in bench found the supplier or the paperwork not right: do not book it in. Refuse the delivery and cancel it, or ask '
+        // Goods in on one page (GV14): what to settle by the field's name, never "the bench" (it is a field of the page now).
+        'bench_check_required' => 'Set Paperwork (does the paperwork match the boxes?).',
+        'bench_check_required_lines' => 'Set Paperwork (does the paperwork match the boxes?), and check %s.',
+        'paperwork_not_credible' => 'Paperwork says it does not match the boxes: do not book it in. Refuse the delivery and cancel it, or ask '
             . 'the purchasing manager.',
         'po_line_unknown' => 'Line %s: %s has no product line %s. Choose its order line again.',
         'po_line_item' => 'Line %s: line %s of %s is another product than %s. Choose its order line again.',
         'item_blocked' => 'Line %s: %s is blocked by its product card (%s), so it cannot be booked in. If the card is wrong, correct it and confirm it again. '
             . 'Otherwise refuse the goods.',
         'relay_route' => 'Line %s: %s gets its deliveries through ERPNext for %s. Book this delivery in ERPNext.',
-        'stamp_check_required' => 'Line %s (%s): the goods-in bench has not said yet whether the duty stamp is on the pack.',
+        'stamp_check_required' => 'Line %s (%s): choose its duty stamp.',
         'stamp_not_on_pack' => 'Line %s (%s): the stamp is not on the outer pack, so all %s items that arrived are unstamped. Write them as unstamped.',
         'stamp_type_required' => 'Line %s (%s): say which kind of stamp it has (digital or transitional).',
         'unstamped_not_duty' => 'Line %s: %s needs no duty stamp. Write no unstamped items for it.',
         'unstamped_refused_now' => 'Line %s (%s): from %s unstamped duty items are refused at the door or kept in the unstamped quarantine. Choose one of those two.',
         'evidence_required' => 'Line %s (%s): taking unstamped items in needs the supplier\'s proof that they were made or imported before 1 Oct 2026. Say what it '
             . 'is, in at least %s characters.',
-        'line_not_checked' => 'Waiting for the goods-in bench: %s not checked yet (each line is checked, with its duty stamp, after it was keyed or last changed).',
-        'checked_before_arrival' => 'The goods-in bench checked this delivery on %s, before it arrived (%s). Correct "The goods arrived", or have the bench check '
-            . 'it again.',
+        'line_not_checked' => 'Check %s: All fine, or Problem (a line is checked again after its quantity or product changes).',
+        'checked_before_arrival' => 'This delivery was checked on %s, before it arrived (%s). Correct "Arrived", or check it '
+            . 'again.',
         'mode_conflict' => '%s: lines %s and %s give it different selling modes (%s and %s). Choose one.',
         'over_tolerance' => '%s: %s items of %s line %s would be received, but %s were ordered (%s received before). That is more than the %s%% extra allowed. '
             . 'Ask the buyer, or put the extra on a line not against the order.',
@@ -8450,13 +8465,13 @@ final class Words
         'not_against' => 'Line %s (%s) is not against %s.',
         'card_warning' => 'Line %s (%s): its product card breaks a rule (%s). A warning until someone confirms the card.',
         'discontinued' => 'Line %s (%s): its product card says it is not sold any more.',
-        'no_card' => 'Line %s (%s): it has no product card yet, so it is treated as needing a duty stamp (the bench checks its stamp).',
-        'duty_unknown' => 'Line %s (%s): its product card does not say whether duty is paid on it, so it is treated as needing a duty stamp (the bench checks its stamp).',
+        'no_card' => 'Line %s (%s): it has no product card yet, so it is treated as needing a duty stamp (its stamp is checked).',
+        'duty_unknown' => 'Line %s (%s): its product card does not say whether duty is paid on it, so it is treated as needing a duty stamp (its stamp is checked).',
         'pre_october' => 'Line %s (%s): %s unstamped items taken in on the supplier\'s proof they were made or imported before 1 Oct 2026. They must be sold, sent back or '
             . 'destroyed by 31 Mar 2027.',
         'extras_refused' => 'Line %s (%s): its %s arrived unstamped too, so they are refused at the door, not set aside to check.',
         'extras_quarantined' => 'Line %s (%s): its %s arrived unstamped too, so they go to the unstamped quarantine, not set aside to check.',
-        'over_confirmed' => 'Line %s (%s): %s extra items on a line of %s (the bench confirmed the number). They are set aside to check, at the line\'s price, '
+        'over_confirmed' => 'Line %s (%s): %s extra items on a line of %s (the extra number was confirmed). They are set aside to check, at the line\'s price, '
             . 'until the supplier invoices or collects them.',
         'findings' => 'Line %s (%s): %s. Each opens an incident when the delivery is booked in.',
         'free' => 'Line %s (%s) has no price (£0). A free product? The price is for now, until the supplier invoice is matched.',
@@ -9222,7 +9237,7 @@ final class Words
         'documents.approve' => 'Give the OK a record waits for',
         'accounts.view' => 'Look at stock values for the accounts (coming later)',
         'doc.PO.post' => 'Make, confirm, send, cancel and correct purchase orders',
-        'doc.GRN.post' => 'Book in deliveries and check them at the goods-in bench',
+        'doc.GRN.post' => 'Start, check and book in deliveries',
         'doc.SINV.post' => 'Book supplier invoices (Invoices)',
         'doc.DN.post' => 'Send goods back to suppliers (Returns)',
         'doc.CNT.post' => 'Count stock on the shelves and answer count differences',
@@ -11247,6 +11262,7 @@ final class Words
         'missing_title' => 'What did not come',
         'missing_text' => 'The invoice billed these, the delivery did not bring them. Claim them from the supplier: a debit note, no stock moves.',
         'missing_line' => '%s x %s %s (invoice line %s): %s',
+        'missing_line_items' => '%s x %s %s (invoice line %s)', // the same without its money, for someone who does not read money (GV17)
         'claim' => 'Claim what did not come',
         'claim_open' => 'Open the claim',
         'nothing_missing' => 'Everything the invoice billed came.',
@@ -11268,7 +11284,7 @@ final class Words
         'ambiguous_submit_at' => 'That time comes twice that night: the clocks go back an hour. Choose which one below.',
         'bad_mode' => 'Choose how its goods come in.',
         'bad_stamp' => 'Choose the stamp from the list.',
-        'stamp_answer_required' => 'Say which duty stamp is on the pack: booked as received, nobody checks it at the bench.',
+        'stamp_answer_required' => 'Say which duty stamp is on the pack: booked as received, nobody checks it when it arrives.',
         'invoice_copy_required' => 'Attach the supplier\'s invoice (a PDF or a photo): booked as received, its receipt keeps the copy.',
         'receive_first' => 'Make it final with its own button: booked as received, its receipt is booked first.',
         'receipt_mismatch' => 'Its lines changed after its receipt was booked: put the lines back, or cancel that receipt.',

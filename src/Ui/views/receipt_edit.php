@@ -24,7 +24,16 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?= $head($title, intro: $keyer ? 'receipt_draft' : 'receipt_other', side: $bar, meta: $stateChip('GI_STATE', $state) . ' <span class="muted">' . $e($who) . '</span>') ?>
 </div>
 <?php if ($error !== null): ?>
-<p class="error" role="alert" data-code="<?= $e($errorCode) ?>"><?= $e($error) ?><?php if ($refusedPost): ?> <a href="#ready"><?= $word('RECEIPT', 'refused_see') ?></a><?php endif; ?></p>
+<div class="error gi-refused" role="alert" data-code="<?= $e($errorCode) ?>">
+  <p><?= $e($error) ?></p>
+<?php if ($fixes !== []): ?>
+  <ul class="gi-fixes">
+<?php foreach ($fixes as $fx): ?>
+    <li><?php if ($fx['for'] !== null): ?><label class="gi-fix" for="<?= $e($fx['for']) ?>"><?= $e($fx['text']) ?></label><?php elseif ($fx['href'] !== null): ?><a href="<?= $e($fx['href']) ?>"><?= $e($fx['text']) ?></a><?php else: ?><?= $e($fx['text']) ?><?php endif; ?></li>
+<?php endforeach; ?>
+  </ul>
+<?php endif; ?>
+</div>
 <?php endif; ?>
 <?php if ($splitStep !== null): ?>
 <?= $partial('receipt_split', ['doc' => $doc, 'step' => $splitStep]) ?>
@@ -67,7 +76,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
   <div class="doc-step"><p class="doc-step-label"><?= $word('GI', 'strip_in') ?></p><p class="doc-step-big"><?= $n($progress['in']) ?> <span class="muted"><?= $say('GI', 'strip_of', $progress['of']) ?></span></p></div>
 </section>
 
-<form class="po-editor gi-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/receiving/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('RECEIPT', 'unsaved') ?>">
+<form class="po-editor gi-form" method="post" enctype="multipart/form-data" action="<?= $u('/ui/receiving/' . $doc->id . '/lines') ?>" data-unsaved="1" data-unsaved-text="<?= $word('RECEIPT', 'unsaved') ?>" data-max-total="<?= $e($maxBytes) ?>" data-total-words="<?= $say('GI', 'files_too_big', $maxMb) ?>">
   <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
   <input type="hidden" name="version" value="<?= $e($doc->version) ?>">
   <input type="hidden" name="page" value="one">
@@ -119,9 +128,9 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
     </div>
 <?php endif; ?>
     <label class="doc-field"><?= $word('GI', 'delivery_note') ?> <input type="text" name="delivery_note" maxlength="64" autocomplete="off" value="<?= $e($typed['delivery_note'] ?? ($gr['delivery_note'] ?? '')) ?>"></label>
-    <label class="doc-field"><?= $word('GI', 'invoice') ?> <input type="text" name="invoice_number" maxlength="64" autocomplete="off" placeholder="<?= $word('GI', 'invoice_hint') ?>" value="<?= $e($typed['invoice_number'] ?? $doc->externalRef) ?>"><?php if ($invoicePart > 1): ?> <span class="hint"><?= $say('RECEIPT', 'split_part', $invoicePart) ?></span><?php endif; ?></label>
+    <label class="doc-field"><?= $word('GI', 'invoice') ?> <input type="text" id="gi-invoice" name="invoice_number" maxlength="64" autocomplete="off" placeholder="<?= $word('GI', 'invoice_hint') ?>" value="<?= $e($typed['invoice_number'] ?? $doc->externalRef) ?>"><?php if ($invoicePart > 1): ?> <span class="hint"><?= $say('RECEIPT', 'split_part', $invoicePart) ?></span><?php endif; ?></label>
     <label class="doc-field"><?= $word('GI', 'paperwork') ?>
-      <select name="paperwork_ok">
+      <select name="paperwork_ok" id="gi-paperwork">
         <option value=""><?= $word('GI', 'paperwork_unchecked') ?></option>
         <option value="1"<?php if ((string) ($typed['paperwork_ok'] ?? ($gr['paperwork_ok'] ?? '')) === '1'): ?> selected<?php endif; ?>><?= $word('GI', 'paperwork_yes') ?></option>
         <option value="0"<?php if ((string) ($typed['paperwork_ok'] ?? ($gr['paperwork_ok'] ?? '')) === '0'): ?> selected<?php endif; ?>><?= $word('GI', 'paperwork_no') ?></option>
@@ -130,14 +139,14 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php if ($arrival !== null): ?>
     <div class="doc-field"><span class="gi-label"><?= $word('GI', 'against_invoice') ?></span><span class="gi-fixed"><a href="<?= $u('/ui/purchasing/invoices/' . $arrival['invoice']['id']) ?>"><?= $e($arrival['invoice']['number']) ?></a></span></div>
 <?php endif; ?>
-    <details class="gi-more-details"<?php if ($backdated || (int) ($gr['paper_sheet'] ?? 0) === 1 || ($gr['backdate_reason'] ?? null) !== null || in_array($errorCode, ['backdate_reason_required', 'bad_field'], true)): ?> open<?php endif; ?>>
+    <details class="gi-more-details" id="gi-more"<?php if ($backdated || (int) ($gr['paper_sheet'] ?? 0) === 1 || ($gr['backdate_reason'] ?? null) !== null || in_array($errorCode, ['backdate_reason_required', 'bad_field'], true)): ?> open<?php endif; ?>>
       <summary><?= $word('GI', 'more_details') ?></summary>
       <div class="gi-more-grid">
         <label><?= $word('RECEIPT', 'invoice_date') ?> <input type="date" name="invoice_date" value="<?= $e($typed['invoice_date'] ?? ($gr['invoice_date'] ?? '')) ?>"></label>
 <?php if ($keyer): ?>
         <label class="choice"><input type="checkbox" name="paper_sheet" value="1"<?php if ((isset($typed['header_present']) ? ($typed['paper_sheet'] ?? '') === '1' : (int) ($gr['paper_sheet'] ?? 0) === 1)): ?> checked<?php endif; ?>> <?= $word('RECEIPT', 'paper_sheet') ?></label>
 <?php if ($backdated || (int) ($gr['paper_sheet'] ?? 0) === 1 || ($gr['backdate_reason'] ?? null) !== null || ($typed['backdate_reason'] ?? '') !== ''): ?>
-        <label><?= $word('RECEIPT', 'backdate') ?> <input type="text" name="backdate_reason" maxlength="500" value="<?= $e($typed['backdate_reason'] ?? ($gr['backdate_reason'] ?? '')) ?>"></label>
+        <label><?= $word('RECEIPT', 'backdate') ?> <input type="text" id="gi-backdate" name="backdate_reason" maxlength="500" value="<?= $e($typed['backdate_reason'] ?? ($gr['backdate_reason'] ?? '')) ?>"></label>
 <?php endif; ?>
         <label class="gi-wide"><?= $word('RECEIPT', 'note_label') ?> <textarea name="note" maxlength="1000" rows="2"><?= $e($typed['note'] ?? $doc->note) ?></textarea></label>
 <?php elseif ($doc->note !== null): ?>
@@ -225,7 +234,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
           <td class="num" data-label="<?= $word('GI', 'col_packs') ?>"><?php if ($keyer): ?><input type="number" name="line_<?= $e($no) ?>_packs" min="0" max="1000000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_packs'] ?? $l['packs']) ?>" class="short" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_packs') ?>"><?php if ($l['supplier_item_id'] === null): ?><label class="gi-upp"><?= $word('GI', 'upp') ?> <input type="number" name="line_<?= $e($no) ?>_upp" min="1" max="100000" inputmode="numeric" value="<?= $e($typed['line_' . $no . '_upp'] ?? $l['units_per_pack']) ?>" class="short"></label><?php endif; ?><?php else: ?><?= $n($l['packs']) ?><?php endif; ?></td>
           <td class="num gi-items" data-label="<?= $word('GI', 'col_items') ?>"><?= $n($l['accepted']) ?><?php if ($l['accepted'] !== (int) $l['units']): ?><span class="o-sub"><?= $say('GI', 'of_items', (int) $l['units']) ?></span><?php endif; ?></td>
           <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('GI_CHECK', $l['check'])) ?> gi-check" data-label="<?= $word('GI', 'col_check') ?>" data-words="<?= $word('GI_CHECK', 'done') ?>"><?= $word('GI_CHECK', $l['check']) ?></td>
-          <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('GI_DUTY', $duty === '' ? 'unchecked' : $duty)) ?> gi-duty" data-label="<?= $word('GI', 'col_duty') ?>"><?php if ($l['stamp_req']): ?><select name="b_<?= $e($no) ?>_duty" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_duty') ?>" data-gi-duty="1">
+          <td class="c-status doc-st <?= $e(\CW\Ui\Words::tone('GI_DUTY', $duty === '' ? 'unchecked' : $duty)) ?> gi-duty" data-label="<?= $word('GI', 'col_duty') ?>"><?php if ($l['stamp_req']): ?><select name="b_<?= $e($no) ?>_duty" id="gi-duty-<?= $e($no) ?>" aria-label="<?= $say('GI', 'line_n', $no) ?>: <?= $word('GI', 'col_duty') ?>" data-gi-duty="1">
               <option value=""><?= $word('GI_DUTY', 'unchecked') ?></option>
 <?php foreach ($duties as $d): ?>
 <?php if ($d !== 'yes' || $duty === 'yes'): ?>
@@ -233,7 +242,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php endif; ?>
 <?php endforeach; ?>
             </select><?php else: ?><?= $word('GI_DUTY', 'not_needed') ?><?php endif; ?></td>
-          <td class="c-next gi-acts"><?php if ($l['check'] === 'todo'): ?><button type="submit" name="fine" value="<?= $e($no) ?>" class="btn ok sm" data-gi-fine="<?= $e($no) ?>" data-needs-stamp="<?= $word('GI', 'needs_stamp') ?>" aria-label="<?= $say('GI', 'fine_label', $no) ?>"><?= $word('GI', 'all_fine') ?></button> <a class="btn sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'problem_label', $no) ?>"><?= $word('GI', 'problem') ?></a><?php else: ?><a class="btn ghost sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'open_label', $no) ?>"><?= $word('GI', 'open') ?></a><?php endif; ?></td>
+          <td class="c-next gi-acts"><span class="gi-why" role="alert" data-gi-why="1"></span><?php if ($l['check'] === 'todo'): ?><button type="submit" name="fine" value="<?= $e($no) ?>" class="btn ok sm" data-gi-fine="<?= $e($no) ?>" data-needs-stamp="<?= $word('GI', 'needs_stamp') ?>" data-none-stamp="<?= $word('GI', 'none_stamp') ?>" aria-label="<?= $say('GI', 'fine_label', $no) ?>"><?= $word('GI', 'all_fine') ?></button> <a class="btn sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'problem_label', $no) ?>"><?= $word('GI', 'problem') ?></a><?php else: ?><a class="btn ghost sm" href="#gi-p-<?= $e($no) ?>" data-gi-panel="1" aria-controls="gi-p-<?= $e($no) ?>" aria-expanded="<?php if ($l['open']): ?>true<?php else: ?>false<?php endif; ?>" aria-label="<?= $say('GI', 'open_label', $no) ?>"><?= $word('GI', 'open') ?></a><?php endif; ?></td>
         </tr>
         <tr class="gi-panel<?php if ($l['open']): ?> open<?php endif; ?>" id="gi-p-<?= $e($no) ?>">
           <td colspan="7" class="c-head">
@@ -274,7 +283,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php elseif ($l['description'] !== null): ?>
               <p class="gi-note"><?= $word('GI', 'note') ?>: <?= $e($l['description']) ?></p>
 <?php endif; ?>
-              <label for="gi-file" class="btn sm" data-gi-photo="<?= $e($no) ?>"><?= $word('GI', 'photo') ?></label>
+              <label class="gi-photo"><?= $word('GI', 'photo') ?> <input type="file" name="photo_<?= $e($no) ?>" accept="image/jpeg,image/png" capture="environment" data-max-bytes="<?= $e($maxBytes) ?>" data-too-big="<?= $say('RECEIPT', 'too_big', $maxMb) ?>"></label>
               <label class="choice gi-ok"><input type="checkbox" name="b_<?= $e($no) ?>_ok" value="1"<?php if ($typedRow ? ($typed['b_' . $no . '_ok'] ?? '') === '1' : $l['checked_at'] !== null): ?> checked<?php endif; ?>> <?= $word('GI', 'checked_box') ?></label>
             </div>
           </td>
@@ -335,7 +344,7 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php else: ?>
       <ul class="gi-thumbs">
 <?php foreach ($files as $f): ?>
-        <li><a class="gi-thumb" href="<?= $u('/ui/files/' . $f['id']) ?>"><span class="gi-thumb-what"><?= $e($f['role_word']) ?></span> <span class="gi-thumb-name"><?= $e($f['original_name']) ?></span></a></li>
+        <li><?php if ($f['locked']): ?><span class="gi-thumb"><span class="gi-thumb-what"><?= $e($f['role_word']) ?></span> <span class="gi-thumb-name"><?= $e($f['original_name']) ?></span></span><?php else: ?><a class="gi-thumb" href="<?= $u('/ui/files/' . $f['id']) ?>"><span class="gi-thumb-what"><?= $e($f['role_word']) ?></span> <span class="gi-thumb-name"><?= $e($f['original_name']) ?></span></a><?php endif; ?></li>
 <?php endforeach; ?>
       </ul>
 <?php endif; ?>
@@ -348,7 +357,6 @@ $buttons[] = ['value' => 'post', 'label' => $book, 'primary' => true];
 <?php endforeach; ?>
           </select>
         </label>
-        <input type="hidden" name="photo_line" value="" data-gi-photo-line="1">
       </div>
     </section>
     <section class="card gi-note-card" aria-labelledby="gi-note-h">

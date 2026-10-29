@@ -52,7 +52,7 @@
   <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/purchasing/orders/' . $doc->id . '/pdf') ?>"><?php if ($doc->status === 'posted' && $companyNote !== null): ?><?= $word('ORDER', 'pdf_hold') ?><?php elseif ($doc->status === 'posted'): ?><?= $word('ORDER', 'pdf') ?><?php else: ?><?= $word('ORDER', 'pdf_draft') ?><?php endif; ?></a>
 <?php endif; ?>
 <?php if ($a === 'receive'): ?>
-  <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/receiving', ['po' => $doc->id]) ?>#new"><?= $word('ORDER', 'receive') ?></a>
+  <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/receiving/new', ['po' => $doc->id]) ?>"><?= $word('ORDER', 'receive') ?></a>
 <?php endif; ?>
 <?php if ($a === 'invoice'): ?>
   <a class="btn<?php if ($primary): ?> primary<?php endif; ?>" href="<?= $u('/ui/purchasing/invoices/new', ['supplier' => (int) ($supplier['id'] ?? 0), 'from' => 'po:' . $doc->id]) ?>"><?= $word('ORDER', 'record_invoice') ?></a>

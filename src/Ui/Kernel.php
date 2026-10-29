@@ -653,6 +653,7 @@ final class Kernel
         $r->add('GET', '/ui/receiving', 'receiving.view', $recv->index(...));
         $r->add('POST', '/ui/receiving', 'doc.GRN.post', $recv->create(...));
         $r->add('GET', '/ui/receiving/template.csv', 'receiving.view', $recv->template(...));
+        $r->add('GET', '/ui/receiving/new', 'doc.GRN.post', $recv->newPage(...)); // Goods in on one page (GV13): the one way to start a delivery
         $r->add('GET', '/ui/receiving/bench', 'doc.GRN.post', $recv->benchList(...));
         $r->add('GET', '/ui/receiving/incidents', 'incidents.view', $incidents->index(...));
         $r->add('POST', '/ui/receiving/incidents/{id}', 'incidents.resolve', $incidents->resolve(...));

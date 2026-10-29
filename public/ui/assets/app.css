@@ -2432,7 +2432,7 @@ tbody tr.gi-panel:hover > * { background: var(--warn-row); }
 .gi-panel-row .gi-what > label { flex: 1 1 auto; }
 .gi-panel-row .gi-proof { flex: 2 1 20rem; }
 .gi-panel-row .gi-note { flex: 2 1 18rem; margin: 0; }
-.gi-panel-row > label.btn { flex: none; }
+.gi-panel-row > label.gi-photo { flex: 1 1 14rem; }
 .gi-panel-row > label.gi-ok { flex: none; min-height: 44px; }
 .gi-panel [hidden] { display: none; }
 .gi-overok { margin: 10px 0 0; }
@@ -2476,8 +2476,14 @@ details.gi-ready { margin: 0; }
   table.stack.gi-lines tr.gi-panel { margin-top: -10px; border-top: 0; border-radius: 0 0 var(--r-12) var(--r-12); border-left: 6px solid var(--st-amber); background: var(--warn-row); }
   table.stack.gi-lines .gi-mini { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   table.stack.gi-lines .gi-mini input, table.stack.gi-lines .gi-panel-row input, table.stack.gi-lines .gi-panel-row select { min-height: 48px; font-size: 16px; }
-  table.stack.gi-lines .gi-panel-row > label.btn { flex: 1 1 100%; min-height: 48px; }
+  table.stack.gi-lines .gi-panel-row > label.gi-photo { flex: 1 1 100%; }
 }
+/* What the script has to say in the page instead of a browser dialog (GV11): a red line under a field, in a form, or in a line's row. */
+.inline-alert { display: block; margin: 6px 0 0; color: var(--sf-red-ink); font: 600 13px/18px var(--font); }
+.inline-alert:empty { display: none; }
+table.gi-lines .gi-why { display: block; margin: 0 0 6px; color: var(--sf-red-ink); font: 600 13px/18px var(--font); white-space: normal; text-align: left; }
+table.gi-lines .gi-why:empty { display: none; }
+@container (max-width: 640px) { table.stack.gi-lines .gi-acts .gi-why { grid-column: 1 / -1; margin: 0; } }
 /* ==== end gi-one-page ================================================================================================================ */
 /* ==== Approvals › Waiting for you (docs/decisions.md AV1-AV14; the approved mockups AP_Inbox and AP_Phone of 29 Oct 2026) ===========
    One page: the list of every record the person may answer (a card; each kind a group: its dot and name in the kind's colour, its count,

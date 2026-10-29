@@ -152,6 +152,52 @@ final class ReceivingWordsTest extends TestCase
         }
     }
 
+    /** The delivery page's intro: one plain sentence, and the bench page it named is gone (the coordinator's Chrome check, GV12). */
+    public function testTheDeliveryPageIntroIsOnePlainSentence(): void
+    {
+        foreach (['receipt_draft', 'receipt_other', 'receipt_new'] as $page) {
+            [$what, $todo] = Words::PAGE_INTRO[$page];
+            self::assertSame('', $todo, "{$page}: one sentence, no help paragraph");
+            self::assertSame(1, preg_match_all('/[.?]/', $what), "{$page}: one sentence");
+            self::assertDoesNotMatchRegularExpression('/bench/i', $what, $page);
+        }
+    }
+
+    /**
+     * The bench page is gone (Goods in on one page): no word a person reads on the deliveries' pages, their refusals, notices and
+     * blockers, the deliveries' Home cards, the help that explains booking in, or the jobs, names "the bench"; a blocker names the field
+     * to set instead ("Set Paperwork …"; the coordinator's Chrome check of d18e699, GV14).
+     */
+    public function testNoWordAPersonReadsNamesTheBench(): void
+    {
+        $texts = [];
+        foreach (['GI', 'GI_STATE', 'GI_CHECK', 'GI_DUTY', 'RECEIVING', 'RECEIPT', 'BENCH_STATE', 'RECEIPT_NOTICE', 'RECEIPT_ADDED', 'RECEIPT_ERROR', 'RECEIPT_PLAN',
+            'INCIDENTS'] as $group) {
+            $words = constant(Words::class . '::' . $group);
+            array_walk_recursive($words, static function (mixed $t, mixed $k) use (&$texts, $group): void {
+                $texts["{$group} {$k}"] = (string) $t;
+            });
+        }
+        foreach (['receiving', 'receipt_draft', 'receipt_other', 'receipt_new', 'receipt', 'bench', 'incidents', 'arriving'] as $page) {
+            $texts["PAGE_INTRO {$page}"] = implode(' ', Words::PAGE_INTRO[$page]);
+        }
+        foreach (['bench', 'bench_refused', 'to_post', 'deliveries_check', 'incidents'] as $card) {
+            $words = Words::TASK[$card];
+            array_walk_recursive($words, static function (mixed $t, mixed $k) use (&$texts, $card): void {
+                $texts["TASK {$card} {$k}"] = (string) $t;
+            });
+        }
+        $texts['HELP posting'] = Words::HELP['posting'];
+        $texts['HELP second_ok'] = Words::HELP['second_ok'];
+        $texts['ROLE_HELP goods_in'] = Words::ROLE_HELP['goods_in'];
+        $texts['PERMISSION doc.GRN.post'] = Words::PERMISSION['doc.GRN.post'];
+        foreach ($texts as $where => $text) {
+            self::assertDoesNotMatchRegularExpression('/bench/i', $text, $where);
+        }
+        self::assertSame('Set Paperwork (does the paperwork match the boxes?).', Words::RECEIPT_PLAN['bench_check_required'], 'the field\'s name');
+        self::assertStringStartsWith(Words::GI['fix_paperwork'], Words::RECEIPT_PLAN['bench_check_required']);
+    }
+
     public function testReceiptWordsSaysEveryPlanSentenceAgainInTheScreensWords(): void
     {
         $products = ['CW-000003' => 'Elux Mint 10ml'];

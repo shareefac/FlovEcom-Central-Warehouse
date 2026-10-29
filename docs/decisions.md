@@ -12909,6 +12909,79 @@ row). Changed for the one page: `ReceivingScreensTest` (the bench page's forms a
 markup pins), `UiTemplatesTest` (the views; "New delivery"), `SectionsTest` ("New delivery"). The script driven in node with a minimal DOM:
 `runs/gione_js_harness/` (outside the repo) and `runs/gione_js.log`.
 
+### The coordinator's Chrome check of d18e699 on staging and the Codex review of d18e699 (`runs/gione_codex_review.txt`): one HIGH, five MEDIUM, all real (branch `gi-fixes`, second commit, GV11-GV17)
+
+The coordinator checked d18e699 in a real Chrome on staging: the board, "Receive" with the order's lines copied, the one page, "All fine" with
+a digital stamp and a refused "Book in" (the save kept, the head "Being checked") worked. Fixed here, each shown failing first:
+`runs/gione_fix_red.log` (the new and changed tests and the node harness on d18e699's code: 2 errors and 17 failures of 93; the harness failed 3 checks and found no in-page line to say things with)
+and `runs/gione_codex_red.log` (the four Codex tests on the coordinator's fixes before their own: 4 failures).
+
+**GV11. The script never opens a browser dialog.** A native `alert()` froze the tab until someone pressed OK. Every `alert`, `confirm`
+and `prompt` of app.js is gone; what it has to say is one line in the page (`tell()`: a `span.inline-alert` with `role="alert"`, made once
+and reused): "All fine" without the duty stamp answer says "Choose the duty stamp first." in the row, next to the duty stamp cell
+(`[data-gi-why]`, drawn empty by the server), "No stamp" says "No stamp: write below how many items have none." there and opens the panel; a
+file too big is said under its field (the field emptied); a photo still being made smaller is said in the form that would leave; changes not
+saved yet when another form leaves the page (import, copy, cancel, a stock record's forms) are said in that form and its first press stops,
+the second goes on (`data-go`; the words of `RECEIPT unsaved`, `OP_FINAL unsaved`, `COUNTS unsaved_leave` no longer name Cancel and OK). Pin:
+`UiUnitTest::testTheScriptNeverOpensABrowserDialog` (no `alert(`, `confirm(` or `prompt(` in app.js's code).
+
+**GV12. The delivery page's intro is one plain sentence** without "bench": "One delivery: check each line, attach the supplier's invoice,
+then book it in." (its keyer), "A delivery someone else started: check each line, then book it in." (anyone else).
+
+**GV13. One way to start a delivery.** The board showed both a "Start a new delivery" fold and "+ New delivery". The fold is gone; "+ New
+delivery" (the section's create button) opens `GET /ui/receiving/new` (`doc.GRN.post`; `ReceivingController::newPage`, view
+`receipt_new`): the order or only the supplier, the supplier invoice number, copy the order's lines. It writes nothing; it posts to `POST
+/ui/receiving` as before (FormOnce), and a refusal comes back to it with what was typed. An order's "Receive the goods" opens it with the
+order chosen (`?po=`); an older link to the board with `?po=` is sent there. The board's Arriving "Receive" is unchanged (one press).
+
+**GV14. A refused "Book in" lists what to settle, each to its field; the blockers name the field, never "the bench".** The refusal box says
+"Saved. Not booked in yet: N things to settle first:" and lists them itself (`ReceivingController::fixes()`, from the plan's problem codes):
+"Type the supplier's invoice number" and "Set Paperwork (does the paperwork match the boxes?)" are labels of their fields (a press focuses
+the field, with or without the script), "Attach the supplier's invoice" a link to the file field, "Check line 2" (or "lines 2-4") a link to
+the first line not checked, "Line N: choose its duty stamp" the line's select, "Say why it is keyed late" its field; any other problem in
+the plan's own words, to its line when it names one. "Before it can be booked in" stays as the fold for later visits. Every word a person
+reads on the deliveries' pages, their refusals, notices and blockers, the deliveries' Home cards, the booking-in help, the goods-in job and
+`doc.GRN.post` no longer names the bench (the bench page is gone): `RECEIPT_PLAN bench_check_required` is "Set Paperwork (does the paperwork
+match the boxes?).", `line_not_checked` "Check %s: All fine, or Problem (…)", `stamp_check_required` "Line %s (%s): choose its duty stamp.",
+`BENCH_STATE` Not checked yet / Being checked / Checked / Paperwork not right. (The codes stay: they are the plan's and the tests'.) Pin:
+`ReceivingWordsTest::testNoWordAPersonReadsNamesTheBench`.
+
+**GV15. "All fine" keeps the page where it is.** It ticks the line in place; the focus stays on the button and the scroll position is kept
+(`window.scrollTo` back to where it was). Only a refused "All fine" moves the focus: to the duty stamp select, without scrolling
+(`focus({ preventScroll: true })`); "No stamp" opens the panel and moves nothing.
+
+**GV16. The Codex review of d18e699.**
+1. HIGH, a refused form drawn again wrote back an older answer: it redrew every line with what the person's page had shown, under the
+   current stamps, so a later save wrote a line they never touched back over someone else's check (2 damaged became 0). Now a refused form
+   drawn again shows the lines this person did not touch as they are now; a line they changed keeps their words and the stamps of the page
+   they typed on (`b_<n>_was`, `b_<n>_present`, `bench_was`, `inv_was` carried back), so someone else's check since is still a conflict; after
+   the conflict itself (409, which they have now seen) the current stamps are used, so they can save their words (I175).
+   `testARefusedFormDrawnAgainNeverWritesBackAnotherPersonsCheck`.
+2. MEDIUM, goods in could open the supplier invoice copy and read its prices: `/ui/files/{id}` of a file kept as a supplier invoice now needs
+   `invoices.view` (403 in words otherwise, `ERROR file_invoices`), and the one page and the read-only page show it as there, without a link,
+   to someone without it. `testTheSupplierInvoiceCopyIsTheBuyingDesks`.
+3. MEDIUM, "All fine" without the duty field: the stamp question was decided by the field's presence. Now by the line's own facts (the plan's
+   `stamp_required`), whatever the form sends. `testAllFineAPanelPhotoAndAQuantityWithItsAnswer`.
+4. MEDIUM, without the script "Take a photo" sent the photo through the papers' field, which starts as "Supplier invoice" while there is none:
+   a damage photo could stand in for the invoice copy. Each line's panel now has its own photo field (`photo_<n>`, a camera photo on a phone),
+   attached as a photo of that line ("Line 3: …"); the papers' field and its "What it is" are only for papers. More files than one save takes
+   are said in the bar and not sent (`data-max-total`). Same test.
+5. MEDIUM, "Save and show the next lines" after removing a line on the page skipped one: the next page starts after this page's lines still
+   there. `testSaveAndNextAfterARemovedLineSkipsNothing`.
+6. MEDIUM, a quantity changed with a problem answer in one form left the line uncounted (the keyer's save reset the stored answers before they
+   were compared): whether an answer changed is decided against the line as drawn, before the save. Same test as 3 and 4.
+
+**GV17. Two older gaps the review named, closed on the owner's word** (the coordinator, 29 Oct 2026: "the owner wants creator-only cancel and
+prices hidden from goods-in"):
+- Only the person who keyed a delivery cancels it, on the server too: `GoodsReceipts::cancel` refuses anyone else (403 `not_keyer_cancel`,
+  `RECEIPT_ERROR not_keyer_cancel`; a service rule changed on purpose: the screens already offered Cancel to the keyer only, and every
+  receiving rule test cancels as the keyer). Home's "paperwork not right" card says whoever keyed it cancels it.
+- The read-only page of a delivery (booked in, or a draft for someone who only looks) shows no price a pack, no value, no expected duty and
+  no claim amount to someone without `invoices.view`; the invoice copy is shown as there, not as a link (GV16).
+`testOnlyItsKeyerCancelsADeliveryAndABookedInOneShowsGoodsInNoPrice` (red first: `runs/gione_gv17_red.log`, the cancel, then the prices).
+
+The Checking list's intro and Home's goods-in cards no longer name the bench either (GV14).
+
 ## Approvals › Waiting for you: one inbox, one record at a time (branch `approvals-inbox`, 29 Oct 2026; AV1-AV14)
 
 The owner approved the Approvals screens of the canvas "CW Daily Screens" on 29 Oct 2026 (relayed by the coordinator with the static mockups
