@@ -4,7 +4,8 @@
 // do, the refusal of the last answer, then ONE decision: the form `ap-answer` posts to the kind's own route (inbox=1, the next record and
 // this one's place), with the fields the kind needs (the item box of Lines to place, how it was sorted out, the note), its main answer in
 // the accent, and the rarer answers under More: a button of the same form with its own route (formaction), or a fold with its own small
-// form and note. Without the script every answer is a plain form.
+// form and note. Without the script every answer is a plain form. Its forms keep what is typed: a link that leaves the page asks first
+// (data-unsaved, CV14; AV19), and a refused answer comes back with them marked as not saved.
 ?>
 <section class="ap-record <?= $e($record['tone']) ?>" aria-labelledby="ap-h">
 <div class="card ap-card">
@@ -41,7 +42,7 @@
 <?php if ($record['error'] !== null): ?>
   <p class="error" role="alert" data-code="<?= $e($record['errorCode']) ?>"><?= $e($record['error']) ?></p>
 <?php endif; ?>
-  <form class="ap-answer" id="ap-answer" method="post" action="<?= $u($record['action']) ?>">
+  <form class="ap-answer" id="ap-answer" method="post" action="<?= $u($record['action']) ?>" data-unsaved="1"<?php if ($record['error'] !== null && !$record['moreOpen']): ?> data-dirty="1"<?php endif; ?>>
     <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
     <input type="hidden" name="inbox" value="1">
     <input type="hidden" name="inbox_pos" value="<?= $e($record['pos']) ?>">
@@ -85,7 +86,7 @@
         <details class="doc-act"<?php if ($record['moreOpen']): ?> open<?php endif; ?>>
           <summary class="btn risky"><?= $e($m['label']) ?></summary>
           <div class="doc-act-panel">
-            <form class="record" method="post" action="<?= $u($m['fold']['action']) ?>">
+            <form class="record" method="post" action="<?= $u($m['fold']['action']) ?>" data-unsaved="1"<?php if ($record['moreOpen']): ?> data-dirty="1"<?php endif; ?>>
               <input type="hidden" name="csrf" value="<?= $e($csrf) ?>">
               <input type="hidden" name="inbox" value="1">
               <input type="hidden" name="inbox_pos" value="<?= $e($record['pos']) ?>">

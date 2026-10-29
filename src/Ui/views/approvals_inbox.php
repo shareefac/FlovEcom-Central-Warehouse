@@ -1,7 +1,8 @@
 <?php
 // Approvals › Waiting for you (docs/decisions.md AV1-AV14; the approved mockups AP_Inbox, AP_Phone): every record the person may answer,
 // grouped by kind (a coloured dot, the kind's name and count, the link to its own page), each row a link that opens the record; the open
-// record on the right (first on a phone: approvals_record), with its facts and its one decision. No help paragraphs.
+// record on the right (first on a phone: approvals_record), with its facts and its one decision. No help paragraphs. The open record's row is
+// the page shown: no link (AV19, as a tab of the page shown, CV13).
 ?>
 <?= $head(\CW\Ui\Words::MENU['inbox'], intro: 'inbox') ?>
 <?php if ($error !== null): ?>
@@ -18,7 +19,7 @@
         <a class="ap-all" href="<?= $u($g['href']) ?>" aria-label="<?= $say('INBOX', 'all_named', $g['name']) ?>"><?= $word('INBOX', 'all') ?></a></h2>
       <ul class="ap-rows">
 <?php foreach ($g['rows'] as $r): ?>
-        <li><a class="ap-row<?php if ($r['open']): ?> sel<?php endif; ?>" href="<?= $u('/ui/approvals', ['open' => $r['key']]) ?>"<?php if ($r['open']): ?> aria-current="true"<?php endif; ?>><span class="ap-t"><?= $e($r['title']) ?></span><span class="ap-m"><?= $e($r['meta']) ?></span></a></li>
+        <li><a class="ap-row<?php if ($r['open']): ?> sel<?php endif; ?>"<?php if ($r['open']): ?> aria-current="true"<?php else: ?> href="<?= $u('/ui/approvals', ['open' => $r['key']]) ?>"<?php endif; ?>><span class="ap-t"><?= $e($r['title']) ?></span><span class="ap-m"><?= $e($r['meta']) ?></span></a></li>
 <?php endforeach; ?>
       </ul>
 <?php if ($g['more']): ?>

@@ -13244,3 +13244,45 @@ strip's figures and links (three orders, the first due; a viewer sees no link), 
 to all of them, each store's chip, the tabs' links, counts, panels and forms, the tab after a change, a refusal and a notice, and the look-only
 page. `ItemPageUnitTest` (new): the weekly arithmetic, every movement's short word and colour, the stores' states, the tabs and notices, the
 CSS and markup of the design. `UiTemplatesTest` lints `item_bar` with the matching pages. Not seen in a real browser.
+
+## Waiting for you: the Codex review of c5780dc and the counts builder's two points (branch `inbox-fixes`, 29 Oct 2026; AV15-AV19)
+
+Codex reviewed `c5780dc` (AV1-AV14): no HIGH, two MEDIUM, two LOW (`runs/apone_codex_review.txt`); the counts builder reported two more
+(the open row, the unsaved guard). Fixed from main `e15fe51`, each with its failing test first (`runs/apone_fix_red.log`).
+
+**AV15. A page of count differences is a page the person may answer (MEDIUM).** The inbox took the Differences page's rows (a page, newest
+first) and then dropped those the person may not clear: with a second person asked for every difference (`review_rule` all), the person's own
+50 newest differences hid an older one by someone else, and the badge said 1 while the inbox showed nothing. `CountReviews::open()` now
+takes `$mayClear` (a staff id) and keeps, in SQL, only the rows that person may clear (`mayClear()`: `refusal()`'s second-person rule, for a
+sheet line and for a review the count engine opened about one; a flag about a count's time is nobody's own), so the limit applies to what
+they may answer; the inbox asks for it (`CountsController::differences($ctx, null, true)`), the Differences page does not (it lists every
+row with its reason). `openCount()` (the badge) uses the same condition, now for the engine's reviews too: it counted every one of them,
+also the ones about the person's own count that someone else must clear.
+
+**AV16. The inbox offers what each kind's route lets the person send (MEDIUM).** A person given the OK of documents (`documents.approve`)
+without their check (`documents.review`, on Roles and permissions) saw a blocking OK in the inbox, and sending it was refused (403): both
+routes of a document's answer check `documents.review`. The documents kind is now for `documents.review`, `suppliers.approve` and
+`company.confirm` (the permissions of its three routes; `InboxController::PERMS`, the tab's), a task is listed only when the route of its
+answers lets the person in (`TASK_ROUTE_PERMS` by its subject) as well as when the service would not refuse it, and the badge counts the
+documents' checks only for who holds `documents.review` (the suppliers' and the company's were counted by their own permissions already).
+The other kinds' permissions were already their routes'.
+
+**AV17. An answer to a record's check says what its page says (LOW).** `ReviewsController::decide` led the inbox to `words=record` for
+every type, and an order's or a delivery's check gives `approved_review`, which only their pages' words have: no notice was shown. The
+inbox now gets the words of the page the answer would have led to (`po` PO_NOTICE, `receipt` RECEIPT_NOTICE, `stock` STOCK_NOTICE then
+RECORD_NOTICE, `handover`, `invoice`, `return` likewise, else `record`), read in that order (`InboxController::notice()`).
+
+**AV18. A flag about a count's time shows no counted figure (LOW).** `ship_near_count` and `unship_near_count` have no counted quantity;
+the record showed "Counted 0". The fact is left out when there is none, as on Differences.
+
+**AV19. The open row is no link; what is typed is guarded.** The open record's row is the page shown: it has no href now (a click reloaded
+the page and lost a note typed in the answer), as a tab of the page shown (CV13); `tests/Support/CurrentTabs` checks it on every page
+(`.ap-row` with `aria-current`). The answer form and the folds' forms carry `data-unsaved` (main's guard, CV14: a link that leaves the
+page while something is typed asks first), and a refused answer comes back with its form marked as not saved (`data-dirty`).
+`UiTemplatesTest` lists the inbox's record among the pages whose forms keep typed values.
+
+Tests (`ApprovalsInboxScreensTest`): a count difference of someone else behind 51 of the person's own (the list, its title, the badge; and
+the other counter's page of 50 with "The first 50 are shown" and the count of 51); the OK of a document given to two jobs without the
+check (goods in: 403 from the inbox, no tab; a stock controller: not listed, not counted; a reviewer: listed and counted); a purchase
+order's check answered in the inbox shows the order page's notice; a flag about a count's time has no "Counted"; the open row has no link
+and the forms carry `data-unsaved`. Not seen in a real browser.

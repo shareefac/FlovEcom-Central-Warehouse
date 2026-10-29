@@ -10,6 +10,8 @@ namespace CW\Tests\Support;
  * browser gets it, a tab (`.tab`, DS2) marked aria-current="page" whose link would lead to the page's own path has no href: it is the
  * tab's look and nothing to click, with or without the script. A current tab that leads elsewhere (the section's tab on one of its
  * records) stays a link: app.js asks first when a form holds typed values (CV14). KernelBrowser runs it on every HTML page.
+ * The same for the open record's row of Approvals › Waiting for you (`.ap-row`, aria-current="true"; docs/decisions.md AV19): it is the
+ * page shown, so it is no link (a click reloaded the page and lost a note typed in its answer).
  */
 final class CurrentTabs
 {
@@ -29,7 +31,8 @@ final class CurrentTabs
         }
         $here = rtrim($path, '/');
         $out = [];
-        foreach ((new \DOMXPath($doc))->query('//*[contains(concat(" ", normalize-space(@class), " "), " tab ") and @aria-current="page" and @href]') ?: [] as $el) {
+        foreach ((new \DOMXPath($doc))->query('//*[contains(concat(" ", normalize-space(@class), " "), " tab ") and @aria-current="page" and @href]'
+            . ' | //*[contains(concat(" ", normalize-space(@class), " "), " ap-row ") and @aria-current and @href]') ?: [] as $el) {
             /** @var \DOMElement $el */
             $to = rtrim((string) parse_url(html_entity_decode($el->getAttribute('href')), PHP_URL_PATH), '/');
             if ($to === $here || $to === '') {

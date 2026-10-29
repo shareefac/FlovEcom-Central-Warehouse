@@ -841,6 +841,9 @@ decision logic: each answer is a form of the kind's own route, which leads back 
   `inbox_pos`, `inbox_next` first).
 - The main-button checks (AV13): `tests/Support/MainButtons::ROW_ANSWERS` and `UiTemplatesTest::ROW_MAIN` list the routes whose forms may each
   hold a main button on one page; a GET form never holds one.
+- AV15-AV19: a kind's rows are what its route lets the person send (`KINDS` perms, `TASK_ROUTE_PERMS`) and a page of rows they may answer
+  (`CountReviews::open(..., $mayClear)`); the notice words of a record's check by its page (`NOTICES`, `notice()`); the open row has no href
+  (`tests/Support/CurrentTabs` checks `.ap-row`), the answer forms carry `data-unsaved`.
 
 ### The item page, stock first (`docs/decisions.md` IV1-IV12)
 

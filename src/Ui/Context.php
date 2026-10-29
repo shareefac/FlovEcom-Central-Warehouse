@@ -400,7 +400,11 @@ final class Context
         // (the stores' queues, the count differences, the reviews), and the staff requests they may decide.
         if ($this->who !== null && \CW\Ui\Controller\InboxController::kinds($this->who->roles) !== []) {
             $staff = $this->who->can('staff.approve') ? (new \CW\Staff\RoleRequests($this->db))->decidableCount($this->who->id, $this->who->roles) : 0;
-            $out['approvals_inbox'] = $staff + ($out['reviews_open'] ?? 0) + ($out['counts_open'] ?? 0) + ($out['queue_suspense'] ?? 0) + ($out['queue_corrections'] ?? 0)
+            // The documents' checks count only for who may send their answers (their route: documents.review, AV16); the suppliers' and the
+            // company's are counted by their own permissions already.
+            $docs = array_sum(array_map(static fn (array $k): int => (int) ($k['review'] ?? 0) + (int) ($k['approval'] ?? 0), $this->checksByType ?? []));
+            $reviews = ($out['reviews_open'] ?? 0) - ($this->who->can('documents.review') ? 0 : $docs);
+            $out['approvals_inbox'] = $staff + $reviews + ($out['counts_open'] ?? 0) + ($out['queue_suspense'] ?? 0) + ($out['queue_corrections'] ?? 0)
                 + ($out['queue_modes'] ?? 0) + ($out['queue_oversold'] ?? 0) + ($out['queue_landing'] ?? 0);
         }
         return $this->badges = $out;

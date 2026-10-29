@@ -209,7 +209,16 @@ final class ReviewsController
             };
         }
         if (InboxController::from($ctx)) {
-            return InboxController::answered($ctx, 'record', $notice);
+            // The notice in the words of the page the answer would have led to (AV17): an order's, a delivery's, a stock record's, ...
+            return InboxController::answered($ctx, match (true) {
+                $po => 'po',
+                $grn => 'receipt',
+                $stock !== null => 'stock',
+                $task['doc_type'] === 'TRD' => 'handover',
+                $task['doc_type'] === 'DN' => 'return',
+                in_array($task['doc_type'], ['SINV', 'SCN'], true) => 'invoice',
+                default => 'record',
+            }, $notice);
         }
         if ($stock !== null) {
             return HtmlResponse::redirect(Html::url(StockOps::PATHS[$stock] . '/' . $docId, ['notice' => $notice]));

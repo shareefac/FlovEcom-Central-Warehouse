@@ -282,15 +282,15 @@ final class CountsController
      * The open count differences in words, by group (the line above the limits first, then each source of CountReviews::LISTED_SOURCES;
      * an empty group left out): each row with its sheet's page (`href`), its answer's route (`action`), why it waits (`why`) and why this
      * person may not answer it (`refusal`, null when they may). The Differences page and Approvals › Waiting for you (InboxController, AV4)
-     * read the same rows.
+     * read the same rows; $mine: only the rows this person may clear (a page of rows they may answer, AV15).
      *
      * @return array{groups: array<string, list<array<string, mixed>>>, n: int, more: bool}
      */
-    public static function differences(Context $ctx, ?int $warehouse = null): array
+    public static function differences(Context $ctx, ?int $warehouse = null, bool $mine = false): array
     {
         $me = $ctx->me();
         $reviews = $ctx->countReviews();
-        $open = $reviews->open(['warehouse' => $warehouse]);
+        $open = $reviews->open(['warehouse' => $warehouse], CountReviews::PAGE, $mine ? $me->id : null);
         $groups = array_fill_keys(['line', ...CountReviews::LISTED_SOURCES], []);
         foreach ($open['lines'] as $r) {
             $no = $reviews->refusal($me->id, $me->roles, $r);

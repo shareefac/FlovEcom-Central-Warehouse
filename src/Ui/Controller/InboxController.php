@@ -57,16 +57,26 @@ final class InboxController
         'modes' => ['perms' => [ModeChanges::PERM], 'tone' => 'off', 'page' => '/ui/queues/modes'],
         'landing' => ['perms' => [LandingOrders::PERM], 'tone' => 'waiting', 'page' => '/ui/queues/landing'],
         'staff' => ['perms' => ['staff.approve'], 'tone' => 'info', 'page' => '/ui/staff-requests'],
-        'documents' => ['perms' => ['documents.review', 'documents.approve', 'suppliers.approve', 'company.confirm'], 'tone' => 'review', 'page' => '/ui/documents/reviews'],
+        // The routes of its answers (AV16): a document's OK and Not OK need documents.review (Kernel), a supplier's task suppliers.approve,
+        // the company details' check company.confirm; documents.approve alone answers none of them.
+        'documents' => ['perms' => ['documents.review', 'suppliers.approve', 'company.confirm'], 'tone' => 'review', 'page' => '/ui/documents/reviews'],
     ];
+
+    /** The permission the route of a task's answers checks, by what it is about (ReviewsController::tasks `subject`; AV16). */
+    public const TASK_ROUTE_PERMS = ['document' => 'documents.review', 'supplier' => 'suppliers.approve', 'company' => 'company.confirm'];
 
     /** Every permission that answers a kind (KINDS' `perms`, once each; tests/Unit/InboxUnitTest holds them equal): Ui\Sections shows the tab to their holders. */
     public const PERMS = ['queues.corrections', 'queues.suspense', 'doc.CNT.post', 'queues.oversell', 'queues.modes', 'staff.approve', 'documents.review',
-        'documents.approve', 'suppliers.approve', 'company.confirm'];
+        'suppliers.approve', 'company.confirm'];
 
-    /** The notice words of the kinds' own pages, by the `words` an answer names (answered()). */
-    private const NOTICES = ['queue' => Words::QUEUE_NOTICE, 'count' => Words::COUNT_NOTICE, 'staff' => StaffRequestsController::NOTICES,
-        'record' => Words::RECORD_NOTICE, 'supplier' => Words::SUPPLIER_NOTICE, 'company' => Words::COMPANY_NOTICE];
+    /**
+     * The notice words of the kinds' own pages, by the `words` an answer names (answered()): the first table that has the code, as the page
+     * the answer would have led to reads it (a record's check: its own page's words, then a record's; AV17).
+     */
+    private const NOTICES = ['queue' => [Words::QUEUE_NOTICE], 'count' => [Words::COUNT_NOTICE], 'staff' => [StaffRequestsController::NOTICES],
+        'record' => [Words::RECORD_NOTICE], 'po' => [Words::PO_NOTICE], 'receipt' => [Words::RECEIPT_NOTICE], 'stock' => [Words::STOCK_NOTICE, Words::RECORD_NOTICE],
+        'handover' => [Words::HANDOVER_NOTICE, Words::RECORD_NOTICE], 'invoice' => [Words::INVOICE_NOTICE, Words::RECORD_NOTICE],
+        'return' => [Words::RETURN_NOTICE, Words::INVOICE_NOTICE, Words::RECORD_NOTICE], 'supplier' => [Words::SUPPLIER_NOTICE], 'company' => [Words::COMPANY_NOTICE]];
 
     /** A record's key: its kind and its id in that kind (a count line: l<sheet>_<line>, a count review: r<id>; a task: its id). */
     private const KEY = '/^[a-z]{4,12}-[a-z0-9_]{1,40}$/D';
@@ -168,10 +178,7 @@ final class InboxController
         }
         $open = $record['key'] ?? null;
         $groups = array_map(static fn (array $g): array => ['rows' => array_map(static fn (array $r): array => ['open' => $r['key'] === $open] + $r, $g['rows'])] + $g, $groups);
-        $n = $ctx->req->param('notice');
-        $w = $ctx->req->param('words');
-        $text = is_string($w) && is_string($n) ? (self::NOTICES[$w][$n] ?? null) : null;
-        $notice = $text !== null && str_contains($text, '%s') ? sprintf($text, (string) ($ctx->req->param('arg') ?? '')) : $text;
+        $notice = self::notice($ctx->req->param('words'), $ctx->req->param('notice'), (string) ($ctx->req->param('arg') ?? ''));
         return $ctx->page('approvals_inbox', [
             'groups' => $groups,
             'total' => array_sum(array_column($groups, 'count')),
@@ -180,6 +187,18 @@ final class InboxController
             'error' => $refused !== null && $refused['key'] !== $open ? $refused['error'] : null,
             'errorCode' => $refused !== null && $refused['key'] !== $open ? $refused['code'] : null,
         ], $status, ['title' => Words::MENU['inbox'], 'notice' => $notice]);
+    }
+
+    /** The notice of an answer just given: its code in the first of its page's notice tables that has it (NOTICES), else null. */
+    public static function notice(?string $words, ?string $code, string $arg = ''): ?string
+    {
+        foreach (is_string($words) && is_string($code) ? (self::NOTICES[$words] ?? []) : [] as $table) {
+            if (isset($table[$code])) {
+                $text = (string) $table[$code];
+                return str_contains($text, '%s') && substr_count($text, '%') === 1 ? sprintf($text, $arg) : $text;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------------------------------
@@ -222,7 +241,7 @@ final class InboxController
                 $more = count($list) > QueueRules::PAGE;
                 break;
             case 'counts':
-                $open = CountsController::differences($ctx);
+                $open = CountsController::differences($ctx, null, true); // a page of the rows they may clear (AV15)
                 $count = $ctx->countReviews()->openCount($me->id, $me->roles);
                 foreach ($open['groups'] as $source => $list) {
                     foreach ($list as $r) {
@@ -280,7 +299,8 @@ final class InboxController
             case 'documents':
                 $tasks = ReviewsController::tasks($ctx);
                 foreach ([...$tasks['approval'], ...$tasks['review']] as $r) {
-                    if ($r['refusal'] === null) {
+                    // Only what its route lets this person send (AV16): the service's refusal and the route's permission.
+                    if ($r['refusal'] === null && $me->can(self::TASK_ROUTE_PERMS[(string) $r['subject']])) {
                         $meta = Words::say('INBOX', 'meta_document', Words::INBOX['task_' . $r['kind']], Html::day((string) $r['due_at']));
                         $rows[] = $row((string) $r['task_id'], (string) $r['label'], $r['overdue'] ? Words::say('INBOX', 'late', $meta) : $meta, $r);
                     }
@@ -381,7 +401,10 @@ final class InboxController
                 $r['from'] = $d['number'] !== null ? (string) $d['number'] : Words::of('COUNT_REVIEW', (string) $d['source']);
                 $r['href'] = '/ui/items/' . (int) $d['sku_id'];
                 $r['sub'] = (string) $d['code'] . ' · ' . (string) $d['warehouse'];
-                $r['facts'][] = $fact(Words::COUNTS['counted'], Html::int((int) $d['counted']));
+                if ($d['counted'] !== null) {
+                    // A flag about a count's time has no counted figure (AV18): none is shown, as on Differences.
+                    $r['facts'][] = $fact(Words::COUNTS['counted'], Html::int((int) $d['counted']));
+                }
                 if ($d['held'] !== null) {
                     $r['facts'][] = $fact(Words::INBOX['f_system'], Html::int((int) $d['held']));
                 }

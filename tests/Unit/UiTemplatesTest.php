@@ -1297,12 +1297,6 @@ final class UiTemplatesTest extends TestCase
     }
 
     /**
-     * One main action (the owner, 29 Oct 2026: "button all design follow this"; the parts board: "One main button per page"; docs/decisions.md
-     * DS5, AV13): in every template a form holds at most one main (magenta) button, at most one main link or fold button stands outside the
-     * forms, a filter or search form holds none, and a main button is not repeated row by row (but the documented row answers). The rendered
-     * pages are checked too (tests/Support/MainButtons, run by the kernel's browser on every page a test opens).
-     */
-    /**
      * The tab of the page shown never navigates (docs/decisions.md CV13; Codex's review of 7cfcc89: the count sheet's current "Every line"
      * tab reloaded the sheet and lost a typed quantity). In every template a tab (`a.tab`) draws its link only when it is not the page shown:
      * its one href comes right after the `else` (or the `if (!…)`) of that test, so the current one is the tab's look and nothing to click,
@@ -1326,7 +1320,7 @@ final class UiTemplatesTest extends TestCase
         }
         self::assertGreaterThanOrEqual(20, $tabs, 'every tab row was read');
         $templates = self::templates();
-        foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit'] as $name) {
+        foreach (['stock_count', 'receipt_edit', 'stock_op', 'handover', 'purchase_order_edit', 'invoice_edit', 'approvals_record'] as $name) {
             $src = $templates[$name . '.php'];
             self::assertStringContainsString('data-unsaved="1"', $src, "{$name}: its form keeps typed values, so a link asks first");
             preg_match_all('/<a\b(?:<\?(?:php|=).*?\?>|[^>])*>/s', $src, $links);
@@ -1344,6 +1338,12 @@ final class UiTemplatesTest extends TestCase
         self::assertMatchesRegularExpression('/<a class="btn ghost" href="[^"]*" data-leave>/', $templates['doc_bar.php'], '"Leave without saving" never asks');
     }
 
+    /**
+     * One main action (the owner, 29 Oct 2026: "button all design follow this"; the parts board: "One main button per page"; docs/decisions.md
+     * DS5, AV13): in every template a form holds at most one main (magenta) button, at most one main link or fold button stands outside the
+     * forms, a filter or search form holds none, and a main button is not repeated row by row (but the documented row answers). The rendered
+     * pages are checked too (tests/Support/MainButtons, run by the kernel's browser on every page a test opens).
+     */
     public function testEveryPageHasAtMostOneMainButtonPerForm(): void
     {
         $forms = 0;

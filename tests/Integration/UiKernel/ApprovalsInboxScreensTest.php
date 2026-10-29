@@ -4,10 +4,16 @@ declare(strict_types=1);
 
 namespace CW\Tests\Integration\UiKernel;
 
+use CW\Auth\Permissions;
 use CW\Caller;
+use CW\Catalogue\ItemCards;
+use CW\Counts\CountSheets;
 use CW\Documents\Document;
+use CW\Documents\DocumentHandlers;
 use CW\Documents\Documents;
 use CW\Movements;
+use CW\PurchaseOrders\PurchaseOrders;
+use CW\Suppliers\Suppliers;
 use CW\Relay\RelayIntake;
 use CW\Reservations;
 use CW\Settings;
@@ -32,11 +38,17 @@ final class ApprovalsInboxScreensTest extends KernelUiTestCase
 
     /** @var list<array<string, mixed>> the settings as they were (a test switches the staff-grant rule on) */
     private array $settings = [];
+    /** @var list<array<string, mixed>> the record kinds' rules as they were (a test asks a second person for every count difference) */
+    private array $rules = [];
+    /** @var list<array<string, mixed>> who held each permission (a test gives the OK of documents without their check) */
+    private array $perms = [];
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->settings = self::$db->all('SELECT setting_key, CAST(value_json AS CHAR) AS v, provisional, updated_actor FROM app_setting');
+        $this->rules = self::$db->all('SELECT code, CAST(review_rule AS CHAR) AS review_rule, review_limit_units FROM document_type');
+        $this->perms = self::$db->all('SELECT permission, roles, updated_actor FROM role_permission');
     }
 
     protected function tearDown(): void
@@ -45,6 +57,15 @@ final class ApprovalsInboxScreensTest extends KernelUiTestCase
             self::$db->exec('UPDATE app_setting SET value_json = CAST(? AS JSON), provisional = ?, updated_actor = ? WHERE setting_key = ?',
                 [$r['v'], (int) $r['provisional'], $r['updated_actor'], $r['setting_key']]);
         }
+        foreach ($this->rules as $r) {
+            self::$db->exec('UPDATE document_type SET review_rule = ?, review_limit_units = ? WHERE code = ?', [$r['review_rule'], $r['review_limit_units'], $r['code']]);
+        }
+        $kept = array_column($this->perms, 'permission');
+        self::$db->exec('DELETE FROM role_permission WHERE permission NOT IN (' . implode(', ', array_fill(0, max(1, count($kept)), '?')) . ')', $kept === [] ? [''] : $kept);
+        foreach ($this->perms as $r) {
+            self::$db->exec('UPDATE role_permission SET roles = ?, updated_actor = ? WHERE permission = ?', [$r['roles'], $r['updated_actor'], $r['permission']]);
+        }
+        Permissions::useStored(null);
         parent::tearDown();
     }
 
@@ -184,11 +205,11 @@ final class ApprovalsInboxScreensTest extends KernelUiTestCase
         foreach (['/ui/documents/reviews', '/ui/staff-requests'] as $path) {
             self::assertSame(200, $rev->get($path)->status, $path);
         }
-        // Each group links to its own page; each row opens its record.
+        // Each group links to its own page; each row opens its record, but the open one (the page shown: no link, AV19).
         $xp = new \DOMXPath($page->dom());
         self::assertSame(['/ui/queues/corrections', '/ui/queues/suspense', '/ui/queues/oversold', '/ui/queues/modes'],
             array_map(static fn (\DOMElement $a): string => $a->getAttribute('href'), iterator_to_array($xp->query('//a[@class="ap-all"]'))));
-        self::assertSame(4, $xp->query('//ul[@class="ap-rows"]/li/a[starts-with(@href, "/ui/approvals?open=")]')->length);
+        self::assertSame(3, $xp->query('//ul[@class="ap-rows"]/li/a[starts-with(@href, "/ui/approvals?open=")]')->length);
         self::assertSame(1, $xp->query('//a[contains(@class, "ap-row") and contains(@class, "sel") and @aria-current="true"]')->length, 'the first one is open');
     }
 
@@ -326,11 +347,25 @@ final class ApprovalsInboxScreensTest extends KernelUiTestCase
         self::assertSame(['ap-answer', Words::LQ['place']], [$mains->item(0)->getAttribute('form'), trim($mains->item(0)->textContent)]);
         // The rarer answer (close the line) under More: a fold with its own form and its own note, no script needed.
         self::assertSame(1, $xp->query('//details[contains(@class, "more")]//details[@class="doc-act"]//form[@method="post" and @action="/ui/queues/suspense/' . $a['suspense'] . '/dismiss"]//input[@name="note" and @required]')->length);
-        // The rows are plain links; the facts are big figures.
+        // The rows are plain links, but the open one, which is the page shown (CV13's rule for a tab, AV19: a click on it would reload the
+        // page and lose what was typed); the facts are big figures.
         self::assertGreaterThan(0, $xp->query('//dl[@class="ap-facts"]/div[@class="ap-fact"]/dd')->length);
+        $rows = 0;
         foreach ($xp->query('//a[contains(@class, "ap-row")]') ?: [] as $link) {
-            self::assertStringStartsWith('/ui/approvals?open=', $link->getAttribute('href'));
+            /** @var \DOMElement $link */
+            $rows++;
+            if ($link->getAttribute('aria-current') === 'true') {
+                self::assertFalse($link->hasAttribute('href'), 'the open record\'s row is no link');
+                self::assertStringContainsString('sel', $link->getAttribute('class'));
+            } else {
+                self::assertStringStartsWith('/ui/approvals?open=', $link->getAttribute('href'));
+            }
         }
+        self::assertSame(4, $rows);
+        self::assertSame(1, $xp->query('//a[contains(@class, "ap-row") and @aria-current="true"]')->length);
+        // What is typed in an answer is guarded: a link that leaves the page asks first (main's data-unsaved, CV14), the folds' notes too.
+        self::assertSame(1, $xp->query('//form[@id="ap-answer" and @data-unsaved="1"]')->length);
+        self::assertSame(1, $xp->query('//details[@class="doc-act"]//form[@data-unsaved="1"]')->length);
         // A correction's rarer answer is a button of the same form (its route by formaction): the note goes with it.
         $xp = new \DOMXPath($web->get(self::INBOX, ['open' => 'corrections-' . $a['correction']])->dom());
         self::assertSame(1, $xp->query('//details[contains(@class, "more")]//button[@form="ap-answer" and @formaction="/ui/queues/corrections/' . $a['correction'] . '/dismiss"]')->length);
@@ -486,5 +521,118 @@ final class ApprovalsInboxScreensTest extends KernelUiTestCase
             'inbox_next' => 'https://elsewhere.example/', 'inbox_pos' => '-1']);
         self::assertSame(303, $r->status, $r->describe());
         self::assertSame(self::INBOX . '?notice=confirmed&words=queue', $r->location());
+    }
+
+    /**
+     * The Codex review of c5780dc, finding 1 (AV15): the inbox lists a page of the count differences this person may answer. With a second
+     * person asked for every difference, a page of their own newest differences hid an older one by someone else: the badge said 1 and the
+     * inbox showed nothing.
+     */
+    public function testACountDifferenceSomeoneElseMayAnswerIsNotHiddenByAPageOfTheirOwn(): void
+    {
+        self::$db->exec("UPDATE document_type SET review_rule = 'all' WHERE code = 'CNT'");
+        $docs = new Documents(self::$db, DocumentHandlers::all(self::$db));
+        $sheets = new CountSheets(self::$db, $docs);
+        $count = static function (Caller $who, array $skus, int $qty) use ($sheets, $docs): int {
+            $sheet = $sheets->open($who, ['warehouse' => self::warehouseId('MAIN')], $skus);
+            $lines = array_map('intval', self::$db->column('SELECT line_no FROM count_sheet_line WHERE document_id = ? ORDER BY line_no', [$sheet->id]));
+            $sheets->setQuantities($who, $sheet->id, array_fill_keys($lines, $qty));
+            $sheets->post($who, $sheet->id, $docs->get($sheet->id)->version);
+            return $sheet->id;
+        };
+        $other = $this->uiUser('warehouse');
+        $older = $this->item('strict', 100, 'Counted by someone else');
+        $count(Caller::staff($other['id']), [$older], 80);
+        $mine = [];
+        for ($i = 1; $i <= \CW\Counts\CountReviews::PAGE + 1; $i++) {
+            $mine[] = $this->item('strict', 100, sprintf('My count %02d', $i));
+        }
+        $me = $this->uiUser('stock_controller');
+        $count(Caller::staff($me['id']), $mine, 80);
+        $web = $this->signIn($me);
+        $page = $web->get(self::INBOX);
+        self::assertSame(200, $page->status, $page->describe() . ' ' . implode(' | ', self::$log));
+        self::assertSame(['Count differences' => 1], self::kindsShown($page), 'the one they may answer');
+        self::assertSame('Counted by someone else', self::open($page)['title']);
+        self::assertSame(1, self::nav($page)['Approvals']['count'], 'the badge says what the list shows');
+        // The other counter may answer every one of mine: a page of them, and the count of all.
+        $theirs = $this->signIn($other)->get(self::INBOX);
+        self::assertSame(['Count differences' => \CW\Counts\CountReviews::PAGE + 1], self::kindsShown($theirs));
+        self::assertSame(\CW\Counts\CountReviews::PAGE, (new \DOMXPath($theirs->dom()))->query('//a[contains(@class, "ap-row")]')->length);
+        self::assertStringContainsString(Words::say('INBOX', 'more_rows', \CW\Counts\CountReviews::PAGE), $theirs->text());
+    }
+
+    /**
+     * Finding 2 (AV16): the inbox offers what the kind's own route lets the person send. The OK of a document without the check of documents
+     * (documents.approve given alone on Roles and permissions) was listed, refused with 403 when sent, and not counted.
+     */
+    public function testTheOkOfADocumentIsOfferedOnlyToWhoItsRouteLetsIn(): void
+    {
+        $holders = static function (array $roles): void {
+            $roles = array_values(array_intersect(Permissions::ROLES, $roles));
+            self::$db->exec("INSERT INTO role_permission (permission, roles, updated_actor) VALUES ('documents.approve', ?, 'system:test') "
+                . 'ON DUPLICATE KEY UPDATE roles = VALUES(roles)', [implode(',', $roles)]);
+        };
+        $holders(['reviewer', 'goods_in', 'stock_controller']);
+        $poster = $this->uiUser(['stock_controller', 'reviewer']);
+        $docs = new Documents(self::$db, ['ADJ' => new FixtureAdjustmentHandler(self::$db)]);
+        $who = Caller::staff($poster['id']);
+        $d = $docs->createDraft($who, 'ADJ', []);
+        $d = $docs->setLines($who, $d->id, $d->version, [['sku_id' => self::makeSku('Held item'), 'qty' => 25]]);
+        $docs->post($who, $d->id, $d->version);
+        $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_id = ? AND state = 'open' AND kind = 'approval'", [$d->id]);
+        self::assertGreaterThan(0, $task, 'a blocking OK waits');
+
+        $desk = $this->signIn($this->uiUser('goods_in'));
+        self::assertSame(403, $desk->post('/ui/documents/reviews/' . $task . '/approve', ['csrf' => $this->token($desk)])->status, 'its route refuses them');
+        self::assertSame(403, $desk->get(self::INBOX)->status, 'so the inbox does not offer it: they answer no kind');
+        self::assertNotSame(self::INBOX, self::nav($desk->get('/ui/'))['Approvals']['href'] ?? null);
+        $sc = $this->signIn($this->uiUser('stock_controller'));
+        $page = $sc->get(self::INBOX);
+        self::assertSame(200, $page->status);
+        self::assertArrayNotHasKey('Documents to review', self::kindsShown($page));
+        self::assertSame(0, self::nav($page)['Approvals']['count'], 'nor counts it');
+        $rev = $this->signIn($this->uiUser('reviewer'))->get(self::INBOX);
+        self::assertSame(['Documents to review' => 1], self::kindsShown($rev), 'a reviewer does');
+        self::assertSame(1, self::nav($rev)['Approvals']['count']);
+    }
+
+    /** Finding 3 (AV17): an answer to a purchase order's check says what the order's page says ("approved_review" is the order's word). */
+    public function testAnOrdersCheckAnsweredInTheInboxSaysWhatTheOrdersPageSays(): void
+    {
+        $buyer = $this->uiUser('buyer');
+        $sup = new Suppliers(self::$db);
+        $s = $sup->create(Caller::staff($buyer['id']), ['name' => 'Inbox Supplies', 'address_line1' => '2 Mill Lane', 'city' => 'Leeds', 'postcode' => 'M1 1AA',
+            'email' => 'sales@inboxsupplies.example', 'payment_terms' => '30 days', 'dd_checked_on' => gmdate('Y-m-d', time() - 7 * 86400),
+            'dd_checked_by' => (string) $buyer['id'], 'dd_next_review_on' => gmdate('Y-m-d', time() + 365 * 86400)]);
+        $s = $sup->requestActivation(Caller::staff($buyer['id']), (int) $s['id'], (int) $s['version']);
+        $sup->approve(Caller::staff($this->uiUser('reviewer')['id']), (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'supplier' AND state = 'open'"), null);
+        $sku = self::makeSku('Inbox ordered item');
+        (new ItemCards(self::$db))->save(Caller::staff($this->uiUser('stock_controller')['id']), $sku, 0, ['product_type' => 'coil', 'duty_liable' => 'no']);
+        $pos = new PurchaseOrders(self::$db, new Documents(self::$db, DocumentHandlers::all(self::$db)));
+        $d = $pos->createDraft(Caller::staff($buyer['id']), (int) $s['id'], []);
+        $d = $pos->saveDraft(Caller::staff($buyer['id']), $d->id, $d->version, [], [['sku_id' => $sku, 'packs' => 2, 'units_per_pack' => 1, 'pack_price' => '2.00']]);
+        $d = $pos->approve(Caller::staff($buyer['id']), $d->id, $d->version);
+        $task = (int) self::$db->value("SELECT id FROM review_task WHERE subject_type = 'document' AND subject_id = ? AND state = 'open'", [$d->id]);
+        self::assertGreaterThan(0, $task, 'every order waits for a reviewer\'s check');
+        $web = $this->signIn($this->uiUser('reviewer'));
+        [$r] = $this->inbox($web, 'documents-' . $task, '/ui/documents/reviews/' . $task . '/approve', []);
+        self::assertSame(303, $r->status, $r->describe() . ' ' . implode(' | ', self::$log));
+        self::assertStringContainsString(Words::PO_NOTICE['approved_review'], $web->follow($r)->text(), 'the order page\'s own notice');
+        self::assertSame('approved', self::$db->value('SELECT review_state FROM document WHERE id = ?', [$d->id]));
+    }
+
+    /** Finding 4 (AV18): a flag about the time of a count has no counted figure: none is shown (the Differences page shows none either). */
+    public function testAFlagAboutACountsTimeShowsNoCountedFigure(): void
+    {
+        $a = $this->item('strict', 100, 'Alpha pod 2ml');
+        self::$db->exec("INSERT INTO count_review (warehouse_id, sku_id, source, ref, detail) VALUES (?, ?, 'ship_near_count', ?, ?)", [self::warehouseId('MAIN'), $a,
+            '1:ORD-77:u9', json_encode(['unit_id' => 'u9', 'dispatched_at' => \CW\Clock::db(\CW\Clock::now()->modify('-2 minutes')),
+                'counted_at' => \CW\Clock::db(\CW\Clock::now()), 'applied' => 'normal'])]);
+        $page = $this->signIn($this->uiUser('stock_controller'))->get(self::INBOX);
+        self::assertSame(['Count differences' => 1], self::kindsShown($page));
+        $labels = array_map(static fn (\DOMNode $n): string => trim((string) $n->textContent), iterator_to_array((new \DOMXPath($page->dom()))->query('//dl[@class="ap-facts"]//dt')));
+        self::assertNotContains(Words::COUNTS['counted'], $labels, 'no "Counted 0"');
+        self::assertStringContainsString('ORD-77', $page->text(), 'why it waits: the order it names');
     }
 }

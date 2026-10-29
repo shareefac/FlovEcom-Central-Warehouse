@@ -85,20 +85,26 @@ final class CountReviews
      *           posted_by, put_back (the line was already put back), counted_again, canReject, order (the order a flag about a count's
      *           time names), detail (the engine's own: what it overwrote, which parcels), created_at
      *
+     * $mayClear (a staff id): only the rows that person may clear (refusal()'s second-person rule, in SQL: mayClear()), so that a page is a
+     * page of rows they may answer (Approvals › Waiting for you; docs/decisions.md AV15); null: every open row, each with its refusal on the
+     * page (Differences).
+     *
      * @param array{warehouse?: ?int} $f
      * @return array{lines: list<array<string, mixed>>, engine: list<array<string, mixed>>, more: bool}
      */
-    public function open(array $f = [], int $size = self::PAGE): array
+    public function open(array $f = [], int $size = self::PAGE, ?int $mayClear = null): array
     {
         $wh = $f['warehouse'] ?? null;
+        [$lineMay, $lineParams] = $mayClear === null ? ['', []] : $this->mayClear($mayClear, false);
+        [$engineMay, $engineParams] = $mayClear === null ? ['', []] : $this->mayClear($mayClear, true);
         $lines = [];
         foreach ($this->db->all(
             'SELECT l.document_id, l.line_no, d.number, d.warehouse_id, w.name AS warehouse, l.sku_id, s.code, s.name, l.system_qty, l.counted_qty, l.booked_delta, l.counted_at, '
             . 'l.counted_by, cu.display_name AS counted_by_name, d.created_by, d.posted_by, d.posted_at, l.review_units, l.review_percent '
             . 'FROM count_sheet_line l FORCE INDEX (ix_count_sheet_line_review) JOIN document d ON d.id = l.document_id JOIN sku s ON s.id = l.sku_id '
             . 'LEFT JOIN warehouse w ON w.id = d.warehouse_id LEFT JOIN staff_user cu ON cu.id = l.counted_by '
-            . "WHERE l.review = 'open'" . ($wh === null ? '' : ' AND d.warehouse_id = ?') . ' ORDER BY l.document_id DESC, l.line_no DESC LIMIT ' . ($size + 1),
-            $wh === null ? [] : [(int) $wh],
+            . "WHERE l.review = 'open'" . ($wh === null ? '' : ' AND d.warehouse_id = ?') . $lineMay . ' ORDER BY l.document_id DESC, l.line_no DESC LIMIT ' . ($size + 1),
+            [...($wh === null ? [] : [(int) $wh]), ...$lineParams],
         ) as $r) {
             // Counted again since (review C-1): the newer count set the figure, so this one is for accepting only.
             $again = CountSheetHandler::countedAgain($this->db, (int) $r['document_id'], (int) $r['warehouse_id'], (int) $r['sku_id']);
@@ -112,8 +118,8 @@ final class CountReviews
                 . 'd.id AS document_id, d.created_by, d.posted_by, l.line_no, l.booked_delta, l.counted_by, l.reversal_document_id '
                 . 'FROM count_review r FORCE INDEX (ix_count_review_open) JOIN sku s ON s.id = r.sku_id JOIN warehouse w ON w.id = r.warehouse_id '
                 . "LEFT JOIN document d ON d.number = r.ref AND d.doc_type = 'CNT' LEFT JOIN count_sheet_line l ON l.document_id = d.id AND l.sku_id = r.sku_id "
-                . "WHERE r.status = 'open' AND r.source = ?" . ($wh === null ? '' : ' AND r.warehouse_id = ?') . ' ORDER BY r.id DESC LIMIT ' . ($size + 1),
-                $wh === null ? [$source] : [$source, (int) $wh],
+                . "WHERE r.status = 'open' AND r.source = ?" . ($wh === null ? '' : ' AND r.warehouse_id = ?') . $engineMay . ' ORDER BY r.id DESC LIMIT ' . ($size + 1),
+                [$source, ...($wh === null ? [] : [(int) $wh]), ...$engineParams],
             ) as $r) {
                 $row = self::engineRow($r);
                 $again = $row['document_id'] !== null && CountSheetHandler::countedAgain($this->db, (int) $row['document_id'], (int) $r['warehouse_id'], $row['sku_id']);
@@ -127,7 +133,8 @@ final class CountReviews
 
     /**
      * How many open rows this person may clear (the tab's badge: only what they can act on): none without the job; with the
-     * second-person rule on, not the differences of their own counts that need someone else.
+     * second-person rule on, not the differences of their own counts that need someone else, neither a line's nor a review the count engine
+     * opened about one (the same rows as open() with $mayClear: docs/decisions.md AV15).
      *
      * @param list<string> $roles
      */
@@ -136,24 +143,34 @@ final class CountReviews
         if (!Documents::mayPost($roles, CountSheets::TYPE)) {
             return 0;
         }
-        $rule = $this->rule();
-        $own = '(l.counted_by <=> ? OR d.created_by <=> ? OR d.posted_by <=> ?)';
-        $second = match ($rule['review_rule']) {
-            'all' => " AND NOT {$own}",
-            'over_limit' => " AND NOT (ABS(l.booked_delta) > ? AND {$own})",
-            default => '',
-        };
-        $params = match ($rule['review_rule']) {
-            'all' => [$staffId, $staffId, $staffId],
-            'over_limit' => [(int) $rule['review_limit_units'], $staffId, $staffId, $staffId],
-            default => [],
-        };
+        [$second, $params] = $this->mayClear($staffId, false);
         $n = (int) $this->db->value("SELECT COUNT(*) FROM count_sheet_line l FORCE INDEX (ix_count_sheet_line_review) JOIN document d ON d.id = l.document_id "
             . "WHERE l.review = 'open'" . $second, $params);
+        [$second, $params] = $this->mayClear($staffId, true);
         foreach (self::LISTED_SOURCES as $source) {
-            $n += (int) $this->db->value("SELECT COUNT(*) FROM count_review r FORCE INDEX (ix_count_review_open) WHERE r.status = 'open' AND r.source = ?", [$source]);
+            $n += (int) $this->db->value("SELECT COUNT(*) FROM count_review r FORCE INDEX (ix_count_review_open) LEFT JOIN document d ON d.number = r.ref AND d.doc_type = 'CNT' "
+                . "LEFT JOIN count_sheet_line l ON l.document_id = d.id AND l.sku_id = r.sku_id WHERE r.status = 'open' AND r.source = ?" . $second, [$source, ...$params]);
         }
         return $n;
+    }
+
+    /**
+     * refusal()'s second-person rule as SQL: the condition that keeps the rows $staffId may clear, on a sheet line `l` of its sheet `d`; for
+     * a review the count engine opened (`r`, $engine) only one about a line of a sheet is anybody's own (a flag about a count's time is
+     * about none). '' when the rule asks no second person. The badge (openCount) and a person's page of rows (open) share it.
+     *
+     * @return array{0: string, 1: list<mixed>}
+     */
+    private function mayClear(int $staffId, bool $engine): array
+    {
+        $rule = $this->rule();
+        $own = '(l.counted_by <=> ? OR d.created_by <=> ? OR d.posted_by <=> ?)';
+        $about = $engine ? "r.source IN ('" . implode("', '", self::ENGINE_SOURCES) . "') AND l.line_no IS NOT NULL AND l.booked_delta IS NOT NULL AND " : '';
+        return match ($rule['review_rule']) {
+            'all' => [" AND NOT ({$about}{$own})", [$staffId, $staffId, $staffId]],
+            'over_limit' => [" AND NOT ({$about}ABS(COALESCE(l.booked_delta, 0)) > ? AND {$own})", [(int) $rule['review_limit_units'], $staffId, $staffId, $staffId]],
+            default => ['', []],
+        };
     }
 
     /**
